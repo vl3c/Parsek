@@ -1,0 +1,275 @@
+{
+ "batch_id": "recording-tree-001",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 64,
+ "files": [
+  {
+   "file": "RecordingOptimizerTests.cs",
+   "ranges": [
+    {
+     "start": 175,
+     "end": 1064,
+     "methods": [
+      {
+       "method": "CanAutoMerge_SamePhase_DefaultSettings_ReturnsTrue",
+       "line": 175
+      },
+      {
+       "method": "CanAutoMerge_DifferentPhase_ReturnsFalse",
+       "line": 183
+      },
+      {
+       "method": "CanAutoMerge_ContinuousEvaAtmoToSurface_ReturnsTrue",
+       "line": 191
+      },
+      {
+       "method": "CanAutoMerge_GappedEvaAtmoToSurface_ReturnsFalse",
+       "line": 206
+      },
+      {
+       "method": "CanAutoMerge_NonEvaAtmoToSurface_ReturnsFalse",
+       "line": 219
+      },
+      {
+       "method": "CanAutoMerge_EvaAtmoToSurface_UnknownBody_ReturnsFalse",
+       "line": 228
+      },
+      {
+       "method": "CanAutoMerge_DifferentBody_ReturnsFalse",
+       "line": 242
+      },
+      {
+       "method": "CanAutoMerge_LoopEnabled_ReturnsFalse",
+       "line": 250
+      },
+      {
+       "method": "CanAutoMerge_PlaybackDisabled_ReturnsFalse",
+       "line": 259
+      },
+      {
+       "method": "CanAutoMerge_Hidden_ReturnsFalse",
+       "line": 268
+      },
+      {
+       "method": "CanAutoMerge_CustomLoopInterval_ReturnsFalse",
+       "line": 277
+      },
+      {
+       "method": "CanAutoMerge_UntouchedRecordingFieldInit_StaysInLockstepWithSentinel",
+       "line": 286
+      },
+      {
+       "method": "CanAutoMerge_TwoUntouchedRecordings_ReturnsTrue",
+       "line": 299
+      },
+      {
+       "method": "CanAutoMerge_AnchorSet_ReturnsFalse",
+       "line": 311
+      },
+      {
+       "method": "CanAutoMerge_LoopStartUTSet_ReturnsFalse",
+       "line": 320
+      },
+      {
+       "method": "CanAutoMerge_LoopEndUTSet_ReturnsFalse",
+       "line": 329
+      },
+      {
+       "method": "CanAutoMerge_DifferentGroups_ReturnsFalse",
+       "line": 338
+      },
+      {
+       "method": "CanAutoMerge_SameGroups_ReturnsTrue",
+       "line": 347
+      },
+      {
+       "method": "CanAutoMerge_BranchPointBetween_ReturnsFalse",
+       "line": 357
+      },
+      {
+       "method": "CanAutoMerge_HasGhostingTriggerEvents_ReturnsFalse",
+       "line": 366
+      },
+      {
+       "method": "CanAutoMerge_DifferentChain_ReturnsFalse",
+       "line": 375
+      },
+      {
+       "method": "CanAutoMerge_NonConsecutiveIndex_ReturnsFalse",
+       "line": 383
+      },
+      {
+       "method": "CanAutoMerge_NonZeroBranch_ReturnsFalse",
+       "line": 391
+      },
+      {
+       "method": "CanAutoMerge_NullInputs_ReturnsFalse",
+       "line": 400
+      },
+      {
+       "method": "CanAutoMerge_WindowlessRunManifests_StillMerges",
+       "line": 450
+      },
+      {
+       "method": "CanAutoMerge_RefusesWhenHarvestDataPresent",
+       "line": 463
+      },
+      {
+       "method": "CanAutoMerge_HarvestRefusal_LogsCounts",
+       "line": 477
+      },
+      {
+       "method": "MergeInto_ComposesRunManifests_OnScopeMatch",
+       "line": 495
+      },
+      {
+       "method": "MergeInto_VoidsRunManifest_OnScopeMismatch",
+       "line": 516
+      },
+      {
+       "method": "MergeInto_VoidsRunManifest_OneSided",
+       "line": 536
+      },
+      {
+       "method": "ComposeRunManifestsForMerge_BothNull_Null",
+       "line": 549
+      },
+      {
+       "method": "ComposeRunManifestsForMerge_StartOnlySecond_ComposedStaysIncomplete",
+       "line": 555
+      },
+      {
+       "method": "PartPidScopesMatch_OrderInsensitive_EmptyNeverMatches",
+       "line": 573
+      },
+      {
+       "method": "Split_NullsRunManifestAndHarvestWindows_BothHalves",
+       "line": 588
+      },
+      {
+       "method": "Split_NoHarvestData_NoVoidLog",
+       "line": 610
+      },
+      {
+       "method": "SplitAtSection_CarriesMergeStateToTheTerminalCarryingHalf",
+       "line": 630
+      },
+      {
+       "method": "SplitAtSection_ImmutableOriginalStaysImmutableOnBothHalves",
+       "line": 656
+      },
+      {
+       "method": "CanAutoMerge_BothNonSuperseded_AllowsAsBefore",
+       "line": 685
+      },
+      {
+       "method": "CanAutoMerge_RejectsHeadAndTipAfterSplit",
+       "line": 701
+      },
+      {
+       "method": "CanAutoMerge_RejectsWhenAIsSuperseded",
+       "line": 725
+      },
+      {
+       "method": "CanAutoMerge_NoScenario_AllowsAsBefore",
+       "line": 740
+      },
+      {
+       "method": "CanAutoSplit_NoGhostingTriggers_ReturnsTrue",
+       "line": 762
+      },
+      {
+       "method": "CanAutoSplit_HasGhostingTriggers_ReturnsFalse",
+       "line": 770
+      },
+      {
+       "method": "CanAutoSplit_HalfTooShort_ReturnsFalse",
+       "line": 779
+      },
+      {
+       "method": "CanAutoSplit_SingleSection_ReturnsFalse",
+       "line": 788
+      },
+      {
+       "method": "CanAutoSplit_IndexOutOfRange_ReturnsFalse",
+       "line": 803
+      },
+      {
+       "method": "CanAutoSplit_NullRecording_ReturnsFalse",
+       "line": 812
+      },
+      {
+       "method": "FindMergeCandidates_ThreeExoSegments_ReturnsTwoPairs",
+       "line": 822
+      },
+      {
+       "method": "FindMergeCandidates_MixedPhases_OnlyMatchingPairs",
+       "line": 838
+      },
+      {
+       "method": "FindMergeCandidates_EmptyList_ReturnsEmpty",
+       "line": 853
+      },
+      {
+       "method": "FindMergeCandidates_NoChain_ReturnsEmpty",
+       "line": 859
+      },
+      {
+       "method": "FindSplitCandidates_CoarseEnvironmentChange_ReturnsSplit",
+       "line": 874
+      },
+      {
+       "method": "FindSplitCandidates_ExoToExo_ReturnsEmpty",
+       "line": 887
+      },
+      {
+       "method": "FindSplitCandidates_SameEnvironment_ReturnsEmpty",
+       "line": 898
+      },
+      {
+       "method": "FindSplitCandidates_SurfaceMobileToStationary_ReturnsEmpty",
+       "line": 908
+      },
+      {
+       "method": "FindSplitCandidates_ExoToSurface_ReturnsSplit",
+       "line": 919
+      },
+      {
+       "method": "FindSplitCandidates_SkipsContinuousEvaAtmosphereSurfaceBoundary",
+       "line": 930
+      },
+      {
+       "method": "MergeInto_ConcatenatesPoints",
+       "line": 946
+      },
+      {
+       "method": "MergeInto_MergesPartEvents_Sorted",
+       "line": 957
+      },
+      {
+       "method": "MergeInto_InheritsVesselSnapshot_WhenAbsorbedIsChainTip",
+       "line": 969
+      },
+      {
+       "method": "MergeInto_KeepsNullSnapshot_WhenAbsorbedIsMidChain",
+       "line": 980
+      },
+      {
+       "method": "MergeInto_InheritsTerminalState",
+       "line": 991
+      },
+      {
+       "method": "MergeInto_TakesTheMoreOpenMergeState_WhenAbsorbedCarriesTheTerminal",
+       "line": 1003
+      },
+      {
+       "method": "MergeInto_KeepsOpenTarget_WhenAbsorbedTerminalIsSealed",
+       "line": 1024
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

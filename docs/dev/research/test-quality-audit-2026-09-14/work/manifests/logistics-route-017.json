@@ -1,0 +1,258 @@
+{
+ "batch_id": "logistics-route-017",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "Logistics/ClawProducerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyCore_TruthTable",
+       "line": 60
+      },
+      {
+       "method": "IsUnsupportedConnectionKind_TruthTable",
+       "line": 79
+      },
+      {
+       "method": "AnalyzeRecording_GrappleWindowWithTransfer_Eligible",
+       "line": 88
+      },
+      {
+       "method": "AnalyzeRecording_UnknownKind_RejectsUnsupportedConnectionKind",
+       "line": 101
+      },
+      {
+       "method": "AnalyzeRecording_StockCrossfeedKind_RejectsUnsupportedConnectionKind",
+       "line": 115
+      },
+      {
+       "method": "AnalyzeRecording_EmptyGrapplePlusDockDelivery_EligibleOneStop",
+       "line": 131
+      },
+      {
+       "method": "AnalyzeRecording_OnlyEmptyGrappleWindows_RejectsNoDelivery",
+       "line": 153
+      },
+      {
+       "method": "AnalyzeRecording_EmptyDockWindow_StillRejectsNoDelivery",
+       "line": 171
+      },
+      {
+       "method": "AnalyzeRecording_GrapplePickupWindow_EligibleAsLoad",
+       "line": 186
+      },
+      {
+       "method": "AnalyzeTree_MidRunGrabThenDockDelivery_Eligible",
+       "line": 215
+      },
+      {
+       "method": "BuildMergeBranchData_StampsGrappleKind",
+       "line": 274
+      },
+      {
+       "method": "BuildMergeBranchData_NoneKindKeepsDockingPortDefault",
+       "line": 287
+      },
+      {
+       "method": "BuildMergeBranchData_UnknownKindStampedTruthfully",
+       "line": 301
+      },
+      {
+       "method": "BuildMergeBranchData_BoardBranchKindNone",
+       "line": 315
+      },
+      {
+       "method": "RouteProofCodec_WindowKindRoundTrips",
+       "line": 334
+      },
+      {
+       "method": "Hash_GrappleWindow_DiffersFromDockWindow",
+       "line": 366
+      },
+      {
+       "method": "Hash_GrappleWindow_ByteStable",
+       "line": 379
+      },
+      {
+       "method": "TryExtractPartName_AsteroidSnapshotNames",
+       "line": 401
+      },
+      {
+       "method": "FormatRejectMessage_UnsupportedConnectionKind_NamesKind",
+       "line": 411
+      },
+      {
+       "method": "FormatRejectMessage_UnsupportedConnectionKind_NoDetail",
+       "line": 422
+      },
+      {
+       "method": "AnalyzeRecording_ProoflessEmptyGrapplePlusDelivery_Eligible",
+       "line": 436
+      },
+      {
+       "method": "AnalyzeRecording_ProoflessEmptyDockWindow_StillRejectsEndpointProof",
+       "line": 457
+      },
+      {
+       "method": "AnalyzeRecording_EmptyGrappleWithInventoryGain_RejectsMixedPickup",
+       "line": 475
+      },
+      {
+       "method": "AnalyzeRecording_GrappleUnmatchedGain_LegacyTree_RejectsUntrackedGain",
+       "line": 505
+      },
+      {
+       "method": "AnalyzeTree_GrappleDrillGain_EngagedManifests_Eligible",
+       "line": 528
+      },
+      {
+       "method": "TryFindUnmatchedTransportResourceGain_Cases",
+       "line": 634
+      },
+      {
+       "method": "TryFindUnmatchedTransportResourceGain_IgnoresElectricCharge",
+       "line": 654
+      },
+      {
+       "method": "SuppressRouteWindowForEvaGrab_EvaGrab_SuppressesAndLogs",
+       "line": 682
+      },
+      {
+       "method": "SuppressRouteWindowForEvaGrab_NonEva_PassesThroughSilently",
+       "line": 694
+      },
+      {
+       "method": "SuppressRouteWindowForEvaGrab_NoTarget_NoLog",
+       "line": 705
+      },
+      {
+       "method": "ConnectionKindSuffix_GrappleOnly",
+       "line": 716
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteRewindStatusFidelityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Derive_NoRowsOrForeignRows_NoMarker",
+       "line": 117
+      },
+      {
+       "method": "Derive_LatestMarkerByUTWins",
+       "line": 133
+      },
+      {
+       "method": "Derive_SameUT_HigherSequenceWins",
+       "line": 153
+      },
+      {
+       "method": "Derive_IgnoresNonMarkerRouteRows",
+       "line": 172
+      },
+      {
+       "method": "Derive_ResumeWithoutAnyKeptPausedRow_DowngradesToNoMarker",
+       "line": 192
+      },
+      {
+       "method": "Derive_AutoLifecycleRows_AreIgnored",
+       "line": 227
+      },
+      {
+       "method": "Derive_NullOrEmptyReason_TreatedAsPlayerIntent",
+       "line": 274
+      },
+      {
+       "method": "ApplyDerived_Paused_FlipsGhostDrivingAndWaitStatuses",
+       "line": 298
+      },
+      {
+       "method": "ApplyDerived_Paused_NeverTouchesInTransit",
+       "line": 324
+      },
+      {
+       "method": "ApplyDerived_ValidityStatuses_WriteDerivedVerdictToPreMissingBaseline",
+       "line": 340
+      },
+      {
+       "method": "ApplyDerived_Active_OnlyUnpausesAPausedRoute",
+       "line": 375
+      },
+      {
+       "method": "ApplyDerived_NoMarker_LeavesStatusAlone",
+       "line": 398
+      },
+      {
+       "method": "ClearArmedOneShotFlags_ClearsBothAndReportsChange",
+       "line": 411
+      },
+      {
+       "method": "TryParseCycleOrdinal_ParsesNumericSuffixAfterLastDash",
+       "line": 446
+      },
+      {
+       "method": "Reconstruct_NoKeptDispatchRows_ResetsBothToZero",
+       "line": 460
+      },
+      {
+       "method": "Reconstruct_DispatchedAndDelivered_CompletedPlusSkippedCoversMaxOrdinal",
+       "line": 481
+      },
+      {
+       "method": "Reconstruct_MultiWindowDeliveredRows_CountDistinctCycleIds",
+       "line": 505
+      },
+      {
+       "method": "Reconstruct_UnparseableDispatchIds_IgnoredForMaxOrdinal",
+       "line": 524
+      },
+      {
+       "method": "Reconstruct_DeliveredExceedingDispatchOrdinals_SkippedClampsAtZero",
+       "line": 542
+      },
+      {
+       "method": "Reconstruct_AlreadyCorrect_ReportsNoChange",
+       "line": 560
+      },
+      {
+       "method": "Reconstruct_KeptInFlightCycle_SumLandsOnInFlightOrdinal",
+       "line": 584
+      },
+      {
+       "method": "Reconstruct_KeptInFlightCycle_NoDeliveredWindowYet",
+       "line": 612
+      },
+      {
+       "method": "BundleRestore_MultiStopStraddle_KeptDeliveredRowDedupsWindowZero",
+       "line": 676
+      },
+      {
+       "method": "BundleRestore_WithCutoff_DerivesStatusClearsFlagsRebuildsCounters",
+       "line": 742
+      },
+      {
+       "method": "BundleRestore_NoMarkerRoute_KeepsStatus",
+       "line": 791
+      },
+      {
+       "method": "BundleRestore_RouteBlindOverload_LeavesStatusAndFlagsAlone",
+       "line": 807
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

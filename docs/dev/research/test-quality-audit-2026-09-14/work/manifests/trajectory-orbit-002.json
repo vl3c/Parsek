@@ -1,0 +1,267 @@
+{
+ "batch_id": "trajectory-orbit-002",
+ "cluster": "trajectory-orbit",
+ "tier": "A1",
+ "expected_methods": 62,
+ "files": [
+  {
+   "file": "DescentTriggerTests.cs",
+   "ranges": [
+    {
+     "start": 1132,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Resolver_DescentMember_ReArmsAtCycle1",
+       "line": 1132
+      },
+      {
+       "method": "TransferDeorbitHeadForMember_TransferMember_LoiterOnly",
+       "line": 1147
+      },
+      {
+       "method": "TransferDeorbitHeadForMember_DescentMemberAndTriggerOff_ReturnFalse",
+       "line": 1171
+      },
+      {
+       "method": "TransferDeorbitHeadForMember_OwnerAndRideAlong_ReturnFalse",
+       "line": 1191
+      },
+      {
+       "method": "TransferMemberDescentContinuation_DescentAndDone_True_RetiresTheGhost",
+       "line": 1215
+      },
+      {
+       "method": "TransferMemberDescentContinuation_InertAndLoiter_False_PreservesLoiterConic",
+       "line": 1229
+      },
+      {
+       "method": "TransferMemberDescentContinuation_DescentSetMember_AlwaysFalse",
+       "line": 1244
+      },
+      {
+       "method": "TransferMemberDescentContinuation_OwnerMember_AlwaysFalse",
+       "line": 1255
+      },
+      {
+       "method": "TransferMemberDescentContinuation_RideAlongUnshiftedMember_NeverRetired",
+       "line": 1273
+      },
+      {
+       "method": "TransferMemberDescentContinuation_TriggerOff_AlwaysFalse_ByteIdentical",
+       "line": 1292
+      },
+      {
+       "method": "TransferMemberDescentContinuation_SetWrapper_NullAndNonMember_False",
+       "line": 1301
+      },
+      {
+       "method": "DescentUnitRenderPhase_TransferMember_AllFourPhases",
+       "line": 1321
+      },
+      {
+       "method": "DescentUnitRenderPhase_IsMemberAgnostic",
+       "line": 1339
+      },
+      {
+       "method": "DescentUnitRenderPhase_TriggerOffNullNonMember_FalseInert",
+       "line": 1351
+      },
+      {
+       "method": "ActiveDescentCarrierMember_OnlyTheInWindowDescentMemberInDescentPhase",
+       "line": 1372
+      },
+      {
+       "method": "ResolveFlightDescentIconCarrier_PicksTheSingleInWindowMember",
+       "line": 1392
+      },
+      {
+       "method": "ResolveFlightDescentIconCarrier_SharedWindow_PicksHighestIndex_NoDoubleIcon",
+       "line": 1409
+      },
+      {
+       "method": "TransferDeorbitIconHead_LateLoiter_RidesDeorbitHeadBelowSeam",
+       "line": 1439
+      },
+      {
+       "method": "TransferDeorbitIconHead_NonLoiterNonTransferOff_False",
+       "line": 1457
+      },
+      {
+       "method": "TransferDeorbitIconHead_OwnerAndRideAlong_False",
+       "line": 1478
+      },
+      {
+       "method": "TransferDeorbitIconHead_EngagesAtFirstDeorbitLegStart_NotLoiterPeriod",
+       "line": 1500
+      },
+      {
+       "method": "TransferDeorbitIconHead_AtEngage_IconSitsExactlyAtLegStart",
+       "line": 1530
+      },
+      {
+       "method": "TransferDeorbitIconHead_NaNLegStart_FallsBackToLoiterPeriodBound",
+       "line": 1553
+      },
+      {
+       "method": "EngineRender_DescentMember_RendersOnlyItsOwnSlice",
+       "line": 1580
+      },
+      {
+       "method": "EngineRender_DescentMember_HiddenInInertLoiterDone",
+       "line": 1601
+      },
+      {
+       "method": "EngineRender_MatchesResolver_HeadAndRenderFlag",
+       "line": 1625
+      },
+      {
+       "method": "EngineRender_ReArmsAtCycle1",
+       "line": 1648
+      },
+      {
+       "method": "TeardownRole_DescentMember_TagsWithIndex",
+       "line": 1663
+      },
+      {
+       "method": "TeardownRole_NonDescentAndNonMember_AreEmpty",
+       "line": 1673
+      },
+      {
+       "method": "Timing_MatchesTheHeadDispatchEntryAndTrigger",
+       "line": 1690
+      },
+      {
+       "method": "Lifecycle_LoiterThenDescent_EmitsWindowThenRendered_OncEach",
+       "line": 1703
+      },
+      {
+       "method": "Lifecycle_LoiterThenDone_NoDescent_EmitsSkippedOnce",
+       "line": 1720
+      },
+      {
+       "method": "Lifecycle_NewCycle_ReArms",
+       "line": 1731
+      },
+      {
+       "method": "Lifecycle_Inert_EmitsNothing",
+       "line": 1744
+      },
+      {
+       "method": "Lifecycle_RenderedThenLoiter_EmitsRevertedOnce",
+       "line": 1759
+      },
+      {
+       "method": "Lifecycle_RenderedThenInert_EmitsReverted",
+       "line": 1776
+      },
+      {
+       "method": "Lifecycle_CleanDescentToDone_DoesNotEmitReverted",
+       "line": 1787
+      },
+      {
+       "method": "Lifecycle_LoiterBeforeRender_DoesNotEmitReverted",
+       "line": 1798
+      },
+      {
+       "method": "LoiterGap_TransferMemberPastParkingConicEnd_True",
+       "line": 1818
+      },
+      {
+       "method": "LoiterGap_BeforeOrAtParkingConicEnd_False",
+       "line": 1834
+      },
+      {
+       "method": "LoiterGap_InOldLeakWindow_NowTrue",
+       "line": 1849
+      },
+      {
+       "method": "LoiterGap_ParkingConicEndIsShifted_DescentRunEndPlusCaptureShift",
+       "line": 1871
+      },
+      {
+       "method": "LoiterGap_TransferMemberInShiftedFrame_FiresAtShiftedParkingEnd",
+       "line": 1887
+      },
+      {
+       "method": "LoiterGap_RideAlongUnshiftedMember_NeverFires",
+       "line": 1899
+      },
+      {
+       "method": "LoiterGap_DescentMember_False",
+       "line": 1911
+      },
+      {
+       "method": "LoiterGap_NonMemberIndex_False",
+       "line": 1923
+      },
+      {
+       "method": "LoiterGap_NonDescentTriggerUnit_False",
+       "line": 1932
+      },
+      {
+       "method": "LoiterGap_NaNParkingConicEnd_False",
+       "line": 1945
+      },
+      {
+       "method": "LoiterGap_NaNLoopUT_False",
+       "line": 1954
+      },
+      {
+       "method": "LoiterGap_NullSet_False",
+       "line": 1962
+      },
+      {
+       "method": "LoiterGap_LoopUnitOverload_MatchesSetOverload",
+       "line": 1972
+      },
+      {
+       "method": "HoldTrigger_TransferMember_ResolvesLiveTrigger",
+       "line": 1985
+      },
+      {
+       "method": "HoldTrigger_OwnerAndRideAlong_False",
+       "line": 1999
+      },
+      {
+       "method": "HoldTrigger_DescentMember_False",
+       "line": 2012
+      },
+      {
+       "method": "HoldTrigger_NonDescentTriggerUnit_False",
+       "line": 2022
+      },
+      {
+       "method": "HoldTrigger_NullSetOrNonMember_False",
+       "line": 2032
+      },
+      {
+       "method": "HoldLine_PastEndOnly_WithHold_AndFiniteEllipse_True",
+       "line": 2046
+      },
+      {
+       "method": "HoldLine_NoHold_False",
+       "line": 2055
+      },
+      {
+       "method": "HoldLine_NotFiniteEllipse_False",
+       "line": 2064
+      },
+      {
+       "method": "HoldLine_BelowAtmosphere_AlwaysRetires",
+       "line": 2073
+      },
+      {
+       "method": "HoldLine_BeforeStart_AlwaysRetires",
+       "line": 2082
+      },
+      {
+       "method": "EngineAndMapResolver_ConsumeSameLoopUnitSet_AgreeOnHasDescentTrigger",
+       "line": 2167
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

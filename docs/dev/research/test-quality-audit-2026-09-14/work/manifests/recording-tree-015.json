@@ -1,0 +1,235 @@
+{
+ "batch_id": "recording-tree-015",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "RecordingsTableUITests.cs",
+   "ranges": [
+    {
+     "start": 1154,
+     "end": 1841,
+     "methods": [
+      {
+       "method": "FindGroupMainRecordingIndex_SingleNonDebris_ReturnsThatIndex",
+       "line": 1154
+      },
+      {
+       "method": "FindGroupMainRecordingIndex_AllDebris_ReturnsNegativeOne",
+       "line": 1162
+      },
+      {
+       "method": "FindGroupMainRecordingIndex_MixedTypes_ReturnsEarliestNonDebris",
+       "line": 1172
+      },
+      {
+       "method": "FindGroupMainRecordingIndex_OutOfRangeIndex_Skipped",
+       "line": 1183
+      },
+      {
+       "method": "FindAggregateForwardRecordingIndex_ListMembers_ReturnsFutureMain",
+       "line": 1192
+      },
+      {
+       "method": "FindAggregateForwardRecordingIndex_ListMembers_PastMainReturnsNegativeOne",
+       "line": 1205
+      },
+      {
+       "method": "FindAggregateTemporalIndices_MainPastFallsBackToRewindOwner",
+       "line": 1218
+      },
+      {
+       "method": "ShouldShowGroupLegacyRewindButton_DirectOwner_ReturnsTrue",
+       "line": 1236
+      },
+      {
+       "method": "ShouldShowGroupLegacyRewindButton_TreeBranchNonOwner_ReturnsFalse",
+       "line": 1247
+      },
+      {
+       "method": "FindGroupLegacyRewindRecordingIndex_SkipsMainWithoutRewindAndReturnsEligibleDescendant",
+       "line": 1271
+      },
+      {
+       "method": "FindGroupLegacyRewindRecordingIndex_WhenMainIsEligible_ReturnsMain",
+       "line": 1285
+      },
+      {
+       "method": "FindGroupLegacyRewindRecordingIndex_AllDebrisGroupStillMirrorsRowLevelGate",
+       "line": 1300
+      },
+      {
+       "method": "FindGroupLegacyRewindRecordingIndex_UnfinishedFlightOwnerStillSurfacesLaunchRewind",
+       "line": 1314
+      },
+      {
+       "method": "FindGroupLegacyRewindRecordingIndex_FutureRewindOwner_ReturnsNegativeOne",
+       "line": 1348
+      },
+      {
+       "method": "GetGroupStatus_EmptyDescendants_ReturnsDash",
+       "line": 1363
+      },
+      {
+       "method": "GetGroupStatus_AllFuture_ReturnsFutureOrder",
+       "line": 1372
+      },
+      {
+       "method": "GetGroupStatus_ActivePresent_ReturnsActiveOrder",
+       "line": 1385
+      },
+      {
+       "method": "GetGroupStatus_AllPast_ReturnsPast",
+       "line": 1398
+      },
+      {
+       "method": "GetGroupSortKey_EmptyDescendants_ReturnsMaxValue",
+       "line": 1414
+      },
+      {
+       "method": "GetGroupSortKey_LaunchTime_DelegatesToEarliestStartUT",
+       "line": 1422
+      },
+      {
+       "method": "GetGroupSortKey_Duration_DelegatesToTotalDuration",
+       "line": 1435
+      },
+      {
+       "method": "GetGroupSortKey_Status_DelegatesToGetGroupStatus",
+       "line": 1448
+      },
+      {
+       "method": "GetGroupSortKey_Name_ReturnsZero",
+       "line": 1460
+      },
+      {
+       "method": "GetGroupSortKey_Phase_ReturnsZero",
+       "line": 1469
+      },
+      {
+       "method": "GetGroupSortKey_Index_ReturnsNegativeOne",
+       "line": 1478
+      },
+      {
+       "method": "UnitSuffix_ReturnsCorrectSuffix",
+       "line": 1493
+      },
+      {
+       "method": "CycleRecordingUnit_FullCycle",
+       "line": 1501
+      },
+      {
+       "method": "ComputeDisplayedLoopPeriod_StoredAboveFloor_NotClamped",
+       "line": 1518
+      },
+      {
+       "method": "ComputeDisplayedLoopPeriod_StoredBelowFloor_ClampedAndFlagged",
+       "line": 1529
+      },
+      {
+       "method": "ComputeDisplayedLoopPeriod_ZeroDuration_ReturnsStored_NotClamped",
+       "line": 1540
+      },
+      {
+       "method": "FormatLoopPeriodDisplayText_ClampedSeconds_ShowsFractionalCadence",
+       "line": 1551
+      },
+      {
+       "method": "FormatLoopPeriodDisplayText_ClampedSeconds_NearIntegerPreservesPrecision",
+       "line": 1560
+      },
+      {
+       "method": "FormatLoopPeriodDisplayText_ClampedMinutes_UsesExtraPrecision",
+       "line": 1569
+      },
+      {
+       "method": "FormatLoopPeriodDisplayText_ClampedHours_UsesExtraPrecision",
+       "line": 1578
+      },
+      {
+       "method": "FormatLoopPeriodEditStartText_UsesStoredRawValue",
+       "line": 1587
+      },
+      {
+       "method": "FormatLoopPeriodEditStartText_Minutes_RoundTripsStoredRawValue",
+       "line": 1596
+      },
+      {
+       "method": "FormatLoopPeriodEditStartText_Hours_RoundTripsStoredRawValue",
+       "line": 1606
+      },
+      {
+       "method": "FormatLoopPeriodEditStartText_InvalidMinutes_FallsBackToExactMinCycle",
+       "line": 1616
+      },
+      {
+       "method": "BuildLoopPeriodClampTooltip_ContainsKeyNumbers",
+       "line": 1626
+      },
+      {
+       "method": "BuildLoopPeriodClampTooltip_MinCycleOnly_DoesNotMentionCap",
+       "line": 1639
+      },
+      {
+       "method": "FormatRecordingVisualStatusText_StaticPlaceholder_OverridesGenericStatus",
+       "line": 1650
+      },
+      {
+       "method": "FormatRecordingVisualStatusText_StationaryTail_OverridesGenericStatus",
+       "line": 1659
+      },
+      {
+       "method": "FormatRecordingVisualStatusText_StationaryTail_PreservesTerminalStatus",
+       "line": 1668
+      },
+      {
+       "method": "FormatRecordingVisualStatusText_StaticPlaceholder_PreservesTerminalStatus",
+       "line": 1677
+      },
+      {
+       "method": "ApplyAutoLoopRange_Enable_WithTrimmableSections_SetsRange",
+       "line": 1688
+      },
+      {
+       "method": "ApplyAutoLoopRange_Enable_NoTrimmableSections_LeavesNaN",
+       "line": 1705
+      },
+      {
+       "method": "ApplyAutoLoopRange_Disable_ClearsExistingRange",
+       "line": 1721
+      },
+      {
+       "method": "ApplyAutoLoopRange_Disable_AlreadyNaN_NoLogEmitted",
+       "line": 1734
+      },
+      {
+       "method": "ApplyAutoLoopRange_Enable_LogsAutoRange",
+       "line": 1744
+      },
+      {
+       "method": "ShouldSuppressRowLoopUi_NormalRow_NotSuppressed",
+       "line": 1767
+      },
+      {
+       "method": "ShouldSuppressRowLoopUi_DebrisRow_Suppressed",
+       "line": 1774
+      },
+      {
+       "method": "ShouldSuppressRowLoopUi_UnfinishedFlightsGroup_Suppressed",
+       "line": 1785
+      },
+      {
+       "method": "ShouldSuppressRowLoopUi_DebrisInsideUnfinishedFlightsGroup_Suppressed",
+       "line": 1793
+      },
+      {
+       "method": "ShouldSuppressRowLoopUi_NullRecording_Suppressed",
+       "line": 1801
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

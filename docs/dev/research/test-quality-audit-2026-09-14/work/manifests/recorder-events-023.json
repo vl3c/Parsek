@@ -1,0 +1,257 @@
+{
+ "batch_id": "recorder-events-023",
+ "cluster": "recorder-events",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "EngineIterTraceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatRecordingIdShort_Truncates_To_First_Eight_Characters",
+       "line": 52
+      },
+      {
+       "method": "FormatRecordingIdShort_Returns_Full_Value_When_Eight_Or_Fewer_Characters",
+       "line": 62
+      },
+      {
+       "method": "FormatRecordingIdShort_Returns_None_Placeholder_For_Null_Or_Empty",
+       "line": 71
+      },
+      {
+       "method": "FormatEngineIterEntry_Active_Trajectory_Reports_None_Skip",
+       "line": 77
+      },
+      {
+       "method": "FormatEngineIterEntry_Skipped_Trajectory_Reports_Producer_Reason",
+       "line": 96
+      },
+      {
+       "method": "FormatEngineIterEntry_NoRenderableData_Continuation_Tail_Marker",
+       "line": 113
+      },
+      {
+       "method": "FormatEngineIterEntry_AnchorReFlyUnstable_Flag_Reported_As_T",
+       "line": 134
+      },
+      {
+       "method": "FormatEngineIterEntry_Handles_Null_Recording_Id",
+       "line": 162
+      },
+      {
+       "method": "FormatEngineIterEntry_Uses_InvariantCulture_For_EndUT",
+       "line": 179
+      },
+      {
+       "method": "FormatEngineIterOutcome_No_Ghost_Reports_None",
+       "line": 215
+      },
+      {
+       "method": "FormatEngineIterOutcome_Visible_Ghost_Reports_Vis_T",
+       "line": 228
+      },
+      {
+       "method": "FormatEngineIterOutcome_Retire_Is_Distinguishable_From_Zone_Cull",
+       "line": 241
+      },
+      {
+       "method": "FormatEngineIterOutcome_Zone_Beyond_Cull_Reports_Distance",
+       "line": 257
+      },
+      {
+       "method": "FormatEngineIterOutcome_Unresolved_Distance_Reported_As_Unresolved",
+       "line": 273
+      },
+      {
+       "method": "EmitEngineIterTrace_Renders_Combined_Input_And_Outcome_Tokens",
+       "line": 293
+      },
+      {
+       "method": "FormatEngineIterMessage_Prefixes_Token_To_Entries",
+       "line": 320
+      },
+      {
+       "method": "FormatEngineIterMessage_Empty_Entries_Returns_Bare_Token",
+       "line": 332
+      },
+      {
+       "method": "EmitEngineIterTrace_Rendered_Line_Contains_Token_And_Engine_Tag",
+       "line": 339
+      },
+      {
+       "method": "EmitEngineIterTrace_Subsystem_Tag_Is_Engine_Not_Engine_FrameIter",
+       "line": 369
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ExplosionFxTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldTriggerExplosion_Destroyed_GhostAlive_ReturnsTrue",
+       "line": 35
+      },
+      {
+       "method": "ShouldTriggerExplosion_AlreadyFired_ReturnsFalse",
+       "line": 48
+      },
+      {
+       "method": "ShouldTriggerExplosion_NotDestroyed_Landed_ReturnsFalse",
+       "line": 61
+      },
+      {
+       "method": "ShouldTriggerExplosion_NullTerminalState_ReturnsFalse",
+       "line": 74
+      },
+      {
+       "method": "ShouldTriggerExplosion_GhostNull_ReturnsFalse",
+       "line": 87
+      },
+      {
+       "method": "ShouldTriggerExplosion_NonDestroyedStates_AllReturnFalse",
+       "line": 106
+      },
+      {
+       "method": "TryGetEarlyDestroyedDebrisExplosionUT_DestroyedDebris_ReturnsFirstDestroyedEvent",
+       "line": 119
+      },
+      {
+       "method": "TryGetEarlyDestroyedDebrisExplosionUT_OnlyEndDestroyedEvent_ReturnsFalse",
+       "line": 154
+      },
+      {
+       "method": "TryGetEarlyDestroyedDebrisExplosionUT_NonDebris_ReturnsFalse",
+       "line": 177
+      },
+      {
+       "method": "TryGetEarlyDestroyedDebrisExplosionUT_UnsortedEvents_ReturnsEarliestEligibleDestroyedEvent",
+       "line": 200
+      },
+      {
+       "method": "ShouldTriggerExplosionAtPlaybackUT_LoopEndpointBeforeDestroyedEnd_ReturnsFalse",
+       "line": 235
+      },
+      {
+       "method": "ShouldTriggerExplosionAtPlaybackUT_LoopEndpointAfterEarlyDestroyedDebrisEvent_ReturnsTrue",
+       "line": 253
+      },
+      {
+       "method": "ShouldTriggerExplosion_AlreadyFired_SkipsBeforeCheckingTerminalState",
+       "line": 280
+      },
+      {
+       "method": "ApplyDestroyedFallback_WasDestroyed_NullTerminal_SetsDestroyed",
+       "line": 296
+      },
+      {
+       "method": "ApplyDestroyedFallback_WasDestroyed_LandedTerminal_OverridesToDestroyed",
+       "line": 309
+      },
+      {
+       "method": "ApplyDestroyedFallback_WasDestroyed_AlreadyDestroyed_NoChange",
+       "line": 322
+      },
+      {
+       "method": "ApplyDestroyedFallback_NotDestroyed_NullTerminal_NoChange",
+       "line": 334
+      },
+      {
+       "method": "ApplyDestroyedFallback_NotDestroyed_LandedTerminal_NoChange",
+       "line": 346
+      },
+      {
+       "method": "WithTerminalState_Build_EmitsTerminalStateValue",
+       "line": 360
+      },
+      {
+       "method": "WithTerminalState_BuildV3Metadata_EmitsTerminalStateValue",
+       "line": 374
+      },
+      {
+       "method": "WithoutTerminalState_Build_OmitsTerminalStateKey",
+       "line": 388
+      },
+      {
+       "method": "WithoutTerminalState_BuildV3Metadata_OmitsTerminalStateKey",
+       "line": 399
+      },
+      {
+       "method": "WithTerminalState_AllValues_RoundtripCorrectly",
+       "line": 414
+      },
+      {
+       "method": "KscPadDestroyed_HasDestroyedTerminalState",
+       "line": 430
+      },
+      {
+       "method": "KscPadDestroyed_V3Metadata_HasDestroyedTerminalState",
+       "line": 440
+      },
+      {
+       "method": "ShouldTriggerExplosion_PassesButWarpSuppresses_LogsSuppression",
+       "line": 455
+      },
+      {
+       "method": "ShouldSuppressVisualFx_At10x_DoesNotSuppress",
+       "line": 473
+      },
+      {
+       "method": "ShouldSuppressVisualFx_Above10x_Suppresses",
+       "line": 479
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LoopIntervalLoadNormalizationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LoadRecordingFiles_LoopEnabledWithZeroInterval_NormalizesToTrajectoryDuration",
+       "line": 87
+      },
+      {
+       "method": "LoadRecordingFiles_LoopEnabledWithZeroInterval_FallsBackWhenDurationTooShort",
+       "line": 122
+      },
+      {
+       "method": "LoadRecordingFiles_LoopDisabled_DoesNotNormalize",
+       "line": 150
+      },
+      {
+       "method": "LoadRecordingFiles_LoopAutoMode_DoesNotNormalize",
+       "line": 179
+      },
+      {
+       "method": "LoadRecordingFiles_HealthyInterval_PassesThroughUntouched",
+       "line": 209
+      },
+      {
+       "method": "LoadRecordingFiles_SnapshotSidecarFailure_StillNormalizesAfterTrajectoryHydration",
+       "line": 258
+      },
+      {
+       "method": "ResolveLoopInterval_AfterNormalization_DoesNotFireClampWarning",
+       "line": 311
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

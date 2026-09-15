@@ -1,0 +1,303 @@
+{
+ "batch_id": "recorder-events-026",
+ "cluster": "recorder-events",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "TerminalEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ApplyTerminalDestruction_SetsDestroyedAndExplicitEndUT",
+       "line": 22
+      },
+      {
+       "method": "ApplyTerminalDestruction_WithOrbitalData_PopulatesAllTerminalOrbitFields",
+       "line": 45
+      },
+      {
+       "method": "ApplyTerminalDestruction_WithSurfaceData_PopulatesTerminalPosition",
+       "line": 84
+      },
+      {
+       "method": "ApplyTerminalDestruction_WithNeitherData_LeavesDefaults",
+       "line": 123
+      },
+      {
+       "method": "ShouldDeferDestructionCheck_NoTree_ReturnsFalse",
+       "line": 157
+      },
+      {
+       "method": "ShouldDeferDestructionCheck_InDockingInProgress_ReturnsFalse",
+       "line": 166
+      },
+      {
+       "method": "ShouldDeferDestructionCheck_NotInBackgroundMap_ReturnsFalse",
+       "line": 175
+      },
+      {
+       "method": "ShouldDeferDestructionCheck_ValidTreeVessel_ReturnsTrue",
+       "line": 184
+      },
+      {
+       "method": "IsTrulyDestroyed_VesselStillExists_ReturnsFalse",
+       "line": 197
+      },
+      {
+       "method": "IsTrulyDestroyed_VesselGone_ReturnsTrue",
+       "line": 205
+      },
+      {
+       "method": "IsTrulyDestroyed_VesselGoneButDockingInProgress_ReturnsFalse",
+       "line": 213
+      },
+      {
+       "method": "RebuildBackgroundMap_ExcludesDestroyedRecordings",
+       "line": 225
+      },
+      {
+       "method": "ApplyTerminalData_OrbitAndSurface_BothApplied",
+       "line": 273
+      },
+      {
+       "method": "ApplyTerminalDestruction_OverwritesExistingData",
+       "line": 313
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BackgroundSplitRpTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Begin_BackgroundSplit_MultiControllable_CreatesRp",
+       "line": 89
+      },
+      {
+       "method": "Begin_BackgroundSplit_SingleControllable_NoRp",
+       "line": 208
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BackgroundRecorderTerrainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldEmit_SurfaceMobileAllFourConditionsTrue_GatePasses",
+       "line": 26
+      },
+      {
+       "method": "ShouldEmit_SurfaceStationaryAllFourConditionsTrue_GatePasses",
+       "line": 38
+      },
+      {
+       "method": "ShouldEmit_TrackSectionInactive_GateFails",
+       "line": 51
+      },
+      {
+       "method": "ShouldEmit_RelativeFrame_GateFails",
+       "line": 64
+      },
+      {
+       "method": "ShouldEmit_OrbitalCheckpointFrame_GateFails",
+       "line": 77
+      },
+      {
+       "method": "ShouldEmit_NonSurfaceEnvironment_GateFails",
+       "line": 95
+      },
+      {
+       "method": "ShouldEmit_NoPqsController_GateFails",
+       "line": 108
+      },
+      {
+       "method": "ShouldEmit_MatchesForegroundCommitRecordedPointGate",
+       "line": 131
+      },
+      {
+       "method": "ShadowGate_RelativeSectionWithSurfaceMobileAndPqs_GatePasses",
+       "line": 161
+      },
+      {
+       "method": "ShadowGate_RelativeSectionWithSurfaceStationaryAndPqs_GatePasses",
+       "line": 174
+      },
+      {
+       "method": "ShadowGate_TrackSectionInactive_GateFails",
+       "line": 184
+      },
+      {
+       "method": "ShadowGate_NonSurfaceEnvironment_GateFails",
+       "line": 198
+      },
+      {
+       "method": "ShadowGate_NoPqsController_GateFails",
+       "line": 209
+      },
+      {
+       "method": "ShadowGate_DivergesFromPrimaryGateOnlyByFrame",
+       "line": 219
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TrackSectionSourceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TrackSectionSource_Active_IsZero",
+       "line": 35
+      },
+      {
+       "method": "TrackSectionSource_Background_IsOne",
+       "line": 41
+      },
+      {
+       "method": "TrackSectionSource_Checkpoint_IsTwo",
+       "line": 47
+      },
+      {
+       "method": "TrackSectionSource_ValuesAreContiguous",
+       "line": 53
+      },
+      {
+       "method": "RoundTrip_SourceCheckpoint_PreservedCorrectly",
+       "line": 93
+      },
+      {
+       "method": "Serialize_SourceActive_NotWrittenToConfigNode",
+       "line": 112
+      },
+      {
+       "method": "Serialize_SourceBackground_WrittenToConfigNode",
+       "line": 128
+      },
+      {
+       "method": "RoundTrip_BoundaryDiscontinuity_PreservedCorrectly",
+       "line": 144
+      },
+      {
+       "method": "Serialize_BoundaryDiscontinuityZero_NotWrittenToConfigNode",
+       "line": 163
+      },
+      {
+       "method": "Serialize_BoundaryDiscontinuityPositive_WrittenToConfigNode",
+       "line": 179
+      },
+      {
+       "method": "BackwardCompat_MissingSrcAndBdisc_DefaultsToActiveAndZero",
+       "line": 199
+      },
+      {
+       "method": "Serialize_NonActiveSource_LogsSourceValue",
+       "line": 223
+      },
+      {
+       "method": "Serialize_ActiveSource_DoesNotLogSourceValue",
+       "line": 235
+      },
+      {
+       "method": "Deserialize_NonActiveSource_LogsSourceValue",
+       "line": 251
+      },
+      {
+       "method": "RoundTrip_AllNewFields_PreservedTogether",
+       "line": 276
+      },
+      {
+       "method": "ToString_IncludesSourceAndBdisc",
+       "line": 298
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "VariantFxFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AncestorUnderEnabledVariant_ReturnsTrue",
+       "line": 21
+      },
+      {
+       "method": "AncestorUnderDisabledVariant_ReturnsFalse",
+       "line": 39
+      },
+      {
+       "method": "NoMatchingRule_ReturnsTrue",
+       "line": 57
+      },
+      {
+       "method": "NullGameObjectStates_ReturnsTrue",
+       "line": 75
+      },
+      {
+       "method": "EmptyGameObjectStates_ReturnsTrue",
+       "line": 88
+      },
+      {
+       "method": "FirstDeepestMatchWins_DisabledChildUnderEnabledParent",
+       "line": 102
+      },
+      {
+       "method": "FirstDeepestMatchWins_EnabledChildUnderDisabledParent",
+       "line": 121
+      },
+      {
+       "method": "TransformItselfMatchesRule",
+       "line": 140
+      },
+      {
+       "method": "CaseInsensitiveMatching",
+       "line": 158
+      },
+      {
+       "method": "ExtractShortTransformName_MatchesCloneSuffix",
+       "line": 177
+      },
+      {
+       "method": "PoodleDoubleBell_EnabledTransformsPass",
+       "line": 199
+      },
+      {
+       "method": "PoodleSingleBell_DisabledEngineFixedBlocked",
+       "line": 221
+      },
+      {
+       "method": "NullAncestorList_ReturnsTrue",
+       "line": 243
+      },
+      {
+       "method": "EmptyAncestorList_ReturnsTrue",
+       "line": 259
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

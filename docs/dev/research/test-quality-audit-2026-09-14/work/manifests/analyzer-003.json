@@ -1,0 +1,332 @@
+{
+ "batch_id": "analyzer-003",
+ "cluster": "analyzer",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "Analyzer/Rules/Inv8LedgerElsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolvingTombstone_OverRawLedger_NoFindings",
+       "line": 43
+      },
+      {
+       "method": "DanglingTombstone_Fails",
+       "line": 56
+      },
+      {
+       "method": "NonCareer_ElsConsistency_StillRuns",
+       "line": 75
+      },
+      {
+       "method": "LedgerLoadFault_SuppressesDanglingCheck",
+       "line": 93
+      },
+      {
+       "method": "EmptyLedgerAndTombstones_NoFindings_NoThrow",
+       "line": 110
+      },
+      {
+       "method": "ResolvingRecordingRef_NoFindings",
+       "line": 133
+      },
+      {
+       "method": "DanglingRecordingRef_Warns",
+       "line": 145
+      },
+      {
+       "method": "DanglingRecordingRef_MessageCarriesNoActionId_SoTheBaselineKeyIsStable",
+       "line": 166
+      },
+      {
+       "method": "DanglingRecordingRef_IsGateNeutral",
+       "line": 189
+      },
+      {
+       "method": "MultipleActionsOneDanglingId_SingleFindingWithCount",
+       "line": 206
+      },
+      {
+       "method": "TwoDanglingIds_TwoFindings_InFirstAppearanceOrder",
+       "line": 225
+      },
+      {
+       "method": "UntaggedActions_NoFindings",
+       "line": 248
+      },
+      {
+       "method": "SfsLoadFault_SuppressesDanglingRecordingRefCheck",
+       "line": 262
+      },
+      {
+       "method": "NullRecordings_NoThrow_StillReports",
+       "line": 278
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv7TreeTopologyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ValidMultiBranchChain_NoFindings",
+       "line": 33
+      },
+      {
+       "method": "DanglingSupersedeTargetId_Fails",
+       "line": 58
+      },
+      {
+       "method": "DanglingTombstoneRetiringRecordingId_Fails",
+       "line": 80
+      },
+      {
+       "method": "OrphanSupersedeOldRecordingId_Warns",
+       "line": 110
+      },
+      {
+       "method": "OrphanSupersedeNewRecordingId_Warns",
+       "line": 142
+      },
+      {
+       "method": "TwoNodeParentCycle_Fails_AndTerminates",
+       "line": 172
+      },
+      {
+       "method": "ChainGapAtSupersedeBoundary_IsInfo",
+       "line": 198
+      },
+      {
+       "method": "ChainGapWithoutSupersede_Fails",
+       "line": 233
+      },
+      {
+       "method": "ParallelBranchContiguousRuns_NoFindings",
+       "line": 259
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/SaveDirectoryLoaderSidecarTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ValidSidecars_HydrateTrajectory_AndCaptureSchema",
+       "line": 85
+      },
+      {
+       "method": "TruncatedPrec_ProducesTrajectoryFault_NoCrash",
+       "line": 106
+      },
+      {
+       "method": "TextFormatPrec_ReasonTextSidecarUnsupported",
+       "line": 126
+      },
+      {
+       "method": "PreResetMagicPrec_ProducesTrajectoryFault",
+       "line": 151
+      },
+      {
+       "method": "CorruptSnapshot_ProducesSnapshotFault_NoCrash",
+       "line": 174
+      },
+      {
+       "method": "MissingSnapshot_IsNotAFault",
+       "line": 195
+      },
+      {
+       "method": "OrphanSidecar_IsInventoriedInSidecarSchema",
+       "line": 214
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/SaveDirectoryLoaderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SyntheticSave_LoadsExpectedCounts",
+       "line": 71
+      },
+      {
+       "method": "CorruptSfs_ProducesSingleSfsFault_EmptyModel",
+       "line": 140
+      },
+      {
+       "method": "NonParsekSave_NoFaults_EmptyModel",
+       "line": 169
+      },
+      {
+       "method": "MissingSfs_NoFaults_EmptyModel",
+       "line": 187
+      },
+      {
+       "method": "FixtureStamp_ParsedWhenPresent_NullWhenAbsent",
+       "line": 202
+      },
+      {
+       "method": "Load_RestoresSuppressLogging",
+       "line": 226
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/RecordingSectionDump.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Manual_DumpRecordingSections",
+       "line": 59
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/InvariantRegistryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Evaluate_FailFinding_CountsFail_AndRunIsRed",
+       "line": 53
+      },
+      {
+       "method": "Evaluate_WarnOnly_NotRed_ButSurfaced",
+       "line": 66
+      },
+      {
+       "method": "Evaluate_InfoOnly_NotRed",
+       "line": 80
+      },
+      {
+       "method": "Evaluate_StaleFixture_RedButDistinctFromFail",
+       "line": 93
+      },
+      {
+       "method": "Evaluate_DefaultRegistry_HasRules_AndCleanModelIsGreen",
+       "line": 110
+      },
+      {
+       "method": "Evaluate_DiscoversSubjectSchemaGeneration_FromRecordings",
+       "line": 122
+      },
+      {
+       "method": "CorePurity_AllRules_RunOverInMemoryModel_WithoutFileAccess",
+       "line": 137
+      },
+      {
+       "method": "EveryInvariantImplementation_DeclaresRuleIdAndCitedContract",
+       "line": 152
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv2NoDoubleCoverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OrbitBridgedGap_NoFinding",
+       "line": 44
+      },
+      {
+       "method": "InteriorOverlap_Fails",
+       "line": 69
+      },
+      {
+       "method": "ContainedSection_Fails",
+       "line": 93
+      },
+      {
+       "method": "UncoveredGap_Warns_NotFails",
+       "line": 115
+      },
+      {
+       "method": "MicroGapBelowTolerance_NoFinding",
+       "line": 142
+      },
+      {
+       "method": "GapAboveTolerance_StillWarns",
+       "line": 164
+      },
+      {
+       "method": "TouchingSections_NoFinding",
+       "line": 187
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv5SchemaGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CurrentGeneration_NoFindings",
+       "line": 48
+      },
+      {
+       "method": "MetadataGate_EachReason_Fails",
+       "line": 67
+      },
+      {
+       "method": "SidecarGenerationDisagreement_Fails",
+       "line": 84
+      },
+      {
+       "method": "OrphanSidecar_Warns",
+       "line": 104
+      },
+      {
+       "method": "TrajectoryLoadFault_FailsWithReason",
+       "line": 126
+      },
+      {
+       "method": "SidecarLoadFault_DoesNotAlsoEmitGenerationMismatch",
+       "line": 147
+      },
+      {
+       "method": "GenerationsInventory_InfoOnlyWhenNonCurrentPresent",
+       "line": 164
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

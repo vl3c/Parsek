@@ -1,0 +1,325 @@
+{
+ "batch_id": "catchall-061",
+ "cluster": "catchall",
+ "tier": "C",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "DecoupledSubtreeAudioStopTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CollectSubtreePids_DecouplerWithEngineAndRcsChildren_ReturnsAllThree",
+       "line": 27
+      },
+      {
+       "method": "CollectSubtreePids_DeepSubtree_VisitsAllDescendants",
+       "line": 46
+      },
+      {
+       "method": "CollectSubtreePids_NullTree_ReturnsRootOnly",
+       "line": 69
+      },
+      {
+       "method": "CollectSubtreePids_TreeMissingRootEntry_ReturnsRootOnly",
+       "line": 79
+      },
+      {
+       "method": "CollectSubtreePids_TreeWithSiblingBranch_DoesNotCrossBranches",
+       "line": 96
+      },
+      {
+       "method": "StopFxAndAudioForSubtree_NullState_NoThrow",
+       "line": 122
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ProximityRateSelectorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetSampleInterval_AtFocusedVessel_ReturnsDockingInterval",
+       "line": 10
+      },
+      {
+       "method": "GetSampleInterval_InsideDockingRange_ReturnsDockingInterval",
+       "line": 17
+      },
+      {
+       "method": "GetSampleInterval_JustInsideDockingRange_ReturnsDockingInterval",
+       "line": 24
+      },
+      {
+       "method": "GetSampleInterval_AtDockingBoundary_ReturnsMidInterval",
+       "line": 35
+      },
+      {
+       "method": "GetSampleInterval_MidRange_ReturnsMidInterval",
+       "line": 43
+      },
+      {
+       "method": "GetSampleInterval_JustInsideMidRange_ReturnsMidInterval",
+       "line": 50
+      },
+      {
+       "method": "GetSampleInterval_AtMidBoundary_ReturnsFarInterval",
+       "line": 61
+      },
+      {
+       "method": "GetSampleInterval_FarRange_ReturnsFarInterval",
+       "line": 69
+      },
+      {
+       "method": "GetSampleInterval_JustInsidePhysicsBubble_ReturnsFarInterval",
+       "line": 76
+      },
+      {
+       "method": "GetSampleInterval_AtPhysicsBubbleBoundary_ReturnsMaxValue",
+       "line": 87
+      },
+      {
+       "method": "GetSampleInterval_FarBeyondPhysicsBubble_ReturnsMaxValue",
+       "line": 95
+      },
+      {
+       "method": "GetSampleRateHz_DockingRange_Returns5Hz",
+       "line": 106
+      },
+      {
+       "method": "GetSampleRateHz_MidRange_Returns2Hz",
+       "line": 113
+      },
+      {
+       "method": "GetSampleRateHz_FarRange_ReturnsHalfHz",
+       "line": 120
+      },
+      {
+       "method": "GetSampleRateHz_OutOfRange_ReturnsZero",
+       "line": 127
+      },
+      {
+       "method": "Constants_ThresholdsAreOrdered",
+       "line": 138
+      },
+      {
+       "method": "Constants_IntervalsIncreaseWithDistance",
+       "line": 145
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Tier3CExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildStateMap_NullNodes_ReturnsEmptyMap",
+       "line": 30
+      },
+      {
+       "method": "BuildStateMap_EmptyArray_ReturnsEmptyMap",
+       "line": 38
+      },
+      {
+       "method": "BuildStateMap_SingleValidNode_ParsesCorrectly",
+       "line": 46
+      },
+      {
+       "method": "BuildStateMap_MultipleNodes_ParsesAll",
+       "line": 58
+      },
+      {
+       "method": "BuildStateMap_MissingId_SkipsEntry",
+       "line": 75
+      },
+      {
+       "method": "BuildStateMap_MissingIdx_SkipsEntry",
+       "line": 85
+      },
+      {
+       "method": "BuildStateMap_InvalidIdxFormat_SkipsEntry",
+       "line": 95
+      },
+      {
+       "method": "BuildStateMap_NegativeIdx_ParsesCorrectly",
+       "line": 106
+      },
+      {
+       "method": "BuildStateMap_LogsEntryCount",
+       "line": 118
+      },
+      {
+       "method": "BuildStateMap_MixedValidAndInvalid_ParsesOnlyValid",
+       "line": 135
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ArcAnomalyMathTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NeedsPeriapsisWraparound_TrueWhenFromTrueAnomalyExceedsTo",
+       "line": 21
+      },
+      {
+       "method": "NeedsPeriapsisWraparound_FalseWhenMonotonicIncreasing",
+       "line": 29
+      },
+      {
+       "method": "NeedsPeriapsisWraparound_FalseWhenEqual",
+       "line": 36
+      },
+      {
+       "method": "ApplyPeriapsisWraparound_RebasesNegativeAcrossPeriapsis",
+       "line": 44
+      },
+      {
+       "method": "EndpointRadius_EllipticalAtPeriapsisIsPeR",
+       "line": 57
+      },
+      {
+       "method": "EndpointRadius_EllipticalAtApoapsisIsApR",
+       "line": 66
+      },
+      {
+       "method": "EndpointRadius_HyperbolicAtPeriapsisIsPositivePeR",
+       "line": 77
+      },
+      {
+       "method": "EndpointRadius_HyperbolicGrowsWithAnomalyMagnitude",
+       "line": 89
+      },
+      {
+       "method": "EndpointRadius_HyperbolicAndEllipticalDifferAtSameAnomaly",
+       "line": 101
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReindexTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RemoveMiddleIndex_ShiftsKeysAboveDown",
+       "line": 15
+      },
+      {
+       "method": "RemoveFirstIndex_AllKeysShiftDown",
+       "line": 36
+      },
+      {
+       "method": "RemoveLastIndex_NoShiftNeeded",
+       "line": 56
+      },
+      {
+       "method": "EmptyDict_NoCrash",
+       "line": 77
+      },
+      {
+       "method": "SingleEntry_ResultsInEmptyDict",
+       "line": 89
+      },
+      {
+       "method": "WorksWithNonStringValueType",
+       "line": 102
+      },
+      {
+       "method": "RemoveNonExistentIndex_PreservesLowerKeys",
+       "line": 120
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GeneratorBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "VesselSnapshotBuilder_AsOrbiting_AddPartAndResource_WritesExpectedNodes",
+       "line": 11
+      },
+      {
+       "method": "VesselSnapshotBuilder_AddResourceToPart_OutOfRangeThrows",
+       "line": 48
+      },
+      {
+       "method": "RecordingBuilder_WithDefaultRotation_OnlyAppliesToIdentityInputs",
+       "line": 59
+      },
+      {
+       "method": "RecordingBuilder_WithBuilderSnapshots_BuildsExpectedInlineSnapshotNodes",
+       "line": 82
+      },
+      {
+       "method": "RecordingBuilder_WithRecordingGroups_BuildV3Metadata_DeduplicatesGroups",
+       "line": 100
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekScenarioRecoveryRoutingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldPatchRecoveryFundsOutsideFlight_NoPendingOwner_ReturnsTrue",
+       "line": 21
+      },
+      {
+       "method": "ShouldPatchRecoveryFundsOutsideFlight_PendingTreeOwnsVessel_ReturnsFalse",
+       "line": 29
+      },
+      {
+       "method": "ShouldPatchRecoveryFundsOutsideFlight_NormalizedPendingOwner_ReturnsFalse",
+       "line": 48
+      },
+      {
+       "method": "ShouldPatchRecoveryFundsOutsideFlight_GhostOnlyPendingMatch_DoesNotBlock",
+       "line": 67
+      },
+      {
+       "method": "ShouldPatchRecoveryFundsOutsideFlight_FlightScene_ReturnsFalse",
+       "line": 85
+      },
+      {
+       "method": "UpdateRecordingsForTerminalEvent_NormalizedName_UpdatesPendingOwner",
+       "line": 93
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

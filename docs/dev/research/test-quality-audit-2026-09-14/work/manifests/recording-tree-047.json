@@ -1,0 +1,272 @@
+{
+ "batch_id": "recording-tree-047",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 55,
+ "files": [
+  {
+   "file": "RecoveryPickLaunchGuidFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Predicate_IsConclusiveOnlyWhenBothGuidsAreKnownAndDiffer",
+       "line": 126
+      },
+      {
+       "method": "Predicate_GuidComparisonIsFormatInsensitive",
+       "line": 151
+      },
+      {
+       "method": "Filter_IsMonotone_SurvivorsAreAnOrderPreservingSubsetOfTheInput",
+       "line": 169
+      },
+      {
+       "method": "Filter_UnknownLiveGuid_IsAnExactNoOp",
+       "line": 204
+      },
+      {
+       "method": "Filter_NullInput_YieldsEmptySetAndNoDrops",
+       "line": 227
+      },
+      {
+       "method": "Filter_ReFlyProvisionalShapeSurvives",
+       "line": 236
+      },
+      {
+       "method": "SessionProvisional_IsResolvedFromWhicheverSetTheCallerPasses",
+       "line": 262
+      },
+      {
+       "method": "Picker_TwoLaunchesSameName_DropsTheOtherLaunchAndPicksTheRecoveredOne",
+       "line": 301
+      },
+      {
+       "method": "Picker_SingleLaunch_LandsOnTheSamePickAsBeforeTheFilter",
+       "line": 333
+      },
+      {
+       "method": "Picker_LegacyRecordingWithNoRecordedGuid_KeepsItsCorrelation",
+       "line": 357
+      },
+      {
+       "method": "Picker_LiveGuidUnknown_LogsTheDegradationAndKeepsTheHistoricalPick",
+       "line": 375
+      },
+      {
+       "method": "Picker_EveryCandidateIsADifferentLaunch_ReturnsNullRatherThanAWrongPick",
+       "line": 388
+      },
+      {
+       "method": "Picker_FilterRunsBeforeTierSelection_NotAfter",
+       "line": 407
+      },
+      {
+       "method": "XpLeg_ScopesTheRowToTheRecoveredLaunch_NotTheNameSibling",
+       "line": 427
+      },
+      {
+       "method": "XpLeg_FilterEmptiesTheSet_RefusesWithTheExistingFailSafe",
+       "line": 444
+      },
+      {
+       "method": "Identity_LaunchGuidIsNormalizedAndIsNotPartOfNameMatchingOrTheLogSurface",
+       "line": 464
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SwitchSegmentSaveLoadTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SegmentActive_SaveAndReload_RestoresSessionAndRecording",
+       "line": 149
+      },
+      {
+       "method": "F5_AfterSwitchFly_PreservesMarkerAndSegmentId",
+       "line": 188
+      },
+      {
+       "method": "F9_ToPreSwitchSave_ClearsMarker_DropsPendingAttempt",
+       "line": 233
+      },
+      {
+       "method": "EventPersistence_NewSegmentIds_SurvivesSaveReload_AndPurgedOnDiscard_WhenRestoreAttemptArmed",
+       "line": 285
+      },
+      {
+       "method": "MilestoneFlush_MarkerOwnedNewIds_FlushedAcrossSave_WhenRestoreAttemptArmed",
+       "line": 337
+      },
+      {
+       "method": "SameProcessF5InTrackingStation_PreservesIntent_ConsumesOnFlightLoad",
+       "line": 387
+      },
+      {
+       "method": "CrossProcessLoad_WithTsFlyArmed_ClearsAsCrossRun",
+       "line": 408
+      },
+      {
+       "method": "CommittedRestoreAttemptArmed_PlusSegmentArmed_BothSurviveSaveReload",
+       "line": 437
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SwitchSegmentSessionSerializationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StockActionIntentMarker_AllFields_RoundTrip",
+       "line": 43
+      },
+      {
+       "method": "SwitchSegmentSession_AllFields_RoundTrip",
+       "line": 76
+      },
+      {
+       "method": "SwitchSegmentSession_PreSessionBranchPointIds_DefaultsToEmptyList",
+       "line": 118
+      },
+      {
+       "method": "SwitchSegmentSession_PreSessionBranchPointIds_NullRoundTripsAsNull",
+       "line": 130
+      },
+      {
+       "method": "SwitchSegmentSession_PreSessionBranchPointIds_EmptyRoundTripsAsEmpty",
+       "line": 141
+      },
+      {
+       "method": "SwitchSegmentSession_PreSessionBranchPointIds_PopulatedRoundTripsExactly",
+       "line": 153
+      },
+      {
+       "method": "EvaluateStaleness_DifferentProcessSessionId_ReturnsStaleCrossRun",
+       "line": 217
+      },
+      {
+       "method": "EvaluateStaleness_TrackingStationFly_PastTtl_ReturnsStaleIntentTtlExpired",
+       "line": 229
+      },
+      {
+       "method": "EvaluateStaleness_MapSwitchTo_PastTtl_ReturnsStaleIntentTtlExpired",
+       "line": 243
+      },
+      {
+       "method": "EvaluateStaleness_UtRegression_ReturnsStaleIntentUtRegressed",
+       "line": 257
+      },
+      {
+       "method": "EvaluateStaleness_SameProcessRecentMarker_ReturnsFresh",
+       "line": 271
+      },
+      {
+       "method": "GetTtlSeconds_MatchesPlanConstants",
+       "line": 286
+      },
+      {
+       "method": "ArmStockActionIntent_EmitsInfoLog_WithSubsystemAndIntentId",
+       "line": 311
+      },
+      {
+       "method": "ArmStockActionIntent_OverwriteArmed_LogsSuperseded",
+       "line": 328
+      },
+      {
+       "method": "ClearStockActionIntent_ArmedThenClear_EmitsClearedLog",
+       "line": 348
+      },
+      {
+       "method": "ClearStockActionIntent_NoMarker_LogsVerboseNoOp",
+       "line": 368
+      },
+      {
+       "method": "ArmSwitchSegmentSession_EmitsInfoLog_WithSessionAndIntentId",
+       "line": 386
+      },
+      {
+       "method": "ClearSwitchSegmentSession_ArmedThenClear_EmitsClearedLog",
+       "line": 412
+      },
+      {
+       "method": "ProcessSessionId_IsStableWithinSameProcess",
+       "line": 445
+      },
+      {
+       "method": "ProcessSessionId_ResetForTesting_GeneratesNewGuid",
+       "line": 456
+      },
+      {
+       "method": "StockActionIntentMarker_TryLoadFrom_MissingIntentId_ReturnsFalse",
+       "line": 476
+      },
+      {
+       "method": "SwitchSegmentSession_TryLoadFrom_MissingSessionId_ReturnsFalse",
+       "line": 496
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MergeCrashRecoveryMatrixTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Window1_SupersedeAppend_DrivesForward_MergeCompleted",
+       "line": 213
+      },
+      {
+       "method": "Window2_TombstoneScan_DrivesForward_MergeCompleted",
+       "line": 255
+      },
+      {
+       "method": "Window3_FinalizeFlip_DrivesForward_MergeCompleted",
+       "line": 293
+      },
+      {
+       "method": "Window4_Durable1Done_CompletesRemaining_RpsTagged",
+       "line": 324
+      },
+      {
+       "method": "Window5_RpReap_CompletesRemaining_MarkerClear",
+       "line": 358
+      },
+      {
+       "method": "RunMerge_RecalcsExactlyOnceAfterTheMarkerIsCleared",
+       "line": 403
+      },
+      {
+       "method": "RunMerge_PostMarkerClearRecalc_PrecedesDurableSaveTwo",
+       "line": 421
+      },
+      {
+       "method": "CrashedMerge_Finisher_AlsoRecalcsAfterTheMarkerIsCleared",
+       "line": 440
+      },
+      {
+       "method": "PostMarkerClearRecalc_RunsForRealWithoutThrowing",
+       "line": 457
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,147 @@
+{
+ "batch_id": "spawn-vessel-007",
+ "cluster": "spawn-vessel",
+ "tier": "A",
+ "expected_methods": 32,
+ "files": [
+  {
+   "file": "SnapshotBaselineApplicationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ApplySnapshotBaselines_NullState_DoesNotThrow",
+       "line": 68
+      },
+      {
+       "method": "ApplySnapshotBaselines_NoBaselines_LogsNothing",
+       "line": 74
+      },
+      {
+       "method": "PopulateGhostInfoDictionaries_NullSnapshotBaselines_StowBaselineLogUnchanged",
+       "line": 84
+      },
+      {
+       "method": "PopulateGhostInfoDictionaries_WithBaselines_AppliesAfterStowBaseline",
+       "line": 114
+      },
+      {
+       "method": "ResolveActions_NullBaseline_NoActions",
+       "line": 157
+      },
+      {
+       "method": "ResolveActions_DeployStateWinsOverGearAndCargo",
+       "line": 170
+      },
+      {
+       "method": "ResolveActions_GearWinsOverCargoAndAnimations",
+       "line": 189
+      },
+      {
+       "method": "ResolveActions_CargoBayRoutesThroughTheCascade",
+       "line": 204
+      },
+      {
+       "method": "ResolveActions_AnimationGroupWinsOverStandaloneAnimation",
+       "line": 220
+      },
+      {
+       "method": "ResolveActions_StandaloneAnimationUsedWhenItIsTheOnlyOpinion",
+       "line": 233
+      },
+      {
+       "method": "ResolveActions_LightPowerFromModuleLight",
+       "line": 246
+      },
+      {
+       "method": "ResolveActions_ColorChangerStandsInForAMissingModuleLight",
+       "line": 262
+      },
+      {
+       "method": "ResolveActions_ModuleLightWinsOverColorChanger",
+       "line": 274
+      },
+      {
+       "method": "ResolveActions_ModuleLightOnWinsOverColorChangerOff",
+       "line": 292
+      },
+      {
+       "method": "ResolveActions_AllFalseLightBaseline_ResolvesToNoLightAction",
+       "line": 306
+      },
+      {
+       "method": "ResolveActions_LampOffButBlinkArmed_StillResolves",
+       "line": 324
+      },
+      {
+       "method": "ResolveActions_ColorChangerOffOnly_ResolvesToNoLightAction",
+       "line": 344
+      },
+      {
+       "method": "ClassifyParachuteAction_MapsPersistedStates",
+       "line": 370
+      },
+      {
+       "method": "ApplySnapshotBaselines_ServoPose_BecomesSpawnValueAndCurrentValue",
+       "line": 383
+      },
+      {
+       "method": "ApplySnapshotBaselines_ServoOrdinalDrift_SkipsWithoutPosingWrongServo",
+       "line": 422
+      },
+      {
+       "method": "ApplySnapshotBaselines_ServoAbsentFromGhost_CountedAsSkipped",
+       "line": 463
+      },
+      {
+       "method": "ApplySnapshotBaselines_RotorPose_NeverSpinsFromSpawn",
+       "line": 504
+      },
+      {
+       "method": "ApplySnapshotBaselines_RotorWithZeroRpm_StaysParked",
+       "line": 536
+      },
+      {
+       "method": "ApplySnapshotBaselines_DeployableAndGearOnSamePart_RunsOnceWithoutThrowing",
+       "line": 573
+      },
+      {
+       "method": "ApplySnapshotBaselines_ParachuteStowed_IsNotAnAction",
+       "line": 613
+      },
+      {
+       "method": "RestoreRoboticSpawnBaselines_ResetsCurrentValueToSpawnValue",
+       "line": 639
+      },
+      {
+       "method": "RestoreRoboticSpawnBaselines_NoSnapshotBaseline_RestoresPrefabPoseZero",
+       "line": 672
+      },
+      {
+       "method": "RestoreRoboticSpawnBaselines_RotorWithSnapshotRpm_StillParks",
+       "line": 707
+      },
+      {
+       "method": "RestoreRoboticSpawnBaselines_RotorWithoutSnapshotBaseline_StaysParked",
+       "line": 736
+      },
+      {
+       "method": "RestoreRoboticSpawnBaselines_NullInfoOrDict_NoThrow",
+       "line": 766
+      },
+      {
+       "method": "SnapshotBaselineTrusted_OnlyForTheRecordingStartSnapshot",
+       "line": 787
+      },
+      {
+       "method": "SnapshotBaselineNotTrusted_ForEveryOtherBuildType",
+       "line": 801
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

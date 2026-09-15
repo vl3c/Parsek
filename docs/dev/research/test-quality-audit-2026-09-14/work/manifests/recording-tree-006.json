@@ -1,0 +1,135 @@
+{
+ "batch_id": "recording-tree-006",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 29,
+ "files": [
+  {
+   "file": "SceneExitFinalizationIntegrationTests.cs",
+   "ranges": [
+    {
+     "start": 1215,
+     "end": 2980,
+     "methods": [
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_SuborbitalReentry_ClipsTailAndHandsToBallistic",
+       "line": 1215
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_MissingPatchBody_SkipsLiveOrbitFallback",
+       "line": 1320
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_StillRunsLiveOrbitFallback",
+       "line": 1387
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_HealthyLiveOrbitStillClassifiesDestroyed",
+       "line": 1468
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_HealthyLiveOrbitDestroyedIsStillSuppressedByAFreshRecordedPoint",
+       "line": 1548
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_WithPredictedTail_KeepsTheExtrapolatedVerdict",
+       "line": 1608
+      },
+      {
+       "method": "IsNoSolverDestroyedFallback_RequiresTheLiveFallbackAndANullSolverSnapshot",
+       "line": 1673
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_FreshRecordedPointSuppressesSubSurfaceDestroyed",
+       "line": 1688
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecordedPointWithVelocityRecoversThroughExtrapolation",
+       "line": 1770
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecordedPointRecoveryAlsoSubSurfaceFallsThroughToSuppression",
+       "line": 1905
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildParentStructuralPointSkipsRecovery",
+       "line": 1981
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecoveryBuilderDeclinedFallsThroughToSuppression",
+       "line": 2037
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildUsesParentStructuralPoint",
+       "line": 2102
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildParentStructuralPointOutsideWindowStillDestroys",
+       "line": 2133
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildStaleChildPointFallsBackToParentStructuralPoint",
+       "line": 2160
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_NonEvaChildParentStructuralPointStillDestroys",
+       "line": 2199
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildParentNonFiniteStructuralPointStillDestroys",
+       "line": 2225
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildParentRelativeBodyFixedStructuralPointSuppressesDestroyed",
+       "line": 2257
+      },
+      {
+       "method": "FinalizeIndividualRecording_SuppressedEvaSubSurface_FinalizesLandedWithSnapshot",
+       "line": 2309
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_SuppressionWarnsPerRecording",
+       "line": 2384
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_StaleRecordedPointStillClassifiesDestroyed",
+       "line": 2435
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RelativeFlatPointDoesNotSuppressSubSurfaceDestroyed",
+       "line": 2499
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RelativebodyFixedFrameCanSuppressSubSurfaceDestroyed",
+       "line": 2537
+      },
+      {
+       "method": "IsRecordedSurfaceContradictionAccepted_NonParentAnchored_RequiresFreshSplitWindow",
+       "line": 2593
+      },
+      {
+       "method": "IsRecordedSurfaceContradictionAccepted_ParentAnchored_AcceptsBodyFixedPointOutsideFreshSplitWindow",
+       "line": 2617
+      },
+      {
+       "method": "IsRecordedSurfaceContradictionAccepted_ParentAnchored_RejectsPointFarOutsideAuthoredCoverage",
+       "line": 2649
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_ParentAnchoredRelativeDebris_ReseedsFromBodyFixedSurface_NotBogusLiveAltitude",
+       "line": 2673
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_ParentAnchoredControlledChild_NotWronglyDestroyed",
+       "line": 2823
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecentPointFromOlderRecordingSuppressesSubSurfaceDestroyed",
+       "line": 2940
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

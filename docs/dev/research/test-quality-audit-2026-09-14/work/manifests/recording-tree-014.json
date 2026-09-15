@@ -1,0 +1,235 @@
+{
+ "batch_id": "recording-tree-014",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "RecordingsTableUITests.cs",
+   "ranges": [
+    {
+     "start": 115,
+     "end": 1187,
+     "methods": [
+      {
+       "method": "RecordingsWindowDefaultWidths_AccountForReFlyColumn",
+       "line": 115
+      },
+      {
+       "method": "TryResolveUnfinishedFlightRewindPoint_NormalRowFindsRpSlot",
+       "line": 122
+      },
+      {
+       "method": "TryResolveUnfinishedFlightRewindPoint_CommittedProvisionalRowFindsRpSlot",
+       "line": 167
+      },
+      {
+       "method": "TryResolveUnfinishedFlightRewindPoint_NonCrashedChildDoesNotPreemptLegacyButtons",
+       "line": 204
+      },
+      {
+       "method": "TryResolveStashableUnfinishedFlightRewindPoint_LandedChildFindsRpSlot",
+       "line": 230
+      },
+      {
+       "method": "TryResolveStashableUnfinishedFlightRewindPoint_WorldInteractingTerminalRejected",
+       "line": 261
+      },
+      {
+       "method": "StashedLandedChildResolvesAsUnfinishedFlightAndNoLongerStashable",
+       "line": 289
+      },
+      {
+       "method": "TryResolveStashableUnfinishedFlightRewindPoint_AlreadyUnfinishedFlightReturnsFalse",
+       "line": 325
+      },
+      {
+       "method": "ResolveUnfinishedFlightRewindRoute_SupersededOriginDoesNotPreemptLegacyButtons",
+       "line": 352
+      },
+      {
+       "method": "ResolveUnfinishedFlightRewindRoute_MissingSlotDoesNotExposeUnfinishedFlightButton",
+       "line": 392
+      },
+      {
+       "method": "ResolveSlotListIndexForRecording_ReturnsListIndexNotSlotId",
+       "line": 419
+      },
+      {
+       "method": "TryResolveRewindPointForRecording_ActiveParentOfBreakup_ResolvesViaChildBranchPointId",
+       "line": 439
+      },
+      {
+       "method": "CanInvokeRewindPointSlot_DisabledSlotBlocksBeforeGlobalPreconditions",
+       "line": 495
+      },
+      {
+       "method": "PruneStaleWatchEntries_RemovesEntriesForDeletedRecordings",
+       "line": 516
+      },
+      {
+       "method": "PruneStaleWatchEntries_EmptyCommitted_ClearsBothDicts",
+       "line": 556
+      },
+      {
+       "method": "PruneStaleWatchEntries_NullCommitted_ClearsBothDicts",
+       "line": 572
+      },
+      {
+       "method": "PruneStaleWatchEntries_GroupKeyWithoutSlash_DroppedDefensively",
+       "line": 586
+      },
+      {
+       "method": "PruneStaleWatchEntries_NullDicts_DoesNotThrow",
+       "line": 607
+      },
+      {
+       "method": "PruneStaleWatchEntries_StaleGroupCursorEntries_Removed",
+       "line": 617
+      },
+      {
+       "method": "PruneStaleWatchEntries_EmptyCommitted_ClearsGroupCursor",
+       "line": 643
+      },
+      {
+       "method": "WatchTransitionLogging_BothCallSitesGuardNullRecordingId_PinnedBySourceInspection",
+       "line": 657
+      },
+      {
+       "method": "TemporalButtons_RpBackedUnfinishedRowsPreemptLegacyRewind_PinnedBySourceInspection",
+       "line": 698
+      },
+      {
+       "method": "TemporalButtons_RemainIndependentFromWatchState_PinnedBySourceInspection",
+       "line": 731
+      },
+      {
+       "method": "GetWatchButtonReason_PrioritizesDebris",
+       "line": 794
+      },
+      {
+       "method": "IsWatchButtonEnabled_RequiresGhostSameBodyRangeAndNonDebris",
+       "line": 803
+      },
+      {
+       "method": "ShouldEnableWatchButton_KeepsWatchedUnavailableRowsClickable",
+       "line": 818
+      },
+      {
+       "method": "UpdateWatchButtonTransitionCache_TracksFirstChangeAndSuppressesDuplicates",
+       "line": 827
+      },
+      {
+       "method": "UpdateWatchButtonTransitionCache_EmptyKey_DoesNotMutateCache",
+       "line": 838
+      },
+      {
+       "method": "GetWatchButtonTooltip_ExplainsNoGhost",
+       "line": 847
+      },
+      {
+       "method": "GetWatchButtonTooltip_WatchingPrioritizesExit",
+       "line": 856
+      },
+      {
+       "method": "WatchTransitionLogging_IncludesEligibilityAndFocusObservability_PinnedBySourceInspection",
+       "line": 865
+      },
+      {
+       "method": "GroupWatchUsesRotationCursor_PinnedBySourceInspection",
+       "line": 884
+      },
+      {
+       "method": "GetRecordingSortKey_LaunchTime_ReturnsStartUT",
+       "line": 920
+      },
+      {
+       "method": "GetRecordingSortKey_Duration_ReturnsDuration",
+       "line": 928
+      },
+      {
+       "method": "GetRecordingSortKey_Status_Future",
+       "line": 936
+      },
+      {
+       "method": "GetRecordingSortKey_Status_Active",
+       "line": 944
+      },
+      {
+       "method": "GetRecordingSortKey_Status_Past",
+       "line": 952
+      },
+      {
+       "method": "GetRecordingSortKey_Index_ReturnsRowFallback",
+       "line": 960
+      },
+      {
+       "method": "GetRecordingSortKey_Phase_ReturnsRowFallback",
+       "line": 968
+      },
+      {
+       "method": "GetPhaseStyleKey_SuppressedEvaBoundary_UsesLastSectionClass",
+       "line": 977
+      },
+      {
+       "method": "GetPhaseStyleKey_NonSuppressed_ReturnsSegmentPhase",
+       "line": 995
+      },
+      {
+       "method": "GetRecordingSortKey_Name_ReturnsRowFallback",
+       "line": 1008
+      },
+      {
+       "method": "GetChainSortKey_LaunchTime_ReturnsEarliestStartUT",
+       "line": 1018
+      },
+      {
+       "method": "GetChainSortKey_Duration_ReturnsSumOfPositiveDurations",
+       "line": 1033
+      },
+      {
+       "method": "GetChainSortKey_Status_ReturnsBestAmongMembers",
+       "line": 1048
+      },
+      {
+       "method": "GetChainSortKey_DefaultColumn_ReturnsZero",
+       "line": 1063
+      },
+      {
+       "method": "GetGroupEarliestStartUT_EmptyDescendants_ReturnsMaxValue",
+       "line": 1075
+      },
+      {
+       "method": "GetGroupEarliestStartUT_Single_ReturnsStartUT",
+       "line": 1082
+      },
+      {
+       "method": "GetGroupEarliestStartUT_Multiple_ReturnsMinimum",
+       "line": 1090
+      },
+      {
+       "method": "GetGroupTotalDuration_EmptyDescendants_ReturnsZero",
+       "line": 1105
+      },
+      {
+       "method": "GetGroupTotalDuration_SingleRecording_ReturnsDuration",
+       "line": 1112
+      },
+      {
+       "method": "GetGroupTotalDuration_SkipsZeroDuration",
+       "line": 1120
+      },
+      {
+       "method": "GetGroupTotalDuration_SumsAllPositive",
+       "line": 1132
+      },
+      {
+       "method": "FindGroupMainRecordingIndex_EmptyDescendants_ReturnsNegativeOne",
+       "line": 1147
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

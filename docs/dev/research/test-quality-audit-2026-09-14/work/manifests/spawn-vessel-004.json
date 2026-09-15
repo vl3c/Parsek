@@ -1,0 +1,179 @@
+{
+ "batch_id": "spawn-vessel-004",
+ "cluster": "spawn-vessel",
+ "tier": "A",
+ "expected_methods": 40,
+ "files": [
+  {
+   "file": "IdentityLossClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Debris_ReturnsFalse_EvenWhenAllControllersGone",
+       "line": 37
+      },
+      {
+       "method": "NullControllers_ReturnsFalse",
+       "line": 50
+      },
+      {
+       "method": "EmptyControllers_ReturnsFalse",
+       "line": 64
+      },
+      {
+       "method": "LiveTrackable_ReturnsFalse_EvenIfNoneOfRecordedPidsSurvive",
+       "line": 79
+      },
+      {
+       "method": "NoLiveParts_ReturnsTrue",
+       "line": 94
+      },
+      {
+       "method": "AllRecordedControllerPidsMissing_ReturnsTrue",
+       "line": 107
+      },
+      {
+       "method": "OneOfTwoRecordedControllersSurvives_ReturnsFalse",
+       "line": 121
+      },
+      {
+       "method": "ZeroPidRecordedController_IsSkipped",
+       "line": 135
+      },
+      {
+       "method": "AllZeroPidRecordedControllers_TreatedAsIdentityLost",
+       "line": 149
+      },
+      {
+       "method": "MarkDestroyedAtTerminal_SetsTerminalFields",
+       "line": 170
+      },
+      {
+       "method": "MarkDestroyedAtTerminal_ClearsVesselSituationAndSceneExitSituation",
+       "line": 188
+      },
+      {
+       "method": "MarkDestroyedAtTerminal_ClearsStaleTerminalOrbitData",
+       "line": 208
+      },
+      {
+       "method": "MarkDestroyedAtTerminal_ClearsStaleSurfaceData",
+       "line": 242
+      },
+      {
+       "method": "MarkDestroyedAtTerminal_LogsInfoFirstTime",
+       "line": 264
+      },
+      {
+       "method": "MarkDestroyedAtTerminal_Idempotent_NoRepeatLogOnSecondCall",
+       "line": 278
+      },
+      {
+       "method": "AdoptControllersIfEmpty_NullSource_NoChange",
+       "line": 297
+      },
+      {
+       "method": "AdoptControllersIfEmpty_EmptySource_NoChange",
+       "line": 306
+      },
+      {
+       "method": "AdoptControllersIfEmpty_NullTarget_AdoptsCopy",
+       "line": 315
+      },
+      {
+       "method": "AdoptControllersIfEmpty_EmptyTarget_AdoptsCopy",
+       "line": 337
+      },
+      {
+       "method": "AdoptControllersIfEmpty_PopulatedTarget_NoOverwrite",
+       "line": 353
+      },
+      {
+       "method": "ActiveRootBackgrounded_FlushForwardsControllers_AllowingIdentityLossOverride",
+       "line": 379
+      },
+      {
+       "method": "UpdateOnRails_SkipsDestroyedRecording_DoesNotOverwriteExplicitEndUT",
+       "line": 447
+      },
+      {
+       "method": "FinalizeAllForCommit_SkipsDestroyedRecording_DoesNotOverwriteExplicitEndUT",
+       "line": 486
+      },
+      {
+       "method": "UpdateOnRails_StillUpdatesLiveRecording",
+       "line": 514
+      },
+      {
+       "method": "Constructor_SkipsDestroyedRecordings_DoesNotSeedOnRailsState",
+       "line": 541
+      },
+      {
+       "method": "FinalizeAllForCommit_LoadedStateDestroyed_DoesNotMutateRecording",
+       "line": 570
+      },
+      {
+       "method": "Shutdown_LoadedStateDestroyed_DoesNotMutateRecording",
+       "line": 614
+      },
+      {
+       "method": "Shutdown_OnRailsStateDestroyed_DoesNotMutateRecording",
+       "line": 649
+      },
+      {
+       "method": "RecordingOptimizer_MergeInto_SkipsDestroyedTarget",
+       "line": 690
+      },
+      {
+       "method": "RetiredEntry_DoesNotTriggerBackgroundStateDrift",
+       "line": 731
+      },
+      {
+       "method": "HandleBackgroundVesselSplit_DestroyedParent_SkipsSplitCreation",
+       "line": 781
+      },
+      {
+       "method": "PreserveLiveRuntimeFieldsOnReplace_DestroyedIncoming_DoesNotResurrectClearedUIStrings",
+       "line": 824
+      },
+      {
+       "method": "PreserveLiveRuntimeFieldsOnReplace_LiveIncoming_StillCopiesStaleUIStrings",
+       "line": 866
+      },
+      {
+       "method": "PreserveLiveRuntimeFieldsOnReplace_StaleSpawnPidNotLive_DropsStampAndDoesNotReinstall",
+       "line": 902
+      },
+      {
+       "method": "PreserveLiveRuntimeFieldsOnReplace_SpawnPidStillLive_PreservesStamp",
+       "line": 935
+      },
+      {
+       "method": "PreserveLiveRuntimeFieldsOnReplace_NullLiveSet_PreservesStampAsBefore",
+       "line": 965
+      },
+      {
+       "method": "PreserveLiveRuntimeFieldsOnReplace_IncomingHasOwnSpawnPid_StaleExistingDoesNotClobber",
+       "line": 992
+      },
+      {
+       "method": "PreserveLiveRuntimeFieldsOnReplace_EmptyLiveSet_DropsStaleStamp",
+       "line": 1030
+      },
+      {
+       "method": "OnVesselBackgrounded_SkipsDestroyedRecording_DoesNotInitializeState",
+       "line": 1058
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_CopiesControllers",
+       "line": 1093
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,327 @@
+{
+ "batch_id": "spawn-vessel-021",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 55,
+ "files": [
+  {
+   "file": "SpawnControlPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RealSpawnControl_ListBounds_ExceedFFGate",
+       "line": 16
+      },
+      {
+       "method": "SortCandidates_ByNameAscending_UsesCaseInsensitiveOrder",
+       "line": 28
+      },
+      {
+       "method": "SortCandidates_BySpawnTimeDescending_UsesRequestedDirection",
+       "line": 46
+      },
+      {
+       "method": "SortCandidates_ByRelativeSpeedAscending_OrdersBySpeed",
+       "line": 64
+      },
+      {
+       "method": "BuildRowPresentation_NonDepartingCandidate_ShowsSpawnAction",
+       "line": 82
+      },
+      {
+       "method": "BuildRowPresentation_DepartureInFuture_ShowsCountdownAndEnabledDepartureAction",
+       "line": 104
+      },
+      {
+       "method": "BuildRowPresentation_DepartureAlreadyDue_DisablesWarpAndUsesDepartingState",
+       "line": 128
+      },
+      {
+       "method": "BuildRowPresentation_RelativeSpeedAboveGate_DisablesWarpAndClearsConditionsMet",
+       "line": 153
+      },
+      {
+       "method": "BuildRowPresentation_DistanceAboveRadius_DisablesWarpAndClearsConditionsMet",
+       "line": 172
+      },
+      {
+       "method": "BuildRowPresentation_RelativeSpeedNotYetSampled_DisablesWarp",
+       "line": 190
+      },
+      {
+       "method": "FormatRelativeSpeed_NotSampled_ReturnsDash",
+       "line": 208
+      },
+      {
+       "method": "FormatRelativeSpeed_BelowTen_PrintsOneDecimal",
+       "line": 217
+      },
+      {
+       "method": "FormatRelativeSpeed_TenOrAbove_PrintsInteger",
+       "line": 226
+      },
+      {
+       "method": "FormatRelativeSpeed_UsesInvariantCulture_NotCommaLocale",
+       "line": 235
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SnapshotSidecarCodecTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Write_Load_UnnamedNodeFallsBackToSnapshotNodeName",
+       "line": 51
+      },
+      {
+       "method": "TryProbe_UnsupportedCodec_ReportsUnknownBinaryMetadata",
+       "line": 76
+      },
+      {
+       "method": "TryLoad_ChecksumMismatch_ReturnsFalseAfterSuccessfulHeaderProbe",
+       "line": 97
+      },
+      {
+       "method": "TryLoad_InvalidWrapperShape_ReturnsWrappedSnapshotParseFailed",
+       "line": 120
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "VesselSnapshotRehydrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Hydrate_AlreadyLoaded_IsNoOp_AndDoesNotTouchDisk",
+       "line": 66
+      },
+      {
+       "method": "Hydrate_FromSidecar_RestoresDroppedSnapshot_AndLogs",
+       "line": 80
+      },
+      {
+       "method": "Hydrate_MissingSidecar_ReturnsFalse_LeavesNull",
+       "line": 96
+      },
+      {
+       "method": "Hydrate_NullOrEmptyPath_ReturnsFalse",
+       "line": 110
+      },
+      {
+       "method": "Hydrate_InvalidSidecarContent_ReturnsFalse_NoCrash",
+       "line": 119
+      },
+      {
+       "method": "Hydrate_NullRecording_ReturnsFalse",
+       "line": 132
+      },
+      {
+       "method": "Hydrate_AfterMissingSidecar_NegativeCache_SkipsLaterProbe",
+       "line": 138
+      },
+      {
+       "method": "Hydrate_EmptyPath_DoesNotPoisonNegativeCache",
+       "line": 155
+      },
+      {
+       "method": "Gate_InMemorySnapshotPresent_SpawnableLeaf_StillSpawns",
+       "line": 173
+      },
+      {
+       "method": "Gate_NullSnapshot_SpawnableLeaf_NoSidecarResolvable_ReportsNoSnapshot",
+       "line": 190
+      },
+      {
+       "method": "Gate_NullSnapshot_Debris_DoesNotAttemptHydration_ReportsNoSnapshot",
+       "line": 210
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SpawnAuditFollowupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CleanupFailedSpawnedProtoVessel_DestroyFailureStillRemovesAndLogsWarning",
+       "line": 39
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_PreparedSnapshotHappyPath_RepairsCopyOnly",
+       "line": 60
+      },
+      {
+       "method": "ApplyResolvedSpawnStateToSnapshot_EvaRecording_OverridesCoordsRotationAndStripsLadder",
+       "line": 123
+      },
+      {
+       "method": "ApplyResolvedSpawnStateToSnapshot_StripEvaDisabled_LeavesLadderState",
+       "line": 174
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SpawnCleanupGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RevertPath_SetsCleanupData_WhenNotAlreadySet",
+       "line": 37
+      },
+      {
+       "method": "RewindThenRevert_CleanupDataSurvives",
+       "line": 61
+      },
+      {
+       "method": "RewindThenRevert_WithoutGuard_WouldLoseData",
+       "line": 93
+      },
+      {
+       "method": "ResetForTesting_ClearsPendingCleanupData",
+       "line": 127
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "VesselCostRecoveryRegressionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TwoPoints_Recovered_ProducesRecoveryEarning",
+       "line": 51
+      },
+      {
+       "method": "NotRecovered_Destroyed_NoFundsEarning",
+       "line": 78
+      },
+      {
+       "method": "Recovered_ButRecoveryDeltaIsZero_NoEarning",
+       "line": 100
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SpawnWarningUITests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatChainStatus_ActiveChain_ShowsSpawnUT",
+       "line": 36
+      },
+      {
+       "method": "FormatChainStatus_TerminatedChain_ShowsTerminated",
+       "line": 57
+      },
+      {
+       "method": "FormatChainStatus_BlockedChain_ShowsBlocked",
+       "line": 76
+      },
+      {
+       "method": "FormatChainStatus_NullChain_ReturnsNull",
+       "line": 95
+      },
+      {
+       "method": "FormatChainStatus_BlockedTakesPriorityOverTerminated",
+       "line": 102
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DebrisRelativeCoveragePrimitivesTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RelativeFramesCoverUT_PlaybackCompatibleSingleFrame_CoversSectionSpan",
+       "line": 9
+      },
+      {
+       "method": "RelativeFramesCoverUT_RecorderPersistableSingleFrame_CoversOnlySampleUT",
+       "line": 22
+      },
+      {
+       "method": "BodyFixedPrimaryFramesCoverUT_RequiresTwoPoints",
+       "line": 41
+      },
+      {
+       "method": "TryGetRenderableCoverageEndUT_ShadowTailLaterThanRelativeTail_UsesShadowTail",
+       "line": 57
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SnapshotVesselNameLocalizationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullSnapshot_DoesNotThrow",
+       "line": 27
+      },
+      {
+       "method": "MissingNameValue_LeavesSnapshotUnchanged",
+       "line": 33
+      },
+      {
+       "method": "EmptyNameValue_LeavesEmpty",
+       "line": 41
+      },
+      {
+       "method": "RegularName_LeavesUnchanged",
+       "line": 50
+      },
+      {
+       "method": "NonLocKeyHashPrefix_LeavesUnchanged",
+       "line": 59
+      },
+      {
+       "method": "AutoLocToken_LocalizerUnavailable_LeavesToken",
+       "line": 69
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

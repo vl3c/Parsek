@@ -1,0 +1,171 @@
+{
+ "batch_id": "recording-tree-049",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 38,
+ "files": [
+  {
+   "file": "RecordingsManagerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatDuration_Seconds",
+       "line": 31
+      },
+      {
+       "method": "FormatDuration_Minutes",
+       "line": 41
+      },
+      {
+       "method": "FormatDuration_Hours",
+       "line": 51
+      },
+      {
+       "method": "GetStatusOrder_BeforeStart_ReturnsFuture",
+       "line": 68
+      },
+      {
+       "method": "GetStatusOrder_AtStart_ReturnsActive",
+       "line": 75
+      },
+      {
+       "method": "GetStatusOrder_DuringPlayback_ReturnsActive",
+       "line": 82
+      },
+      {
+       "method": "GetStatusOrder_AtEnd_ReturnsActive",
+       "line": 89
+      },
+      {
+       "method": "GetStatusOrder_AfterEnd_ReturnsPast",
+       "line": 96
+      },
+      {
+       "method": "CompareByName_Ascending_AlphabeticalOrder",
+       "line": 122
+      },
+      {
+       "method": "CompareByName_Descending_ReverseOrder",
+       "line": 134
+      },
+      {
+       "method": "CompareByName_CaseInsensitive",
+       "line": 146
+      },
+      {
+       "method": "CompareByName_EmptyTreatedAsUntitled",
+       "line": 158
+      },
+      {
+       "method": "CompareByLaunchTime_EarlierFirst",
+       "line": 170
+      },
+      {
+       "method": "CompareByLaunchTime_SameTime_ReturnsZero",
+       "line": 182
+      },
+      {
+       "method": "CompareByDuration_ShorterFirst",
+       "line": 194
+      },
+      {
+       "method": "CompareByDuration_Descending_LongerFirst",
+       "line": 206
+      },
+      {
+       "method": "CompareByStatus_FutureBeforeActive",
+       "line": 218
+      },
+      {
+       "method": "CompareByStatus_ActiveBeforePast",
+       "line": 230
+      },
+      {
+       "method": "CompareByIndex_ReturnsZero",
+       "line": 242
+      },
+      {
+       "method": "IndexAscending_NaturalOrder",
+       "line": 274
+      },
+      {
+       "method": "IndexDescending_ReversedOrder",
+       "line": 290
+      },
+      {
+       "method": "SortByName_Ascending",
+       "line": 306
+      },
+      {
+       "method": "SortByLaunchTime_Ascending",
+       "line": 323
+      },
+      {
+       "method": "SortByDuration_Ascending",
+       "line": 340
+      },
+      {
+       "method": "SortByStatus_FutureActivesPast",
+       "line": 357
+      },
+      {
+       "method": "SortByName_Descending",
+       "line": 375
+      },
+      {
+       "method": "EmptyList_ReturnsEmptyArray",
+       "line": 392
+      },
+      {
+       "method": "SingleItem_ReturnsSingleIndex",
+       "line": 403
+      },
+      {
+       "method": "RemoveRecordingAt_RemovesCorrectRecording",
+       "line": 458
+      },
+      {
+       "method": "RemoveRecordingAt_FirstItem",
+       "line": 472
+      },
+      {
+       "method": "RemoveRecordingAt_LastItem",
+       "line": 484
+      },
+      {
+       "method": "RemoveRecordingAt_OnlyItem",
+       "line": 496
+      },
+      {
+       "method": "RemoveRecordingAt_OutOfRange_Negative_DoesNothing",
+       "line": 506
+      },
+      {
+       "method": "RemoveRecordingAt_OutOfRange_TooHigh_DoesNothing",
+       "line": 516
+      },
+      {
+       "method": "RemoveRecordingAt_DegradesSiblingsInSameChain",
+       "line": 526
+      },
+      {
+       "method": "RemoveRecordingAt_ChainBranchAlsoDegraded",
+       "line": 557
+      },
+      {
+       "method": "RemoveRecordingAt_StandaloneDoesNotAffectChains",
+       "line": 575
+      },
+      {
+       "method": "RemoveRecordingAt_DifferentChainsUnaffected",
+       "line": 594
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

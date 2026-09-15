@@ -1,0 +1,163 @@
+{
+ "batch_id": "harness-seam-004",
+ "cluster": "harness-seam",
+ "tier": "A",
+ "expected_methods": 36,
+ "files": [
+  {
+   "file": "SeamMarkerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "R2_DockedStretchWithNoPartnerLegs_NamesThePartnerAndItsMission",
+       "line": 133
+      },
+      {
+       "method": "R2_NotEmitted_WhenThePartnerIsAlsoAMember",
+       "line": 153
+      },
+      {
+       "method": "R2_UnstampedZeroPartner_StillFires_WithGenericText",
+       "line": 168
+      },
+      {
+       "method": "R2_NotEmitted_WhenTheSeamIsOutsideTheMergedMembersTrimmedWindow",
+       "line": 183
+      },
+      {
+       "method": "R2_TwoParentMerge_NamesTheParentThisMissionDoesNotReplay",
+       "line": 197
+      },
+      {
+       "method": "R3_PartnerMissionWithLinkOff_ExplainsItsGhostVanishingAtTheDock",
+       "line": 245
+      },
+      {
+       "method": "R3_ExcludedDockInterval_FiresOnThePreDockMember",
+       "line": 266
+      },
+      {
+       "method": "R3_NotEmitted_WhenTheMergedChildIsAMember",
+       "line": 283
+      },
+      {
+       "method": "R3_NotEmitted_WhenTheMemberWindowEndsAwayFromTheDock",
+       "line": 298
+      },
+      {
+       "method": "R3_NotEmitted_ForANonParticipantMemberEndingAtTheSameUT",
+       "line": 310
+      },
+      {
+       "method": "R3_UnresolvedPartner_FiresWithGenericText",
+       "line": 322
+      },
+      {
+       "method": "Board_R2_SaysBoardedNotDocked",
+       "line": 340
+      },
+      {
+       "method": "Board_R3_SaysBoardedAndNamesTheContinuingMission",
+       "line": 356
+      },
+      {
+       "method": "Board_NamedPartner_StillSaysBoarded",
+       "line": 366
+      },
+      {
+       "method": "Markers_AreSortedBySeamUT",
+       "line": 399
+      },
+      {
+       "method": "NullGraph_ProducesNoMarkers",
+       "line": 457
+      },
+      {
+       "method": "LoopUnitBuiltWithoutAGraph_HasNullSeamMarkers",
+       "line": 471
+      },
+      {
+       "method": "Build_LogsTheSummaryLine",
+       "line": 496
+      },
+      {
+       "method": "Build_SuppressLogging_SilencesTheSummaryLine",
+       "line": 508
+      },
+      {
+       "method": "Cursor_FiresOnceInsideTheWindowThenStaysQuiet",
+       "line": 540
+      },
+      {
+       "method": "Cursor_RefiresOnTheNextLoopCycle",
+       "line": 557
+      },
+      {
+       "method": "Cursor_IgnoresMarkersBelongingToOtherMembers",
+       "line": 580
+      },
+      {
+       "method": "Cursor_DoesNotFireBeforeTheSeamOrAfterTheWindow",
+       "line": 591
+      },
+      {
+       "method": "Cursor_AtTheExactSeamBoundary_FiresExactlyOnce",
+       "line": 601
+      },
+      {
+       "method": "Cursor_EmptyOrNullMarkerList_IsANoOp",
+       "line": 618
+      },
+      {
+       "method": "Cursor_ReportsAWindowTheClockSteppedRightOver",
+       "line": 628
+      },
+      {
+       "method": "Cursor_DoesNotReportAWindowItAlreadyFiredIn",
+       "line": 647
+      },
+      {
+       "method": "Runtime_ResetsWhenTheMarkerListIsSwapped",
+       "line": 670
+      },
+      {
+       "method": "Runtime_ResetDropsEveryMembersState",
+       "line": 690
+      },
+      {
+       "method": "Runtime_FiresOncePerCycleAndAgainOnTheNext",
+       "line": 708
+      },
+      {
+       "method": "Runtime_NoMarkers_TracksNothing",
+       "line": 719
+      },
+      {
+       "method": "Accumulator_JoinsMarkersRaisedInTheSameFrame",
+       "line": 735
+      },
+      {
+       "method": "Accumulator_ANewFrameClosesThePreviousLine",
+       "line": 754
+      },
+      {
+       "method": "Accumulator_IgnoresEmptyTextAndExactRepeats",
+       "line": 766
+      },
+      {
+       "method": "R5_LoiterGap_IsStatedWhenTheClaimedLineStopsWellBeforeTheDock",
+       "line": 786
+      },
+      {
+       "method": "R5_NoGapText_WhenTheLineRunsUpToTheDockOrIsMissing",
+       "line": 807
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

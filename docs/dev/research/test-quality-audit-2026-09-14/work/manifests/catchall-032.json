@@ -1,0 +1,238 @@
+{
+ "batch_id": "catchall-032",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "PreParsekBackupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldBackup_TruthTable",
+       "line": 56
+      },
+      {
+       "method": "ShouldBackup_FootprintBeatsBrandNew_SoParsekTouchedSaveNeverCaptured",
+       "line": 67
+      },
+      {
+       "method": "SanitizeSaveName_ReplacesInvalidChars",
+       "line": 85
+      },
+      {
+       "method": "BuildBackupFolderName_FormatsLocalTimestamp",
+       "line": 100
+      },
+      {
+       "method": "BuildBackupFolderName_AppendsSuffixOnCollision",
+       "line": 108
+      },
+      {
+       "method": "BuildBackupFolderName_SanitizesBaseName",
+       "line": 121
+      },
+      {
+       "method": "IsBrandNewEmptySave_TrueForParsedEmptySave",
+       "line": 136
+      },
+      {
+       "method": "IsBrandNewEmptySave_FalseWhenAnyActivityPresent",
+       "line": 143
+      },
+      {
+       "method": "IsBrandNewEmptySave_FailOpen_FalseWhenUnparsed",
+       "line": 163
+      },
+      {
+       "method": "HasParsekGameplayFootprint_TrueWhenParsekSubdirExists",
+       "line": 173
+      },
+      {
+       "method": "HasParsekGameplayFootprint_FalseForEmptyInjectedNode",
+       "line": 179
+      },
+      {
+       "method": "HasParsekGameplayFootprint_TrueForPopulatedNode",
+       "line": 187
+      },
+      {
+       "method": "HasParsekGameplayFootprint_FalseWhenNoParsekNode",
+       "line": 194
+      },
+      {
+       "method": "HasParsekGameplayFootprint_TrueForValueOnlyNode",
+       "line": 201
+      },
+      {
+       "method": "HasParsekGameplayFootprint_FalseForNullRootWithoutSubdir",
+       "line": 216
+      },
+      {
+       "method": "EvaluateCapturedPristine_TrueForACleanCapture",
+       "line": 255
+      },
+      {
+       "method": "EvaluateCapturedPristine_TrueWhenTheOnlyNodeIsTheEmptyOneKspInjects",
+       "line": 265
+      },
+      {
+       "method": "EvaluateCapturedPristine_FalseWhenTheCaptureCarriesAPopulatedNode",
+       "line": 280
+      },
+      {
+       "method": "EvaluateCapturedPristine_FalseWhenTheCaptureCarriesAParsekSubdir",
+       "line": 290
+      },
+      {
+       "method": "EvaluateCapturedPristine_UNVERIFIED_NotNotPristine_WhenThereIsNothingToRead",
+       "line": 301
+      },
+      {
+       "method": "BackupFolderPrefixFor_IsThePrefixBuildBackupFolderNameActuallyWrites",
+       "line": 323
+      },
+      {
+       "method": "FindBackupFoldersFor_ReturnsOnlyThisSavesBackups_Sorted",
+       "line": 334
+      },
+      {
+       "method": "FindBackupFoldersFor_EmptyOnMissingOrUnnamedInputs",
+       "line": 355
+      },
+      {
+       "method": "IsParsekBackupFolder_TrueOnNameFragment",
+       "line": 366
+      },
+      {
+       "method": "IsParsekBackupFolder_TrueWhenSentinelPresent",
+       "line": 372
+      },
+      {
+       "method": "IsParsekBackupFolder_FalseForOrdinarySave",
+       "line": 379
+      },
+      {
+       "method": "CopyDirectory_CopiesTreeAndCounts",
+       "line": 387
+      },
+      {
+       "method": "CopyDirectory_HonorsTopLevelExclude_CaseInsensitive",
+       "line": 406
+      },
+      {
+       "method": "CopyDirectory_NonExistentSource_IsNoOpSuccess",
+       "line": 425
+      },
+      {
+       "method": "CopyDirectory_ReturnsFalseAndWarns_OnCopyFailure",
+       "line": 436
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FilterCandidatesForReFlyProvisionalTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullCandidates_ReturnsNull",
+       "line": 69
+      },
+      {
+       "method": "EmptyCandidates_PassesThroughUnchanged",
+       "line": 81
+      },
+      {
+       "method": "NullMarker_PassesThroughUnchanged",
+       "line": 94
+      },
+      {
+       "method": "ActiveRecordingNotProvisional_PassesThroughUnchanged",
+       "line": 112
+      },
+      {
+       "method": "NullSameTreeIds_PassesThroughUnchanged",
+       "line": 131
+      },
+      {
+       "method": "EmptySameTreeIds_PassesThroughUnchanged",
+       "line": 149
+      },
+      {
+       "method": "OnlyOutOfTreeCandidates_PassesThroughUnchanged",
+       "line": 168
+      },
+      {
+       "method": "OnlyInTreeCandidates_FiltersToEmpty",
+       "line": 195
+      },
+      {
+       "method": "MixedCandidates_KeepsOutOfTreeDropsInTree",
+       "line": 223
+      },
+      {
+       "method": "SupersedeTargetSpecifically_FilteredOut",
+       "line": 251
+      },
+      {
+       "method": "CandidateWithEmptyRecordingId_NeverFiltered",
+       "line": 278
+      },
+      {
+       "method": "DropsAreLogged_WithCountAndProvisionalId",
+       "line": 306
+      },
+      {
+       "method": "NoDropsAreNotLogged",
+       "line": 334
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_NullMarker_ReturnsFalse",
+       "line": 357
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_MismatchActiveId_ReturnsFalse",
+       "line": 367
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_NullActiveId_ReturnsFalse",
+       "line": 383
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_EmptyActiveId_ReturnsFalse",
+       "line": 398
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_MatchingMarker_ReturnsTrue",
+       "line": 413
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_Wrapper_NullScenario_ReturnsFalse",
+       "line": 434
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_Wrapper_NullActiveTree_ReturnsFalse",
+       "line": 450
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesActiveId_ReturnsTrue",
+       "line": 472
+      },
+      {
+       "method": "IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesParentAnchored_ReturnsTrue",
+       "line": 501
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

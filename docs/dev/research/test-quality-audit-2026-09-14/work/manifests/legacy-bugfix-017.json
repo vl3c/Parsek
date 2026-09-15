@@ -1,0 +1,266 @@
+{
+ "batch_id": "legacy-bugfix-017",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "Bug277OrphanCrewPlacementTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_OriginalInSinglePartSnapshot_ReturnsMatch",
+       "line": 79
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_OriginalNotInSnapshot_ReturnsNotFound",
+       "line": 94
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_NullOriginal_ReturnsNotFound",
+       "line": 107
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_EmptyOriginal_ReturnsNotFound",
+       "line": 118
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_NullSnapshotEnumerable_ReturnsNotFound",
+       "line": 129
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_NullSnapshotInList_SkippedNotCrash",
+       "line": 138
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_PartWithNoCrewValues_SkippedAndContinues",
+       "line": 150
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_MultiPartSnapshot_ReturnsCorrectPartContainingOriginal",
+       "line": 176
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_MultipleSnapshots_FirstSnapshotWins",
+       "line": 193
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_OnlySecondSnapshotContainsOriginal_FindsIt",
+       "line": 208
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_PartWithoutPidValue_ReturnsZeroPid",
+       "line": 223
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_PartWithoutNameValue_ReturnsEmptyName",
+       "line": 240
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_ReverseMapsStandinToOriginal_FindsMatch",
+       "line": 262
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_ReverseMapMissingEntry_DoesNotFalselyMatch",
+       "line": 284
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_NullReverseMap_DirectMatchStillWorks",
+       "line": 301
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_KerbalXBobOnEvaScenario_FindsMk1_3PodSeat",
+       "line": 316
+      },
+      {
+       "method": "BuildSpawnedVesselPidSet_MatchesSpawnedPid",
+       "line": 341
+      },
+      {
+       "method": "BuildSpawnedVesselPidSet_ZeroPid_NotIncluded",
+       "line": 353
+      },
+      {
+       "method": "BuildSpawnedVesselPidSet_NullRecordings_ReturnsEmpty",
+       "line": 365
+      },
+      {
+       "method": "BuildSpawnedVesselPidSet_DistinguishesSpawnedFromNonSpawned",
+       "line": 373
+      },
+      {
+       "method": "ActiveVesselIsParsekSpawned_AdoptionStampGuidMismatch_NotSpawned",
+       "line": 394
+      },
+      {
+       "method": "ActiveVesselIsParsekSpawned_AdoptionStampGuidMatch_IsSpawned",
+       "line": 406
+      },
+      {
+       "method": "ActiveVesselIsParsekSpawned_AdoptionStampGuidUnknown_FallsBackToPid",
+       "line": 416
+      },
+      {
+       "method": "ActiveVesselIsParsekSpawned_RealSpawnDistinctPid_StaysPidOnly",
+       "line": 426
+      },
+      {
+       "method": "ActiveVesselIsParsekSpawned_NoMatchingPid_False",
+       "line": 438
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_KspFormat_ReadsPersistentIdField",
+       "line": 476
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_KspFormat_BillReplacementScenario_ReproducesLogLine",
+       "line": 491
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_PrefersPersistentIdWhenBothPresent",
+       "line": 512
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_LegacyPidFieldStillWorksAsFallback",
+       "line": 532
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_KspFormat_MultiPartVessel",
+       "line": 553
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_MissingBothFields_ReturnsZeroPidButStillFound",
+       "line": 581
+      },
+      {
+       "method": "ResolveOrphanSeatFromSnapshots_KspFormat_InvariantCultureParsing",
+       "line": 600
+      },
+      {
+       "method": "ShouldSuppressOrphanPlacement_ActiveIsFreshRollout_Suppresses",
+       "line": 633
+      },
+      {
+       "method": "ShouldSuppressOrphanPlacement_ActivePidDiffersFromRollout_DoesNotSuppress",
+       "line": 641
+      },
+      {
+       "method": "ShouldSuppressOrphanPlacement_NoRolloutCaptured_DoesNotSuppress",
+       "line": 650
+      },
+      {
+       "method": "ShouldSuppressOrphanPlacement_ActivePidZero_DoesNotSuppress",
+       "line": 659
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug460MainLoopBreakdownTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AboveGates_MainLoopDominated_FiresBreakdown_WithAllFields",
+       "line": 125
+      },
+      {
+       "method": "MeanPerTrajectory_IsUsPerDispatch_NotMs",
+       "line": 156
+      },
+      {
+       "method": "ZeroTrajectoriesAndOverlap_RendersMeanAsNa",
+       "line": 174
+      },
+      {
+       "method": "OverlapFanOut_MeanPerDispatchSmallerThanMeanPerTraj",
+       "line": 196
+      },
+      {
+       "method": "GhostsProcessedNonZero_DoesNotFireBreakdown",
+       "line": 218
+      },
+      {
+       "method": "SpawnOverOneMs_DoesNotFireBreakdown",
+       "line": 234
+      },
+      {
+       "method": "DestroyOverOneMs_DoesNotFireBreakdown",
+       "line": 255
+      },
+      {
+       "method": "MainLoopBelowFloor_DoesNotFireBreakdown",
+       "line": 272
+      },
+      {
+       "method": "MainLoopNotDominant_DoesNotFireBreakdown",
+       "line": 293
+      },
+      {
+       "method": "TotalBelowBudget_DoesNotFireBreakdown",
+       "line": 314
+      },
+      {
+       "method": "LatchIndependentOfBug414Latch",
+       "line": 331
+      },
+      {
+       "method": "LatchIndependentOfBug450Latch",
+       "line": 346
+      },
+      {
+       "method": "SpawnDominated0GhostSpike_FiresBug414And450_But_NOT_460",
+       "line": 361
+      },
+      {
+       "method": "FreshSession_HelperSpike_FiresBug414And460_But_NOT_450",
+       "line": 381
+      },
+      {
+       "method": "ResetPlaybackBreakdownOneShotForTesting_ReArmsAllThreeLatches",
+       "line": 404
+      },
+      {
+       "method": "ResetForTesting_ReArmsTheNewBug460Latch",
+       "line": 431
+      },
+      {
+       "method": "MainLoopExactlyAtFloor_FiresBreakdown",
+       "line": 453
+      },
+      {
+       "method": "SpawnExactlyOneMs_DoesNotFireBreakdown",
+       "line": 471
+      },
+      {
+       "method": "DestroyExactlyOneMs_DoesNotFireBreakdown",
+       "line": 487
+      },
+      {
+       "method": "MainLoopTiedWithCompetingPhase_DoesNotFireBreakdown",
+       "line": 500
+      },
+      {
+       "method": "MainLoopLessThanSummedDeferredEvents_DoesNotFireBreakdown",
+       "line": 518
+      },
+      {
+       "method": "MainLoop450And460_MutuallyExclusive_CannotBothFireOnSameFrame",
+       "line": 543
+      },
+      {
+       "method": "BelowThreshold_DoesNotFireAnyBreakdown",
+       "line": 574
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

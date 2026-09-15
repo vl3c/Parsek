@@ -1,0 +1,175 @@
+{
+ "batch_id": "mission-groups-008",
+ "cluster": "mission-groups",
+ "tier": "A",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "MissionPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SummaryNextLaunchText_OnlyForwardsACountdown",
+       "line": 121
+      },
+      {
+       "method": "ComputeSummaryFacts_SpanVesselsCrewAndOutcome",
+       "line": 133
+      },
+      {
+       "method": "ComputeSummaryFacts_ExcludesEvaKerbalsFromTheVesselCount",
+       "line": 156
+      },
+      {
+       "method": "ComputeSummaryFacts_NullModels_NoSpanNoCounts",
+       "line": 179
+      },
+      {
+       "method": "BuildIntervalRowLabel_FirstInterval_KeepsVesselAndComposition",
+       "line": 194
+      },
+      {
+       "method": "BuildIntervalRowLabel_LaterInterval_LeadsWithTheDelta",
+       "line": 202
+      },
+      {
+       "method": "BuildIntervalRowLabel_UnresolvedOrNonSeparation_KeepsTheOldLabel",
+       "line": 216
+      },
+      {
+       "method": "BuildIntervalRowLabel_AtomOrEvaRow_IsTheBareLabel",
+       "line": 227
+      },
+      {
+       "method": "SeparationVerb_MapsOnlySeparations",
+       "line": 237
+      },
+      {
+       "method": "ResolvePeeledSiblingVesselName_FindsThePieceThatLeftAtTheBoundary",
+       "line": 252
+      },
+      {
+       "method": "ResolvePeeledSiblingVesselName_IgnoresSelfAtomsAndOtherUTs",
+       "line": 278
+      },
+      {
+       "method": "ResolveSameTreeDockPartner_NamesTheOtherParent",
+       "line": 357
+      },
+      {
+       "method": "ResolveSameTreeDockPartner_SingleParentMerge_NamesNobody",
+       "line": 378
+      },
+      {
+       "method": "ResolveSameTreeDockPartner_UnknownOwnerOrNullModels_NamesNobody",
+       "line": 400
+      },
+      {
+       "method": "BuildDockPartnerStartEventText_FallsBackToTheBareWord",
+       "line": 416
+      },
+      {
+       "method": "IsDockEventWord_OnlyTheTwoMergeWords",
+       "line": 424
+      },
+      {
+       "method": "BuildPeriodStateTooltip_NamesEachState",
+       "line": 464
+      },
+      {
+       "method": "PeriodTooltipLocked_IsStillDrawnByTheRouteOwnedPeriodLabel",
+       "line": 488
+      },
+      {
+       "method": "ThePeriodTooltipLockedScanRedsWhenTheOnlyMentionIsAComment",
+       "line": 504
+      },
+      {
+       "method": "BuildNextLaunchCellTooltip_ExplainsTheStateWordsAndKeepsAmberReasons",
+       "line": 528
+      },
+      {
+       "method": "IncludeCheckboxTooltip_SaysItIsLoopMembershipNotVisibility",
+       "line": 545
+      },
+      {
+       "method": "ChapterIncludeCheckboxTooltip_ExplainsTheMixedMarkerAndTheClick",
+       "line": 559
+      },
+      {
+       "method": "BuildLoopMovedScreenMessage_NamesWinnerAndLosers",
+       "line": 576
+      },
+      {
+       "method": "BuildLoopMovedScreenMessage_NothingCleared_PostsNothing",
+       "line": 589
+      },
+      {
+       "method": "BuildLoopMovedScreenMessage_UnnamedMissionsReadAsPlaceholders",
+       "line": 597
+      },
+      {
+       "method": "BuildBodyPathText_MergesLegSequencesAndCollapsesBoundaryDuplicates",
+       "line": 607
+      },
+      {
+       "method": "BuildBodyPathText_SingleBodyRendersBare_EmptyRendersNothing",
+       "line": 624
+      },
+      {
+       "method": "BuildCrewNamesText_CapsAtThreeNamesWithACountForTheRest",
+       "line": 635
+      },
+      {
+       "method": "BuildNarrativeSummaryLine_BodyPathLeadsAndEveryPieceJoins",
+       "line": 648
+      },
+      {
+       "method": "BuildNarrativeSummaryLine_FallsBackToSpanDatesWithoutABodyPath",
+       "line": 663
+      },
+      {
+       "method": "BuildNarrativeSummaryLine_UnnamedCrewFallsBackToTheCount",
+       "line": 675
+      },
+      {
+       "method": "BuildSummaryDetailTooltip_CarriesTheFactsTheNarrativeDropped",
+       "line": 683
+      },
+      {
+       "method": "BuildSummaryDetailTooltip_NoDetail_FallsBackToTheGenericTooltip",
+       "line": 701
+      },
+      {
+       "method": "ComputeSummaryFacts_CrewNamesInFirstAppearanceOrder",
+       "line": 708
+      },
+      {
+       "method": "GetBodyTransitionSequence_WalksPointsAndFallsBackToTheStartBody",
+       "line": 742
+      },
+      {
+       "method": "GetBodyTransitionSequence_OneBodyPointsFallThroughToTrackSections",
+       "line": 759
+      },
+      {
+       "method": "GetBodyTransitionSequence_CachesUntilTheContentSignatureMoves",
+       "line": 788
+      },
+      {
+       "method": "ComputeSummaryFacts_NamedAndCountOnlyLegsCombineByMax",
+       "line": 805
+      },
+      {
+       "method": "CollectMainLineBodySequences_FollowsThePrimaryHeadAcrossLegs",
+       "line": 832
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,213 @@
+{
+ "batch_id": "harness-seam-017",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "TestCommandCaptureScreenshotTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MissingLabel_IsItsOwnReject_NotTheInvalidOne",
+       "line": 26
+      },
+      {
+       "method": "FilenameSafeLabels_Parse",
+       "line": 47
+      },
+      {
+       "method": "UnsafeLabels_AreRejected",
+       "line": 84
+      },
+      {
+       "method": "LabelLength_IsBounded",
+       "line": 96
+      },
+      {
+       "method": "AbsentSuperSize_DefaultsToOneAndSucceeds",
+       "line": 106
+      },
+      {
+       "method": "InRangeSuperSize_Parses",
+       "line": 122
+      },
+      {
+       "method": "OutOfRangeOrUnparseableSuperSize_IsRejectedNotClamped",
+       "line": 138
+      },
+      {
+       "method": "FirstSighting_IsNeverSettled",
+       "line": 150
+      },
+      {
+       "method": "TwoAgreeingNonZeroSamples_Settle",
+       "line": 161
+      },
+      {
+       "method": "AGrowingFile_IsNotYet",
+       "line": 169
+      },
+      {
+       "method": "TwoAgreeingZeroSamples_DoNotSettle",
+       "line": 177
+      },
+      {
+       "method": "AbsentFile_IsNotYetUntilTheBudgetExpires",
+       "line": 187
+      },
+      {
+       "method": "SettledWinsOverAnExpiredBudget",
+       "line": 198
+      },
+      {
+       "method": "RelativePath_IsTheHarvestedDirectory_WithForwardSlashes",
+       "line": 211
+      },
+      {
+       "method": "FileName_IsTheLabelPlusPng",
+       "line": 223
+      },
+      {
+       "method": "Payload_CarriesEveryKey_InvariantlyFormatted",
+       "line": 232
+      },
+      {
+       "method": "Payload_AlwaysCarriesOverwrote_BothWays",
+       "line": 246
+      },
+      {
+       "method": "Payload_BytesIsCultureInvariant",
+       "line": 258
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandDispatchStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PreconditionTable_CoversAllImplementedVerbs",
+       "line": 60
+      },
+      {
+       "method": "RequirementFor_MatchesTable",
+       "line": 153
+      },
+      {
+       "method": "Executor_HasOneMethodPerImplementedVerb",
+       "line": 159
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandRunTestsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildResultPayload_CarriesCountsAndResultsFile",
+       "line": 20
+      },
+      {
+       "method": "BuildResultPayload_KeyOrderIsStable",
+       "line": 30
+      },
+      {
+       "method": "ResultsFileName_IsTheDocumentedConstant",
+       "line": 37
+      },
+      {
+       "method": "TryParseIsolatedArg_Absent_IsOrdinaryPath",
+       "line": 49
+      },
+      {
+       "method": "TryParseIsolatedArg_AcceptsTheTwoWireLiterals",
+       "line": 59
+      },
+      {
+       "method": "TryParseIsolatedArg_RejectsEverythingElse",
+       "line": 86
+      },
+      {
+       "method": "TryParseCategorySelector_AbsentIsTheRunAllShape",
+       "line": 101
+      },
+      {
+       "method": "TryParseCategorySelector_SingleTokenIsTheSingleCategoryBatch",
+       "line": 109
+      },
+      {
+       "method": "TryParseCategorySelector_CommaListKeepsOrderAndTrims",
+       "line": 116
+      },
+      {
+       "method": "TryParseCategorySelector_RejectsMalformedListsNamingTheToken",
+       "line": 128
+      },
+      {
+       "method": "CategorySelectorMalformedReason_IsTheDocumentedToken",
+       "line": 139
+      },
+      {
+       "method": "IsEmptyCategoryArg_AbsentIsNotEmpty",
+       "line": 145
+      },
+      {
+       "method": "IsEmptyCategoryArg_WrittenButEmptyIsATypo",
+       "line": 157
+      },
+      {
+       "method": "IsEmptyCategoryArg_ARealCategoryIsNotEmpty",
+       "line": 170
+      },
+      {
+       "method": "CategoryArgEmptyReason_IsTheDocumentedConstant",
+       "line": 176
+      },
+      {
+       "method": "TheTwoArgsAgreeOnWhatAnEmptyValueMeans",
+       "line": 182
+      },
+      {
+       "method": "IsolatedArgInvalidReason_IsTheDocumentedConstant",
+       "line": 196
+      },
+      {
+       "method": "TryParseStrictArg_Absent_IsTheDefaultNonStrictPath",
+       "line": 211
+      },
+      {
+       "method": "TryParseStrictArg_AcceptsTheTwoWireLiterals",
+       "line": 221
+      },
+      {
+       "method": "TryParseStrictArg_RejectsEverythingElse",
+       "line": 242
+      },
+      {
+       "method": "StrictArgInvalidReason_IsTheDocumentedConstant",
+       "line": 252
+      },
+      {
+       "method": "BothClosedArgsOfThisVerbShareOneParseContract",
+       "line": 258
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

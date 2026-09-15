@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index e7bf2117a..88ab212a7 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -650,7 +650,7 @@ namespace Parsek
+             // candidate controllable child if the parent is still alive and trackable.
+             Recording parentContRec = null;
+ 
+-            if (parentVessel != null)
++            if (true) // MUTATION-T1: unconditional parent continuation (bug #285 guard removed)
+             {
+                 // Create a continuation recording for the parent vessel itself
+                 // (it keeps existing with potentially fewer parts).

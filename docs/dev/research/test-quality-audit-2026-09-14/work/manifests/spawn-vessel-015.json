@@ -1,0 +1,191 @@
+{
+ "batch_id": "spawn-vessel-015",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "ResourceBudgetTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CommittedFundsCost_LaunchDeduction",
+       "line": 64
+      },
+      {
+       "method": "CommittedFundsCost_MissionProfit",
+       "line": 75
+      },
+      {
+       "method": "CommittedFundsCost_ZeroPreLaunch",
+       "line": 86
+      },
+      {
+       "method": "FullyReplayed_NotDoubleCounted",
+       "line": 97
+      },
+      {
+       "method": "PartiallyReplayed_OnlyRemainingReserved",
+       "line": 107
+      },
+      {
+       "method": "CommittedScienceCost_Works",
+       "line": 152
+      },
+      {
+       "method": "CommittedReputationCost_Works",
+       "line": 163
+      },
+      {
+       "method": "CommittedFundsCost_NullRecording",
+       "line": 174
+      },
+      {
+       "method": "CommittedFundsCost_EmptyPoints",
+       "line": 180
+      },
+      {
+       "method": "CommittedFundsCost_SinglePoint",
+       "line": 187
+      },
+      {
+       "method": "CommittedFundsCost_LastAppliedIndexAtCount",
+       "line": 200
+      },
+      {
+       "method": "CommittedFundsCost_PartialReplayWithProfit",
+       "line": 208
+      },
+      {
+       "method": "CommittedScienceCost_NullRecording",
+       "line": 232
+      },
+      {
+       "method": "CommittedScienceCost_GainScience",
+       "line": 238
+      },
+      {
+       "method": "CommittedReputationCost_NullRecording",
+       "line": 247
+      },
+      {
+       "method": "CommittedReputationCost_GainReputation",
+       "line": 253
+      },
+      {
+       "method": "MilestoneCommittedCost_UnreplayedEvents",
+       "line": 265
+      },
+      {
+       "method": "MilestoneCommittedCost_AllReplayed",
+       "line": 299
+      },
+      {
+       "method": "MilestoneCommittedCost_PartiallyReplayed",
+       "line": 333
+      },
+      {
+       "method": "MilestoneCommittedFunds_NullMilestone",
+       "line": 367
+      },
+      {
+       "method": "MilestoneCommittedScience_NullMilestone",
+       "line": 373
+      },
+      {
+       "method": "MilestoneCommittedFunds_EmptyEvents",
+       "line": 379
+      },
+      {
+       "method": "MilestoneCommittedFunds_ReplayIndexBeyondCount",
+       "line": 392
+      },
+      {
+       "method": "MilestoneCommittedScience_IgnoresNonTechEvents",
+       "line": 415
+      },
+      {
+       "method": "MilestoneCommittedFunds_FacilityUpgradedReturnsZero",
+       "line": 445
+      },
+      {
+       "method": "ParseCostFromDetail_SimpleCost",
+       "line": 473
+      },
+      {
+       "method": "ParseCostFromDetail_WithOtherFields",
+       "line": 479
+      },
+      {
+       "method": "ParseCostFromDetail_Empty",
+       "line": 485
+      },
+      {
+       "method": "ParseCostFromDetail_NoCostField",
+       "line": 492
+      },
+      {
+       "method": "ParseCostFromDetail_InvalidFloat",
+       "line": 498
+      },
+      {
+       "method": "ParseCostFromDetail_NegativeCost",
+       "line": 506
+      },
+      {
+       "method": "ParseCostFromDetail_DecimalCost",
+       "line": 512
+      },
+      {
+       "method": "ParseCostFromDetail_CaseSensitive",
+       "line": 518
+      },
+      {
+       "method": "ParseCostFromDetail_DuplicateCostField",
+       "line": 526
+      },
+      {
+       "method": "ParseCostFromDetail_CostInMiddle",
+       "line": 533
+      },
+      {
+       "method": "ParseCostFromDetail_UsesCostWhenEntryCostAlsoPresent",
+       "line": 541
+      },
+      {
+       "method": "ParseCostFromDetail_EntryCostOnly_FallsBackWhenCostMissing",
+       "line": 549
+      },
+      {
+       "method": "ParseCostFromDetail_CostWinsEvenWhenEntryCostAppearsFirst",
+       "line": 555
+      },
+      {
+       "method": "PreLaunchFields_SurviveApplyPersistenceArtifacts",
+       "line": 565
+      },
+      {
+       "method": "PreLaunchFields_DefaultToZero",
+       "line": 584
+      },
+      {
+       "method": "PreLaunchFields_MetadataRoundTrip",
+       "line": 594
+      },
+      {
+       "method": "PreLaunchFields_MissingKeysDefaultToZero",
+       "line": 616
+      },
+      {
+       "method": "BuildMilestonesRelativePath_CorrectPath",
+       "line": 642
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

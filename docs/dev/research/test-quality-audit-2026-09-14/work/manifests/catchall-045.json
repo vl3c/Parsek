@@ -1,0 +1,269 @@
+{
+ "batch_id": "catchall-045",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "EvaDeferredAutoRecordOrphanTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CanStartRecorderWithActiveTreeHead_NullTree_AllowsFreshTreeStart",
+       "line": 33
+      },
+      {
+       "method": "CanStartRecorderWithActiveTreeHead_MatchingActivePid_AllowsStart",
+       "line": 45
+      },
+      {
+       "method": "CanStartRecorderWithActiveTreeHead_UsesSpawnedPidForLiveRestores",
+       "line": 60
+      },
+      {
+       "method": "CanStartRecorderWithActiveTreeHead_MissingActiveRecordingId_RejectsStart",
+       "line": 77
+      },
+      {
+       "method": "CanStartRecorderWithActiveTreeHead_MissingRecording_RejectsStart",
+       "line": 91
+      },
+      {
+       "method": "CanStartRecorderWithActiveTreeHead_ActivePidMismatch_RejectsStart",
+       "line": 105
+      },
+      {
+       "method": "CanStartRecorderWithActiveTreeHead_ZeroActivePid_AllowsStartBecausePidIsUnknown",
+       "line": 120
+      },
+      {
+       "method": "CanStartRecorderWithActiveTreeHead_ZeroRecordingPid_AllowsStartBecausePidIsUnknown",
+       "line": 135
+      },
+      {
+       "method": "DecideEvaBackgroundParentRoute_ReturnsExpectedDecision",
+       "line": 158
+      },
+      {
+       "method": "DecideEvaBackgroundParentFocus_ReturnsExpectedDecision",
+       "line": 185
+      },
+      {
+       "method": "TryResolveTrackedBackgroundParentRecording_DirectBackgroundMapHit_ReturnsRecordingId",
+       "line": 200
+      },
+      {
+       "method": "TryResolveTrackedBackgroundParentRecording_ActiveHeadPresent_DoesNotRebuildMap",
+       "line": 217
+      },
+      {
+       "method": "TryResolveTrackedBackgroundParentRecording_NullActiveHead_RebuildsMapOnce",
+       "line": 236
+      },
+      {
+       "method": "RestoreBackgroundMapEntries_RestoresPreviousEntriesAndRemovesNewEntries",
+       "line": 254
+      },
+      {
+       "method": "RollbackBackgroundParentBranchMutation_RestoresTreeHeadParentAndBackgroundMap",
+       "line": 271
+      },
+      {
+       "method": "BuildInvalidActiveTreeHeadRateLimitKey_VariesByCallerTreeHeadPidAndReason",
+       "line": 320
+      },
+      {
+       "method": "FormatRecorderDropDiagnostics_IncludesBufferedDataCounts",
+       "line": 344
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "HeldGhostSpawnTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DecideAction_NegativeIndex_ReturnsInvalidIndex",
+       "line": 24
+      },
+      {
+       "method": "DecideAction_IndexBeyondList_ReturnsInvalidIndex",
+       "line": 36
+      },
+      {
+       "method": "DecideAction_RecordingIdMismatch_ReturnsInvalidIndex",
+       "line": 48
+      },
+      {
+       "method": "DecideAction_AlreadySpawned_ReturnsReleaseSpawned",
+       "line": 60
+      },
+      {
+       "method": "DecideAction_SupersededByRelation_ReturnsReleaseSuperseded",
+       "line": 72
+      },
+      {
+       "method": "DecideAction_RewindRetired_ReturnsReleaseRewindRetired",
+       "line": 92
+      },
+      {
+       "method": "DecideAction_Timeout_ReturnsTimeout",
+       "line": 112
+      },
+      {
+       "method": "DecideAction_PastTimeout_ReturnsTimeout",
+       "line": 124
+      },
+      {
+       "method": "DecideAction_NotSpawnedNotTimedOut_ReturnsRetrySpawn",
+       "line": 136
+      },
+      {
+       "method": "DecideAction_JustBeforeTimeout_ReturnsRetrySpawn",
+       "line": 148
+      },
+      {
+       "method": "DecideAction_SpawnedTakesPriorityOverTimeout",
+       "line": 160
+      },
+      {
+       "method": "DecideAction_MultipleRecordings_CorrectIndexLookup",
+       "line": 173
+      },
+      {
+       "method": "DecideAction_MultipleRecordings_IndexMismatchAfterDelete",
+       "line": 190
+      },
+      {
+       "method": "DecideAction_ZeroTimeout_ImmediateTimeout",
+       "line": 208
+      },
+      {
+       "method": "DecideAction_NonZeroHoldStartTime",
+       "line": 220
+      },
+      {
+       "method": "DecideAction_RecentRetry_ReturnsHold",
+       "line": 237
+      },
+      {
+       "method": "DecideAction_RetryIntervalElapsed_ReturnsRetrySpawn",
+       "line": 256
+      },
+      {
+       "method": "DecideAction_FirstRetry_NoLastRetryTime_ReturnsRetrySpawn",
+       "line": 275
+      },
+      {
+       "method": "DecideAction_TerminalSafetyDeferredBeforeNextUt_HoldsPastTimeout",
+       "line": 294
+      },
+      {
+       "method": "DecideAction_TerminalSafetyDeferredAtNextUt_RetriesDespiteTimeout",
+       "line": 318
+      },
+      {
+       "method": "HeldGhostInfo_DefaultValues",
+       "line": 346
+      },
+      {
+       "method": "HeldGhostAction_HasExpectedValues",
+       "line": 360
+      },
+      {
+       "method": "HeldGhostTimeoutSeconds_IsFiveSeconds",
+       "line": 377
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RigidbodyMassPackedSpawnTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Tank_FullFuel_ReturnsDryPlusResourceMass",
+       "line": 36
+      },
+      {
+       "method": "EmptyTank_NoResource_ReturnsDryMassOnly",
+       "line": 51
+      },
+      {
+       "method": "TinyPart_BelowMinimumRBMass_ClampsExactlyToMinimumRBMass",
+       "line": 66
+      },
+      {
+       "method": "MinimumMass_HigherThanPartMass_ClampsToMinimumMass",
+       "line": 83
+      },
+      {
+       "method": "Engine_DrymassOnly_RanksAboveLightLandingLeg",
+       "line": 105
+      },
+      {
+       "method": "FullTank_RanksAboveDryPod_AndEngineAndLeg",
+       "line": 123
+      },
+      {
+       "method": "PhysicslessChildren_RollUpIntoParentMass",
+       "line": 148
+      },
+      {
+       "method": "NegativeAggregateMass_ClampsToMinimumRBMass",
+       "line": 167
+      },
+      {
+       "method": "MassivePartCheckPrefix_HappyPath_SeedsPart",
+       "line": 206
+      },
+      {
+       "method": "MassivePartCheckPrefix_NullPart_SkipsSeeding",
+       "line": 216
+      },
+      {
+       "method": "MassivePartCheckPrefix_PartWithoutRigidbody_SkipsSeeding",
+       "line": 224
+      },
+      {
+       "method": "MassivePartCheckPrefix_PartWithoutPartInfo_SkipsSeeding",
+       "line": 235
+      },
+      {
+       "method": "MassivePartCheckPrefix_UnpackedPart_SkipsSeeding",
+       "line": 247
+      },
+      {
+       "method": "MassivePartCheckPrefix_RbMassAlreadySeeded_SkipsSeeding",
+       "line": 258
+      },
+      {
+       "method": "MassivePartCheckPrefix_NullVessel_SkipsSeeding",
+       "line": 270
+      },
+      {
+       "method": "MassivePartCheckPrefix_FlagVessel_SkipsSeeding",
+       "line": 280
+      },
+      {
+       "method": "MassivePartCheckPrefix_GhostMapVessel_SkipsSeeding",
+       "line": 292
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

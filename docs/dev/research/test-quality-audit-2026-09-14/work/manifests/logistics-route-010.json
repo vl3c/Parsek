@@ -1,0 +1,247 @@
+{
+ "batch_id": "logistics-route-010",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "RouteTrajectoryLineRendererTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RouteLinesEnabled_NullSettings_UsesDefault",
+       "line": 41
+      },
+      {
+       "method": "RouteLinesEnabled_SettingOff_False",
+       "line": 48
+      },
+      {
+       "method": "RouteLinesEnabled_SettingOn_True",
+       "line": 55
+      },
+      {
+       "method": "IsSameBody_SameBodyEndpointsNoMembers_True",
+       "line": 64
+      },
+      {
+       "method": "IsSameBody_NoEndpointsConsistentMembers_True",
+       "line": 73
+      },
+      {
+       "method": "IsSameBody_NullBodyInMemberList_SkippedNotFailed",
+       "line": 81
+      },
+      {
+       "method": "IsSameBody_SameBodyEndpointsMixedMembers_False",
+       "line": 90
+      },
+      {
+       "method": "IsSameBody_InterBodyEndpoints_False",
+       "line": 98
+      },
+      {
+       "method": "IsInterBodyByEndpoints_ComparesEveryKnownEndpointAgainstTheFirst",
+       "line": 107
+      },
+      {
+       "method": "ResolveEndpointReferenceBody_TakesTheFirstKnownInOriginThenStopOrder",
+       "line": 142
+      },
+      {
+       "method": "IsInterBodyByEndpoints_RouteOverload_ReadsOriginAndStops",
+       "line": 159
+      },
+      {
+       "method": "Scope_SameBodyEndpointsConsistentMembers_SameBody_BasisEndpoints",
+       "line": 178
+      },
+      {
+       "method": "Scope_SameBodyEndpointsMixedMembers_Malformed",
+       "line": 193
+      },
+      {
+       "method": "Scope_KerbinToDunaWithTransferMember_InterBody",
+       "line": 205
+      },
+      {
+       "method": "Scope_InterBodyEndpointsThirdBodyMember_StillInterBodyNotMalformed",
+       "line": 219
+      },
+      {
+       "method": "Scope_OriginBodyEmptyTwoDistinctStopBodies_InterBody",
+       "line": 231
+      },
+      {
+       "method": "Scope_OriginBodyEmptyAllStopsOneBody_SameBody_BasisEndpoints",
+       "line": 263
+      },
+      {
+       "method": "Scope_OriginEmptyOneStopBody_MembersElsewhere_Malformed",
+       "line": 286
+      },
+      {
+       "method": "Scope_MissingEndpointBodies_FallsBackToMemberBodies",
+       "line": 316
+      },
+      {
+       "method": "Scope_StoredPeriodHasNoSay_EitherDirection",
+       "line": 343
+      },
+      {
+       "method": "Scope_NullRoute_SameBody",
+       "line": 372
+      },
+      {
+       "method": "DestinationBodyLabel_LastKnownStopBodyOrNone",
+       "line": 381
+      },
+      {
+       "method": "Classify_NullRoute_NullRoute",
+       "line": 397
+      },
+      {
+       "method": "Classify_Disabled_Disabled",
+       "line": 405
+      },
+      {
+       "method": "Classify_MalformedMixedBodies_Skipped",
+       "line": 414
+      },
+      {
+       "method": "Classify_InterBodyWithMembers_None",
+       "line": 423
+      },
+      {
+       "method": "Classify_NoDrawableMembers_NoBackingRecordings",
+       "line": 433
+      },
+      {
+       "method": "Classify_AllGood_None",
+       "line": 445
+      },
+      {
+       "method": "DockClip_Unset_AlwaysIncluded",
+       "line": 456
+      },
+      {
+       "method": "DockClip_LegBeforeDock_Included",
+       "line": 463
+      },
+      {
+       "method": "DockClip_LegCrossingDock_Included",
+       "line": 469
+      },
+      {
+       "method": "DockClip_LegAtOrAfterDock_Excluded",
+       "line": 476
+      },
+      {
+       "method": "Build_SingleMember_OneGroupOneLeg",
+       "line": 486
+      },
+      {
+       "method": "Build_TwoMembers_TwoGroups",
+       "line": 503
+      },
+      {
+       "method": "Build_UnresolvableMember_Skipped",
+       "line": 518
+      },
+      {
+       "method": "Build_DuplicateRecordingId_BuiltOnce",
+       "line": 533
+      },
+      {
+       "method": "Build_DockClipDropsPostDockMember",
+       "line": 546
+      },
+      {
+       "method": "Build_NullRouteOrResolver_Empty",
+       "line": 570
+      },
+      {
+       "method": "Build_SameBodyRoute_MultiBodyLegsNotFiltered_ByteIdentity",
+       "line": 582
+      },
+      {
+       "method": "Build_InterBodyRoute_DropsTransferFrameLeg_KeepsEndpointLegs",
+       "line": 606
+      },
+      {
+       "method": "Build_InterBodyRoute_EndpointsResolvedAcrossMembers",
+       "line": 632
+      },
+      {
+       "method": "Build_InterBodyRoute_MemberLeftEmptyByFilter_Removed",
+       "line": 666
+      },
+      {
+       "method": "Build_InterBodyRoute_DockClipStillApplies",
+       "line": 698
+      },
+      {
+       "method": "Build_InterBodyRoundTrip_OriginEqualsDestination_FilterStandsDown",
+       "line": 725
+      },
+      {
+       "method": "ResolveEndpointBodies_NoLegs_False",
+       "line": 757
+      },
+      {
+       "method": "Signature_Stable_ForUnchangedInputs",
+       "line": 767
+      },
+      {
+       "method": "Signature_ChangesWhenRecordingContentChanges",
+       "line": 777
+      },
+      {
+       "method": "Signature_ChangesWhenDockUTChanges",
+       "line": 790
+      },
+      {
+       "method": "Signature_ChangesWhenRecordingListChanges",
+       "line": 803
+      },
+      {
+       "method": "Signature_ChangesWhenEndpointBodiesFlipScope",
+       "line": 817
+      },
+      {
+       "method": "Signature_ChangesWhenOriginBodyChanges",
+       "line": 838
+      },
+      {
+       "method": "Signature_InterBody_ChangesOnScheduleChange",
+       "line": 857
+      },
+      {
+       "method": "Signature_SameBody_IgnoresScheduleFields",
+       "line": 887
+      },
+      {
+       "method": "Refresh_CacheHit_DoesNotRebuild",
+       "line": 912
+      },
+      {
+       "method": "Refresh_SignatureChange_Rebuilds",
+       "line": 928
+      },
+      {
+       "method": "Refresh_InterBodyScheduleChange_Rebuilds",
+       "line": 943
+      },
+      {
+       "method": "ReleaseForRoute_DropsCacheEntry",
+       "line": 964
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

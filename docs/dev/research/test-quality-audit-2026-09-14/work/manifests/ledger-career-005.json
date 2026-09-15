@@ -1,0 +1,179 @@
+{
+ "batch_id": "ledger-career-005",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 40,
+ "files": [
+  {
+   "file": "GameStateRecorderLedgerTests.cs",
+   "ranges": [
+    {
+     "start": 89,
+     "end": 1386,
+     "methods": [
+      {
+       "method": "OnKscSpending_ContractAccepted_AddsContractAcceptAction",
+       "line": 89
+      },
+      {
+       "method": "OnKspLoad_MigratedFutureContractLifecycleRows_PrunedByMaxUt",
+       "line": 110
+      },
+      {
+       "method": "OnKspLoad_PostMigrationSyntheticFutureContractAccept_SurvivesTargetedReconcile",
+       "line": 153
+      },
+      {
+       "method": "OnKspLoad_WithFutureLedgerActionsAndCurrentUtCutoff_RecalculatesAtLoadUt",
+       "line": 197
+      },
+      {
+       "method": "IsCurrentUtReadyForCutoff_TreatsNonPositiveUtAsNotReady",
+       "line": 291
+      },
+      {
+       "method": "OnKspLoad_ColdLoadWithUnreadyClock_ReplaysEntireCareer_NoWipe",
+       "line": 304
+      },
+      {
+       "method": "OnKspLoad_ColdLoadNonCutoffScene_PreservesCareerRows_NoPrune",
+       "line": 376
+      },
+      {
+       "method": "OnKspLoad_ReadyClockWithFutureActions_StillAppliesCutoff",
+       "line": 422
+      },
+      {
+       "method": "OnKspLoad_ReadyClockPastAllActions_ReplaysFullLedger",
+       "line": 468
+      },
+      {
+       "method": "OnKscSpending_ContractCompleted_AddsContractCompleteAction",
+       "line": 508
+      },
+      {
+       "method": "OnKscSpending_ContractFailed_AddsContractFailAction",
+       "line": 528
+      },
+      {
+       "method": "OnKscSpending_ContractCancelled_AddsContractCancelAction",
+       "line": 547
+      },
+      {
+       "method": "OnKscSpending_PartPurchased_AddsFundsSpendingActionWithDedupKey",
+       "line": 566
+      },
+      {
+       "method": "OnKscSpending_WithFutureLedgerActions_RecalculatesAtEventUt",
+       "line": 586
+      },
+      {
+       "method": "OnKscSpending_PartPurchased_UsesCostTokenWhenEntryCostAlsoPresent",
+       "line": 626
+      },
+      {
+       "method": "ComputePartPurchaseFundsSpent_BypassOn_ReturnsZero",
+       "line": 648
+      },
+      {
+       "method": "ComputePartPurchaseFundsSpent_BypassOff_ReturnsEntryCost",
+       "line": 662
+      },
+      {
+       "method": "OnKscSpending_TwoDifferentParts_BothLandInLedger",
+       "line": 676
+      },
+      {
+       "method": "OnKscSpending_CrewHired_AddsKerbalHireActionWithCost",
+       "line": 713
+      },
+      {
+       "method": "OnKscSpending_CrewHired_ZeroCost_LandsAsZeroCostAction",
+       "line": 739
+      },
+      {
+       "method": "ComputeHireCost_NullGameVariables_ReturnsZero",
+       "line": 762
+      },
+      {
+       "method": "OnKscSpending_DroppedEventType_LogsNoAction",
+       "line": 774
+      },
+      {
+       "method": "OnVesselRecoveryFunds_TrackingStationRecoveryBetweenRecordings_AddsFundsEarningTaggedToRecording",
+       "line": 799
+      },
+      {
+       "method": "OnVesselRecoveryFunds_NoMatchingRecording_AddsActionWithNullRecordingId",
+       "line": 849
+      },
+      {
+       "method": "OnVesselRecoveryFunds_NoPairedFundsEvent_DefersAndDoesNotAdd",
+       "line": 877
+      },
+      {
+       "method": "OnRecoveryFundsEventRecorded_DeferredPair_RecalculatesAtMatchedEventUt",
+       "line": 896
+      },
+      {
+       "method": "OnVesselRecoveryFunds_DebrisRecovery_DoesNotEnqueueOrWarn",
+       "line": 947
+      },
+      {
+       "method": "OnVesselRecoveryFunds_DebrisWithPairedFundsEvent_AddsRecoveryAction",
+       "line": 978
+      },
+      {
+       "method": "OnVesselRecoveryFunds_DebrisPositivePayoutContextWithoutEvent_DefersAndFlushWarns",
+       "line": 1013
+      },
+      {
+       "method": "OnVesselRecoveryFunds_SubThresholdPayoutContext_DoesNotEnqueueOrWarn",
+       "line": 1042
+      },
+      {
+       "method": "OnVesselRecoveryFunds_SubThresholdContext_DoesNotConsumeNeighborStampedEvent",
+       "line": 1071
+      },
+      {
+       "method": "OnVesselRecoveryFunds_ZeroPayoutContext_DoesNotEnqueue",
+       "line": 1119
+      },
+      {
+       "method": "OnVesselRecoveryFunds_PositivePayoutContextWithoutEvent_DefersAndFlushWarns",
+       "line": 1146
+      },
+      {
+       "method": "BuildVesselRecoveryFundsDetail_StampsProcessingContextIdentity",
+       "line": 1175
+      },
+      {
+       "method": "RecoveryPayoutContext_TryFind_KeepsContextForDelayedFundsDetail",
+       "line": 1205
+      },
+      {
+       "method": "RecoveryPayoutContext_AllZeroFundsSnapshot_TreatedAsUnknown",
+       "line": 1230
+      },
+      {
+       "method": "RecoveryPayoutContext_Clear_LogsDroppedContextCount",
+       "line": 1267
+      },
+      {
+       "method": "BuildVesselRecoveryFundsDetail_SameUtContexts_PrefersMatchingFundsEarned",
+       "line": 1295
+      },
+      {
+       "method": "BuildVesselRecoveryFundsDetail_UsedContext_DoesNotStampLaterEvent",
+       "line": 1325
+      },
+      {
+       "method": "RecoveryPayoutContext_TryFind_PrefersPersistentIdOverSameNameCloserUt",
+       "line": 1346
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

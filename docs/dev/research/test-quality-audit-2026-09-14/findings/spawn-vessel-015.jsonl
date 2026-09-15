@@ -1,0 +1,45 @@
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedFundsCost_LaunchDeduction", "line": 64, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedFundsCost_MissionProfit", "line": 75, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedFundsCost_ZeroPreLaunch", "line": 86, "verdict": "weak", "category": "T3", "falsifiability": "falsifiability: Source/Parsek/ResourceBudget.cs:34; compute totalImpact against Points[0].funds instead of the last point -> red", "note": "the zero-pre-launch guard at ResourceBudget.cs:31 that the comment names is not pinned: with pre=0 and end=0 the fallthrough returns the same 0"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "FullyReplayed_NotDoubleCounted", "line": 97, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "PartiallyReplayed_OnlyRemainingReserved", "line": 107, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedScienceCost_Works", "line": 152, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedReputationCost_Works", "line": 163, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedFundsCost_NullRecording", "line": 174, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedFundsCost_EmptyPoints", "line": 180, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedFundsCost_SinglePoint", "line": 187, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedFundsCost_LastAppliedIndexAtCount", "line": 200, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedFundsCost_PartialReplayWithProfit", "line": 208, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedScienceCost_NullRecording", "line": 232, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedScienceCost_GainScience", "line": 238, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedReputationCost_NullRecording", "line": 247, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "CommittedReputationCost_GainReputation", "line": 253, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedCost_UnreplayedEvents", "line": 265, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedCost_AllReplayed", "line": 299, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedCost_PartiallyReplayed", "line": 333, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedFunds_NullMilestone", "line": 367, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedScience_NullMilestone", "line": 373, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedFunds_EmptyEvents", "line": 379, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedFunds_ReplayIndexBeyondCount", "line": 392, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedScience_IgnoresNonTechEvents", "line": 415, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "MilestoneCommittedFunds_FacilityUpgradedReturnsZero", "line": 445, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_SimpleCost", "line": 473, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_WithOtherFields", "line": 479, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_Empty", "line": 485, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_NoCostField", "line": 492, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_InvalidFloat", "line": 498, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_NegativeCost", "line": 506, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_DecimalCost", "line": 512, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_CaseSensitive", "line": 518, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_DuplicateCostField", "line": 526, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_CostInMiddle", "line": 533, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_UsesCostWhenEntryCostAlsoPresent", "line": 541, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_EntryCostOnly_FallsBackWhenCostMissing", "line": 549, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "ParseCostFromDetail_CostWinsEvenWhenEntryCostAppearsFirst", "line": 555, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "PreLaunchFields_SurviveApplyPersistenceArtifacts", "line": 565, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "PreLaunchFields_DefaultToZero", "line": 584, "verdict": "vacuous", "category": "T1", "falsifiability": "falsifiability: Source/Parsek/Recording.cs:379-381; add a nonzero field initializer to PreLaunchFunds -> red; otherwise the test only asserts CLR default field values, no production logic runs", "note": "constructs a bare Recording and asserts the three PreLaunch fields are 0; no Parsek code path is executed"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "PreLaunchFields_MetadataRoundTrip", "line": 594, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "PreLaunchFields_MissingKeysDefaultToZero", "line": 616, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "method": "BuildMilestonesRelativePath_CorrectPath", "line": 642, "verdict": "ok"}
+{"kind": "finding", "id": "F-spawn-vessel-015-01", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "line": 584, "method": "PreLaunchFields_DefaultToZero", "category": "T1", "severity": "Low", "confidence": "high", "falsifiability": "falsifiability: Source/Parsek/Recording.cs:379-381; the fields have no initializer, so only adding one could red this -> no production behaviour is covered", "what_it_asserts": "a freshly constructed Recording has PreLaunchFunds/Science/Reputation == 0", "why_weak": "asserts CLR default field values, not Parsek logic; PreLaunchFields_MissingKeysDefaultToZero already covers the load-side default that matters", "proposed_action": "delete; the meaningful default is already pinned by PreLaunchFields_MissingKeysDefaultToZero", "effort": "S", "july_ref": "none"}
+{"kind": "finding", "id": "F-spawn-vessel-015-02", "file": "Source/Parsek.Tests/ResourceBudgetTests.cs", "line": 86, "method": "CommittedFundsCost_ZeroPreLaunch", "category": "T3", "severity": "Low", "confidence": "high", "falsifiability": "falsifiability: Source/Parsek/ResourceBudget.cs:31; delete the zero-pre-launch early return -> still green, the fallthrough returns totalImpact = 0 - 0 = 0", "what_it_asserts": "a recording with zero pre-launch funds and zero end funds costs 0", "why_weak": "the backward-compat guard named in the comment cannot be falsified by this input; only an unrelated change to the totalImpact expression reds it", "proposed_action": "add a case with PreLaunchFunds == 0 but a nonzero last-point funds value, which the guard lets through and the deleted guard would change", "effort": "S", "july_ref": "none"}

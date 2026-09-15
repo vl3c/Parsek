@@ -1,0 +1,369 @@
+{
+ "batch_id": "map-render-026",
+ "cluster": "map-render",
+ "tier": "C",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "KscLedgerAdvancementTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldAdvanceCareerLedgerForKscUT_BeforeNextAction_ReturnsFalse",
+       "line": 8
+      },
+      {
+       "method": "ShouldAdvanceCareerLedgerForKscUT_WithinEpsilonBeforeNextAction_ReturnsFalse",
+       "line": 18
+      },
+      {
+       "method": "ShouldAdvanceCareerLedgerForKscUT_CrossingNextAction_ReturnsTrue",
+       "line": 28
+      },
+      {
+       "method": "ShouldAdvanceCareerLedgerForKscUT_WarpSkipPastNextAction_ReturnsTrue",
+       "line": 38
+      },
+      {
+       "method": "ShouldAdvanceCareerLedgerForKscUT_BackwardClockMove_ReturnsTrue",
+       "line": 48
+      },
+      {
+       "method": "ShouldAdvanceCareerLedgerForKscUT_NoNextAction_ReturnsFalse",
+       "line": 58
+      },
+      {
+       "method": "ShouldSeedCareerLedgerForKscUT_FirstValidFrame_ReturnsTrue",
+       "line": 68
+      },
+      {
+       "method": "ShouldSeedCareerLedgerForKscUT_InvalidCurrentUt_ReturnsFalse",
+       "line": 76
+      },
+      {
+       "method": "ShouldSeedCareerLedgerForKscUT_AlreadySeeded_ReturnsFalse",
+       "line": 87
+      },
+      {
+       "method": "GetCareerLedgerAdvanceReasonForKscUT_BackwardClockMove_ReturnsBackwardReason",
+       "line": 95
+      },
+      {
+       "method": "GetCareerLedgerAdvanceReasonForKscUT_ForwardClockMove_ReturnsForwardReason",
+       "line": 106
+      },
+      {
+       "method": "IsKscLedgerNextActionCacheValid_SameVersionAndCutoff_ReturnsTrue",
+       "line": 117
+      },
+      {
+       "method": "IsKscLedgerNextActionCacheValid_DifferentVersion_ReturnsFalse",
+       "line": 127
+      },
+      {
+       "method": "IsKscLedgerNextActionCacheValid_DifferentCutoff_ReturnsFalse",
+       "line": 137
+      },
+      {
+       "method": "IsKscLedgerNextActionCacheValid_UnseededCutoff_ReturnsFalse",
+       "line": 147
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/FailClosedWiringSourceGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SwappedSpine_DoesNotReferenceFailClosedClassifier_SourceGate",
+       "line": 65
+      },
+      {
+       "method": "PhaseFactory_FailClosedTraceEmit_IsGatedOnTracing",
+       "line": 77
+      },
+      {
+       "method": "PhaseFactory_BuildPhaseChain_ReturnsAssemblerGeometryWindow_Unchanged",
+       "line": 89
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapTrajLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CoveredSegment_LogsBodyCoveredSourceAndSpan",
+       "line": 49
+      },
+      {
+       "method": "NoCoveringSegment_LogsGapAndUncovered",
+       "line": 67
+      },
+      {
+       "method": "StateVectorSource_LogsStateVector",
+       "line": 82
+      },
+      {
+       "method": "SameBodySegmentAdvance_LogsAgain",
+       "line": 92
+      },
+      {
+       "method": "IdenticalCoveringSegmentRepeated_SuppressesSecond",
+       "line": 113
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/SplineEvalSummaryLogTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecordSplineEvalForLogging_BelowOneSecond_NoEmit",
+       "line": 37
+      },
+      {
+       "method": "RecordSplineEvalForLogging_OneSecondElapsed_EmitsOnce",
+       "line": 53
+      },
+      {
+       "method": "RecordSplineEvalForLogging_CounterResetsAfterEmit",
+       "line": 76
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/AnchorPriorityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RankOf_LiveSeparation_IsTopPriority",
+       "line": 14
+      },
+      {
+       "method": "RankOf_RelativeBoundary_OutranksOrbitalCheckpoint",
+       "line": 23
+      },
+      {
+       "method": "RankOf_DockOrMerge_OutranksBubbleEntry",
+       "line": 34
+      },
+      {
+       "method": "RankOf_Loop_SharesRelativeBoundaryRank",
+       "line": 45
+      },
+      {
+       "method": "RankOf_SurfaceContinuous_DoesNotOutrankOrbitalCheckpoint",
+       "line": 54
+      },
+      {
+       "method": "ShouldReplace_HigherPriorityWins",
+       "line": 69
+      },
+      {
+       "method": "ShouldReplace_TieGoesToLowerEnumValue",
+       "line": 83
+      },
+      {
+       "method": "ShouldReplace_SameSource_ReturnsFalse",
+       "line": 97
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/GhostRenderChainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyCoverage_ResolvesSegmentsGapsAndWindow",
+       "line": 52
+      },
+      {
+       "method": "LocateSegmentIndex_MatchesClassify_ForInSegmentUTs",
+       "line": 64
+      },
+      {
+       "method": "EmptyChain_IsAlwaysGapOrOutside_NeverThrows",
+       "line": 75
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/OutlierFlagsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PackedBitmap_RoundTrip_AtVariousLengths",
+       "line": 21
+      },
+      {
+       "method": "IsRejected_BoundsCheck_OutOfRangeReturnsFalse",
+       "line": 40
+      },
+      {
+       "method": "Empty_AllFalse_ZeroRejectionsZeroMask",
+       "line": 62
+      },
+      {
+       "method": "RejectedSampleIndices_EnumeratesAscending",
+       "line": 81
+      },
+      {
+       "method": "BuildPackedBitmap_NullInput_ReturnsEmptyArray",
+       "line": 100
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/GhostMapSceneBaseNullBodyGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsStarBody_NullName_ReturnsFalseAndDoesNotThrow",
+       "line": 36
+      },
+      {
+       "method": "IsStarBody_EmptyName_ReturnsFalseAndDoesNotThrow",
+       "line": 46
+      },
+      {
+       "method": "ResolveBody_NullName_ReturnsNullAndDoesNotThrow",
+       "line": 56
+      },
+      {
+       "method": "BodySurfaceProvider_NullName_ReturnsFalseAndDoesNotThrow",
+       "line": 68
+      },
+      {
+       "method": "NullBodyName_EmitsRateLimitedSkipDiagnostic",
+       "line": 82
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/TreatmentTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Kinds_AreDistinct",
+       "line": 31
+      },
+      {
+       "method": "StockConic_ShouldApply_OnlyForVisibleStockConicWithConic",
+       "line": 38
+      },
+      {
+       "method": "TracedPath_ShouldApply_OnlyForVisibleTracedPath",
+       "line": 48
+      },
+      {
+       "method": "ExactlyOneTreatmentClaims_AnyVisibleIntent",
+       "line": 57
+      },
+      {
+       "method": "ShouldOwnLeg_MirrorsTheDirectorTracedPathActiveFlag",
+       "line": 75
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/TrajectorySampleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AbsoluteSample_ReportsDegreesInAbsoluteFrame",
+       "line": 23
+      },
+      {
+       "method": "RelativeSample_ReportsMetresInRelativeFrame",
+       "line": 40
+      },
+      {
+       "method": "OrbitalState_WrapsOrbitSegment_AtItsEpoch",
+       "line": 58
+      },
+      {
+       "method": "OrbitalState_ExplicitUt_OverridesEpoch",
+       "line": 79
+      },
+      {
+       "method": "SampleKinds_AreDistinct",
+       "line": 87
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/SegmentProvenanceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ToToken_IsGrepStable",
+       "line": 30
+      },
+      {
+       "method": "IsInMemoryOnly_FlagsExactlySynthesized",
+       "line": 43
+      },
+      {
+       "method": "IsFaithfulReplay_SplitsForOracleMode",
+       "line": 56
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

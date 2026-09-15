@@ -1,0 +1,199 @@
+{
+ "batch_id": "spawn-vessel-008",
+ "cluster": "spawn-vessel",
+ "tier": "A",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "SpawnCollisionDetectorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeBoundsFromParts_SinglePart_CenteredBounds",
+       "line": 38
+      },
+      {
+       "method": "ComputeBoundsFromParts_MultiPart_EncloseAll",
+       "line": 53
+      },
+      {
+       "method": "ComputeBoundsFromParts_EmptyList_ZeroBounds",
+       "line": 82
+      },
+      {
+       "method": "BoundsOverlap_Overlapping_ReturnsTrue",
+       "line": 97
+      },
+      {
+       "method": "BoundsOverlap_Separated_ReturnsFalse",
+       "line": 111
+      },
+      {
+       "method": "BoundsOverlap_PaddingCausesOverlap",
+       "line": 126
+      },
+      {
+       "method": "BoundsOverlap_PaddingNotEnough_ReturnsFalse",
+       "line": 147
+      },
+      {
+       "method": "ComputeVesselBounds_ValidSnapshot_ReturnsBounds",
+       "line": 167
+      },
+      {
+       "method": "ComputeVesselBounds_NullSnapshot_ReturnsFallbackBounds",
+       "line": 189
+      },
+      {
+       "method": "ComputeVesselBounds_NoParts_ReturnsFallbackBounds",
+       "line": 200
+      },
+      {
+       "method": "ComputeVesselBounds_MalformedPos_SkipsBadParts",
+       "line": 218
+      },
+      {
+       "method": "ComputeVesselBounds_AllBadPositions_ReturnsFallbackBounds",
+       "line": 248
+      },
+      {
+       "method": "ComputeBoundsFromParts_LogsPartCount",
+       "line": 268
+      },
+      {
+       "method": "ComputeBoundsFromParts_EmptyList_LogsZeroBounds",
+       "line": 286
+      },
+      {
+       "method": "ComputeVesselBounds_NullSnapshot_LogsFallback",
+       "line": 299
+      },
+      {
+       "method": "ComputeVesselBounds_NoParts_LogsFallback",
+       "line": 311
+      },
+      {
+       "method": "ParsePartPositions_NormalParts_ReturnsPositions",
+       "line": 327
+      },
+      {
+       "method": "ParsePartPositions_EmptyArray_ReturnsEmptyList",
+       "line": 351
+      },
+      {
+       "method": "ParsePartPositions_MalformedPos_SkipsBadParts",
+       "line": 360
+      },
+      {
+       "method": "ParsePartPositions_TwoComponentPos_Skipped",
+       "line": 375
+      },
+      {
+       "method": "ParsePartPositions_MissingPosField_Skipped",
+       "line": 387
+      },
+      {
+       "method": "ParsePartPositions_EmptyPosValue_Skipped",
+       "line": 400
+      },
+      {
+       "method": "ParsePartPositions_WhitespaceInComponents_Trimmed",
+       "line": 412
+      },
+      {
+       "method": "ParsePartPositions_MixedGoodAndBad_OnlyGoodParsed",
+       "line": 428
+      },
+      {
+       "method": "ParsePartPositions_LogsCountMessage",
+       "line": 450
+      },
+      {
+       "method": "ParsePartPositions_PositionKey_ReturnsPositions",
+       "line": 472
+      },
+      {
+       "method": "ParsePartPositions_MixedPosAndPosition_BothParsed",
+       "line": 489
+      },
+      {
+       "method": "Walkback_Normal_FindsNonCollidingPosition",
+       "line": 538
+      },
+      {
+       "method": "Walkback_AllCollide_ReturnsNegativeOne",
+       "line": 562
+      },
+      {
+       "method": "Walkback_SingleStepSuccess_ReturnsSecondToLast",
+       "line": 577
+      },
+      {
+       "method": "Walkback_StartUTEqualsEndUT_SinglePoint",
+       "line": 599
+      },
+      {
+       "method": "Walkback_StartUTEqualsEndUT_Blocked_ReturnsNegative",
+       "line": 615
+      },
+      {
+       "method": "ShouldSkipVesselType_Debris_ReturnsTrue",
+       "line": 633
+      },
+      {
+       "method": "ShouldSkipVesselType_EVA_ReturnsTrue",
+       "line": 639
+      },
+      {
+       "method": "ShouldSkipVesselType_Flag_ReturnsTrue",
+       "line": 645
+      },
+      {
+       "method": "ShouldSkipVesselType_SpaceObject_ReturnsTrue",
+       "line": 651
+      },
+      {
+       "method": "ShouldSkipVesselType_Ship_ReturnsFalse",
+       "line": 657
+      },
+      {
+       "method": "ShouldSkipVesselType_Relay_ReturnsFalse",
+       "line": 663
+      },
+      {
+       "method": "NearestExistingDistance_EmptyList_ReturnsMaxValue",
+       "line": 675
+      },
+      {
+       "method": "NearestExistingDistance_PicksClosest",
+       "line": 683
+      },
+      {
+       "method": "ComputeDeOverlap_NoExisting_ReturnsProposedUnchanged",
+       "line": 697
+      },
+      {
+       "method": "ComputeDeOverlap_AlreadyClear_ReturnsProposedUnchanged",
+       "line": 710
+      },
+      {
+       "method": "ComputeDeOverlap_Overlapping_NudgesClear",
+       "line": 726
+      },
+      {
+       "method": "ComputeDeOverlap_ClusterOfFive_NudgesClearOfAll",
+       "line": 750
+      },
+      {
+       "method": "ComputeDeOverlap_NudgeStaysLocal",
+       "line": 774
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,210 @@
+{
+ "batch_id": "logistics-route-022",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "Logistics/RouteDormantUiTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Decide_NonLiveUT_NeverEmits",
+       "line": 163
+      },
+      {
+       "method": "Decide_IntoMissing_EmitsAutoPause",
+       "line": 172
+      },
+      {
+       "method": "Decide_IntoSourceChanged_EmitsAutoPause",
+       "line": 183
+      },
+      {
+       "method": "Decide_NoFlip_NeverEmits",
+       "line": 195
+      },
+      {
+       "method": "Decide_MissingToSourceChanged_NeverEmits",
+       "line": 206
+      },
+      {
+       "method": "Decide_RecoveryToActive_EmitsAutoResume",
+       "line": 215
+      },
+      {
+       "method": "Decide_RecoveryToPaused_NeverEmits",
+       "line": 228
+      },
+      {
+       "method": "Decide_RecoveryToWaitState_EmitsAutoResume",
+       "line": 239
+      },
+      {
+       "method": "IsActiveFamilyStatus_Matrix",
+       "line": 250
+      },
+      {
+       "method": "Revalidate_LiveEmit_MissingSource_WritesRoutePausedRow",
+       "line": 279
+      },
+      {
+       "method": "Revalidate_DefaultOnLoadShape_MissingSource_WritesNoRow",
+       "line": 301
+      },
+      {
+       "method": "Revalidate_SecondLivePass_NoAdditionalRow",
+       "line": 318
+      },
+      {
+       "method": "Revalidate_LiveRecovery_RestoredActive_WritesRouteResumedRow",
+       "line": 331
+      },
+      {
+       "method": "Revalidate_LiveRecovery_RestoredPaused_WritesNoResumeRow",
+       "line": 355
+      },
+      {
+       "method": "BumpSupersedeStateVersion_WithLiveUT_EmitsRow_DefaultStaysSilent",
+       "line": 377
+      },
+      {
+       "method": "Materialize_LivePass_MissingSources_EmitsAutoPauseAtCurrentUT",
+       "line": 402
+      },
+      {
+       "method": "NeedsCatchUpResume_Matrix",
+       "line": 426
+      },
+      {
+       "method": "BuildLatestLifecycleRowIndex_LatestByUtThenPosition",
+       "line": 446
+      },
+      {
+       "method": "Revalidate_LivePass_RepairsUnmatchedPausedRow_Idempotently",
+       "line": 473
+      },
+      {
+       "method": "Revalidate_LivePass_CatchUp_SkipsPausedAndConsistentRoutes",
+       "line": 513
+      },
+      {
+       "method": "TryResolveLiveUT_OnLoadInProgress_ForcesSilent",
+       "line": 552
+      },
+      {
+       "method": "BumpSupersedeStateVersionLive_UnresolvableUT_StaysSilent",
+       "line": 569
+      },
+      {
+       "method": "RemoveDormantRoute_RemovesAndLogs",
+       "line": 586
+      },
+      {
+       "method": "RemoveDormantRoute_MissAndNull_ReturnFalseWithWarn",
+       "line": 602
+      },
+      {
+       "method": "RemoveDormantRoute_DropsHeldEscrow",
+       "line": 614
+      },
+      {
+       "method": "RemoveDormantRoute_DoesNotTouchCommittedRoutes",
+       "line": 630
+      },
+      {
+       "method": "ShouldShowDormantSection_Matrix",
+       "line": 653
+      },
+      {
+       "method": "DormantSectionTitle_CarriesCount",
+       "line": 659
+      },
+      {
+       "method": "DormantRouteDisplayName_FallbackChain",
+       "line": 665
+      },
+      {
+       "method": "DormantAppearsLabel_KnownAndUnknown",
+       "line": 675
+      },
+      {
+       "method": "BuildDeleteDormantConfirmBody_NamesRouteAndDormantState",
+       "line": 687
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RouteProofSerializationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RouteProof_RoundTripsViaTreeMetadata",
+       "line": 25
+      },
+      {
+       "method": "RouteProof_RoundTripsViaScenarioMetadata",
+       "line": 84
+      },
+      {
+       "method": "RouteProof_OriginDescriptor_RoundTrips",
+       "line": 117
+      },
+      {
+       "method": "RouteProof_OriginDescriptorAbsent_ReadsBackDefaults",
+       "line": 153
+      },
+      {
+       "method": "RouteProof_CrpResourceNames_RoundTrip",
+       "line": 185
+      },
+      {
+       "method": "RouteProof_MissingMetadataDefaultsToNoProof",
+       "line": 261
+      },
+      {
+       "method": "RunManifestVoided_RoundTripsViaBothPaths",
+       "line": 281
+      },
+      {
+       "method": "RouteRunManifest_RoundTripsViaTreeMetadata",
+       "line": 307
+      },
+      {
+       "method": "RouteRunManifest_RoundTripsViaScenarioMetadata",
+       "line": 350
+      },
+      {
+       "method": "RouteHarvestWindows_RoundTripViaTreeMetadata",
+       "line": 384
+      },
+      {
+       "method": "RouteHarvestWindows_AbsentNode_ReadsBackNull",
+       "line": 467
+      },
+      {
+       "method": "RouteHarvestWindows_BuilderFixture_RoundTrips",
+       "line": 481
+      },
+      {
+       "method": "RouteRunManifest_BuilderFixture_RoundTrips",
+       "line": 509
+      },
+      {
+       "method": "RecordingDeepClone_RouteProofIsIndependent",
+       "line": 537
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,219 @@
+{
+ "batch_id": "rewind-refly-012",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "ReFlyAutoSealPreviewTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Preview_NullMarker_ReturnsNoSeal",
+       "line": 127
+      },
+      {
+       "method": "Preview_NullProvisional_ReturnsNoSeal",
+       "line": 137
+      },
+      {
+       "method": "Preview_EmptyMarkerTreeId_ReturnsNoSeal",
+       "line": 145
+      },
+      {
+       "method": "Preview_EmptyProvisionalTreeId_ReturnsNoSeal",
+       "line": 155
+      },
+      {
+       "method": "Preview_TreeIdMismatch_ReturnsNoSeal",
+       "line": 165
+      },
+      {
+       "method": "Preview_RecordingIdMismatchSameTree_StillRunsOtherChecks",
+       "line": 174
+      },
+      {
+       "method": "Preview_TransmittedScience_AddsTransmittedReason",
+       "line": 195
+      },
+      {
+       "method": "Preview_RecoveredScience_AddsRecoveredReason",
+       "line": 210
+      },
+      {
+       "method": "Preview_TwoTransmittedRows_DedupesToOneReason",
+       "line": 225
+      },
+      {
+       "method": "Preview_MixedTransmittedAndRecovered_BothReasons",
+       "line": 241
+      },
+      {
+       "method": "Preview_ScienceTaggedOnDifferentRecording_NoReason",
+       "line": 262
+      },
+      {
+       "method": "Preview_NonScienceActionTaggedOnProvisional_NoReason",
+       "line": 277
+      },
+      {
+       "method": "Preview_EmptyLedger_NoScienceReason",
+       "line": 300
+      },
+      {
+       "method": "Preview_DoesNotMutateLedger",
+       "line": 314
+      },
+      {
+       "method": "Preview_RecordedTerminalLanded_NullVessel_FlagsLanded",
+       "line": 348
+      },
+      {
+       "method": "Preview_RecordedTerminalSplashed_NullVessel_FlagsSplashedDown",
+       "line": 362
+      },
+      {
+       "method": "Preview_RecordedTerminalOrbiting_NullVessel_FlagsStableOrbit",
+       "line": 376
+      },
+      {
+       "method": "Preview_RecordedTerminalSubOrbital_NullVessel_FlagsNoSeal",
+       "line": 390
+      },
+      {
+       "method": "Preview_RecordedTerminalDocked_NullVessel_FlagsDocked",
+       "line": 409
+      },
+      {
+       "method": "Preview_RecordedTerminalRecovered_NullVessel_FlagsRecovered",
+       "line": 423
+      },
+      {
+       "method": "Preview_RecordedTerminalBoarded_NullVessel_FlagsBoarded",
+       "line": 437
+      },
+      {
+       "method": "Preview_RecordedTerminalDestroyed_DoesNotFlag",
+       "line": 458
+      },
+      {
+       "method": "Preview_NoTerminalSet_DoesNotFlagFromRecordedPath",
+       "line": 475
+      },
+      {
+       "method": "AddIfMissing_DuplicateReason_DropsSecond",
+       "line": 501
+      },
+      {
+       "method": "AddIfMissing_DistinctReasons_AppendsBoth",
+       "line": 514
+      },
+      {
+       "method": "Phrase_AllReasons_MatchSpec",
+       "line": 530
+      },
+      {
+       "method": "Format_EmptyReasons_ReturnsNull",
+       "line": 553
+      },
+      {
+       "method": "Format_SingleReason_BarePhrase",
+       "line": 564
+      },
+      {
+       "method": "Format_TwoReasons_AndJoiner",
+       "line": 576
+      },
+      {
+       "method": "Format_ThreeReasons_OxfordComma",
+       "line": 592
+      },
+      {
+       "method": "Format_MixedSubjectPhrases_StillReadsCleanly",
+       "line": 610
+      },
+      {
+       "method": "BuildTimelineActionButtonLabel_PermanentNonReFlyMerge_UsesMergeToTimeline",
+       "line": 632
+      },
+      {
+       "method": "BuildTimelineActionButtonLabel_ReFlyAttemptSealed_UsesMergeAndSeal",
+       "line": 641
+      },
+      {
+       "method": "BuildTimelineActionButtonLabel_ReFlyAttemptNotSealed_UsesCommitDontSeal",
+       "line": 653
+      },
+      {
+       "method": "BuildTimelineActionDialogTitle_NotPermanent_UsesCommitToTimeline",
+       "line": 661
+      },
+      {
+       "method": "BuildTimelineActionDialogTitle_Permanent_UsesMergeToTimeline",
+       "line": 668
+      },
+      {
+       "method": "DetermineReFlyTimelineActionIsPermanent_ClassifierOverridesNoSealPreview",
+       "line": 675
+      },
+      {
+       "method": "DetermineReFlyTimelineActionIsPermanent_CommittedProvisionalPredictionUsesCommit",
+       "line": 714
+      },
+      {
+       "method": "DetermineReFlyTimelineActionIsPermanent_ClassifierThrows_FallsBackToPreview",
+       "line": 758
+      },
+      {
+       "method": "BuildReFlyAutoSealReasonLines_MultipleReasons_UsesDashedLines",
+       "line": 789
+      },
+      {
+       "method": "BuildReFlyAutoSealReasonLines_EmptyReasons_UsesFallbackLine",
+       "line": 808
+      },
+      {
+       "method": "BuildBody_NoSeal_UsesDefaultCopy",
+       "line": 824
+      },
+      {
+       "method": "BuildBody_AutoSeal_SingleReason_IncludesReasonAndConsequence",
+       "line": 842
+      },
+      {
+       "method": "BuildBody_AutoSeal_MultipleReasons_Composes",
+       "line": 867
+      },
+      {
+       "method": "BuildBody_HeadlineIncludesVesselNameAndDuration",
+       "line": 891
+      },
+      {
+       "method": "ShouldUseLiveVessel_MatchingPids_ReturnsTrue",
+       "line": 902
+      },
+      {
+       "method": "ShouldUseLiveVessel_DifferentPids_ReturnsFalse",
+       "line": 911
+      },
+      {
+       "method": "ShouldUseLiveVessel_ZeroCandidatePid_ReturnsFalse",
+       "line": 920
+      },
+      {
+       "method": "ShouldUseLiveVessel_ZeroExpectedPid_ReturnsFalse",
+       "line": 928
+      },
+      {
+       "method": "ShouldUseLiveVessel_BothZero_ReturnsFalse",
+       "line": 938
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

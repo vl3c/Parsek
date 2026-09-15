@@ -1,0 +1,295 @@
+{
+ "batch_id": "logistics-route-037",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "Logistics/LogisticsCostPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatFunds_GroupsThousands_AppendsUnit",
+       "line": 68
+      },
+      {
+       "method": "FormatFunds_RoundsToWholeFunds",
+       "line": 80
+      },
+      {
+       "method": "FormatFunds_GroupsMillions",
+       "line": 89
+      },
+      {
+       "method": "FormatFunds_StaysInvariant_UnderCommaLocale",
+       "line": 97
+      },
+      {
+       "method": "FormatDetailLine_WithRecovery_ShowsLaunchMinusRecovered",
+       "line": 109
+      },
+      {
+       "method": "FormatDetailLine_NoRecovery_ShowsNotRecoveredCaption",
+       "line": 119
+      },
+      {
+       "method": "FormatDetailLine_StaysInvariant_UnderCommaLocale",
+       "line": 128
+      },
+      {
+       "method": "FormatDetailLine_RecoveredCreditsButZeroEventCount_ShowsBreakdown",
+       "line": 141
+      },
+      {
+       "method": "FormatDetailLine_RecoveredExceedsLaunch_NetReadsZero",
+       "line": 152
+      },
+      {
+       "method": "FormatDetailTooltip_ExplainsNetAndCreditTiming",
+       "line": 167
+      },
+      {
+       "method": "FormatDetailTooltip_NoRecovery_AddsRecoverHint",
+       "line": 185
+      },
+      {
+       "method": "FormatCreationSummaryBlock_ThreeLines_NetLaunchRecovered",
+       "line": 198
+      },
+      {
+       "method": "FormatCreationSummaryBlock_StaysInvariant_UnderCommaLocale",
+       "line": 209
+      },
+      {
+       "method": "FormatCreationSummaryBlock_NoRecovery_NetEqualsLaunch",
+       "line": 222
+      },
+      {
+       "method": "FormatCandidateSuffix_CompactNet",
+       "line": 238
+      },
+      {
+       "method": "FormatCandidateSuffix_NoRecovery_ShowsLaunchAsNet",
+       "line": 249
+      },
+      {
+       "method": "FormatCandidateSuffix_StaysInvariant_UnderCommaLocale",
+       "line": 261
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteOriginDebitPlannerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FullyStocked_PlansFullAmounts_NotShort",
+       "line": 45
+      },
+      {
+       "method": "ShortResource_ClampsToStored_SetsIsShort",
+       "line": 74
+      },
+      {
+       "method": "PlanLines_DeterministicOrdinalOrder",
+       "line": 105
+      },
+      {
+       "method": "SkipsNonPositiveEntries",
+       "line": 134
+      },
+      {
+       "method": "NegativeStored_TreatedAsZero",
+       "line": 157
+      },
+      {
+       "method": "NullOrEmptyInputs_EmptyPlan",
+       "line": 175
+      },
+      {
+       "method": "ManifestOverload_PlansFromArbitraryManifest_ClampsAndShorts",
+       "line": 206
+      },
+      {
+       "method": "ManifestOverload_SkipsNonPositive_EmptyOnNullOrEmpty",
+       "line": 238
+      },
+      {
+       "method": "RouteOverload_DelegatesToManifestOverload_ByteIdentical",
+       "line": 267
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteLedgerRetireTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsRouteActionType_TrueForEveryRouteType",
+       "line": 43
+      },
+      {
+       "method": "IsRouteActionType_FalseForNonRouteTypes",
+       "line": 50
+      },
+      {
+       "method": "ShouldRetire_FutureRouteRow_True_ForEveryRouteType",
+       "line": 59
+      },
+      {
+       "method": "ShouldRetire_AtCutoff_Kept_StrictGreaterThan",
+       "line": 67
+      },
+      {
+       "method": "ShouldRetire_BeforeCutoff_Kept",
+       "line": 77
+      },
+      {
+       "method": "ShouldRetire_NonRouteRow_NeverRetired_RegardlessOfUT",
+       "line": 85
+      },
+      {
+       "method": "ShouldRetire_RouteTypeWithEmptyRouteId_NotRetired",
+       "line": 98
+      },
+      {
+       "method": "ShouldRetire_NullAction_False",
+       "line": 107
+      },
+      {
+       "method": "Retire_DropsFutureRouteRows_KeepsPastAndNonRoute_PreservesOrder",
+       "line": 115
+      },
+      {
+       "method": "Retire_PositiveInfinityCutoff_RetiresNothing",
+       "line": 138
+      },
+      {
+       "method": "Retire_NullSource_EmptyList_NoThrow",
+       "line": 154
+      },
+      {
+       "method": "IsPhysicalRouteMutation_TrueForRouteRowWithResourceManifest",
+       "line": 175
+      },
+      {
+       "method": "IsPhysicalRouteMutation_TrueForRouteRowWithInventoryManifest",
+       "line": 186
+      },
+      {
+       "method": "IsPhysicalRouteMutation_FalseForFundsOnlyAndMarkerRows",
+       "line": 199
+      },
+      {
+       "method": "IsPhysicalRouteMutation_FalseForNonRouteEmptyManifestAndNull",
+       "line": 218
+      },
+      {
+       "method": "SelectInWindow_InclusiveBoundsAndOrderPreserved",
+       "line": 236
+      },
+      {
+       "method": "SelectInWindow_ExcludesEmptyRouteIdAndNonRoute",
+       "line": 257
+      },
+      {
+       "method": "SelectInWindow_DegenerateWindowAndNullSourceReturnEmpty",
+       "line": 273
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RoutePickupDebitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Seam_ShortCircuits_WithEndpointAndManifest",
+       "line": 94
+      },
+      {
+       "method": "EmptyManifest_NoOp_ResolvedNotShort",
+       "line": 120
+      },
+      {
+       "method": "UnresolvedEndpoint_FullRequestedManifest_ShortAndUnresolved",
+       "line": 144
+      },
+      {
+       "method": "ResolvedNullVessel_TreatedAsUnresolved",
+       "line": 172
+      },
+      {
+       "method": "FlowLockedResource_ProbeReportsZero_PlanClampsToZero",
+       "line": 203
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteGhostDriverSelectorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GhostDrivingStatus_ProducesOneBackingMission",
+       "line": 83
+      },
+      {
+       "method": "NonGhostDrivingStatus_ProducesNothing",
+       "line": 104
+      },
+      {
+       "method": "MixedStatuses_OnlyGhostDrivingMaterialize",
+       "line": 118
+      },
+      {
+       "method": "MaterializedMission_CarriesRouteRenderParameters",
+       "line": 144
+      },
+      {
+       "method": "NullRoutes_ReturnsEmpty_NoThrow",
+       "line": 168
+      },
+      {
+       "method": "EmptyRoutes_ReturnsEmpty",
+       "line": 178
+      },
+      {
+       "method": "NullRouteEntry_Skipped",
+       "line": 190
+      },
+      {
+       "method": "Summary_LogsGhostDrivingAndSkippedCounts",
+       "line": 212
+      },
+      {
+       "method": "Summary_StableCounts_CoalescesAndReEmitsOnChange",
+       "line": 231
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

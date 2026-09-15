@@ -1,0 +1,246 @@
+{
+ "batch_id": "rewind-refly-019",
+ "cluster": "rewind-refly",
+ "tier": "B",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "ReFlyAnchorBypassWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BackgroundRecorder_WiresNarrowedGateFilter_BeforeNearestSearch",
+       "line": 55
+      },
+      {
+       "method": "BackgroundRecorder_NoLongerCallsSupersedeTargetBypass",
+       "line": 77
+      },
+      {
+       "method": "FlightRecorder_WiresNarrowedGateFilter_BeforeNearestSearch",
+       "line": 110
+      },
+      {
+       "method": "FlightRecorder_NoLongerCallsSupersedeTargetBypass",
+       "line": 140
+      },
+      {
+       "method": "FlightRecorder_BuildsCandidateList_BeforeNarrowedGateFilter",
+       "line": 169
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReFlyChainRootGhostSnapshotTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ReFlyBreakupRoot_SceneExitFinalizerPreservesGhostSnapshotAcrossRoundTrip",
+       "line": 56
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsStableState_StableStates",
+       "line": 27
+      },
+      {
+       "method": "IsStableState_UnstableStates",
+       "line": 36
+      },
+      {
+       "method": "ResetAllPlaybackState_ResetsRecordings",
+       "line": 46
+      },
+      {
+       "method": "CountFutureRecordings_CountsCorrectly",
+       "line": 74
+      },
+      {
+       "method": "RewindFields_InRecording_DefaultToEmpty",
+       "line": 99
+      },
+      {
+       "method": "ResetForTesting_ClearsRewindFlags",
+       "line": 109
+      },
+      {
+       "method": "ResetAllPlaybackState_ClearsPostSpawnRecoveredTerminalState",
+       "line": 124
+      },
+      {
+       "method": "ResetAllPlaybackState_ClearsPostSpawnDestroyedTerminalState",
+       "line": 143
+      },
+      {
+       "method": "ResetAllPlaybackState_PreservesRecordingTimeTerminalState",
+       "line": 161
+      },
+      {
+       "method": "ResetAllPlaybackState_PreservesSituationBasedTerminalState",
+       "line": 180
+      },
+      {
+       "method": "CollectSpawnedVesselInfo_NoSpawnedRecordings_ReturnsEmpty",
+       "line": 200
+      },
+      {
+       "method": "CollectSpawnedVesselInfo_ReturnsNonZeroPidsAndNames",
+       "line": 212
+      },
+      {
+       "method": "CollectSpawnedVesselInfo_SkipsZeroPids",
+       "line": 230
+      },
+      {
+       "method": "CollectSpawnedVesselInfo_DeduplicatesSameName",
+       "line": 246
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MergeJournalForkMigrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "InPlace_AddsForkToCommittedTreeAndUpdatesActiveId",
+       "line": 82
+      },
+      {
+       "method": "NonInPlace_VerboseSkipsWithoutMutating",
+       "line": 114
+      },
+      {
+       "method": "NoCommittedTree_WarnsAndReturns",
+       "line": 138
+      },
+      {
+       "method": "Idempotent_SecondCallIsNoOp",
+       "line": 155
+      },
+      {
+       "method": "NullArgs_ReturnSilently",
+       "line": 206
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindAbandonRetryProvisionalReapTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RemovesPriorNotCommitted_FromFlatList_LogsCount",
+       "line": 62
+      },
+      {
+       "method": "DoesNotRemoveCommittedRecordingOnSameRp",
+       "line": 96
+      },
+      {
+       "method": "DoesNotRemoveSameSessionOrDifferentRp",
+       "line": 126
+      },
+      {
+       "method": "RemovesFromCommittedTreeRecordingsDict",
+       "line": 150
+      },
+      {
+       "method": "EmptyRpId_ReturnsZero",
+       "line": 177
+      },
+      {
+       "method": "Idempotent_SecondCallNoOp",
+       "line": 195
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindContextTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsRewinding_DefaultFalse",
+       "line": 32
+      },
+      {
+       "method": "BeginRewind_SetsAllFields",
+       "line": 47
+      },
+      {
+       "method": "BeginRewind_LogsAllValues",
+       "line": 69
+      },
+      {
+       "method": "EndRewind_ClearsAllFields",
+       "line": 87
+      },
+      {
+       "method": "EndRewind_LogsClearMessage",
+       "line": 117
+      },
+      {
+       "method": "SetAdjustedUT_SetsUT",
+       "line": 130
+      },
+      {
+       "method": "SetAdjustedUT_Logs",
+       "line": 137
+      },
+      {
+       "method": "SetQuicksaveVesselPids_SetsPids",
+       "line": 147
+      },
+      {
+       "method": "SetQuicksaveVesselPids_NullClearsField",
+       "line": 159
+      },
+      {
+       "method": "SetQuicksaveVesselPids_Logs",
+       "line": 168
+      },
+      {
+       "method": "ResetForTesting_ClearsAllFields",
+       "line": 178
+      },
+      {
+       "method": "DelegateProperties_RecordingStore_MatchRewindContext",
+       "line": 199
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

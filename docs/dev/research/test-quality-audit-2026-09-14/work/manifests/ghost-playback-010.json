@@ -1,0 +1,251 @@
+{
+ "batch_id": "ghost-playback-010",
+ "cluster": "ghost-playback",
+ "tier": "A",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "GhostTrackingStationPatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildVesselsListFinalizer_KnownGhostMissingRendererNre_Suppresses",
+       "line": 97
+      },
+      {
+       "method": "BuildVesselsListFinalizer_KnownGhostMissingRendererNreAtTheKnownStockOffset_Suppresses",
+       "line": 129
+      },
+      {
+       "method": "BuildVesselsListFinalizer_NreAtTheOrbitRendererLoadOffset_Suppresses",
+       "line": 153
+      },
+      {
+       "method": "BuildVesselsListFinalizer_OffsetWithoutMonoZeroPadding_ParsesTheWholePayload",
+       "line": 177
+      },
+      {
+       "method": "BuildVesselsListFinalizer_SameMethodNameOnAnotherType_IsNotReadAsThisMethodsOffset",
+       "line": 202
+      },
+      {
+       "method": "BuildVesselsListFinalizer_OffsetBearingFrameBelowTheHarmonyWrapper_VetoesAndWarns",
+       "line": 229
+      },
+      {
+       "method": "BuildVesselsListFinalizer_UnusableOffsetFramesDoNotEndTheScan_VetoesOnTheNextFrame",
+       "line": 276
+      },
+      {
+       "method": "BuildVesselsListFinalizer_NoStackTraceAtAll_DoesNotVeto",
+       "line": 303
+      },
+      {
+       "method": "BuildVesselsListFinalizer_UnrelatedException_ReturnsOriginalAndWarns",
+       "line": 326
+      },
+      {
+       "method": "BuildVesselsListFinalizer_NreWithoutGhostMissingRenderer_ReturnsOriginalAndWarns",
+       "line": 349
+      },
+      {
+       "method": "BuildVesselsListFinalizer_NreWithEarlierNonGhostMissingRenderer_ReturnsOriginalAndWarns",
+       "line": 370
+      },
+      {
+       "method": "BuildVesselsListFinalizer_NreWithLaterNonGhostMissingRenderer_Suppresses",
+       "line": 391
+      },
+      {
+       "method": "BuildVesselsListFinalizer_NreAtDifferentStockOffset_ReturnsOriginalAndWarns",
+       "line": 412
+      },
+      {
+       "method": "BuildVesselsListFinalizer_NreWithPriorStockNullCandidate_ReturnsOriginalAndWarns",
+       "line": 442
+      },
+      {
+       "method": "BuildVesselsListFinalizer_ScanThrewAfterSeeingAGhostMissingRenderer_ReturnsOriginal",
+       "line": 518
+      },
+      {
+       "method": "BuildVesselsListFinalizer_ScanFailedDuringGhostTeardown_StillReturnsOriginal",
+       "line": 560
+      },
+      {
+       "method": "BuildVesselsListFinalizer_ScanFailedOutsideGhostTeardown_ReturnsOriginalAndWarns",
+       "line": 584
+      },
+      {
+       "method": "BuildVesselsListFinalizer_ScanFailedWithNoRegisteredGhosts_ReturnsOriginalAndWarns",
+       "line": 601
+      },
+      {
+       "method": "BuildVesselsListFinalizer_ScanFailedSomeOtherWay_ReturnsOriginalAndWarns",
+       "line": 622
+      },
+      {
+       "method": "BuildVesselsListFinalizer_ScanFailedDuringTeardownAtDifferentOffset_ReturnsOriginalAndWarns",
+       "line": 642
+      },
+      {
+       "method": "BuildVesselsListFinalizer_NonNreDuringGhostTeardown_ReturnsOriginalAndWarns",
+       "line": 684
+      },
+      {
+       "method": "GhostTeardownScope_Nests_AndFloorsAtZero",
+       "line": 698
+      },
+      {
+       "method": "TryClearSelectedVessel_WithPrivateSelection_ClearsAndReturnsPrevious",
+       "line": 724
+      },
+      {
+       "method": "TryClearSelectedVessel_WithSetVesselMethod_DoesNotCallSetVessel",
+       "line": 741
+      },
+      {
+       "method": "TryClearSelectedVessel_WithNoSelection_ReturnsFalseWithoutError",
+       "line": 759
+      },
+      {
+       "method": "TryClearSelectedVessel_WithoutPrivateField_ReportsReflectionError",
+       "line": 775
+      },
+      {
+       "method": "TryGetSelectedVesselPid_WithPrivateSelection_ReturnsPid",
+       "line": 788
+      },
+      {
+       "method": "TryGetSelectedVesselPid_WithNoSelection_ReturnsZeroWithoutError",
+       "line": 803
+      },
+      {
+       "method": "TrySelectTrackingStationVessel_WithSetVesselMethod_SelectsSpawnedVessel",
+       "line": 818
+      },
+      {
+       "method": "TrySelectTrackingStationVessel_WithTwoArgumentSetVessel_UsesStockSignatureAndDoesNotKeepFocus",
+       "line": 835
+      },
+      {
+       "method": "TrySelectTrackingStationVessel_WithBothSetVesselOverloads_PrefersTwoArgumentStockSignature",
+       "line": 853
+      },
+      {
+       "method": "BuildTrackingStationSetVesselArguments_TwoArgumentMethod_AppendsKeepFocus",
+       "line": 872
+      },
+      {
+       "method": "FindTrackingStationSetVesselMethod_TwoArgumentOnlyType_ResolvesStockSignature",
+       "line": 891
+      },
+      {
+       "method": "FindTrackingStationSetVesselMethod_NoSetVessel_ReturnsNull",
+       "line": 902
+      },
+      {
+       "method": "TryInvokeTrackingStationVesselListRefresh_WithBuildMethod_RebuildsListAndLogs",
+       "line": 910
+      },
+      {
+       "method": "TryInvokeTrackingStationVesselListRefresh_WithoutBuildMethod_ReturnsError",
+       "line": 929
+      },
+      {
+       "method": "TryInvokeTrackingStationVesselListRefresh_WhenBuildThrows_ReturnsError",
+       "line": 946
+      },
+      {
+       "method": "ShouldRefreshTrackingStationVesselListAfterLifecycleMutation_OnlyRefreshesOnCreateOrDestroy",
+       "line": 969
+      },
+      {
+       "method": "TryClearSelectedVessel_WhenAlternatingStockSelections_ClearsEachPreviousStockTarget",
+       "line": 985
+      },
+      {
+       "method": "ClearSelectedGhost_WhenStockSelectionArrives_RemovesParsekGhostSelection",
+       "line": 1013
+      },
+      {
+       "method": "BuildActionStates_WithEligibleRecording_EnablesOnlyMaterializeAndOmitsNonTsActions",
+       "line": 1034
+      },
+      {
+       "method": "DisableStockActionButtons_NullTracking_ReturnsFalseFlags",
+       "line": 1069
+      },
+      {
+       "method": "BuildActionStates_BeforeRecordingEnd_EnablesMaterializeViaFastForward",
+       "line": 1083
+      },
+      {
+       "method": "BuildActionStates_BeforeRecordingEndWithoutEndpointEligibility_DisablesMaterialize",
+       "line": 1106
+      },
+      {
+       "method": "BuildActionStates_ChainGhostWithoutRecording_DisablesMaterialize",
+       "line": 1128
+      },
+      {
+       "method": "SelectRecordingMarker_StoresSelectionWithoutGhostPid",
+       "line": 1151
+      },
+      {
+       "method": "ShouldShowPopupForSetVessel_UsesMatchingIconClickIntentWithinWindow",
+       "line": 1172
+      },
+      {
+       "method": "ShouldShowPopupForSetVessel_ExpiredOrDifferentGhost_ReturnsFalseAndClears",
+       "line": 1201
+      },
+      {
+       "method": "ClearSelectedGhost_ClearsPendingPopupIntent",
+       "line": 1240
+      },
+      {
+       "method": "TryFocusGhostMapObject_NullVessel_ReturnsFalseAndLogs",
+       "line": 1273
+      },
+      {
+       "method": "BuildActionContext_WithChainSuppressedRecording_DisablesMaterialize",
+       "line": 1289
+      },
+      {
+       "method": "BuildActionContext_BeforeRecordingEnd_EnablesMaterializeFastForwardWhenEndpointEligible",
+       "line": 1332
+      },
+      {
+       "method": "BuildActionContext_SupersededRelation_DisablesMaterialize",
+       "line": 1370
+      },
+      {
+       "method": "BuildActionContext_BeforeRecordingEndSupersededRelation_DisablesMaterializeFastForward",
+       "line": 1418
+      },
+      {
+       "method": "EvaluateMaterializeAtEndpoint_NoVesselSnapshot_ReturnsBlockedReason",
+       "line": 1472
+      },
+      {
+       "method": "EvaluateMaterializeAtEndpoint_SupersededRelation_ReturnsSupersededReason",
+       "line": 1484
+      },
+      {
+       "method": "BuildActionContext_WithExistingRealVessel_MarksRecordingAlreadyMaterialized",
+       "line": 1512
+      },
+      {
+       "method": "BuildActionContext_WhenRawIndexIsStale_ResolvesRecordingById",
+       "line": 1547
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

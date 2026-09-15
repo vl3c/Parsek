@@ -1,0 +1,303 @@
+{
+ "batch_id": "legacy-bugfix-021",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "Bug585FollowupSaveSkipTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_NullRec_ReturnsFalse",
+       "line": 60
+      },
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_FlagFalse_ReturnsFalse",
+       "line": 66
+      },
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_FlagSetButPointsPresent_ReturnsFalse",
+       "line": 75
+      },
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_FlagSetButOrbitSegmentsPresent_ReturnsFalse",
+       "line": 93
+      },
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_FlagSetButTrackSectionsPresent_ReturnsFalse",
+       "line": 107
+      },
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_FlagSetButVesselSnapshotPresent_ReturnsFalse",
+       "line": 121
+      },
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_FlagSetButGhostSnapshotPresent_ReturnsFalse",
+       "line": 135
+      },
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_FlagSetAndEverythingEmpty_ReturnsTrue",
+       "line": 149
+      },
+      {
+       "method": "ShouldSkipSaveToPreserveStaleSidecar_FlagSetWithPartEvents_ReturnsFalse",
+       "line": 165
+      },
+      {
+       "method": "SaveRecordingFiles_StaleSidecarLoadFailureWithEmptyState_PreservesOriginalPrec",
+       "line": 184
+      },
+      {
+       "method": "SaveRecordingFiles_StaleSidecarFlagButRecorderAddedPoints_StillWrites",
+       "line": 281
+      },
+      {
+       "method": "SaveRecordingFiles_OnePointSectionAuthoritativeShrink_LogsWarningAndStillWrites",
+       "line": 336
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug287TerminalCleanupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FindTerminalEventIndex_EmptyList_ReturnsMinusOne",
+       "line": 31
+      },
+      {
+       "method": "FindTerminalEventIndex_MatchByTuple_IgnoresPartName",
+       "line": 45
+      },
+      {
+       "method": "FindTerminalEventIndex_NoMatch_ReturnsMinusOne",
+       "line": 65
+      },
+      {
+       "method": "FindTerminalEventIndex_MatchesFirstOccurrence",
+       "line": 83
+      },
+      {
+       "method": "ResumeAfterFalseAlarm_ContentBasedRemoval_PreservesDecouplesAndRemovesTerminals",
+       "line": 107
+      },
+      {
+       "method": "RemoveLastEmittedTerminals_SurvivesUnstableSortReordering",
+       "line": 175
+      },
+      {
+       "method": "StableSort_TreeMergeAtSameUT_KeepsShutdownsBeforeIgnitedSeeds",
+       "line": 254
+      },
+      {
+       "method": "StableSortPartEventsByUT_Static_NullInput_ReturnsEmptyList",
+       "line": 302
+      },
+      {
+       "method": "StableSortPartEventsByUT_Static_SingleElement_ReturnsNewList",
+       "line": 313
+      },
+      {
+       "method": "StableSortPartEventsByUT_Static_ClearThenCopyBack_WorksWithSmallLists",
+       "line": 326
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug2ProbeTerminalRegressionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FinalizeIndividualRecording_TrimSurvivorWithSingleAscendingPoint_DoesNotInferSubOrbital",
+       "line": 70
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_TrimSurvivorWithSingleAscendingPoint_DoesNotInferSubOrbital",
+       "line": 113
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_NullRecording_ReturnsFalse",
+       "line": 145
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_TwoOrMorePoints_ReturnsFalse",
+       "line": 151
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_SinglePointLowAltitude_ReturnsFalse",
+       "line": 161
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_SinglePointHighAltitudeSurfaceMobileSection_ReturnsFalse",
+       "line": 172
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_SinglePointHighAltitudeStableOrbit_ReturnsFalse",
+       "line": 184
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_SinglePointHighAltitudeBodyUnresolvedOrbit_ReturnsTrue",
+       "line": 203
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_SinglePointHighAltitudeSurfaceIntersectingOrbit_ReturnsTrue",
+       "line": 221
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_SinglePointHighAltitudeNoSignals_ReturnsTrue",
+       "line": 238
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_ZeroPoints_ReturnsTrue",
+       "line": 250
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_ZeroPointsWithStableOrbit_ReturnsTrue",
+       "line": 260
+      },
+      {
+       "method": "HasOnlySubOrbitalFallbackEvidence_SinglePointEscapingOrbit_ReturnsTrue",
+       "line": 278
+      },
+      {
+       "method": "SplitThenStripThenTrimThenSecondFinalize_PreservesNullTerminal",
+       "line": 309
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug450BuildBreakdownTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AboveThreshold_FiresBuildBreakdownWarn_WithAllSubPhases",
+       "line": 88
+      },
+      {
+       "method": "BuildTypeEnum_RendersAsHumanReadableString",
+       "line": 125
+      },
+      {
+       "method": "SpawnMaxBelowThreshold_SuppressesBuildBreakdown",
+       "line": 141
+      },
+      {
+       "method": "SpawnMaxZero_SuppressesBuildBreakdown",
+       "line": 175
+      },
+      {
+       "method": "LatchIsIndependentOfBug414Latch",
+       "line": 196
+      },
+      {
+       "method": "BothLatchesConsumeOnFreshSession_OneEmissionEach",
+       "line": 221
+      },
+      {
+       "method": "ResetForTesting_ReArmsBothLatches",
+       "line": 239
+      },
+      {
+       "method": "BelowThreshold_DoesNotFireBuildBreakdown",
+       "line": 256
+      },
+      {
+       "method": "MultipleSpawns_AggregateAndHeaviestAreDistinct",
+       "line": 272
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MilestonesModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BasicAchievement_Effective",
+       "line": 59
+      },
+      {
+       "method": "RetroactivePriorityShift",
+       "line": 78
+      },
+      {
+       "method": "MultipleMilestones_IndependentFlags",
+       "line": 105
+      },
+      {
+       "method": "ProcessAction_IgnoresNonMilestoneActions",
+       "line": 150
+      },
+      {
+       "method": "Reset_ClearsState",
+       "line": 167
+      },
+      {
+       "method": "DuplicateMilestone_NotEffective",
+       "line": 184
+      },
+      {
+       "method": "RepeatableRecordMilestone_RemainsEffectiveAcrossMultipleHits",
+       "line": 199
+      },
+      {
+       "method": "RepeatableRecordMilestone_SameActionRecalculated_RateLimitedToOneLine",
+       "line": 217
+      },
+      {
+       "method": "RepeatableRecordMilestone_DistinctActionsSamePair_LogSeparately",
+       "line": 253
+      },
+      {
+       "method": "RepeatableRecordMilestone_NullRecordingId_StillKeysOnActionId",
+       "line": 286
+      },
+      {
+       "method": "IsMilestoneCredited_True_AfterProcessing",
+       "line": 317
+      },
+      {
+       "method": "IsMilestoneCredited_False_BeforeProcessing",
+       "line": 326
+      },
+      {
+       "method": "Effective_LogsMilestoneId",
+       "line": 336
+      },
+      {
+       "method": "Duplicate_LogsZeroed",
+       "line": 350
+      },
+      {
+       "method": "Integration_EngineDispatchesMilestoneToModule",
+       "line": 370
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

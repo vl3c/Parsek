@@ -1,0 +1,262 @@
+{
+ "batch_id": "catchall-020",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "SegmentBoundaryRuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyJointBreakResult_NoNewVessels_ReturnsWithinSegment",
+       "line": 37
+      },
+      {
+       "method": "ClassifyJointBreakResult_NullVesselList_ReturnsWithinSegment",
+       "line": 48
+      },
+      {
+       "method": "ClassifyJointBreakResult_OnlyOriginalVesselInList_ReturnsWithinSegment",
+       "line": 59
+      },
+      {
+       "method": "ClassifyJointBreakResult_NewControlledVessel_ReturnsStructuralSplit",
+       "line": 70
+      },
+      {
+       "method": "ClassifyJointBreakResult_NewDebrisVessel_ReturnsDebrisSplit",
+       "line": 81
+      },
+      {
+       "method": "ClassifyJointBreakResult_MultipleNewVessels_ControlledReturnsStructuralSplit",
+       "line": 92
+      },
+      {
+       "method": "ClassifyJointBreakResult_MultipleNewVessels_UncontrolledReturnsDebrisSplit",
+       "line": 104
+      },
+      {
+       "method": "ClassifyJointBreakResult_OnlyNewVessel_NoOriginal_ControlledReturnsStructuralSplit",
+       "line": 116
+      },
+      {
+       "method": "ClassifyJointBreakResult_OnlyNewVessel_NoOriginal_UncontrolledReturnsDebrisSplit",
+       "line": 128
+      },
+      {
+       "method": "ClassifyForegroundSplitChildCause_DecoupleCreatedChild_ReturnsDecouple",
+       "line": 144
+      },
+      {
+       "method": "ClassifyForegroundSplitChildCause_DecoupleOnlyTrigger_ReturnsDecouple",
+       "line": 154
+      },
+      {
+       "method": "ClassifyForegroundSplitChildCause_NoDecoupleSignal_ReturnsCrash",
+       "line": 164
+      },
+      {
+       "method": "ClassifyForegroundSplitChildCause_LogsDecision",
+       "line": 175
+      },
+      {
+       "method": "ClassifyJointBreakResult_WithinSegment_LogsOriginalPid",
+       "line": 190
+      },
+      {
+       "method": "ClassifyJointBreakResult_StructuralSplit_LogsControlled",
+       "line": 204
+      },
+      {
+       "method": "ClassifyJointBreakResult_DebrisSplit_LogsDebris",
+       "line": 218
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_NonControllerPart_EmitsPartDestroyedOnly",
+       "line": 236
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_ControllerPart_EmitsBothEvents",
+       "line": 254
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_PartDestroyed_DetailsContainPartNameAndPid",
+       "line": 274
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_ControllerChange_DetailsContainProvidedInfo",
+       "line": 292
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_NullControllerDetails_DefaultsToEmptyString",
+       "line": 310
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_NullEventsList_DoesNotThrow",
+       "line": 327
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_AppendsToExistingEvents",
+       "line": 345
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_LogsPartNamePidAndControllerStatus",
+       "line": 370
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_ControllerPart_LogsControllerTrue",
+       "line": 390
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_LogsPartDestroyedEmission",
+       "line": 410
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_Controller_LogsControllerChangeEmission",
+       "line": 430
+      },
+      {
+       "method": "IsControllerPart_WithModuleCommand_ReturnsTrue",
+       "line": 454
+      },
+      {
+       "method": "IsControllerPart_WithoutModuleCommand_ReturnsFalse",
+       "line": 464
+      },
+      {
+       "method": "IsControllerPart_NullModuleList_ReturnsFalse",
+       "line": 474
+      },
+      {
+       "method": "IsControllerPart_EmptyModuleList_ReturnsFalse",
+       "line": 482
+      },
+      {
+       "method": "IsControllerPart_OnlyModuleCommand_ReturnsTrue",
+       "line": 490
+      },
+      {
+       "method": "IsControllerPart_CaseSensitive_ModulecommandReturnsFalse",
+       "line": 500
+      },
+      {
+       "method": "IsControllerPart_NullPartName_DoesNotThrow",
+       "line": 511
+      },
+      {
+       "method": "IsControllerPart_NullModules_LogsVerbose",
+       "line": 525
+      },
+      {
+       "method": "IsControllerPart_WithModules_LogsModuleCount",
+       "line": 538
+      },
+      {
+       "method": "EmitBreakageSegmentEvents_WorksWithRecordingSegmentEvents",
+       "line": 556
+      },
+      {
+       "method": "ClassifyUndockSplit_RecordedIsOldVessel_ReturnsRecordedStaysActive",
+       "line": 579
+      },
+      {
+       "method": "ClassifyUndockSplit_RecordedMatchesNewVessel_ReturnsNotRecordedVessel",
+       "line": 592
+      },
+      {
+       "method": "ClassifyUndockSplit_UnrelatedUndock_ReturnsNotRecordedVessel",
+       "line": 607
+      },
+      {
+       "method": "ClassifyUndockSplit_ZeroPid_ReturnsNotRecordedVessel",
+       "line": 623
+      },
+      {
+       "method": "ClassifyUndockSplit_SamePidBothSides_ReturnsNotRecordedVessel",
+       "line": 632
+      },
+      {
+       "method": "ResolveUndockBackgroundPid_FocusOnOldVessel_BackgroundsNew",
+       "line": 648
+      },
+      {
+       "method": "ResolveUndockBackgroundPid_FocusOnNewVessel_BackgroundsOld",
+       "line": 660
+      },
+      {
+       "method": "ResolveUndockBackgroundPid_AmbiguousFocus_BackgroundsNew",
+       "line": 673
+      },
+      {
+       "method": "ResolveUndockBackgroundPid_NeverCollapsesActiveAndBackground",
+       "line": 686
+      },
+      {
+       "method": "JointBreakResult_WithinSegment_HasValue0",
+       "line": 701
+      },
+      {
+       "method": "JointBreakResult_StructuralSplit_HasValue1",
+       "line": 707
+      },
+      {
+       "method": "JointBreakResult_DebrisSplit_HasValue2",
+       "line": 713
+      },
+      {
+       "method": "JointBreakResult_HasExactlyThreeValues",
+       "line": 719
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "AppendRelationsNotCommittedGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EnqueuePidPeerSiblings_SkipsNotCommittedPeer_LogsWarn",
+       "line": 112
+      },
+      {
+       "method": "EnqueueChainSiblings_SkipsNotCommittedSibling_LogsWarn",
+       "line": 162
+      },
+      {
+       "method": "EnqueuePidPeerSiblings_SkipsActiveSessionProvisional_WithoutWarn",
+       "line": 221
+      },
+      {
+       "method": "EnqueueChainSiblings_SkipsActiveSessionProvisional_WithoutWarn",
+       "line": 265
+      },
+      {
+       "method": "EnqueuePidPeerSiblings_SkipsOptimizerSplitTailOfTheLiveSessionsFork",
+       "line": 307
+      },
+      {
+       "method": "IsActiveSessionProvisional_SessionDisjunctIsIndependentOfTheIdDisjunct",
+       "line": 373
+      },
+      {
+       "method": "EnqueuePidPeerSiblings_StillWarnsForForeignSessionOrphan",
+       "line": 401
+      },
+      {
+       "method": "AppendRelations_RefusesRowWriteWhenOldIsNotCommitted",
+       "line": 452
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

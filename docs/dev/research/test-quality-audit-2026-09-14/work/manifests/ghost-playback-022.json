@@ -1,0 +1,275 @@
+{
+ "batch_id": "ghost-playback-022",
+ "cluster": "ghost-playback",
+ "tier": "B",
+ "expected_methods": 64,
+ "files": [
+  {
+   "file": "GhostingTriggerClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsGhostingTrigger_LightOn_ReturnsFalse",
+       "line": 27
+      },
+      {
+       "method": "IsGhostingTrigger_LightOff_ReturnsFalse",
+       "line": 33
+      },
+      {
+       "method": "IsGhostingTrigger_LightBlinkEnabled_ReturnsFalse",
+       "line": 39
+      },
+      {
+       "method": "IsGhostingTrigger_LightBlinkDisabled_ReturnsFalse",
+       "line": 45
+      },
+      {
+       "method": "IsGhostingTrigger_LightBlinkRate_ReturnsFalse",
+       "line": 51
+      },
+      {
+       "method": "IsGhostingTrigger_ThermalAnimationHot_ReturnsFalse",
+       "line": 57
+      },
+      {
+       "method": "IsGhostingTrigger_ThermalAnimationCold_ReturnsFalse",
+       "line": 63
+      },
+      {
+       "method": "IsGhostingTrigger_ThermalAnimationMedium_ReturnsFalse",
+       "line": 69
+      },
+      {
+       "method": "IsGhostingTrigger_Decoupled_ReturnsTrue",
+       "line": 79
+      },
+      {
+       "method": "IsGhostingTrigger_Destroyed_ReturnsTrue",
+       "line": 85
+      },
+      {
+       "method": "IsGhostingTrigger_ParachuteDeployed_ReturnsTrue",
+       "line": 91
+      },
+      {
+       "method": "IsGhostingTrigger_ParachuteCut_ReturnsTrue",
+       "line": 97
+      },
+      {
+       "method": "IsGhostingTrigger_ShroudJettisoned_ReturnsTrue",
+       "line": 103
+      },
+      {
+       "method": "IsGhostingTrigger_EngineIgnited_ReturnsTrue",
+       "line": 109
+      },
+      {
+       "method": "IsGhostingTrigger_EngineShutdown_ReturnsTrue",
+       "line": 115
+      },
+      {
+       "method": "IsGhostingTrigger_EngineThrottle_ReturnsTrue",
+       "line": 121
+      },
+      {
+       "method": "IsGhostingTrigger_ParachuteDestroyed_ReturnsTrue",
+       "line": 127
+      },
+      {
+       "method": "IsGhostingTrigger_DeployableExtended_ReturnsTrue",
+       "line": 133
+      },
+      {
+       "method": "IsGhostingTrigger_DeployableRetracted_ReturnsTrue",
+       "line": 139
+      },
+      {
+       "method": "IsGhostingTrigger_GearDeployed_ReturnsTrue",
+       "line": 145
+      },
+      {
+       "method": "IsGhostingTrigger_GearRetracted_ReturnsTrue",
+       "line": 151
+      },
+      {
+       "method": "IsGhostingTrigger_CargoBayOpened_ReturnsTrue",
+       "line": 157
+      },
+      {
+       "method": "IsGhostingTrigger_CargoBayClosed_ReturnsTrue",
+       "line": 163
+      },
+      {
+       "method": "IsGhostingTrigger_FairingJettisoned_ReturnsTrue",
+       "line": 169
+      },
+      {
+       "method": "IsGhostingTrigger_RCSActivated_ReturnsTrue",
+       "line": 175
+      },
+      {
+       "method": "IsGhostingTrigger_RCSStopped_ReturnsTrue",
+       "line": 181
+      },
+      {
+       "method": "IsGhostingTrigger_RCSThrottle_ReturnsTrue",
+       "line": 187
+      },
+      {
+       "method": "IsGhostingTrigger_Docked_ReturnsTrue",
+       "line": 193
+      },
+      {
+       "method": "IsGhostingTrigger_Undocked_ReturnsTrue",
+       "line": 199
+      },
+      {
+       "method": "IsGhostingTrigger_InventoryPartPlaced_ReturnsTrue",
+       "line": 205
+      },
+      {
+       "method": "IsGhostingTrigger_InventoryPartRemoved_ReturnsTrue",
+       "line": 211
+      },
+      {
+       "method": "IsGhostingTrigger_RoboticMotionStarted_ReturnsTrue",
+       "line": 217
+      },
+      {
+       "method": "IsGhostingTrigger_RoboticPositionSample_ReturnsTrue",
+       "line": 223
+      },
+      {
+       "method": "IsGhostingTrigger_RoboticMotionStopped_ReturnsTrue",
+       "line": 229
+      },
+      {
+       "method": "IsGhostingTrigger_ParachuteSemiDeployed_ReturnsTrue",
+       "line": 235
+      },
+      {
+       "method": "IsGhostingTrigger_UnknownValue_ReturnsTrueAndLogs",
+       "line": 241
+      },
+      {
+       "method": "IsClaimingBranchPoint_Dock_ReturnsTrue",
+       "line": 254
+      },
+      {
+       "method": "IsClaimingBranchPoint_Board_ReturnsTrue",
+       "line": 260
+      },
+      {
+       "method": "IsClaimingBranchPoint_Undock_ReturnsTrue",
+       "line": 266
+      },
+      {
+       "method": "IsClaimingBranchPoint_EVA_ReturnsTrue",
+       "line": 272
+      },
+      {
+       "method": "IsClaimingBranchPoint_JointBreak_ReturnsTrue",
+       "line": 278
+      },
+      {
+       "method": "IsClaimingBranchPoint_Launch_ReturnsFalse",
+       "line": 288
+      },
+      {
+       "method": "IsClaimingBranchPoint_Terminal_ReturnsFalse",
+       "line": 294
+      },
+      {
+       "method": "IsClaimingBranchPoint_Breakup_ReturnsFalse",
+       "line": 300
+      },
+      {
+       "method": "IsClaimingBranchPoint_VesselSwitchContinuation_ReturnsFalse",
+       "line": 306
+      },
+      {
+       "method": "IsClaimingBranchPoint_UnknownValue_ReturnsFalse",
+       "line": 320
+      },
+      {
+       "method": "IsGhostingSegmentEvent_PartDestroyed_ReturnsTrue",
+       "line": 331
+      },
+      {
+       "method": "IsGhostingSegmentEvent_PartRemoved_ReturnsTrue",
+       "line": 337
+      },
+      {
+       "method": "IsGhostingSegmentEvent_PartAdded_ReturnsTrue",
+       "line": 343
+      },
+      {
+       "method": "IsGhostingSegmentEvent_ControllerChange_ReturnsFalse",
+       "line": 353
+      },
+      {
+       "method": "IsGhostingSegmentEvent_ControllerDisabled_ReturnsFalse",
+       "line": 359
+      },
+      {
+       "method": "IsGhostingSegmentEvent_ControllerEnabled_ReturnsFalse",
+       "line": 365
+      },
+      {
+       "method": "IsGhostingSegmentEvent_CrewLost_ReturnsFalse",
+       "line": 371
+      },
+      {
+       "method": "IsGhostingSegmentEvent_CrewTransfer_ReturnsFalse",
+       "line": 377
+      },
+      {
+       "method": "IsGhostingSegmentEvent_TimeJump_ReturnsFalse",
+       "line": 383
+      },
+      {
+       "method": "IsGhostingSegmentEvent_UnknownValue_ReturnsTrueAndLogs",
+       "line": 389
+      },
+      {
+       "method": "HasGhostingTriggerEvents_EmptyRecording_ReturnsFalse",
+       "line": 402
+      },
+      {
+       "method": "HasGhostingTriggerEvents_LightsOnly_ReturnsFalse",
+       "line": 411
+      },
+      {
+       "method": "HasGhostingTriggerEvents_EngineIgnition_ReturnsTrue",
+       "line": 423
+      },
+      {
+       "method": "HasGhostingTriggerEvents_MixedEventsWithOneTrigger_ReturnsTrue",
+       "line": 433
+      },
+      {
+       "method": "HasGhostingTriggerEvents_SegmentEventPartDestroyed_ReturnsTrue",
+       "line": 444
+      },
+      {
+       "method": "HasGhostingTriggerEvents_SegmentEventCrewTransferOnly_ReturnsFalse",
+       "line": 457
+      },
+      {
+       "method": "HasGhostingTriggerEvents_NullPartEvents_HandlesGracefully",
+       "line": 467
+      },
+      {
+       "method": "HasGhostingTriggerEvents_LogsRecordingId",
+       "line": 478
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

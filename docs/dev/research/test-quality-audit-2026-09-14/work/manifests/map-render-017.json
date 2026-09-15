@@ -1,0 +1,281 @@
+{
+ "batch_id": "map-render-017",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "MapRender/RenderManifestSchemaV11Tests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BoundaryOverlapSecondary_StampsThePrimaryCycleAndCarriesTheSecondaryInDetailA",
+       "line": 61
+      },
+      {
+       "method": "BoundaryOverlapSecondary_EmitsNothingWithoutASecondary",
+       "line": 93
+      },
+      {
+       "method": "DetailD_IsWrittenOnlyWhenMeasured",
+       "line": 110
+      },
+      {
+       "method": "Dwell_StampsTheRecordedClockAtItsOwnEndpoints",
+       "line": 157
+      },
+      {
+       "method": "Dwell_OmitsTheOptionalKeysWhenTheMemberMapsToNoUnit",
+       "line": 177
+      },
+      {
+       "method": "HoldPair_EngageAndReleaseDoNotCollideInTheDebounceKey",
+       "line": 194
+      },
+      {
+       "method": "HoldThresholds_AreNamedConstantsNotBuriedLiterals",
+       "line": 215
+      },
+      {
+       "method": "HoldDetector_EngagesOnAccumulatedStall_AtOneXWhereNoSingleStepWouldQualify",
+       "line": 247
+      },
+      {
+       "method": "HoldDetector_SurvivesAWarpDropMidHold_AsOneRun",
+       "line": 272
+      },
+      {
+       "method": "HoldDetector_GivesEachStallItsOwnOrdinalWithinOneCycle",
+       "line": 308
+      },
+      {
+       "method": "HoldDetector_EmitsNothingForAStallBelowTheFloor",
+       "line": 352
+      },
+      {
+       "method": "HoldDetector_EmitsNothingForOrdinaryOneXPlaybackNoMatterHowLongItRuns",
+       "line": 367
+      },
+      {
+       "method": "HoldDetector_EngagesAndReleasesAtOneXWhenTheClockIsGenuinelyFrozen",
+       "line": 391
+      },
+      {
+       "method": "HoldDetector_KeepsOneIdentityAcrossACycleRollover",
+       "line": 421
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/TerrainCacheBucketsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeBucketIndex_PositiveLatLon_TruncatesToBucketSize",
+       "line": 48
+      },
+      {
+       "method": "ComputeBucketIndex_NegativeLat_FloorsTowardsNegativeInfinity",
+       "line": 57
+      },
+      {
+       "method": "ComputeBucketIndex_AdjacentLats_SameBucket",
+       "line": 65
+      },
+      {
+       "method": "GetCachedSurfaceHeight_FirstCall_IsMiss_ResolvesAndCaches",
+       "line": 76
+      },
+      {
+       "method": "GetCachedSurfaceHeight_RepeatCallSameBucket_IsHit_DoesNotCallResolver",
+       "line": 93
+      },
+      {
+       "method": "GetCachedSurfaceHeight_DifferentBuckets_BothMiss",
+       "line": 113
+      },
+      {
+       "method": "GetCachedSurfaceHeight_NullBody_ReturnsNaN",
+       "line": 132
+      },
+      {
+       "method": "GetCachedSurfaceHeight_BodyNameDistinguishesBuckets",
+       "line": 140
+      },
+      {
+       "method": "GetCachedSurfaceHeight_BodyA_BodyB_BodyA_BodyACachedValueUnchanged_NoSecondResolverCallForA",
+       "line": 166
+      },
+      {
+       "method": "Clear_EmptiesCache_NextCallReResolves",
+       "line": 200
+      },
+      {
+       "method": "Clear_EmitsVerboseDiagnosticLine",
+       "line": 221
+      },
+      {
+       "method": "GetCachedSurfaceHeight_NaNFromResolver_PropagatesNaN",
+       "line": 239
+      },
+      {
+       "method": "GetCachedSurfaceHeight_NaNFromResolver_DoesNotCache_AllowsLaterRetry",
+       "line": 248
+      },
+      {
+       "method": "GetCachedSurfaceHeight_DefaultCapMeetsContract",
+       "line": 271
+      },
+      {
+       "method": "GetCachedSurfaceHeight_PastCap_WarnsOnce_StopsInsertingButStillResolves",
+       "line": 281
+      },
+      {
+       "method": "ResetForTesting_RestoresDefaultCap",
+       "line": 334
+      },
+      {
+       "method": "GetCachedSurfaceHeight_FirstMiss_TracksDuration_UpdatesMaxAndSum",
+       "line": 346
+      },
+      {
+       "method": "GetCachedSurfaceHeight_MultipleMisses_TracksMaxAndAccumulatesSum",
+       "line": 360
+      },
+      {
+       "method": "GetCachedSurfaceHeight_SlowMiss_EmitsWarnLine",
+       "line": 381
+      },
+      {
+       "method": "GetCachedSurfaceHeight_FastMiss_DoesNotEmitSlowMissWarn",
+       "line": 409
+      },
+      {
+       "method": "GetCachedSurfaceHeight_NaNResolution_DoesNotCountTowardsTimingMetrics",
+       "line": 424
+      },
+      {
+       "method": "GetCachedSurfaceHeight_CacheHit_DoesNotMeasureTiming",
+       "line": 442
+      },
+      {
+       "method": "Clear_ResetsTimingCounters",
+       "line": 462
+      },
+      {
+       "method": "GetCachedSurfaceHeight_FrameSummary_IncludesMaxAndAvgMissTiming",
+       "line": 476
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KscCrewSwapTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SwapReservedCrewInSnapshot_NullSnapshot_ReturnsZero",
+       "line": 39
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_NullReplacements_ReturnsZero",
+       "line": 49
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_EmptyReplacements_ReturnsZero",
+       "line": 61
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_NoPartsWithCrew_ReturnsZero",
+       "line": 74
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_SingleCrewMatch_SwapsAndReturnsOne",
+       "line": 90
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_NoMatch_LeavesCrewUnchanged",
+       "line": 111
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_MultipleCrewInSamePart_SwapsOnlyMatches",
+       "line": 134
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_MultiplePartsWithCrew_SwapsAcrossParts",
+       "line": 158
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_AllCrewSwapped_ReturnsCorrectCount",
+       "line": 186
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_PreservesCrewOrder",
+       "line": 212
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_EmptySnapshot_ReturnsZero",
+       "line": 242
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_MixedPartsCrewAndNoCrew_OnlySwapsCrewedParts",
+       "line": 256
+      },
+      {
+       "method": "IsStandInPlaceable_OnlyAvailableIsPlaceable",
+       "line": 285
+      },
+      {
+       "method": "ClassifyStandInForPlacement_InRoster_MapsStatusToVerdict",
+       "line": 292
+      },
+      {
+       "method": "ClassifyStandInForPlacement_NotInRoster_AlwaysSkips",
+       "line": 312
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_AssignedStandIn_LeavesSeatEmpty",
+       "line": 327
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_AvailableStandIn_SwapsNormally",
+       "line": 356
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_StandInNotInRoster_LeavesSeatEmpty",
+       "line": 377
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_MixedStatuses_ClearsOnlyBusyStandIn",
+       "line": 398
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_MissingStandIn_WrittenThroughForDownstreamRescue",
+       "line": 434
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_OutOverload_ReportsClearedSeatsDistinctly",
+       "line": 462
+      },
+      {
+       "method": "SwapReservedCrewInSnapshot_NullResolver_KeepsLegacyBlindSwap",
+       "line": 492
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

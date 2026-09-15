@@ -1,0 +1,214 @@
+{
+ "batch_id": "logging-003",
+ "cluster": "logging",
+ "tier": "B",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "RecorderStateObservabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CaptureFromParts_NullEverything_ReturnsModeNone",
+       "line": 44
+      },
+      {
+       "method": "CaptureFromParts_RecorderOnly_ReturnsModeStandalone",
+       "line": 70
+      },
+      {
+       "method": "CaptureFromParts_TreeAndRecorder_ReturnsModeTree",
+       "line": 95
+      },
+      {
+       "method": "CaptureFromParts_PendingTreeAndStandalone_BothPresent",
+       "line": 134
+      },
+      {
+       "method": "CaptureFromParts_ChainManagerState_Captured",
+       "line": 167
+      },
+      {
+       "method": "DebugName_StandaloneRecording_FormatsCorrectly",
+       "line": 196
+      },
+      {
+       "method": "DebugName_TreeRecordingWithChain_FormatsCorrectly",
+       "line": 209
+      },
+      {
+       "method": "DebugName_TreeRecordingWithoutChain_FormatsCorrectly",
+       "line": 223
+      },
+      {
+       "method": "DebugName_NullRecordingId_RendersAsDash",
+       "line": 237
+      },
+      {
+       "method": "DebugName_ShortRecordingId_NotTruncated",
+       "line": 249
+      },
+      {
+       "method": "DebugName_EmptyVesselName_RendersAsDash",
+       "line": 261
+      },
+      {
+       "method": "RecState_NoneSnapshot_EmitsCanonicalLine",
+       "line": 275
+      },
+      {
+       "method": "RecState_TreeMode_EmitsTreeFields",
+       "line": 306
+      },
+      {
+       "method": "RecState_PendingSlotsBoth_EmitsBoth",
+       "line": 338
+      },
+      {
+       "method": "RecState_PendingSplit_EmitsBothFlags",
+       "line": 364
+      },
+      {
+       "method": "RecState_ChainAuxFields_EmittedWhenNonzero",
+       "line": 379
+      },
+      {
+       "method": "RecState_LongVesselName_TruncatedWithEllipsis",
+       "line": 403
+      },
+      {
+       "method": "RecState_LocaleSafe_UsesInvariantCulture",
+       "line": 437
+      },
+      {
+       "method": "RecState_SequenceNumbers_AreStrictlyIncreasing",
+       "line": 467
+      },
+      {
+       "method": "RecState_PrevRecId_OnlyShownOnTransition",
+       "line": 495
+      },
+      {
+       "method": "RecState_PhaseSequence_TreeRecordingToQuickloadResume",
+       "line": 536
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekLogContractCheckerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GoodFixture_HasNoViolations",
+       "line": 11
+      },
+      {
+       "method": "MultiSessionFixture_ValidatesOnlyLatestSession",
+       "line": 21
+      },
+      {
+       "method": "MissingRecordingStart_ReportsRec001",
+       "line": 34
+      },
+      {
+       "method": "MalformedParsekLineInLatestSession_ReportsFmt001",
+       "line": 48
+      },
+      {
+       "method": "InvalidLevelInLatestSession_ReportsFmt002",
+       "line": 64
+      },
+      {
+       "method": "WarnPayloadWithRedundantWarningPrefix_ReportsWrn001",
+       "line": 79
+      },
+      {
+       "method": "MalformedLineBeforeLatestSession_IsIgnored",
+       "line": 95
+      },
+      {
+       "method": "MissingRecordingStop_ReportsRec003",
+       "line": 111
+      },
+      {
+       "method": "AutoStoppedSceneChange_CountsAsRecordingStop",
+       "line": 125
+      },
+      {
+       "method": "AtmoSoiFixture_HasNoViolations",
+       "line": 140
+      },
+      {
+       "method": "AtmoSoiFixture_ContainsExpectedSubsystems",
+       "line": 150
+      },
+      {
+       "method": "AtmoSoiFixture_ChainBoundaryStopMetricsValidated",
+       "line": 184
+      },
+      {
+       "method": "AtmoSoiSession_MultipleStartStopPairs_NoRecViolations",
+       "line": 198
+      },
+      {
+       "method": "ParseSuppressionList_EmptyValue_SuppressesNothing",
+       "line": 218
+      },
+      {
+       "method": "ParseSuppressionList_NoRecordingRunList_SuppressesRecRules",
+       "line": 229
+      },
+      {
+       "method": "ParseSuppressionList_KilledRunList_SuppressesAllMarkerPairingRules",
+       "line": 241
+      },
+      {
+       "method": "ParseSuppressionList_CaseWhitespaceDuplicates_Normalized",
+       "line": 253
+      },
+      {
+       "method": "ParseSuppressionList_FmtWrnCode_IsIllegalAndNeverSuppressed",
+       "line": 268
+      },
+      {
+       "method": "ParseSuppressionList_UnknownCode_IsIllegal",
+       "line": 279
+      },
+      {
+       "method": "ParseSuppressionList_MixedValidAndIllegal_RejectsAndIsolates",
+       "line": 291
+      },
+      {
+       "method": "ValidateLatestSession_SuppressedRecRules_DropsRecButKeepsFmt",
+       "line": 304
+      },
+      {
+       "method": "ValidateLatestSession_FmtInSuppressList_StillNotMasked",
+       "line": 325
+      },
+      {
+       "method": "FormatSessionStartMessage_EmitsTheExactContractShape",
+       "line": 354
+      },
+      {
+       "method": "FormatSessionStartMessage_IsCultureInvariant",
+       "line": 363
+      },
+      {
+       "method": "FormatSessionStartMessage_IsAcceptedByBothLogConsumers",
+       "line": 384
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,143 @@
+{
+ "batch_id": "logging-001",
+ "cluster": "logging",
+ "tier": "A",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "DiagnosticsIntegrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MemoryEstimate_FromLoadedRecordings",
+       "line": 70
+      },
+      {
+       "method": "SnapshotCache_ReturnsStaleWithinTTL",
+       "line": 108
+      },
+      {
+       "method": "SnapshotCache_RecomputesAfterTTL",
+       "line": 140
+      },
+      {
+       "method": "StorageBreakdownCache_ReturnsStaleWithinTTL",
+       "line": 170
+      },
+      {
+       "method": "E1_NoRecordings_CleanZeros",
+       "line": 200
+      },
+      {
+       "method": "E4_MissingSidecarFile_GracefulZero",
+       "line": 234
+      },
+      {
+       "method": "E4_NullRecording_ReturnsDefaultBreakdown",
+       "line": 262
+      },
+      {
+       "method": "E4_EmptyRecordingId_GracefulZero",
+       "line": 277
+      },
+      {
+       "method": "E10_EmptyRollingBuffer_FormatShowsNA",
+       "line": 294
+      },
+      {
+       "method": "E10b_StaleEntriesOutsideWindow_FormatShowsNA",
+       "line": 322
+      },
+      {
+       "method": "E10c_RealDataInWindow_FormatShowsValues",
+       "line": 342
+      },
+      {
+       "method": "ShouldExpectSidecarFile_TrajectoryAlways",
+       "line": 371
+      },
+      {
+       "method": "ShouldExpectSidecarFile_VesselSnapshotGated",
+       "line": 383
+      },
+      {
+       "method": "ShouldExpectSidecarFile_GhostSnapshotGated",
+       "line": 395
+      },
+      {
+       "method": "ShouldExpectSidecarFile_NullRecording_AlwaysFalse",
+       "line": 415
+      },
+      {
+       "method": "SafeGetFileSize_MissingFile_WarnIfMissingTrue_LogsWarning",
+       "line": 433
+      },
+      {
+       "method": "SafeGetFileSize_MissingFile_RepeatedScansWarnRateLimited",
+       "line": 446
+      },
+      {
+       "method": "SafeGetFileSize_MissingFile_DifferentPathsHaveIndependentWarnWindows",
+       "line": 475
+      },
+      {
+       "method": "SafeGetFileSize_MissingFile_WarnIfMissingFalse_NoWarning",
+       "line": 510
+      },
+      {
+       "method": "SafeGetFileSize_NullPath_NoWarning",
+       "line": 523
+      },
+      {
+       "method": "DurationZero_BytesPerSecondZero",
+       "line": 538
+      },
+      {
+       "method": "GrowthRate_ZeroElapsed_NoNaN",
+       "line": 562
+      },
+      {
+       "method": "HealthCounterReset_ClearsAll",
+       "line": 597
+      },
+      {
+       "method": "CacheHitRate_ZeroLookups_ShowsNA",
+       "line": 630
+      },
+      {
+       "method": "MemoryEstimate_EmptyRecording_ContributesZero",
+       "line": 655
+      },
+      {
+       "method": "SnapshotCount_RequiresBothVesselAndGhostSnapshot",
+       "line": 685
+      },
+      {
+       "method": "FormatReport_MultipleRecordings_AllListed",
+       "line": 718
+      },
+      {
+       "method": "NegativeDuration_ClampedToZero",
+       "line": 746
+      },
+      {
+       "method": "ResetSessionCounters_InvalidatesSnapshotCache",
+       "line": 767
+      },
+      {
+       "method": "RunDiagnosticsReport_ProducesCompleteOutput",
+       "line": 792
+      },
+      {
+       "method": "StorageBreakdown_ValidDuration_ComputesBytesPerSecond",
+       "line": 817
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

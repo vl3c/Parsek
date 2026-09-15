@@ -1,0 +1,280 @@
+{
+ "batch_id": "catchall-046",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "DiskUsageDiagnosticsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DiskUsage_MultipleFiles_SumsBytes",
+       "line": 143
+      },
+      {
+       "method": "DiskUsage_NoDirectory_ReturnsZero",
+       "line": 160
+      },
+      {
+       "method": "DiskUsage_CachedFor10s",
+       "line": 177
+      },
+      {
+       "method": "DiskUsage_LiveBreakdownBucketsByEffectiveTipMergeState",
+       "line": 206
+      },
+      {
+       "method": "DiskUsage_FormatLineIncludesLiveBreakdown",
+       "line": 247
+      },
+      {
+       "method": "DiskUsage_FormatLine_SaysSoWhenTheScanFailed",
+       "line": 278
+      },
+      {
+       "method": "DiskUsage_FormatLine_FlagsFilesItCouldNotSize",
+       "line": 303
+      },
+      {
+       "method": "DiskUsage_CacheInvalidatesWhenScenarioStateChanges",
+       "line": 320
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FacilitiesModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BasicUpgrade_SetsLevel",
+       "line": 77
+      },
+      {
+       "method": "Destruction_MarksDestroyed",
+       "line": 90
+      },
+      {
+       "method": "Repair_ClearsDestroyed",
+       "line": 104
+      },
+      {
+       "method": "UpgradeSequence_Tracked",
+       "line": 124
+      },
+      {
+       "method": "DestructionThenRepairThenUpgrade",
+       "line": 138
+      },
+      {
+       "method": "MultipleBuildings_Independent",
+       "line": 166
+      },
+      {
+       "method": "GetFacilityLevel_Unknown_ReturnsDefault",
+       "line": 186
+      },
+      {
+       "method": "IsFacilityDestroyed_NotDestroyed_ReturnsFalse",
+       "line": 192
+      },
+      {
+       "method": "GetFacilityState_Unknown_ReturnsDefault",
+       "line": 198
+      },
+      {
+       "method": "GetFacilityLevel_Null_ReturnsDefault",
+       "line": 206
+      },
+      {
+       "method": "IsFacilityDestroyed_Null_ReturnsFalse",
+       "line": 212
+      },
+      {
+       "method": "Reset_ClearsState",
+       "line": 222
+      },
+      {
+       "method": "ProcessAction_IgnoresNonFacilityActions",
+       "line": 251
+      },
+      {
+       "method": "ProcessAction_NullAction_NoError",
+       "line": 261
+      },
+      {
+       "method": "GetAllFacilities_ReturnsTrackedState",
+       "line": 272
+      },
+      {
+       "method": "Upgrade_LogsFacilityAndLevel",
+       "line": 289
+      },
+      {
+       "method": "Destruction_LogsFacilityAndRecording",
+       "line": 301
+      },
+      {
+       "method": "Repair_LogsFacilityAndWasDestroyed",
+       "line": 313
+      },
+      {
+       "method": "Reset_LogsClearedCount",
+       "line": 328
+      },
+      {
+       "method": "UpgradeWhileDestroyed_LogsDestroyedFlag",
+       "line": 343
+      },
+      {
+       "method": "Repair_NotDestroyed_LogsWasDestroyedFalse",
+       "line": 358
+      },
+      {
+       "method": "Integration_EngineDispatchesFacilityActions",
+       "line": 375
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RealSaveMissionFinderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsJointHoldUnit_ValidJointFields_True",
+       "line": 62
+      },
+      {
+       "method": "IsJointHoldUnit_SingleConstraintSentinels_False",
+       "line": 69
+      },
+      {
+       "method": "IsJointHoldUnit_ZeroBudget_False",
+       "line": 78
+      },
+      {
+       "method": "IsJointHoldUnit_NoAppliedHold_False",
+       "line": 87
+      },
+      {
+       "method": "IsJointHoldUnit_NaNHoldAt_False",
+       "line": 96
+      },
+      {
+       "method": "IsJointHoldUnit_DegenerateSecondaryPeriod_False",
+       "line": 108
+      },
+      {
+       "method": "IsJointHoldUnit_InfiniteHold_False",
+       "line": 115
+      },
+      {
+       "method": "HeadlessMirror_LandingPlusStation_ResolvesJointHold_AndAlignsBothPerLoop",
+       "line": 213
+      },
+      {
+       "method": "HeadlessMirror_LandingOnly_KeepsSingleRotationHold_NoJointFields",
+       "line": 256
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ResolveChainNextSlotIndexTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullCommittedList_ReturnsMinusOne",
+       "line": 45
+      },
+      {
+       "method": "NegativeSlotIndex_ReturnsMinusOne",
+       "line": 54
+      },
+      {
+       "method": "OutOfBoundsSlotIndex_ReturnsMinusOne",
+       "line": 66
+      },
+      {
+       "method": "NullRecordingAtSlot_ReturnsMinusOne",
+       "line": 77
+      },
+      {
+       "method": "RecordingWithoutChainId_ReturnsMinusOne",
+       "line": 89
+      },
+      {
+       "method": "RecordingWithEmptyChainId_ReturnsMinusOne",
+       "line": 101
+      },
+      {
+       "method": "RecordingWithNegativeChainIndex_ReturnsMinusOne",
+       "line": 112
+      },
+      {
+       "method": "RecordingOnParallelBranch_ReturnsMinusOne",
+       "line": 125
+      },
+      {
+       "method": "NoSuccessorAtNextIndex_ReturnsMinusOne",
+       "line": 140
+      },
+      {
+       "method": "SuccessorBelongsToDifferentChain_ReturnsMinusOne",
+       "line": 153
+      },
+      {
+       "method": "SuccessorOnParallelBranch_ReturnsMinusOne",
+       "line": 165
+      },
+      {
+       "method": "DirectChainSuccessor_ReturnsItsIndex",
+       "line": 179
+      },
+      {
+       "method": "DirectChainSuccessor_SkipsBranchRecordings",
+       "line": 191
+      },
+      {
+       "method": "DirectChainSuccessor_PicksTheImmediateNextIndex",
+       "line": 204
+      },
+      {
+       "method": "DirectChainSuccessor_WalksSupersedeEdgeToFork",
+       "line": 224
+      },
+      {
+       "method": "SupersedeLandsBackOnSameSlot_ReturnsMinusOne",
+       "line": 254
+      },
+      {
+       "method": "ThreeSegmentChain_EachSlotResolvesToItsImmediateSuccessor",
+       "line": 278
+      },
+      {
+       "method": "DuplicateChainSuccessor_PicksFirstAndWarnsOnce",
+       "line": 302
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

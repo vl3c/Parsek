@@ -1,0 +1,201 @@
+{
+ "batch_id": "legacy-bugfix-024",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 40,
+ "files": [
+  {
+   "file": "Bug170Tests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "KscExclusion_AtPad_ReturnsTrue",
+       "line": 35
+      },
+      {
+       "method": "KscExclusion_4mFromPad_ReturnsTrue",
+       "line": 49
+      },
+      {
+       "method": "KscExclusion_30mFromPad_ReturnsTrue",
+       "line": 63
+      },
+      {
+       "method": "KscExclusion_60mFromPad_ReturnsFalse",
+       "line": 77
+      },
+      {
+       "method": "KscExclusion_AtRunway_ReturnsTrue",
+       "line": 91
+      },
+      {
+       "method": "KscExclusion_10mFromRunway_ReturnsTrue",
+       "line": 105
+      },
+      {
+       "method": "KscExclusion_200mDownRunway_ReturnsFalse",
+       "line": 119
+      },
+      {
+       "method": "KscExclusion_FarAway_ReturnsFalse",
+       "line": 133
+      },
+      {
+       "method": "KscExclusion_ExactBoundary_OutsideAtRadiusPlus1",
+       "line": 145
+      },
+      {
+       "method": "KscExclusion_CustomRadius_Respected",
+       "line": 161
+      },
+      {
+       "method": "KscExclusion_LogsDistances",
+       "line": 184
+      },
+      {
+       "method": "DeadCrewGuard_NoCrew_DoesNotBlock",
+       "line": 200
+      },
+      {
+       "method": "DeadCrewGuard_NullCrew_DoesNotBlock",
+       "line": 212
+      },
+      {
+       "method": "DeadCrewGuard_NoDeadCrew_DoesNotBlock",
+       "line": 220
+      },
+      {
+       "method": "DeadCrewGuard_AllDead_Blocks",
+       "line": 232
+      },
+      {
+       "method": "DeadCrewGuard_AllMultipleDead_Blocks",
+       "line": 244
+      },
+      {
+       "method": "DeadCrewGuard_SomeAlive_DoesNotBlock",
+       "line": 256
+      },
+      {
+       "method": "DeadCrewGuard_NullDeadSet_DoesNotBlock",
+       "line": 268
+      },
+      {
+       "method": "ExtractCrew_NullSnapshot_EmptyList",
+       "line": 282
+      },
+      {
+       "method": "ExtractCrew_NoCrew_EmptyList",
+       "line": 290
+      },
+      {
+       "method": "ExtractCrew_SingleCrew_ReturnsCrew",
+       "line": 303
+      },
+      {
+       "method": "ExtractCrew_MultipleParts_AggregatesCrew",
+       "line": 318
+      },
+      {
+       "method": "ExtractCrew_SkipsEmptyNames",
+       "line": 340
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MilestoneStoreOverlayHelperTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetCommittedKerbalHireNames_NoMilestones_EmptySet",
+       "line": 55
+      },
+      {
+       "method": "GetCommittedKerbalHireNames_PastEvent_NotIncluded",
+       "line": 65
+      },
+      {
+       "method": "GetCommittedKerbalHireNames_FutureEvent_Included",
+       "line": 80
+      },
+      {
+       "method": "GetCommittedKerbalHireNames_HiddenByTimelineFilter_NotIncluded",
+       "line": 96
+      },
+      {
+       "method": "GetCommittedContractAcceptIds_ReturnsRawKeyStrings",
+       "line": 111
+      },
+      {
+       "method": "GetCommittedContractAcceptIds_PastEvent_NotIncluded",
+       "line": 134
+      },
+      {
+       "method": "GetCommittedContractAcceptIds_HiddenByTimelineFilter_NotIncluded",
+       "line": 149
+      },
+      {
+       "method": "GetCommittedContractAcceptIds_LogsCount",
+       "line": 164
+      },
+      {
+       "method": "GetCommittedContractAcceptIds_KeyShapeMatchesRecorder",
+       "line": 182
+      },
+      {
+       "method": "GetCommittedKerbalRetireNames_FutureCrewRemovedEvent_Included",
+       "line": 203
+      },
+      {
+       "method": "GetCommittedKerbalRetireNames_PastEvent_NotIncluded",
+       "line": 221
+      },
+      {
+       "method": "GetCommittedKerbalRetireNames_HiddenByTimelineFilter_NotIncluded",
+       "line": 236
+      },
+      {
+       "method": "NewOverlayHelpers_UncommittedMilestone_NotIncluded",
+       "line": 254
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug278SnapshotPersistenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EndDebrisRecording_PersistContextString_AppearsInFailureLog",
+       "line": 52
+      },
+      {
+       "method": "EndDebrisRecording_BreadcrumbDistinctFromBug280Sites",
+       "line": 81
+      },
+      {
+       "method": "DestructiveDelete_RegressionChain_IsReachable_DocumentedBySourceInspection",
+       "line": 123
+      },
+      {
+       "method": "EndDebrisRecording_HasPersistFinalizedRecordingCall_PinnedBySourceInspection",
+       "line": 188
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

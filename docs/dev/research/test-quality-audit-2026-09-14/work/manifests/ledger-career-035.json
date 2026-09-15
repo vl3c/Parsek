@@ -1,0 +1,229 @@
+{
+ "batch_id": "ledger-career-035",
+ "cluster": "ledger-career",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "LedgerRecoveryMigrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Recovery_EmptyStore_NoOp",
+       "line": 77
+      },
+      {
+       "method": "Recovery_ContractAccepted_Synthesized",
+       "line": 86
+      },
+      {
+       "method": "Recovery_PartPurchased_Synthesized",
+       "line": 105
+      },
+      {
+       "method": "Recovery_ScienceSubject_Synthesized",
+       "line": 133
+      },
+      {
+       "method": "Recovery_Idempotent_SecondCallIsNoOp",
+       "line": 155
+      },
+      {
+       "method": "Recovery_CurrentTimelineVisibility_SkipsHiddenOldBranchEvents",
+       "line": 175
+      },
+      {
+       "method": "Recovery_CurrentTimelineVisibility_SkipsSupersededCommittedRecordingEvents",
+       "line": 211
+      },
+      {
+       "method": "Recovery_ExistingMatchingAction_NotDuplicated",
+       "line": 253
+      },
+      {
+       "method": "Recovery_ExistingScienceEarning_NotDuplicated",
+       "line": 283
+      },
+      {
+       "method": "Recovery_PartialExistingScienceEarning_SynthesizesOnlyMissingDelta",
+       "line": 314
+      },
+      {
+       "method": "Recovery_MultipleEventTypes_AllSynthesized",
+       "line": 348
+      },
+      {
+       "method": "MapEventTypeToActionType_KnownTypes_ReturnsExpected",
+       "line": 388
+      },
+      {
+       "method": "IsRecoverableEventType_FundsChanged_False",
+       "line": 399
+      },
+      {
+       "method": "IsRecoverableEventType_ContractAccepted_True",
+       "line": 406
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "StrategyLifecycleProbeSupportTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetGlobalReadinessBlockReason_NullStrategySystem_ReturnsSystemReason",
+       "line": 28
+      },
+      {
+       "method": "GetGlobalReadinessBlockReason_NullStrategyList_ReturnsListReason",
+       "line": 39
+      },
+      {
+       "method": "GetGlobalReadinessBlockReason_MissingAdministration_ReturnsAdministrationReason",
+       "line": 50
+      },
+      {
+       "method": "GetGlobalReadinessBlockReason_WhenReady_ReturnsNull",
+       "line": 61
+      },
+      {
+       "method": "ShouldHydrateAdministrationSingleton_MissingAdministrationInCareerSpaceCenter_ReturnsTrue",
+       "line": 72
+      },
+      {
+       "method": "ShouldHydrateAdministrationSingleton_NonSpaceCenter_ReturnsFalse",
+       "line": 83
+      },
+      {
+       "method": "ShouldHydrateAdministrationSingleton_NonCareer_ReturnsFalse",
+       "line": 92
+      },
+      {
+       "method": "ShouldHydrateAdministrationSingleton_AlreadyAvailable_ReturnsFalse",
+       "line": 101
+      },
+      {
+       "method": "ShouldRehydrateAdministrationAfterWarmup_NoCanvas_AdminGone_ReturnsTrue",
+       "line": 110
+      },
+      {
+       "method": "ShouldRehydrateAdministrationAfterWarmup_NoCanvas_AdminAlive_ReturnsFalse",
+       "line": 119
+      },
+      {
+       "method": "ShouldRehydrateAdministrationAfterWarmup_CanvasExists_AdminGone_ReturnsTrue",
+       "line": 128
+      },
+      {
+       "method": "ShouldRehydrateAdministrationAfterWarmup_CanvasExists_AdminAlive_ReturnsFalse",
+       "line": 139
+      },
+      {
+       "method": "BuildProbeDiagnostic_IncludesCountsAndStack",
+       "line": 148
+      },
+      {
+       "method": "BuildPollExceptionSummary_FormatsFirstFailure",
+       "line": 170
+      },
+      {
+       "method": "FormatExceptionSummary_UsesTypeAndMessage",
+       "line": 184
+      },
+      {
+       "method": "LogReadinessSettled_EmitsInfoWithAttemptCount",
+       "line": 194
+      },
+      {
+       "method": "LogReadinessWaiting_EmitsVerboseRateLimitedLine",
+       "line": 209
+      },
+      {
+       "method": "BuildAdministrationHydrationTimeoutDiagnostic_ExplainsHiddenCanvasWait",
+       "line": 222
+      },
+      {
+       "method": "LogAdministrationHydrationReady_EmitsInfo",
+       "line": 232
+      },
+      {
+       "method": "LogAdministrationHydrationTimeout_EmitsWarn",
+       "line": 246
+      },
+      {
+       "method": "LogReadinessTimeout_EmitsWarnWithAttemptCount",
+       "line": 260
+      },
+      {
+       "method": "LogPollExceptions_EmitsWarnUsingPollSummary",
+       "line": 275
+      },
+      {
+       "method": "ShouldFailUnavailableSelection_ClearedTransientIssue_Skips",
+       "line": 290
+      },
+      {
+       "method": "ShouldFailUnavailableSelection_FinalReadinessBlock_Fails",
+       "line": 303
+      },
+      {
+       "method": "ShouldFailUnavailableSelection_FinalProbeException_Fails",
+       "line": 313
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CareerSeedReadinessTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SeedBaselineIfUnseeded_FillsOnlyUnseededBaselines",
+       "line": 37
+      },
+      {
+       "method": "SeedBaselineIfUnseeded_AbsentSingletonLeavesBaselineUnseeded",
+       "line": 50
+      },
+      {
+       "method": "SeedBaselineIfUnseeded_ZeroIsARealBaselineNotAnUnseededOne",
+       "line": 59
+      },
+      {
+       "method": "DeferredSeed_YieldsBeforeProbingAndWaitsForEveryCurrencySingleton",
+       "line": 78
+      },
+      {
+       "method": "AllCurrencySingletonsPresent_RequiresAllThreeNotAnyOne",
+       "line": 118
+      },
+      {
+       "method": "OnLoad_StartsTheRecorderBaselineTopUpRightAfterSubscribe",
+       "line": 133
+      },
+      {
+       "method": "RecoveryProcessingCompletion_IsSubscribedAndUnsubscribed",
+       "line": 151
+      },
+      {
+       "method": "RecoveryProcessingCompletion_HandlerActuallyRefreshesThePayout",
+       "line": 164
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

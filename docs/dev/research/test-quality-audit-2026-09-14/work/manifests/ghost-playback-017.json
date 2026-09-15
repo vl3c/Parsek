@@ -1,0 +1,234 @@
+{
+ "batch_id": "ghost-playback-017",
+ "cluster": "ghost-playback",
+ "tier": "B",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "GhostRenderTraceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EvaluateGate_FirstSeenAndInitialWindow_EmitsThenCloses",
+       "line": 32
+      },
+      {
+       "method": "EvaluateGate_LargeDelta_IsImportant",
+       "line": 82
+      },
+      {
+       "method": "EvaluateGate_LargeDelta_SuppressedRowReturnsClosed",
+       "line": 109
+      },
+      {
+       "method": "EvaluateGate_LargeDelta_SuppressionLeavesUnrelatedReasonsIntact",
+       "line": 134
+      },
+      {
+       "method": "IsLargeDeltaSignalSuppressed_ZeroPlaybackVelocitySuppresses",
+       "line": 176
+      },
+      {
+       "method": "IsLargeDeltaSignalSuppressed_NonZeroVelocityDoesNotSuppress",
+       "line": 191
+      },
+      {
+       "method": "IsLargeDeltaSignalSuppressed_FloatingOriginShiftFrameSuppresses",
+       "line": 204
+      },
+      {
+       "method": "IsLargeDeltaSignalSuppressed_OutsideFloatingOriginWindowDoesNotSuppress",
+       "line": 222
+      },
+      {
+       "method": "FormatTracePrefix_UsesInvariantKeyValueFields",
+       "line": 239
+      },
+      {
+       "method": "ShouldEmitPhase_DisabledByDefault_ReturnsFalseEvenForForce",
+       "line": 257
+      },
+      {
+       "method": "ShouldEmitPhase_EnabledBySettings_UsesDetailedWindow",
+       "line": 269
+      },
+      {
+       "method": "ShouldEmitPhase_ForceEnabledForTesting_UsesDetailedWindow",
+       "line": 283
+      },
+      {
+       "method": "EmitActivationDecision_HiddenFrame_EmitsExpectedFields",
+       "line": 300
+      },
+      {
+       "method": "EmitActivationDecision_FirstVisibleTransition_EmitsHiddenPoseDelta",
+       "line": 337
+      },
+      {
+       "method": "EmitActivationDecision_OpensDetailedWindowOnTransition",
+       "line": 380
+      },
+      {
+       "method": "EmitPostUpdate_AppendsRawPlaybackUTAndLeadAndClamped",
+       "line": 475
+      },
+      {
+       "method": "EmitPostUpdate_DefaultRawPlaybackUT_ClampFiredFalse",
+       "line": 496
+      },
+      {
+       "method": "EmitPostUpdate_LoopPathInvariant_ClampFiredFalse",
+       "line": 517
+      },
+      {
+       "method": "SeamTeleport_DefectClassJumpRaises_HealthySeamStaysSilent",
+       "line": 589
+      },
+      {
+       "method": "SeamTeleport_ThresholdScalesWithWarpExpectedMotion",
+       "line": 601
+      },
+      {
+       "method": "SeamTeleport_SuppressesEpochShiftStalePrevAndFoShift",
+       "line": 613
+      },
+      {
+       "method": "SeamTeleport_BoundaryValues",
+       "line": 628
+      },
+      {
+       "method": "EmitAnomaly_CarriesSweepContractAndRoutesToInfo",
+       "line": 642
+      },
+      {
+       "method": "EmitAnomaly_SilentWhenTracingDisabled",
+       "line": 663
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostExtenderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ChooseStrategy_OrbitalTerminal_ReturnsOrbital",
+       "line": 45
+      },
+      {
+       "method": "ChooseStrategy_SurfaceTerminal_ReturnsSurface",
+       "line": 67
+      },
+      {
+       "method": "ChooseStrategy_NoTerminalData_WithPoints_ReturnsLastRecorded",
+       "line": 92
+      },
+      {
+       "method": "ChooseStrategy_NoData_ReturnsNone",
+       "line": 117
+      },
+      {
+       "method": "ChooseStrategy_NullRecording_ReturnsNone",
+       "line": 136
+      },
+      {
+       "method": "ChooseStrategy_OrbitalTakesPriorityOverSurface",
+       "line": 148
+      },
+      {
+       "method": "ChooseStrategy_SurfaceTerminalWithOrbitalMetadata_PrefersSurface",
+       "line": 174
+      },
+      {
+       "method": "ChooseStrategy_OrbitalBodyButZeroSMA_ReturnsSurface",
+       "line": 200
+      },
+      {
+       "method": "PropagateOrbital_CircularOrbit_PositionChangesWithUT",
+       "line": 230
+      },
+      {
+       "method": "PropagateOrbital_CircularOrbit_AltitudeConsistent",
+       "line": 259
+      },
+      {
+       "method": "PropagateOrbital_EllipticalOrbit_AltitudeInRange",
+       "line": 287
+      },
+      {
+       "method": "PropagateOrbital_FullPeriod_ReturnsToStart",
+       "line": 326
+      },
+      {
+       "method": "PropagateOrbital_EllipticalFullPeriod_ReturnsToStart",
+       "line": 360
+      },
+      {
+       "method": "PropagateOrbital_EquatorialOrbit_LatitudeNearZero",
+       "line": 394
+      },
+      {
+       "method": "PropagateOrbital_PolarOrbit_LatitudeReachesHighValues",
+       "line": 418
+      },
+      {
+       "method": "PropagateOrbital_HyperbolicOrbit_ReturnsFallback",
+       "line": 450
+      },
+      {
+       "method": "PropagateOrbital_DegreeLan_ShiftsLongitudeByDegrees",
+       "line": 486
+      },
+      {
+       "method": "PropagateOrbital_DegreeArgPe_ShiftsLongitudeByDegrees",
+       "line": 511
+      },
+      {
+       "method": "PropagateOrbital_BackwardPropagation_NoNaN",
+       "line": 535
+      },
+      {
+       "method": "PropagateSurface_ReturnsTerminalPosition",
+       "line": 561
+      },
+      {
+       "method": "PropagateSurface_NoTerminalPosition_FallsBack",
+       "line": 586
+      },
+      {
+       "method": "PropagateSurface_NullRecording_ReturnsZero",
+       "line": 619
+      },
+      {
+       "method": "LastRecordedPosition_ReturnsLastPoint",
+       "line": 637
+      },
+      {
+       "method": "LastRecordedPosition_EmptyPoints_ReturnsZero",
+       "line": 670
+      },
+      {
+       "method": "LastRecordedPosition_NullRecording_ReturnsZero",
+       "line": 689
+      },
+      {
+       "method": "ChooseStrategy_LogsDecision",
+       "line": 707
+      },
+      {
+       "method": "LastRecordedPosition_LogsPosition",
+       "line": 729
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,257 @@
+{
+ "batch_id": "catchall-021",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "PostLoadStripperTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PrimaryMatchViaPidSlotMap",
+       "line": 90
+      },
+      {
+       "method": "FallbackMatchViaRootPartPidMap",
+       "line": 116
+      },
+      {
+       "method": "GhostProtoVesselGuard_NotStripped",
+       "line": 154
+      },
+      {
+       "method": "UnrelatedVesselLeftAlone",
+       "line": 179
+      },
+      {
+       "method": "StrictStrip_StripsUnmatchedVessels",
+       "line": 201
+      },
+      {
+       "method": "StrictStrip_SnapshotsBeforeDieMutatesSource",
+       "line": 231
+      },
+      {
+       "method": "SelectedSlotVessel_NotStripped",
+       "line": 263
+      },
+      {
+       "method": "NoMatchingVessels_LogsAndContinues",
+       "line": 285
+      },
+      {
+       "method": "NullRewindPoint_ReturnsEmptyResult",
+       "line": 307
+      },
+      {
+       "method": "Strip_CapturesLeftAlonePidNamesForCollisionDetection",
+       "line": 318
+      },
+      {
+       "method": "FindTreeNameCollisions_ReturnsIntersectionDedupedOrdinal",
+       "line": 344
+      },
+      {
+       "method": "FindTreeNameCollisions_NullInputsReturnEmpty",
+       "line": 359
+      },
+      {
+       "method": "FindTreeNameCollisions_NoOverlapReturnsEmpty",
+       "line": 367
+      },
+      {
+       "method": "FindTreeNameCollisions_CaseSensitive",
+       "line": 376
+      },
+      {
+       "method": "ShouldPreserveVesselType_FlagOnly",
+       "line": 385
+      },
+      {
+       "method": "Strip_FlagVessel_PreservedEvenUnderStrictStrip",
+       "line": 400
+      },
+      {
+       "method": "Strip_FlagOnly_PreservedAlongsideSelected",
+       "line": 455
+      },
+      {
+       "method": "Strip_FlagPreserved_RegardlessOfSlotMapMembership",
+       "line": 482
+      },
+      {
+       "method": "Strip_NoFlags_PreservedFlagPidsEmpty_NoSummaryLog",
+       "line": 521
+      },
+      {
+       "method": "StripVessel_DiePathIsGuarded",
+       "line": 545
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "UvLambertTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Solve_CurtisExample5_2_MatchesTextbookVelocities",
+       "line": 17
+      },
+      {
+       "method": "Solve_SolvedVelocity_PropagatesBackToTarget",
+       "line": 50
+      },
+      {
+       "method": "Solve_PrModeVsRetrograde_DifferConsistently",
+       "line": 67
+      },
+      {
+       "method": "Solve_OffPhaseAndLongTransfers_NeverReturnSilentGarbage",
+       "line": 91
+      },
+      {
+       "method": "Solve_CollinearEndpoints_ReturnsFalse",
+       "line": 138
+      },
+      {
+       "method": "Solve_AntipodalNear180_PlaneNormalSelectsPrograde_LegacyCrossZFlips",
+       "line": 157
+      },
+      {
+       "method": "Solve_NearAntiparallel_ProducesAmplifiedPlaneTilt",
+       "line": 212
+      },
+      {
+       "method": "Solve_EveCycleZeroEndpoints_ConvergeProgradeAndReachR2",
+       "line": 282
+      },
+      {
+       "method": "Solve_EveCycleZeroEndpoints_V1LiesInThePlaneOfR1AndR2",
+       "line": 318
+      },
+      {
+       "method": "Solve_DegenerateInputs_ReturnFalse",
+       "line": 367
+      },
+      {
+       "method": "StumpffC_AtKnownPoints",
+       "line": 381
+      },
+      {
+       "method": "Stumpff_SeriesLimitsAtZero",
+       "line": 387
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DockUndockChainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Recording_ChainBranch_DefaultsToZero",
+       "line": 40
+      },
+      {
+       "method": "ApplyPersistenceArtifacts_CopiesChainBranch",
+       "line": 47
+      },
+      {
+       "method": "IsChainMidSegment_BranchZero_MidSegment_ReturnsTrue",
+       "line": 67
+      },
+      {
+       "method": "IsChainMidSegment_BranchGreaterThanZero_AlwaysReturnsFalse",
+       "line": 87
+      },
+      {
+       "method": "GetChainEndUT_IgnoresBranchGreaterThanZero",
+       "line": 122
+      },
+      {
+       "method": "ValidateChains_ParallelBranches_Valid",
+       "line": 158
+      },
+      {
+       "method": "ValidateChains_InvalidBranch_DegradesEntireChain",
+       "line": 193
+      },
+      {
+       "method": "BuildExcludeCrewSet_DockChain_SkipsBranch1",
+       "line": 240
+      },
+      {
+       "method": "DecideOnVesselSwitch_UndockSibling_ReturnsUndockSwitch",
+       "line": 287
+      },
+      {
+       "method": "DecideOnVesselSwitch_UndockSiblingPidZero_FallsThrough",
+       "line": 294
+      },
+      {
+       "method": "DecideOnVesselSwitch_UndockSiblingPidMismatch_FallsThrough",
+       "line": 302
+      },
+      {
+       "method": "DecideOnVesselSwitch_SameVessel_UndockSiblingIgnored",
+       "line": 310
+      },
+      {
+       "method": "RecordingBuilder_ChainBranch_InV2Build",
+       "line": 322
+      },
+      {
+       "method": "RecordingBuilder_ChainBranch_InV3Metadata",
+       "line": 337
+      },
+      {
+       "method": "RecordingBuilder_NoBranch_OmitsChainBranch",
+       "line": 353
+      },
+      {
+       "method": "RecordingBuilder_BranchZero_OmitsChainBranch",
+       "line": 367
+      },
+      {
+       "method": "DockUndockChain_FullScenario_BranchesAndEndUT",
+       "line": 387
+      },
+      {
+       "method": "DockUndockRedock_ChainGrowsLinearly",
+       "line": 456
+      },
+      {
+       "method": "EvaWhileDocked_ChainContinuesWithEvaCrew",
+       "line": 508
+      },
+      {
+       "method": "MultipleUndocks_LatestContinuationReplacesPrevious",
+       "line": 555
+      },
+      {
+       "method": "DecideOnVesselSwitch_UndockSiblingPid_DoesNotOverrideEva",
+       "line": 597
+      },
+      {
+       "method": "ValidateChains_InvalidChain_ResetsChainBranchToZero",
+       "line": 611
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

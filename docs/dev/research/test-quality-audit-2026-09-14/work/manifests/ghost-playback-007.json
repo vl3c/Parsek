@@ -1,0 +1,235 @@
+{
+ "batch_id": "ghost-playback-007",
+ "cluster": "ghost-playback",
+ "tier": "A1",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "GhostTrajectoryPolylineBuildTests.cs",
+   "ranges": [
+    {
+     "start": 2159,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CollectChainRunMembers_ChainRecordingNotInCommitted_FallsBackToSelf",
+       "line": 2159
+      },
+      {
+       "method": "CollectChainRunMembers_NullInputs_Tolerated",
+       "line": 2174
+      },
+      {
+       "method": "ChainConcatenatedWindow_LaunchMemberInheritsRunFromNextMember",
+       "line": 2199
+      },
+      {
+       "method": "IsRunLegAnchorCandidate_BothSideBracket_True",
+       "line": 2260
+      },
+      {
+       "method": "IsRunLegAnchorCandidate_AscentAfterOnly_False",
+       "line": 2273
+      },
+      {
+       "method": "IsRunLegAnchorCandidate_DescentBeforeOnly_False",
+       "line": 2285
+      },
+      {
+       "method": "IsRunLegAnchorCandidate_NoConics_False",
+       "line": 2297
+      },
+      {
+       "method": "IsRunLegAnchorCandidate_OtherBodyConics_False",
+       "line": 2307
+      },
+      {
+       "method": "SeamBridge_EndpointsExact",
+       "line": 2343
+      },
+      {
+       "method": "SeamBridgeChord_EndpointsExactAndStraight",
+       "line": 2372
+      },
+      {
+       "method": "SeamBridgeChord_AppliesArcScale",
+       "line": 2393
+      },
+      {
+       "method": "SeamBridgeChord_DegenerateInputs_ReturnFalse",
+       "line": 2407
+      },
+      {
+       "method": "ClassifySeamBridgeByAngle_FourBands",
+       "line": 2416
+      },
+      {
+       "method": "SeamBridge_ZeroAngle_DegeneratesToArcLeadIn",
+       "line": 2443
+      },
+      {
+       "method": "SeamBridge_AngleTooLarge_NoBridge",
+       "line": 2462
+      },
+      {
+       "method": "SeamBridge_DegenerateInputs_NoBridge",
+       "line": 2478
+      },
+      {
+       "method": "SeamBridgeAngleRad_MeasuresRayAngle_DegenerateIsInfinite",
+       "line": 2499
+      },
+      {
+       "method": "SeamBridge_MinAngleGate_NearMeetSkips_RealGapBridges",
+       "line": 2516
+      },
+      {
+       "method": "IsBridgeAdjacentConic_BothSides",
+       "line": 2566
+      },
+      {
+       "method": "HasInterveningContinuationLeg_LaunchAscentChain_PadLegSkips_ContinuationBridges",
+       "line": 2597
+      },
+      {
+       "method": "HasInterveningContinuationLeg_SingleLegThenConic_DoesNotSkip",
+       "line": 2635
+      },
+      {
+       "method": "HasInterveningContinuationLeg_DifferentBodyLeg_DoesNotSkip",
+       "line": 2653
+      },
+      {
+       "method": "HasInterveningContinuationLeg_StartSide_PrecedingLegSkips",
+       "line": 2673
+      },
+      {
+       "method": "HasInterveningContinuationLeg_NullOrEmpty_ReturnsFalse",
+       "line": 2708
+      },
+      {
+       "method": "IsSeamGapAhead_GapVsOvershoot",
+       "line": 2728
+      },
+      {
+       "method": "ShouldHideBodyFixedRunLeg_OnlyPastNonAnchorable",
+       "line": 2746
+      },
+      {
+       "method": "ComputeBridgeSampleSpan_PeriodClampsMultiRevSegments",
+       "line": 2766
+      },
+      {
+       "method": "AnyAboveSurfaceConicStartsAtOrAfter_TerminalVsFollowed",
+       "line": 2788
+      },
+      {
+       "method": "MaxChordDeviation_ArcVsStraight",
+       "line": 2816
+      },
+      {
+       "method": "ClassifyAtmosphericMarkerSkip_OrbitSegmentVeto_BypassedWhenPolylineOwns",
+       "line": 2843
+      },
+      {
+       "method": "ShouldVetoMarkerForActiveOrbitSegment_TruthTable",
+       "line": 2878
+      },
+      {
+       "method": "RecordedLongitudeAtUT_RoundtripsWithBodyFixedLongitudeAtUT",
+       "line": 2890
+      },
+      {
+       "method": "FillFramelessGapsFromConics_FillsOnlyCoveredLongGaps",
+       "line": 2912
+      },
+      {
+       "method": "HasFrameRotationDrift_DetectsRotation",
+       "line": 2976
+      },
+      {
+       "method": "SeamBridge_ReversedTailSlice_EndpointsExact",
+       "line": 2991
+      },
+      {
+       "method": "DiffDrawnSets_AppearsAndDisappears",
+       "line": 3022
+      },
+      {
+       "method": "DiffDrawnSets_SameCountSwap_IsNotSilent",
+       "line": 3037
+      },
+      {
+       "method": "DiffDrawnSets_NoChange_EmptyDiff",
+       "line": 3053
+      },
+      {
+       "method": "DiffDrawnSets_ClearsOutputsAndSortsOrdinal",
+       "line": 3067
+      },
+      {
+       "method": "DiffDrawnSets_NullPreviousTreatedAsEmpty",
+       "line": 3081
+      },
+      {
+       "method": "UndrawnAnchoredLeg_HoldsLastGoodOnLine",
+       "line": 3101
+      },
+      {
+       "method": "UndrawnNonAnchoredLeg_UsesFreshBodyFixedHead",
+       "line": 3109
+      },
+      {
+       "method": "AnchoredLeg_IsSkippedFromParityCapture",
+       "line": 3129
+      },
+      {
+       "method": "NonAnchoredBodyFixedLeg_IsCapturedForParity",
+       "line": 3140
+      },
+      {
+       "method": "PredictedSubsurfacePeriapsisTail_IsCoveredByEitherALegOrAnArc",
+       "line": 3332
+      },
+      {
+       "method": "PredictedTail_MeasuredReseedShape_LeavesAtMostOneSampleIntervalAtTheBoundary",
+       "line": 3370
+      },
+      {
+       "method": "PredictedTail_CoastIsTheArc_DescentIsTheLeg",
+       "line": 3426
+      },
+      {
+       "method": "PredictedTail_ArcOwnedCoastEntersTheOrbitalCover",
+       "line": 3451
+      },
+      {
+       "method": "IsOrbitSegmentBelowSurface_TrueForTheMeasuredTailElements",
+       "line": 3464
+      },
+      {
+       "method": "PredictedTailOwnership_SplitsCoastFromDescentOnSpanGeometry",
+       "line": 3475
+      },
+      {
+       "method": "NonPredictedTwinOfTheTail_IsUnchangedByTheFix",
+       "line": 3492
+      },
+      {
+       "method": "PredictedTail_WithoutGravParameter_StillDrawsAsOneLeg",
+       "line": 3518
+      },
+      {
+       "method": "FillFramelessGapsFromConics_InsertsNothingForATailConic",
+       "line": 3541
+      },
+      {
+       "method": "PredictedTailBuild_LogsTheTailCounters",
+       "line": 3560
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

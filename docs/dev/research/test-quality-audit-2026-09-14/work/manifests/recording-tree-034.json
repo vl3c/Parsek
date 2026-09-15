@@ -1,0 +1,214 @@
+{
+ "batch_id": "recording-tree-034",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "RecordingStoreResetGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResetForTesting_NoOpInPlayMode_WhenStoreIsEmpty",
+       "line": 64
+      },
+      {
+       "method": "ResetForTesting_ThrowsInPlayMode_WhenCommittedRecordingsExist",
+       "line": 77
+      },
+      {
+       "method": "ResetForTesting_ThrowsInPlayMode_WhenPendingTreeExists",
+       "line": 103
+      },
+      {
+       "method": "ResetForTesting_AllowsReset_WhenNotInPlayMode",
+       "line": 124
+      },
+      {
+       "method": "Snapshot_RestoresCommittedRecordingsAndTrees",
+       "line": 143
+      },
+      {
+       "method": "Snapshot_RestoresPendingTreeAndState",
+       "line": 171
+      },
+      {
+       "method": "ResetForBatchFlightBaselineRestoreBypassingGuard_ClearsLiveData_WithoutThrowing",
+       "line": 195
+      },
+      {
+       "method": "BatchFlightBaselineRestore_ValidationFailureBeforeWipe_LeavesAllStoresIntact",
+       "line": 222
+      },
+      {
+       "method": "BatchFlightBaselineRestore_PostTestRollback_RestoresBatchStart_NotTestMutations",
+       "line": 319
+      },
+      {
+       "method": "BatchFlightBaselineRestore_PartialPrepWipeFailure_RollsBackRecordingStore",
+       "line": 393
+      },
+      {
+       "method": "BatchFlightBaselineRestore_PreWipeFailure_LeavesPostTestMutationsAlone",
+       "line": 492
+      },
+      {
+       "method": "RunCoroutineSafely_NestedFailure_DisposesParentRoutine",
+       "line": 578
+      },
+      {
+       "method": "RunCoroutineSafely_SynchronousFailure_DisposesParentRoutine",
+       "line": 626
+      },
+      {
+       "method": "RunCoroutineSafely_NestedFailure_DisposesUsingBlockInsideParent",
+       "line": 661
+      },
+      {
+       "method": "RunCoroutineSafely_NaturalCompletion_DisposesParentRoutine",
+       "line": 721
+      },
+      {
+       "method": "BatchFlightBaselineRestore_FailedQuickload_SnapshotRollbackRecoversLiveData",
+       "line": 776
+      },
+      {
+       "method": "ResetForBatchFlightBaselineRestoreBypassingGuard_DoesNotWeakenRegularResetGuard",
+       "line": 834
+      },
+      {
+       "method": "Snapshot_GuardStillBlocksDirectReset_AfterRestore",
+       "line": 854
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ChainGhostTrajectoryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FindBackgroundRecording_InRange_ReturnsRecording",
+       "line": 166
+      },
+      {
+       "method": "FindBackgroundRecording_OutOfRange_ReturnsNull",
+       "line": 182
+      },
+      {
+       "method": "FindBackgroundRecording_WrongVesselPid_ReturnsNull",
+       "line": 197
+      },
+      {
+       "method": "FindBackgroundRecording_EmptyPointsList_ReturnsNull",
+       "line": 212
+      },
+      {
+       "method": "FindBackgroundRecording_NullRecordings_ReturnsNull",
+       "line": 227
+      },
+      {
+       "method": "FindBackgroundRecording_MultipleCandidates_ReturnsFirst",
+       "line": 240
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_PrefersClaimingTreeOverAlternateHistory",
+       "line": 258
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_PrefersMostRecentClaimTreeAtCurrentUT",
+       "line": 301
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_FallsBackToGlobalHistoryBeforeFirstClaim",
+       "line": 360
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_PrefersUniquePreClaimCoverageInClaimTree",
+       "line": 409
+      },
+      {
+       "method": "FindPreClaimChainRecordingAtUT_ReturnsOrbitOnlyCoverageInClaimTree",
+       "line": 454
+      },
+      {
+       "method": "FindPreClaimChainRecordingAtUT_EqualTimeClaimTrees_ReturnsUniqueCandidateAcrossTrees",
+       "line": 492
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_AmbiguousPreClaimTreeCoverage_AllowsGlobalFallback",
+       "line": 538
+      },
+      {
+       "method": "FindPositionFallbackRecordingForChain_AmbiguousPreClaimCoverage_AllowsGlobalOrbitFallback",
+       "line": 583
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_EqualTimeClaimTrees_AmbiguousCoverage_AllowsGlobalFallback",
+       "line": 616
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_IgnoresPreClaimPlaceholderWithoutPlaybackData",
+       "line": 668
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_DoesNotOverrideChainLocalOrbitOnlyCoverage",
+       "line": 714
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_PostClaimGap_DoesNotFallbackGlobal",
+       "line": 756
+      },
+      {
+       "method": "FindBackgroundRecordingForChain_NewerClaimGap_DoesNotReviveOlderLink",
+       "line": 798
+      },
+      {
+       "method": "FindExactChainRecordingAtUT_SameTreeOverlap_PicksCurrentBranch",
+       "line": 856
+      },
+      {
+       "method": "FindBackgroundRecording_ExactStartUT_ReturnsRecording",
+       "line": 903
+      },
+      {
+       "method": "FindBackgroundRecording_ExactEndUT_ReturnsRecording",
+       "line": 919
+      },
+      {
+       "method": "FindBackgroundRecording_JustBeforeStart_ReturnsNull",
+       "line": 939
+      },
+      {
+       "method": "FindBackgroundRecording_JustAfterEnd_ReturnsNull",
+       "line": 954
+      },
+      {
+       "method": "FindBackgroundRecording_EmptyList_ReturnsNull",
+       "line": 969
+      },
+      {
+       "method": "FindBackgroundRecording_MixedVessels_ReturnsCorrectPid",
+       "line": 982
+      },
+      {
+       "method": "FindBackgroundRecording_NullPointsList_ReturnsNull",
+       "line": 999
+      },
+      {
+       "method": "FindBackgroundRecording_ZeroPid_MatchesZeroPidRecording",
+       "line": 1022
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

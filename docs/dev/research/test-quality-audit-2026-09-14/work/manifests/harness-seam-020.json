@@ -1,0 +1,264 @@
+{
+ "batch_id": "harness-seam-020",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 53,
+ "files": [
+  {
+   "file": "TestCommandMapViewVerbsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NoMapViewInstance_IsUnavailable_RegardlessOfEverythingElse",
+       "line": 24
+      },
+      {
+       "method": "Enter_WithMapAlreadyOpen_IsAlreadyInState",
+       "line": 37
+      },
+      {
+       "method": "Exit_WithMapAlreadyClosed_IsAlreadyInState",
+       "line": 46
+      },
+      {
+       "method": "Enter_ClosedThenOpen_IsChanged",
+       "line": 55
+      },
+      {
+       "method": "Exit_OpenThenClosed_IsChanged",
+       "line": 64
+      },
+      {
+       "method": "Enter_ReadBackStillClosed_IsRefused",
+       "line": 73
+      },
+      {
+       "method": "Exit_ReadBackStillOpen_IsRefused",
+       "line": 85
+      },
+      {
+       "method": "RefusalReasonAndVerdict_AreNullForBothSuccessOutcomes",
+       "line": 96
+      },
+      {
+       "method": "RefusalReason_UnavailableIsSharedByBothDirections",
+       "line": 111
+      },
+      {
+       "method": "RefusalReason_DeclineTokensAreDirectionSpecificAndDistinct",
+       "line": 123
+      },
+      {
+       "method": "AllFourRefusalTokensAreDistinct",
+       "line": 138
+      },
+      {
+       "method": "RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled",
+       "line": 155
+      },
+      {
+       "method": "EnterPayload_AlwaysClaimsMapOpenAndCarriesTheIdempotencyFlag",
+       "line": 174
+      },
+      {
+       "method": "ExitPayload_MirrorsEnter",
+       "line": 189
+      },
+      {
+       "method": "Payloads_UseTheSameMapOpenKeyWithOppositeValues",
+       "line": 199
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandKscActionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ParseKind_And_ManifestKind",
+       "line": 18
+      },
+      {
+       "method": "ParseKind_Unknown",
+       "line": 39
+      },
+      {
+       "method": "Decide_UnknownAction_Rejects",
+       "line": 47
+      },
+      {
+       "method": "Decide_MissingArg_Rejects",
+       "line": 55
+      },
+      {
+       "method": "Decide_Research_Accept",
+       "line": 72
+      },
+      {
+       "method": "Decide_Research_UnknownNode",
+       "line": 82
+      },
+      {
+       "method": "Decide_Research_AlreadyUnlocked",
+       "line": 89
+      },
+      {
+       "method": "Decide_Research_InsufficientScience",
+       "line": 96
+      },
+      {
+       "method": "Decide_Research_ExactCost_Affordable",
+       "line": 103
+      },
+      {
+       "method": "Decide_Facility_Accept",
+       "line": 120
+      },
+      {
+       "method": "Decide_Facility_UnknownFacility",
+       "line": 128
+      },
+      {
+       "method": "Decide_Facility_AtMax",
+       "line": 135
+      },
+      {
+       "method": "Decide_Facility_InsufficientFunds",
+       "line": 142
+      },
+      {
+       "method": "Decide_Hire_Accept",
+       "line": 158
+      },
+      {
+       "method": "Decide_Hire_UnknownKerbal",
+       "line": 166
+      },
+      {
+       "method": "Decide_Hire_NotApplicant",
+       "line": 173
+      },
+      {
+       "method": "Decide_Hire_InsufficientFunds",
+       "line": 181
+      },
+      {
+       "method": "Decide_Dismiss_Accept",
+       "line": 196
+      },
+      {
+       "method": "Decide_Dismiss_UnknownKerbal",
+       "line": 204
+      },
+      {
+       "method": "Decide_Dismiss_ParsekManaged_TakesPrecedence",
+       "line": 211
+      },
+      {
+       "method": "Decide_Dismiss_NotDismissable",
+       "line": 220
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandVerbTableTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ImplementedVerbs_ClassifyImplemented",
+       "line": 52
+      },
+      {
+       "method": "ReservedVerbs_ClassifyReserved",
+       "line": 63
+      },
+      {
+       "method": "UnknownVerbs_ClassifyUnknown",
+       "line": 74
+      },
+      {
+       "method": "Table_HasExpectedCounts",
+       "line": 80
+      },
+      {
+       "method": "Table_ImplementedAndReservedAreDisjoint",
+       "line": 151
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandJournalTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatClaimed_RoundTripsThroughParser",
+       "line": 16
+      },
+      {
+       "method": "FormatExecuted_RoundTrips",
+       "line": 28
+      },
+      {
+       "method": "FormatExecuted_CarriesVerdictPayloadMsg_RoundTrips",
+       "line": 37
+      },
+      {
+       "method": "FormatDone_CarriesVerdict",
+       "line": 60
+      },
+      {
+       "method": "Format_UsesInvariantCulture_NoCommaInT",
+       "line": 69
+      },
+      {
+       "method": "TryParseLine_Malformed_Fails",
+       "line": 80
+      },
+      {
+       "method": "SplitCompleteLines_DropsTornTrailingLine",
+       "line": 86
+      },
+      {
+       "method": "SplitCompleteLines_HandlesCrlf",
+       "line": 99
+      },
+      {
+       "method": "SplitCompleteLines_EmptyOrNull_ReturnsEmpty",
+       "line": 109
+      },
+      {
+       "method": "MirrorPhaseIntoMap_RaisesPhase_KeepsHighest",
+       "line": 118
+      },
+      {
+       "method": "MirrorPhaseIntoMap_UnknownToken_OrNullId_IsNoOp",
+       "line": 133
+      },
+      {
+       "method": "ClaimedTwoPhaseVerb_RecoversInterrupted",
+       "line": 155
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,203 @@
+{
+ "batch_id": "trajectory-orbit-006",
+ "cluster": "trajectory-orbit",
+ "tier": "A1",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "OrbitSegmentTests.cs",
+   "ranges": [
+    {
+     "start": 909,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "HasOrbitalFrameRotation_DefaultSegment_ReturnsFalse",
+       "line": 909
+      },
+      {
+       "method": "HasOrbitalFrameRotation_WithRotation_ReturnsTrue",
+       "line": 916
+      },
+      {
+       "method": "HasOrbitalFrameRotation_IdentityQuaternion_ReturnsTrue",
+       "line": 924
+      },
+      {
+       "method": "HasOrbitalFrameRotation_AllZero_ReturnsFalse",
+       "line": 932
+      },
+      {
+       "method": "HasOrbitalFrameRotation_NegativeComponents_ReturnsTrue",
+       "line": 940
+      },
+      {
+       "method": "IsSpinning_DefaultSegment_ReturnsFalse",
+       "line": 952
+      },
+      {
+       "method": "IsSpinning_AboveThreshold_ReturnsTrue",
+       "line": 959
+      },
+      {
+       "method": "IsSpinning_BelowThreshold_ReturnsFalse",
+       "line": 967
+      },
+      {
+       "method": "ComputeOrbitalFrameRotation_Prograde_ReturnsIdentity",
+       "line": 979
+      },
+      {
+       "method": "ComputeOrbitalFrameRotation_Retrograde_Returns180Yaw",
+       "line": 996
+      },
+      {
+       "method": "ComputeOrbitalFrameRotation_ZeroVelocity_ReturnsIdentity",
+       "line": 1013
+      },
+      {
+       "method": "ComputeOrbitalFrameRotation_NearParallelVectors_NoNaN",
+       "line": 1028
+      },
+      {
+       "method": "ComputeOrbitalFrameRotation_RoundTrip",
+       "line": 1044
+      },
+      {
+       "method": "SpinForward_SingleAxis_CorrectAngle",
+       "line": 1088
+      },
+      {
+       "method": "SpinForward_ZeroAngVel_FallsBackToOrbitalFrame",
+       "line": 1116
+      },
+      {
+       "method": "Serialization_RoundTrip_PreservesOrbitalFrameRotation",
+       "line": 1144
+      },
+      {
+       "method": "Serialization_RoundTrip_PreservesAngularVelocity",
+       "line": 1167
+      },
+      {
+       "method": "Serialization_MissingOfrKeys_DefaultsToZero",
+       "line": 1188
+      },
+      {
+       "method": "Serialization_MissingAvKeys_DefaultsToZero",
+       "line": 1209
+      },
+      {
+       "method": "Serialization_WithOfrKeys_ParsesCorrectly",
+       "line": 1229
+      },
+      {
+       "method": "SpinForward_HighAngularVelocity_NoOverflow",
+       "line": 1269
+      },
+      {
+       "method": "ComputeOrbitalFrameRotation_OutputIsUnitQuaternion",
+       "line": 1293
+      },
+      {
+       "method": "Serialization_RoundTrip_NegativeComponents",
+       "line": 1317
+      },
+      {
+       "method": "Serialization_RoundTrip_CombinedOfrAndAngVel",
+       "line": 1340
+      },
+      {
+       "method": "Serialization_RoundTrip_MultipleSegmentsDifferentOFR",
+       "line": 1360
+      },
+      {
+       "method": "ComputeOrbitalFrameRotation_ZeroVelocity_LogsDegenerate",
+       "line": 1403
+      },
+      {
+       "method": "ComputeOrbitalFrameRotation_NearParallel_LogsWarning",
+       "line": 1426
+      },
+      {
+       "method": "IsSurfaceAtUT_SurfaceMobile_ReturnsTrue",
+       "line": 1455
+      },
+      {
+       "method": "IsSurfaceAtUT_SurfaceStationary_ReturnsTrue",
+       "line": 1465
+      },
+      {
+       "method": "IsSurfaceAtUT_Atmospheric_ReturnsFalse",
+       "line": 1475
+      },
+      {
+       "method": "IsSurfaceAtUT_ExoBallistic_ReturnsFalse",
+       "line": 1485
+      },
+      {
+       "method": "IsSurfaceAtUT_NullSections_ReturnsFalse",
+       "line": 1495
+      },
+      {
+       "method": "IsSurfaceAtUT_EmptySections_ReturnsFalse",
+       "line": 1501
+      },
+      {
+       "method": "IsSurfaceAtUT_UTOutsideRange_ReturnsFalse",
+       "line": 1507
+      },
+      {
+       "method": "IsSurfaceAtUT_MixedSections_CorrectlyIdentifiesSurface",
+       "line": 1517
+      },
+      {
+       "method": "TryExpandStoredSingleSegmentWindow_MergesAdjacentEquivalentAndStopsAtNonEquivalent",
+       "line": 1573
+      },
+      {
+       "method": "TryExpandStoredSingleSegmentWindow_SingleSegmentNoEquivalentNeighbour_ReturnsCountOne",
+       "line": 1597
+      },
+      {
+       "method": "TryExpandStoredSingleSegmentWindow_NoSeedMatch_ReturnsFalse",
+       "line": 1621
+      },
+      {
+       "method": "TryExpandStoredSingleSegmentWindow_DoesNotMergeAcrossPredictedBoundary",
+       "line": 1644
+      },
+      {
+       "method": "TryExpandStoredSingleSegmentWindow_EmptyOrNull_ReturnsFalse",
+       "line": 1667
+      },
+      {
+       "method": "TryExpandStoredSingleSegmentWindow_MatchesSeedByStartUTWithinTolerance",
+       "line": 1689
+      },
+      {
+       "method": "TryExpandStoredSingleSegmentWindow_ReaimedSpanCrossingMidCourseSplit_WalkNarrows",
+       "line": 1732
+      },
+      {
+       "method": "UnionArcWindowWithStored_NarrowerExpansion_RestoresFullStoredSpanAndFlagsClamp",
+       "line": 1761
+      },
+      {
+       "method": "UnionArcWindowWithStored_WiderExpansion_TakesExpandedNoClamp",
+       "line": 1775
+      },
+      {
+       "method": "UnionArcWindowWithStored_EqualWindows_Unchanged",
+       "line": 1788
+      },
+      {
+       "method": "UnionArcWindowWithStored_ExpansionStartsLate_KeepsStoredStart",
+       "line": 1800
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

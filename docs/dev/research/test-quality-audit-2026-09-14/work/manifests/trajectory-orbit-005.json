@@ -1,0 +1,207 @@
+{
+ "batch_id": "trajectory-orbit-005",
+ "cluster": "trajectory-orbit",
+ "tier": "A1",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "OrbitSegmentTests.cs",
+   "ranges": [
+    {
+     "start": 65,
+     "end": 927,
+     "methods": [
+      {
+       "method": "FindOrbitSegment_EmptyList_ReturnsNull",
+       "line": 65
+      },
+      {
+       "method": "FindOrbitSegment_NullList_ReturnsNull",
+       "line": 73
+      },
+      {
+       "method": "FindOrbitSegment_UTInRange_ReturnsSegment",
+       "line": 80
+      },
+      {
+       "method": "FindOrbitSegment_UTBeforeRange_ReturnsNull",
+       "line": 94
+      },
+      {
+       "method": "FindOrbitSegment_UTAfterRange_ReturnsNull",
+       "line": 106
+      },
+      {
+       "method": "FindOrbitSegment_UTAtExactStart_ReturnsSegment",
+       "line": 118
+      },
+      {
+       "method": "FindOrbitSegment_UTAtExactEnd_ReturnsSegment",
+       "line": 130
+      },
+      {
+       "method": "FindOrbitSegment_MultipleSegments_FindsCorrectOne",
+       "line": 142
+      },
+      {
+       "method": "FindOrbitSegment_UTBetweenSegments_ReturnsNull",
+       "line": 157
+      },
+      {
+       "method": "EvaluateOrbitSegmentAtUT_NullCheckpoints_ReturnsNull",
+       "line": 181
+      },
+      {
+       "method": "EvaluateOrbitSegmentAtUT_EmptyCheckpoints_ReturnsNull",
+       "line": 189
+      },
+      {
+       "method": "EvaluateOrbitSegmentAtUT_NullBodyResolver_ReturnsNull",
+       "line": 199
+      },
+      {
+       "method": "EvaluateOrbitSegmentAtUT_BodyResolverReturnsNull_ReturnsNull",
+       "line": 208
+      },
+      {
+       "method": "EvaluateOrbitSegmentAtUT_PartialLastCheckpoint_FallsBackToLastSegmentByBodyName",
+       "line": 219
+      },
+      {
+       "method": "EvaluateOrbitSegmentAtUT_UTBeforeFirstCheckpoint_FallsBackToFirstSegmentByBodyName",
+       "line": 245
+      },
+      {
+       "method": "EvaluateOrbitSegmentAtUT_UTInsideRange_PicksContainingSegmentByBodyName",
+       "line": 268
+      },
+      {
+       "method": "FindOrbitSegmentForMapDisplay_UTInSameBodyGap_CarriesPreviousSegment",
+       "line": 289
+      },
+      {
+       "method": "TryGetOrbitSegmentForMapDisplay_UTInSameBodyGap_MergesEquivalentWindowAcrossGap",
+       "line": 318
+      },
+      {
+       "method": "TryGetOrbitSegmentForMapDisplay_UTInsideEquivalentSegmentChain_MergesPastAndFutureSegments",
+       "line": 361
+      },
+      {
+       "method": "TryGetOrbitSegmentForMapDisplay_UTInsideEquivalentRun_StopsAtOrbitChangeBoundary",
+       "line": 404
+      },
+      {
+       "method": "FindOrbitSegmentForMapDisplay_UTInSameBodyDifferentOrbitGap_ReturnsNull",
+       "line": 447
+      },
+      {
+       "method": "AreOrbitSegmentsEquivalentForMapDisplay_IgnoresEpochAndMeanAnomaly",
+       "line": 473
+      },
+      {
+       "method": "AreOrbitSegmentsEquivalentForMapDisplay_RejectsSameBodyOrbitChange",
+       "line": 484
+      },
+      {
+       "method": "FindOrbitSegmentForMapDisplay_UTInDifferentBodyGap_ReturnsNull",
+       "line": 494
+      },
+      {
+       "method": "TryGetOrbitSegmentForMapDisplay_UTInDifferentBodyGap_ReturnsFalse",
+       "line": 508
+      },
+      {
+       "method": "FindOrbitSegmentForMapDisplay_UTPastLastSegment_ReturnsNull",
+       "line": 526
+      },
+      {
+       "method": "FindOrbitSegmentOrSameBodyCarry_UTInsideSegment_ReturnsActiveSegment",
+       "line": 542
+      },
+      {
+       "method": "FindOrbitSegmentOrSameBodyCarry_UTInSameBodyDifferentOrbitGap_CarriesPreviousSegment",
+       "line": 558
+      },
+      {
+       "method": "FindOrbitSegmentOrSameBodyCarry_UTInDifferentBodyGap_ReturnsNull",
+       "line": 592
+      },
+      {
+       "method": "FindOrbitSegmentOrSameBodyCarry_UTPastLastSegment_ReturnsNull",
+       "line": 608
+      },
+      {
+       "method": "TryGetBodyFrameBoundsForMapDisplay_UTInsideSegment_ExpandsToConsecutiveSameBodyRun",
+       "line": 623
+      },
+      {
+       "method": "TryGetBodyFrameBoundsForMapDisplay_UTInSameBodyGap_StillCoversBodyFrameRun",
+       "line": 659
+      },
+      {
+       "method": "TryGetBodyFrameBoundsForMapDisplay_UTInBodyChangeGap_ReturnsFalse",
+       "line": 690
+      },
+      {
+       "method": "TryGetBodyFrameBoundsForMapDisplay_UTPastLastSegment_ReturnsFalse",
+       "line": 708
+      },
+      {
+       "method": "TryGetBodyFrameBoundsForMapDisplay_UTBeforeFirstSegment_ReturnsFalse",
+       "line": 723
+      },
+      {
+       "method": "FindOrbitSegment_AdjacentSegments_NoOverlap",
+       "line": 742
+      },
+      {
+       "method": "FindOrbitSegment_LastSegment_InclusiveEnd",
+       "line": 758
+      },
+      {
+       "method": "FindOrbitSegment_NegativeUT_ReturnsNull",
+       "line": 773
+      },
+      {
+       "method": "Recording_OnlyOrbitSegments_EmptyPoints",
+       "line": 785
+      },
+      {
+       "method": "OrbitSegment_ToString_WhenPredicted_UsesKeyValueFormatting",
+       "line": 795
+      },
+      {
+       "method": "FindOrbitSegment_SinglePointBoundary",
+       "line": 806
+      },
+      {
+       "method": "Recording_OrbitSegments_InitializedEmpty",
+       "line": 825
+      },
+      {
+       "method": "Recording_WithOrbitSegments_PreservesStartEndUT",
+       "line": 833
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithOrbitSegments_CopiesSegments",
+       "line": 845
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithNullSegments_InitializesEmptyList",
+       "line": 863
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithoutSegmentsParam_InitializesEmptyList",
+       "line": 875
+      },
+      {
+       "method": "CommitRecordingDirect_WithOrbitSegments_PreservesSegments",
+       "line": 887
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

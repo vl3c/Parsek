@@ -1,0 +1,75 @@
+{
+ "batch_id": "catchall-007",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 14,
+ "files": [
+  {
+   "file": "StockOrbitElementFrameParityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IdentityZup_TwoBodyOrbitReproducesStocksElementToStateMapExactly",
+       "line": 153
+      },
+      {
+       "method": "ElementFrameBoundary_MakesTheTwoElementToStateMapsAgreeDirectly",
+       "line": 199
+      },
+      {
+       "method": "MeasuredPadFixture_ElementSeededStateAgreesWithStockDirectly",
+       "line": 262
+      },
+      {
+       "method": "EquatorialOrbit_TheLanShiftIsStillThePolarRotation",
+       "line": 303
+      },
+      {
+       "method": "HyperbolicSegment_CrossesTheElementFrameBoundaryToo",
+       "line": 355
+      },
+      {
+       "method": "ZupRotation_PreservesThePolarComponentAndTheRadialVelocityAngle",
+       "line": 412
+      },
+      {
+       "method": "MeasuredSite4Reading_IsReproducedByTheZupRotationAlone",
+       "line": 492
+      },
+      {
+       "method": "RecorderStyleWorldWorldEncode_RoundTripsThroughTheConsumer_ButNotThroughTheOldMixedOne",
+       "line": 562
+      },
+      {
+       "method": "ElementFrameSkew_UnderTheCurrentConsumer_IsExactlyTheZupAngle",
+       "line": 617
+      },
+      {
+       "method": "HighEccentricity_TwoBodyOrbitTracksStocksExtremeEccSolverOverTheFullSweep",
+       "line": 721
+      },
+      {
+       "method": "ExtremeEccentricity_TheSolvedAnomalySatisfiesKeplersEquation",
+       "line": 785
+      },
+      {
+       "method": "DispatchThreshold_IsContinuousAcrossTheTwoSolvers",
+       "line": 826
+      },
+      {
+       "method": "StandardBranchIterationCap_ReturnsFiniteAndLogsRatherThanHanging",
+       "line": 875
+      },
+      {
+       "method": "NonFiniteInputs_ReturnNaNRatherThanThrowing",
+       "line": 910
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

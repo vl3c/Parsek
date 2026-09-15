@@ -1,0 +1,191 @@
+{
+ "batch_id": "recording-tree-026",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "RecordingTreeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SurfacePosition_SaveLoad_RoundTrips",
+       "line": 25
+      },
+      {
+       "method": "SurfacePosition_Splashed_PreservesSituation",
+       "line": 56
+      },
+      {
+       "method": "SurfacePosition_LoadFromLegacyNodeWithoutRotation_MarksRotationUnrecorded",
+       "line": 78
+      },
+      {
+       "method": "SurfacePosition_DefaultStruct_DoesNotClaimRecordedRotation",
+       "line": 97
+      },
+      {
+       "method": "BranchPoint_Undock_SerializesParentsAndChildren",
+       "line": 107
+      },
+      {
+       "method": "BranchPoint_Dock_SerializesTwoParentsOneChild",
+       "line": 134
+      },
+      {
+       "method": "TerminalState_AllValues_RoundTripAsInts",
+       "line": 162
+      },
+      {
+       "method": "RecordingTree_SingleNode_RoundTrips",
+       "line": 183
+      },
+      {
+       "method": "RecordingTree_SpawnedPid_RestoresVesselSpawnedFlagOnLoad",
+       "line": 231
+      },
+      {
+       "method": "RecordingTree_NoSpawnedPid_LeavesVesselSpawnedFalseOnLoad",
+       "line": 271
+      },
+      {
+       "method": "RecordingTree_TerminalSpawnCannotSpawnSafely_RoundTrips",
+       "line": 304
+      },
+      {
+       "method": "RecordingTree_NoTerminalSpawnAbandon_StaysFalseOnLoad",
+       "line": 354
+      },
+      {
+       "method": "RecordingTree_UndockBranch_RoundTrips",
+       "line": 389
+      },
+      {
+       "method": "RecordingTree_DockMerge_RoundTrips",
+       "line": 466
+      },
+      {
+       "method": "Recording_OrbitalTerminalState_RoundTrips",
+       "line": 578
+      },
+      {
+       "method": "Recording_LandedTerminalState_RoundTrips",
+       "line": 623
+      },
+      {
+       "method": "Recording_DestroyedTerminalState_NoOrbitNoPosition",
+       "line": 673
+      },
+      {
+       "method": "Recording_NullTerminalState_OmitsKey",
+       "line": 704
+      },
+      {
+       "method": "RecordingTree_RebuildBackgroundMap_CorrectEntries",
+       "line": 737
+      },
+      {
+       "method": "RecordingTree_RebuildBackgroundMap_ZeroPidExcluded",
+       "line": 789
+      },
+      {
+       "method": "RecordingTree_RebuildBackgroundMap_PopulatesRecordedVesselPids",
+       "line": 814
+      },
+      {
+       "method": "FindDuplicateBackgroundMapPids_ReturnsEligibleDuplicatesOnly",
+       "line": 857
+      },
+      {
+       "method": "BackgroundMap_DuplicateEligiblePids_PreservesTreeOrderWinnerAcrossSaveLoad",
+       "line": 909
+      },
+      {
+       "method": "BackgroundMapEligibility_IgnoresOptimizerSplitIntermediateChainSegments",
+       "line": 960
+      },
+      {
+       "method": "RecordingTree_LegacyResourceFields_NotPersistedOnSave",
+       "line": 1014
+      },
+      {
+       "method": "Recording_SurfacePos_RoundTrips",
+       "line": 1055
+      },
+      {
+       "method": "Recording_SurfacePos_NullOmitsNode",
+       "line": 1103
+      },
+      {
+       "method": "Recording_ExplicitUT_UsedWhenNoPoints",
+       "line": 1135
+      },
+      {
+       "method": "Recording_ExplicitUT_ExtendsPointBounds",
+       "line": 1148
+      },
+      {
+       "method": "TreeFormatVersion_SaveWritesCurrentVersion",
+       "line": 1163
+      },
+      {
+       "method": "TreeFormatVersion_MissingOnCurrentTreeLoad_DefaultsZero",
+       "line": 1194
+      },
+      {
+       "method": "RecordingTree_EmptyTree_SaveLoadDoesNotCrash",
+       "line": 1211
+      },
+      {
+       "method": "BranchPoint_EmptyParentChildLists_HandleGracefully",
+       "line": 1232
+      },
+      {
+       "method": "RecordingTree_ActiveRecordingIdNull_OmitsKey",
+       "line": 1256
+      },
+      {
+       "method": "RebuildBackgroundMap_MultiLevel_AllExcluded_ThenOneIncluded",
+       "line": 1289
+      },
+      {
+       "method": "EmptyTree_QueryMethods_Safe",
+       "line": 1360
+      },
+      {
+       "method": "Load_UnknownFields_SilentlyIgnored",
+       "line": 1385
+      },
+      {
+       "method": "BackgroundMap_PopulatedAfterSaveLoadRoundTrip",
+       "line": 1441
+      },
+      {
+       "method": "Recording_SwitchSegmentSessionId_RoundTrips",
+       "line": 1477
+      },
+      {
+       "method": "Recording_SwitchSegmentSessionId_NullOmitsKey",
+       "line": 1510
+      },
+      {
+       "method": "Recording_DeepClone_CarriesSwitchSegmentSessionId",
+       "line": 1559
+      },
+      {
+       "method": "Recording_SwitchSegmentSessionId_DoesNotLeakIntoCreatingSessionId",
+       "line": 1581
+      },
+      {
+       "method": "Recording_RefreshFromCommittedSidecar_PreservesSwitchSegmentSessionId",
+       "line": 1633
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

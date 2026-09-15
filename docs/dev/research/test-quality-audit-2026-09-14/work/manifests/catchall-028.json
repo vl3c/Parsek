@@ -1,0 +1,269 @@
+{
+ "batch_id": "catchall-028",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "ArrivalHoldPlannerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Off_Drop_ReturnsNone",
+       "line": 43
+      },
+      {
+       "method": "OrbitOnly_NoLandingRotation_ReturnsNone",
+       "line": 52
+      },
+      {
+       "method": "TwoConstrainedMoons_NoWindowSpacing_DeclinesWithAmber",
+       "line": 62
+      },
+      {
+       "method": "DegenerateRotationPeriod_ReturnsNone",
+       "line": 79
+      },
+      {
+       "method": "Landing_NeedsHold_AppliedWithMinimalForwardDelay",
+       "line": 88
+      },
+      {
+       "method": "Landing_AlreadyAligned_ReturnsNone",
+       "line": 100
+      },
+      {
+       "method": "Landing_AccountsForLaunchSideLoiterCompression",
+       "line": 110
+      },
+      {
+       "method": "Landing_WithDestinationSideLoiterCut_ReturnsNone",
+       "line": 126
+      },
+      {
+       "method": "StationOnly_HoldComputedFromStationPeriod",
+       "line": 147
+      },
+      {
+       "method": "Landing_CarriesRotationAlignPeriod_NotStationKind",
+       "line": 166
+      },
+      {
+       "method": "DualLandingPlusStation_TidalPeriods_DegeneratesToStationHold",
+       "line": 178
+      },
+      {
+       "method": "DualLandingPlusStation_JointEngages_WhenLatticeFeasible",
+       "line": 200
+      },
+      {
+       "method": "DualLandingPlusStation_ToleranceEdge_LooseEngages_TightAmbers",
+       "line": 228
+      },
+      {
+       "method": "DualLandingPlusStation_IncommensuratePastBudget_NoneWithAmber",
+       "line": 255
+      },
+      {
+       "method": "DualLandingPlusStation_NoSlackBudget_NoneWithAmber",
+       "line": 274
+      },
+      {
+       "method": "DualLandingPlusStation_DestinationSideCut_NoneWithAmber",
+       "line": 291
+      },
+      {
+       "method": "JoolClassNoStation_DeclineIsNeverSilent",
+       "line": 312
+      },
+      {
+       "method": "StationPlusConstrainedMoon_NoneWithAmber",
+       "line": 329
+      },
+      {
+       "method": "MoonOrbitingStation_NoneWithAmber",
+       "line": 343
+      },
+      {
+       "method": "Drop_StationOnly_HoldStillComputed",
+       "line": 358
+      },
+      {
+       "method": "Drop_DualLandingPlusStation_DegeneratesToStationHold",
+       "line": 372
+      },
+      {
+       "method": "DegenerateStationPeriod_ReturnsNone",
+       "line": 394
+      },
+      {
+       "method": "Station_WithDestinationSideLoiterCut_ReturnsNone",
+       "line": 408
+      },
+      {
+       "method": "LaunchSideStation_OrbitOnlyArrival_ReturnsNoneNoAmber",
+       "line": 423
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DisabledHoverEchoTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AnEnabledControlNeverCarries",
+       "line": 23
+      },
+      {
+       "method": "ADisabledControlWithNoReasonStaysSilent",
+       "line": 34
+      },
+      {
+       "method": "ADisabledControlWithAReasonCarriesIt",
+       "line": 40
+      },
+      {
+       "method": "PointerInsideMatchesTheRect",
+       "line": 47
+      },
+      {
+       "method": "ANotYetLaidOutRectNeverSwallowsThePointer",
+       "line": 63
+      },
+      {
+       "method": "NewDisabledReasons_FitTheirStripAndKeepTheVoice",
+       "line": 177
+      },
+      {
+       "method": "EveryReasonFunctionGoesSilentWhenTheControlIsLive",
+       "line": 208
+      },
+      {
+       "method": "LoopToggleNamesTheRouteOnlyWhenItKnowsIt",
+       "line": 239
+      },
+      {
+       "method": "LoopPeriodReportsLoopOffAheadOfAuto",
+       "line": 252
+      },
+      {
+       "method": "WarpButtonReportsDistanceThenSpeedThenTheClock",
+       "line": 266
+      },
+      {
+       "method": "TimelineWarpPrefersThePlannerReasonThenTheWarpState",
+       "line": 280
+      },
+      {
+       "method": "MissionWarpReportsEachGateSeparately",
+       "line": 296
+      },
+      {
+       "method": "MissionWarpReasonIsNonEmptyExactlyWhenTheButtonIsGreyed",
+       "line": 332
+      },
+      {
+       "method": "MissionWatchSeparatesWrongSceneFromNothingFlying",
+       "line": 351
+      },
+      {
+       "method": "ADisabledRowAlwaysCarriesAReason",
+       "line": 382
+      },
+      {
+       "method": "AnEnabledRowCarriesNothing",
+       "line": 396
+      },
+      {
+       "method": "AnElapsedPassIsReportedAsTheClockNotTheRange",
+       "line": 411
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LaunchHoldClockTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EarlyNextLaunch_RendersAtSpanStart_NotAbsent",
+       "line": 61
+      },
+      {
+       "method": "InSoiReplay_AlignedToRecordedRotation_AcrossLaunchAndEscape",
+       "line": 72
+      },
+      {
+       "method": "InSoiReplay_AlignedToRecordedRotation_RegionA",
+       "line": 91
+      },
+      {
+       "method": "BoundaryContinuity_RegionBHandsOffToRegionA",
+       "line": 114
+      },
+      {
+       "method": "BoundaryContinuity_SameInstanceAdvance_AcrossAllCycleBoundaries",
+       "line": 126
+      },
+      {
+       "method": "BoundaryContinuity_SameInstanceAdvance_PerLoopVaryingSlack",
+       "line": 149
+      },
+      {
+       "method": "SoiExitRepay_HoldsAtSoiExitUT",
+       "line": 183
+      },
+      {
+       "method": "PostSoi_ByteIdenticalToBaseline",
+       "line": 195
+      },
+      {
+       "method": "PostSoi_ByteIdenticalToBaseline_AcrossSweep",
+       "line": 207
+      },
+      {
+       "method": "NotEngaged_ByteIdenticalToBareClock_AcrossSweep",
+       "line": 224
+      },
+      {
+       "method": "DegenerateTsid_NoAdvance_ByteIdenticalAcrossSweep",
+       "line": 245
+      },
+      {
+       "method": "TargetingInvariant_CycleIndexUnchangedBySchedulelessResolverCall",
+       "line": 260
+      },
+      {
+       "method": "CadenceEqualsSynodic_NotEngaged_ByteIdentical",
+       "line": 280
+      },
+      {
+       "method": "ArrivalHold_UnchangedByLaunchAlignment",
+       "line": 304
+      },
+      {
+       "method": "DeltaExceedsSlack_CappedToSlack",
+       "line": 330
+      },
+      {
+       "method": "TsSampler_RendersEarlyLaunch_AndPostSoiBaseline",
+       "line": 369
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

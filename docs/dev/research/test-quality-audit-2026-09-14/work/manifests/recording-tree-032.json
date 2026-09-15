@@ -1,0 +1,175 @@
+{
+ "batch_id": "recording-tree-032",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "EffectiveStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EffectiveRecordingId_ChainLen0_NoSupersede_ReturnsOrigin",
+       "line": 154
+      },
+      {
+       "method": "EffectiveRecordingId_ChainLen1_ReturnsSuperseder",
+       "line": 161
+      },
+      {
+       "method": "EffectiveRecordingId_ChainLen2_ReturnsLastInChain",
+       "line": 168
+      },
+      {
+       "method": "EffectiveRecordingId_ChainLen3_ReturnsLastInChain",
+       "line": 179
+      },
+      {
+       "method": "EffectiveRecordingId_Cycle_LogsWarnReturnsLastVisited",
+       "line": 191
+      },
+      {
+       "method": "EffectiveRecordingId_OrphanEndpoint_ReturnsLastNonSuperseded",
+       "line": 209
+      },
+      {
+       "method": "EffectiveRecordingId_NullOrigin_ReturnsNull",
+       "line": 218
+      },
+      {
+       "method": "IsVisible_Immutable_NoSupersede_True",
+       "line": 230
+      },
+      {
+       "method": "IsVisible_NotCommitted_False",
+       "line": 237
+      },
+      {
+       "method": "IsVisible_CommittedProvisional_NoSupersede_True",
+       "line": 244
+      },
+      {
+       "method": "IsVisible_ImmutableSuperseded_False",
+       "line": 251
+      },
+      {
+       "method": "IsSupersededByRelation_NotCommittedSuperseded_True",
+       "line": 259
+      },
+      {
+       "method": "ComputeSupersededRecordingIdsByRelation_EmptyNewId_DoesNotSuppress",
+       "line": 267
+      },
+      {
+       "method": "ComputeTimelineInactiveRecordingIds_IncludesRewindRetirements",
+       "line": 281
+      },
+      {
+       "method": "IsUnfinishedFlight_OpenCrashedUnderRP_True",
+       "line": 305
+      },
+      {
+       "method": "IsUnfinishedFlight_ImmutableLandedUnderRP_False",
+       "line": 333
+      },
+      {
+       "method": "IsUnfinishedFlight_ImmutableCrashedNotUnderRP_False",
+       "line": 348
+      },
+      {
+       "method": "IsUnfinishedFlight_MultipleMatchingRpsWithoutSlot_LogsAllMisses",
+       "line": 359
+      },
+      {
+       "method": "IsUnfinishedFlight_NotCommitted_False",
+       "line": 379
+      },
+      {
+       "method": "IsUnfinishedFlight_ChainHeadWithCrashedTip_True",
+       "line": 390
+      },
+      {
+       "method": "IsUnfinishedFlight_ChainHeadWithOrbitingTip_False",
+       "line": 450
+      },
+      {
+       "method": "IsUnfinishedFlight_RepeatedCallsSameRec_RateLimitedToOneLine",
+       "line": 495
+      },
+      {
+       "method": "ResolveChainTerminalRecording_NoChain_ReturnsSelf",
+       "line": 520
+      },
+      {
+       "method": "ResolveChainTerminalRecording_ChainLen3_ReturnsMaxIndexSegment",
+       "line": 532
+      },
+      {
+       "method": "IsChainMemberOfUnfinishedFlight_ChainHeadUnfinishedFlight_ContinuationTripsGate",
+       "line": 550
+      },
+      {
+       "method": "IsUnfinishedFlight_ActiveParentOfBreakup_WithChildBranchPointId_True",
+       "line": 598
+      },
+      {
+       "method": "IsChainMemberOfUnfinishedFlight_ChainHeadStable_DoesNotTrip",
+       "line": 639
+      },
+      {
+       "method": "IsChainMemberOfUnfinishedFlight_NoChain_DoesNotTrip",
+       "line": 683
+      },
+      {
+       "method": "ResolveChainTerminalRecording_DifferentChainBranch_DoesNotCrossBranches",
+       "line": 699
+      },
+      {
+       "method": "ComputeERS_FiltersSupersededAndNotCommitted",
+       "line": 724
+      },
+      {
+       "method": "ComputeERS_FiltersRewindRetiredRecording",
+       "line": 754
+      },
+      {
+       "method": "ComputeERS_IncludesPreservedCanonFork_AfterParentRewind",
+       "line": 776
+      },
+      {
+       "method": "IsCurrentTimelineRecordingId_UsesERSVisibility",
+       "line": 812
+      },
+      {
+       "method": "ComputeERS_CacheHit_DoesNotRebuild",
+       "line": 825
+      },
+      {
+       "method": "ComputeERS_CacheInvalidatedOnBump",
+       "line": 846
+      },
+      {
+       "method": "ComputeELS_FiltersByTombstoneOnly_NonDeathActionsPassThrough",
+       "line": 868
+      },
+      {
+       "method": "ComputeELS_TombstonedActionExcluded",
+       "line": 912
+      },
+      {
+       "method": "ComputeSessionSuppressedSubtree_CrossChainSamePidPostRewindPeer_Included",
+       "line": 932
+      },
+      {
+       "method": "ComputeELS_CacheInvalidatedOnTombstoneBump",
+       "line": 1016
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,209 @@
+{
+ "batch_id": "logistics-route-041",
+ "cluster": "logistics-route",
+ "tier": "C",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "Logistics/RouteRevertSafetyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RewindBackedSegment_IsRevertable",
+       "line": 22
+      },
+      {
+       "method": "NonRewindInFlightSegment_IsNotRevertable_TheLeak",
+       "line": 32
+      },
+      {
+       "method": "RewindBacked_WinsEvenInsideAnInFlightSegment",
+       "line": 45
+      },
+      {
+       "method": "NoBacking_NoInFlightSegment_IsRevertable_NormalPlay",
+       "line": 56
+      },
+      {
+       "method": "TruthTable",
+       "line": 75
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsRouteRenameTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DistinctName_IsChange_AndTrimmed",
+       "line": 19
+      },
+      {
+       "method": "EmptyOrWhitespace_IsNotChange",
+       "line": 33
+      },
+      {
+       "method": "NullTyped_IsNotChange",
+       "line": 44
+      },
+      {
+       "method": "SameAsCurrentAfterTrim_IsNotChange",
+       "line": 55
+      },
+      {
+       "method": "SurroundingWhitespace_TrimmedAndIsChange",
+       "line": 66
+      },
+      {
+       "method": "NullCurrent_NonEmptyTyped_IsChange",
+       "line": 77
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteStatusEnumTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EnumExhaustivenessPin",
+       "line": 31
+      },
+      {
+       "method": "TransitionTo_LogsFromAndTo",
+       "line": 52
+      },
+      {
+       "method": "TransitionTo_SameStatus_LogsVerbose_NotInfo",
+       "line": 68
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteAnalysisLogModeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Diagnostic_LogsRejectionAtInfo",
+       "line": 40
+      },
+      {
+       "method": "Quiet_SuppressesRejectionLog_SameDecision",
+       "line": 51
+      },
+      {
+       "method": "DefaultMode_IsDiagnostic",
+       "line": 62
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsButtonStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullSequence_IsNotBroken",
+       "line": 20
+      },
+      {
+       "method": "EmptySequence_IsNotBroken",
+       "line": 26
+      },
+      {
+       "method": "HealthyAndBlockedActiveAndPaused_AreNotBroken",
+       "line": 33
+      },
+      {
+       "method": "SingleBrokenStatus_IsBroken",
+       "line": 52
+      },
+      {
+       "method": "MixedSequenceWithBroken_IsBroken",
+       "line": 60
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsWindowUIDeleteConfirmTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NamedRoute_BodyUsesRouteName",
+       "line": 18
+      },
+      {
+       "method": "EmptyName_FallsBackToShortId_NotLiteralNull",
+       "line": 31
+      },
+      {
+       "method": "NullName_FallsBackToShortId",
+       "line": 48
+      },
+      {
+       "method": "NullRoute_DoesNotThrow_AndProducesBody",
+       "line": 62
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/StatusColorPaletteTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StatusColor_Green_IsCanonical",
+       "line": 20
+      },
+      {
+       "method": "StatusColor_Yellow_IsCanonical",
+       "line": 26
+      },
+      {
+       "method": "StatusColor_Red_IsCanonical",
+       "line": 32
+      },
+      {
+       "method": "StatusColor_Grey_IsCanonical",
+       "line": 41
+      },
+      {
+       "method": "StatusColor_Cyan_IsCanonical",
+       "line": 48
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

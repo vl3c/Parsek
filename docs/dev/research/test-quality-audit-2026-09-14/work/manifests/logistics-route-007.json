@@ -1,0 +1,163 @@
+{
+ "batch_id": "logistics-route-007",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 36,
+ "files": [
+  {
+   "file": "Logistics/RouteOrchestratorDeliveryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "InventoryLines_UnitsReachWriter_ActualIsUnitAccurate",
+       "line": 190
+      },
+      {
+       "method": "HappyPath_KscCareer_FullFill_EmitsActionAndDebitsFunds",
+       "line": 230
+      },
+      {
+       "method": "ApplyDeliveryFromPlan_StopIndex1_EmitsStopIndex1AndSequence11",
+       "line": 280
+      },
+      {
+       "method": "HappyPath_Sandbox_NoFundsDebit_StillEmitsAction",
+       "line": 310
+      },
+      {
+       "method": "PartialFill_PopulatesRequestedManifest",
+       "line": 335
+      },
+      {
+       "method": "ZeroFill_StillEmitsRouteCargoDeliveredWithEmptyActual",
+       "line": 378
+      },
+      {
+       "method": "EndpointLostMidTransit_EmitsRouteEndpointLost_NoFundsNoDelivered",
+       "line": 420
+      },
+      {
+       "method": "IdempotentReplay_SkipsWhenActionAlreadyInELS",
+       "line": 448
+      },
+      {
+       "method": "IdempotentReplay_ThenNextDispatch_AdvancesCycleId",
+       "line": 503
+      },
+      {
+       "method": "IdempotentReplay_ArmedPause_PausesAndEmitsMarkerOnly",
+       "line": 568
+      },
+      {
+       "method": "IdempotentReplay_NoArmedPause_StaysActiveWithNoMarker",
+       "line": 619
+      },
+      {
+       "method": "IdempotentReplay_SendOnceArmed_PostsAlreadyDeliveredToast",
+       "line": 648
+      },
+      {
+       "method": "IdempotentReplay_PauseAfterCycleArmed_PausesWithoutToast",
+       "line": 682
+      },
+      {
+       "method": "IdempotentReplay_Unarmed_PostsNoToast_StaysActive",
+       "line": 710
+      },
+      {
+       "method": "StatusTransition_MultiStopWindow_ArmedPause_DeliversWithoutConsumingTheArm",
+       "line": 742
+      },
+      {
+       "method": "StatusTransition_PartialReason_VsFullReason",
+       "line": 766
+      },
+      {
+       "method": "StatusTransition_PauseAfterCurrentCycle_TransitionsToPausedNotActive",
+       "line": 810
+      },
+      {
+       "method": "StatusTransition_PauseAfterCurrentCycle_EmitsRoutePausedMarkerAndClearsSendOnceArm",
+       "line": 835
+      },
+      {
+       "method": "StatusTransition_SendOnceArmed_Delivered_PostsScreenMessage_ReasonUnchanged",
+       "line": 866
+      },
+      {
+       "method": "StatusTransition_OrdinaryDelivery_PostsNoScreenMessage",
+       "line": 896
+      },
+      {
+       "method": "StatusTransition_PauseAfterCycleArmed_Delivered_PostsNoScreenMessage",
+       "line": 913
+      },
+      {
+       "method": "StatusTransition_OrdinaryDelivery_EmitsNoRoutePausedMarker",
+       "line": 933
+      },
+      {
+       "method": "StatusTransition_PauseAfterCurrentCycle_PartialFill_EmitsPartialPausedReason",
+       "line": 949
+      },
+      {
+       "method": "ProcessOneRoute_DeliversThenDispatchesInSameTick",
+       "line": 972
+      },
+      {
+       "method": "Paused_PendingDelivery_DoesNotApply",
+       "line": 1025
+      },
+      {
+       "method": "ShouldDeliverToResource_ClosedTank_ReturnsFalse",
+       "line": 1054
+      },
+      {
+       "method": "ShouldDeliverToResource_NoFlowResource_ReturnsFalse",
+       "line": 1066
+      },
+      {
+       "method": "ShouldDeliverToResource_OpenTank_NormalFlow_ReturnsTrue",
+       "line": 1075
+      },
+      {
+       "method": "HappyPath_ClearsNextEligibilityCheckUT",
+       "line": 1088
+      },
+      {
+       "method": "ApplyInTransitComplete_PendingDeliveryUtAlreadySet_DoesNotReset",
+       "line": 1113
+      },
+      {
+       "method": "Delivery_ProbeAndWriter_UseSameLoadedGate",
+       "line": 1149
+      },
+      {
+       "method": "EndpointLost_PendingDelivery_DoesNotApply",
+       "line": 1189
+      },
+      {
+       "method": "PartialDelivery_RecordsReport_FullDeliveryClearsIt",
+       "line": 1259
+      },
+      {
+       "method": "PartialReport_SameCycle_FullWindowKeepsIt_SecondPartialAppends",
+       "line": 1301
+      },
+      {
+       "method": "AppendPartialDeliverySummary_JoinsAndCaps",
+       "line": 1348
+      },
+      {
+       "method": "BuildPartialDeliverySummary_Shapes",
+       "line": 1362
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

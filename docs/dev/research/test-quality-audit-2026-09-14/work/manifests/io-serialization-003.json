@@ -1,0 +1,218 @@
+{
+ "batch_id": "io-serialization-003",
+ "cluster": "io-serialization",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "GuiTreeGeometryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullTreeReportsNoWindowRatherThanThrowing",
+       "line": 65
+      },
+      {
+       "method": "AWrongTitleIsNotTheProbeWindow",
+       "line": 73
+      },
+      {
+       "method": "ControlsInsideTheWindowAllPass",
+       "line": 81
+      },
+      {
+       "method": "AControlLeftInWindowLocalSpaceIsCaughtAsOutside",
+       "line": 103
+      },
+      {
+       "method": "AControlOverhangingTheRightEdgeIsCaught",
+       "line": 123
+      },
+      {
+       "method": "ABorderWorthOfOverhangIsTolerated",
+       "line": 134
+      },
+      {
+       "method": "ADegenerateRectIsReportedSeparatelyFromBeingOutside",
+       "line": 147
+      },
+      {
+       "method": "UnmarkedControlsAreIgnoredSoStockChromeCannotFailTheCell",
+       "line": 161
+      },
+      {
+       "method": "TheMarkerAlsoMatchesATextFieldsValue",
+       "line": 174
+      },
+      {
+       "method": "TheWindowItselfIsNeverCountedAsOneOfItsOwnControls",
+       "line": 192
+      },
+      {
+       "method": "MaxDepthCountsThroughScrollViewNesting",
+       "line": 203
+      },
+      {
+       "method": "AnEmptyMarkerMatchesNothingRatherThanEverything",
+       "line": 227
+      },
+      {
+       "method": "TheMeasuredContentBoxWinsOverTheDeclaredRect",
+       "line": 245
+      },
+      {
+       "method": "WithNoMeasuredPairTheDeclaredRectIsTheFallbackAndSaysSo",
+       "line": 273
+      },
+      {
+       "method": "AWindowBelowTheRootsIsStillFound",
+       "line": 288
+      },
+      {
+       "method": "PerKindCountsAreScopedToTheWindowAndExcludeItself",
+       "line": 317
+      },
+      {
+       "method": "TheScrollOffsetReadingMeasuresTheRowAgainstTheViewport",
+       "line": 354
+      },
+      {
+       "method": "AnUnscrolledViewReadsAsNoOffsetRatherThanAsSuccess",
+       "line": 385
+      },
+      {
+       "method": "MissingScrollViewOrRowIsDescribedRatherThanThrown",
+       "line": 413
+      },
+      {
+       "method": "AWindowThatLostItsTitleToAnInlinedDeclarationIsStillFoundByItsId",
+       "line": 434
+      },
+      {
+       "method": "TheIdIsThePrimaryKeyAndAnotherWindowsMatchingTitleDoesNotWin",
+       "line": 453
+      },
+      {
+       "method": "WithNoIdMatchTheTitleIsStillTheSecondaryKey",
+       "line": 476
+      },
+      {
+       "method": "TheScrollOffsetReadingTakesTheSameWindowIdKey",
+       "line": 492
+      },
+      {
+       "method": "EveryFormattedNumberIsInvariantUnderAGermanCulture",
+       "line": 523
+      },
+      {
+       "method": "ThePrefixConversionIsTheOriginAContainerNodeCarries",
+       "line": 586
+      },
+      {
+       "method": "TheSizeStillComesFromThePostfixWhereTheMatrixScaleIsKnown",
+       "line": 599
+      },
+      {
+       "method": "WithNoPrefixConversionThePostfixValueIsTheOnlyFallback",
+       "line": 619
+      },
+      {
+       "method": "TheCorrectedScrollViewRectReadsTheScrollOffsetTheLiveCellPins",
+       "line": 635
+      },
+      {
+       "method": "ADoubleCountedScrollViewRectReadsAsTheViewsOwnLocalYAndBlowsThePin",
+       "line": 653
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GuiTreeJsonTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "HeaderAndCountsAreWritten",
+       "line": 69
+      },
+      {
+       "method": "NodesCarryRectsStyleTextAndNesting",
+       "line": 85
+      },
+      {
+       "method": "OptionalKeysAreOmittedWhenAbsent",
+       "line": 106
+      },
+      {
+       "method": "TogglesAndTextFieldsCarryTheirValues",
+       "line": 130
+      },
+      {
+       "method": "FunnelReportIsWrittenWithPatchedAndHitCounts",
+       "line": 156
+      },
+      {
+       "method": "EmptyFunnelListWritesAnEmptyArray",
+       "line": 169
+      },
+      {
+       "method": "NullHeaderAndNullTreeStillProduceAWellFormedDocument",
+       "line": 176
+      },
+      {
+       "method": "StringsAreEscapedForJson",
+       "line": 199
+      },
+      {
+       "method": "ControlCharactersInControlTextCannotBreakTheDocument",
+       "line": 205
+      },
+      {
+       "method": "NonFiniteFloatsBecomeJsonNull",
+       "line": 231
+      },
+      {
+       "method": "FloatsAreWrittenWithADotUnderTheAmbientCulture",
+       "line": 239
+      },
+      {
+       "method": "FloatsStayDotSeparatedUnderDeDE",
+       "line": 247
+      },
+      {
+       "method": "WholeDocumentStaysDotSeparatedUnderDeDE",
+       "line": 264
+      },
+      {
+       "method": "ALoneSurrogateIsEscapedRatherThanWrittenRaw",
+       "line": 288
+      },
+      {
+       "method": "AWellFormedSurrogatePairSurvivesAsTwoEscapes",
+       "line": 307
+      },
+      {
+       "method": "TheGuiMatrixIsReportedSoAScaledCaptureCanBeUndone",
+       "line": 317
+      },
+      {
+       "method": "TheInertRectRuleCounterReachesTheCounts",
+       "line": 338
+      },
+      {
+       "method": "ARichDocumentSurvivesARealJsonParse",
+       "line": 346
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

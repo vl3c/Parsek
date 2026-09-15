@@ -1,0 +1,266 @@
+{
+ "batch_id": "wiring-gates-003",
+ "cluster": "wiring-gates",
+ "tier": "B",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "CrashCoalesceWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StructuralSplit_FedToCoalescer_EmitsBreakupAfterWindow",
+       "line": 38
+      },
+      {
+       "method": "DebrisSplit_FedToCoalescer_EmitsBreakupWithDebrisCount",
+       "line": 62
+      },
+      {
+       "method": "WithinSegment_NotFedToCoalescer_CoalescerStaysIdle",
+       "line": 83
+      },
+      {
+       "method": "RapidCrashSequence_MixedClassifications_SingleBreakup",
+       "line": 105
+      },
+      {
+       "method": "BreakupBranchPoint_CanBeWiredIntoTree",
+       "line": 147
+      },
+      {
+       "method": "BreakupBranchPoint_HasCorrectMetadata",
+       "line": 185
+      },
+      {
+       "method": "CoalescerReset_ClearsStateBeforeNewRecording",
+       "line": 208
+      },
+      {
+       "method": "UndockSplit_BypassesCoalescer_CoalescerStaysIdle",
+       "line": 236
+      },
+      {
+       "method": "EvaSplit_BypassesCoalescer_CoalescerStaysIdle",
+       "line": 259
+      },
+      {
+       "method": "Log_StructuralSplit_ClassificationLogged",
+       "line": 284
+      },
+      {
+       "method": "Log_DebrisSplit_ClassificationLogged",
+       "line": 304
+      },
+      {
+       "method": "Log_WithinSegment_ClassificationLogged",
+       "line": 319
+      },
+      {
+       "method": "Log_CoalescerWindowOpened_OnFirstSplitFeed",
+       "line": 334
+      },
+      {
+       "method": "Log_BreakupEmitted_AfterWindowExpiry",
+       "line": 351
+      },
+      {
+       "method": "Log_CoalescerReset_OnRecordingStart",
+       "line": 367
+      },
+      {
+       "method": "EmptyNewVesselList_WithinSegment_NoCoalescerInteraction",
+       "line": 385
+      },
+      {
+       "method": "MultipleBreakupSequences_IndependentlyProcessed",
+       "line": 400
+      },
+      {
+       "method": "BreakupBP_HasNoChildRecordingIds_CallerMustFill",
+       "line": 420
+      },
+      {
+       "method": "CoalescerTickBeforeWindow_DoesNotEmit",
+       "line": 434
+      },
+      {
+       "method": "MultiVesselSplit_AllNewVesselsReportedToCoalescer",
+       "line": 455
+      },
+      {
+       "method": "MultiVesselSplit_BreakupDuration_ReflectsActualSpan",
+       "line": 490
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ArrivalRestitchWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Offset_FromResolvedRotatedWindow_MatchesFormula",
+       "line": 136
+      },
+      {
+       "method": "Offset_UnrotatedResolvedWindow_IsZero",
+       "line": 149
+      },
+      {
+       "method": "Offset_DeclinedWindow_FallsBackToZero_WithUnrotatedRender",
+       "line": 160
+      },
+      {
+       "method": "Offset_UncachedCycle_IsZero",
+       "line": 172
+      },
+      {
+       "method": "Offset_ClearedCache_IsZero",
+       "line": 182
+      },
+      {
+       "method": "Offset_NonDescentUnit_IsZero",
+       "line": 193
+      },
+      {
+       "method": "Offset_NullTransferMemberId_IsZero",
+       "line": 200
+      },
+      {
+       "method": "Offset_NegativeCycle_IsZero",
+       "line": 210
+      },
+      {
+       "method": "Accessor_RotationRoundTrips_OnResolvedEntryOnly",
+       "line": 217
+      },
+      {
+       "method": "SpanClock_EveryDescentTriggerCallSite_PassesTheResolvedOffset",
+       "line": 232
+      },
+      {
+       "method": "SeamStitcher_DescentTriggerCallSite_PassesTheResolvedOffset",
+       "line": 240
+      },
+      {
+       "method": "Builder_StampsEligibility_OnlyInTheDescentEngageBlock",
+       "line": 248
+      },
+      {
+       "method": "Builder_EligibilityRequiresTheLandingProfile_NotJustTheDescentTrigger",
+       "line": 267
+      },
+      {
+       "method": "Resolver_GatesRotation_OnEligibilityAndParkingBundle",
+       "line": 288
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SceneChangeTerminalStateWiringGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResetLoopCapturesTheIdsItRetracted",
+       "line": 51
+      },
+      {
+       "method": "RestoreRunsInsideTheSavedNodeMatchLoop_GatedOffRevert",
+       "line": 73
+      },
+      {
+       "method": "RestoreReadsTheSavedRecordingNodesByTheirRealNames",
+       "line": 100
+      },
+      {
+       "method": "TheSetIsFilledBeforeItIsConsumed_AndTheRestoreGainsNoExtraWrapper",
+       "line": 115
+      },
+      {
+       "method": "NothingWipesOrRebindsTheSetBetweenTheTwoLegs",
+       "line": 141
+      },
+      {
+       "method": "TheUnrestoredResidueIsReportedAfterTheRestoreLoop",
+       "line": 167
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GrepAuditTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GrepAudit_AllRawAccessIsAllowlisted",
+       "line": 46
+      },
+      {
+       "method": "GrepAudit_UiComplexityModeVocabularyIsAllowlisted",
+       "line": 52
+      },
+      {
+       "method": "GrepAudit_SourceParsekStartsNoBackgroundThreads",
+       "line": 58
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GrepAuditRenderReconcilerUnwiredTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RenderReconcilerComparator_StaysUnwiredRepoWide",
+       "line": 42
+      },
+      {
+       "method": "RenderReconcilerComparator_MethodIsKept_NotDeleted",
+       "line": 96
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GrepAuditNonLoopLivePidTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NonLoopLivePidAudit_AllForbiddenReadsStayDeleted",
+       "line": 14
+      },
+      {
+       "method": "NonLoopLivePidGuard_CounterResetsAndCountsDebugAttempts",
+       "line": 62
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

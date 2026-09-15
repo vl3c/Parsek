@@ -1,0 +1,215 @@
+{
+ "batch_id": "ledger-career-018",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "KspStatePatcherTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PatchScience_NullSingleton_DoesNotCrash",
+       "line": 67
+      },
+      {
+       "method": "PatchScience_NullModule_LogsWarning",
+       "line": 87
+      },
+      {
+       "method": "AdjustSciencePatchTargetForPendingRecentTechResearch_HoldsBackUnmatchedDebit",
+       "line": 96
+      },
+      {
+       "method": "AdjustSciencePatchTargetForPendingRecentTechResearch_PreservesNonTechRefundPortion",
+       "line": 134
+      },
+      {
+       "method": "AdjustSciencePatchTargetForPendingRecentScienceEarning_HoldsForwardUnmatchedCredit",
+       "line": 172
+      },
+      {
+       "method": "AdjustSciencePatchTargetForPendingRecentScienceEarning_HoldsRemainderWhenPartiallyIngested",
+       "line": 207
+      },
+      {
+       "method": "AdjustSciencePatchTargetForPendingRecentScienceEarning_NoOpWhenLedgerAtOrAbovePool",
+       "line": 246
+      },
+      {
+       "method": "BuildTargetTechIdsForPatch_RewindCutoffUsesPastBaselineOnly",
+       "line": 280
+      },
+      {
+       "method": "BuildTargetTechIdsForPatch_CutoffAddsAffordableSpendingsAfterSelectedBaseline",
+       "line": 319
+      },
+      {
+       "method": "BuildTargetTechIdsForPatch_IgnoresUnaffordableScienceSpending",
+       "line": 366
+      },
+      {
+       "method": "AddPurchasedPartsForTech_AddsLoadedPartsMatchingTechAndDedups",
+       "line": 395
+      },
+      {
+       "method": "PatchTechTree_NullTarget_LogsVerboseAndSkips",
+       "line": 427
+      },
+      {
+       "method": "PatchTechTree_NullResearchAndDevelopmentSingleton_LogsVerboseAndSkips",
+       "line": 439
+      },
+      {
+       "method": "PatchTechTree_IncludesUtCutoffAndBaselineUtInAvailableLog",
+       "line": 453
+      },
+      {
+       "method": "EmitProtoTechNodesReflectionWarnOnce_FiresOncePerSession",
+       "line": 471
+      },
+      {
+       "method": "EmitProtoTechNodesReflectionWarnOnce_ResetForTestingClearsOneShotGuard",
+       "line": 502
+      },
+      {
+       "method": "PatchFunds_NullSingleton_DoesNotCrash",
+       "line": 534
+      },
+      {
+       "method": "PatchReputation_NullSingleton_DoesNotCrash",
+       "line": 549
+      },
+      {
+       "method": "PatchFacilities_NullModule_LogsWarning",
+       "line": 564
+      },
+      {
+       "method": "ToKspFacilityLevel_ConvertsLedgerTierToSetLevelIndex",
+       "line": 578
+      },
+      {
+       "method": "PatchScience_NullSingleton_SkipsPerSubjectPatching",
+       "line": 593
+      },
+      {
+       "method": "PatchPerSubjectScience_NullModule_LogsWarning",
+       "line": 623
+      },
+      {
+       "method": "PatchPerSubjectScience_NullSingleton_SkipsGracefully",
+       "line": 632
+      },
+      {
+       "method": "BuildSubjectIdsForPatch_IncludesPreviouslyCommittedStaleSubjects",
+       "line": 651
+      },
+      {
+       "method": "PatchFacilities_EmptyProtoUpgradeables_CompletesWithoutCrash",
+       "line": 677
+      },
+      {
+       "method": "PatchFacilities_NotFound_LogsInfoSummary",
+       "line": 704
+      },
+      {
+       "method": "PatchFacilities_TombstonedDefaultNotFound_RemainsQueuedForRetry",
+       "line": 728
+      },
+      {
+       "method": "PatchFacilities_Empty_DoesNotLogInfo_UsesRateLimitedVerbose",
+       "line": 750
+      },
+      {
+       "method": "BuildFacilityPatchTargets_PreviouslyPatchedMissingFacilityTargetsDefault",
+       "line": 777
+      },
+      {
+       "method": "BuildFacilityPatchTargets_TombstonedFacilityMissingAfterTombstoneTargetsDefault",
+       "line": 799
+      },
+      {
+       "method": "PatchDestructionState_HeadlessUnityFindObjectsUnavailable_SkipsWithoutThrow",
+       "line": 822
+      },
+      {
+       "method": "ResetPatchHistoryForSaveChange_ClearsStaticFacilityHistory",
+       "line": 844
+      },
+      {
+       "method": "ResetPatchHistoryForSaveChange_PreservesPendingDefaultsForCurrentSave",
+       "line": 867
+      },
+      {
+       "method": "ForceDefaultFacilitiesForNextPatch_ClearsStaleSavePendingDefaultsBeforeAdding",
+       "line": 887
+      },
+      {
+       "method": "ForceDefaultFacilitiesForNextPatch_RestampsSameIdAfterSaveChange",
+       "line": 911
+      },
+      {
+       "method": "PatchAll_SetsSuppressFlagsAndRestores",
+       "line": 945
+      },
+      {
+       "method": "PatchAll_RepeatedSandboxNoop_LogsStableSkipsOnce",
+       "line": 969
+      },
+      {
+       "method": "IsRepeatableRecordType_NullNode_ReturnsFalse",
+       "line": 1037
+      },
+      {
+       "method": "IsRepeatableRecordType_RecordsSubclasses_ReturnTrue",
+       "line": 1043
+      },
+      {
+       "method": "IsRepeatableRecordType_OneShotSubclasses_ReturnFalse",
+       "line": 1052
+      },
+      {
+       "method": "IsRepeatableRecordType_NameCollisionOutsideTestMode_ReturnsFalse",
+       "line": 1059
+      },
+      {
+       "method": "PatchRepeatableRecordNode_NonRecordType_ReturnsFalseAndDoesNotWarn",
+       "line": 1067
+      },
+      {
+       "method": "PatchRepeatableRecordNode_RecordsSubclassWithoutStockFields_StillWarns",
+       "line": 1094
+      },
+      {
+       "method": "ComposeBoundedIdentitySample_NullOrEmpty_ReturnsEmptyString",
+       "line": 1130
+      },
+      {
+       "method": "ComposeBoundedIdentitySample_UnderCap_AllEntriesNoMoreSuffix",
+       "line": 1142
+      },
+      {
+       "method": "ComposeBoundedIdentitySample_OverCap_FirstNThenSingleMoreSuffix",
+       "line": 1157
+      },
+      {
+       "method": "ComposeBoundedIdentitySample_ScienceIdentityShape_PreservesOldToNew",
+       "line": 1177
+      },
+      {
+       "method": "DescribeRemovedContractIdentities_CurrentBeforeFinished_AllGuidsPresent",
+       "line": 1200
+      },
+      {
+       "method": "DescribeRemovedContractIdentities_OverCap_EmitsMoreSuffix",
+       "line": 1235
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
