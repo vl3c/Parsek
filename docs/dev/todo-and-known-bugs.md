@@ -48,8 +48,8 @@ called and declined). That split is the seam-wide convention - `harness/lib/hlib
 `watch-not-entered` - and it is pinned by
 `TestCommandMapViewVerbsTests.RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled`. The XML doc on the
 `Refused` enum member still says "REJECTED with the per-direction reason", which is the stale half.
-No lane is red today: every committed `EnterMapView` / `ExitMapView` step is `expect = "OK"` (all ten
-specs that drive either verb: B32, GUI-6, GUI-9, H59, RF-7M, RF-8, V26M, V27M, V3C, V6M), so nothing
+No lane is red today: every committed `EnterMapView` / `ExitMapView` step is `expect = "OK"` (all eleven
+specs with an uncommented step for either verb: B32, GUI-6, GUI-9, H59, RF-7M, RF-8, V26M, V27M, V3C, V6M, W1), so nothing
 exercises the refusal branch. The cost is authorship - a spec
 author who reads the enum doc writes `expect = "REJECTED"` for a stock-declined toggle and the lane
 mismatches against the ERROR the seam emits.

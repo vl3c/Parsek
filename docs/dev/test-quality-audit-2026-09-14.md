@@ -450,7 +450,7 @@ re-grepped there):
   (`Source/Parsek.Tests/TestCommandMapViewVerbsTests.cs:155-167`). The enum member doc at
   `:21-24` contradicts it with the word REJECTED. No committed spec currently pins the refusal
   branch - every `EnterMapView` / `ExitMapView` step in `harness/scenarios/*.toml` is
-  `expect = "OK"` (all ten specs that drive either verb: B32, GUI-6, GUI-9, H59, RF-7M, RF-8, V26M, V27M, V3C, V6M;
+  `expect = "OK"` (all eleven specs with an uncommented step for either verb: B32, GUI-6, GUI-9, H59, RF-7M, RF-8, V26M, V27M, V3C, V6M, W1;
   grep for a non-OK expect within three lines of either verb returns nothing) - so the consequence is authorship, not a red
   lane: a spec author reading the enum doc writes `expect = "REJECTED"` for a stock-declined toggle
   and the lane mismatches against the ERROR the seam actually emits. Filed as TQ-1.
