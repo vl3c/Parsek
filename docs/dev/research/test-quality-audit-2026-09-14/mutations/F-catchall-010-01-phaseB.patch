@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/Ledger.cs b/Source/Parsek/GameActions/Ledger.cs
+index f8687564a..952e57161 100644
+--- a/Source/Parsek/GameActions/Ledger.cs
++++ b/Source/Parsek/GameActions/Ledger.cs
+@@ -561,7 +561,7 @@ namespace Parsek
+                 RemoveActionAt,
+                 ResolveAdoptedRolloutContext);
+ 
+-            if (removed > 0)
++            if (removed >= 0)
+             {
+                 ParsekLog.Info("Ledger",
+                     $"RepairDuplicateRolloutActions: collapsed {removed} duplicate " +

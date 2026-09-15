@@ -992,6 +992,46 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `ResolveSubjectSciencePatch_ScientificValueFromCap`. The composition itself is in-game
     work). Both deletions leave a comment at the site naming the twins.
 
+- `testfix-t1t2`, sixth PR (2026-09-15): the final slice of Medium T1 rows
+  (`work/phase-b-slice-medium-t1-06.txt`, 14 ids: 10 catchall, 4 legacy-bugfix), first
+  commit. Every fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  that `git apply --check`s against a clean tree.
+  - Fixed: F-catchall-006-02 (the `onGameStateSave` watch is unfalsifiable headlessly, so
+    the cell now watches the two observable counters instead: `RecordingStore.StateVersion`
+    must NOT move between CheckpointA:AfterProvisional and CheckpointB:AfterMarker, and
+    `ParsekScenario.SupersedeStateVersion` - the reader wake-up - must bump exactly once and
+    only after the marker field is readable; the mutant moves the bump into phase 1);
+    F-catchall-010-01 (the idempotency cell seeded two legitimately distinct rollouts, so
+    nothing collapsed; it now seeds the production duplicate cluster directly, asserts pass
+    one returns 1 and pass two returns 0, and pins EXACTLY ONE collapse summary across both
+    passes - the mutant emits that summary unconditionally); F-catchall-021-01 (the
+    dock-chain branch-1 sibling now carries an EVA kerbal PAST the branch-0 tip, a branch-0
+    kerbal boards back before it, and a positive control adds a branch-0 EVA past the tip
+    that IS excluded, so the null is a decision rather than a dead walk);
+    F-catchall-035-01 (renamed and re-pointed: the control-surface probe takes a live
+    `PartModule`, so the delegation is pinned as a brace-matched body gate over
+    comment-stripped source - every `return` in `TryClassifyControlSurfaceState` is the
+    aero-probe call; the mutant leaves the delegation standing as a COMMENT, so the strip is
+    proved at the same time); F-catchall-050-01 (the root's `RewindSaveFileName` starts null,
+    so the no-op cell now asserts the BUDGET the empty-save early return protects -
+    reserved and pre-launch figures stay 0 while the capture carries non-zero ones);
+    F-catchall-053-02 (the `CheckSpawnCollisions` recovery latch is extracted as
+    `VesselSpawner.ShouldEnterDuplicateBlockerRecovery` - the only production change in this
+    commit - and the cell calls it, with a positive control that clears the latch and an
+    unloaded-blocker case; the call site passes `blockerVesselLoaded` false for a null
+    blocker so no member of a missing blocker is read).
+  - Deleted (twins named in the register): F-catchall-036-01's three inline hide-policy
+    replays (`Hide_UnfinishedFlight_WarnsAndDoesNotFlip`,
+    `Hide_NonUnfinishedRecording_FlipsNormally`,
+    `Hide_NormalListUnfinishedFlight_RefusesWithoutVirtualGroup`). All three emitted the Warn
+    and the ScreenMessage themselves and modelled a depth-AND-classifier expression the
+    shipped code does not use; the shipped predicate is covered behaviourally by
+    `ArchiveRefusal_AppliesToHidingOnly` (all four direction / classification combinations)
+    and at wiring level by `Hide_PolicyGate_IsClassifierOnly_NoDepthCheck` and
+    `TheGroupHideAllScanRedsWhenTheRoutingExistsOnlyInAComment` in the same file. A comment
+    at the site names the twins.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

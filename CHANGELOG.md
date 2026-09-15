@@ -241,6 +241,26 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: the final slice of the audit's Medium T1 register - catch-all and
+  legacy-bugfix cells - now reaches the production line each name claims.** Several cells
+  rebuilt a production expression in the test body and then checked their own arithmetic:
+  the atomic Re-Fly marker write (retargeted onto the two version counters the critical
+  section must and must not move, since no production change can raise a save event
+  headlessly), the rollout-duplicate repair's idempotency (which seeded two legitimately
+  distinct rollouts, so there was nothing to collapse), the dock-chain crew-exclusion walk
+  (whose branch-1 sibling carried no EVA kerbal, leaving the branch skip dead in the
+  fixture), the duplicate-blocker recovery latch, and the copy-rewind-save no-op (which
+  asserted a field that starts null instead of the budget the early return protects).
+  Three hide-policy cells were deleted outright: they emitted the Warn and the toast
+  themselves, and the shipped predicate has a behavioural twin plus two source gates in
+  the same file. One production helper was extracted so a guard could be called without a
+  running game: `VesselSpawner.ShouldEnterDuplicateBlockerRecovery` now holds the
+  once-per-recording recovery latch, the live-blocker requirement and the same-spawn
+  discriminator that `CheckSpawnCollisions` used to compose inline; the call site calls it
+  with the same inputs in the same order and no log line changed. Every fixed cell was
+  re-checked by breaking the production line on purpose and confirming it goes red.
+  Nothing a player sees changes.
+
 - **Tests: the seven worst tests in the suite now test what their names say.** The test
   quality audit read every one of the ~23,400 unit tests and found seven that could not
   fail: each did the work the production code does inside the test body and then checked
