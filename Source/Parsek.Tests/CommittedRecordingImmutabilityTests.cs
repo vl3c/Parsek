@@ -93,14 +93,39 @@ namespace Parsek.Tests
             var rec = MakeCommittedRecording();
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            // Simulate what the fixed destruction handler does:
-            // Set VesselDestroyed=true but do NOT null VesselSnapshot
-            rec.VesselDestroyed = true;
+            // Drive the write the destroy handler applies. OnVesselWillDestroy itself needs a
+            // live Vessel, but the whole post-destroy write it makes to the committed
+            // continuation recording is this call, so a bug #95 re-null lands here.
+            ParsekFlight.MarkContinuationVesselDestroyed(rec);
 
             // Verify snapshot is preserved
             Assert.NotNull(rec.VesselSnapshot);
             Assert.NotNull(rec.GhostVisualSnapshot);
             Assert.True(rec.VesselDestroyed);
+        }
+
+        /// <summary>
+        /// The cell above drives the helper, so it pins the preserve for whichever branches
+        /// call it - it cannot see a branch that skipped the helper and wrote the flag inline.
+        /// OnVesselWillDestroy has TWO mirrored continuation-destroy branches (chain
+        /// continuation, undock continuation); both must route through the helper, or bug #95
+        /// can come back through the branch the helper does not own. Read out of the IL
+        /// because the handler itself needs a live Vessel.
+        /// </summary>
+        [Fact]
+        public void ContinuationVesselDestroyed_BothDestroyBranchesRouteThroughTheHelper()
+        {
+            var handler = ILCallSet.Method(typeof(ParsekFlight), "OnVesselWillDestroy");
+
+            Assert.Equal(
+                2,
+                ILCallSet.CallCount(
+                    handler, typeof(ParsekFlight), "MarkContinuationVesselDestroyed"));
+            Assert.False(
+                ILCallSet.WritesField(handler, typeof(Recording), "VesselDestroyed"),
+                "OnVesselWillDestroy writes Recording.VesselDestroyed inline instead of " +
+                "routing through MarkContinuationVesselDestroyed. An inline write is where a " +
+                "bug #95 VesselSnapshot null comes back unpinned.");
         }
 
         [Fact]
@@ -150,13 +175,26 @@ namespace Parsek.Tests
         [Fact]
         public void EvaBoardingContinuationStop_PreservesVesselSnapshot()
         {
-            // Setup: committed recording representing a vessel segment
+            // Setup: committed recording representing a vessel segment that a continuation
+            // has been extending (boundary + pre-continuation copies staged as
+            // CommitChainSegment's vessel-segment branch stages them).
             var rec = MakeCommittedRecording();
+            rec.ContinuationBoundaryIndex = rec.Points.Count;
+            rec.PreContinuationVesselSnapshot = rec.VesselSnapshot.CreateCopy();
+            rec.PreContinuationGhostSnapshot = rec.GhostVisualSnapshot.CreateCopy();
             RecordingStore.AddRecordingWithTreeForTesting(rec);
-            int recIdx = RecordingStore.CommittedRecordings.Count - 1;
 
-            // The old code would have done: rec.VesselSnapshot = null;
-            // The new code preserves the snapshot. Verify directly.
+            // Drive the EVA-boarding continuation stop (EVA to vessel). CommitChainSegment
+            // needs a KSP runtime, but the whole write its boarding branch applies to the
+            // committed recording is this call, so the old rec.VesselSnapshot = null lands here.
+            ChainSegmentManager.ApplyBoardingContinuationStop(rec);
+
+            // The continuation data is baked...
+            Assert.Equal(-1, rec.ContinuationBoundaryIndex);
+            Assert.Null(rec.PreContinuationVesselSnapshot);
+            Assert.Null(rec.PreContinuationGhostSnapshot);
+
+            // ...and the committed snapshots survive it (bug #95).
             Assert.NotNull(rec.VesselSnapshot);
             Assert.NotNull(rec.GhostVisualSnapshot);
 

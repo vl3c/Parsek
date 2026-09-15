@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/VesselSpawner.cs b/Source/Parsek/VesselSpawner.cs
+index 9c1a44ba0..4d95506ae 100644
+--- a/Source/Parsek/VesselSpawner.cs
++++ b/Source/Parsek/VesselSpawner.cs
+@@ -3261,7 +3261,7 @@ namespace Parsek
+         internal static int RemoveDuplicateCrewFromSnapshotCore(
+             ConfigNode snapshot, Dictionary<string, string> existingCrew)
+         {
+-            if (snapshot == null || existingCrew == null) return 0;
++            return 0; // MUTATION-T1 phaseB: dedup removal loop and Warn deleted
+ 
+             // Extract crew from the snapshot and find duplicates
+             var snapshotCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);

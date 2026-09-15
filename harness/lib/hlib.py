@@ -2800,6 +2800,38 @@ def local_fixture_hint(save_template: Optional[str]) -> Optional[str]:
             % (LOCAL_FIXTURE_STAGING_TOOL, leaf))
 
 
+# D14 carries three GAME-MODE values alongside its body / warp / scene axes. A spec
+# does not declare the mode it runs in: it inherits it from the save its fixture
+# template stages, whose GAME node carries KSP's own `Mode = SANDBOX|CAREER|
+# SCIENCE_SANDBOX`. That convention is the ONLY thing tying a claim to reality, so
+# this table is what `test_d14_game_mode.py` pins the claims against. The spelling
+# gap is deliberate: the registry value for KSP's `SCIENCE_SANDBOX` is `science-mode`,
+# matching the registry's own hyphenated vocabulary.
+D14_GAME_MODE_BY_SFS_MODE = {
+    "SANDBOX": "sandbox",
+    "CAREER": "career",
+    "SCIENCE_SANDBOX": "science-mode",
+}
+
+# The D14 values that name a game mode (the subset a fixture's `Mode` can witness).
+D14_GAME_MODE_VALUES = frozenset(D14_GAME_MODE_BY_SFS_MODE.values())
+
+
+def d14_game_mode_value(sfs_mode: Optional[str]) -> Optional[str]:
+    """The D14 registry value a KSP GAME `Mode` token claims, or None if unknown.
+
+    Case- and whitespace-insensitive over the raw token; None (never a guess) for an
+    unreadable or unmodelled mode, so a caller reports "cannot resolve" rather than
+    silently passing a claim it never checked."""
+    return D14_GAME_MODE_BY_SFS_MODE.get(str(sfs_mode or "").strip().upper())
+
+
+def claimed_d14_game_modes(spec: Dict) -> List[str]:
+    """The sorted game-mode values ``spec`` claims on D14 (usually 0 or 1)."""
+    values = (spec.get("dimensionsCovered", {}) or {}).get("D14") or []
+    return sorted({v for v in values if v in D14_GAME_MODE_VALUES})
+
+
 def spec_batch_isolated(spec: Dict) -> bool:
     """True when ``spec``'s batch runs on the ISOLATED entry point (R5).
 

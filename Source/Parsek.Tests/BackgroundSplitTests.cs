@@ -384,9 +384,10 @@ namespace Parsek.Tests
         #region HandleBackgroundVesselSplit — Tree Structure (via BuildBackgroundSplitBranchData)
 
         // NOTE: HandleBackgroundVesselSplit cannot be called in unit tests because it
-        // accesses FlightGlobals.Vessels (KSP runtime). We test the tree structure
-        // indirectly through BuildBackgroundSplitBranchData (the pure data-model method)
-        // and verify the wiring in integration scenarios.
+        // accesses FlightGlobals.Vessels (KSP runtime). The two pure methods it delegates
+        // to - BuildBackgroundSplitBranchData for the branch data and
+        // TryBuildAndAttachParentContinuation for the parent continuation - are called
+        // directly here; only the parent close is staged by the test.
 
         [Fact]
         public void BuildBackgroundSplitBranchData_TreeStructure_ParentClosedChildCreated()
@@ -407,23 +408,19 @@ namespace Parsek.Tests
                 "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
                 100, newVessels);
 
-            // Simulate what HandleBackgroundVesselSplit does:
+            // Close the parent exactly as HandleBackgroundVesselSplit's CloseParentRecording does
             parentRec.ChildBranchPointId = bp.Id;
             parentRec.ExplicitEndUT = 150.0;
 
-            // Add continuation for parent
-            string parentContRecId = Guid.NewGuid().ToString("N");
-            var parentContRec = new Recording
-            {
-                RecordingId = parentContRecId,
-                TreeId = "tree_split_test",
-                VesselPersistentId = 100,
-                VesselName = "Background Vessel 0",
-                ParentBranchPointId = bp.Id,
-                ExplicitStartUT = 150.0
-            };
-            bp.ChildRecordingIds.Insert(0, parentContRecId);
-            tree.Recordings[parentContRecId] = parentContRec;
+            // Parent alive: production builds AND attaches the continuation.
+            var parentContRec = BackgroundRecorder.TryBuildAndAttachParentContinuation(
+                tree, bp, parentRec, 100, 150.0,
+                parentVesselAlive: true,
+                continuationRecordingId: Guid.NewGuid().ToString("N"),
+                liveParentGuid: null,
+                controllers: null);
+            Assert.NotNull(parentContRec);
+            string parentContRecId = parentContRec.RecordingId;
 
             // Add child
             tree.Recordings[children[0].RecordingId] = children[0];
@@ -973,10 +970,13 @@ namespace Parsek.Tests
 
         #region Bug #285 — Parent Dead at Split Time (Simulation Tests)
 
-        // These tests simulate the two paths in HandleBackgroundVesselSplit:
-        // (a) parent alive → continuation created, and (b) parent dead → no continuation.
-        // HandleBackgroundVesselSplit itself accesses FlightGlobals so cannot be called
-        // in unit tests; we simulate the tree mutations it performs.
+        // These tests drive the two paths of the continuation decision through the pure
+        // helper HandleBackgroundVesselSplit delegates it to,
+        // BackgroundRecorder.TryBuildAndAttachParentContinuation: (a) parent alive ->
+        // continuation created and wired into the tree, (b) parent dead -> null, nothing
+        // added. HandleBackgroundVesselSplit itself accesses FlightGlobals so cannot be
+        // called in a unit test; the parent close and the child recordings around the
+        // decision are still staged by the test.
 
         [Fact]
         public void Bug285_ParentAlive_ContinuationCreated_TreeHasExtraRecording()
@@ -1000,22 +1000,15 @@ namespace Parsek.Tests
             tree.BackgroundMap.Remove(100);
             tree.BranchPoints.Add(bp);
 
-            // Parent alive → create continuation
-            string parentContRecId = Guid.NewGuid().ToString("N");
-            var parentContRec = new Recording
-            {
-                RecordingId = parentContRecId,
-                TreeId = "tree_split_test",
-                VesselPersistentId = 100,
-                VesselName = "Background Vessel 0",
-                ParentBranchPointId = bp.Id,
-                ExplicitStartUT = 150.0,
-                IsDebris = parentRec.IsDebris,
-                Generation = parentRec.Generation
-            };
-            bp.ChildRecordingIds.Insert(0, parentContRecId);
-            tree.Recordings[parentContRecId] = parentContRec;
-            tree.BackgroundMap[100] = parentContRecId;
+            // Parent alive -> production creates the continuation and wires it into the tree
+            var parentContRec = BackgroundRecorder.TryBuildAndAttachParentContinuation(
+                tree, bp, parentRec, 100, 150.0,
+                parentVesselAlive: true,
+                continuationRecordingId: Guid.NewGuid().ToString("N"),
+                liveParentGuid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                controllers: null);
+            Assert.NotNull(parentContRec);
+            string parentContRecId = parentContRec.RecordingId;
 
             // Add child
             tree.Recordings[children[0].RecordingId] = children[0];
@@ -1025,6 +1018,14 @@ namespace Parsek.Tests
             Assert.Equal(parentContRecId, bp.ChildRecordingIds[0]);
             Assert.Equal(children[0].RecordingId, bp.ChildRecordingIds[1]);
             Assert.True(tree.BackgroundMap.ContainsKey(100));
+            Assert.Equal(parentContRecId, tree.BackgroundMap[100]);
+            // The continuation carries the parent's identity, the branch point as its parent,
+            // and the split UT as its start.
+            Assert.Equal(100u, parentContRec.VesselPersistentId);
+            Assert.Equal(bp.Id, parentContRec.ParentBranchPointId);
+            Assert.Equal(150.0, parentContRec.ExplicitStartUT);
+            Assert.Equal(parentRec.Generation, parentContRec.Generation);
+            Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", parentContRec.RecordedVesselGuid);
             // active + bg_parent + continuation + child = 4
             Assert.Equal(4, tree.Recordings.Count);
         }
@@ -1051,8 +1052,14 @@ namespace Parsek.Tests
             tree.BackgroundMap.Remove(100);
             tree.BranchPoints.Add(bp);
 
-            // Parent dead → skip continuation (the fix)
-            // Just add child recordings, no continuation
+            // Parent dead -> production refuses the continuation (the bug #285 fix)
+            var parentContRec = BackgroundRecorder.TryBuildAndAttachParentContinuation(
+                tree, bp, parentRec, 100, 150.0,
+                parentVesselAlive: false,
+                continuationRecordingId: null,
+                liveParentGuid: null,
+                controllers: null);
+            Assert.Null(parentContRec);
 
             tree.Recordings[children[0].RecordingId] = children[0];
 
@@ -1084,11 +1091,18 @@ namespace Parsek.Tests
                 "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
                 100, newVessels);
 
-            // Close parent, skip continuation (parent dead path)
+            // Close parent, then let production take the parent-dead path
             parentRec.ChildBranchPointId = bp.Id;
             parentRec.ExplicitEndUT = 150.0;
             tree.BackgroundMap.Remove(100);
             tree.BranchPoints.Add(bp);
+
+            Assert.Null(BackgroundRecorder.TryBuildAndAttachParentContinuation(
+                tree, bp, parentRec, 100, 150.0,
+                parentVesselAlive: false,
+                continuationRecordingId: null,
+                liveParentGuid: null,
+                controllers: null));
 
             for (int i = 0; i < children.Count; i++)
                 tree.Recordings[children[i].RecordingId] = children[i];
