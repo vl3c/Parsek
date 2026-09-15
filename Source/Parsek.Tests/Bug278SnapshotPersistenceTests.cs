@@ -119,6 +119,67 @@ namespace Parsek.Tests
         /// is still needed. Yes, it's brittle to file path changes — that's intentional.
         /// The chain spans multiple files and would otherwise be invisible to refactors.
         /// </summary>
+        /// <summary>
+        /// Coverage cell C-legacy-bugfix-024-01: the behavioural twin of the
+        /// source-text pin below. The #278 follow-up guarantee is that a transiently
+        /// null in-memory VesselSnapshot must never destroy the on-disk
+        /// _vessel.craft written by an earlier save. The pin only catches the one
+        /// exact literal <c>File.Delete(vesselPath)</c>; this cell drives the real
+        /// saver through the explicit-paths seam and asserts the file survives
+        /// byte-for-byte, so any equivalent destructive rewrite reds too.
+        /// </summary>
+        [Fact]
+        public void SaveRecordingFiles_NullVesselSnapshot_LeavesExistingVesselCraftOnDisk()
+        {
+            string tempDir = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "parsek-bug278-vesselcraft-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(tempDir);
+
+            bool priorStoreSuppress = RecordingStore.SuppressLogging;
+            bool? priorMirrorOverride = RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting;
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+
+            try
+            {
+                var rec = new Recording
+                {
+                    RecordingId = "bug278-null-snapshot",
+                    VesselName = "Vessel Gone Debris",
+                    VesselSnapshot = null,
+                };
+
+                string precPath = System.IO.Path.Combine(tempDir, rec.RecordingId + ".prec");
+                string vesselPath = System.IO.Path.Combine(tempDir, rec.RecordingId + "_vessel.craft");
+                string ghostPath = System.IO.Path.Combine(tempDir, rec.RecordingId + "_ghost.craft");
+
+                // The authoritative on-disk sidecar an earlier PersistFinalizedRecording wrote.
+                const string persisted = "VESSEL { pid = 4242 }";
+                System.IO.File.WriteAllText(vesselPath, persisted);
+                long persistedLength = new System.IO.FileInfo(vesselPath).Length;
+
+                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    rec, precPath, vesselPath, ghostPath, incrementEpoch: true));
+
+                Assert.True(System.IO.File.Exists(vesselPath),
+                    "The _vessel.craft must survive a save with a null in-memory VesselSnapshot.");
+                Assert.Equal(persisted, System.IO.File.ReadAllText(vesselPath));
+                Assert.Equal(persistedLength, new System.IO.FileInfo(vesselPath).Length);
+
+                // The trajectory sidecar still wrote: the save is a no-op only for the
+                // vessel snapshot, not for the whole recording.
+                Assert.True(System.IO.File.Exists(precPath));
+            }
+            finally
+            {
+                RecordingStore.SuppressLogging = priorStoreSuppress;
+                RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = priorMirrorOverride;
+                try { System.IO.Directory.Delete(tempDir, true); }
+                catch { }
+            }
+        }
+
         [Fact]
         public void DestructiveDelete_RegressionChain_IsReachable_DocumentedBySourceInspection()
         {
