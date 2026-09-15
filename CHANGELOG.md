@@ -126,7 +126,28 @@ _(unreleased — entries accumulate here per commit)_
   cross-module file pairs that keep changing together, in the checker and in a
   new atlas section. No player-visible behavior changes.
 
+### Fixed
+
+- **A supply route's overview line no longer disappears wholesale while a ghost flies one
+  part of it.** The route line and the ghost trajectory line share the map, and they take
+  turns so the same path is never drawn twice: whichever part of a flight the ghost is
+  currently drawing, the route line leaves alone. That hand-off used to work at the wrong
+  size. The moment the ghost started drawing any part of a flight the route line dropped
+  that flight's ENTIRE path - so on a long delivery, where the ghost is drawing one leg of
+  it, everything before and after that leg vanished from the overview, which is the only
+  thing that draws it. The hand-off is now leg by leg: the ghost keeps the piece it is
+  actually drawing and the route line keeps the rest. On a single-leg flight nothing
+  changes, because there the two answers were already the same.
+
 ### Changed
+
+- **Developer tooling: a test fixture resolver no longer looks for a sibling worktree by
+  name.** `ReflyARecordedFixtureCodecTests` searched for its recorded save in two places:
+  the repository's own `harness/fixtures/saves/`, and a hard-coded sibling checkout that
+  briefly held the fixture while it was in review. The fixture has been in the repository
+  since then, so the second path could never be taken; it is gone, and the resolver keeps
+  its candidate-list shape so a genuinely missing fixture still skips with the path it
+  tried. No player-visible change.
 
 - **The hover-echo strip now says what it is showing, once per distinct text.** The
   bottom "hovered control help text" strip that eleven windows draw logs one line when
@@ -154,6 +175,7 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+
 - **Tests: the five priority-1 data-loss coverage gaps from the unit-test quality audit now
   have cells.** Each guards a path where a wrong answer destroys recorded flights and where
   the suite stayed green with the guard removed. The orphan-file sweep's second pending

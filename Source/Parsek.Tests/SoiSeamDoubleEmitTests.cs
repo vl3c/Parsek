@@ -219,6 +219,63 @@ namespace Parsek.Tests
             Assert.Empty(Inv2Overlaps(rec));
         }
 
+        /// <summary>
+        /// PRODUCER ATTRIBUTION for EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT,
+        /// taken off the REAL operator bytes rather than asserted in prose: every payload-free
+        /// section that stands in those three sidecars after the checkpoint-vs-checkpoint retire
+        /// is an <c>Absolute</c> / <c>src=Active</c> shell whose span is byte-equal to an
+        /// <c>OrbitalCheckpoint</c> section beside it, AND whose startUT is an ON-RAILS SOI BODY
+        /// CHANGE - the section immediately before it is a checkpoint that ends exactly there and
+        /// carries a conic of a DIFFERENT body. That is the signature of the pre-fix
+        /// <see cref="FlightRecorder.TransitionTrackSectionAtSoiBoundary"/>, which opened Absolute
+        /// unconditionally at a crossing the vessel was packed across; the cells above prove the
+        /// shipped producer cannot emit it any more.
+        ///
+        /// <para>Also pinned: none of the shells is <c>isBoundarySeam</c> and every one carries
+        /// <c>boundaryDiscontinuityMeters == 0</c>, so nothing the optimizer reads off a section
+        /// boundary is different for their presence.</para>
+        /// </summary>
+        [Theory]
+        [InlineData("041770246260406ab85b59495eb51f45")]
+        [InlineData("36c7688b8e5141f7809e2d4dbe9dc094")]
+        [InlineData("58130506e8f84025b78a95d2497534ab")]
+        public void RealBytes_EveryStandingEmptyAbsoluteSitsOnAnOnRailsSoiBodyChange(string id)
+        {
+            Recording rec = CheckpointDoubleCoverRetireTests.LoadResidueFixture(id);
+            CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec);
+
+            int matched = 0;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection shell = rec.TrackSections[i];
+                if (OrbitSegmentCheckpointBridge.HasSectionPayload(shell)) continue;
+
+                matched++;
+                Assert.Equal(ReferenceFrame.Absolute, shell.referenceFrame);
+                Assert.Equal(TrackSectionSource.Active, shell.source);
+                Assert.False(shell.isBoundarySeam);
+                Assert.Equal(0.0, shell.boundaryDiscontinuityMeters);
+
+                // The checkpoint section that covers the identical span, and its conic's body.
+                TrackSection cover = Assert.Single(rec.TrackSections.Where(s =>
+                    s.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                    && s.startUT == shell.startUT && s.endUT == shell.endUT));
+                string bodyAfter = Assert.Single(cover.checkpoints).bodyName;
+
+                // ... and the section that ENDS where the shell opens: the pre-crossing coast,
+                // on the body the vessel just left.
+                Assert.True(i > 0, "a shell cannot be the recording's first section");
+                TrackSection before = rec.TrackSections[i - 1];
+                Assert.Equal(ReferenceFrame.OrbitalCheckpoint, before.referenceFrame);
+                Assert.Equal(shell.startUT, before.endUT);
+                string bodyBefore = Assert.Single(before.checkpoints).bodyName;
+
+                Assert.NotEqual(bodyBefore, bodyAfter);
+            }
+
+            Assert.True(matched > 0, "fixture " + id + " carries no standing payload-free section");
+        }
+
         // Pure decision cell: the seam's reference frame follows the rails state.
         // Only the onRails==true row is SHIPPED behaviour - the sole production caller
         // (OnVesselSOIChanged) guards `if (!IsRecording || !isOnRails) return;`, so the
