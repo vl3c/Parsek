@@ -1,0 +1,261 @@
+{
+ "batch_id": "legacy-bugfix-020",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 55,
+ "files": [
+  {
+   "file": "Bug581HybridBreakdownTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "HybridSpike_FiresBreakdown_WithCapturedLogShape",
+       "line": 94
+      },
+      {
+       "method": "HybridSpike_OneShotLatchHonored",
+       "line": 125
+      },
+      {
+       "method": "HybridSpike_DoesNotFireWhenSpawnOverFiftyMsThreshold_BurnsHash450InsteadOfHybrid",
+       "line": 140
+      },
+      {
+       "method": "HybridSpike_DoesNotFireWhenMainLoopAboveTenMsFloor_BurnsHash460InsteadOfHybrid",
+       "line": 163
+      },
+      {
+       "method": "HybridSpike_FiresEvenWhenHash450LatchAlreadyConsumed",
+       "line": 189
+      },
+      {
+       "method": "HybridSpike_FiresEvenWhenHash460LatchAlreadyConsumed",
+       "line": 206
+      },
+      {
+       "method": "HybridSpike_TotalBelowBudget_DoesNotFireBreakdown",
+       "line": 223
+      },
+      {
+       "method": "HybridSpike_ZeroTotalRendersFractionsAsNa",
+       "line": 241
+      },
+      {
+       "method": "HybridSpike_DeferredEventDominatedSpike_DoesNotBurnLatch",
+       "line": 275
+      },
+      {
+       "method": "HybridSpike_ObservabilityCaptureDominatedSpike_DoesNotBurnLatch",
+       "line": 299
+      },
+      {
+       "method": "HybridSpike_ExplosionCleanupDominatedSpike_DoesNotBurnLatch",
+       "line": 322
+      },
+      {
+       "method": "HybridSpike_ZeroSpawn_DoesNotBurnLatch",
+       "line": 343
+      },
+      {
+       "method": "HybridSpike_ZeroMainLoop_DoesNotBurnLatch",
+       "line": 366
+      },
+      {
+       "method": "HybridSpike_SubMillisecondHybrid_DoesNotBurnLatch",
+       "line": 388
+      },
+      {
+       "method": "HybridSpike_DefaultPhasesFrame_DoesNotBurnLatch",
+       "line": 411
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug450B3LazyReentryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldBuildLazyReentryFx_NotPending_ReturnsFalse",
+       "line": 48
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_NoBodyName_ReturnsFalse",
+       "line": 60
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_BodyHasNoAtmosphere_ReturnsFalse",
+       "line": 71
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_AboveAtmosphereDepth_ReturnsFalse",
+       "line": 83
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_BelowAtmosphereAndFastEnough_ReturnsTrue",
+       "line": 94
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_BelowAtmosphereButTooSlow_ReturnsFalse",
+       "line": 105
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_ExactlyAtSpeedFloor_ReturnsTrue",
+       "line": 120
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_SpeedIsNaN_ReturnsFalse",
+       "line": 130
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_JustBelowDepth_ReturnsTrue",
+       "line": 143
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_ExactlyAtDepth_ReturnsFalse",
+       "line": 153
+      },
+      {
+       "method": "ShouldBuildLazyReentryFx_NegativeAltitudeAndFastEnough_ReturnsTrue",
+       "line": 166
+      },
+      {
+       "method": "TryPerformLazyReentryBuild_FlagAlreadyCleared_NoOp",
+       "line": 198
+      },
+      {
+       "method": "TryPerformLazyReentryBuild_HeatInfosNull_ClearsFlagAndLogs",
+       "line": 220
+      },
+      {
+       "method": "TryPerformLazyReentryBuild_Throttle_UsesPerIndexLogKey",
+       "line": 239
+      },
+      {
+       "method": "TryPerformLazyReentryBuild_CapExhausted_DefersAndLogs",
+       "line": 265
+      },
+      {
+       "method": "TryPerformLazyReentryBuild_CapResetsOnFrameReset_RetryFires",
+       "line": 289
+      },
+      {
+       "method": "ClearLoadedVisualReferences_ResetsPendingFlag",
+       "line": 315
+      },
+      {
+       "method": "HealthCounters_ReentryFxDeferredThisSession_DefaultsToZero",
+       "line": 334
+      },
+      {
+       "method": "HealthCounters_DeferredAndBuiltCountersAreIndependent",
+       "line": 345
+      },
+      {
+       "method": "HealthCounters_Reset_ZerosReentryFxDeferred",
+       "line": 365
+      },
+      {
+       "method": "DiagnosticsReport_IncludesDeferredAndBuildsAvoidedCounters",
+       "line": 378
+      },
+      {
+       "method": "DiagnosticsReport_BuildsAvoidedFloorsAtZero",
+       "line": 403
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MilestonePatchingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PatchMilestones_NullModule_LogsWarning",
+       "line": 52
+      },
+      {
+       "method": "PatchMilestones_NullProgressTracking_SkipsGracefully",
+       "line": 61
+      },
+      {
+       "method": "GetCreditedMilestoneIds_ReturnsCorrectSet",
+       "line": 77
+      },
+      {
+       "method": "GetCreditedMilestoneIds_EmptyAfterReset",
+       "line": 108
+      },
+      {
+       "method": "GetCreditedMilestoneIds_ReturnsCopy_NotReference",
+       "line": 125
+      },
+      {
+       "method": "Converter_PathQualifiedMilestoneId_PreservesPath",
+       "line": 148
+      },
+      {
+       "method": "Converter_TopLevelMilestoneId_PreservesBareId",
+       "line": 166
+      },
+      {
+       "method": "FullFlow_PathQualified_BodyMilestones_AreDistinct",
+       "line": 187
+      },
+      {
+       "method": "FullFlow_OldBareId_WouldBeDuplicated",
+       "line": 217
+      },
+      {
+       "method": "QualifyMilestoneId_NullNode_ReturnsEmpty",
+       "line": 248
+      },
+      {
+       "method": "IsMilestoneCredited_PathQualified_DoesNotMatchBareId",
+       "line": 259
+      },
+      {
+       "method": "PatchMilestones_WithCreditedMilestones_LogsCountBeforeEarlyReturn",
+       "line": 279
+      },
+      {
+       "method": "PatchRepeatableRecordNode_SameBranchRecalculation_PreservesCurrentBestWithinRewardBand",
+       "line": 303
+      },
+      {
+       "method": "TryComputeRepeatableRecordState_WithNoHits_PreservesSubThresholdInitialBandProgress",
+       "line": 329
+      },
+      {
+       "method": "PatchRepeatableRecordNode_SameBranchRecalculation_WithNoHits_PreservesSubThresholdInitialBandProgress",
+       "line": 346
+      },
+      {
+       "method": "PatchRepeatableRecordNode_RewindAfterFirstReward_DropsSpeculativeCurrentBestWithinRewardBand",
+       "line": 375
+      },
+      {
+       "method": "PatchRepeatableRecordNode_RewindFromCompletedState_RestoresEarlierIntervalProgress",
+       "line": 405
+      },
+      {
+       "method": "PatchRepeatableRecordNode_RewindToNoHits_ClearsStaleRecordState",
+       "line": 431
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,167 @@
+{
+ "batch_id": "recording-tree-038",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 37,
+ "files": [
+  {
+   "file": "OverlapPerInstanceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsOverlapLoop_PeriodLessThanDuration_True",
+       "line": 135
+      },
+      {
+       "method": "IsOverlapLoop_PeriodGreaterThanDuration_False",
+       "line": 142
+      },
+      {
+       "method": "IsOverlapLoop_PeriodEqualsDuration_False",
+       "line": 148
+      },
+      {
+       "method": "IsOverlapRecording_LoopingShortPeriod_True",
+       "line": 155
+      },
+      {
+       "method": "IsOverlapRecording_NotLooping_False",
+       "line": 162
+      },
+      {
+       "method": "IsOverlapRecording_LoopingLongPeriod_False",
+       "line": 169
+      },
+      {
+       "method": "IsOverlapRecording_Null_False",
+       "line": 177
+      },
+      {
+       "method": "ShouldDriveOverlapPerInstance_OverlapRecording_True",
+       "line": 183
+      },
+      {
+       "method": "ShouldDriveOverlapPerInstance_NonOverlap_False",
+       "line": 192
+      },
+      {
+       "method": "IsOverlapRecording_MissionUnitOverlap_NoRecLoopFlag_True",
+       "line": 203
+      },
+      {
+       "method": "IsOverlapRecording_MissionUnit_CadenceAtOrAboveSpan_False",
+       "line": 219
+      },
+      {
+       "method": "IsOverlapRecording_MissionUnit_ZeroMemberDuration_False",
+       "line": 228
+      },
+      {
+       "method": "IsOverlapRecording_PreferUnitWhenBoth",
+       "line": 238
+      },
+      {
+       "method": "ResolveOverlapSchedule_FeedsGetActiveCycles_MatchesDirectComputation",
+       "line": 267
+      },
+      {
+       "method": "OverlapCyclesForTesting_MatchesGetActiveCycles",
+       "line": 305
+      },
+      {
+       "method": "ResolveOverlapSchedule_MissionUnit_MatchesEngineTuple",
+       "line": 334
+      },
+      {
+       "method": "OverlapCyclesForTesting_MissionUnit_MatchesGetActiveCyclesFromUnitTuple",
+       "line": 363
+      },
+      {
+       "method": "ResolveOverlapSchedule_MissionUnit_MemberTrim_YieldsTrimmedDuration",
+       "line": 390
+      },
+      {
+       "method": "DecideOverlapInstanceChanges_AllMissing_CreatesWithinBudget",
+       "line": 415
+      },
+      {
+       "method": "DecideOverlapInstanceChanges_NewestFirstUnderThrottle",
+       "line": 430
+      },
+      {
+       "method": "DecideOverlapInstanceChanges_ExpiredBelowFirst_Destroyed",
+       "line": 443
+      },
+      {
+       "method": "DecideOverlapInstanceChanges_AheadOfNewest_Destroyed",
+       "line": 457
+      },
+      {
+       "method": "DecideOverlapInstanceChanges_PartialPresent_CreatesOnlyMissing",
+       "line": 470
+      },
+      {
+       "method": "DecideOverlapInstanceChanges_ZeroBudget_NoCreates",
+       "line": 486
+      },
+      {
+       "method": "DecideOverlapInstanceChanges_NoLiveWindow_OnlyDestroys",
+       "line": 498
+      },
+      {
+       "method": "GetOverlapInstanceCount_EmptyByDefault",
+       "line": 512
+      },
+      {
+       "method": "LogOverlapGateDecision_MissionLoop_ShowsIsMemberAndUnitOverlaps",
+       "line": 523
+      },
+      {
+       "method": "LogOverlapGateDecision_StandaloneLoop_ShowsAutoOverlapNotMember",
+       "line": 545
+      },
+      {
+       "method": "LogOverlapGateDecision_StableVerdict_CoalescesAndReEmitsOnFlip",
+       "line": 560
+      },
+      {
+       "method": "LogOverlapGateDecision_DrivenWithMovingCycleWindow_StillCoalesces",
+       "line": 585
+      },
+      {
+       "method": "TryGetLiveOverlapHeadUTs_SameCycleSetAsOverlapCyclesForTesting",
+       "line": 622
+      },
+      {
+       "method": "TryGetLiveOverlapHeadUTs_CycleSetMatchesGetActiveCycles",
+       "line": 650
+      },
+      {
+       "method": "TryGetLiveOverlapHeadUTs_PerCycleHeadEqualsComputeOverlapCyclePlaybackUT",
+       "line": 677
+      },
+      {
+       "method": "TryGetLiveOverlapHeadUTs_MissionUnit_PerCycleHeadEqualsComputeUT",
+       "line": 707
+      },
+      {
+       "method": "TryGetLiveOverlapHeadUTs_NonOverlap_False",
+       "line": 736
+      },
+      {
+       "method": "TryGetLiveOverlapHeadUTs_BeforeScheduleStart_False",
+       "line": 748
+      },
+      {
+       "method": "TryGetOverlapInstancePidForCycle_EmptyStore_ReturnsZero",
+       "line": 760
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

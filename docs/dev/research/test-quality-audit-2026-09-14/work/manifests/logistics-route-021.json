@@ -1,0 +1,237 @@
+{
+ "batch_id": "logistics-route-021",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "Logistics/RouteHarvestAnalysisTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CollectTransportLineage_DisambiguatesMergeParentsByPartPids",
+       "line": 266
+      },
+      {
+       "method": "CollectTransportLineage_AmbiguousLineage_FallsBackLegacy_Logs",
+       "line": 295
+      },
+      {
+       "method": "CheckTransportGains_CoveredGain_Ok",
+       "line": 329
+      },
+      {
+       "method": "CheckTransportGains_UncoveredGain_NamesResourceAndQuantity",
+       "line": 352
+      },
+      {
+       "method": "CheckTransportGains_BoundaryDelta_BridgedWhenWindowOpenAtBoundary",
+       "line": 371
+      },
+      {
+       "method": "CheckTransportGains_BoundaryDelta_UnbridgedFailsClosed",
+       "line": 399
+      },
+      {
+       "method": "CheckTransportGains_DockSeam_NeverBridged_DepotContentsNotHarvested",
+       "line": 431
+      },
+      {
+       "method": "CheckTransportGains_MergeChildWindowAtExactDockUT_DoesNotCount",
+       "line": 462
+      },
+      {
+       "method": "CheckTransportGains_MismatchedPidScopeSeam_NotBridged",
+       "line": 488
+      },
+      {
+       "method": "CheckTransportGains_AnchorIsFirstScopeMatchingLeg_NotTreeRoot",
+       "line": 515
+      },
+      {
+       "method": "CheckTransportGains_UndefinedNameGain_Unaccounted",
+       "line": 549
+      },
+      {
+       "method": "CheckTransportGains_VoidedManifest_LegacyPath",
+       "line": 583
+      },
+      {
+       "method": "CheckTransportGains_NoRunManifest_LegacyPath",
+       "line": 602
+      },
+      {
+       "method": "CheckTransportGains_StartOnlyManifest_LegacyPath",
+       "line": 618
+      },
+      {
+       "method": "CheckTransportGains_PreAnchorWindow_DoesNotInflateHarvested",
+       "line": 633
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteCargoEscrowTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NettedAvailable_IsInvariantAcrossEveryWindowSplitOfTheReservation",
+       "line": 80
+      },
+      {
+       "method": "NettedAvailable_FloorsAtZero_WhenOthersReservedMoreThanIsStored",
+       "line": 128
+      },
+      {
+       "method": "HoldCause_FlipsEscrowToPhysical_AcrossTheHoldersWindow_OnUnchangedNumbers",
+       "line": 144
+      },
+      {
+       "method": "DroppingTheHoldersEscrowWithoutADebit_MakesTheCompetitorEligible",
+       "line": 177
+      },
+      {
+       "method": "Reserve_OtherRouteSeesLess_OwnerExcludesOwn",
+       "line": 205
+      },
+      {
+       "method": "TryPause_MidCycle_DropsHeldEscrow_SoCompetingRouteNotMisGated",
+       "line": 229
+      },
+      {
+       "method": "TryPause_NoHeldEscrow_DropIsCleanNoOp",
+       "line": 257
+      },
+      {
+       "method": "Reserve_NetIsPerResourceAndPerPid",
+       "line": 272
+      },
+      {
+       "method": "TwoRoutesReserve_ThirdSeesBoth_ReleaseRaisesAvailable",
+       "line": 289
+      },
+      {
+       "method": "Release_PartialThenOverRelease_ClampsAtZero",
+       "line": 311
+      },
+      {
+       "method": "Reserve_Accumulates",
+       "line": 330
+      },
+      {
+       "method": "DropRouteEscrow_RemovesAllOfARoute_RaisesCompetitorAvailable",
+       "line": 345
+      },
+      {
+       "method": "RemoveRoute_DropsItsEscrow",
+       "line": 372
+      },
+      {
+       "method": "ClearAllEscrow_EmptiesEveryRoute",
+       "line": 395
+      },
+      {
+       "method": "ResetForTesting_ClearsEscrow_NoLeak",
+       "line": 413
+      },
+      {
+       "method": "Escrow_IsNotSerialized_RoundTripLeavesItUntouched",
+       "line": 430
+      },
+      {
+       "method": "CompetingRoute_HeldByReservation_ThroughRealGate",
+       "line": 482
+      },
+      {
+       "method": "NoReservation_NetIsNoOp",
+       "line": 550
+      },
+      {
+       "method": "TryGetReservingRoute_ExcludesOwnRoute",
+       "line": 563
+      },
+      {
+       "method": "TryGetReservingRoute_LargestReservationWins",
+       "line": 585
+      },
+      {
+       "method": "TryGetReservingRoute_ExactTie_OrdinalSmallerIdWins",
+       "line": 601
+      },
+      {
+       "method": "TryGetReservingRoute_NoMatch_ReturnsFalse",
+       "line": 617
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteRoundTripLinkTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Alternation_BHoldsUntilAcompletes_ThenConsumesAndHoldsAgain",
+       "line": 171
+      },
+      {
+       "method": "Alternation_BHoldsUntilPartnerCompletesNewCycle",
+       "line": 212
+      },
+      {
+       "method": "ProductionLinkMutator_DrivesAlternation_AndUnlinkClearsBoth",
+       "line": 248
+      },
+      {
+       "method": "BlockedPartner_BHoldsWaitingForPartner_PartnerNamed",
+       "line": 293
+      },
+      {
+       "method": "PausedPartner_BBypassesConstraint_DispatchesOnOwnSchedule",
+       "line": 351
+      },
+      {
+       "method": "MissingPartner_BBypassesConstraint",
+       "line": 379
+      },
+      {
+       "method": "Deadlock_MutualLink_SeedDispatchesFirst_NonSeedWaits",
+       "line": 406
+      },
+      {
+       "method": "SeedBypass_IsOneShot_SeedHoldsAfterItsFirstCycle",
+       "line": 444
+      },
+      {
+       "method": "UnlinkedRoute_GateSkipped_DispatchesNormally",
+       "line": 474
+      },
+      {
+       "method": "PartnerConstraintSatisfied_NullLink_ReturnsTrue_NoLookup",
+       "line": 495
+      },
+      {
+       "method": "PartnerGate_OrderedLast_RealBlockerSurfacesFirst",
+       "line": 513
+      },
+      {
+       "method": "PartnerStatus_BypassSet_MatchesNonGhostDriving",
+       "line": 566
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

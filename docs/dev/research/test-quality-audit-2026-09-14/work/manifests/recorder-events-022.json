@@ -1,0 +1,277 @@
+{
+ "batch_id": "recorder-events-022",
+ "cluster": "recorder-events",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "EngineFxBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FilterEffectGroups_MatchingModuleGroups_ReturnsOnlySelectedGroups",
+       "line": 26
+      },
+      {
+       "method": "FilterEffectGroups_NoMatches_FallsBackToAllGroups",
+       "line": 51
+      },
+      {
+       "method": "FilterEffectGroups_ShorterGroupNames_UsesUnnamedFallbackAndLogs",
+       "line": 75
+      },
+      {
+       "method": "TryGetFxModelFallbackEuler_TrimsAndMatchesKnownModelsCaseInsensitively",
+       "line": 98
+      },
+      {
+       "method": "TryReadModelFxConfigEntry_ParsesOffsetAndFallbackRotationMetadata",
+       "line": 109
+      },
+      {
+       "method": "TryReadModelFxConfigEntry_PreservesExplicitRotationString_AndUnnamedGroupFallback",
+       "line": 134
+      },
+      {
+       "method": "TryReadModelFxConfigEntry_MalformedRotationStillEnablesKnownModelFallback",
+       "line": 159
+      },
+      {
+       "method": "TryReadModelFxConfigEntry_NullModelNode_ReturnsFalseAndLogsSkip",
+       "line": 179
+      },
+      {
+       "method": "TryReadPrefabParticleConfigEntry_SkipsFlameoutSparksAndDebrisPrefabs",
+       "line": 192
+      },
+      {
+       "method": "TryReadPrefabParticleConfigEntry_UsesLocalPositionAsOffsetFallback",
+       "line": 217
+      },
+      {
+       "method": "ResolvePrefabParticleRotationMode_UsesConfiguredRotationOrParentAxisHeuristic",
+       "line": 240
+      },
+      {
+       "method": "WorldSpaceEmitterFloor_ZeroVelocity_FlowsAlongExhaustAxis",
+       "line": 260
+      },
+      {
+       "method": "WorldSpaceEmitterFloor_SlowVelocity_ExhaustAxisWinsOverAuthoredAxis",
+       "line": 270
+      },
+      {
+       "method": "WorldSpaceEmitterFloor_DegenerateAxis_FallsBackMinusY",
+       "line": 283
+      },
+      {
+       "method": "WorldSpaceEmitterFloor_FastWorldSpace_Unchanged",
+       "line": 292
+      },
+      {
+       "method": "WorldSpaceEmitterFloor_LocalSpace_NeverFloored",
+       "line": 301
+      },
+      {
+       "method": "ShouldProbeBuiltinEffects_WaterfallOrReStock",
+       "line": 318
+      },
+      {
+       "method": "ModelFxSizeBoost_ReStockAuthored_IsAlwaysOne",
+       "line": 324
+      },
+      {
+       "method": "ExhaustAimedPrefabRotation_AimsMinusYEmissionAxisAlongExhaust",
+       "line": 338
+      },
+      {
+       "method": "ExhaustAimedPrefabRotation_ExhaustAlongMinusY_IsIdentityLike",
+       "line": 352
+      },
+      {
+       "method": "ExhaustAimedPrefabRotation_CantedThrustWithinTrustAngle_TrustsRig",
+       "line": 364
+      },
+      {
+       "method": "ExhaustAimedPrefabRotation_OppositeAxis_RotatesFully",
+       "line": 377
+      },
+      {
+       "method": "ExhaustAimedPrefabRotation_FallsBackToHeuristic",
+       "line": 391
+      },
+      {
+       "method": "IsFarFxMount_ThresholdAt25Meters",
+       "line": 404
+      },
+      {
+       "method": "ExhaustAimedPrefabRotation_DegenerateAxis_FallsBack",
+       "line": 410
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FlightRecorderStructuralEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ApplyStructuralEventFlag_OnUnflaggedPoint_SetsBitZero",
+       "line": 51
+      },
+      {
+       "method": "ApplyStructuralEventFlag_OnAlreadyFlaggedPoint_IsIdempotent",
+       "line": 66
+      },
+      {
+       "method": "ApplyStructuralEventFlag_PreservesOtherFlagBits",
+       "line": 79
+      },
+      {
+       "method": "ApplyStructuralEventFlag_PreservesAllOtherFields",
+       "line": 96
+      },
+      {
+       "method": "ApplyStructuralEventFlag_BinaryRoundTripPreservesFlag",
+       "line": 134
+      },
+      {
+       "method": "AppendStructuralEventSnapshot_CurrentRecordingWithNoInvolvedVessels_NoAppend",
+       "line": 178
+      },
+      {
+       "method": "ApplyStructuralEventFlag_SamePhysicsClock_TwoVessels_ProduceMatchingUT",
+       "line": 215
+      },
+      {
+       "method": "CreateBreakupChildRecording_SeedAtStructuralEventUT_FlagsChildSeed",
+       "line": 235
+      },
+      {
+       "method": "CreateBreakupChildRecording_SeedOffsetFromStructuralEventUT_DoesNotFlagChildSeed",
+       "line": 250
+      },
+      {
+       "method": "CreateBreakupChildRecording_FlaggedChildSeed_BinaryRoundTripPreservesFlag",
+       "line": 263
+      },
+      {
+       "method": "AnchorCandidateBuilder_FindsCoalescerChildSeedAtStructuralEventUT",
+       "line": 297
+      },
+      {
+       "method": "HasStructuralEventSnapshotAtTail_NullOrEmptyList_ReturnsFalse",
+       "line": 346
+      },
+      {
+       "method": "HasStructuralEventSnapshotAtTail_UnflaggedTailAtSameUT_ReturnsFalse",
+       "line": 354
+      },
+      {
+       "method": "HasStructuralEventSnapshotAtTail_FlaggedTailAtSameUT_ReturnsTrue",
+       "line": 365
+      },
+      {
+       "method": "HasStructuralEventSnapshotAtTail_FlaggedTailAtDifferentUT_ReturnsFalse",
+       "line": 377
+      },
+      {
+       "method": "HasStructuralEventSnapshotAtTail_EarlierFlaggedPointButUnflaggedTail_ReturnsFalse",
+       "line": 389
+      },
+      {
+       "method": "HasStructuralEventSnapshotAtTail_WithinTolerance_ReturnsTrue",
+       "line": 404
+      },
+      {
+       "method": "HasStructuralEventSnapshotAtTail_InvalidEventUTOrTolerance_ReturnsFalse",
+       "line": 418
+      },
+      {
+       "method": "HasStructuralEventSnapshotAtTail_UndockJointBreakEchoSequence_DedupesSecondAndThird",
+       "line": 435
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TerminalOrbitSpawnSafetyGeometryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveSpawnSafetyAtmosphereDepth_AirlessBody_ContributesNoDepth",
+       "line": 59
+      },
+      {
+       "method": "ResolveSpawnSafetyAtmosphereDepth_AtmosphericBody_UsesItsDepth",
+       "line": 68
+      },
+      {
+       "method": "SafeAltitude_IsAtmosphereDepthPlusMargin_AndCollapsesToZeroWhenAirless",
+       "line": 76
+      },
+      {
+       "method": "BugC_HeliocentricCoast_IsGeometricallyAdmitted",
+       "line": 94
+      },
+      {
+       "method": "BugC_PersistedAbandon_HoldsTheRespawnTheGeometryWouldAdmit",
+       "line": 112
+      },
+      {
+       "method": "BugC_NanDrivenAltitude_IsRejected",
+       "line": 161
+      },
+      {
+       "method": "BugC_NanDrivenPeriapsis_IsRejected",
+       "line": 178
+      },
+      {
+       "method": "BugC_InfiniteEscapeAltitude_IsRejected",
+       "line": 192
+      },
+      {
+       "method": "SubSurfaceAltitudeWithNonFiniteApoapsis_IsRejectedNotDeferred",
+       "line": 209
+      },
+      {
+       "method": "SaneKerbinOrbit_IsAdmitted",
+       "line": 230
+      },
+      {
+       "method": "KerbinOrbitWithPeriapsisWellBelowSafeAltitude_IsRejected",
+       "line": 246
+      },
+      {
+       "method": "KerbinOrbitCurrentlyInsideAtmosphereWithApoapsisAbove_Defers",
+       "line": 264
+      },
+      {
+       "method": "AirlessLowCoast_IsAdmittedWhereTheSameAltitudeWouldBeRejectedAtKerbin",
+       "line": 280
+      },
+      {
+       "method": "DowngradeDeferral_TurnsASoftHoldIntoAHardAbandon",
+       "line": 310
+      },
+      {
+       "method": "MarkDeferred_ThenMarkCannotSpawnSafely_ClearsTheNextAttemptUT",
+       "line": 333
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

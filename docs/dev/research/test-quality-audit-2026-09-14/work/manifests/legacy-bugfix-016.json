@@ -1,0 +1,139 @@
+{
+ "batch_id": "legacy-bugfix-016",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 30,
+ "files": [
+  {
+   "file": "MilestoneTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Milestone_SerializationRoundtrip_OmitsLegacyEpochFields",
+       "line": 58
+      },
+      {
+       "method": "Milestone_EmptyEvents_RoundtripsCleanly",
+       "line": 117
+      },
+      {
+       "method": "Milestone_DeserializeFrom_MigratesLegacyFreePartUnlockShape",
+       "line": 142
+      },
+      {
+       "method": "Milestone_DeserializeFrom_IgnoresDifferentEpochFundsDebitWhenMigratingLegacyFreePartUnlockShape",
+       "line": 181
+      },
+      {
+       "method": "MilestoneStore_CreateMilestone_SetsCorrectUTRange",
+       "line": 241
+      },
+      {
+       "method": "MilestoneStore_CreateMilestone_CopiesEventsInRange",
+       "line": 261
+      },
+      {
+       "method": "MilestoneStore_CreateMilestone_ExcludesOutOfRangeEvents",
+       "line": 289
+      },
+      {
+       "method": "MilestoneStore_CreateMilestone_SkipsEmpty",
+       "line": 322
+      },
+      {
+       "method": "MilestoneStore_MultipleSequential",
+       "line": 332
+      },
+      {
+       "method": "MilestoneStore_CreateMilestone_FiltersHiddenRecordingBranches",
+       "line": 363
+      },
+      {
+       "method": "MilestoneStore_CreateMilestone_ExcludesRawResourceEvents",
+       "line": 395
+      },
+      {
+       "method": "MilestoneStore_CreateMilestone_SortsEventsByUT",
+       "line": 442
+      },
+      {
+       "method": "Milestone_LastReplayedIndex_InitializedToEnd",
+       "line": 473
+      },
+      {
+       "method": "MilestoneStore_SaveLoadMutableState_RoundTrip",
+       "line": 504
+      },
+      {
+       "method": "MilestoneStore_SaveLoadMutableState_UnknownId_Ignored",
+       "line": 534
+      },
+      {
+       "method": "MilestoneStore_RestoreMutableState_ResetUnmatched",
+       "line": 562
+      },
+      {
+       "method": "MilestoneStore_RestoreMutableState_NoResetWithoutFlag",
+       "line": 590
+      },
+      {
+       "method": "FlushPendingEvents_CapturesOrphanedEvents",
+       "line": 620
+      },
+      {
+       "method": "FlushPendingEvents_NoOpWhenNoNewEvents",
+       "line": 641
+      },
+      {
+       "method": "FlushPendingEvents_OnlyCapturesNewEvents",
+       "line": 661
+      },
+      {
+       "method": "GameStateEvent_EpochField_DeserializeReadsLegacyValue",
+       "line": 696
+      },
+      {
+       "method": "GameStateEvent_EpochField_DefaultsToZero",
+       "line": 709
+      },
+      {
+       "method": "GameStateStore_AddEvent_PreservesLegacyEpochField",
+       "line": 721
+      },
+      {
+       "method": "CreateMilestone_StartUT_IgnoresHiddenMilestones",
+       "line": 742
+      },
+      {
+       "method": "CreateMilestone_StartUT_UsesLatestVisibleEventInPartiallyHiddenMilestone",
+       "line": 776
+      },
+      {
+       "method": "CreateMilestone_StartUT_UsesVisibleMilestones",
+       "line": 819
+      },
+      {
+       "method": "GetPendingEventCount_CountsVisibleCommittedEvents",
+       "line": 859
+      },
+      {
+       "method": "GetPendingEventCount_ExcludesHiddenMilestones",
+       "line": 883
+      },
+      {
+       "method": "GetPendingEventCount_ZeroWhenEmpty",
+       "line": 917
+      },
+      {
+       "method": "GetPendingEventCount_ExcludesFilteredEvents",
+       "line": 923
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

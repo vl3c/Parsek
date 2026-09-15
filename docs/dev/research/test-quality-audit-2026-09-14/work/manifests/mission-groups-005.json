@@ -1,0 +1,187 @@
+{
+ "batch_id": "mission-groups-005",
+ "cluster": "mission-groups",
+ "tier": "A",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "MissionLoopUnitBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_NoLoopingMission_ReturnsEmpty",
+       "line": 123
+      },
+      {
+       "method": "Build_NullOrEmptyMissions_ReturnsEmpty",
+       "line": 139
+      },
+      {
+       "method": "Build_TreeNotFound_ReturnsEmpty",
+       "line": 148
+      },
+      {
+       "method": "Build_LinearMission_AllIncluded_OneUnit_AutoCadenceIsSpan",
+       "line": 161
+      },
+      {
+       "method": "Build_SetAnchor_FlowsToPhaseAnchorUT",
+       "line": 190
+      },
+      {
+       "method": "Build_NaNAnchor_ClampsToSpanEndUT_FirstPlayFloor",
+       "line": 209
+      },
+      {
+       "method": "Build_OwnerAndOrder_FollowStartUT_NotCommittedOrder",
+       "line": 228
+      },
+      {
+       "method": "Build_ExplicitPeriod_AboveSpan_UsesPeriod_NoOverlap",
+       "line": 251
+      },
+      {
+       "method": "Build_ExplicitPeriod_BelowSpan_SpanClockRaised_OverlapKeepsPeriod",
+       "line": 266
+      },
+      {
+       "method": "Build_ShortPeriod_CapRaisesOverlapCadence_SpanClockUnaffected",
+       "line": 282
+      },
+      {
+       "method": "Build_AutoInterval_AtOrAboveSpan_NoOverlap",
+       "line": 307
+      },
+      {
+       "method": "Build_TinyPeriodAndTinySpan_ClampedToMinCycleDuration",
+       "line": 323
+      },
+      {
+       "method": "Build_AutoTinySpan_ClampedToMinCycleDuration",
+       "line": 337
+      },
+      {
+       "method": "Build_ExcludingForkInterval_DropsThatBranchesMemberLegs",
+       "line": 350
+      },
+      {
+       "method": "Build_ExcludingLaunchInterval_StartTrimsSpanAndMemberWindow",
+       "line": 395
+      },
+      {
+       "method": "ComputeTrimmedMemberWindows_HonorsIntervalTrim_SharedByBuilderAndUI",
+       "line": 445
+      },
+      {
+       "method": "Build_DockTree_NoExclusions_SpanMembersAndCadenceByteIdentical",
+       "line": 543
+      },
+      {
+       "method": "Build_ExcludePreDockIntervals_StartTrimsSpanToDockUT",
+       "line": 603
+      },
+      {
+       "method": "Build_IncludedIdNotInCommitted_IsSkipped_NoOutOfRangeIndex",
+       "line": 626
+      },
+      {
+       "method": "Build_AllMembersMissingFromCommitted_ReturnsEmpty",
+       "line": 648
+      },
+      {
+       "method": "Build_FirstLoopingMissionWins",
+       "line": 660
+      },
+      {
+       "method": "Build_LogsSummary_OnSuccess",
+       "line": 678
+      },
+      {
+       "method": "Build_DuplicateCommittedIds_FirstWins",
+       "line": 692
+      },
+      {
+       "method": "BuildSignature_AutoMission_ChangesWhenGlobalIntervalChanges",
+       "line": 712
+      },
+      {
+       "method": "BuildSignature_StableWhenNothingChanges",
+       "line": 727
+      },
+      {
+       "method": "BuildSignature_ChangesWhenSecondMissionStartsLooping",
+       "line": 740
+      },
+      {
+       "method": "Build_TwoMissionsOnDistinctTrees_ProducesTwoUnits_DisjointMembers",
+       "line": 763
+      },
+      {
+       "method": "Build_TwoLoopingMissionsOnSameTree_KeepsFirst_WarnsCollision_MapsConsistent",
+       "line": 807
+      },
+      {
+       "method": "Build_OnlyOneOfTwoMissionsLooping_ProducesOneUnit",
+       "line": 841
+      },
+      {
+       "method": "Selection_NullView_ReturnsEmpty",
+       "line": 866
+      },
+      {
+       "method": "Selection_NullExcluded_IncludesEverything",
+       "line": 872
+      },
+      {
+       "method": "Selection_NoExclusions_IncludesAllRootsAndOffshoots",
+       "line": 881
+      },
+      {
+       "method": "Selection_ExcludingRoot_DropsItAndItsOffshoots",
+       "line": 892
+      },
+      {
+       "method": "Selection_ExcludingOffshoot_DropsOnlyThatBranch",
+       "line": 905
+      },
+      {
+       "method": "Selection_DeepOffshootChain_CascadesFromTheExcludedAncestor",
+       "line": 916
+      },
+      {
+       "method": "Selection_MergeReachedTwice_DoesNotInfiniteLoop_OrDoubleCount",
+       "line": 935
+      },
+      {
+       "method": "Selection_Cycle_DoesNotInfiniteLoop",
+       "line": 959
+      },
+      {
+       "method": "SelectDeorbitTailLegStartUT_PicksSeamEndingLeg_NotEarliestApproachLeg",
+       "line": 1025
+      },
+      {
+       "method": "SelectDeorbitTailLegStartUT_FiltersBodyAndPostSeamLegs",
+       "line": 1043
+      },
+      {
+       "method": "SelectDeorbitTailLegStartUT_NoMatch_ReturnsNaN",
+       "line": 1057
+      },
+      {
+       "method": "ForceFaithfulOff_TheFlownDunaDirectMissionEngagesReaim",
+       "line": 1187
+      },
+      {
+       "method": "ForceFaithfulOn_TheSameMissionStaysFaithfulWithNoReaimState",
+       "line": 1207
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,187 @@
+{
+ "batch_id": "spawn-vessel-014",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "VesselSpawnerExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryAdoptExistingSourceVesselForSpawn_SourceExists_AdoptsSourcePid",
+       "line": 38
+      },
+      {
+       "method": "TryAdoptExistingSourceVesselForSpawn_AllowDuplicate_DoesNotAdopt",
+       "line": 62
+      },
+      {
+       "method": "MaterializedSourceVesselExists_GuidMismatch_RejectsRelaunch",
+       "line": 86
+      },
+      {
+       "method": "MaterializedSourceVesselExists_GuidMatch_ConfirmsSameLaunch",
+       "line": 104
+      },
+      {
+       "method": "MaterializedSourceVesselExists_RecordingGuidUnknown_FallsBackToPidMatch",
+       "line": 120
+      },
+      {
+       "method": "RespawnValidatedRecording_SourceExists_AdoptsBeforeSnapshotValidation",
+       "line": 137
+      },
+      {
+       "method": "SpawnOrRecoverIfTooClose_SourceExists_AdoptsBeforeAttemptLimit",
+       "line": 160
+      },
+      {
+       "method": "SpawnOrRecoverIfTooClose_TerminalCannotSpawnSafely_ShortCircuitsBeforeRealSpawn",
+       "line": 179
+      },
+      {
+       "method": "RejectUnresolvedTerminalOrbitSpawn_MarksCannotSpawnSafely",
+       "line": 206
+      },
+      {
+       "method": "ShouldAllowExistingSourceDuplicateForReplay_MatchesOnlyExplicitReplayPids",
+       "line": 240
+      },
+      {
+       "method": "ShouldAllowExistingSourceDuplicateForReplay_RewindScopeRejectsNonTargetActiveSource",
+       "line": 255
+      },
+      {
+       "method": "ShouldAllowExistingSourceDuplicateForReplay_RewindScopeAllowsTargetActiveSource",
+       "line": 271
+      },
+      {
+       "method": "ShouldAllowExistingSourceDuplicateForReplay_SceneEntryPidMatch_LogsVerboseBypass",
+       "line": 290
+      },
+      {
+       "method": "ShouldAllowExistingSourceDuplicateForReplay_ActiveVesselPidMatch_LogsVerboseBypass",
+       "line": 307
+      },
+      {
+       "method": "ShouldAllowExistingSourceDuplicateForReplay_NoMatch_DoesNotLogBypass",
+       "line": 324
+      },
+      {
+       "method": "ShouldAllowExistingSourceDuplicateForCurrentFlight_Match_LogsVerboseBypass",
+       "line": 338
+      },
+      {
+       "method": "ShouldRouteThroughSpawnAtPosition_EvaRecording_ReturnsTrue",
+       "line": 368
+      },
+      {
+       "method": "ShouldRouteThroughSpawnAtPosition_BreakupRecording_ReturnsTrue",
+       "line": 380
+      },
+      {
+       "method": "ShouldRouteThroughSpawnAtPosition_PlainLandedVessel_ReturnsFalse",
+       "line": 392
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_PreparedSnapshotNull_Rejects",
+       "line": 403
+      },
+      {
+       "method": "DetermineSituation_NegativeAlt_OverWater_ReturnsSplashed",
+       "line": 428
+      },
+      {
+       "method": "DetermineSituation_ZeroAlt_OverWater_ReturnsSplashed",
+       "line": 436
+      },
+      {
+       "method": "DetermineSituation_NegativeAlt_NotOverWater_ReturnsLanded",
+       "line": 444
+      },
+      {
+       "method": "DetermineSituation_ZeroAlt_NotOverWater_ReturnsLanded",
+       "line": 452
+      },
+      {
+       "method": "DetermineSituation_HighAlt_HighSpeed_ReturnsOrbiting",
+       "line": 460
+      },
+      {
+       "method": "DetermineSituation_HighAlt_ExactThreshold_ReturnsOrbiting",
+       "line": 471
+      },
+      {
+       "method": "DetermineSituation_HighAlt_LowSpeed_ReturnsFlying",
+       "line": 482
+      },
+      {
+       "method": "DetermineSituation_HighAlt_ZeroSpeed_ReturnsFlying",
+       "line": 493
+      },
+      {
+       "method": "DetermineSituation_SplashedTakesPriorityOverLanded",
+       "line": 501
+      },
+      {
+       "method": "DetermineSituation_BoundaryAlt_PositiveSmall_Flying",
+       "line": 510
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingToLanded",
+       "line": 523
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingToSplashed",
+       "line": 530
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingToOrbiting",
+       "line": 537
+      },
+      {
+       "method": "ComputeCorrectedSituation_SubOrbitalToOrbiting",
+       "line": 544
+      },
+      {
+       "method": "ComputeCorrectedSituation_SubOrbitalToLanded",
+       "line": 551
+      },
+      {
+       "method": "ComputeCorrectedSituation_NoCorrection_SafeSituation",
+       "line": 558
+      },
+      {
+       "method": "ComputeCorrectedSituation_NoCorrection_DestroyedTerminal",
+       "line": 567
+      },
+      {
+       "method": "ComputeCorrectedSituation_NoCorrection_NullTerminal",
+       "line": 573
+      },
+      {
+       "method": "ComputeCorrectedSituation_NoCorrection_NullOrEmptySit",
+       "line": 579
+      },
+      {
+       "method": "ComputeCorrectedSituation_CaseInsensitive",
+       "line": 586
+      },
+      {
+       "method": "ShouldZeroVelocityAfterSpawn_CorrectForSituation",
+       "line": 606
+      },
+      {
+       "method": "ShouldZeroVelocityAfterSpawn_CaseInsensitive",
+       "line": 612
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

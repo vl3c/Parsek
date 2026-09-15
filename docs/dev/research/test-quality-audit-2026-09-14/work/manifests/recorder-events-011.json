@@ -1,0 +1,279 @@
+{
+ "batch_id": "recorder-events-011",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 65,
+ "files": [
+  {
+   "file": "AdaptiveSamplingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FirstPoint_AlwaysRecords",
+       "line": 19
+      },
+      {
+       "method": "MaxIntervalExceeded_Records",
+       "line": 30
+      },
+      {
+       "method": "WithinMaxInterval_NoChange_Skips",
+       "line": 43
+      },
+      {
+       "method": "VelocityDirectionChange_AboveThreshold_Records",
+       "line": 55
+      },
+      {
+       "method": "VelocityDirectionChange_BelowThreshold_Skips",
+       "line": 70
+      },
+      {
+       "method": "SpeedIncrease_AboveThreshold_Records",
+       "line": 85
+      },
+      {
+       "method": "SpeedDecrease_AboveThreshold_Records",
+       "line": 100
+      },
+      {
+       "method": "SpeedChange_BelowThreshold_Skips",
+       "line": 115
+      },
+      {
+       "method": "BothVelocitiesNearZero_OnlyMaxIntervalTriggers",
+       "line": 130
+      },
+      {
+       "method": "Liftoff_ZeroToNonzero_Records",
+       "line": 150
+      },
+      {
+       "method": "MaxIntervalExact_Records",
+       "line": 165
+      },
+      {
+       "method": "SmallSpeedNearFloor_NoFalsePositive",
+       "line": 178
+      },
+      {
+       "method": "HighSpeed_TinyAbsoluteChange_Skips",
+       "line": 197
+      },
+      {
+       "method": "NaNVelocity_DoesNotCrash",
+       "line": 212
+      },
+      {
+       "method": "InfinityVelocity_DoesNotCrash",
+       "line": 229
+      },
+      {
+       "method": "ZeroTimeDelta_NoRecord",
+       "line": 245
+      },
+      {
+       "method": "BackwardTime_NoRecord",
+       "line": 257
+      },
+      {
+       "method": "MinInterval_BlocksWithinFloorWindow",
+       "line": 272
+      },
+      {
+       "method": "MinInterval_AllowsAfterFloor",
+       "line": 288
+      },
+      {
+       "method": "MinInterval_DoesNotBlockFirstPoint",
+       "line": 303
+      },
+      {
+       "method": "MinInterval_DoesNotBlockMaxIntervalBackstop",
+       "line": 315
+      },
+      {
+       "method": "MinInterval_EvaWalkingPattern_CapsAtFiveHz",
+       "line": 329
+      },
+      {
+       "method": "MinInterval_HighSpeedAscent_NoLossVsLegacy",
+       "line": 366
+      },
+      {
+       "method": "MinInterval_ZeroPreservesLegacyBehavior",
+       "line": 413
+      },
+      {
+       "method": "HighFidelityWindow_UsesConfiguredMinIntervalBackstop",
+       "line": 432
+      },
+      {
+       "method": "HighFidelityWindow_ExpiresAfterUntilUT",
+       "line": 472
+      },
+      {
+       "method": "HighFidelityWindow_DerivesFromConfiguredMaxInterval",
+       "line": 491
+      },
+      {
+       "method": "HighFidelityProximity_ActivatesInsideRange",
+       "line": 498
+      },
+      {
+       "method": "HighFidelityProximity_SelectsNearestFiniteSource",
+       "line": 508
+      },
+      {
+       "method": "HighFidelityProximity_RejectsInvalidOrOutsideRange",
+       "line": 517
+      },
+      {
+       "method": "ActiveReFlyTreeSampling_FullCadenceInside250Meters",
+       "line": 529
+      },
+      {
+       "method": "ActiveReFlyTreeSampling_HalfCadenceBetween250And500Meters",
+       "line": 566
+      },
+      {
+       "method": "ActiveReFlyTreeSampling_RejectsPast500Meters",
+       "line": 603
+      },
+      {
+       "method": "ActiveReFlyTreeSampling_RejectsNormalRecordingWithoutMarker",
+       "line": 640
+      },
+      {
+       "method": "ActiveReFlyTreeSampling_RejectsDifferentTree",
+       "line": 656
+      },
+      {
+       "method": "ProximitySamplingCadence_ResolvesDebrisTierBoundaries",
+       "line": 679
+      },
+      {
+       "method": "ProximitySamplingCadence_InvalidDistance_ReturnsNone",
+       "line": 713
+      },
+      {
+       "method": "ProximitySamplingCadence_ZeroConfiguredMin_HonorsDefensiveFloor",
+       "line": 730
+      },
+      {
+       "method": "EffectiveMaxSampleInterval_ReFlyTierWinsThenDebrisTier",
+       "line": 756
+      },
+      {
+       "method": "DebrisRelativeSectionRange_UsesEnterAndRetainBoundaries",
+       "line": 778
+      },
+      {
+       "method": "SectionGapStats_ComputesAverageMaxAndLargeGaps",
+       "line": 791
+      },
+      {
+       "method": "SectionGapStats_AllGapsUnderWarp_NoNormalRateLargeGap",
+       "line": 816
+      },
+      {
+       "method": "SectionGapStats_MixedSection_OneNormalRateGapAndOneWarpGap",
+       "line": 835
+      },
+      {
+       "method": "SectionGapStats_LargeGapTouchingWarpSampleOnEitherEnd_NotNormalRate",
+       "line": 861
+      },
+      {
+       "method": "SectionGapStats_MismatchedWarpFlagLength_TreatsAllAsNormalRate",
+       "line": 881
+      },
+      {
+       "method": "ShouldWarnOnSparseSampling_NoNormalRateLargeGaps_DoesNotWarn",
+       "line": 900
+      },
+      {
+       "method": "ShouldWarnOnSparseSampling_HasNormalRateLargeGap_Warns",
+       "line": 906
+      },
+      {
+       "method": "ResolveSparseGapWarningThreshold_DerivesFromConfiguredBackstop",
+       "line": 919
+      },
+      {
+       "method": "ResolveSparseGapWarningThreshold_DegenerateInterval_FallsBackToFloor",
+       "line": 932
+      },
+      {
+       "method": "SectionGapStats_MediumCoastGap_BelowHeartbeatThreshold_NoWarn",
+       "line": 945
+      },
+      {
+       "method": "SectionGapStats_MediumStallGap_AboveHeartbeatThreshold_Warns",
+       "line": 972
+      },
+      {
+       "method": "TrimSectionFramesAndWarpFlagsAfterUT_TrimsTailAndKeepsFlagsAligned",
+       "line": 998
+      },
+      {
+       "method": "TrimSectionFramesAndWarpFlagsAfterUT_NoTailToTrim_LeavesListsUnchanged",
+       "line": 1033
+      },
+      {
+       "method": "TrimSectionFramesAndWarpFlagsAfterUT_NullWarpFlags_DoesNotThrow",
+       "line": 1051
+      },
+      {
+       "method": "AttitudeSampling_AboveThreshold_Records",
+       "line": 1066
+      },
+      {
+       "method": "AttitudeSampling_BelowThreshold_Skips",
+       "line": 1081
+      },
+      {
+       "method": "AttitudeSampling_SignEquivalentQuaternion_DoesNotFalseTrigger",
+       "line": 1096
+      },
+      {
+       "method": "SeedSkip_InactiveSection_DoesNotSkip",
+       "line": 1116
+      },
+      {
+       "method": "SeedSkip_AbsoluteSection_DoesNotSkip",
+       "line": 1126
+      },
+      {
+       "method": "SeedSkip_ActiveRelativeSection_Skips",
+       "line": 1136
+      },
+      {
+       "method": "FindFirstMoving_AllStationary_ReturnsZero",
+       "line": 1163
+      },
+      {
+       "method": "FindFirstMoving_MovingFromStart_ReturnsZero",
+       "line": 1170
+      },
+      {
+       "method": "FindFirstMoving_AltitudeChange_ReturnsCorrectIndex",
+       "line": 1177
+      },
+      {
+       "method": "FindFirstMoving_SpeedThreshold_ReturnsCorrectIndex",
+       "line": 1185
+      },
+      {
+       "method": "FindFirstMoving_NullOrShort_ReturnsZero",
+       "line": 1193
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,254 @@
+{
+ "batch_id": "spawn-vessel-017",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "VesselGhosterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldAttemptGhosting_ZeroPid_ReturnsFalse",
+       "line": 40
+      },
+      {
+       "method": "ShouldAttemptGhosting_VesselMissing_ReturnsFalse",
+       "line": 46
+      },
+      {
+       "method": "ShouldAttemptGhosting_ValidVessel_ReturnsTrue",
+       "line": 52
+      },
+      {
+       "method": "ShouldAttemptGhosting_ZeroPidAndMissing_ReturnsFalse",
+       "line": 58
+      },
+      {
+       "method": "CanSpawnAtChainTip_NullChain_ReturnsFalse",
+       "line": 68
+      },
+      {
+       "method": "CanSpawnAtChainTip_TerminatedChain_ReturnsFalse",
+       "line": 74
+      },
+      {
+       "method": "CanSpawnAtChainTip_NullTipRecordingId_ReturnsFalse",
+       "line": 86
+      },
+      {
+       "method": "CanSpawnAtChainTip_EmptyTipRecordingId_ReturnsFalse",
+       "line": 98
+      },
+      {
+       "method": "CanSpawnAtChainTip_ValidChain_ReturnsTrue",
+       "line": 110
+      },
+      {
+       "method": "SpawnAtChainTip_SourceExists_AdoptsBeforeSnapshotOrCollisionChecks",
+       "line": 126
+      },
+      {
+       "method": "TrySpawnBlockedChain_SourceExists_AdoptsBeforeBlockedCollisionRecheck",
+       "line": 155
+      },
+      {
+       "method": "MarkChainTipRecordingSpawned_ValidPid_SetsSpawnState",
+       "line": 191
+      },
+      {
+       "method": "MarkChainTipRecordingSpawned_ZeroPid_DoesNotMutate",
+       "line": 218
+      },
+      {
+       "method": "MarkChainTipRecordingSpawned_NullRecording_ReturnsFalse",
+       "line": 239
+      },
+      {
+       "method": "IsGhosted_NotGhosted_ReturnsFalse",
+       "line": 254
+      },
+      {
+       "method": "IsGhosted_AfterDirectAdd_ReturnsTrue",
+       "line": 260
+      },
+      {
+       "method": "IsGhosted_DifferentPid_ReturnsFalse",
+       "line": 267
+      },
+      {
+       "method": "GhostedCount_Empty_ReturnsZero",
+       "line": 278
+      },
+      {
+       "method": "GhostedCount_AfterAdd_ReturnsCorrect",
+       "line": 284
+      },
+      {
+       "method": "GhostedCount_DuplicatePid_ReturnsOne",
+       "line": 292
+      },
+      {
+       "method": "CleanupAll_ClearsState",
+       "line": 304
+      },
+      {
+       "method": "CleanupAll_EmptyDict_NoThrow",
+       "line": 318
+      },
+      {
+       "method": "CleanupAll_LogsCount",
+       "line": 326
+      },
+      {
+       "method": "CleanupAll_EmptyDict_LogsZero",
+       "line": 339
+      },
+      {
+       "method": "GetGhostedInfo_NotGhosted_ReturnsNull",
+       "line": 353
+      },
+      {
+       "method": "GetGhostedInfo_Ghosted_ReturnsInfo",
+       "line": 359
+      },
+      {
+       "method": "GetGhostGO_NotGhosted_ReturnsNull",
+       "line": 377
+      },
+      {
+       "method": "GetGhostGO_GhostedButNoGO_ReturnsNull",
+       "line": 383
+      },
+      {
+       "method": "ResetForTesting_ClearsAllState",
+       "line": 395
+      },
+      {
+       "method": "AddThenCleanup_ThenAdd_StateConsistent",
+       "line": 412
+      },
+      {
+       "method": "TryResolvePropagatedOrbitSeed_MismatchedTerminalOrbitBody_UsesEndpointAlignedSeed",
+       "line": 431
+      },
+      {
+       "method": "TryResolvePropagatedOrbitSeed_NoEndpointAlignedSeed_ReturnsFalse",
+       "line": 476
+      },
+      {
+       "method": "TryResolvePropagatedOrbitSeed_SurfaceEndpoint_DoesNotReuseStaleTerminalOrbit",
+       "line": 499
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DebrisParentSamplingCeilingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Cap_AppliesAtFarTier_WhenDebrisAndParentSet",
+       "line": 23
+      },
+      {
+       "method": "Cap_NoOp_WhenLegacyV11Debris_ParentIdNull",
+       "line": 39
+      },
+      {
+       "method": "Cap_NoOp_WhenLegacyV11Debris_ParentIdEmpty",
+       "line": 55
+      },
+      {
+       "method": "Cap_NoOp_WhenNonDebrisRecording",
+       "line": 71
+      },
+      {
+       "method": "Cap_NoOp_WhenTreeRecNull",
+       "line": 87
+      },
+      {
+       "method": "Cap_PreservesCloserDockingTier",
+       "line": 96
+      },
+      {
+       "method": "Cap_PreservesMidTierAtIdentity",
+       "line": 112
+      },
+      {
+       "method": "Cap_PreservesOutOfRangeShortCircuit",
+       "line": 128
+      },
+      {
+       "method": "SkipGate_OutOfFocusedRangeWithoutDebrisTier_ReturnsTrue",
+       "line": 148
+      },
+      {
+       "method": "SkipGate_OutOfFocusedRangeWithParentDebrisTier_ReturnsFalse",
+       "line": 159
+      },
+      {
+       "method": "SkipGate_HighFidelityActive_ReturnsFalse",
+       "line": 168
+      },
+      {
+       "method": "Cap_PreservesPositiveInfinityAsOutOfRangeEquivalent",
+       "line": 177
+      },
+      {
+       "method": "GateEligible_DebrisWithParentId_True",
+       "line": 197
+      },
+      {
+       "method": "GateEligible_NonDebris_False",
+       "line": 204
+      },
+      {
+       "method": "GateEligible_DebrisWithoutParentId_False",
+       "line": 211
+      },
+      {
+       "method": "GateEligible_Null_False",
+       "line": 218
+      },
+      {
+       "method": "MaxCap_AppliesAtMediumDefault_WhenDebrisAndParentSet",
+       "line": 226
+      },
+      {
+       "method": "MaxCap_AppliesAtLowDefault_WhenDebrisAndParentSet",
+       "line": 242
+      },
+      {
+       "method": "MaxCap_NoOp_WhenLegacyV11Debris",
+       "line": 258
+      },
+      {
+       "method": "MaxCap_NoOp_WhenNonDebris",
+       "line": 274
+      },
+      {
+       "method": "MaxCap_PreservesTighterMaxAtIdentity_WhenAlreadyBelowMid",
+       "line": 290
+      },
+      {
+       "method": "Integration_StableVelocity_V12Debris_BackstopFiresWithin500ms",
+       "line": 319
+      },
+      {
+       "method": "Integration_StableVelocity_NonDebris_BackstopUnchanged",
+       "line": 368
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

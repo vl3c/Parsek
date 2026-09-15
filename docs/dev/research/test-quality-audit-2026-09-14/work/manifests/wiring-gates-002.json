@@ -1,0 +1,220 @@
+{
+ "batch_id": "wiring-gates-002",
+ "cluster": "wiring-gates",
+ "tier": "B",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "GuiCensusApplierSourceGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveExpandSets_WiresExactlyThePrefixesTheParseAccepts",
+       "line": 59
+      },
+      {
+       "method": "TheExpandSetParseIsNotVacuous",
+       "line": 94
+      },
+      {
+       "method": "ResolveWindowHandle_TakesEachWindowsMinimumsFromThatWindowsOwnClass",
+       "line": 178
+      },
+      {
+       "method": "TheWindowHandleRowParseIsNotVacuous",
+       "line": 215
+      },
+      {
+       "method": "DismissAndClearPendingFlag_DismissesBothDialogNames",
+       "line": 313
+      },
+      {
+       "method": "AnswerMergeDialog_RoutesItsDialogArgThroughTheClosedSetParse",
+       "line": 349
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SaveGateDeepValidationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Intact_Sidecars_Pass_DeepValidation",
+       "line": 107
+      },
+      {
+       "method": "TruncatedTrajectoryPayload_PastHeader_FailsSaveGate",
+       "line": 147
+      },
+      {
+       "method": "TryValidatePayload_DirectCall_DetectsTruncation",
+       "line": 179
+      },
+      {
+       "method": "CorruptStringTableCount_FailsSaveGate_NoExceptionPropagated",
+       "line": 200
+      },
+      {
+       "method": "LargeButAllocatableCount_RejectedByBoundedReadCount",
+       "line": 272
+      },
+      {
+       "method": "NegativeCount_RejectedByBoundedReadCount",
+       "line": 331
+      },
+      {
+       "method": "BitFlippedSnapshotPayload_FailsSaveGate",
+       "line": 372
+      },
+      {
+       "method": "MissingSnapshot_WhenNotExpected_StillPasses",
+       "line": 408
+      },
+      {
+       "method": "Resave_AfterCorruption_RewritesAndRecertifies",
+       "line": 428
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PatchContractsPreservationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Partition_ActiveStillInLedger_Preserved",
+       "line": 44
+      },
+      {
+       "method": "Partition_ActiveNotInLedger_Removed",
+       "line": 58
+      },
+      {
+       "method": "Partition_TombstonedContractAccept_RemovesStaleActiveContract",
+       "line": 72
+      },
+      {
+       "method": "Partition_OfferedOrDeclined_NeverTouched",
+       "line": 91
+      },
+      {
+       "method": "Partition_TerminalStillInLedger_Preserved",
+       "line": 110
+      },
+      {
+       "method": "Partition_TombstonedTerminalContract_Removed",
+       "line": 129
+      },
+      {
+       "method": "Partition_CurrentTerminalNotInLedgerButNotTombstoned_Preserved",
+       "line": 150
+      },
+      {
+       "method": "Partition_TombstonedFinishedTerminalContract_RemovedFromFinishedBucket",
+       "line": 171
+      },
+      {
+       "method": "Partition_FinishedTerminalNotInLedgerButNotTombstoned_Preserved",
+       "line": 201
+      },
+      {
+       "method": "Partition_FinishedTerminalInLedgerButDifferentTombstonedOutcome_Removed",
+       "line": 231
+      },
+      {
+       "method": "Partition_FinishedTerminalInLedgerWithMatchingOutcome_Preserved",
+       "line": 266
+      },
+      {
+       "method": "BuildFinishedRemovalKeys_SameGuidMixedOutcomes_RemovesOnlyTombstonedOutcome",
+       "line": 301
+      },
+      {
+       "method": "BuildFinishedRemovalKeys_SameGuidFailedAndDeadlineExpired_RemovesOnlyTombstonedOutcome",
+       "line": 330
+      },
+      {
+       "method": "BuildCurrentRemovalKeys_SameGuidMixedOutcomes_RemovesOnlyTombstonedOutcome",
+       "line": 359
+      },
+      {
+       "method": "BuildCurrentRemovalKeys_SameGuidFailedAndDeadlineExpired_RemovesOnlyTombstonedOutcome",
+       "line": 390
+      },
+      {
+       "method": "Partition_FinishedTerminalStillInLedger_Preserved",
+       "line": 421
+      },
+      {
+       "method": "Partition_MixedBucket_RemovesUnsupportedActiveAndTombstonedTerminal",
+       "line": 451
+      },
+      {
+       "method": "Partition_EmptyLedger_RemovesAllActiveButPreservesOffered",
+       "line": 488
+      },
+      {
+       "method": "Partition_EmptyEntries_NoOp",
+       "line": 512
+      },
+      {
+       "method": "Partition_NullEntries_NoThrow",
+       "line": 524
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekDialogNamePrefixSourceGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EveryMultiOptionDialogSpawnedBySourceParsekCarriesTheParsekPrefix",
+       "line": 50
+      },
+      {
+       "method": "TheRenamedGhostIconMenuIsTheOneThisGateWasWrittenFor",
+       "line": 98
+      },
+      {
+       "method": "ADecoyNameInAComment_IsNotASpawnSite",
+       "line": 115
+      },
+      {
+       "method": "ADecoyNameInCode_IsASpawnSiteAndFailsThePredicate",
+       "line": 137
+      },
+      {
+       "method": "AStringLiteralIsNeverTreatedAsAComment",
+       "line": 156
+      },
+      {
+       "method": "AConstIdentifierArgumentIsResolvedAgainstItsOwnFile",
+       "line": 173
+      },
+      {
+       "method": "AnUnresolvableIdentifierArgumentIsReportedRatherThanSkipped",
+       "line": 190
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+{"kind":"method","file":"Source/Parsek.Tests/EffectiveStateGraphFuzzerTests.cs","method":"Fuzz_CorruptGraphs_AllWalkerInvariantsHold","line":120,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/EffectiveStateGraphFuzzerTests.cs","method":"Fuzz_ProductionShapedGraphs_AllWalkerInvariantsHold","line":132,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/EffectiveStateGraphFuzzerTests.cs","method":"Fuzz_Corpus_CarriesEveryCorruptShapeAndExercisesTheFilters","line":153,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/EffectiveStateGraphFuzzerTests.cs","method":"EffectiveRecordingId_CrossTreeSupersede_DoesNotHaltAtTreeBoundary","line":983,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/EffectiveStateGraphFuzzerTests.cs","method":"EffectiveRecordingId_TwoCycle_IsNotIdempotent","line":1003,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/EffectiveStateGraphFuzzerTests.cs","method":"SupersededSurfaces_SelfLoopBeforeRealEdge_Disagree","line":1037,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/EffectiveStateGraphFuzzerTests.cs","method":"Closure_DanglingBranchPointChildId_IsAdmittedVerbatim","line":1077,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/EffectiveStateGraphFuzzerTests.cs","method":"GeneratedCycle_LogsSupersedeCycleWarn","line":1127,"verdict":"ok"}

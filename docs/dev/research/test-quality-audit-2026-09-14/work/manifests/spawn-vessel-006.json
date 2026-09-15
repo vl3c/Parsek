@@ -1,0 +1,135 @@
+{
+ "batch_id": "spawn-vessel-006",
+ "cluster": "spawn-vessel",
+ "tier": "A",
+ "expected_methods": 29,
+ "files": [
+  {
+   "file": "OrphanDebrisOnRetirementTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Cascade_RetiredParent_HidesParentAnchoredChild",
+       "line": 109
+      },
+      {
+       "method": "Cascade_MultipleChildren_HidesAllParentAnchoredChildren",
+       "line": 123
+      },
+      {
+       "method": "Cascade_TransitiveChain_HidesGrandchildren",
+       "line": 141
+      },
+      {
+       "method": "Cascade_DepthFourChain_HidesAllDescendants",
+       "line": 160
+      },
+      {
+       "method": "Cascade_ReverseListOrder_StillReachesAllDescendants",
+       "line": 180
+      },
+      {
+       "method": "Cascade_SelfParentRecording_TerminatesAndStaysVisibleWhenNotRetired",
+       "line": 203
+      },
+      {
+       "method": "Cascade_TwoNodeCycleNeitherRetired_TerminatesAndStaysVisible",
+       "line": 222
+      },
+      {
+       "method": "Cascade_TwoNodeCycleOneRetired_HidesBothAndTerminates",
+       "line": 240
+      },
+      {
+       "method": "Cascade_UnrelatedRecording_StaysVisible",
+       "line": 258
+      },
+      {
+       "method": "Cascade_ChildOfNonRetiredParent_StaysVisible",
+       "line": 272
+      },
+      {
+       "method": "Cascade_NoRetirements_ReturnsEmpty",
+       "line": 288
+      },
+      {
+       "method": "Cascade_ParentNotRetiredButChildHasStaleDebrisParentId_StaysVisible",
+       "line": 301
+      },
+      {
+       "method": "Cascade_LogsVerboseSummaryWhenChildrenAdded",
+       "line": 319
+      },
+      {
+       "method": "Cascade_NoChildrenAdded_DoesNotLog",
+       "line": 335
+      },
+      {
+       "method": "ChainCascade_RetiredForkHead_HidesChainContinuation",
+       "line": 355
+      },
+      {
+       "method": "ChainCascade_IndependentCommittedChainMember_StaysVisible",
+       "line": 376
+      },
+      {
+       "method": "ChainCascade_DifferentProvisionalRp_StaysVisible",
+       "line": 392
+      },
+      {
+       "method": "ChainCascade_LowerIndexMember_StaysVisible",
+       "line": 408
+      },
+      {
+       "method": "ChainCascade_ContinuationDebris_AlsoHidden",
+       "line": 425
+      },
+      {
+       "method": "ChainCascade_LogsChainContinuationCount",
+       "line": 446
+      },
+      {
+       "method": "ChainCascade_PlaytestShape_HidesDuplicateProbeForkContinuation",
+       "line": 462
+      },
+      {
+       "method": "ComputeTimelineInactiveRecordingIds_RetiredParentCascade_MarksChildRewindRetired",
+       "line": 487
+      },
+      {
+       "method": "IsRewindRetired_Cascade_ReturnsTrueForParentAnchoredChild",
+       "line": 508
+      },
+      {
+       "method": "IsRewindRetired_RawOverload_ReturnsFalseForParentAnchoredChild",
+       "line": 520
+      },
+      {
+       "method": "ComputeERS_RetiredParentCascade_OmitsOrphanDebrisChild",
+       "line": 536
+      },
+      {
+       "method": "Cascade_PlaytestShape_HidesOrphanKerbalXDebrisChild",
+       "line": 577
+      },
+      {
+       "method": "LiveStoreCall_RepeatsCacheCascade_LogsOnceUntilVersionBump",
+       "line": 624
+      },
+      {
+       "method": "AdHocCall_DoesNotPollLiveCache",
+       "line": 677
+      },
+      {
+       "method": "Reversibility_RemovingRetirement_ReinstatesChild",
+       "line": 719
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

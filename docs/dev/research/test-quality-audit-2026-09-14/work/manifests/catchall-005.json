@@ -1,0 +1,79 @@
+{
+ "batch_id": "catchall-005",
+ "cluster": "catchall",
+ "tier": "A1",
+ "expected_methods": 15,
+ "files": [
+  {
+   "file": "SyntheticRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 5418,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ScenarioWriter_V3Format_WritesSidecarFiles",
+       "line": 5418
+      },
+      {
+       "method": "ScenarioWriter_AddRecordingsAsTree_V3Format_WritesSidecarFilesForEverySegment",
+       "line": 5478
+      },
+      {
+       "method": "ScenarioWriter_PurgeRecordingSidecars_RemovesStaleFilesFromPreviousInject",
+       "line": 5519
+      },
+      {
+       "method": "ScenarioWriter_PurgeRecordingSidecars_IsNoOpOnMissingDirectory",
+       "line": 5608
+      },
+      {
+       "method": "InjectAllRecordings_RefusesWhenKspLogLocked_NoOps",
+       "line": 5628
+      },
+      {
+       "method": "InjectAllRecordings_RefusesWhenKspLogLocked_EvenWithoutPurgeTarget",
+       "line": 5679
+      },
+      {
+       "method": "RecordingPaths_ValidateRecordingId_RejectsInvalidIds",
+       "line": 5720
+      },
+      {
+       "method": "RecordingPaths_BuildPaths_CorrectFormat",
+       "line": 5732
+      },
+      {
+       "method": "InjectPendingLimboTree",
+       "line": 6275
+      },
+      {
+       "method": "InjectRewindB9",
+       "line": 6378
+      },
+      {
+       "method": "InjectRewindCrewLoss",
+       "line": 6476
+      },
+      {
+       "method": "InjectReFlyWorldPreservation",
+       "line": 6577
+      },
+      {
+       "method": "InjectLoopedInterplanetary",
+       "line": 6682
+      },
+      {
+       "method": "InjectPartShowcase",
+       "line": 6775
+      },
+      {
+       "method": "InjectAllRecordings",
+       "line": 7010
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,183 @@
+{
+ "batch_id": "ledger-career-028",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 41,
+ "files": [
+  {
+   "file": "KspStatePatcherApplyBoundaryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveFundsPatch_TargetMatchesLive_DoesNotWrite",
+       "line": 58
+      },
+      {
+       "method": "ResolveFundsPatch_AuthorizedCredit_WritesPositiveDelta",
+       "line": 74
+      },
+      {
+       "method": "ResolveFundsPatch_OverModelSpend_DownClampsToLiveAndCollapsesToNoOp",
+       "line": 93
+      },
+      {
+       "method": "ResolveFundsPatch_ReservationLowersAvailableButNotRunning_DoesNotClamp",
+       "line": 112
+      },
+      {
+       "method": "ResolveFundsPatch_MissingEarningLeak_ClampsToLiveAndCollapsesToNoOp",
+       "line": 129
+      },
+      {
+       "method": "ResolveFundsPatch_AuthorizedReduction_AppliesDrawdownUnchanged",
+       "line": 149
+      },
+      {
+       "method": "ResolveFundsPatch_AuthorizedBigDrawdown_FlagsSuspiciousButStillWrites",
+       "line": 165
+      },
+      {
+       "method": "ResolveFundsPatch_SmallDrawdown_NotFlaggedSuspicious",
+       "line": 182
+      },
+      {
+       "method": "ResolveFundsPatch_LeakClamp_FeedsTheGuardWarnLogWithClampedValue",
+       "line": 196
+      },
+      {
+       "method": "EmitDrawdownGuardClamp_DownDirection_LogsGuardedUpliftAndHeldToast",
+       "line": 225
+      },
+      {
+       "method": "ResolveSciencePoolPatch_AuthorizedCredit_WritesFloatDelta",
+       "line": 253
+      },
+      {
+       "method": "ResolveSciencePoolPatch_OverModelSpend_DownClampsToLiveAndCollapsesToNoOp",
+       "line": 270
+      },
+      {
+       "method": "ResolveSciencePoolPatch_MissingEarningLeak_ClampsAndCollapses",
+       "line": 287
+      },
+      {
+       "method": "ResolveSciencePoolPatch_Reservation_AppliesNegativeDeltaUnclamped",
+       "line": 304
+      },
+      {
+       "method": "ResolveSciencePoolPatch_LeakClamp_FeedsGuardWarnWithPerSubjectNote",
+       "line": 320
+      },
+      {
+       "method": "ResolveReputationPatch_AuthorizedIncrease_WritesAbsoluteTarget",
+       "line": 349
+      },
+      {
+       "method": "ResolveReputationPatch_OverModelRep_HeldAtCurrentAndCollapsesToNoOp",
+       "line": 365
+      },
+      {
+       "method": "ResolveReputationPatch_AuthorizedNegativePenalty_Applies",
+       "line": 381
+      },
+      {
+       "method": "ResolveReputationPatch_LeakClamp_KeepsLiveAndCollapsesToNoOp",
+       "line": 395
+      },
+      {
+       "method": "ResolveSubjectSciencePatch_Drawdown_WritesTargetVerbatimUnclamped",
+       "line": 415
+      },
+      {
+       "method": "ResolveSubjectSciencePatch_ScientificValueFromCap",
+       "line": 430
+      },
+      {
+       "method": "ResolveSubjectSciencePatch_ZeroCap_ScientificValueZero",
+       "line": 442
+      },
+      {
+       "method": "ResolveSubjectSciencePatch_OverCap_ScientificValueFlooredAtZero",
+       "line": 454
+      },
+      {
+       "method": "ResolveSubjectSciencePatch_WithinThreshold_DoesNotWrite",
+       "line": 466
+      },
+      {
+       "method": "ResolveSubjectSciencePatch_ClearedSubject_ZeroesCreditedTotal",
+       "line": 477
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_LedgerCreditsSubjectRnDLacks_Creates",
+       "line": 495
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_NoLedgerState_DoesNotCreate",
+       "line": 513
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_ZeroCreditedTotal_DoesNotCreate",
+       "line": 527
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_NegativeCreditedTotal_DoesNotCreate",
+       "line": 539
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_NonFiniteTarget_DoesNotCreate",
+       "line": 549
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_EmptySubjectId_DoesNotCreate",
+       "line": 561
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_CapBelowTarget_RaisesCapToTarget",
+       "line": 570
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_NonFiniteCap_FallsBackToTarget",
+       "line": 584
+      },
+      {
+       "method": "ResolveMissingSubjectCreation_CreatedSubjectFeedsTheNormalPatchDecision",
+       "line": 594
+      },
+      {
+       "method": "EmitScienceSubjectsReflectionWarnOnce_FiresExactlyOncePerSession",
+       "line": 615
+      },
+      {
+       "method": "ClassifyTechNodeForPatch_ShouldBeAvailableButNotYet_MakesAvailable",
+       "line": 644
+      },
+      {
+       "method": "ClassifyTechNodeForPatch_ShouldNotBeAvailableButIs_MakesUnavailable",
+       "line": 653
+      },
+      {
+       "method": "ClassifyTechNodeForPatch_NoOpDirections_AreNotChanges",
+       "line": 663
+      },
+      {
+       "method": "ResolveFacilityLevelPatch_Upgrade_MapsTierAndWrites",
+       "line": 679
+      },
+      {
+       "method": "ResolveFacilityLevelPatch_AlreadyAtMappedLevel_DoesNotWrite",
+       "line": 690
+      },
+      {
+       "method": "ResolveFacilityLevelPatch_Downgrade_MapsTierAndWrites",
+       "line": 702
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

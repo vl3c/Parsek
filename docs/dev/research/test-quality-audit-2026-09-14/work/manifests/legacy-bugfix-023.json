@@ -1,0 +1,265 @@
+{
+ "batch_id": "legacy-bugfix-023",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "Bug452RolloutLabelTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsUnclaimedRolloutAction_NullRecordingIdAndRolloutDedupKey_True",
+       "line": 77
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_AdoptedAction_False",
+       "line": 85
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_OrdinaryRecordingBuildAction_False",
+       "line": 93
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_NonRolloutDedupKey_False",
+       "line": 101
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_DedupKeyIsRolloutWithoutColon_False",
+       "line": 117
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_ProductionShapeDedupKey_True",
+       "line": 135
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_RecordingIdSetAndRolloutDedupKeyNonNull_False",
+       "line": 158
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_DedupKeyIsRolloutPrefixOnly_True",
+       "line": 178
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_VesselBuildButNoDedupKey_False",
+       "line": 198
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_NonFundsSpendingType_False",
+       "line": 215
+      },
+      {
+       "method": "IsUnclaimedRolloutAction_NullAction_False",
+       "line": 226
+      },
+      {
+       "method": "GetDescription_UnclaimedRollout_AppendsCancelledRolloutSuffix",
+       "line": 236
+      },
+      {
+       "method": "GetDescription_AdoptedRollout_NoSuffix",
+       "line": 245
+      },
+      {
+       "method": "GetDescription_OrdinaryRecordingBuildCost_NoSuffix",
+       "line": 253
+      },
+      {
+       "method": "TimelineGetGameActionText_UnclaimedRollout_AppendsCancelledRolloutSuffix",
+       "line": 266
+      },
+      {
+       "method": "TimelineGetGameActionText_AdoptedRollout_NoSuffix",
+       "line": 276
+      },
+      {
+       "method": "TimelineGetGameActionText_OrdinaryRecordingBuildCost_NoSuffix",
+       "line": 284
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug290OrphanSidecarTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IncludesCommittedRecordingIds",
+       "line": 49
+      },
+      {
+       "method": "IncludesPendingTreeRecordingIds",
+       "line": 59
+      },
+      {
+       "method": "PendingTreeIds_NotTreatedAsOrphans",
+       "line": 90
+      },
+      {
+       "method": "CombinesCommittedAndPendingIds",
+       "line": 130
+      },
+      {
+       "method": "NoPendingTree_OnlyReturnsCommitted",
+       "line": 157
+      },
+      {
+       "method": "EmptyStore_ReturnsEmptySet",
+       "line": 172
+      },
+      {
+       "method": "SkipsNullOrEmptyRecordingIds",
+       "line": 179
+      },
+      {
+       "method": "DeduplicatesCommittedRecordingsAndTrees",
+       "line": 213
+      },
+      {
+       "method": "OutOverload_ReportsPendingTreeCount",
+       "line": 230
+      },
+      {
+       "method": "CleanOrphanFiles_DeletesTransientArtifacts_WithoutTouchingValidSidecars",
+       "line": 265
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug156Tests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsPadFailure_ShortDurationAndCloseDistance_ReturnsTrue",
+       "line": 49
+      },
+      {
+       "method": "IsPadFailure_LongDuration_ReturnsFalse",
+       "line": 56
+      },
+      {
+       "method": "IsPadFailure_FarDistance_ReturnsFalse",
+       "line": 63
+      },
+      {
+       "method": "IsPadFailure_ExactThresholds_ReturnsFalse",
+       "line": 70
+      },
+      {
+       "method": "IsPadFailure_BothExceedThresholds_ReturnsFalse",
+       "line": 77
+      },
+      {
+       "method": "IsPadFailure_ZeroDurationAndZeroDistance_ReturnsTrue",
+       "line": 83
+      },
+      {
+       "method": "IsPadFailure_DistanceJustUnderThreshold_ReturnsTrue",
+       "line": 90
+      },
+      {
+       "method": "IsIdleOnPad_ZeroDistance_ReturnsTrue",
+       "line": 100
+      },
+      {
+       "method": "IsIdleOnPad_JustUnderThreshold_ReturnsTrue",
+       "line": 106
+      },
+      {
+       "method": "IsIdleOnPad_ExactThreshold_ReturnsFalse",
+       "line": 112
+      },
+      {
+       "method": "IsIdleOnPad_AboveThreshold_ReturnsFalse",
+       "line": 119
+      },
+      {
+       "method": "IsIdleOnPad_ToppledPadDropOverride_ReturnsTrue",
+       "line": 125
+      },
+      {
+       "method": "IsPadFailure_ToppledPadDropOverride_ReturnsTrue",
+       "line": 137
+      },
+      {
+       "method": "IsIdleOnPad_VerticalLaunchBeyondPadAltitudeThreshold_ReturnsFalse",
+       "line": 147
+      },
+      {
+       "method": "IsIdleOnPad_DownhillSlideBeyondPadAltitudeThreshold_ReturnsFalse",
+       "line": 159
+      },
+      {
+       "method": "IsTreeIdleOnPad_AllIdleRecordings_ReturnsTrue",
+       "line": 170
+      },
+      {
+       "method": "IsTreeIdleOnPad_MixedPointsAndZeroPoints_ReturnsTrue",
+       "line": 183
+      },
+      {
+       "method": "IsTreeIdleOnPad_ZeroPointRecordings_ReturnsFalse",
+       "line": 197
+      },
+      {
+       "method": "IsTreeIdleOnPad_MixedRecordings_ReturnsFalse",
+       "line": 210
+      },
+      {
+       "method": "IsTreeIdleOnPad_NullTree_ReturnsFalse",
+       "line": 219
+      },
+      {
+       "method": "IsTreeIdleOnPad_EmptyTree_ReturnsFalse",
+       "line": 225
+      },
+      {
+       "method": "IsTreeIdleOnPad_AfterConfigNodeRoundTrip_RetainsMaxDistance",
+       "line": 232
+      },
+      {
+       "method": "IsTreePadFailure_ToppledPadDropOverride_ReturnsTrue",
+       "line": 258
+      },
+      {
+       "method": "ComputeTerrainClearance_InsideBubble_Returns05",
+       "line": 275
+      },
+      {
+       "method": "ComputeTerrainClearance_AtBubbleEdge_Returns2",
+       "line": 282
+      },
+      {
+       "method": "ComputeTerrainClearance_AtVisualRange_Returns5",
+       "line": 289
+      },
+      {
+       "method": "ComputeTerrainClearance_BeyondVisualRange_ClampedAt5",
+       "line": 295
+      },
+      {
+       "method": "ComputeTerrainClearance_Midpoint_LerpsCorrectly",
+       "line": 301
+      },
+      {
+       "method": "CacheEngineModules_NullVessel_ReturnsEmptyList",
+       "line": 320
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

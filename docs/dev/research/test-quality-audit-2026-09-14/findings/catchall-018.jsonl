@@ -1,0 +1,55 @@
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Hold_DegenerateRotationPeriod_ReturnsZero","line":24,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Hold_NaNInputs_ReturnsZero","line":30,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Hold_AlreadyAligned_ReturnsZero","line":37,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Hold_GeneralCase_AlignsForward","line":45,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Hold_NegativeDelta_NormalizedForwardIntoRange","line":55,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Hold_AlwaysInRange_AndAligns","line":69,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Apply_ZeroOrNegativeHold_Identity","line":85,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Apply_BeforeBoundary_Identity","line":92,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Apply_WithinHold_HeldAtBoundary","line":99,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Apply_AfterHold_DeferredByHold","line":107,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Apply_IsContinuousAcrossTheHold","line":115,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Apply_InsertsExactlyHoldSeconds_PostBoundaryRoundTrip","line":125,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Clock_NoHold_NoCut_IsIdentityToTheRecordedSpan","line":137,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Clock_WithHold_BeforeIdentity_WithinHeld_AfterDeferred","line":156,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Clock_HoldComposesWithLoiterCut","line":183,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Clock_HoldClampedSoEffectiveSpanNeverExceedsCadence","line":206,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_ZeroBaseHold_ReturnsZeroForEveryN","line":229,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_NonPositiveBaseHold_ReturnsBaseUnchanged","line":240,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_DegenerateRotationPeriod_ReturnsBaseHoldUnchanged","line":252,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_NEquals0_ReturnsBaseHold","line":262,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_NEquals1_SubtractsCadenceModTrot_Wrapped","line":272,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_WrapAround_NegativeInnerBroughtBackIntoRange","line":284,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_AlwaysInRange_AcrossManyLoops","line":299,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_ReAlignsDeorbitRotationPhaseEveryLoop","line":309,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"PerLoop_FirstLoopMatchesConstantHold","line":327,"verdict":"duplicate","category":"T2","twin":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs.PerLoop_NEquals0_ReturnsBaseHold","falsifiability":"falsifiability: Source/Parsek/GhostPlaybackLogic.SpanClock.cs:782; drop the cycleIndex factor so N=0 shifts -> both red","note":"twin: Source/Parsek.Tests/ArrivalAlignHoldTests.cs.PerLoop_NEquals0_ReturnsBaseHold - same w0/cadence/tRot, same N=0 call, same precision 6"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Clock_NoHold_ByteIdenticalRegardlessOfRotationPeriod","line":342,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Clock_WithHold_InvalidRotationPeriod_KeepsConstantHoldBehavior","line":364,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Clock_WithHold_ValidRotationPeriod_AppliesPerLoopHoldOnLaterLoop","line":384,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"Clock_StationHold_TStationDrivesPerLoopDrift_EndToEnd","line":416,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"JointHold_StationExactAndRotationWithinTol_EveryCycle_NeverAccumulates","line":444,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"JointHold_DegenerateJointInputs_EqualSinglePeriodHold","line":472,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"JointHold_ZeroW0_OffFence_Unchanged","line":490,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","method":"SpanClock_JointHold_HoldsAtBoundaryThroughWholePeriodExtension","line":499,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"GatedAdvance_ReturnsCappedDelta_WhenRawUnderSlack","line":62,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"GatedAdvance_ReturnsFullRawDelta_WhenRawExceedsSlack","line":77,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"GatedAdvance_Degenerate_ReturnsZero","line":97,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"ZeroSlack_HasSecondary_InsideBorrowWindow_FalseOutside","line":111,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"ZeroSlack_PrimaryEffectiveSpan_NeverTruncatesWithinCycle","line":134,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"ZeroSlack_BoundaryContinuity_SecondaryHandsOffToNextPrimary","line":166,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"ZeroSlack_SecondaryInSoiReplay_RotationAligned","line":182,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"Wrapper_PrimaryOnly_MatchesFrame_AcrossSweep","line":212,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"AlignedLoop_NeverHasSecondary_PrimaryByteIdenticalToCapHelper","line":239,"verdict":"misleading","category":"T3","falsifiability":"falsifiability: Source/Parsek/GhostPlaybackLogic.SpanClock.cs:1557; force boundaryOverlapEngagedNext true so the aligned loop emits a secondary -> red","note":"name claims the primary loopUT equals the old capped-advance clock, but the body asserts only HasSecondary==false"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"TargetingWindowIndex_Unchanged_ByScheduleNullCall","line":257,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"DecideSecondary_RendersInMemberWindow_HiddenOutside","line":275,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"DecideSecondary_AlignedLoop_NoSecondary","line":317,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"TsSampleFrame_PrimaryPlusSecondary_InBorrowWindow","line":348,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"TsSampleFrame_NonMember_NoSecondary","line":367,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"TsSampleFrame_AlignedUnit_NeverHasSecondary","line":381,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"SecondaryMarker_InBorrowWindow_DrawsAtSecondaryHead","line":410,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"SecondaryMarker_NonMapSurface_NeverDraws","line":426,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"SecondaryMarker_Debris_NeverDraws","line":439,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"SecondaryMarker_NullRecording_NeverDraws","line":454,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","method":"SecondaryMarker_AlignedUnit_NeverDraws","line":464,"verdict":"ok"}
+{"kind":"finding","id":"F-catchall-018-01","file":"Source/Parsek.Tests/BoundaryOverlapClockTests.cs","line":239,"method":"AlignedLoop_NeverHasSecondary_PrimaryByteIdenticalToCapHelper","category":"T3","severity":"Medium","confidence":"high","falsifiability":"falsifiability: Source/Parsek/GhostPlaybackLogic.SpanClock.cs:1557; force boundaryOverlapEngagedNext true so the aligned loop emits a secondary -> red","what_it_asserts":"On the aligned fixture ComputeSpanLoopFrame never sets HasSecondary across a swept currentUT.","why_weak":"The name promises the second half (primary loopUT byte-identical to the capped-advance clock) but no loopUT value is compared, so a primary-side perturbation on aligned loops stays green here.","proposed_action":"Assert frame.LoopUT per sample against the loopUT built from ComputeCappedLaunchAdvanceSeconds, or rename to the HasSecondary claim only.","effort":"S","july_ref":"none"}
+{"kind":"finding","id":"F-catchall-018-02","file":"Source/Parsek.Tests/ArrivalAlignHoldTests.cs","line":327,"method":"PerLoop_FirstLoopMatchesConstantHold","category":"T2","severity":"Low","confidence":"high","falsifiability":"falsifiability: Source/Parsek/GhostPlaybackLogic.SpanClock.cs:782; drop the cycleIndex factor so N=0 shifts -> both red","what_it_asserts":"ComputePerLoopArrivalHoldSeconds(w0, 0, cadence, tRot) == w0 at precision 6.","why_weak":"Identical inputs, call and assertion to PerLoop_NEquals0_ReturnsBaseHold at line 262; the test comment says so.","proposed_action":"Delete PerLoop_FirstLoopMatchesConstantHold or fold its intent into the N=0 test comment.","effort":"S","july_ref":"none"}

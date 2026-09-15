@@ -1,0 +1,238 @@
+{
+ "batch_id": "mission-groups-013",
+ "cluster": "mission-groups",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "MissionScheduleGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SpanClock_Scheduled_WithLoiterCuts_EmitsMutexViolationWarning",
+       "line": 94
+      },
+      {
+       "method": "SpanClock_Scheduled_WithArrivalHold_EmitsMutexViolationWarning",
+       "line": 121
+      },
+      {
+       "method": "SpanClock_Scheduled_NoCutsNoHold_DoesNotWarn_ShippedPathIsClean",
+       "line": 138
+      },
+      {
+       "method": "ShouldTintTMinusAmber_ScheduledWithinTol_StockMun_ReturnsFalse",
+       "line": 155
+      },
+      {
+       "method": "ShouldTintTMinusAmber_ScheduledBoundedBest_ReturnsTrue",
+       "line": 177
+      },
+      {
+       "method": "ShouldTintTMinusAmber_NonScheduled_TintsOffFixedFit_Unchanged",
+       "line": 196
+      },
+      {
+       "method": "ShouldTintTMinusAmber_NotPhaseLocked_NeverTints",
+       "line": 211
+      },
+      {
+       "method": "ShouldTintTMinusAmber_DriftAmberReason_TintsIndependentOfToleranceFlags",
+       "line": 224
+      },
+      {
+       "method": "ShouldTintTMinusAmber_ArrivalAmber_TintsEvenWhenNotPhaseLocked",
+       "line": 246
+      },
+      {
+       "method": "ShouldTintTMinusAmber_DriftOnReaimUnit_Tints",
+       "line": 266
+      },
+      {
+       "method": "JoinAmberReasons_AllCombinations",
+       "line": 285
+      },
+      {
+       "method": "R2_SameParentBoundedBest_ResolvesMonotonicallyIncreasing_WithAmberFlagSurfaced",
+       "line": 298
+      },
+      {
+       "method": "R2_StockMunWithinTol_StaysWithinTolerance_OracleScopeHolds",
+       "line": 345
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GroupAggregateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EarliestStartUT_EmptyDescendants_ReturnsMaxValue",
+       "line": 56
+      },
+      {
+       "method": "EarliestStartUT_SingleRecording_ReturnsItsStartUT",
+       "line": 65
+      },
+      {
+       "method": "EarliestStartUT_MultipleRecordings_ReturnsEarliest",
+       "line": 74
+      },
+      {
+       "method": "TotalDuration_EmptyDescendants_ReturnsZero",
+       "line": 90
+      },
+      {
+       "method": "TotalDuration_SumsDurations",
+       "line": 99
+      },
+      {
+       "method": "TotalDuration_SkipsZeroDurationRecordings",
+       "line": 113
+      },
+      {
+       "method": "GroupStatus_EmptyDescendants_ReturnsDash",
+       "line": 130
+      },
+      {
+       "method": "GroupStatus_AllFuture_ReturnsClosestFuture",
+       "line": 142
+      },
+      {
+       "method": "GroupStatus_ActivePreferredOverFuture",
+       "line": 159
+      },
+      {
+       "method": "GroupStatus_MultipleActive_ReturnsClosestToNow",
+       "line": 175
+      },
+      {
+       "method": "GroupStatus_AllPast_NoTerminal_ReturnsPast",
+       "line": 190
+      },
+      {
+       "method": "GroupStatus_AllPast_WithTerminal_ShowsTerminalState",
+       "line": 206
+      },
+      {
+       "method": "GroupStatus_TerminatedRecording_NotTreatedAsActive",
+       "line": 221
+      },
+      {
+       "method": "GroupStatus_MultipleTerminals_PicksLatestEnding",
+       "line": 236
+      },
+      {
+       "method": "GroupStatus_DebrisTerminal_ShowsPast",
+       "line": 252
+      },
+      {
+       "method": "RecordingSortKey_LaunchTime_ReturnsStartUT",
+       "line": 269
+      },
+      {
+       "method": "RecordingSortKey_Duration_ReturnsDuration",
+       "line": 277
+      },
+      {
+       "method": "RecordingSortKey_Status_ReturnsStatusOrder",
+       "line": 285
+      },
+      {
+       "method": "RecordingSortKey_Index_ReturnsRowFallback",
+       "line": 293
+      },
+      {
+       "method": "ChainSortKey_LaunchTime_ReturnsEarliest",
+       "line": 303
+      },
+      {
+       "method": "ChainSortKey_Duration_ReturnsTotalDuration",
+       "line": 318
+      },
+      {
+       "method": "ChainSortKey_Status_ReturnsBestStatus",
+       "line": 332
+      },
+      {
+       "method": "GroupSortKey_EmptyDescendants_ReturnsMaxValue",
+       "line": 348
+      },
+      {
+       "method": "GroupSortKey_LaunchTime_ReturnsEarliestStartUT",
+       "line": 358
+      },
+      {
+       "method": "GroupSortKey_Duration_ReturnsTotalDuration",
+       "line": 372
+      },
+      {
+       "method": "GroupSortKey_Status_ReturnsStatusOrder",
+       "line": 386
+      },
+      {
+       "method": "GroupStatus_ActiveAndPast_NoFuture_ReturnsActive",
+       "line": 400
+      },
+      {
+       "method": "ChainSortKey_EmptyMembers_ReturnsDefaults",
+       "line": 415
+      },
+      {
+       "method": "GroupSortKey_Name_ReturnsZero",
+       "line": 436
+      },
+      {
+       "method": "RecordingSortKey_Name_ReturnsRowFallback",
+       "line": 448
+      },
+      {
+       "method": "ChainSortKey_Name_ReturnsZero",
+       "line": 457
+      },
+      {
+       "method": "GroupSortKey_Index_ReturnsNegativeOne",
+       "line": 469
+      },
+      {
+       "method": "IndexSort_GroupBeforeRecording",
+       "line": 480
+      },
+      {
+       "method": "MainRecording_EmptyDescendants_ReturnsNegativeOne",
+       "line": 495
+      },
+      {
+       "method": "MainRecording_SingleNonDebris_ReturnsThatIndex",
+       "line": 503
+      },
+      {
+       "method": "MainRecording_SingleDebris_ReturnsNegativeOne",
+       "line": 511
+      },
+      {
+       "method": "MainRecording_AllDebris_ReturnsNegativeOne",
+       "line": 521
+      },
+      {
+       "method": "MainRecording_MixedEarliestIsDebris_SkipsDebrisReturnsEarliestNonDebris",
+       "line": 531
+      },
+      {
+       "method": "MainRecording_MultipleNonDebris_ReturnsEarliest",
+       "line": 541
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

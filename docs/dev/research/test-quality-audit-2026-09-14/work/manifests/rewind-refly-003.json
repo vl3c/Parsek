@@ -1,0 +1,155 @@
+{
+ "batch_id": "rewind-refly-003",
+ "cluster": "rewind-refly",
+ "tier": "A1",
+ "expected_methods": 34,
+ "files": [
+  {
+   "file": "SupersedeCommitTests.cs",
+   "ranges": [
+    {
+     "start": 3114,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ValidateSupersedeTarget_ReasonStrings",
+       "line": 3114
+      },
+      {
+       "method": "ValidateSupersedeTarget_SectionAuthoritativePayloadWithEmptyPoints_ReturnsTrue",
+       "line": 3137
+      },
+      {
+       "method": "ValidateSupersedeTarget_OrbitalCheckpointPayloadWithEmptyPoints_ReturnsTrue",
+       "line": 3164
+      },
+      {
+       "method": "AppendRelations_PreRewindDebris_NoSupersedeRow_NotInReturnedSubtree",
+       "line": 3293
+      },
+      {
+       "method": "AppendRelations_PostRewindDebris_RowWritten",
+       "line": 3320
+      },
+      {
+       "method": "AppendRelations_DebrisAtRewindPointUtBoundary_RowWritten",
+       "line": 3337
+      },
+      {
+       "method": "AppendRelations_MixedPreAndPostRewind_OnlyPostRowsWritten",
+       "line": 3353
+      },
+      {
+       "method": "AppendRelations_PostRewindDebrisParentedToContinuation_StaysVisible",
+       "line": 3418
+      },
+      {
+       "method": "AppendRelations_NaNRewindPointUT_FallsBackToInvokedUT",
+       "line": 3518
+      },
+      {
+       "method": "AppendRelations_NonPositiveRewindPointUT_FallsBackToInvokedUT",
+       "line": 3539
+      },
+      {
+       "method": "AppendRelations_BothCutoffsUnset_NoFilteringApplied",
+       "line": 3554
+      },
+      {
+       "method": "AppendRelations_NonDebrisPostRewindRecording_StillGetsSupersedeRow",
+       "line": 3570
+      },
+      {
+       "method": "IsPreRewindDebris_DebrisWithoutParentAnchorRecordingId_ReturnsFalse",
+       "line": 3638
+      },
+      {
+       "method": "IsPreRewindDebris_NullInputs_ReturnFalse",
+       "line": 3663
+      },
+      {
+       "method": "ComputePreRewindCutoff_ResolvesExpectedField",
+       "line": 3687
+      },
+      {
+       "method": "ComputePreRewindCutoff_NoUsableField_ReturnsNaN",
+       "line": 3704
+      },
+      {
+       "method": "ComputePreRewindCutoff_NullMarker_ReturnsNaN",
+       "line": 3717
+      },
+      {
+       "method": "AppendRelationsReturnValue_FilteredSubtreeExcludesPreRewindDebrisFromTombstoneScope",
+       "line": 3723
+      },
+      {
+       "method": "IsPreRewindCarveOut_PreRewindDebris_ReturnsTrueWithReason",
+       "line": 3815
+      },
+      {
+       "method": "IsPreRewindCarveOut_PreRewindChainHead_ReturnsTrueWithReason",
+       "line": 3843
+      },
+      {
+       "method": "IsPreRewindCarveOut_ProvisionalAnchoredOnSupersedeTarget_DoesNotCarveOutParent",
+       "line": 3889
+      },
+      {
+       "method": "IsPreRewindCarveOut_NonHeadSiblingEndingAtRewindUT_NotCarvedOut",
+       "line": 3946
+      },
+      {
+       "method": "IsPreRewindCarveOut_NoSupersedeTargetIdOnMarker_NotCarvedOut",
+       "line": 3991
+      },
+      {
+       "method": "IsPreRewindCarveOut_NestedReFly_HEAD2EqualsFork1_CarvedOutCorrectly",
+       "line": 4023
+      },
+      {
+       "method": "IsPreRewindCarveOut_PostRewindChainSibling_ReturnsFalse",
+       "line": 4088
+      },
+      {
+       "method": "IsPreRewindCarveOut_NonDebrisSpansRewindUT_ReturnsFalse",
+       "line": 4116
+      },
+      {
+       "method": "IsPreRewindCarveOut_DebrisDoesNotMatchChainHead_StillReturnsDebrisReason",
+       "line": 4149
+      },
+      {
+       "method": "IsPreRewindCarveOut_NaNRewindPointUT_FallsBackToDebrisCutoff",
+       "line": 4182
+      },
+      {
+       "method": "IsPreRewindCarveOut_NaNAllUTs_ReturnsFalse",
+       "line": 4215
+      },
+      {
+       "method": "IsPreRewindCarveOut_NoActualTrajectoryBounds_NotCarvedOut",
+       "line": 4256
+      },
+      {
+       "method": "IsPreRewindCarveOut_StaleExplicitStartUT_DebrisDoesNotEscape",
+       "line": 4317
+      },
+      {
+       "method": "IsPreRewindCarveOut_StaleExplicitEndUT_GenuineHeadStillCarvedOut",
+       "line": 4358
+      },
+      {
+       "method": "AppendRelations_FilterBlockUsesCarveOut_ChainHeadSkipped",
+       "line": 4415
+      },
+      {
+       "method": "IsPreRewindDebris_Wrapper_DelegatesToCarveOut",
+       "line": 4490
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

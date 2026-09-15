@@ -1,0 +1,238 @@
+{
+ "batch_id": "harness-seam-016",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "TestCommandExitToSpaceCenterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Gate_ActiveTreeNoDialogWanted_Proceeds",
+       "line": 35
+      },
+      {
+       "method": "Gate_NothingLive_Proceeds",
+       "line": 48
+      },
+      {
+       "method": "Gate_PendingTreeUnderAutoMerge_Proceeds",
+       "line": 59
+      },
+      {
+       "method": "Gate_ActiveTreeDialogWanted_Refuses",
+       "line": 77
+      },
+      {
+       "method": "Gate_PendingTreeDialogWanted_Refuses",
+       "line": 90
+      },
+      {
+       "method": "Gate_SwitchSegmentSessionNoActiveTree_RefusesEvenWithBothVariantsNone",
+       "line": 101
+      },
+      {
+       "method": "Gate_SwitchSegmentSession_OutranksThePendingTreeBranch",
+       "line": 115
+      },
+      {
+       "method": "Gate_ActiveTreeBranch_IgnoresThePendingVariant",
+       "line": 129
+      },
+      {
+       "method": "Gate_ActiveTreeWithSessionArmed_ReportsTheActiveTreeVariant",
+       "line": 141
+      },
+      {
+       "method": "VariantToken_NamesTheModalThatWouldHaveSpawned",
+       "line": 157
+      },
+      {
+       "method": "VariantToken_Proceed_IsEmpty",
+       "line": 175
+      },
+      {
+       "method": "RefusalMsg_CarriesStableReasonPlusVariant",
+       "line": 182
+      },
+      {
+       "method": "RefusalMsg_NullVariant_StillWellFormed",
+       "line": 194
+      },
+      {
+       "method": "CompletePayload_CarriesScene",
+       "line": 202
+      },
+      {
+       "method": "CompletePayload_NullScene_EmptyString",
+       "line": 210
+      },
+      {
+       "method": "Completion_SettledSpaceCenterWithGame_CompleteOk",
+       "line": 218
+      },
+      {
+       "method": "Completion_StillInFlight_StillWaiting",
+       "line": 226
+      },
+      {
+       "method": "Completion_SpaceCenterNoGameYet_StillWaiting",
+       "line": 237
+      },
+      {
+       "method": "Completion_TrackingStation_DoesNotComplete",
+       "line": 245
+      },
+      {
+       "method": "Completion_ReturnedToMenu_FastFailureAheadOfBudget",
+       "line": 254
+      },
+      {
+       "method": "Completion_StuckInFlightPastBudget_Timeout",
+       "line": 266
+      },
+      {
+       "method": "Budget_IsTheDrivenSceneExitBudget_NotTheDefault",
+       "line": 278
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandPlantFlagTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Gate_ClosedNotStablyLocked_KeepWaiting",
+       "line": 27
+      },
+      {
+       "method": "Gate_Open_ProceedToPlant",
+       "line": 36
+      },
+      {
+       "method": "Gate_StablyLocked_RejectStableLock",
+       "line": 43
+      },
+      {
+       "method": "Gate_OpenBeatsStableLock",
+       "line": 50
+      },
+      {
+       "method": "Gate_BudgetExpiredNeverOpen_GateTimeout",
+       "line": 59
+      },
+      {
+       "method": "Gate_StableLockBeatsTimeout",
+       "line": 66
+      },
+      {
+       "method": "FlagComplete_AllTrue_Ok",
+       "line": 77
+      },
+      {
+       "method": "FlagComplete_DialogNotAnswered_NeverOk_EvenWithFlagVessel",
+       "line": 85
+      },
+      {
+       "method": "FlagComplete_NoFlagVessel_StillWaiting",
+       "line": 95
+      },
+      {
+       "method": "FlagComplete_NotSettled_StillWaiting",
+       "line": 103
+      },
+      {
+       "method": "FlagComplete_BudgetExpired_FlagTimeout",
+       "line": 111
+      },
+      {
+       "method": "FlagComplete_PositiveBeatsBudget",
+       "line": 119
+      },
+      {
+       "method": "LiveGate_CanPlantAndPlantableState_Open",
+       "line": 129
+      },
+      {
+       "method": "LiveGate_CanPlantButWrongState_Closed",
+       "line": 137
+      },
+      {
+       "method": "LiveGate_PlantableStateButCannotPlant_Closed",
+       "line": 146
+      },
+      {
+       "method": "LiveGate_NeitherConjunct_Closed",
+       "line": 152
+      },
+      {
+       "method": "GateDiag_AllMet_Open",
+       "line": 160
+      },
+      {
+       "method": "GateDiag_NoGroundContact_NamesIt",
+       "line": 169
+      },
+      {
+       "method": "GateDiag_WrongState_NamesFsmState",
+       "line": 180
+      },
+      {
+       "method": "GateDiag_MultipleClosed_CommaJoined",
+       "line": 190
+      },
+      {
+       "method": "GateDiag_EmptyStateName_Placeholder",
+       "line": 200
+      },
+      {
+       "method": "GateDiag_CanPlantUnbound_NamesIt_EvenWhenEveryComponentReadIsTrue",
+       "line": 210
+      },
+      {
+       "method": "GateDiag_CanPlantUnbound_LeadsTheCommaJoinedList",
+       "line": 223
+      },
+      {
+       "method": "GateDiag_AcLocked_NamesIt",
+       "line": 233
+      },
+      {
+       "method": "DialogAction_PopupPresent_InvokeDismiss",
+       "line": 244
+      },
+      {
+       "method": "DialogAction_FlagVesselExistsButNoPopup_KeepWaiting_NeverInferAnswer",
+       "line": 253
+      },
+      {
+       "method": "DialogAction_NoPopupNoFlagVessel_KeepWaiting",
+       "line": 265
+      },
+      {
+       "method": "DialogAction_PopupPresentNoFlagVesselYet_InvokeDismiss",
+       "line": 272
+      },
+      {
+       "method": "Payload_CarriesSiteBodyLatLon",
+       "line": 282
+      },
+      {
+       "method": "Payload_NullSiteBody_EmptyStrings",
+       "line": 294
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

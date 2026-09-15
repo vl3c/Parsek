@@ -1,0 +1,3 @@
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/Rules/Inv6ResourceManifestTests.cs", "method": "ManifestPresent_RoundTrips_NoFindings", "line": 26, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/Rules/Inv6ResourceManifestTests.cs", "method": "ManifestAbsent_NoFindings", "line": 50, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/Rules/Inv6ResourceManifestTests.cs", "method": "ManifestRoundTripDropsResource_Fails", "line": 60, "verdict": "ok"}

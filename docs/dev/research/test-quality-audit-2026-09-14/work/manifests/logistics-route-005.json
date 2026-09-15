@@ -1,0 +1,175 @@
+{
+ "batch_id": "logistics-route-005",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "Logistics/RouteCodecTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RoundTrip_SendOnceArmedAndCreatedUT_SetAndSparse",
+       "line": 193
+      },
+      {
+       "method": "RoundTrip_FullyPopulated",
+       "line": 220
+      },
+      {
+       "method": "RoundTrip_EmptyBackingMissionDefinition_NoNodeAndNoReject",
+       "line": 309
+      },
+      {
+       "method": "RoundTrip_SparseCycleIndex_DefaultMinusOne",
+       "line": 364
+      },
+      {
+       "method": "RoundTrip_RecordedOriginUndockUT_SparseDefaultMinusOne",
+       "line": 400
+      },
+      {
+       "method": "RoundTrip_WindowAnchorAndBasisMarker_SparseOmittedAtDefaults",
+       "line": 445
+      },
+      {
+       "method": "Serialize_InterBodyRoute_StillWritesTheZeroPeriodLine_NoSchemaMove",
+       "line": 481
+      },
+      {
+       "method": "Serialize_PreM5Route_ByteIdenticalBaseline",
+       "line": 517
+      },
+      {
+       "method": "RoundTrip_IsHarvestOrigin_SparseKey",
+       "line": 586
+      },
+      {
+       "method": "RoundTrip_PendingRecoveryCredit_Preserved",
+       "line": 639
+      },
+      {
+       "method": "RoundTrip_PendingRecoveryCredit_SparseDefaults",
+       "line": 674
+      },
+      {
+       "method": "RoundTrip_CadenceMultiplier_SparseDefaultOne",
+       "line": 710
+      },
+      {
+       "method": "RoundTrip_DispatchPriority_SparseDefaultZero",
+       "line": 755
+      },
+      {
+       "method": "RoundTrip_LastConsumedPartnerCycle_SparseDefaultZero",
+       "line": 804
+      },
+      {
+       "method": "Load_NegativeDispatchPriority_ClampedToZero",
+       "line": 854
+      },
+      {
+       "method": "RoundTrip_OriginLacksCargoShortfall_Persists",
+       "line": 890
+      },
+      {
+       "method": "Defaults_WriteNoHoldKeys",
+       "line": 929
+      },
+      {
+       "method": "MissingHoldKeys_ReadAsDefaults",
+       "line": 969
+      },
+      {
+       "method": "UnknownHoldKind_MapsToNone_WithWarn",
+       "line": 1005
+      },
+      {
+       "method": "Load_SubFloorCadenceMultiplier_ClampedToOne",
+       "line": 1047
+      },
+      {
+       "method": "Load_OldSaveWithoutBackingMission_GracefulDefault",
+       "line": 1080
+      },
+      {
+       "method": "RoundTrip_PreMissingStatus_SparseAndPaused",
+       "line": 1128
+      },
+      {
+       "method": "Load_OldSaveWithoutPreMissingStatus_DefaultsActive",
+       "line": 1177
+      },
+      {
+       "method": "RoundTrip_Lean_NoSpuriousNodes",
+       "line": 1210
+      },
+      {
+       "method": "RoundTrip_PickupManifest_Preserved",
+       "line": 1261
+      },
+      {
+       "method": "RoundTrip_EmptyPickupManifest_OmittedAndNull",
+       "line": 1310
+      },
+      {
+       "method": "RoundTrip_ZeroCountPickupManifest_OmittedAndNull",
+       "line": 1354
+      },
+      {
+       "method": "StoredPartSnapshot_PreservedVerbatim",
+       "line": 1386
+      },
+      {
+       "method": "StackQuantityFields_RoundTrip",
+       "line": 1425
+      },
+      {
+       "method": "Load_UnknownStatusValue_MapsToActiveAndWarns",
+       "line": 1465
+      },
+      {
+       "method": "Load_EmptyStops_ReturnsNullAndWarns",
+       "line": 1504
+      },
+      {
+       "method": "Load_MalformedSourceRef_RoutewideReject",
+       "line": 1530
+      },
+      {
+       "method": "RoundTrip_TwoStops_PerStopRecordedDockUtPreserved",
+       "line": 1585
+      },
+      {
+       "method": "RoundTrip_SingleStop_PerStopFireStateSparseOmitted",
+       "line": 1638
+      },
+      {
+       "method": "Serialize_SingleStop_ByteIdenticalToBaseline",
+       "line": 1667
+      },
+      {
+       "method": "PausedThroughMissingAndBack_RecoversToPaused",
+       "line": 2022
+      },
+      {
+       "method": "ActiveThroughMissingAndBack_RecoversToActive",
+       "line": 2069
+      },
+      {
+       "method": "SourceChangedBaseline_NeverRecoversToSourceChanged",
+       "line": 2106
+      },
+      {
+       "method": "RepeatedMissingPass_KeepsFirstBaseline",
+       "line": 2140
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

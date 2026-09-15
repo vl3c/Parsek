@@ -1,0 +1,339 @@
+{
+ "batch_id": "recording-tree-053",
+ "cluster": "recording-tree",
+ "tier": "C",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "ChainHandoffLogicTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DecideShadow_NoChainNext_ReturnsFalse",
+       "line": 14
+      },
+      {
+       "method": "DecideShadow_ChainNextNotActive_ReturnsFalse",
+       "line": 27
+      },
+      {
+       "method": "DecideShadow_ChainNextActive_ReturnsTrue",
+       "line": 38
+      },
+      {
+       "method": "DecideBridgeHold_NoChainNext_ReturnsNone",
+       "line": 50
+      },
+      {
+       "method": "DecideBridgeHold_ContinuationAlreadyActive_ReturnsNone",
+       "line": 63
+      },
+      {
+       "method": "DecideBridgeHold_ContinuationPendingAndBridgeNotOpenedYet_ReturnsHold",
+       "line": 76
+      },
+      {
+       "method": "DecideBridgeHold_ContinuationPendingWithinBridgeWindow_ReturnsHold",
+       "line": 90
+      },
+      {
+       "method": "DecideBridgeHold_ContinuationPendingExactlyAtWindowEdge_ReturnsExpired",
+       "line": 102
+      },
+      {
+       "method": "DecideBridgeHold_ContinuationPendingBeyondBridgeWindow_ReturnsExpired",
+       "line": 115
+      },
+      {
+       "method": "DecideBridgeHold_ZeroBridgeWindow_CollapsesToExpiredAfterFirstOpenFrame",
+       "line": 128
+      },
+      {
+       "method": "DecideBridgeHold_NegativeBridgeWindow_TreatsAsExpired",
+       "line": 147
+      },
+      {
+       "method": "DefaultBridgeMaxSeconds_IsOneSecond",
+       "line": 160
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CommittedScienceCacheRebuildTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecalculateAndPatch_CutoffWalk_KeepsFutureScienceInCommittedCacheOnly",
+       "line": 35
+      },
+      {
+       "method": "RecalculateAndPatch_CutoffThenFullWalk_DoesNotDriftCommittedCache",
+       "line": 57
+      },
+      {
+       "method": "RecalculateAndPatch_FullWalk_PrunesDeletedScienceSubjectsFromCommittedCache",
+       "line": 91
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TreeLogVerificationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CommitTree_LogsTreeNameAndRecordingCount",
+       "line": 69
+      },
+      {
+       "method": "StashPendingTree_LogsTreeNameAndRecordingCount",
+       "line": 84
+      },
+      {
+       "method": "DiscardPendingTree_LogsTreeName",
+       "line": 99
+      },
+      {
+       "method": "RecordingTreeSave_DoesNotLogPerTreeLine",
+       "line": 118
+      },
+      {
+       "method": "RecordingTreeLoad_LogsSummary",
+       "line": 159
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ChainSpawnWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FindChainTipForRecording_NullChains_ReturnsNull",
+       "line": 71
+      },
+      {
+       "method": "FindChainTipForRecording_EmptyChains_ReturnsNull",
+       "line": 81
+      },
+      {
+       "method": "FindChainTipForRecording_NoMatch_ReturnsNull",
+       "line": 92
+      },
+      {
+       "method": "FindChainTipForRecording_MatchesTip_ReturnsChain",
+       "line": 106
+      },
+      {
+       "method": "FindChainTipForRecording_TerminatedTip_ReturnsNull",
+       "line": 122
+      },
+      {
+       "method": "FindChainTipForRecording_IntermediateLink_ReturnsNull",
+       "line": 135
+      },
+      {
+       "method": "FindChainTipForRecording_MultipleChains_FindsCorrectTip",
+       "line": 150
+      },
+      {
+       "method": "FindChainTipForRecording_TipMatchesDifferentVesselPid_StillReturnsChain",
+       "line": 168
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "QuickloadResumeMatchGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FreshRollout_CandidateIsCapturedRolloutPid_Rejects",
+       "line": 28
+      },
+      {
+       "method": "FreshRollout_NoCapturedRolloutPid_NeverRejects",
+       "line": 35
+      },
+      {
+       "method": "FreshRollout_DifferentCandidatePid_DoesNotReject",
+       "line": 42
+      },
+      {
+       "method": "GuidGate_BothKnownAndDifferent_Rejects",
+       "line": 51
+      },
+      {
+       "method": "GuidGate_SameGuid_DoesNotReject",
+       "line": 58
+      },
+      {
+       "method": "GuidGate_UnknownEitherSide_Inconclusive_DoesNotReject",
+       "line": 69
+      },
+      {
+       "method": "GuidGate_DashedVsNForm_SameLaunch_DoesNotReject",
+       "line": 78
+      },
+      {
+       "method": "Evaluate_Bdock1Flight16Incident_RejectsAsFreshRollout",
+       "line": 87
+      },
+      {
+       "method": "Evaluate_FreshRolloutWithUnknownGuids_StillRejects",
+       "line": 100
+      },
+      {
+       "method": "Evaluate_NotRolloutButGuidDiffers_RejectsAsGuidMismatch",
+       "line": 110
+      },
+      {
+       "method": "Evaluate_GenuineQuickload_SameGuidNewPid_Accepts",
+       "line": 120
+      },
+      {
+       "method": "Evaluate_LegacyRecordingNoGuid_Accepts",
+       "line": 132
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "QuickloadResumeHelperReadinessTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsReloadedFlightReady_NegativeUnityIdsStillRequireDifferentInstance",
+       "line": 11
+      },
+      {
+       "method": "IsReloadedFlightReady_RequiresActiveVessel",
+       "line": 33
+      },
+      {
+       "method": "IsReloadedFlightReady_RequiresFlightScene",
+       "line": 45
+      },
+      {
+       "method": "IsReloadedFlightReady_RequiresFlightGlobalsReady",
+       "line": 57
+      },
+      {
+       "method": "IsReloadedFlightReady_RequiresCurrentFlightInstance",
+       "line": 69
+      },
+      {
+       "method": "IsReloadedFlightReady_RequiresTheFlightReadyEvent",
+       "line": 81
+      },
+      {
+       "method": "PartPersistentIdStability_UsesStockQuickloadBackend",
+       "line": 104
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordingRewindRetirementTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SaveIntoLoadFrom_RoundTripsFields",
+       "line": 10
+      },
+      {
+       "method": "LoadFrom_MissingReason_UsesDefault",
+       "line": 39
+      },
+      {
+       "method": "ScenarioSaveLoad_ReplacesRetirementParentNode",
+       "line": 51
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordingInvariantsVerdictTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CleanModel_NoFailFindings",
+       "line": 30
+      },
+      {
+       "method": "DanglingSupersedeModel_MapsToFail",
+       "line": 54
+      },
+      {
+       "method": "OrphanSupersede_MapsToWarnNotFail",
+       "line": 81
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordingBuilderLoopIntervalTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LoopEnabled_ZeroInterval_AutoDerivesFromTrajectoryDuration",
+       "line": 27
+      },
+      {
+       "method": "LoopEnabled_ExplicitValidInterval_PassedThroughUnchanged",
+       "line": 44
+      },
+      {
+       "method": "LoopEnabled_ZeroInterval_EmptyTrajectory_FallsBackToDefault",
+       "line": 57
+      },
+      {
+       "method": "LoopEnabled_ZeroInterval_ShortTrajectory_FallsBackToDefault",
+       "line": 68
+      },
+      {
+       "method": "LoopDisabled_ZeroInterval_StoredAsIs",
+       "line": 81
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

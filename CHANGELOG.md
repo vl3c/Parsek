@@ -110,11 +110,27 @@ _(unreleased — entries accumulate here per commit)_
     note reading `as <kerbal>` when a stand-in flew that seat. Clicking a row still
     scrolls the Timeline to that flight.
 
-  The window's first-open width went from 410 to 700 px and its minimum from 280 to 520,
-  which is what the columns need; the two tabs' seam tokens (`roster`, `outcomes`) are
+  The window's first-open width went from 410 to 760 px and its minimum from 280 to 570,
+  which is what the columns need (the two date columns are 130 px each: a compact KSP date
+  reads "Y1, D01, 02:29" and the first flight of the rebuild photographed it clipped in
+  80); the two tabs' seam tokens (`roster`, `outcomes`) are
   unchanged, so nothing that drives the window by name moved. The empty-state line that
   used to say "No reserved crew, stand-ins, or retired kerbals." on a career with four
   kerbals in it is gone. Design: `docs/dev/design-gui-kerbals-window.md`.
+
+- **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
+  Four source-text wiring gates were scanning raw file text, so a call left behind only as a
+  comment - or the same call text inside a nearby log message - kept the gate green after the
+  real call was deleted: the route-orchestrator tick hook, the three render-union seams, the
+  watch-entry consumer sweep and the Missions partner-journey toggle now scan comment-stripped
+  (and, where no log literal is pinned, literal-masked) source, the render-union seam slices the
+  method's brace-matched body instead of a fixed 4000-character window, and the Missions gates
+  anchor their proximity windows to the enclosing method body plus carry a comment-only decoy
+  cell. Two test classes installed a static test hook and never put it back (a rotation-period
+  seam that then answered NaN for every body, and a KerbalsModule on the ledger orchestrator),
+  leaking into every later test in the Sequential collection; the kerbals seam is saved and
+  restored in Dispose, the frame-transform seam is reset on both ends of the class. Each repair carries a mutation or leak-check proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No player-visible change.
 
 - **Unticking a recording's playback box now hides that flight everywhere, not just in
   the world.** The tick box at the left of every row in the Recordings tab promised that

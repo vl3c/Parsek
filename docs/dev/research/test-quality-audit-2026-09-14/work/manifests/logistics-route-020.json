@@ -1,0 +1,250 @@
+{
+ "batch_id": "logistics-route-020",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 55,
+ "files": [
+  {
+   "file": "Logistics/RouteRunCostCalculatorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NoRecoveryRows_SumsZero",
+       "line": 73
+      },
+      {
+       "method": "SingleRecovery_InTree_Summed",
+       "line": 87
+      },
+      {
+       "method": "MultipleRecoveries_InTree_Summed",
+       "line": 102
+      },
+      {
+       "method": "RecoveryInTreeButNotRouteMembers_StillCounted",
+       "line": 125
+      },
+      {
+       "method": "RecoveryFromDifferentTree_Excluded",
+       "line": 150
+      },
+      {
+       "method": "NonRecoveryFundsEarning_Excluded",
+       "line": 170
+      },
+      {
+       "method": "SupersededRecovery_ExcludedByElsInput",
+       "line": 198
+      },
+      {
+       "method": "EmptyTreeMembers_SumsZero",
+       "line": 215
+      },
+      {
+       "method": "NullEls_SumsZero",
+       "line": 229
+      },
+      {
+       "method": "LaunchOnly_NoRecovery_NetEqualsLaunch",
+       "line": 247
+      },
+      {
+       "method": "SingleRecovery_NetEqualsLaunchMinusPayout",
+       "line": 265
+      },
+      {
+       "method": "MultiplePartialRecoveries_NetUsesSum",
+       "line": 284
+      },
+      {
+       "method": "RecoveredExceedsLaunch_NetFloorsAtZero",
+       "line": 306
+      },
+      {
+       "method": "NonCareer_NotApplicable",
+       "line": 321
+      },
+      {
+       "method": "NonKscOrigin_NotApplicable",
+       "line": 336
+      },
+      {
+       "method": "UnhydratedSnapshot_LaunchZero_CostUnknown",
+       "line": 354
+      },
+      {
+       "method": "Assemble_EmitsVerboseRunCostLine",
+       "line": 370
+      },
+      {
+       "method": "ResolveTreeRecordingIds_NullBackingTree_ReturnsEmpty",
+       "line": 393
+      },
+      {
+       "method": "ResolveTreeRecordingIds_NullRoute_ReturnsEmpty",
+       "line": 405
+      },
+      {
+       "method": "ResolveTreeRecordingIds_UnresolvedTree_ReturnsEmpty",
+       "line": 416
+      },
+      {
+       "method": "ResolveTreeRecordingIds_CreationSnapshot_DropsPostCreationRecording",
+       "line": 435
+      },
+      {
+       "method": "ResolveTreeRecordingIds_EmptyCreationSnapshot_FailsOpenWholeTree",
+       "line": 458
+      },
+      {
+       "method": "ResolveTreeRecordingIds_StaleSnapshotId_NotResurfaced",
+       "line": 476
+      },
+      {
+       "method": "ResolveTreeRecordingIds_Tree_EnumeratesAllMembers",
+       "line": 505
+      },
+      {
+       "method": "ResolveTreeRecordingIds_Tree_Null_ReturnsEmpty",
+       "line": 518
+      },
+      {
+       "method": "AssembleForCandidate_LaunchOnly_NetEqualsLaunch",
+       "line": 528
+      },
+      {
+       "method": "AssembleForCandidate_WithRecovery_NetEqualsLaunchMinusPayout",
+       "line": 546
+      },
+      {
+       "method": "AssembleForCandidate_NonCareer_NotApplicable",
+       "line": 561
+      },
+      {
+       "method": "AssembleForCandidate_NonKscOrigin_NotApplicable",
+       "line": 576
+      },
+      {
+       "method": "AssembleForCandidate_LaunchZero_CostUnknown",
+       "line": 591
+      },
+      {
+       "method": "AssembleForCandidate_RecoveredExceedsLaunch_NetFloorsAtZero",
+       "line": 605
+      },
+      {
+       "method": "ComputeForCandidate_WalksSnapshot_AndSumsTreeRecovery",
+       "line": 619
+      },
+      {
+       "method": "ComputeForCandidate_NullSnapshot_CostUnknown",
+       "line": 654
+      },
+      {
+       "method": "IsCandidateKscOrigin_DockChildSource_RootHasLaunchSite_True",
+       "line": 708
+      },
+      {
+       "method": "ComputeForCandidate_DockChildSource_RootKsc_Applicable",
+       "line": 727
+      },
+      {
+       "method": "IsCandidateKscOrigin_NoResolvableRoot_FallsBackToSource",
+       "line": 756
+      },
+      {
+       "method": "IsCandidateKscOrigin_NullTree_UsesSource",
+       "line": 774
+      },
+      {
+       "method": "IsCandidateKscOrigin_RootNonKerbin_False",
+       "line": 791
+      },
+      {
+       "method": "IsCandidateKscOrigin_RootNoLaunchSite_False",
+       "line": 805
+      },
+      {
+       "method": "IsCandidateKscOrigin_NullSourceNoRoot_False",
+       "line": 818
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteStoreValidationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Revalidate_MissingSource_TransitionsToMissingSourceRecording",
+       "line": 203
+      },
+      {
+       "method": "Revalidate_FingerprintDrift_SidecarEpoch_TransitionsToSourceChanged",
+       "line": 236
+      },
+      {
+       "method": "Revalidate_IntoMissingSource_FlushesPendingRecoveryCredit_ClearsMarker",
+       "line": 275
+      },
+      {
+       "method": "Revalidate_IntoSourceChanged_FlushesPendingRecoveryCredit_ClearsMarker",
+       "line": 307
+      },
+      {
+       "method": "Revalidate_IntoMissingSource_NoPendingCredit_NoFlushLog",
+       "line": 338
+      },
+      {
+       "method": "Revalidate_FingerprintDrift_RouteProofHash_TransitionsToSourceChanged",
+       "line": 362
+      },
+      {
+       "method": "Revalidate_AllMatch_LeavesActiveUntouched",
+       "line": 394
+      },
+      {
+       "method": "Revalidate_StopWithPickupManifest_LeavesActiveUntouched",
+       "line": 438
+      },
+      {
+       "method": "Revalidate_MissingRecovers_TransitionsBackToActive",
+       "line": 482
+      },
+      {
+       "method": "Revalidate_SourceChanged_DoesNotAutoRecover",
+       "line": 516
+      },
+      {
+       "method": "Revalidate_SupersededRecording_TransitionsToMissingSourceRecording",
+       "line": 538
+      },
+      {
+       "method": "Revalidate_DoesNotMutateNextDispatchUT",
+       "line": 576
+      },
+      {
+       "method": "Revalidate_MultipleRoutes_LogsCountAndTransitions",
+       "line": 601
+      },
+      {
+       "method": "Revalidate_MultiSourceRefSecondDrifts_TransitionsToSourceChanged",
+       "line": 655
+      },
+      {
+       "method": "Revalidate_NoSourceRefs_SkipsWithVerbose",
+       "line": 717
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

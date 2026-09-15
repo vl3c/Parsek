@@ -1,0 +1,276 @@
+{
+ "batch_id": "analyzer-002",
+ "cluster": "analyzer",
+ "tier": "B",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "Analyzer/BaselineFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Digest_MasksNumerics_KeepsSkeleton",
+       "line": 46
+      },
+      {
+       "method": "Digest_GuidHexIds_StayDistinct",
+       "line": 65
+      },
+      {
+       "method": "Key_EqualityIsAllFourOrdinal",
+       "line": 75
+      },
+      {
+       "method": "Key_SameFindingTwice_IsStable",
+       "line": 89
+      },
+      {
+       "method": "Match_SectionMinusOne_Baselines",
+       "line": 99
+      },
+      {
+       "method": "Match_SeverityEscalation_NotMaskedAndSurfaces",
+       "line": 113
+      },
+      {
+       "method": "Gate_NonBaselinedFail_Reds",
+       "line": 131
+      },
+      {
+       "method": "Gate_AllBaselined_GoesGreen_FindingsPresent",
+       "line": 148
+      },
+      {
+       "method": "Gate_BaselinedWarn_Unaffected",
+       "line": 170
+      },
+      {
+       "method": "Gate_StaleFixture_ApplyRefusedOnStampedSubject",
+       "line": 184
+      },
+      {
+       "method": "Gate_StaleFixtureLevel_NeverBaselined_EvenUnstamped",
+       "line": 200
+      },
+      {
+       "method": "Forbid_BaselinePresent_Fails",
+       "line": 216
+      },
+      {
+       "method": "Forbid_NoBaseline_Clean",
+       "line": 231
+      },
+      {
+       "method": "Ignore_BaselinePresent_NeverApplies",
+       "line": 243
+      },
+      {
+       "method": "MultiMatch_FirstBaselined_SurplusGates",
+       "line": 260
+      },
+      {
+       "method": "PlaceholderTarget_NeverBaselined",
+       "line": 278
+      },
+      {
+       "method": "Apply_NoBaselineFile_NotFoundInfo_EverythingSurfaces",
+       "line": 291
+      },
+      {
+       "method": "StaleEntry_MatchesNothing_InfoAndGreen",
+       "line": 304
+      },
+      {
+       "method": "ParseFault_RedsAndAppliesNothing",
+       "line": 319
+      },
+      {
+       "method": "Apply_IsDeterministic",
+       "line": 338
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv12SplitClosedSlotTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CpHeadWithImmutableTerminalCarryingTip_Warns",
+       "line": 59
+      },
+      {
+       "method": "TheFindingIsWarn_SoTheRunIsNotRed",
+       "line": 88
+      },
+      {
+       "method": "ThreeMemberChain_HeadCpAndLastMemberSealed_Warns",
+       "line": 108
+      },
+      {
+       "method": "HealthySplit_TipCarriesTheHeadsCommittedProvisional_IsSilent",
+       "line": 128
+      },
+      {
+       "method": "GenuinelySealedChain_HeadImmutableToo_IsSilent",
+       "line": 142
+      },
+      {
+       "method": "UnsplitSlot_SingleMemberChain_IsSilent",
+       "line": 157
+      },
+      {
+       "method": "UnsplitSlot_NoChainIdAtAll_IsSilent",
+       "line": 168
+      },
+      {
+       "method": "ImmutableTipWithoutATerminal_IsSilent",
+       "line": 182
+      },
+      {
+       "method": "NotCommittedTip_IsSilent",
+       "line": 196
+      },
+      {
+       "method": "SupersededTip_IsSilent",
+       "line": 210
+      },
+      {
+       "method": "TwoDamagedChains_ProduceOneFindingEach_AndAHealthyThirdIsSilent",
+       "line": 234
+      },
+      {
+       "method": "NullModelAndNullRecordings_AreSilentAndDoNotThrow",
+       "line": 255
+      },
+      {
+       "method": "NullMembersInTheList_AreSkipped",
+       "line": 262
+      },
+      {
+       "method": "SealedSlot_HeadStaysCommittedProvisional_ProducesTheSameShape_AndIsReportedAsAmbiguous",
+       "line": 279
+      },
+      {
+       "method": "AHeadAndATipOnDifferentChainBranches_AreNotPaired",
+       "line": 304
+      },
+      {
+       "method": "EachChainBranchIsEvaluatedOnItsOwn",
+       "line": 321
+      },
+      {
+       "method": "TheRuleIsRegisteredInBothTheFullSetAndTheInGamePureCoreSubset",
+       "line": 339
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/BaselineCodecTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Load_CorruptFile_ParseFault_NullBaseline",
+       "line": 62
+      },
+      {
+       "method": "Load_MalformedEntry_Dropped_SiblingApplies",
+       "line": 74
+      },
+      {
+       "method": "Load_DuplicateEntries_DedupeWithFault",
+       "line": 94
+      },
+      {
+       "method": "Load_HandAuthoredStaleLevel_EntryMalformed_MatchingFailGates",
+       "line": 114
+      },
+      {
+       "method": "Load_FutureFormat_VersionFuture_NullBaseline",
+       "line": 146
+      },
+      {
+       "method": "Load_MissingFile_NullBaseline_NoFaults",
+       "line": 158
+      },
+      {
+       "method": "Load_WrappedByHand_StillParses",
+       "line": 169
+      },
+      {
+       "method": "RoundTrip_BuildWriteLoad_KeysMatchOriginalFindings",
+       "line": 186
+      },
+      {
+       "method": "Build_PlaceholderTarget_SkippedNotWritten",
+       "line": 216
+      },
+      {
+       "method": "Update_PreservesReasons_PrunesStale_KeepsStillMatching",
+       "line": 235
+      },
+      {
+       "method": "Update_KeepStale_RetainsUnmatchedEntry",
+       "line": 275
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv9RewindPointTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ValidRewindSave_PresentInSavesDir_NoFindings",
+       "line": 98
+      },
+      {
+       "method": "TraversalRewindId_Fails_WithoutFsAccess",
+       "line": 113
+      },
+      {
+       "method": "MissingRewindSave_Warns_NotFails",
+       "line": 141
+      },
+      {
+       "method": "MissingRewindSave_Provisional_Fails_DistinctToken",
+       "line": 163
+      },
+      {
+       "method": "MissingRewindSave_Immutable_Warns_NotFails",
+       "line": 193
+      },
+      {
+       "method": "PresentRewindSave_Provisional_NoFindings",
+       "line": 222
+      },
+      {
+       "method": "UnparsableRewindSave_Fails",
+       "line": 249
+      },
+      {
+       "method": "OrphanRewindSave_ReportsInfoInventory_NotWarn",
+       "line": 271
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

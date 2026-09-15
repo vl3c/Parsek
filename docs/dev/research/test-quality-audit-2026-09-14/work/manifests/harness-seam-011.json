@@ -1,0 +1,171 @@
+{
+ "batch_id": "harness-seam-011",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 38,
+ "files": [
+  {
+   "file": "TestCommandLoadGameTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Focusable_ValidGame_InRangeIdx",
+       "line": 21
+      },
+      {
+       "method": "NotFocusable_NullGame",
+       "line": 29
+      },
+      {
+       "method": "NotFocusable_IncompatibleGame",
+       "line": 35
+      },
+      {
+       "method": "NotFocusable_NullFlightState_OrProtoVessels",
+       "line": 45
+      },
+      {
+       "method": "NotFocusable_IdxOutOfRange",
+       "line": 52
+      },
+      {
+       "method": "Route_FocusableGame_Flight",
+       "line": 66
+      },
+      {
+       "method": "Route_VesselLessCleanSlate_SpaceCenter",
+       "line": 73
+      },
+      {
+       "method": "Route_ParkedVesselsNoActive_SpaceCenter",
+       "line": 81
+      },
+      {
+       "method": "Route_NullProtoVesselList_SpaceCenterNotFailed",
+       "line": 89
+      },
+      {
+       "method": "Route_InvalidGame_Failed",
+       "line": 98
+      },
+      {
+       "method": "Completion_SpaceCenterRoute_CompletesOnSettledKsc",
+       "line": 109
+      },
+      {
+       "method": "Completion_SpaceCenterRoute_MenuBounceAndTimeoutKeepMeanings",
+       "line": 126
+      },
+      {
+       "method": "CompletePayload_CarriesSceneAndSave",
+       "line": 137
+      },
+      {
+       "method": "CompletePayload_NullSave_EmptyString",
+       "line": 146
+      },
+      {
+       "method": "DecideLoadCompletion_FlightWithGame_CompleteOk",
+       "line": 159
+      },
+      {
+       "method": "DecideLoadCompletion_FlightNoGameYet_StillWaiting",
+       "line": 167
+      },
+      {
+       "method": "DecideLoadCompletion_OtherSceneWithinBudget_StillWaiting",
+       "line": 176
+      },
+      {
+       "method": "DecideLoadCompletion_ReturnedToMenu_LoadFailedMenu",
+       "line": 184
+      },
+      {
+       "method": "DecideLoadCompletion_MenuWithGameObject_StillFailedMenu",
+       "line": 194
+      },
+      {
+       "method": "DecideLoadCompletion_MenuTakesPrecedenceOverTimeout",
+       "line": 205
+      },
+      {
+       "method": "DecideLoadCompletion_BudgetExpiredElsewhere_LoadTimeout",
+       "line": 214
+      },
+      {
+       "method": "DecideLoadCompletion_FlightGameNullPastBudget_LoadTimeout",
+       "line": 223
+      },
+      {
+       "method": "ParseRequestedScene_Absent_Unspecified",
+       "line": 238
+      },
+      {
+       "method": "ParseRequestedScene_AcceptedWireValues",
+       "line": 247
+      },
+      {
+       "method": "ParseRequestedScene_RejectsEverythingElse",
+       "line": 268
+      },
+      {
+       "method": "ParseAllowLiveRecorder_Absent_NotAllowed",
+       "line": 283
+      },
+      {
+       "method": "ParseAllowLiveRecorder_AcceptedWireValue",
+       "line": 290
+      },
+      {
+       "method": "ParseAllowLiveRecorder_RejectsEverythingElse",
+       "line": 306
+      },
+      {
+       "method": "Route_RequestedTrackStation_TakesTrackStation_EvenWithFocusableVessel",
+       "line": 315
+      },
+      {
+       "method": "Route_RequestedTrackStation_TakesTrackStation_OnVesselLessSave",
+       "line": 325
+      },
+      {
+       "method": "Route_RequestedSpaceCenter_ForcesKsc_OverFocusableVessel",
+       "line": 333
+      },
+      {
+       "method": "Route_UnspecifiedScene_IsPreR12BehaviorVerbatim",
+       "line": 344
+      },
+      {
+       "method": "Route_InvalidGame_FailsRegardlessOfRequestedScene",
+       "line": 361
+      },
+      {
+       "method": "ExpectedSceneFor_MapsEveryRoute",
+       "line": 376
+      },
+      {
+       "method": "Completion_TrackStationRoute_CompletesOnlyOnSettledTrackStation",
+       "line": 387
+      },
+      {
+       "method": "Completion_TrackStationSettle_DoesNotCompleteTheOtherTwoRoutes",
+       "line": 404
+      },
+      {
+       "method": "Completion_TrackStationRoute_NoGameYet_StillWaiting",
+       "line": 417
+      },
+      {
+       "method": "Completion_TrackStationRoute_MenuBounceAndTimeoutKeepMeanings",
+       "line": 426
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

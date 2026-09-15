@@ -1,0 +1,186 @@
+{
+ "batch_id": "harness-seam-015",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "TestCommandC1DispatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "InvokeRewind_OutsideFlight_Defers_NotInFlight",
+       "line": 50
+      },
+      {
+       "method": "InvokeRewind_MergeJournalInFlight_Rejects",
+       "line": 57
+      },
+      {
+       "method": "InvokeRewind_LoadInFlight_Rejects",
+       "line": 66
+      },
+      {
+       "method": "InvokeRewind_RecordingActive_Rejects",
+       "line": 75
+      },
+      {
+       "method": "InvokeRewind_MergeJournalTakesPrecedenceOverRecording",
+       "line": 84
+      },
+      {
+       "method": "InvokeRewind_ReadyInFlight_Executes",
+       "line": 96
+      },
+      {
+       "method": "InvokeRewindToLaunch_OutsideFlight_Defers_NotInFlight",
+       "line": 110
+      },
+      {
+       "method": "InvokeRewindToLaunch_MergeJournalInFlight_Rejects",
+       "line": 117
+      },
+      {
+       "method": "InvokeRewindToLaunch_LoadInFlight_Rejects",
+       "line": 126
+      },
+      {
+       "method": "InvokeRewindToLaunch_RecordingActive_Rejects",
+       "line": 135
+      },
+      {
+       "method": "InvokeRewindToLaunch_MergeJournalTakesPrecedenceOverRecording",
+       "line": 144
+      },
+      {
+       "method": "InvokeRewindToLaunch_ReadyInFlight_Executes",
+       "line": 154
+      },
+      {
+       "method": "InvokeRewindToLaunch_WithTreeArg_ReadyInFlight_Executes",
+       "line": 163
+      },
+      {
+       "method": "AnswerMergeDialog_NoDialogNoMarker_Defers_NoReflyDialog",
+       "line": 173
+      },
+      {
+       "method": "AnswerMergeDialog_LivePopup_Executes",
+       "line": 180
+      },
+      {
+       "method": "AnswerMergeDialog_MarkerOnly_Executes",
+       "line": 189
+      },
+      {
+       "method": "TimeJump_OutsideFlight_Defers_NotInFlight",
+       "line": 202
+      },
+      {
+       "method": "TimeJump_InFlight_Executes",
+       "line": 209
+      },
+      {
+       "method": "KscAction_CareerNotReady_Defers",
+       "line": 221
+      },
+      {
+       "method": "KscAction_ResearchNode_CareerReady_Executes",
+       "line": 230
+      },
+      {
+       "method": "KscAction_UpgradeFacility_NotAtSpaceCenter_Defers",
+       "line": 240
+      },
+      {
+       "method": "KscAction_UpgradeFacility_CareerNotReadyTakesPrecedence",
+       "line": 251
+      },
+      {
+       "method": "KscAction_UpgradeFacility_AtSpaceCenter_Executes",
+       "line": 261
+      },
+      {
+       "method": "KscAction_NonUpgrade_AtAnyScene_DoesNotRequireSpaceCenter",
+       "line": 270
+      },
+      {
+       "method": "KscAction_ModeSubActionMatrix",
+       "line": 314
+      },
+      {
+       "method": "KscAction_ResearchNode_ScienceMode_Executes_ButOthersStayCareerOnly",
+       "line": 326
+      },
+      {
+       "method": "SaveGame_AnyScene_Executes",
+       "line": 341
+      },
+      {
+       "method": "SaveGame_DuringSceneTransition_Defers_NotSafePoint",
+       "line": 350
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "InGameTestSidecarReaperTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Deletes_AllKnownSuffixes_ForSyntheticIds",
+       "line": 79
+      },
+      {
+       "method": "LeavesUnrelatedFilesAlone",
+       "line": 120
+      },
+      {
+       "method": "PreservesIds_StillKnownToTheStore",
+       "line": 148
+      },
+      {
+       "method": "NullKnownSet_ReapsEverything",
+       "line": 185
+      },
+      {
+       "method": "PreservesEveryId_WhenAllAreStillKnown",
+       "line": 201
+      },
+      {
+       "method": "NoOp_WhenIdHasNoSidecarsOnDisk",
+       "line": 231
+      },
+      {
+       "method": "NoOp_WhenDirectoryDoesNotExist",
+       "line": 244
+      },
+      {
+       "method": "NoOp_WhenIdCollectionIsNull",
+       "line": 259
+      },
+      {
+       "method": "RejectsPathTraversalIds",
+       "line": 271
+      },
+      {
+       "method": "SkipsEmptyAndNullIdsInCollection",
+       "line": 305
+      },
+      {
+       "method": "SuffixListMatches_RecordingPipeline",
+       "line": 325
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

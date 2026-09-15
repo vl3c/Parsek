@@ -1,0 +1,214 @@
+{
+ "batch_id": "recorder-events-024",
+ "cluster": "recorder-events",
+ "tier": "B",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "TrackSectionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SegmentEnvironment_Atmospheric_IsZero",
+       "line": 13
+      },
+      {
+       "method": "SegmentEnvironment_ExoPropulsive_IsOne",
+       "line": 19
+      },
+      {
+       "method": "SegmentEnvironment_ExoBallistic_IsTwo",
+       "line": 25
+      },
+      {
+       "method": "SegmentEnvironment_SurfaceMobile_IsThree",
+       "line": 31
+      },
+      {
+       "method": "SegmentEnvironment_SurfaceStationary_IsFour",
+       "line": 37
+      },
+      {
+       "method": "SegmentEnvironment_Approach_IsFive",
+       "line": 43
+      },
+      {
+       "method": "SegmentEnvironment_ValuesAreContiguous",
+       "line": 49
+      },
+      {
+       "method": "ReferenceFrame_Absolute_IsZero",
+       "line": 64
+      },
+      {
+       "method": "ReferenceFrame_Relative_IsOne",
+       "line": 70
+      },
+      {
+       "method": "ReferenceFrame_OrbitalCheckpoint_IsTwo",
+       "line": 76
+      },
+      {
+       "method": "ReferenceFrame_ValuesAreContiguous",
+       "line": 82
+      },
+      {
+       "method": "TrackSection_Default_EnvironmentIsAtmospheric",
+       "line": 97
+      },
+      {
+       "method": "TrackSection_Default_ReferenceFrameIsAbsolute",
+       "line": 104
+      },
+      {
+       "method": "TrackSection_Default_AnchorVesselIdIsZero",
+       "line": 111
+      },
+      {
+       "method": "TrackSection_Default_FramesIsNull",
+       "line": 118
+      },
+      {
+       "method": "TrackSection_Default_CheckpointsIsNull",
+       "line": 125
+      },
+      {
+       "method": "TrackSection_Default_SampleRateHzIsZero",
+       "line": 132
+      },
+      {
+       "method": "TrackSection_Default_SourceIsActive",
+       "line": 139
+      },
+      {
+       "method": "HasRenderableCheckpointTrackSection_WithFrames_ReturnsTrue",
+       "line": 150
+      },
+      {
+       "method": "HasRenderableCheckpointTrackSection_WithCheckpointsOnly_ReturnsTrue",
+       "line": 165
+      },
+      {
+       "method": "HasRenderableCheckpointTrackSection_WithNoPayload_ReturnsFalse",
+       "line": 180
+      },
+      {
+       "method": "HasRenderableCheckpointTrackSection_AbsoluteWithFrames_ReturnsFalse",
+       "line": 191
+      },
+      {
+       "method": "ShouldUseDenseReFlyAbsolutePlaybackFrames_DenseAbsoluteSectionBracket_ReturnsTrue",
+       "line": 210
+      },
+      {
+       "method": "ShouldUseDenseReFlyAbsolutePlaybackFrames_RelativeSection_ReturnsFalse",
+       "line": 261
+      },
+      {
+       "method": "ShouldUseDenseReFlyAbsolutePlaybackFrames_DenseBracketNotTighter_ReturnsFalse",
+       "line": 288
+      },
+      {
+       "method": "ShouldUseDenseReFlyAbsolutePlaybackFrames_ExcludesBoundaryPointsOwnedByNextSection",
+       "line": 330
+      },
+      {
+       "method": "TrackSection_ToString_ProducesReadableOutput",
+       "line": 394
+      },
+      {
+       "method": "TrackSection_ToString_NullLists_ReportsZeroCounts",
+       "line": 423
+      },
+      {
+       "method": "TrackSection_ToString_WithCheckpoints_ReportsCheckpointCount",
+       "line": 443
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BackgroundPartEventAuditTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PollPartEvents_CoversAllPolledEventTypes_MatchingFlightRecorder",
+       "line": 94
+      },
+      {
+       "method": "BackgroundRecorder_HasOnBackgroundPartDie_Method",
+       "line": 147
+      },
+      {
+       "method": "BackgroundRecorder_HasOnBackgroundPartJointBreak_Method",
+       "line": 159
+      },
+      {
+       "method": "OnBackgroundPartDie_NullTree_DoesNotThrow",
+       "line": 175
+      },
+      {
+       "method": "OnBackgroundPartDie_NullPart_LogsWarning",
+       "line": 192
+      },
+      {
+       "method": "OnBackgroundPartJointBreak_NullTree_DoesNotThrow",
+       "line": 208
+      },
+      {
+       "method": "OnBackgroundPartJointBreak_NullJoint_LogsWarning",
+       "line": 223
+      },
+      {
+       "method": "InjectLoadedState_ExposesDecoupledPartIds",
+       "line": 239
+      },
+      {
+       "method": "GetDecoupledPartIds_NoLoadedState_ReturnsNull",
+       "line": 252
+      },
+      {
+       "method": "DecoupledPartIds_DuplicateDecouple_TracksFirstOnly",
+       "line": 263
+      },
+      {
+       "method": "ClassifyPartDeath_DestroyedPart_ReturnsDestroyed",
+       "line": 288
+      },
+      {
+       "method": "ClassifyPartDeath_DeployedParachute_ReturnsParachuteDestroyed",
+       "line": 298
+      },
+      {
+       "method": "IsStructuralJointBreak_StructuralBreak_ReturnsTrue",
+       "line": 311
+      },
+      {
+       "method": "IsStructuralJointBreak_NonStructuralBreak_ReturnsFalse",
+       "line": 321
+      },
+      {
+       "method": "SubscribePartEvents_SetsSubscribedFlag",
+       "line": 332
+      },
+      {
+       "method": "OnBackgroundPartDie_NullPart_LogsWithBgRecorderTag",
+       "line": 348
+      },
+      {
+       "method": "OnBackgroundPartJointBreak_NullJoint_LogsWithBgRecorderTag",
+       "line": 364
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

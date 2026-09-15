@@ -1,0 +1,225 @@
+{
+ "batch_id": "catchall-050",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "CopyRewindSaveToRootTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CopiesRewindSave_FromCaptureAtStop_ToEmptyRoot",
+       "line": 86
+      },
+      {
+       "method": "CopiesReservedBudget_FromCaptureAtStop_ToEmptyRoot",
+       "line": 98
+      },
+      {
+       "method": "CopiesPreLaunchBudget_FromCaptureAtStop_ToEmptyRoot",
+       "line": 112
+      },
+      {
+       "method": "DoesNotOverwrite_ExistingRootRewindSave",
+       "line": 126
+      },
+      {
+       "method": "DoesNotOverwrite_ExistingReservedBudget",
+       "line": 138
+      },
+      {
+       "method": "UsesRecorderFallback_WhenCaptureAtStopIsNull",
+       "line": 154
+      },
+      {
+       "method": "UsesRecorderFallbackBudget_WhenCaptureAtStopIsNull",
+       "line": 166
+      },
+      {
+       "method": "RecorderOverload_UsesFallbackBudget_WhenCaptureAtStopIsNull",
+       "line": 191
+      },
+      {
+       "method": "UsesRecorderFallback_WhenCaptureHasNoSave",
+       "line": 217
+      },
+      {
+       "method": "NoOp_WhenTreeIsNull",
+       "line": 230
+      },
+      {
+       "method": "NoOp_WhenNoRootRecordingId",
+       "line": 238
+      },
+      {
+       "method": "NoOp_WhenBothSourcesHaveNoSave",
+       "line": 248
+      },
+      {
+       "method": "LogsWhenRewindSaveCopied",
+       "line": 260
+      },
+      {
+       "method": "EvaBranchScenario_RewindSavePreservedOnRoot",
+       "line": 273
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LocationContextTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SaveLoad_LocationFields_RoundTrip",
+       "line": 10
+      },
+      {
+       "method": "SaveLoad_NullLocationFields_DefaultsSafely",
+       "line": 32
+      },
+      {
+       "method": "SaveLoad_EmptyLocationFields_NotWritten",
+       "line": 48
+      },
+      {
+       "method": "ApplyPersistenceArtifacts_CopiesEndBiome",
+       "line": 64
+      },
+      {
+       "method": "ApplyPersistenceArtifacts_DoesNotCopyStartFields",
+       "line": 73
+      },
+      {
+       "method": "GetRecordingStartText_WithLaunchSite_PrefersSiteOverBiome",
+       "line": 93
+      },
+      {
+       "method": "GetRecordingStartText_WithBiome_NoLaunchSite",
+       "line": 101
+      },
+      {
+       "method": "GetRecordingStartText_NullBiome_FallsBackToBody",
+       "line": 109
+      },
+      {
+       "method": "GetRecordingStartText_NullBody_OriginalFormat",
+       "line": 117
+      },
+      {
+       "method": "GetRecordingStartText_Eva_WithBiome",
+       "line": 125
+      },
+      {
+       "method": "GetRecordingStartText_MakingHistorySite",
+       "line": 133
+      },
+      {
+       "method": "GetVesselSpawnText_WithEndBiome_ShowsAtBiome",
+       "line": 141
+      },
+      {
+       "method": "GetVesselSpawnText_NullEndBiome_OriginalFormat",
+       "line": 150
+      },
+      {
+       "method": "GetVesselSpawnText_Orbiting_NoBiome_Unchanged",
+       "line": 159
+      },
+      {
+       "method": "GetVesselSpawnText_Splashed_WithBiome",
+       "line": 169
+      },
+      {
+       "method": "GetVesselSpawnText_FallbackPath_WithBiome",
+       "line": 178
+      },
+      {
+       "method": "InjectBiome_LandedSituation",
+       "line": 190
+      },
+      {
+       "method": "InjectBiome_OrbitingSituation_Unchanged",
+       "line": 197
+      },
+      {
+       "method": "InjectBiome_NullInputs_ReturnsSituation",
+       "line": 204
+      },
+      {
+       "method": "HumanizeSituation_AllValues",
+       "line": 214
+      },
+      {
+       "method": "SaveLoad_LaunchSiteName_RoundTrip",
+       "line": 229
+      },
+      {
+       "method": "SaveLoad_NullLaunchSiteName_NotWritten",
+       "line": 241
+      },
+      {
+       "method": "HumanizeLaunchSiteName_StockNames",
+       "line": 250
+      },
+      {
+       "method": "HumanizeLaunchSiteName_MakingHistoryNames_UnderscoresReplaced",
+       "line": 257
+      },
+      {
+       "method": "HumanizeLaunchSiteName_NullEmpty",
+       "line": 266
+      },
+      {
+       "method": "SaveLoad_TerminalOrbit_RoundTrip",
+       "line": 275
+      },
+      {
+       "method": "SaveLoad_NullTerminalOrbitBody_NotWritten",
+       "line": 305
+      },
+      {
+       "method": "Load_MissingTerminalOrbit_DefaultsToZero",
+       "line": 316
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ClawCoupleRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClawGrab_BuildMergeBranchData_RecordsDockEquivalentBranchPoint",
+       "line": 54
+      },
+      {
+       "method": "ClawGrab_IneligiblePartner_StampsPartnerWithoutRouteProof",
+       "line": 91
+      },
+      {
+       "method": "ClawGrab_ResolveDockPartnerPidFromEvent_ReturnsAsteroidFromEitherSide",
+       "line": 120
+      },
+      {
+       "method": "ClawGrab_FirstGrabAsteroid_IsNotAKnownRoutePartner",
+       "line": 132
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

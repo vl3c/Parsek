@@ -1,0 +1,187 @@
+{
+ "batch_id": "rewind-refly-007",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "ReFlyRevertDialogTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RetryCallback_GeneratesFreshSession_ClearsMarker_ReinvokesRewind",
+       "line": 208
+      },
+      {
+       "method": "RetryCallback_UnresolvedRp_AbortsWithoutInvokingRewind",
+       "line": 239
+      },
+      {
+       "method": "DiscardReFly_LaunchContext_ClearsSessionArtifacts_LoadsRpQuicksave_TransitionsToKSC",
+       "line": 259
+      },
+      {
+       "method": "DiscardReFly_WithSceneHook_DoesNotArmSceneExitCommitSuppression",
+       "line": 301
+      },
+      {
+       "method": "DiscardReFly_DispatchFailure_ConsumesBothSuppressions",
+       "line": 317
+      },
+      {
+       "method": "SceneExitCommitSuppression_ConsumesOnce",
+       "line": 346
+      },
+      {
+       "method": "SceneExitCommitSuppression_DropsActiveTreeWithoutPendingStash",
+       "line": 361
+      },
+      {
+       "method": "DiscardReFly_PrelaunchContext_VAB_TransitionsToVAB_StartupCleanSetOnEditor",
+       "line": 403
+      },
+      {
+       "method": "DiscardReFly_PrelaunchContext_SPH_TransitionsToSPH_StartupCleanSetOnEditor",
+       "line": 427
+      },
+      {
+       "method": "DiscardReFly_DoesNotCallTreeDiscardPurge",
+       "line": 451
+      },
+      {
+       "method": "DiscardReFly_SupersedeRelationsForOtherSplitsInTree_Preserved",
+       "line": 518
+      },
+      {
+       "method": "DiscardReFly_TombstonesForOtherSplitsInTree_Preserved",
+       "line": 560
+      },
+      {
+       "method": "DiscardReFly_OtherRPsInTree_Preserved",
+       "line": 592
+      },
+      {
+       "method": "DiscardReFly_OriginRp_SurvivesLoadTimeSweep",
+       "line": 620
+      },
+      {
+       "method": "DiscardReFly_OriginRp_PersistentWithStaleCreatingSessionId_CreatingSessionIdCleared",
+       "line": 646
+      },
+      {
+       "method": "DiscardReFly_UnfinishedFlightsEntryForThisSplit_StaysVisible",
+       "line": 677
+      },
+      {
+       "method": "DiscardReFly_RemovesProvisionalFromCommittedRecordings",
+       "line": 714
+      },
+      {
+       "method": "DiscardReFly_BumpsSupersedeStateVersion",
+       "line": 741
+      },
+      {
+       "method": "DiscardReFly_RpQuicksaveMissing_LogsErrorAndShowsToast",
+       "line": 759
+      },
+      {
+       "method": "DiscardReFly_JournalActive_HandlerRefuses_ShowsToast",
+       "line": 796
+      },
+      {
+       "method": "DiscardReFly_JournalActive_DialogHidesDiscardButton",
+       "line": 833
+      },
+      {
+       "method": "DiscardReFly_NoJournal_DialogShowsDiscardButton",
+       "line": 861
+      },
+      {
+       "method": "DiscardReFly_NullMarker_LogsWarn_NoOp",
+       "line": 877
+      },
+      {
+       "method": "DiscardReFly_UnresolvableRpId_ClearsMarker_NoSceneDispatch",
+       "line": 891
+      },
+      {
+       "method": "DiscardReFly_EmptyTreeId_StillClearsSessionArtifacts_StillDispatchesScene",
+       "line": 912
+      },
+      {
+       "method": "DiscardReFly_LogsEndReasonDiscardReFly",
+       "line": 931
+      },
+      {
+       "method": "CancelCallback_LogsAndLeavesStateAlone",
+       "line": 964
+      },
+      {
+       "method": "Interceptor_NoActiveSession_AllowsStockRevert",
+       "line": 988
+      },
+      {
+       "method": "Interceptor_NoScenario_AllowsStockRevert",
+       "line": 1000
+      },
+      {
+       "method": "Interceptor_ActiveSession_BlocksStockRevert_SpawnsDialog",
+       "line": 1010
+      },
+      {
+       "method": "Dialog_Show_FiresHook_AndLogsShownTag",
+       "line": 1029
+      },
+      {
+       "method": "Dialog_Show_NullMarker_DoesNotFireHook",
+       "line": 1046
+      },
+      {
+       "method": "Show_LaunchTarget_BodySummarizesEachButton",
+       "line": 1061
+      },
+      {
+       "method": "Show_LegacyOverload_DefaultsToLaunchBody",
+       "line": 1090
+      },
+      {
+       "method": "Show_PrelaunchTarget_BodyContainsVABorSPH",
+       "line": 1104
+      },
+      {
+       "method": "Show_JournalActive_BodyExplainsDiscardUnavailable",
+       "line": 1124
+      },
+      {
+       "method": "Show_PrelaunchTarget_LogsTargetOnShownLine",
+       "line": 1151
+      },
+      {
+       "method": "Prefix_RevertToPrelaunch_NoActiveSession_ReturnsTrue",
+       "line": 1169
+      },
+      {
+       "method": "Prefix_RevertToPrelaunch_ActiveSession_ReturnsFalse_ShowsDialog",
+       "line": 1182
+      },
+      {
+       "method": "RetryHandler_PrelaunchContext_LogsTarget_StillReinvokesRewind",
+       "line": 1204
+      },
+      {
+       "method": "CancelHandler_PrelaunchContext_LogsTarget",
+       "line": 1233
+      },
+      {
+       "method": "DiscardReFly_InPlaceForkAttachedToCommittedTree_PrunesFullTopology",
+       "line": 1262
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

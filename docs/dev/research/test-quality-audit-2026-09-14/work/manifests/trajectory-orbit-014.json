@@ -1,0 +1,273 @@
+{
+ "batch_id": "trajectory-orbit-014",
+ "cluster": "trajectory-orbit",
+ "tier": "A",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "ReaimClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_KerbinToDuna_Supported_IdentifiesPhases",
+       "line": 61
+      },
+      {
+       "method": "Classify_KerbinToDuna_WithMidCourseCorrection_SpansFullTransfer",
+       "line": 85
+      },
+      {
+       "method": "Classify_SlowMidCourseCorrection_Declined",
+       "line": 115
+      },
+      {
+       "method": "Classify_WarpedTransferSplitByCheckpoints_MeasuresFullTof",
+       "line": 136
+      },
+      {
+       "method": "Classify_InterloperParkedInLaunchOrbitDuringTransfer_FlattenedBreaks_PerMemberCorrect",
+       "line": 157
+      },
+      {
+       "method": "Classify_KerbinLoiterBeforeDirectTransfer_DepartsAtTransferStart",
+       "line": 197
+      },
+      {
+       "method": "Classify_RealSmaSingleTransfer_DepartsAtTransferStart",
+       "line": 215
+      },
+      {
+       "method": "Classify_HeliocentricDebrisAfterDeparture_DoesNotCorruptTransfer",
+       "line": 234
+      },
+      {
+       "method": "Classify_ChunkedSameSmaHeliocentricLoiter_Declined",
+       "line": 254
+      },
+      {
+       "method": "Classify_HeliocentricLoiterBeforeTransfer_Declined",
+       "line": 273
+      },
+      {
+       "method": "Classify_SameParentMun_NotSupported_StaysFaithful",
+       "line": 292
+      },
+      {
+       "method": "Classify_NoHeliocentricLeg_NotSupported",
+       "line": 307
+      },
+      {
+       "method": "Classify_DeepTargetIke_NotSupported_Deferred",
+       "line": 317
+      },
+      {
+       "method": "Classify_MultiHop_TwoHeliocentricLegs_NotSupported",
+       "line": 335
+      },
+      {
+       "method": "Classify_StartsHeliocentric_NotSupported",
+       "line": 352
+      },
+      {
+       "method": "Classify_NoArrivalLeg_NotSupported",
+       "line": 367
+      },
+      {
+       "method": "Classify_PredictedSegments_Ignored",
+       "line": 382
+      },
+      {
+       "method": "Classify_NullInputs_NotSupported",
+       "line": 397
+      },
+      {
+       "method": "Classify_HeliocentricParkingDeparture_Engaged",
+       "line": 434
+      },
+      {
+       "method": "Classify_MultiRevPark_Declined_DeferredScope",
+       "line": 456
+      },
+      {
+       "method": "Classify_EccentricPark_FailsAdmissibility_Declined",
+       "line": 473
+      },
+      {
+       "method": "Classify_WideSmaPark_FailsAdmissibility_Declined",
+       "line": 490
+      },
+      {
+       "method": "Classify_TwoSolarParks_EarlierMultiRev_Declined",
+       "line": 507
+      },
+      {
+       "method": "Classify_ParkEccentricAtBurnPoint_Declined",
+       "line": 528
+      },
+      {
+       "method": "IsHeliocentricParkingDeparture_OneRevCoOrbitalPark_True",
+       "line": 547
+      },
+      {
+       "method": "IsHeliocentricParkingDeparture_SubPeriodPark_False",
+       "line": 558
+      },
+      {
+       "method": "IsHeliocentricParkingDeparture_MultiRevPark_False",
+       "line": 570
+      },
+      {
+       "method": "IsHeliocentricParkingDeparture_NonSunPredecessor_False",
+       "line": 581
+      },
+      {
+       "method": "IsHeliocentricParkingDeparture_NoLaunchBodyOrbitPeriod_FailsClosed",
+       "line": 593
+      },
+      {
+       "method": "HeliocentricSemiMajorAxis_Kerbin_RecoversStockSma",
+       "line": 611
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReaimSplitSiblingDiagTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TheClassifierReasonIsIdenticalForASplitTransferAndForNoTransferAtAll",
+       "line": 208
+      },
+      {
+       "method": "TheSplitAndTheNoTransferVerdictTailsAreNoLongerByteIdentical",
+       "line": 236
+      },
+      {
+       "method": "TheAggregateDeclineLineAnnotatesTheSplitAndKeepsTheCommittedLaneSubstrings",
+       "line": 276
+      },
+      {
+       "method": "TheWholeDiagnosticIsSkippedWhenTheBuilderIsSuppressed",
+       "line": 307
+      },
+      {
+       "method": "TheDiagnosticRecognizesTheClassifiersOwnMissingHeliocentricDecline",
+       "line": 346
+      },
+      {
+       "method": "ASingleMemberIsNeverASplitSibling",
+       "line": 362
+      },
+      {
+       "method": "ThePositiveFixtureReallyDoesClassifySupportedAsAUnion",
+       "line": 385
+      },
+      {
+       "method": "NoBodyInfoOrNoMembersDiagnosesNothing",
+       "line": 397
+      },
+      {
+       "method": "AGroupThatNeverRecordedAHeliocentricLegDiagnosesNothing",
+       "line": 404
+      },
+      {
+       "method": "AGroupWithASupportedMemberDiagnosesNothing",
+       "line": 417
+      },
+      {
+       "method": "MembersWithoutAChainIdAreNotSplitSiblings",
+       "line": 431
+      },
+      {
+       "method": "DifferentChainIdsAreDifferentGroups",
+       "line": 441
+      },
+      {
+       "method": "ConclusivelyDifferentLaunchGuidsSplitTheChainGroup",
+       "line": 449
+      },
+      {
+       "method": "APredictedHeliocentricTailIsNotARecordedTransfer",
+       "line": 464
+      },
+      {
+       "method": "OnlyTheMissingHeliocentricDeclineClassIsAnnotated",
+       "line": 481
+      },
+      {
+       "method": "AGroupWhoseUnionRecordsNoArrivalIsNotAnnotated",
+       "line": 495
+      },
+      {
+       "method": "AMunReturnSplitAtTheSoiExitIsNotAnnotated",
+       "line": 520
+      },
+      {
+       "method": "ANonSunCommonAncestorIsNamedWithoutClaimingItHasNoParent",
+       "line": 540
+      },
+      {
+       "method": "ThreeSliceGroupNamesTheEarliestMatchingSibling",
+       "line": 570
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BallisticExtrapolatorFrameTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ZeroInclination_PositionAndVelocityStayExactlyInTheXYPlane",
+       "line": 68
+      },
+      {
+       "method": "ZeroInclination_OrbitNormalIsExactlyThePositiveZAxis",
+       "line": 100
+      },
+      {
+       "method": "NinetyDegreeInclination_OrbitNormalLiesInTheXYPlane",
+       "line": 140
+      },
+      {
+       "method": "NinetyDegreeInclination_PositionSweepsTheFullZExtent",
+       "line": 185
+      },
+      {
+       "method": "SwizzleZupBodyRelativeToWorld_SwapsYAndZAndIsItsOwnInverse",
+       "line": 236
+      },
+      {
+       "method": "Site1_WorldFrameLatitudeOfTheSwizzledVectorEqualsTheZupLatitude",
+       "line": 271
+      },
+      {
+       "method": "TheTwoApproximateLatLonResolversAgreeOnTheSameVector",
+       "line": 303
+      },
+      {
+       "method": "Site1_TheInGameProbeReadingIsReproducedByTheTwoPolarAxisReadings",
+       "line": 333
+      },
+      {
+       "method": "ReframeOrbitalFrameRotation_PreservesTheWorldAttitude_WhereTheRawZupMathDoesNot",
+       "line": 387
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

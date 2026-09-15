@@ -1,0 +1,198 @@
+{
+ "batch_id": "logistics-route-026",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "RouteRunManifestCaptureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldCapture_RecordingAtBirth_True",
+       "line": 86
+      },
+      {
+       "method": "ShouldCapture_RecordingWithPoints_False",
+       "line": 98
+      },
+      {
+       "method": "ShouldCapture_RecordingWithOrbitSegments_False",
+       "line": 110
+      },
+      {
+       "method": "ShouldCapture_RecordingWithTrackSections_False",
+       "line": 120
+      },
+      {
+       "method": "ShouldCapture_StartHalfAlreadyCaptured_False_EvenAtBirth",
+       "line": 133
+      },
+      {
+       "method": "ShouldCapture_NullRecording_False",
+       "line": 146
+      },
+      {
+       "method": "BuildRunCargoManifestAtStart_ScopesToSnapshotPids",
+       "line": 155
+      },
+      {
+       "method": "BuildRunCargoManifestAtStart_UndefinedModResource_RecordedVerbatim",
+       "line": 182
+      },
+      {
+       "method": "BuildRunCargoManifestAtStart_GloopsMode_SkipsWithLog",
+       "line": 197
+      },
+      {
+       "method": "BuildRunCargoManifestAtStart_NullSnapshot_SkipsWithWarn",
+       "line": 210
+      },
+      {
+       "method": "CompleteRunCargoManifestAtStop_ReextractsSameScope_FromSnapshotNotLiveWalk",
+       "line": 227
+      },
+      {
+       "method": "CompleteRunCargoManifestAtStop_OverwritesEndPerActiveStop",
+       "line": 257
+      },
+      {
+       "method": "CompleteRunCargoManifestAtStop_NullPending_NoOp",
+       "line": 282
+      },
+      {
+       "method": "Manifest_Voided_OnBackgroundTransition",
+       "line": 294
+      },
+      {
+       "method": "Manifest_Void_NoManifest_StillSetsTombstone_NoWarn",
+       "line": 317
+      },
+      {
+       "method": "VoidThenPromote_DoesNotRecapture",
+       "line": 341
+      },
+      {
+       "method": "CompleteRunCargoManifestAtStop_NullSnapshot_LeavesStartOnly",
+       "line": 367
+      },
+      {
+       "method": "EmptyScopedCapture_NormalizesToNull_AndRoundTripsHashStable",
+       "line": 389
+      },
+      {
+       "method": "TreeModeStop_PersistsRunManifest",
+       "line": 441
+      },
+      {
+       "method": "TreeModeStop_AdoptsEndHalfOnly_WhenStartHalfAlreadyOnTarget",
+       "line": 473
+      },
+      {
+       "method": "TreeModeStop_VoidedTarget_NeverAdoptsManifest",
+       "line": 510
+      },
+      {
+       "method": "TreeModeStop_PropagatesVoidTombstone",
+       "line": 537
+      },
+      {
+       "method": "TreeModeStop_NoCaptureManifest_TargetUntouched",
+       "line": 554
+      },
+      {
+       "method": "DeepClone_CarriesRunManifest",
+       "line": 572
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_CarriesRunManifest",
+       "line": 588
+      },
+      {
+       "method": "CloneSites_CarryVoidTombstone",
+       "line": 606
+      },
+      {
+       "method": "DeepClone_NullRunManifest_StaysNull",
+       "line": 622
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/InventoryPayloadKindKeyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TheStationBeforeAndAfterAStockInventoryMoveIsOneKind",
+       "line": 58
+      },
+      {
+       "method": "TheKindCanonicalStringIsPartVariantAndResourceBucketsOnly",
+       "line": 85
+      },
+      {
+       "method": "TheExcerptIsByteIdenticalToTheCommittedHarnessFixture",
+       "line": 105
+      },
+      {
+       "method": "StoredPartLevelPlacementValuesDoNotChangeTheKind",
+       "line": 176
+      },
+      {
+       "method": "ProtoPartTransientsDoNotChangeTheKind",
+       "line": 193
+      },
+      {
+       "method": "AModuleValueAddedInTransitDoesNotChangeTheKind",
+       "line": 207
+      },
+      {
+       "method": "ADifferentPartNameIsADifferentKind",
+       "line": 222
+      },
+      {
+       "method": "ADifferentVariantIsADifferentKind",
+       "line": 239
+      },
+      {
+       "method": "ResourceFillBucketsSplitFullFromEmptyButAbsorbDrift",
+       "line": 265
+      },
+      {
+       "method": "FillBucketBoundaries",
+       "line": 293
+      },
+      {
+       "method": "TheRefusedRelayWindowNowWitnessesTheStationMove",
+       "line": 306
+      },
+      {
+       "method": "TheTwoStationSlotsOnTheTransportAggregateIntoOneKind",
+       "line": 330
+      },
+      {
+       "method": "LoadRecomputesTheKindFromTheSnapshotAndLeavesSnapshotLessItemsAlone",
+       "line": 356
+      },
+      {
+       "method": "LoadMergesItemsThatShareAKindAfterRecomputing",
+       "line": 393
+      },
+      {
+       "method": "TheKindKeyIsCultureInvariant",
+       "line": 431
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

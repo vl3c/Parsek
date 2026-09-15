@@ -1,0 +1,49 @@
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_AllConditionsMet_True", "line": 32, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_PastEndUT_False", "line": 42, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_NoSpawnNeeded_False", "line": 52, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_ChainSuppressed_False", "line": 62, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_OutsideRadius_False", "line": 72, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_AtExactRadius_True", "line": 82, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_EndUTEqualsCurrentUT_False", "line": 92, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_AboveMaxRelativeSpeed_False", "line": 102, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_AtExactMaxRelativeSpeed_True", "line": 112, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "IsSpawnCandidate_ZeroRelativeSpeed_True", "line": 122, "verdict": "duplicate", "category": "T2", "twin": "Source/Parsek.Tests/SelectiveSpawnUITests.cs.IsSpawnCandidate_AllConditionsMet_True", "falsifiability": "falsifiability: Source/Parsek/SelectiveSpawnUI.cs:77; flip relativeSpeed <= maxRelativeSpeed to < -> neither reds, and any all-true mutation reds both identically", "note": "same all-pass branch and same observable as IsSpawnCandidate_AllConditionsMet_True; 0.0 is not a boundary of the <= gate, which AtExactMaxRelativeSpeed already pins"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "ComputeRelativeSpeed_StationKeeping_ReturnsZero", "line": 134, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "ComputeRelativeSpeed_FrameShift_Cancels", "line": 148, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "ComputeRelativeSpeed_ApproachingAt3MperS_Returns3", "line": 164, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "ComputeRelativeSpeed_DtTooShort_ReturnsInfinity", "line": 178, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "ComputeRelativeSpeed_DtTooLong_ReturnsInfinity", "line": 187, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "ComputeRelativeSpeed_NegativeDt_ReturnsInfinity", "line": 197, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FindNextSpawnCandidate_ReturnsEarliestFuture", "line": 208, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FindNextSpawnCandidate_AllPast_ReturnsNull", "line": 224, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FindNextSpawnCandidate_Empty_ReturnsNull", "line": 236, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FindNextSpawnCandidate_Null_ReturnsNull", "line": 243, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FindNextSpawnCandidate_EndUTEqualsCurrentUT_ReturnsNull", "line": 249, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FindNextSpawnCandidate_FarButSlow_SkippedInFavorOfInnerCandidate", "line": 260, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FindNextSpawnCandidate_OnlyFarSlowCandidate_ReturnsNull", "line": 290, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatTimeDelta_UnderMinute", "line": 311, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatTimeDelta_UnderHour", "line": 317, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatTimeDelta_OverHour", "line": 323, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatTimeDelta_Negative_Clamps", "line": 329, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatTimeDelta_Zero", "line": 335, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_SecondsOnly", "line": 343, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_MinutesAndSeconds", "line": 349, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_HoursMinutesSeconds", "line": 355, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_DaysHoursMinutesSeconds", "line": 361, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_YearsDaysHours", "line": 367, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_HidesLeadingZeros", "line": 373, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_Negative_ShowsTPlus", "line": 380, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_Zero", "line": 386, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_KerbinTime_DaysUse6HourDay", "line": 394, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_KerbinTime_YearsUse426Days", "line": 402, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_KerbinTime_MixedComponents", "line": 411, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_EarthTime_DaysUse24HourDay", "line": 419, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatCountdown_LargeValue_NoIntOverflow", "line": 427, "verdict": "weak", "category": "T3", "falsifiability": "falsifiability: Source/Parsek/ParsekTimeFormat.cs:119; narrow totalSec to int so 3e9 wraps negative -> red (years<=0 drops the 'y' run)", "note": "asserts only the T- prefix and the presence of 'y'; a wrong-but-positive year count (e.g. a changed yearDays constant) still passes"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatNextSpawnTooltip_HasCandidate", "line": 439, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatNextSpawnTooltip_DepartingCandidate_UsesDepartAction", "line": 450, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatNextSpawnTooltip_NullCandidate", "line": 468, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatProximityNotification_Reachable_NamesTheWindow", "line": 481, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatProximityNotification_Unreachable_DropsTheInstruction", "line": 493, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "method": "FormatProximityNotification_Departing_KeepsTheDepartureFactsInBothModes", "line": 504, "verdict": "ok"}
+{"kind": "finding", "id": "F-spawn-vessel-016-01", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "line": 122, "method": "IsSpawnCandidate_ZeroRelativeSpeed_True", "category": "T2", "severity": "Low", "confidence": "high", "falsifiability": "falsifiability: Source/Parsek/SelectiveSpawnUI.cs:77; invert the relativeSpeed gate -> this and IsSpawnCandidate_AllConditionsMet_True red together", "what_it_asserts": "an all-conditions-met candidate with relativeSpeed 0 is a spawn candidate", "why_weak": "identical branch and observable to IsSpawnCandidate_AllConditionsMet_True; the <= boundary is separately pinned by IsSpawnCandidate_AtExactMaxRelativeSpeed_True", "proposed_action": "fold the 0.0 row into a Theory over relativeSpeed, or delete", "effort": "S", "july_ref": "none"}
+{"kind": "finding", "id": "F-spawn-vessel-016-02", "file": "Source/Parsek.Tests/SelectiveSpawnUITests.cs", "line": 427, "method": "FormatCountdown_LargeValue_NoIntOverflow", "category": "T3", "severity": "Low", "confidence": "high", "falsifiability": "falsifiability: Source/Parsek/ParsekTimeFormat.cs:119; narrow totalSec to int so the 3e9 input wraps -> red", "what_it_asserts": "a 3e9-second countdown starts with T- and contains a years component", "why_weak": "no numeric assertion, so any arithmetic error that still yields positive years passes", "proposed_action": "assert the full expected string for 3e9 s in Earth time (95y 47d 5h 20m 0s)", "effort": "S", "july_ref": "none"}

@@ -1,0 +1,69 @@
+{
+ "batch_id": "wiring-gates-005",
+ "cluster": "wiring-gates",
+ "tier": "C",
+ "expected_methods": 7,
+ "files": [
+  {
+   "file": "AgentInstructionMirrorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RootAgentsMd_IsByteIdenticalTo_ClaudeMd",
+       "line": 19
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DestinationLoiterTrimWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Builder_WiresDestinationLoiterTrim",
+       "line": 28
+      },
+      {
+       "method": "Builder_PreservesByteIdenticalFallback",
+       "line": 39
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PauseMenuGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsPauseMenuOpen_NoProbe_DefaultsToFalse",
+       "line": 27
+      },
+      {
+       "method": "IsPauseMenuOpen_ProbeReturnsTrue_PassesThrough",
+       "line": 36
+      },
+      {
+       "method": "IsPauseMenuOpen_ProbeReturnsFalse_PassesThrough",
+       "line": 44
+      },
+      {
+       "method": "ResetForTesting_ClearsProbe",
+       "line": 52
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

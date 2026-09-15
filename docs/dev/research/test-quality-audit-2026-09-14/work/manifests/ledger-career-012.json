@@ -1,0 +1,191 @@
+{
+ "batch_id": "ledger-career-012",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "GameStateEventConverterTests.cs",
+   "ranges": [
+    {
+     "start": 828,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ConvertScienceSubjects_TaggedCaptureInfinity_IsSkipped",
+       "line": 828
+      },
+      {
+       "method": "ConvertScienceSubjects_TaggedCaptureNegative_IsSkipped",
+       "line": 848
+      },
+      {
+       "method": "ConvertScienceSubjects_CrossRecordingCapture_IsSkipped",
+       "line": 868
+      },
+      {
+       "method": "ConvertScienceSubjects_UntaggedCaptureInsideRecordingWindow_UsesCaptureUt",
+       "line": 888
+      },
+      {
+       "method": "ConvertScienceSubjects_UntaggedCaptureBeforeRecordingStart_IsSkipped",
+       "line": 910
+      },
+      {
+       "method": "ConvertScienceSubjects_SkipsEmptySubjectId",
+       "line": 930
+      },
+      {
+       "method": "ConvertScienceSubjects_SkipsNonPositiveScience",
+       "line": 945
+      },
+      {
+       "method": "ConvertScienceSubjects_NullList_ReturnsEmpty",
+       "line": 959
+      },
+      {
+       "method": "ConvertEvent_TechResearched_MultipleSemicolonFields",
+       "line": 971
+      },
+      {
+       "method": "ConvertEvents_AssignsIncrementingSequenceNumbers",
+       "line": 985
+      },
+      {
+       "method": "ConvertEvents_SequenceSkipsNonConvertibleEvents",
+       "line": 1003
+      },
+      {
+       "method": "ConvertEvents_SequenceSkipsOutOfRangeEvents",
+       "line": 1020
+      },
+      {
+       "method": "ConvertScienceSubjects_AssignsIncrementingSequenceNumbers",
+       "line": 1037
+      },
+      {
+       "method": "ConvertScienceSubjects_SequenceSkipsInvalidSubjects",
+       "line": 1055
+      },
+      {
+       "method": "ConvertScienceSubjects_PropagatesSubjectMaxValue",
+       "line": 1073
+      },
+      {
+       "method": "ConvertContractAccepted_LegacyDeadlineKey_MigratesDurationToAbsoluteUT",
+       "line": 1098
+      },
+      {
+       "method": "ConvertContractAccepted_AbsoluteDeadlineKey_UsedVerbatim",
+       "line": 1120
+      },
+      {
+       "method": "ConvertContractAccepted_AbsoluteKeyWinsOverLegacyDurationKey",
+       "line": 1136
+      },
+      {
+       "method": "ConvertContractAccepted_LegacyNonPositiveDuration_StaysNoDeadline",
+       "line": 1155
+      },
+      {
+       "method": "ConvertContractAccepted_UnparseableAbsoluteKey_StaysNoDeadline",
+       "line": 1172
+      },
+      {
+       "method": "ConvertContractAccepted_UnparseableAbsoluteKey_DoesNotFallBackToLegacyKey",
+       "line": 1190
+      },
+      {
+       "method": "ConvertContractAccepted_NewFormat_DeadlineNaN",
+       "line": 1202
+      },
+      {
+       "method": "ConvertContractAccepted_OldFormat_TreatsDetailAsTitle",
+       "line": 1217
+      },
+      {
+       "method": "ConvertContractAccepted_NewFormat_LogsStructuredParsing",
+       "line": 1234
+      },
+      {
+       "method": "ConvertContractAccepted_OldFormat_LogsLegacy",
+       "line": 1250
+      },
+      {
+       "method": "ConvertContractAccepted_V3Format_PopulatesAdvanceFunds",
+       "line": 1263
+      },
+      {
+       "method": "ConvertContractAccepted_V2FormatWithoutFundsKey_DefaultsAdvanceToZero",
+       "line": 1283
+      },
+      {
+       "method": "ConvertContractAccepted_V3FormatZeroAdvance_StaysZero",
+       "line": 1299
+      },
+      {
+       "method": "ConvertContractAccepted_WhenDetailOmitsType_BackfillsFromSnapshot",
+       "line": 1312
+      },
+      {
+       "method": "ConvertEvent_MilestoneAchieved_ReturnsMilestoneAchievement",
+       "line": 1337
+      },
+      {
+       "method": "ConvertEvent_MilestoneAchieved_NoRewards_DefaultsToZero",
+       "line": 1353
+      },
+      {
+       "method": "ConvertEvent_MilestoneAchieved_PartialRewards",
+       "line": 1367
+      },
+      {
+       "method": "ConvertEvent_MilestoneAchieved_WithScience_PopulatesScienceAwarded",
+       "line": 1380
+      },
+      {
+       "method": "ConvertEvent_MilestoneAchieved_AllThreeRewards",
+       "line": 1395
+      },
+      {
+       "method": "ConvertEvent_MilestoneAchieved_BackwardCompatNoSciKey",
+       "line": 1408
+      },
+      {
+       "method": "ConvertEvents_IncludesMilestoneAchieved",
+       "line": 1423
+      },
+      {
+       "method": "ConvertKerbalRescued_ExtractsNameAndTrait",
+       "line": 1445
+      },
+      {
+       "method": "ConvertKerbalRescued_MissingTrait_DefaultsEmpty",
+       "line": 1460
+      },
+      {
+       "method": "ConvertMilestoneAchieved_WorldFirstProgressReward_PopulatesAwardedFields",
+       "line": 1483
+      },
+      {
+       "method": "ParsePartPurchaseChargedCost_PrefersCostTokenOverEntryCost",
+       "line": 1508
+      },
+      {
+       "method": "ParsePartPurchaseChargedCost_UsesCostWhenPositive",
+       "line": 1515
+      },
+      {
+       "method": "ParsePartPurchaseChargedCost_FallsBackToEntryCost_WhenCostAbsent",
+       "line": 1521
+      },
+      {
+       "method": "ParsePartPurchaseChargedCost_NoTokens_ReturnsZero",
+       "line": 1527
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

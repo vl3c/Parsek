@@ -1,0 +1,262 @@
+{
+ "batch_id": "rewind-refly-009",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "RewindSpawnSuppressionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MarkRewoundTreeRecordingsAsGhostOnly_LogsSourceProtectionAndFutureSkip",
+       "line": 37
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_SameRecordingMarker_BlocksWithoutMutatingMarker",
+       "line": 88
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_SameRecordingMarker_StandaloneNoLiveLaunch_LiftsAndSpawns",
+       "line": 121
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_SameRecordingMarker_StandaloneLiveLaunchPresent_StaysBlocked",
+       "line": 158
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_SameRecordingMarker_ChainTarget_StaysBlockedWithoutLiveLaunch",
+       "line": 188
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_NonSameRecordingMarker_AllowsWithoutMutatingMarker",
+       "line": 219
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_FlagTrueNullReason_AllowsWithoutMutatingMarker",
+       "line": 250
+      },
+      {
+       "method": "RepeatedRewind_ClearsStaleSuppressionOnUnrelatedRecording",
+       "line": 282
+      },
+      {
+       "method": "ResetAllPlaybackState_LogsSuppressionClearLifecycle",
+       "line": 324
+      },
+      {
+       "method": "RecordingTree_SaveLoadRoundTrip_PreservesScopedSuppressionMetadata",
+       "line": 351
+      },
+      {
+       "method": "RecordingTree_LoadBoolOnlySuppression_LeavesReasonNull_NoLegacyNormalization",
+       "line": 378
+      },
+      {
+       "method": "RecordingTree_LoadStraySuppressionMetadataWithoutBool_IgnoresReasonAndUT",
+       "line": 406
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_SameRecordingMarker_ClearsAndAllowsSpawn",
+       "line": 423
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_NoMarker_ReturnsFalse_NoLog",
+       "line": 465
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_NonSameRecordingMarker_DoesNotClear",
+       "line": 485
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_NullRecording_ReturnsFalse",
+       "line": 513
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_NullTerminal_ClearsAndAllowsSpawn",
+       "line": 520
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_NonSpawnableTerminal_StillClears_SpawnGateRefuses",
+       "line": 563
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_WatchSwitch_OnlyMarkedRecordingClears",
+       "line": 600
+      },
+      {
+       "method": "ShouldRetainMapPresenceForTerminalRealSpawn_SuppressedRewindMarker_NoMapPresenceRetained",
+       "line": 642
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_DoesNotCopySuppressionFields_DeepClone_Does",
+       "line": 669
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_SecondEntryAfterClear_IsNoOp",
+       "line": 704
+      },
+      {
+       "method": "TryClearSpawnSuppressionOnWatchEntry_FullSequence_MarkThenWatchThenSpawn",
+       "line": 730
+      },
+      {
+       "method": "ShouldApplyRewindSpawnSuppression_BoundaryOverlapUsesEpsilonOnly",
+       "line": 779
+      },
+      {
+       "method": "ShouldApplyRewindSpawnSuppression_DifferentLaunchSamePid_NotSuppressed",
+       "line": 838
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_StandaloneSameRecordingMarker_NoLiveCraft_LiftsAndSpawns",
+       "line": 885
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_StandaloneSameRecordingMarker_LiveCraftPresent_StaysBlocked",
+       "line": 919
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_ChainSameRecordingMarker_NoLiveCraft_StaysBlocked",
+       "line": 946
+      },
+      {
+       "method": "ResolveRewindSuppressionLiveLaunchPresence_LiveSameCraftPresent_HoldsBlockAndLogsIt",
+       "line": 989
+      },
+      {
+       "method": "ResolveRewindSuppressionLiveLaunchPresence_NonLiftableTarget_SkipsTheScanEntirely",
+       "line": 1018
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_ReturnsTrue_ForPreservedCanonForkAfterParentRewind",
+       "line": 1075
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_TreeContextLeaf_ReturnsTrue_ForPreservedCanonForkAfterParentRewind",
+       "line": 1123
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MergeJournalOrchestratorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RunMerge_HappyPath_AllPhasesCompleted_JournalCleared",
+       "line": 230
+      },
+      {
+       "method": "RunMerge_SlotLookupFailure_AbortsBeforeJournalRelationsOrTombstones",
+       "line": 279
+      },
+      {
+       "method": "TagRpsForReap_NormalOriginRpWithNullCreatingSession_Promotes",
+       "line": 333
+      },
+      {
+       "method": "TagRpsForReap_LogSplitsSessionAndNormalOriginCounts",
+       "line": 349
+      },
+      {
+       "method": "RunMerge_Crashed_PromotesProvisionalToCommittedProvisional",
+       "line": 376
+      },
+      {
+       "method": "CrashAtBegin_Finisher_RollsBack_SessionRestored",
+       "line": 415
+      },
+      {
+       "method": "CrashAtBegin_Finisher_RemovesAllSessionTaggedFragments",
+       "line": 446
+      },
+      {
+       "method": "CrashAtSupersede_Finisher_DrivesForward_JournalCleared",
+       "line": 491
+      },
+      {
+       "method": "CrashAtTombstone_Finisher_DrivesForward_JournalCleared",
+       "line": 521
+      },
+      {
+       "method": "CrashAtFinalize_Finisher_DrivesForward_JournalCleared",
+       "line": 544
+      },
+      {
+       "method": "CrashAtDurable1Done_Finisher_CompletesRemaining_JournalCleared",
+       "line": 574
+      },
+      {
+       "method": "CrashAtTreeMerge_Finisher_DrivesForwardThroughSplit",
+       "line": 612
+      },
+      {
+       "method": "CrashAtRpReap_Finisher_CompletesRemaining_JournalCleared",
+       "line": 638
+      },
+      {
+       "method": "CrashAtMarkerCleared_Finisher_CompletesRemaining_JournalCleared",
+       "line": 656
+      },
+      {
+       "method": "CrashAtDurable2Done_Finisher_CompletesRemaining_JournalCleared",
+       "line": 674
+      },
+      {
+       "method": "Finisher_NoJournal_NoOp",
+       "line": 695
+      },
+      {
+       "method": "Finisher_CompletePhase_ClearsJournal_ReturnsTrue",
+       "line": 708
+      },
+      {
+       "method": "Finisher_CalledTwice_Idempotent",
+       "line": 727
+      },
+      {
+       "method": "RunMerge_ProductionPath_PersistsStableCheckpointsToPersistent",
+       "line": 743
+      },
+      {
+       "method": "RunFinisher_ProductionPath_DoesNotInvokeSaveGame",
+       "line": 782
+      },
+      {
+       "method": "Finisher_UnknownPhase_TreatsAsRollback",
+       "line": 802
+      },
+      {
+       "method": "RunMerge_OriginSpansRewindUT_CallsSplitterBeforeSupersede",
+       "line": 874
+      },
+      {
+       "method": "RunMerge_OriginDoesNotSpanRewindUT_SkipsSplit",
+       "line": 952
+      },
+      {
+       "method": "RunFinisher_PhaseSplit_DrivesForwardThroughComplete",
+       "line": 1014
+      },
+      {
+       "method": "RunMerge_NullMarker_ReturnsFalse",
+       "line": 1051
+      },
+      {
+       "method": "RunMerge_NullProvisional_ReturnsFalse",
+       "line": 1059
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

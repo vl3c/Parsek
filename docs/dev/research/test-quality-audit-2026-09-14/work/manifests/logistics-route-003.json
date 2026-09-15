@@ -1,0 +1,147 @@
+{
+ "batch_id": "logistics-route-003",
+ "cluster": "logistics-route",
+ "tier": "A1",
+ "expected_methods": 32,
+ "files": [
+  {
+   "file": "Logistics/RouteBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 215,
+     "end": 1247,
+     "methods": [
+      {
+       "method": "Build_FromEligibleSingleRecordingResult_ProducesActiveRoute_WithFreshGuid",
+       "line": 215
+      },
+      {
+       "method": "Build_PopulatesSourceRefsWithRouteProofHash",
+       "line": 236
+      },
+      {
+       "method": "Build_KscOriginRecording_SetsIsKscOriginTrue",
+       "line": 262
+      },
+      {
+       "method": "Build_NonKscOriginRecording_PopulatesOriginVesselPid_FromRouteOriginProof",
+       "line": 280
+      },
+      {
+       "method": "BuildRoute_HarvestOrigin_BuildsLocationEndpoint_EmptyCostManifest",
+       "line": 304
+      },
+      {
+       "method": "BuildRoute_HarvestOriginWithoutWindow_RejectsEndpointMissing",
+       "line": 362
+      },
+      {
+       "method": "BuildRoute_OriginlessPurePickup_AdmitsWithPickupManifest",
+       "line": 392
+      },
+      {
+       "method": "BuildRoute_OriginlessPurePickup_PickupManifestIsDefensiveCopy",
+       "line": 444
+      },
+      {
+       "method": "BuildRoute_OriginlessInventoryPickup_AdmitsWithInventoryPickupManifest",
+       "line": 473
+      },
+      {
+       "method": "BuildRoute_InventoryPickup_ManifestIsDeepCopy",
+       "line": 520
+      },
+      {
+       "method": "BuildRoute_OriginlessMixed_StillRejectsEndpointMissing",
+       "line": 551
+      },
+      {
+       "method": "BuildRoute_DeliveryOnly_LeavesPickupManifestNull",
+       "line": 582
+      },
+      {
+       "method": "BuildRoute_DockedOriginWithHarvest_CostManifestReducedByHarvested",
+       "line": 606
+      },
+      {
+       "method": "BuildRoute_DockedOriginWithHarvest_DeliveryManifestUnchanged",
+       "line": 633
+      },
+      {
+       "method": "ReduceCostManifestByHarvested_FloatResidue_RemovedAtGainEpsilon",
+       "line": 662
+      },
+      {
+       "method": "BuildRoute_KscOriginWithHarvest_CostManifestUnchanged",
+       "line": 691
+      },
+      {
+       "method": "BuildRoute_DepotDrillRun_EndToEnd_AnalysisThroughDebitReduction",
+       "line": 718
+      },
+      {
+       "method": "IsSurfaceSituation_ClassifiesSurfaceSituations",
+       "line": 874
+      },
+      {
+       "method": "BuildRoute_DockedOrigin_WithDescriptor_BuildsSurfaceEndpoint",
+       "line": 880
+      },
+      {
+       "method": "BuildRoute_DockedOrigin_WithoutDescriptor_FallsBackPidOnly",
+       "line": 917
+      },
+      {
+       "method": "Build_StopCarriesResourceAndInventoryManifestsFromResult",
+       "line": 942
+      },
+      {
+       "method": "Build_TransitDurationIsRenderedSpan_DockMinusRootLaunch",
+       "line": 963
+      },
+      {
+       "method": "Build_PopulatesDispatchWindowEpochUTFromRootLaunchUT",
+       "line": 982
+      },
+      {
+       "method": "Build_DispatchIntervalBelowTransit_Rejected",
+       "line": 1004
+      },
+      {
+       "method": "Build_DispatchIntervalBelowSpan_ClampsUpWhenAllowed",
+       "line": 1023
+      },
+      {
+       "method": "Build_NegativeOrZeroInterval_Rejected",
+       "line": 1052
+      },
+      {
+       "method": "Build_IneligibleResult_ReturnsNullRouteWithRejectReason",
+       "line": 1071
+      },
+      {
+       "method": "Build_NoOrigin_Rejected",
+       "line": 1089
+      },
+      {
+       "method": "Build_OriginResolvedFromTreeRoot_WhenWindowChildHasNoLaunchSite",
+       "line": 1110
+      },
+      {
+       "method": "Build_PopulatesBackingMissionDefinition_FromSource",
+       "line": 1158
+      },
+      {
+       "method": "Build_PausedRoute_LeavesLoopAnchorUnset",
+       "line": 1188
+      },
+      {
+       "method": "Build_MemberSet_WidensToRootLaunchPath_OnMultiLegTree",
+       "line": 1207
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

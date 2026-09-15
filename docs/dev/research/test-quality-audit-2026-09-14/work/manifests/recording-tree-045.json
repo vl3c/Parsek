@@ -1,0 +1,206 @@
+{
+ "batch_id": "recording-tree-045",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 44,
+ "files": [
+  {
+   "file": "MergeDialogVesselTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CanPersistVessel_Orbiting_ReturnsTrue",
+       "line": 35
+      },
+      {
+       "method": "CanPersistVessel_Landed_ReturnsTrue",
+       "line": 46
+      },
+      {
+       "method": "CanPersistVessel_Destroyed_ReturnsFalse",
+       "line": 57
+      },
+      {
+       "method": "CanPersistVessel_Recovered_ReturnsFalse",
+       "line": 68
+      },
+      {
+       "method": "CanPersistVessel_Docked_ReturnsFalse",
+       "line": 79
+      },
+      {
+       "method": "CanPersistVessel_NullTerminalState_ReturnsTrue",
+       "line": 90
+      },
+      {
+       "method": "CanPersistVessel_NoVesselSnapshot_ReturnsFalse",
+       "line": 101
+      },
+      {
+       "method": "CanPersistVessel_NullRecording_ReturnsFalse",
+       "line": 112
+      },
+      {
+       "method": "CanPersistVessel_Boarded_ReturnsFalse",
+       "line": 118
+      },
+      {
+       "method": "CanPersistVessel_Splashed_ReturnsTrue",
+       "line": 129
+      },
+      {
+       "method": "CanPersistVessel_SubOrbital_ReturnsFalse",
+       "line": 140
+      },
+      {
+       "method": "CanPersistVessel_Debris_ReturnsFalse",
+       "line": 151
+      },
+      {
+       "method": "CanPersistVessel_ActiveNonLeafEffectiveLeafInPendingTree_ReturnsTrue",
+       "line": 163
+      },
+      {
+       "method": "CanPersistVessel_ActiveNonLeafWithSamePidContinuationInPendingTree_ReturnsFalse",
+       "line": 211
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_TwoSurvivingOneDestroyed",
+       "line": 262
+      },
+      {
+       "method": "ApplyVesselDecisions_KeepsSpawnableSnapshot_NullsGhostOnly",
+       "line": 301
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_EmptyTree_ReturnsEmptyDict",
+       "line": 340
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_NullTree_ReturnsEmptyDict",
+       "line": 348
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_AllDestroyed_AllGhostOnly",
+       "line": 355
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_DebrisAndSubOrbital_DefaultGhostOnly",
+       "line": 381
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_SkipsNonLeafRecordings",
+       "line": 408
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_ActiveNonLeafEffectiveLeaf_DefaultsToPersist",
+       "line": 436
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_SuppressedNonLeafForcedGhostOnly",
+       "line": 510
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_NullSuppression_LeafBehaviourUnchanged",
+       "line": 587
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_SuppressedIdNotInTree_CountedAndIgnored",
+       "line": 626
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_ActiveTargetNotInClosure_NoSkipLog",
+       "line": 664
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DiscardEconomyPreservationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Rehome_ContractCompletion_BecomesDirectLedgerAction",
+       "line": 72
+      },
+      {
+       "method": "Rehome_Milestone_BecomesDirectLedgerAction",
+       "line": 86
+      },
+      {
+       "method": "Rehome_ScienceSubject_BecomesDirectActionAndLeavesPendingClean",
+       "line": 102
+      },
+      {
+       "method": "Rehome_IgnoresNonIrreversibleTaggedEventsAndUntaggedEvents",
+       "line": 140
+      },
+      {
+       "method": "Rehome_StrategyExchangeScienceDebit_BecomesDirectLedgerAction",
+       "line": 169
+      },
+      {
+       "method": "Rehome_ScienceChangedWithAnOrdinaryReason_IsNotPreserved",
+       "line": 189
+      },
+      {
+       "method": "Rehome_DedupsAgainstExistingLedgerAction",
+       "line": 213
+      },
+      {
+       "method": "Rehome_ContractCompletion_PreservesRewardMagnitude_NoSilentFundDrop",
+       "line": 233
+      },
+      {
+       "method": "Rehome_ScienceSubject_AlreadyCommitted_NotDoubleBanked",
+       "line": 253
+      },
+      {
+       "method": "IsIrreversibleLiveGameplayEvent_OnlyTerminalContractsAndMilestones",
+       "line": 288
+      },
+      {
+       "method": "DiscardPendingTree_CompletedContract_NotReListedActive_AfterWalk",
+       "line": 302
+      },
+      {
+       "method": "DiscardPendingTree_AbandonPath_DoesNotRehome",
+       "line": 346
+      },
+      {
+       "method": "RemovePendingScienceSubjectsForRecordings_RemovesScoped_LeavesUnrelatedAndUntagged",
+       "line": 390
+      },
+      {
+       "method": "RemovePendingScienceSubjectsForRecordings_SkipsCommittedIds",
+       "line": 407
+      },
+      {
+       "method": "DiscardPendingTree_OtherRecordingUncommittedScience_Survives",
+       "line": 422
+      },
+      {
+       "method": "DiscardPendingTree_AbandonPath_WipesAllPendingScience",
+       "line": 454
+      },
+      {
+       "method": "CommitTree_DuplicateSkipStrictReject_DropsOwnUncommitted_PreservesOtherAndCommitted",
+       "line": 491
+      },
+      {
+       "method": "CommitTree_DuplicateSkipReferenceEqual_PreservesOwnCommittedAndOther",
+       "line": 540
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

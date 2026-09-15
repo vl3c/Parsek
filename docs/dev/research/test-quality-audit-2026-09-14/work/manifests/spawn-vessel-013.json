@@ -1,0 +1,218 @@
+{
+ "batch_id": "spawn-vessel-013",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "SpawnTerminalOrbitFromTailTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_NoSections_ReturnsFalse",
+       "line": 43
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_PicksLastExoBallisticbodyFixedFrame",
+       "line": 54
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_SkipsExoPropulsiveTail_WalksBackToCoast",
+       "line": 73
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_SkipsSurfaceSection",
+       "line": 92
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_SkipsAtmosphericAndApproach",
+       "line": 111
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_AllSurfaceSections_ReturnsFalse",
+       "line": 134
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_RelativeSectionWithoutShadow_WalksBack",
+       "line": 153
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_RelativeSectionWithShadow_UsesShadow",
+       "line": 185
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_BodyMismatch_ReturnsFalse",
+       "line": 219
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_NonFiniteOnlyFrame_FallsThroughToPriorSection",
+       "line": 235
+      },
+      {
+       "method": "ResolveLatestStoredOrbitSegmentEndUT_NoSegments_ReturnsNaN",
+       "line": 261
+      },
+      {
+       "method": "ResolveLatestStoredOrbitSegmentEndUT_PicksMaxEndUTAcrossSegments",
+       "line": 271
+      },
+      {
+       "method": "ResolveLatestStoredOrbitSegmentEndUT_FiltersByBody",
+       "line": 291
+      },
+      {
+       "method": "ResolveLatestStoredOrbitSegmentEndUT_SkipsDegenerateSegments",
+       "line": 311
+      },
+      {
+       "method": "TryDeriveTerminalOrbitSeedFromTrajectoryTail_NullRecording_ReturnsFalse",
+       "line": 356
+      },
+      {
+       "method": "TryDeriveTerminalOrbitSeedFromTrajectoryTail_NullBody_ReturnsFalse",
+       "line": 368
+      },
+      {
+       "method": "TryDeriveTerminalOrbitSeedFromTrajectoryTail_NoCoastFrame_LogsAndReturnsFalse",
+       "line": 380
+      },
+      {
+       "method": "TryDeriveTerminalOrbitSeedFromTrajectoryTail_StoredSegmentNewer_LogsAndReturnsFalse",
+       "line": 398
+      },
+      {
+       "method": "TryDeriveTerminalOrbitSeedFromTrajectoryTail_FreshnessEpsilon_BoundaryTailEqualsSegmentEndRejects",
+       "line": 429
+      },
+      {
+       "method": "TryDeriveTerminalOrbitSeedFromTrajectoryTail_DegenerateStoredSegment_DoesNotBlockTail",
+       "line": 456
+      },
+      {
+       "method": "TryDeriveTerminalOrbitSeedFromTrajectoryTail_RotationDriftBeyondLimit_LogsAndReturnsFalse",
+       "line": 496
+      },
+      {
+       "method": "TryFindLatestCoastTrajectoryFrame_NonFiniteTailFrame_WalksBackInSection",
+       "line": 521
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "OrphanEngineFxAutoStartTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildEngineEventKeySet_EmptyEvents_ReturnsEmptySet",
+       "line": 38
+      },
+      {
+       "method": "BuildEngineEventKeySet_NullEvents_ReturnsEmptySet",
+       "line": 45
+      },
+      {
+       "method": "BuildEngineEventKeySet_EngineIgnited_CollectsKey",
+       "line": 52
+      },
+      {
+       "method": "BuildEngineEventKeySet_EngineThrottle_CollectsKey",
+       "line": 66
+      },
+      {
+       "method": "BuildEngineEventKeySet_RcsEvents_Ignored",
+       "line": 80
+      },
+      {
+       "method": "BuildEngineEventKeySet_MixedEvents_CollectsOnlyEngineKeys",
+       "line": 94
+      },
+      {
+       "method": "BuildEngineEventKeySet_EngineShutdown_Collected",
+       "line": 110
+      },
+      {
+       "method": "EndToEnd_DebrisBoosterPattern_ZeroEventsTriggersAutoStart",
+       "line": 129
+      },
+      {
+       "method": "EndToEnd_MainVesselWithSeeds_EnginesNotOrphan",
+       "line": 141
+      },
+      {
+       "method": "EndToEnd_ZeroThrottleSeededEngine_ShutdownSentinelPreventsAutoStart",
+       "line": 159
+      },
+      {
+       "method": "ChainPromotion_NullActiveRec_EmitsEngineSeeds",
+       "line": 191
+      },
+      {
+       "method": "ChainPromotion_RecWithNullPartEvents_EmitsEngineSeeds",
+       "line": 204
+      },
+      {
+       "method": "ChainPromotion_EmptyRec_EmitsEngineSeeds_ReFlyForkScenario",
+       "line": 219
+      },
+      {
+       "method": "ChainPromotion_RecWithEngineEvents_SkipsSeeds_QuickloadResume",
+       "line": 236
+      },
+      {
+       "method": "ChainPromotion_RecWithOnlyNonEngineEvents_EmitsEngineSeeds_LoneLightOn",
+       "line": 266
+      },
+      {
+       "method": "ChainPromotion_RecWithSingleEngineEvent_SkipsSeeds",
+       "line": 299
+      },
+      {
+       "method": "SeedUT_NullActiveRec_ReturnsCurrentUT",
+       "line": 339
+      },
+      {
+       "method": "SeedUT_EmptyRec_ReturnsCurrentUT_ReFlyForkScenario",
+       "line": 350
+      },
+      {
+       "method": "SeedUT_PopulatedRecBeingResumed_ReturnsRecordingStartUT",
+       "line": 364
+      },
+      {
+       "method": "SeedUT_PopulatedRecWithStartUTZero_ReturnsZero_SandboxEpochAnchor",
+       "line": 384
+      },
+      {
+       "method": "SeedUT_RecordingStartUTAtCurrentUT_ReturnsCurrentUT",
+       "line": 404
+      },
+      {
+       "method": "SeedUT_RecordingStartUTInFuture_ReturnsCurrentUT",
+       "line": 418
+      },
+      {
+       "method": "SeedUT_EmptyRecWithExplicitStartUTSet_ReturnsCurrentUT",
+       "line": 432
+      },
+      {
+       "method": "Trim_ThenGate_ResumedForkWithAbandonedFutureEngineEvents_EmitsSeeds",
+       "line": 467
+      },
+      {
+       "method": "Trim_PreservesPreCutoffEngineEvents_GateStillSkips",
+       "line": 512
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

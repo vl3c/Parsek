@@ -1,0 +1,346 @@
+{
+ "batch_id": "catchall-062",
+ "cluster": "catchall",
+ "tier": "C",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "RemoveRecordingAtTreePruneTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RemoveRecordingAt_PrunesTheRowFromItsCommittedTree",
+       "line": 56
+      },
+      {
+       "method": "RemoveRecordingAt_OnAMultiMemberTree_KeepsTheSurvivorsAndScrubsBranchPointRefs",
+       "line": 73
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "QuicksaveRefreshTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RefreshQuicksaveAfterMerge_NormalCall_InvokesSaveGame_LogsAtInfo",
+       "line": 39
+      },
+      {
+       "method": "RefreshQuicksaveAfterMerge_SaveGameReturnsNull_LogsWarn",
+       "line": 64
+      },
+      {
+       "method": "RefreshQuicksaveAfterMerge_SaveGameThrows_LogsWarnAndDoesNotPropagate",
+       "line": 87
+      },
+      {
+       "method": "RefreshQuicksaveAfterMerge_InvokesSaveGameExactlyOnce",
+       "line": 107
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RestockPlusShowcaseTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RestockPlusShowcaseRecordings_RowsAreWellFormed",
+       "line": 29
+      },
+      {
+       "method": "RestockPlusShowcaseRows_SitBehindStockEngineShowcaseLines",
+       "line": 59
+      },
+      {
+       "method": "RestockPlusInstallProbe_OverrideAndDefault",
+       "line": 84
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BackwardCompatTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LegacyRecording_TreeFieldsDefaultToNull",
+       "line": 21
+      },
+      {
+       "method": "RecordingTree_Load_MissingLegacyFields_DefaultsSafely",
+       "line": 45
+      },
+      {
+       "method": "RevertDetection_TreeRecordingsCounted_InTotalSavedRecCount",
+       "line": 69
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekFlightWarpCheckpointTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly",
+       "line": 11
+      },
+      {
+       "method": "RecalculateLedgerAfterWarpExit_LogsAndSwallowsRecalculationFailure",
+       "line": 47
+      },
+      {
+       "method": "ShouldSkipDuplicateWarpCheckpointEvent_FirstEvent_ReturnsFalse",
+       "line": 72
+      },
+      {
+       "method": "ShouldSkipDuplicateWarpCheckpointEvent_SameRateSameUt_ReturnsTrue",
+       "line": 83
+      },
+      {
+       "method": "ShouldSkipDuplicateWarpCheckpointEvent_SameRateAdvancedUt_ReturnsFalse",
+       "line": 94
+      },
+      {
+       "method": "ShouldSkipDuplicateWarpCheckpointEvent_ChangedRateSameUt_ReturnsFalse",
+       "line": 105
+      },
+      {
+       "method": "ShouldSkipDuplicateWarpCheckpointEvent_NonFiniteInputs_ReturnsFalse",
+       "line": 116
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TerrainCorrectorTailLiftTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildTailLiftPlan_ReturnsInactive_OnNullTerminal",
+       "line": 8
+      },
+      {
+       "method": "BuildTailLiftPlan_ReturnsInactive_OnNonSurfaceTerminal",
+       "line": 17
+      },
+      {
+       "method": "BuildTailLiftPlan_ReturnsInactive_OnNaNTerrain",
+       "line": 26
+      },
+      {
+       "method": "BuildTailLiftPlan_ReturnsInactive_OnNonPositiveRampSeconds",
+       "line": 35
+      },
+      {
+       "method": "BuildTailLiftPlan_ReturnsInactive_OnSmallDelta",
+       "line": 44
+      },
+      {
+       "method": "BuildTailLiftPlan_ReturnsActive_WithCorrectRampEndpoints",
+       "line": 56
+      },
+      {
+       "method": "EvaluateTailLift_BeforeRamp_ReturnsZero",
+       "line": 69
+      },
+      {
+       "method": "EvaluateTailLift_AfterTerminal_ReturnsDelta",
+       "line": 79
+      },
+      {
+       "method": "EvaluateTailLift_AtMidpoint_ReturnsHalfDelta",
+       "line": 89
+      },
+      {
+       "method": "EvaluateTailLift_InactivePlan_ReturnsZero",
+       "line": 98
+      },
+      {
+       "method": "EvaluateTailLift_ZeroSpanRamp_ReturnsDeltaAtOrAfterTerminal",
+       "line": 106
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekTimeFormatTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatDuration_KerbinTime",
+       "line": 30
+      },
+      {
+       "method": "FormatDuration_EdgeCases",
+       "line": 39
+      },
+      {
+       "method": "FormatDuration_EarthTime",
+       "line": 52
+      },
+      {
+       "method": "FormatDurationFull_KerbinTime",
+       "line": 69
+      },
+      {
+       "method": "FormatDurationFull_EarthTime_DifferentDayLength",
+       "line": 75
+      },
+      {
+       "method": "FormatCountdown_KerbinTime",
+       "line": 91
+      },
+      {
+       "method": "FormatCountdown_EarthTime_DaysUse24Hours",
+       "line": 97
+      },
+      {
+       "method": "KerbinCalendar_6hDays_426dYears",
+       "line": 106
+      },
+      {
+       "method": "EarthCalendar_24hDays_365dYears",
+       "line": 114
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SourceScanTextTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StripCSharpComments_RemovesComments_AndKeepsStringLiterals",
+       "line": 16
+      },
+      {
+       "method": "StripCSharpComments_PreservesLengthAndLineCount",
+       "line": 35
+      },
+      {
+       "method": "MaskStringLiteralContents_HidesBracesInsideLiterals",
+       "line": 49
+      },
+      {
+       "method": "EnclosingMethodBodyStart_FindsTheMethodBlockNotTheInnerBlock",
+       "line": 61
+      },
+      {
+       "method": "IfConditions_ReturnsBalancedConditionsOnly",
+       "line": 82
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BodyFixedPrimaryCoverageTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CoversPlaybackUT_RelativeTwoFrameCoverage_ReturnsTrue",
+       "line": 11
+      },
+      {
+       "method": "CoversPlaybackUT_SingleFrame_ReturnsFalse",
+       "line": 27
+      },
+      {
+       "method": "CoversPlaybackUT_OutOfBodyFixedRange_ReturnsFalse",
+       "line": 48
+      },
+      {
+       "method": "CoversPlaybackUT_AbsoluteSection_ReturnsFalse",
+       "line": 62
+      },
+      {
+       "method": "CoversPlaybackUT_V13DualSurfaceFixture_CoversRelativeSection",
+       "line": 75
+      },
+      {
+       "method": "CoversPlaybackUT_V13DualSurfaceFixture_AbsoluteSectionRejected",
+       "line": 93
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DistanceThresholdsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PhysicsBubbleThreshold_IsSharedAcrossCoreGhostSystems",
+       "line": 8
+      },
+      {
+       "method": "FullFidelityDecoupledFromPhysicsBubble",
+       "line": 18
+      },
+      {
+       "method": "RenderingThresholds_AreDerivedFromCentralDefinitions",
+       "line": 28
+      },
+      {
+       "method": "RelativeFrameThresholds_PreserveExpectedOrdering",
+       "line": 36
+      },
+      {
+       "method": "WatchCutoffDefault_IsFixedAtThreeHundredKilometers",
+       "line": 44
+      },
+      {
+       "method": "ParsekSettings_NoLongerExposesMutableWatchCutoffField",
+       "line": 55
+      },
+      {
+       "method": "AudioAndKscThresholds_RemainPositiveAndOrdered",
+       "line": 61
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

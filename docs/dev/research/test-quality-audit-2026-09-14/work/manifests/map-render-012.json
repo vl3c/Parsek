@@ -1,0 +1,262 @@
+{
+ "batch_id": "map-render-012",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "MapRender/ShadowRenderDriverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyScope_NoUnit_NotHeliocentric_IsFaithful",
+       "line": 29
+      },
+      {
+       "method": "ClassifyScope_HeliocentricMember_SkipsReaim",
+       "line": 37
+      },
+      {
+       "method": "ClassifyScope_FaithfulMemberOfReaimMission_IsShadowed",
+       "line": 45
+      },
+      {
+       "method": "ClassifyScope_OverlapMember_SkipsOverlap",
+       "line": 55
+      },
+      {
+       "method": "ClassifyScope_HeliocentricTakesPriorityOverOverlap",
+       "line": 63
+      },
+      {
+       "method": "ClassifyScope_DegenerateSpan_IsFaithful",
+       "line": 71
+      },
+      {
+       "method": "ShouldSkipReaimSegment_ReaimedWindow_OnHeliocentricLeg_Draws",
+       "line": 82
+      },
+      {
+       "method": "ShouldSkipReaimSegment_ReaimedWindow_InTrimGap_Skips",
+       "line": 92
+      },
+      {
+       "method": "ShouldSkipReaimSegment_DeclinedWindow_Skips",
+       "line": 105
+      },
+      {
+       "method": "ShouldSkipReaimSegment_FaithfulNonOwner_StarLeg_Draws",
+       "line": 115
+      },
+      {
+       "method": "ShouldSkipReaimSegment_FaithfulKerbinLeg_DoesNotSkip",
+       "line": 125
+      },
+      {
+       "method": "ShouldSkipReaimSegment_HiddenIntent_NeverSkips",
+       "line": 136
+      },
+      {
+       "method": "BuildChainSignature_DifferentWindowIndex_ProducesDifferentSignature",
+       "line": 151
+      },
+      {
+       "method": "BuildChainSignature_SameWindowIndex_IsStable",
+       "line": 171
+      },
+      {
+       "method": "BuildChainSignature_NonReaim_WindowMinusOne_StaysUniquePerMember",
+       "line": 188
+      },
+      {
+       "method": "DecideForGhost_InOrbitSegment_IsStockConicVisible",
+       "line": 230
+      },
+      {
+       "method": "DecideForGhost_InAscentPoints_IsTracedPathVisible",
+       "line": 240
+      },
+      {
+       "method": "DecideForGhost_InArrivalPoints_IsTracedPathOnDestinationBody",
+       "line": 249
+      },
+      {
+       "method": "DecideForGhost_PastWindowEnd_IsHidden",
+       "line": 258
+      },
+      {
+       "method": "DecideForGhost_InInteriorGap_HoldsPriorVisible",
+       "line": 266
+      },
+      {
+       "method": "DecideForGhost_InInteriorGap_NoPrior_IsHidden",
+       "line": 276
+      },
+      {
+       "method": "DecideForGhost_OverlapMember_OnOrbit_IsProcessedAndVisible",
+       "line": 304
+      },
+      {
+       "method": "RunFrame_SpineUnconditional_AssemblerIsExceptionFallbackOnly_SourceGate",
+       "line": 386
+      },
+      {
+       "method": "SwappedSpine_DoesNotConsumeDeorbitClock_SourceGate",
+       "line": 410
+      },
+      {
+       "method": "RunFrame_DoesNotSkipOverlapMembers_SourceGate",
+       "line": 422
+      },
+      {
+       "method": "IsDirectorTracedPathActiveFromIntent_FreshIntentStamp_IsActive",
+       "line": 446
+      },
+      {
+       "method": "IsTracedPathOwnedThisFrame_CollapsedToIntentSource_FlagGone_SourceGate",
+       "line": 470
+      },
+      {
+       "method": "IsTracedPathOwnedThisFrame_ReadsIntentSource_SingleStamp",
+       "line": 485
+      },
+      {
+       "method": "RunFrame_StampsIntentUnconditionally_SourceGate",
+       "line": 506
+      },
+      {
+       "method": "MarkerTracedPathDisjunct_TracksIntentSource_SingleStamp",
+       "line": 528
+      },
+      {
+       "method": "MarkerTracedPathDisjunct_SharedSelector_DecisionConsistent",
+       "line": 548
+      },
+      {
+       "method": "MarkerSite_TracedPathDisjunct_ReadsSharedSelector_SourceGate",
+       "line": 573
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/ProductionAnchorWorldFrameResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RelativeBoundary_NullRecording_ReturnsFalse",
+       "line": 125
+      },
+      {
+       "method": "RelativeBoundary_NullTrackSections_ReturnsFalse",
+       "line": 134
+      },
+      {
+       "method": "RelativeBoundary_NegativeSectionIndex_ReturnsFalse",
+       "line": 145
+      },
+      {
+       "method": "RelativeBoundary_OutOfRangeSectionIndex_ReturnsFalse",
+       "line": 155
+      },
+      {
+       "method": "RelativeBoundary_AdjacentRelIdxNegative_ReturnsFalse",
+       "line": 165
+      },
+      {
+       "method": "RelativeBoundary_AdjacentNotRelative_ReturnsFalse",
+       "line": 176
+      },
+      {
+       "method": "RelativeBoundary_KnownSectionResolverDoesNotReselectFollowingAbsoluteSection",
+       "line": 188
+      },
+      {
+       "method": "RelativeBoundary_ShadowResolverUsesExactbodyFixedFrame",
+       "line": 285
+      },
+      {
+       "method": "RelativeBoundary_ShadowResolverRejectsStaleBodyFixedFrame",
+       "line": 324
+      },
+      {
+       "method": "OrbitalCheckpoint_NullRecording_ReturnsFalse",
+       "line": 372
+      },
+      {
+       "method": "OrbitalCheckpoint_OutOfRangeSectionIndex_ReturnsFalse",
+       "line": 381
+      },
+      {
+       "method": "OrbitalCheckpoint_AdjacentNotCheckpoint_ReturnsFalse",
+       "line": 391
+      },
+      {
+       "method": "OrbitalCheckpoint_AdjacentSectionIsAbsolute_ReturnsFalse",
+       "line": 402
+      },
+      {
+       "method": "OrbitalCheckpoint_NoCheckpointSegments_ReturnsFalse",
+       "line": 414
+      },
+      {
+       "method": "SoiBoundary_NullRecording_ReturnsFalse",
+       "line": 428
+      },
+      {
+       "method": "SoiBoundary_OutOfRangeSectionIndex_ReturnsFalse",
+       "line": 437
+      },
+      {
+       "method": "SoiBoundary_AdjacentNotCheckpoint_ReturnsFalse",
+       "line": 447
+      },
+      {
+       "method": "SoiBoundary_NoCheckpointSegments_ReturnsFalse",
+       "line": 457
+      },
+      {
+       "method": "Loop_NullRecording_ReturnsFalse",
+       "line": 469
+      },
+      {
+       "method": "Loop_AnchorPidZero_ReturnsFalse",
+       "line": 478
+      },
+      {
+       "method": "Loop_AnchorPidPositive_GuardExitsCleanly",
+       "line": 491
+      },
+      {
+       "method": "BubbleEntryExit_NullRecording_ReturnsFalse",
+       "line": 576
+      },
+      {
+       "method": "BubbleEntryExit_NullTrackSections_ReturnsFalse",
+       "line": 585
+      },
+      {
+       "method": "BubbleEntryExit_SectionIndexOutOfRange_ReturnsFalse",
+       "line": 596
+      },
+      {
+       "method": "BubbleExit_AdjacentPrevSectionIsCheckpoint_ReturnsFalse",
+       "line": 606
+      },
+      {
+       "method": "BubbleEntry_AdjacentNextSectionFramesEmpty_ReturnsFalseAndLogsNoSample",
+       "line": 636
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

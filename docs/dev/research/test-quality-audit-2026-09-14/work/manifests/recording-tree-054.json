@@ -1,0 +1,119 @@
+{
+ "batch_id": "recording-tree-054",
+ "cluster": "recording-tree",
+ "tier": "C",
+ "expected_methods": 14,
+ "files": [
+  {
+   "file": "MergeDialogExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClearPendingFlag_ClearsDeferredFlagAndLogsReason",
+       "line": 32
+      },
+      {
+       "method": "ComputeTreeDurationRange_NullTree_ReturnsZero",
+       "line": 52
+      },
+      {
+       "method": "ComputeTreeDurationRange_EmptyRecordings_ReturnsZero",
+       "line": 59
+      },
+      {
+       "method": "ComputeTreeDurationRange_SingleRecording_ReturnsDuration",
+       "line": 67
+      },
+      {
+       "method": "ComputeTreeDurationRange_MultipleRecordings_ReturnsFullSpan",
+       "line": 80
+      },
+      {
+       "method": "ComputeTreeDurationRange_OverlappingRecordings_CorrectSpan",
+       "line": 99
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordingPathsLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ValidateRecordingId_ProductionContextLogsWarnForRejectedId",
+       "line": 25
+      },
+      {
+       "method": "ValidateRecordingId_TestContextLogsVerboseForRejectedId",
+       "line": 39
+      },
+      {
+       "method": "ValidateRecordingId_TestContextLogsVerboseForInvalidFileNameChar",
+       "line": 55
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordingSupersedeRelationRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecordingSupersedeRelation_AllFields_RoundTrips",
+       "line": 12
+      },
+      {
+       "method": "RecordingSupersedeRelation_MissingCreatedRealTime_DefaultsNull",
+       "line": 37
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MergeDialogTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatDuration_AllBranches",
+       "line": 33
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ChainTipSpawnTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldRegenerateIdentity_DefaultFalse_ReturnsTrue",
+       "line": 12
+      },
+      {
+       "method": "ShouldRegenerateIdentity_PreserveTrue_ReturnsFalse",
+       "line": 21
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

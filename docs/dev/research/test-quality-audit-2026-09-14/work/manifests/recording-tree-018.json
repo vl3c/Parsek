@@ -1,0 +1,211 @@
+{
+ "batch_id": "recording-tree-018",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "StartDockedOriginBindingTests.cs",
+   "ranges": [
+    {
+     "start": 962,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Producer_StartInventoryBaselineIsHalfScoped_TheDepotsCargoIsNotTheTransports",
+       "line": 962
+      },
+      {
+       "method": "Producer_TheDepotsCargoInTheMergedStackCannotCancelARealPickup",
+       "line": 986
+      },
+      {
+       "method": "PidStamp_DifferentPid_Stamps",
+       "line": 1025
+      },
+      {
+       "method": "PidStamp_SamePidAndGuidsDoNotDiffer_RefusesTheSelfOrigin",
+       "line": 1033
+      },
+      {
+       "method": "PidStamp_SamePidButGuidsConclusivelyDiffer_Stamps",
+       "line": 1050
+      },
+      {
+       "method": "PidStamp_UnknownGuidOnADifferentPid_DegradesToPidOnly",
+       "line": 1060
+      },
+      {
+       "method": "PidStamp_NoLiveVessel_KeepsThePidSlotEmpty",
+       "line": 1071
+      },
+      {
+       "method": "Bind_TransportKeptFlying_BindsTheDepotAndRescopesTheManifests",
+       "line": 1142
+      },
+      {
+       "method": "Bind_DepotKeptFlying_BindsTheOtherHalf",
+       "line": 1180
+      },
+      {
+       "method": "Bind_NoPickup_BindsButIsNotAnOrigin",
+       "line": 1199
+      },
+      {
+       "method": "Bind_SplitDoesNotSeparateThePair_LeavesTheProofPending",
+       "line": 1220
+      },
+      {
+       "method": "Bind_RunsOnce_ASecondUndockCannotRebindTheOrigin",
+       "line": 1236
+      },
+      {
+       "method": "Bind_SelfOriginPid_KeepsThePidSlotEmptyButStillBindsTheRoot",
+       "line": 1252
+      },
+      {
+       "method": "RoverRelay_BothHalvesRoverTyped_ArePairAdmitted",
+       "line": 1325
+      },
+      {
+       "method": "RoverRelay_FirstUndockAtUt276_PickupOf200_BindsRoverBAsOrigin",
+       "line": 1337
+      },
+      {
+       "method": "RoverRelay_SecondUndockAtUt402_DeliveryOf126_8_DoesNotMakeRoverAAnOrigin",
+       "line": 1361
+      },
+      {
+       "method": "RoverRelay_TwoUndocksInSequence_TheFirstBindsAndTheSecondCannotOverwriteIt",
+       "line": 1386
+      },
+      {
+       "method": "LivePath_StopThenDeepCloneThenBind_StillBinds",
+       "line": 1431
+      },
+      {
+       "method": "LivePath_ChainBoundaryStop_LeavesThePairPendingAndBindsCleanly",
+       "line": 1476
+      },
+      {
+       "method": "LivePath_AStampedProofBindsWithNoForwardingPlumbingInvolved",
+       "line": 1505
+      },
+      {
+       "method": "LivePath_OnlyBoundAtUndockIsFinal_TheStampIsNot",
+       "line": 1537
+      },
+      {
+       "method": "LivePath_TheUndockDecisionIsTheSplitRecordedStaysActiveBranch",
+       "line": 1559
+      },
+      {
+       "method": "LivePath_AnOrdinaryStopWhileStillDockedStillEndsAsANonOrigin",
+       "line": 1571
+      },
+      {
+       "method": "IdenticalHalfPartSets_RefuseToBind_FailClosed",
+       "line": 1612
+      },
+      {
+       "method": "IdenticalHalfPartSets_TheWholeBindRefusesAndLeavesNoOrigin",
+       "line": 1622
+      },
+      {
+       "method": "RoverRelay_TheThreeSameCraftRoversHaveDisjointPartSets",
+       "line": 1640
+      },
+      {
+       "method": "StopWhileDocked_MarksUnboundAndIsNotAnOrigin",
+       "line": 1683
+      },
+      {
+       "method": "StopWhileDocked_NeverUndoesABind_WriteOnceIsTheOnlyFinalState",
+       "line": 1698
+      },
+      {
+       "method": "FacingSeamNode_PicksTheNodeThatNamesOurPart_NotTheFirstOne",
+       "line": 1720
+      },
+      {
+       "method": "FacingSeamNode_NoNodeNamesUs_FailsClosed",
+       "line": 1734
+      },
+      {
+       "method": "FacingSeamNode_NodeWithoutVesselInfoIsNotAFarHalf",
+       "line": 1745
+      },
+      {
+       "method": "FacingSeamNode_ZeroFacingIdAndEmptyListNeverMatch",
+       "line": 1752
+      },
+      {
+       "method": "WindowNamesHalfAsTransport_NeedsBothSidesToStraddleThePair",
+       "line": 1876
+      },
+      {
+       "method": "WitnessedDockScan_NoWindowsIsNotAWitnessedDock",
+       "line": 1890
+      },
+      {
+       "method": "WitnessedDockScan_ContradictingWindowsWitnessTheDockButNameNoDirection",
+       "line": 1905
+      },
+      {
+       "method": "ResolveTransportHalf_TheWindowOutranksFocus",
+       "line": 1933
+      },
+      {
+       "method": "ResolveTransportHalf_TheWindowOutranksTheGainToo",
+       "line": 1951
+      },
+      {
+       "method": "ResolveTransportHalf_NoWindow_TheGainOnlyCorroboratesFocus",
+       "line": 1969
+      },
+      {
+       "method": "ResolveTransportHalf_NoWindow_AContradictingFlowRefusesRatherThanReversing",
+       "line": 1988
+      },
+      {
+       "method": "StartDockedDeliveryToTheDepot_BindsNothingRatherThanNamingTheRunItsOwnOrigin",
+       "line": 2023
+      },
+      {
+       "method": "ResolveTransportHalf_NothingMoved_FallsBackToFocus",
+       "line": 2077
+      },
+      {
+       "method": "ResolveTransportHalf_AShapeRefusalIsNeverOverruledByCargo",
+       "line": 2092
+      },
+      {
+       "method": "ClassifyOriginBindGate_WitnessedDockIsTheDiscriminator",
+       "line": 2119
+      },
+      {
+       "method": "RelayHop1_FocusHeldTheDepot_TheWindowStillNamesRoverBAsTheOrigin",
+       "line": 2160
+      },
+      {
+       "method": "RelayHop2_TheDeliveryPartnerIsNotAnOriginAndNothingIsWritten",
+       "line": 2220
+      },
+      {
+       "method": "RelayHop2Shape_WithNoWitnessedDock_KeepsThePreFixCarriedStamp",
+       "line": 2260
+      },
+      {
+       "method": "WriteOnce_AnUnvalidatedStampDoesNotLockTheSlotAgainstARealPickup",
+       "line": 2283
+      },
+      {
+       "method": "SelfOriginProof_IsRefusedAtTheRead_BecauseTheBytesAreAlreadyOnDisk",
+       "line": 2317
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

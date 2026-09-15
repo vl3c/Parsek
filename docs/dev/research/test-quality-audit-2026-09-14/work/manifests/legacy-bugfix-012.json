@@ -1,0 +1,83 @@
+{
+ "batch_id": "legacy-bugfix-012",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 16,
+ "files": [
+  {
+   "file": "UnfinishedFlightClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DestroyedTreeBranchingParent_WithNoBpFields_ResolvesByOriginSlot",
+       "line": 46
+      },
+      {
+       "method": "ActiveParentChildBranchPoint_TakesPrecedenceOverOriginSlotFallback",
+       "line": 103
+      },
+      {
+       "method": "OrbitingNonFocusSlot_WithFocusOverride_ReturnsStableTerminalFocusSlot",
+       "line": 142
+      },
+      {
+       "method": "OrbitingFocusSlot_StaticFocusPathUnchangedByOverride",
+       "line": 196
+      },
+      {
+       "method": "SubOrbitalNonFocusSlot_WithFocusOverride_FallsThroughToStableLeafUnconcluded",
+       "line": 236
+      },
+      {
+       "method": "SubOrbitalFocusSlot_StaticFocusPath_FallsThroughToStableLeafUnconcluded",
+       "line": 280
+      },
+      {
+       "method": "OptimizerSplitChainContinuation_OnlyChainHeadQualifiesAsUnfinishedFlight",
+       "line": 329
+      },
+      {
+       "method": "OptimizerSplitChainContinuation_MultiSegmentChainCollapsesToHead",
+       "line": 397
+      },
+      {
+       "method": "ChainContinuationWhoseHeadFailsRaw_StillSurfacesAsUnfinishedFlight",
+       "line": 431
+      },
+      {
+       "method": "SupersedeTargetWithoutChainId_SuppressedByVisibleLaunchOriginAnchor",
+       "line": 481
+      },
+      {
+       "method": "ChainContinuationStillReportsChainMembershipOfUnfinishedFlight",
+       "line": 561
+      },
+      {
+       "method": "SupersedeTargetWithHiddenOrigin_BecomesAnchor",
+       "line": 603
+      },
+      {
+       "method": "NonChainRecording_AdmitsWithoutChainDedupe",
+       "line": 647
+      },
+      {
+       "method": "OriginOnlyFallback_WithMultipleMatchingRps_ResolvesLatest",
+       "line": 671
+      },
+      {
+       "method": "OpenClosedFilter_ImmutableTip_HidesShapeQualifyingSlotFromUf",
+       "line": 693
+      },
+      {
+       "method": "OpenClosedFilter_SplitTipOfPromotedRecording_IsNotBornImmutable",
+       "line": 733
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

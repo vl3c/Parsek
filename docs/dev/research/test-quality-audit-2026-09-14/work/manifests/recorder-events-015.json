@@ -1,0 +1,251 @@
+{
+ "batch_id": "recorder-events-015",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "LoopPhaseTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BeforeRecordingStart_ReturnsStartUTCycle0NotPaused",
+       "line": 18
+      },
+      {
+       "method": "AtRecordingStart_ReturnsPhase0Cycle0NotPaused",
+       "line": 29
+      },
+      {
+       "method": "MidwayThroughFirstCycle_ReturnsCorrectLoopUT",
+       "line": 40
+      },
+      {
+       "method": "AtRecordingEnd_ExactBoundary_StaysInPlayback",
+       "line": 53
+      },
+      {
+       "method": "AtRecordingEnd_JustPastBoundary_StaysInPlaybackWithinEpsilon",
+       "line": 69
+      },
+      {
+       "method": "AtRecordingEnd_BeyondEpsilon_EntersPause",
+       "line": 81
+      },
+      {
+       "method": "InPauseInterval_ReturnsPausedAtEndUT",
+       "line": 94
+      },
+      {
+       "method": "StartOfSecondCycle_ReturnsCycle1NearStartUT",
+       "line": 107
+      },
+      {
+       "method": "MidwayThroughSecondCycle_CorrectPhase",
+       "line": 120
+      },
+      {
+       "method": "ManyCyclesElapsed_CorrectCycleIndexAndPhase",
+       "line": 133
+      },
+      {
+       "method": "ZeroDurationRecording_ReturnsStartUT",
+       "line": 146
+      },
+      {
+       "method": "NegativeInterval_ClampsToMinCycleDuration",
+       "line": 157
+      },
+      {
+       "method": "ZeroInterval_ClampsToMinCycleDuration",
+       "line": 170
+      },
+      {
+       "method": "ZeroInterval_NeverInPause_AtRecordingEnd",
+       "line": 183
+      },
+      {
+       "method": "LargeInterval_LongPauseWindow",
+       "line": 196
+      },
+      {
+       "method": "PeriodShorterThanDuration_OverlapsButNoPause",
+       "line": 209
+      },
+      {
+       "method": "PeriodEqualToDuration_BackToBack",
+       "line": 223
+      },
+      {
+       "method": "PeriodGreaterThanDuration_HasPause",
+       "line": 236
+      },
+      {
+       "method": "ComputeOverlapCycleLoopUT_Cycle0_ReturnsLoopStartPlusElapsed",
+       "line": 249
+      },
+      {
+       "method": "ComputeOverlapCycleLoopUT_HigherCycle_UsesPeriodAsCycleDuration",
+       "line": 259
+      },
+      {
+       "method": "ComputeOverlapCycleLoopUT_PhasePastDuration_ClampsToDuration",
+       "line": 269
+      },
+      {
+       "method": "ComputeOverlapCycleLoopUT_NegativePhase_ClampsToZero",
+       "line": 279
+      },
+      {
+       "method": "ComputeOverlapCycleLoopUT_NegativeInterval_DefensivelyClamped",
+       "line": 289
+      },
+      {
+       "method": "ComputeOverlapCyclePlaybackUT_UsesScheduleStartSeparateFromPlaybackStart",
+       "line": 300
+      },
+      {
+       "method": "TryComputeLoopPlaybackPhase_UsesScheduleStartForCyclePhase",
+       "line": 314
+      },
+      {
+       "method": "BoundaryConsistency_WithTryComputeLoopPlaybackUT",
+       "line": 332
+      },
+      {
+       "method": "Valid_LoopingAnchorSetExistsSameBody_ReturnsTrue",
+       "line": 390
+      },
+      {
+       "method": "NotLooping_ReturnsFalse",
+       "line": 401
+      },
+      {
+       "method": "NoAnchor_ReturnsFalse",
+       "line": 412
+      },
+      {
+       "method": "AnchorMissing_ReturnsFalse",
+       "line": 423
+      },
+      {
+       "method": "WrongBody_ReturnsFalseWithWarning",
+       "line": 434
+      },
+      {
+       "method": "NullBodyNames_ReturnsTrue_NoValidationPossible",
+       "line": 446
+      },
+      {
+       "method": "EmptyRecordingBodyName_ReturnsTrue_Permissive",
+       "line": 457
+      },
+      {
+       "method": "EmptyAnchorBodyName_ReturnsTrue_Permissive",
+       "line": 467
+      },
+      {
+       "method": "NullRecording_ReturnsFalse",
+       "line": 477
+      },
+      {
+       "method": "RoundTrip_ViaRecordingTree",
+       "line": 504
+      },
+      {
+       "method": "RoundTrip_ViaParseScenario",
+       "line": 537
+      },
+      {
+       "method": "Sparse_NullNotWritten_RecordingTree",
+       "line": 557
+      },
+      {
+       "method": "Sparse_NullNotWritten_ParsekScenario",
+       "line": 587
+      },
+      {
+       "method": "BackwardCompat_MissingKey_ReturnsNull_RecordingTree",
+       "line": 602
+      },
+      {
+       "method": "BackwardCompat_MissingKey_ReturnsNull_ParsekScenario",
+       "line": 618
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_CopiesBodyName",
+       "line": 631
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_NullBodyName_CopiesNull",
+       "line": 644
+      },
+      {
+       "method": "WithinCap_ReturnsUserPeriod",
+       "line": 664
+      },
+      {
+       "method": "PeriodBelowMin_ClampedToMinThenRaisedToCapFloor",
+       "line": 673
+      },
+      {
+       "method": "ExceedsCap_SnapsToCeilingDivFloor",
+       "line": 683
+      },
+      {
+       "method": "CapOneDegenerate_ReturnsWholeTrajectoryDuration",
+       "line": 692
+      },
+      {
+       "method": "ZeroDuration_ReturnsClampedMinPeriod",
+       "line": 701
+      },
+      {
+       "method": "ZeroCap_ReturnsClampedMinPeriod",
+       "line": 710
+      },
+      {
+       "method": "HugeDuration_ReturnsLargeButFinite",
+       "line": 718
+      },
+      {
+       "method": "NaNPeriod_FallsBackToMin",
+       "line": 730
+      },
+      {
+       "method": "ComputeOverlapCycleLoopUT_WithEffectiveCadence_MatchesEnginePhase",
+       "line": 747
+      },
+      {
+       "method": "LearstarA1_ClampFloorMatchesExactFloor",
+       "line": 764
+      },
+      {
+       "method": "ExactFloorKeepsConcurrentCyclesWithinCap",
+       "line": 772
+      },
+      {
+       "method": "FractionalUserPeriodAlreadyWithinCap_Respected",
+       "line": 795
+      },
+      {
+       "method": "FractionalFloorAboveUserPeriod_ReturnsExactFloor",
+       "line": 803
+      },
+      {
+       "method": "UserPeriodAboveFloor_Respected",
+       "line": 812
+      },
+      {
+       "method": "ComputeOverlapCycleLoopUT_UserPeriodWhileEngineDoubled_ProducesWrongPhase",
+       "line": 827
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,108 @@
+{
+ "batch_id": "catchall-064",
+ "cluster": "catchall",
+ "tier": "C",
+ "expected_methods": 14,
+ "files": [
+  {
+   "file": "ProjectionMinBalanceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Funds_ProjectionMinBalance_IsTheUnclampedMinimum_WhileAvailableIsFloored",
+       "line": 26
+      },
+      {
+       "method": "Funds_Reset_DropsTheProjectedMinimum",
+       "line": 40
+      },
+      {
+       "method": "Science_ProjectionMinBalance_IsTheUnclampedMinimum_WhileAvailableIsFloored",
+       "line": 55
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "InputFocusGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsTextFieldFocused_KeyboardControlZero_ReturnsFalse",
+       "line": 26
+      },
+      {
+       "method": "IsTextFieldFocused_KeyboardControlNonZero_ReturnsTrue",
+       "line": 34
+      },
+      {
+       "method": "IsTextFieldFocused_KeyboardControlNegative_ReturnsTrue",
+       "line": 44
+      },
+      {
+       "method": "ResetTestOverrides_ClearsProvider",
+       "line": 54
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ResolveLocalizedNameTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ReturnsNullForNull",
+       "line": 19
+      },
+      {
+       "method": "ReturnsEmptyForEmpty",
+       "line": 25
+      },
+      {
+       "method": "ReturnsRegularNameUnchanged",
+       "line": 31
+      },
+      {
+       "method": "ReturnsNonLocKeySpecialCharsUnchanged",
+       "line": 37
+      },
+      {
+       "method": "AutoLocKeyReturnedUnchangedWhenLocalizerUnavailable",
+       "line": 43
+      },
+      {
+       "method": "HashPrefixStringHandledGracefully",
+       "line": 52
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SequentialCollectionDefinition.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SequentialCollection_DisablesCrossCollectionParallelization",
+       "line": 14
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

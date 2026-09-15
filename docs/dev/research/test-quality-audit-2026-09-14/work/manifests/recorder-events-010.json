@@ -1,0 +1,203 @@
+{
+ "batch_id": "recorder-events-010",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "BackgroundTrackSectionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "InitLoadedState_CreatesTrackSection_WithSourceBackground",
+       "line": 76
+      },
+      {
+       "method": "InitLoadedState_CreatesTrackSection_WithIsFromBackgroundTrue",
+       "line": 92
+      },
+      {
+       "method": "InitLoadedState_CreatesTrackSection_WithCorrectEnvironment",
+       "line": 108
+      },
+      {
+       "method": "InitLoadedState_CreatesTrackSection_WithAbsoluteReferenceFrame",
+       "line": 124
+      },
+      {
+       "method": "InitLoadedState_SetsTrackSectionActive",
+       "line": 140
+      },
+      {
+       "method": "InitLoadedState_InitializesEmptyFramesList",
+       "line": 154
+      },
+      {
+       "method": "InitLoadedState_InitializesEmptyCheckpointsList",
+       "line": 171
+      },
+      {
+       "method": "InitLoadedState_WithInitialPoint_StartsTrackSectionAtSeedUT",
+       "line": 188
+      },
+      {
+       "method": "InitLoadedState_WithInitialPoint_WritesSeedIntoRecordingAndAltitudeMetadata",
+       "line": 216
+      },
+      {
+       "method": "InitLoadedState_RelativeInitialPoint_WritesBodyFixedSeedPeer",
+       "line": 252
+      },
+      {
+       "method": "ClassifyBackgroundEnvironment_Atmospheric_BelowAtmosphere",
+       "line": 309
+      },
+      {
+       "method": "ClassifyBackgroundEnvironment_SurfaceStationary_Landed",
+       "line": 319
+      },
+      {
+       "method": "ClassifyBackgroundEnvironment_SurfaceMobile_LandedMoving",
+       "line": 329
+      },
+      {
+       "method": "ClassifyBackgroundEnvironment_ExoBallistic_AboveAtmoNoThrust",
+       "line": 339
+      },
+      {
+       "method": "ClassifyBackgroundEnvironment_ExoBallistic_NullEngines",
+       "line": 349
+      },
+      {
+       "method": "ClassifyBackgroundEnvironment_AtmosphericEvaNearGround_ReturnsSurfaceMobile",
+       "line": 359
+      },
+      {
+       "method": "ClassifyBackgroundEnvironment_AtmosphericEvaAtSeaLevelWithOcean_ReturnsSurfaceMobile",
+       "line": 370
+      },
+      {
+       "method": "EnvironmentHysteresis_Transition_ClosesOldAndOpensNew",
+       "line": 386
+      },
+      {
+       "method": "EnvironmentTransition_AccumulatesSections",
+       "line": 400
+      },
+      {
+       "method": "GoOnRails_ClassifiesAsExoBallistic",
+       "line": 430
+      },
+      {
+       "method": "TrackSections_InitiallyEmpty",
+       "line": 454
+      },
+      {
+       "method": "FlushTrackSections_CopiesToRecording",
+       "line": 470
+      },
+      {
+       "method": "CloseParentRecording_FlushesStructuralBoundaryFrameIntoTrackSections",
+       "line": 495
+      },
+      {
+       "method": "CloseParentRecording_TrimsDeferredPostBranchFramesBeforeFlush",
+       "line": 540
+      },
+      {
+       "method": "FinalizeAllForCommit_ClosesSectionAndSetsEndUT",
+       "line": 596
+      },
+      {
+       "method": "FinalizeAllForCommit_SetsExplicitEndUT",
+       "line": 614
+      },
+      {
+       "method": "FinalizeAllForCommit_FlushesFramesIntoFlatPoints",
+       "line": 631
+      },
+      {
+       "method": "FinalizeAllForCommit_DedupesBoundaryPointAgainstExistingFlatTrajectory",
+       "line": 670
+      },
+      {
+       "method": "FinalizeAllForCommit_DoesNotDuplicateTrackSectionPayloadAlreadyMirroredInFlatPoints",
+       "line": 719
+      },
+      {
+       "method": "FlushLoadedStateForOnRailsTransitionForTesting_NoPayloadEnvChange_PersistsBoundarySection",
+       "line": 776
+      },
+      {
+       "method": "FlushLoadedStateForOnRailsTransitionForTesting_ParentAnchoredDebris_FlatBoundaryDoesNotExtendRelativeTail",
+       "line": 832
+      },
+      {
+       "method": "FlushLoadedStateForOnRailsTransitionForTesting_ParentAnchoredDebris_AbsoluteBoundarySectionAllowsExplicitEndUT",
+       "line": 876
+      },
+      {
+       "method": "FinalizeAllForCommit_ParentAnchoredDebris_DoesNotPersistRelativeMetadataTail",
+       "line": 922
+      },
+      {
+       "method": "FinalizeAllForCommit_SurfaceMobile_FlushesWithCorrectSource",
+       "line": 957
+      },
+      {
+       "method": "FinalizeAllForCommit_SurfaceMobile_SetsCorrectEnvironment",
+       "line": 976
+      },
+      {
+       "method": "InitLoadedState_LogsTrackSectionStarted",
+       "line": 998
+      },
+      {
+       "method": "FinalizeAllForCommit_LogsTrackSectionClosed",
+       "line": 1014
+      },
+      {
+       "method": "FinalizeAllForCommit_LogsFlushed",
+       "line": 1031
+      },
+      {
+       "method": "FinalizeAllForCommit_SurfaceStationary_LogsTrackSectionClosed",
+       "line": 1049
+      },
+      {
+       "method": "InitLoadedState_LogsEnvironmentInStartMessage",
+       "line": 1066
+      },
+      {
+       "method": "FinalizeAllForCommit_LogsSectionDuration",
+       "line": 1082
+      },
+      {
+       "method": "FinalizeAllForCommit_FlushesAllLoadedVessels",
+       "line": 1104
+      },
+      {
+       "method": "ClosedSection_ComputesSampleRateHz",
+       "line": 1164
+      },
+      {
+       "method": "BackgroundSection_HasAbsoluteReferenceFrame",
+       "line": 1186
+      },
+      {
+       "method": "BackgroundRelativeSection_WritesAnchorRecordingIdAndClearsPid",
+       "line": 1202
+      },
+      {
+       "method": "ParentDebrisRelativeEntry_ForcesImmediateSampleAtSectionStart",
+       "line": 1233
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,235 @@
+{
+ "batch_id": "ledger-career-007",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "GameStateEventTests.cs",
+   "ranges": [
+    {
+     "start": 43,
+     "end": 1301,
+     "methods": [
+      {
+       "method": "GameStateEvent_SerializationRoundtrip",
+       "line": 43
+      },
+      {
+       "method": "GameStateEvent_DefaultValues_RoundtripClean",
+       "line": 70
+      },
+      {
+       "method": "GameStateEvent_LocaleSafe_Serialization",
+       "line": 94
+      },
+      {
+       "method": "NormalizeLegacyPartPurchaseCostsForLoad_FreeAutoUnlock_RewritesCostToZero",
+       "line": 117
+      },
+      {
+       "method": "NormalizeLegacyPartPurchaseCostsForLoad_MatchingFundsDebit_KeepsPaidPurchase",
+       "line": 148
+      },
+      {
+       "method": "NormalizeLegacyPartPurchaseCostsForLoad_WithoutMatchingTechUnlock_SkipsMigration",
+       "line": 188
+      },
+      {
+       "method": "NormalizeLegacyPartPurchaseCostsForLoad_MatchingTechInDifferentEpoch_SkipsMigration",
+       "line": 211
+      },
+      {
+       "method": "NormalizeLegacyPartPurchaseCostsForLoad_DifferentEpochFundsDebit_DoesNotBlockMigration",
+       "line": 245
+      },
+      {
+       "method": "ContractSnapshot_SerializationRoundtrip",
+       "line": 291
+      },
+      {
+       "method": "ContractSnapshot_NullContract_HandlesGracefully",
+       "line": 321
+      },
+      {
+       "method": "GameStateBaseline_SerializationRoundtrip",
+       "line": 344
+      },
+      {
+       "method": "GameStateBaseline_Empty_RoundtripsCleanly",
+       "line": 414
+      },
+      {
+       "method": "GameStateStore_AddEvent_AppendsToList",
+       "line": 443
+      },
+      {
+       "method": "GameStateStore_ClearEvents_RemovesAll",
+       "line": 469
+      },
+      {
+       "method": "GameStateStore_ResetForTesting_ClearsEverything",
+       "line": 493
+      },
+      {
+       "method": "ContractSnapshot_GuidLookup_FindsCorrectSnapshot",
+       "line": 511
+      },
+      {
+       "method": "ContractSnapshot_GuidLookup_ReturnsNullForUnknown",
+       "line": 529
+      },
+      {
+       "method": "ContractSnapshot_ReplacesExistingGuid",
+       "line": 538
+      },
+      {
+       "method": "ResourceCoalescing_WithinEpsilon_UpdatesExisting",
+       "line": 561
+      },
+      {
+       "method": "ResourceCoalescing_DifferentReasonKeysWithinEpsilon_StayTwoEvents",
+       "line": 597
+      },
+      {
+       "method": "ResourceCoalescing_BeyondEpsilon_AddsNewEvent",
+       "line": 635
+      },
+      {
+       "method": "ResourceCoalescing_VesselRecoveryWithinEpsilon_DoesNotCoalesce",
+       "line": 664
+      },
+      {
+       "method": "ResourceCoalescing_VesselRecoveryBarrier_DoesNotCoalesceAcrossOlderEvent",
+       "line": 694
+      },
+      {
+       "method": "ResourceCoalescing_DifferentTypes_NotCoalesced",
+       "line": 737
+      },
+      {
+       "method": "ResourceCoalescing_NonResourceEvents_NeverCoalesced",
+       "line": 764
+      },
+      {
+       "method": "FacilityTransition_Upgraded_DetectedCorrectly",
+       "line": 793
+      },
+      {
+       "method": "FacilityTransition_Downgraded_DetectedCorrectly",
+       "line": 816
+      },
+      {
+       "method": "FacilityTransition_NoChange_NoEvents",
+       "line": 834
+      },
+      {
+       "method": "ClassifyFacilityLevelChange_Increase_ReturnsUpgraded",
+       "line": 856
+      },
+      {
+       "method": "ClassifyFacilityLevelChange_Decrease_ReturnsDowngraded",
+       "line": 863
+      },
+      {
+       "method": "ClassifyFacilityLevelChange_WithinEpsilon_ReturnsNull",
+       "line": 870
+      },
+      {
+       "method": "NormalizedLevel_MatchesKspGetNormLevelContract",
+       "line": 882
+      },
+      {
+       "method": "NormalizedLevel_FirstUpgrade_ClassifiesAsUpgraded",
+       "line": 888
+      },
+      {
+       "method": "BuildingTransition_Destroyed_DetectedCorrectly",
+       "line": 902
+      },
+      {
+       "method": "BuildingTransition_Repaired_DetectedCorrectly",
+       "line": 921
+      },
+      {
+       "method": "BuildingTransition_NoChange_NoEvents",
+       "line": 939
+      },
+      {
+       "method": "CrewSuppression_FlagDefaultsFalse",
+       "line": 962
+      },
+      {
+       "method": "ResourceSuppression_FlagDefaultsFalse",
+       "line": 968
+      },
+      {
+       "method": "EventHistory_CanFindMostRecentFacilityState",
+       "line": 978
+      },
+      {
+       "method": "AddEvent_PreservesLegacyEpochField",
+       "line": 1033
+      },
+      {
+       "method": "GameStateEvent_DeserializeFrom_ReadsLegacyEpochField",
+       "line": 1065
+      },
+      {
+       "method": "GameStateEvent_SerializeInto_OmitsLegacyEpochField",
+       "line": 1079
+      },
+      {
+       "method": "AddBaseline_IncreasesCount",
+       "line": 1102
+      },
+      {
+       "method": "AddBaseline_NullIgnored",
+       "line": 1116
+      },
+      {
+       "method": "ClearBaselines_RemovesAll",
+       "line": 1126
+      },
+      {
+       "method": "ClearBaselines_IndependentFromClearEvents",
+       "line": 1139
+      },
+      {
+       "method": "PruneBaselinesAfterUT_RemovesFutureBaselinesAndPreservesEarliest",
+       "line": 1171
+      },
+      {
+       "method": "PruneBaselinesAfterUT_KeepsBaselinesAtOrBeforeCutoff",
+       "line": 1190
+      },
+      {
+       "method": "AddContractSnapshot_NullGuid_Skipped",
+       "line": 1214
+      },
+      {
+       "method": "AddContractSnapshot_EmptyGuid_Skipped",
+       "line": 1223
+      },
+      {
+       "method": "AddContractSnapshot_NullNode_Skipped",
+       "line": 1232
+      },
+      {
+       "method": "GetContractSnapshot_NullGuid_ReturnsNull",
+       "line": 1241
+      },
+      {
+       "method": "GetContractSnapshot_EmptyGuid_ReturnsNull",
+       "line": 1249
+      },
+      {
+       "method": "GameStateBaseline_HighPrecision_RoundtripsCorrectly",
+       "line": 1261
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

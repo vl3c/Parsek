@@ -1,0 +1,187 @@
+{
+ "batch_id": "ledger-career-023",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "KerbalsWindowUITests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_Topology_EmptyInputs_ReturnsEmptyTopology",
+       "line": 87
+      },
+      {
+       "method": "Build_Topology_SingleSlotNoChain_RendersAsLeaf",
+       "line": 102
+      },
+      {
+       "method": "Build_Topology_SlotWithActiveStandIn_LabelsActive",
+       "line": 130
+      },
+      {
+       "method": "Build_Topology_SlotWithRetiredAndActive",
+       "line": 157
+      },
+      {
+       "method": "Build_Topology_DeepChainAllReserved_EntriesAreDisplaced",
+       "line": 188
+      },
+      {
+       "method": "Build_Topology_DeadOwner_IncludedWithFlag",
+       "line": 215
+      },
+      {
+       "method": "Build_Topology_OrphanRetired_LandsInOrphanList",
+       "line": 243
+      },
+      {
+       "method": "Build_Topology_MultipleSlots_OrdinalOrdering",
+       "line": 261
+      },
+      {
+       "method": "Build_Topology_NullChainEntrySkipped",
+       "line": 289
+      },
+      {
+       "method": "Build_Topology_RetiredAlsoInChain_NotDuplicatedAsOrphan",
+       "line": 316
+      },
+      {
+       "method": "CountExpandableChainEntries_SkipsNullNames",
+       "line": 338
+      },
+      {
+       "method": "FormatOwnerHeader_ReservedUntilUT_FormatsInvariant",
+       "line": 356
+      },
+      {
+       "method": "FormatOwnerHeader_DeadOwner_IncludesDeceasedSuffix",
+       "line": 382
+      },
+      {
+       "method": "FormatOwnerHeader_ActiveOwner_NoReservationSuffix",
+       "line": 396
+      },
+      {
+       "method": "FormatOwnerHeader_PermanentReservation_RendersReservedWithoutUT",
+       "line": 410
+      },
+      {
+       "method": "FormatChainMember_RendersNameAndStatusTag",
+       "line": 427
+      },
+      {
+       "method": "Build_EndStates_EmptyWhenNoCommittedRecordings",
+       "line": 459
+      },
+      {
+       "method": "Build_EndStates_SingleKerbalMultipleMissions_GroupedAndChronological",
+       "line": 472
+      },
+      {
+       "method": "Build_EndStates_MultipleKerbals_GroupedByNameOrdinally",
+       "line": 510
+      },
+      {
+       "method": "Build_EndStates_SkipsUnresolvedRecordings",
+       "line": 536
+      },
+      {
+       "method": "Build_EndStates_SkipsRecordingsWithNullDict",
+       "line": 568
+      },
+      {
+       "method": "FormatEndStateRow_RendersRecordingNameStateAndUT",
+       "line": 594
+      },
+      {
+       "method": "SubitemIndent_IsFourSpaces",
+       "line": 630
+      },
+      {
+       "method": "FormatMissionOutcomeSubitemText_StartsWithSubitemIndent",
+       "line": 638
+      },
+      {
+       "method": "FormatRosterChainMemberText_StartsWithSubitemIndent_AndUsesBranchGlyph",
+       "line": 660
+      },
+      {
+       "method": "MissionOutcomesAndRosterUseSameSubitemIndent",
+       "line": 684
+      },
+      {
+       "method": "FormatKerbalSummary_SingleMissionRecovered_RendersSingular",
+       "line": 734
+      },
+      {
+       "method": "FormatKerbalSummary_MultipleMissions_MixedStates_OrdersDeadRecoveredAboard",
+       "line": 748
+      },
+      {
+       "method": "FormatKerbalSummary_OmitsZeroCountStates",
+       "line": 767
+      },
+      {
+       "method": "FormatKerbalSummary_UnknownStateBucketed",
+       "line": 786
+      },
+      {
+       "method": "FormatKerbalSummary_UsesSliceBoundaries",
+       "line": 803
+      },
+      {
+       "method": "FormatMissionOutcomeHeaderText_Unfolded_BoldsOnlyKerbalName",
+       "line": 827
+      },
+      {
+       "method": "FormatMissionOutcomeHeaderText_Folded_BoldsOnlyKerbalName",
+       "line": 841
+      },
+      {
+       "method": "FormatMissionOutcomeHeaderText_EscapesKerbalNameRichTextTags",
+       "line": 860
+      },
+      {
+       "method": "ToggleFold_WhenNotFolded_AddsToSetAndLogsFolded",
+       "line": 878
+      },
+      {
+       "method": "ToggleFold_WhenAlreadyFolded_RemovesFromSetAndLogsUnfolded",
+       "line": 895
+      },
+      {
+       "method": "InvalidateCache_DoesNotClearFoldedKerbals",
+       "line": 912
+      },
+      {
+       "method": "OnFatesRowClicked_InvokesCallbackWithRecordingId",
+       "line": 932
+      },
+      {
+       "method": "OnFatesRowClicked_LogsRecordingId",
+       "line": 942
+      },
+      {
+       "method": "OnFatesRowClicked_NullCallback_NoOpAndLogsOnce",
+       "line": 953
+      },
+      {
+       "method": "ScrollToRecording_OpensTheTimelineWindowWhenItIsClosed",
+       "line": 975
+      },
+      {
+       "method": "Build_EmitsVerboseLog_WithNewCounters",
+       "line": 1005
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

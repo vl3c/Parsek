@@ -1,0 +1,280 @@
+{
+ "batch_id": "map-render-016",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "Rendering/AnchorWorldFrameResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RelativeBoundary_ResolverHit_WritesEpsilonIntoSessionMap",
+       "line": 141
+      },
+      {
+       "method": "RelativeBoundary_ResolverMiss_LeavesEpsilonZeroAndLogsVerbose",
+       "line": 172
+      },
+      {
+       "method": "RelativeBoundary_NoSpline_LeavesEpsilonZeroAndLogsVerbose",
+       "line": 202
+      },
+      {
+       "method": "OrbitalCheckpoint_ResolverHit_WritesEpsilonIntoSessionMap",
+       "line": 234
+      },
+      {
+       "method": "SoiTransition_ResolverHit_WritesEpsilonIntoSessionMap",
+       "line": 260
+      },
+      {
+       "method": "Loop_ResolverHit_WritesEpsilonIntoSessionMap",
+       "line": 285
+      },
+      {
+       "method": "BubbleExit_ResolverHit_WritesEpsilonIntoSessionMap",
+       "line": 311
+      },
+      {
+       "method": "BubbleEntry_ResolverHit_WritesEpsilonIntoSessionMap",
+       "line": 342
+      },
+      {
+       "method": "BubbleEntry_ResolverMiss_LeavesEpsilonZeroAndLogsVerbose",
+       "line": 371
+      },
+      {
+       "method": "BubbleExit_NoSpline_LeavesEpsilonZeroAndLogsVerbose",
+       "line": 396
+      },
+      {
+       "method": "DeferredSource_BubbleEntry_NoLongerDeferred_ResolverIsCalled",
+       "line": 424
+      },
+      {
+       "method": "DeferredSource_SurfaceContinuous_DoesNotCallResolver_AndStaysZero",
+       "line": 456
+      },
+      {
+       "method": "NullResolver_LogsSkipNoResolverAndLeavesEpsilonZero",
+       "line": 483
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/AnchorLerpTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EvaluateAt_StartOnly_ReturnsConstantEpsilon",
+       "line": 67
+      },
+      {
+       "method": "EvaluateAt_EndOnly_ReturnsConstantEpsilon",
+       "line": 97
+      },
+      {
+       "method": "EvaluateAt_BothEnds_LinearLerp",
+       "line": 115
+      },
+      {
+       "method": "EvaluateAt_BothEnds_ClampBelowStart_ReturnsStart",
+       "line": 154
+      },
+      {
+       "method": "EvaluateAt_BothEnds_ClampAboveEnd_ReturnsEnd",
+       "line": 178
+      },
+      {
+       "method": "EvaluateAt_DegenerateSpan_LogsWarn_ReturnsStart",
+       "line": 198
+      },
+      {
+       "method": "HasSignificantDivergence_BelowThreshold_ReturnsFalse",
+       "line": 228
+      },
+      {
+       "method": "HasSignificantDivergence_AboveThreshold_ReturnsTrue",
+       "line": 247
+      },
+      {
+       "method": "LookupForSegmentInterval_StartOnly_ReturnsStartOnly",
+       "line": 269
+      },
+      {
+       "method": "LookupForSegmentInterval_BothEnds_ReturnsBoth",
+       "line": 291
+      },
+      {
+       "method": "LookupForSegmentInterval_NeitherEnd_ReturnsNull",
+       "line": 320
+      },
+      {
+       "method": "LookupForSegmentInterval_EndOnly_ReturnsEndOnly",
+       "line": 335
+      },
+      {
+       "method": "Both_DivergentEpsilon_EmitsWarnOnce",
+       "line": 365
+      },
+      {
+       "method": "Single_AnchorCase_EmitsVerboseOnce",
+       "line": 400
+      },
+      {
+       "method": "EvaluateAt_DegenerateSpan_WarnEmittedOnceAcrossManyCalls",
+       "line": 426
+      },
+      {
+       "method": "ResetForTesting_ClearsLerpDedupSets",
+       "line": 452
+      },
+      {
+       "method": "EvaluateAt_OutsideRange_LogsClampOutOnce",
+       "line": 482
+      },
+      {
+       "method": "EvaluateAt_InsideRange_NoClampOutLog",
+       "line": 507
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/InertialLiftTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RotationAngleAtUT_KerbinSiderealDay_ReturnsThreeSixty",
+       "line": 61
+      },
+      {
+       "method": "RotationAngleAtUT_QuarterDay_ReturnsNinetyDegrees",
+       "line": 71
+      },
+      {
+       "method": "RotationAngleAtUT_NullBody_ReturnsZero",
+       "line": 80
+      },
+      {
+       "method": "LiftToInertial_AtRecordedUT_AdvancesLongitudeByRotationAngle",
+       "line": 91
+      },
+      {
+       "method": "LiftToInertial_LongitudeWrappedToCanonicalRange",
+       "line": 110
+      },
+      {
+       "method": "LiftToInertial_NullBody_ReturnsBodyFixed_LogsWarn",
+       "line": 125
+      },
+      {
+       "method": "LiftToInertial_ZeroRotationPeriod_ReturnsBodyFixed_LogsWarn",
+       "line": 143
+      },
+      {
+       "method": "LiftLowerRoundTrip_SameUT_BitExact",
+       "line": 179
+      },
+      {
+       "method": "LiftLowerRoundTrip_AcrossUTs_RotatesByDelta",
+       "line": 202
+      },
+      {
+       "method": "LowerFromInertialToWorld_NullBody_ReturnsZero_LogsWarn",
+       "line": 237
+      },
+      {
+       "method": "DispatchSplineWorldByFrameTag_BodyFixed_ReturnsWorldSurfacePosition",
+       "line": 256
+      },
+      {
+       "method": "DispatchSplineWorldByFrameTag_Inertial_RoundTripsAtRecordingUT",
+       "line": 279
+      },
+      {
+       "method": "DispatchSplineWorldByFrameTag_UnknownTag_LogsWarn_ReturnsNaN",
+       "line": 304
+      },
+      {
+       "method": "DispatchSplineWorldByFrameTag_UnknownTag_DedupGate_WarnsOncePerKey",
+       "line": 333
+      },
+      {
+       "method": "EvaluateInertialSpline_RoundTripsBodyFixedPositionAtRecordingUT",
+       "line": 390
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/SmoothingPipelineLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "L1_SplineFit_LogsRequiredFields",
+       "line": 118
+      },
+      {
+       "method": "L2_LazyFitOnMissingAnnotation_LogsReason",
+       "line": 139
+      },
+      {
+       "method": "L3_FitFailure_LogsWarnWithSampleCountAndReason",
+       "line": 158
+      },
+      {
+       "method": "L6_PannReadOk_LogsRecordingIdBlockVersionAlgStampBytes",
+       "line": 207
+      },
+      {
+       "method": "L7_LazyCompute_LogsFileMissingReason",
+       "line": 233
+      },
+      {
+       "method": "L7_PannotationsMissing_LogsLazyComputeScheduled",
+       "line": 259
+      },
+      {
+       "method": "L8_WholeFileInvalidation_LogsCanonicalReason",
+       "line": 288
+      },
+      {
+       "method": "L9_AtomicWriteOk_LogsBytesAndPath",
+       "line": 363
+      },
+      {
+       "method": "L11_PipelineFormat_LogsFormatVersionPannPresentDegradedFeatures",
+       "line": 382
+      },
+      {
+       "method": "Outlier_ClusterWarn_DedupedAcrossRecompute",
+       "line": 454
+      },
+      {
+       "method": "Outlier_PerSectionInfo_AlwaysEmitted_OnCleanSection",
+       "line": 480
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

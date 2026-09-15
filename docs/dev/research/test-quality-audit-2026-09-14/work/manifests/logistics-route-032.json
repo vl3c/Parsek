@@ -1,0 +1,261 @@
+{
+ "batch_id": "logistics-route-032",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 55,
+ "files": [
+  {
+   "file": "RouteHarvestCaptureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EvaluateTransition_Matrix",
+       "line": 63
+      },
+      {
+       "method": "DestroyedConverter_InactiveScan_ClosesWindow",
+       "line": 73
+      },
+      {
+       "method": "ShouldRunHarvestPoll_Matrix",
+       "line": 91
+      },
+      {
+       "method": "ShouldConsumeRailsExitFunnel_OnlyOnEmittedTransition",
+       "line": 105
+      },
+      {
+       "method": "RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose",
+       "line": 116
+      },
+      {
+       "method": "IsRailsExitLabelStillValid_BoundedToTheBoundary",
+       "line": 164
+      },
+      {
+       "method": "IsRailsExitLabelStillValid_UnstampedArmIsInvalid",
+       "line": 173
+      },
+      {
+       "method": "RailsEntry_ConvertersActiveNoWindow_Opens",
+       "line": 185
+      },
+      {
+       "method": "RailsEntry_WindowAlreadyOpen_NoAction",
+       "line": 194
+      },
+      {
+       "method": "RailsEntry_NoConvertersActive_NoAction",
+       "line": 201
+      },
+      {
+       "method": "OpenWindow_PopulatesSpanLocationAndFlags",
+       "line": 210
+      },
+      {
+       "method": "CloseWindow_SetsEndSpanManifestAndStopFlag",
+       "line": 228
+      },
+      {
+       "method": "FalseAlarmResume_ReopensWindowClosedByAbandonedStop",
+       "line": 246
+      },
+      {
+       "method": "ComputeWindowHarvestedManifest_PositiveDeltasOnly",
+       "line": 272
+      },
+      {
+       "method": "ComputeWindowHarvestedManifest_StalledDrill_NetsZero",
+       "line": 294
+      },
+      {
+       "method": "ComputeWindowHarvestedManifest_ExcludesECAndUndefined",
+       "line": 309
+      },
+      {
+       "method": "ComputeWindowHarvestedManifest_OpenWindow_Empty",
+       "line": 330
+      },
+      {
+       "method": "ComputeWindowHarvestedManifest_ResourceAbsentAtStart_FullEndAmountCounts",
+       "line": 341
+      },
+      {
+       "method": "TreeModeStop_ForwardsHarvestWindows",
+       "line": 357
+      },
+      {
+       "method": "RecordingCloneSites_CarryHarvestWindows",
+       "line": 376
+      },
+      {
+       "method": "DeepClone_IsIndependent",
+       "line": 402
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteRunPromptTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldPrompt_EligibleFirstCommit_True",
+       "line": 59
+      },
+      {
+       "method": "ShouldPrompt_NoTreeId_False",
+       "line": 70
+      },
+      {
+       "method": "ShouldPrompt_TestBatchActive_False",
+       "line": 84
+      },
+      {
+       "method": "ShouldPrompt_RestoreWindowActive_False",
+       "line": 94
+      },
+      {
+       "method": "ShouldPrompt_Dismissed_False",
+       "line": 104
+      },
+      {
+       "method": "ShouldPrompt_AlreadyPrompted_False",
+       "line": 114
+      },
+      {
+       "method": "ShouldPrompt_NotEligible_False",
+       "line": 123
+      },
+      {
+       "method": "Notify_EligibleTree_ArmsOnceAndPersists",
+       "line": 137
+      },
+      {
+       "method": "Notify_SecondCommitOfSameTree_NeverRePrompts",
+       "line": 159
+      },
+      {
+       "method": "Notify_DismissedTree_NeverPrompts",
+       "line": 177
+      },
+      {
+       "method": "Notify_NearMissTree_NoPromptAndNoShotBurned",
+       "line": 195
+      },
+      {
+       "method": "Notify_BatchOrRestoreGate_NoPromptAndNoShotBurned",
+       "line": 216
+      },
+      {
+       "method": "Notify_NullTree_QuietNoOp",
+       "line": 235
+      },
+      {
+       "method": "ClearPendingPromptIfTree_OnlyMatchingTree",
+       "line": 246
+      },
+      {
+       "method": "MarkCandidatePrompted_HappyDupAndNull",
+       "line": 269
+      },
+      {
+       "method": "SaveRoutesTo_EmptyPromptedSet_WritesNothingAndStripsStaleNode",
+       "line": 286
+      },
+      {
+       "method": "Load_SaveWithoutPromptedNode_EmptySet",
+       "line": 299
+      },
+      {
+       "method": "SaveLoad_RoundTrip_PersistsPromptedIds",
+       "line": 312
+      },
+      {
+       "method": "LoadRoutesFrom_SweepsStalePromptedIds",
+       "line": 337
+      },
+      {
+       "method": "ResetForTesting_ClearsPromptedSet",
+       "line": 358
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RouteLiveAnchorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RealVesselExistsForRecording_SameLaunch_Matches",
+       "line": 63
+      },
+      {
+       "method": "RealVesselExistsForRecording_SameCraftDifferentLaunch_DoesNotMatch",
+       "line": 76
+      },
+      {
+       "method": "RealVesselExistsForRecording_NoLiveVessel_DoesNotMatch",
+       "line": 90
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_WholeLoopSuppression_ReturnsNone",
+       "line": 109
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_LoopAlongsideRealVessel_NotLiveAnchorSuppressed",
+       "line": 135
+      },
+      {
+       "method": "WasLiveBoundThisOrLastFrame_FalseBeforeAnyBind",
+       "line": 180
+      },
+      {
+       "method": "WasLiveBoundThisOrLastFrame_TrueAtBindFrameAndNext_FalseAfterTwoFrames",
+       "line": 187
+      },
+      {
+       "method": "WasLiveBoundThisOrLastFrame_OnlyTheBoundId",
+       "line": 207
+      },
+      {
+       "method": "LiveBindSet_ClearsWhenFrameAdvances",
+       "line": 217
+      },
+      {
+       "method": "IsLiveAnchorDoubleSuppressed_AnchorLiveVesselAndLiveBound_Suppressed",
+       "line": 234
+      },
+      {
+       "method": "IsLiveAnchorDoubleSuppressed_AnchorLiveVesselButNotLiveBound_NotSuppressed",
+       "line": 249
+      },
+      {
+       "method": "IsLiveAnchorDoubleSuppressed_RelativeMember_NotSuppressed",
+       "line": 265
+      },
+      {
+       "method": "IsLiveAnchorDoubleSuppressed_NoLiveVessel_NotSuppressed",
+       "line": 282
+      },
+      {
+       "method": "IsLiveAnchorDoubleSuppressed_NotLoopingLike_NotSuppressed",
+       "line": 296
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

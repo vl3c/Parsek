@@ -1,0 +1,243 @@
+{
+ "batch_id": "recorder-events-005",
+ "cluster": "recorder-events",
+ "tier": "A1",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "BackgroundRecorderTests.cs",
+   "ranges": [
+    {
+     "start": 1326,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CheckLightTransition_WorksWithBackgroundStateCollections",
+       "line": 1326
+      },
+      {
+       "method": "CheckGearTransition_WorksWithBackgroundStateCollections",
+       "line": 1339
+      },
+      {
+       "method": "CheckCargoBayTransition_WorksWithBackgroundStateCollections",
+       "line": 1352
+      },
+      {
+       "method": "CheckFairingTransition_WorksWithBackgroundStateCollections",
+       "line": 1365
+      },
+      {
+       "method": "CheckRcsTransition_WorksWithBackgroundStateCollections",
+       "line": 1378
+      },
+      {
+       "method": "UpdateOnRails_WritesExplicitEndUT_ToTreeRecording",
+       "line": 1402
+      },
+      {
+       "method": "Constructor_PreservesTreeRecordingReferences",
+       "line": 1419
+      },
+      {
+       "method": "OnVesselBackgrounded_NotInTree_DoesNotCreateState",
+       "line": 1444
+      },
+      {
+       "method": "OnVesselBackgrounded_WithInitialEnvironmentOverride_QueuesPendingOverride",
+       "line": 1458
+      },
+      {
+       "method": "ConsumePendingInitialEnvironmentOverrideForTesting_RemovesQueuedOverride",
+       "line": 1472
+      },
+      {
+       "method": "OnVesselRemovedFromBackground_ClearsPendingInitialEnvironmentOverride",
+       "line": 1486
+      },
+      {
+       "method": "OnVesselBackgrounded_WithInitialTrajectoryPoint_QueuesPendingPoint",
+       "line": 1500
+      },
+      {
+       "method": "ConsumePendingInitialTrajectoryPointForTesting_RemovesQueuedPoint",
+       "line": 1526
+      },
+      {
+       "method": "OnVesselRemovedFromBackground_ClearsPendingInitialTrajectoryPoint",
+       "line": 1551
+      },
+      {
+       "method": "InjectOnRailsStateForTesting_ConsumesQueuedInitialPoint_AndWritesSeedToRecording",
+       "line": 1574
+      },
+      {
+       "method": "EncodeEngineKey_SameEncodingForBackgroundAndActive",
+       "line": 1606
+      },
+      {
+       "method": "ComputeRcsPower_WorksForBackgroundRecording",
+       "line": 1624
+      },
+      {
+       "method": "ComputeRcsPower_GuardsZeroThrusterPower",
+       "line": 1637
+      },
+      {
+       "method": "ComputeRcsPower_GuardsEmptyForces",
+       "line": 1647
+      },
+      {
+       "method": "IsOrbitalCheckpointSituation_Orbiting_ReturnsTrue",
+       "line": 1660
+      },
+      {
+       "method": "IsOrbitalCheckpointSituation_SubOrbital_ReturnsTrue",
+       "line": 1667
+      },
+      {
+       "method": "IsOrbitalCheckpointSituation_Escaping_ReturnsTrue",
+       "line": 1674
+      },
+      {
+       "method": "IsOrbitalCheckpointSituation_Landed_ReturnsFalse",
+       "line": 1681
+      },
+      {
+       "method": "IsOrbitalCheckpointSituation_Splashed_ReturnsFalse",
+       "line": 1688
+      },
+      {
+       "method": "IsOrbitalCheckpointSituation_Flying_ReturnsFalse",
+       "line": 1695
+      },
+      {
+       "method": "IsOrbitalCheckpointSituation_PreLaunch_ReturnsFalse",
+       "line": 1702
+      },
+      {
+       "method": "ShouldPersistNoPayloadOnRailsBoundaryTrackSection_AtmoToSurfaceWithoutPayload_ReturnsTrue",
+       "line": 1709
+      },
+      {
+       "method": "ShouldPersistNoPayloadOnRailsBoundaryTrackSection_SameCoarseClass_ReturnsFalse",
+       "line": 1718
+      },
+      {
+       "method": "ShouldPersistNoPayloadOnRailsBoundaryTrackSection_WithPlayablePayload_ReturnsFalse",
+       "line": 1727
+      },
+      {
+       "method": "CheckpointAllVessels_NoOpenSegments_SkipsAll",
+       "line": 1736
+      },
+      {
+       "method": "CheckpointAllVessels_WithOpenSegment_ClosesSegmentAndSkipsReopenWhenVesselNotFound",
+       "line": 1757
+      },
+      {
+       "method": "CheckpointAllVessels_EmptyBackgroundMap_DoesNotThrow",
+       "line": 1804
+      },
+      {
+       "method": "CheckpointAllVessels_MixedStates_OnlyClosesOpenSegments",
+       "line": 1815
+      },
+      {
+       "method": "TryAppendClosedOnRailsCheckpointSection_DoesNotAttachAcrossLaterSection",
+       "line": 1854
+      },
+      {
+       "method": "CheckpointAllVessels_LogsCheckpointCounts",
+       "line": 1907
+      },
+      {
+       "method": "CheckpointAllVessels_RepeatedCallsSameShape_RateLimitedToOneLine",
+       "line": 1946
+      },
+      {
+       "method": "CheckpointAllVessels_DuplicateBoundary_DoesNotAppendZeroLengthSegment",
+       "line": 1991
+      },
+      {
+       "method": "CheckpointAllVessels_ClosesSegmentEvenWhenVesselNotFound",
+       "line": 2029
+      },
+      {
+       "method": "CheckpointAllVessels_UpdatesExplicitEndUT",
+       "line": 2058
+      },
+      {
+       "method": "InjectOpenOrbitSegmentForTesting_SetsOpenSegmentState",
+       "line": 2076
+      },
+      {
+       "method": "InjectOpenOrbitSegmentForTesting_NoState_DoesNotThrow",
+       "line": 2097
+      },
+      {
+       "method": "MergeInheritedEngineState_NullInherited_ReturnsZero",
+       "line": 2114
+      },
+      {
+       "method": "MergeInheritedEngineState_EngineOnChild_Merged",
+       "line": 2132
+      },
+      {
+       "method": "MergeInheritedEngineState_EngineNotOnChild_Skipped",
+       "line": 2161
+      },
+      {
+       "method": "MergeInheritedEngineState_AlreadySeeded_UpgradesThrottle",
+       "line": 2189
+      },
+      {
+       "method": "MergeInheritedEngineState_AlreadySeeded_HigherThrottlePreserved",
+       "line": 2217
+      },
+      {
+       "method": "MergeInheritedEngineState_RcsOnChild_Merged",
+       "line": 2245
+      },
+      {
+       "method": "MergeInheritedEngineState_MixedEngineAndRcs_BothMerged",
+       "line": 2273
+      },
+      {
+       "method": "MergeInheritedEngineState_MissingThrottleDict_DefaultsToOne",
+       "line": 2304
+      },
+      {
+       "method": "MergeInheritedEngineState_ThrottleDictPresentButKeyMissing_DefaultsToOne",
+       "line": 2331
+      },
+      {
+       "method": "MergeInheritedEngineState_MultipleEngines_OnlyChildPidsMerged",
+       "line": 2360
+      },
+      {
+       "method": "MergeInheritedEngineState_LogsPerItemAndSummary",
+       "line": 2396
+      },
+      {
+       "method": "MergeInheritedEngineState_NonOperationalOnChild_SkippedT58",
+       "line": 2439
+      },
+      {
+       "method": "MergeInheritedEngineState_NotInAllEngineKeys_StillMergedT58",
+       "line": 2467
+      },
+      {
+       "method": "MergeInheritedEngineState_NullAllEngineKeys_BackwardCompatT58",
+       "line": 2493
+      },
+      {
+       "method": "MergeInheritedEngineState_NonOperationalLogs_T58",
+       "line": 2517
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

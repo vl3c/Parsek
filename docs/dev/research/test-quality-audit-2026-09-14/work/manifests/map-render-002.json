@@ -1,0 +1,111 @@
+{
+ "batch_id": "map-render-002",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 23,
+ "files": [
+  {
+   "file": "Rendering/AnchorPropagationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Propagate_AppliesNinePointOneFormula",
+       "line": 43
+      },
+      {
+       "method": "Propagate_ZeroOffsetDelta_KeepsUpstreamEpsilon",
+       "line": 60
+      },
+      {
+       "method": "Run_WithoutSeed_EmitsNonDockCandidatesIntoSession",
+       "line": 95
+      },
+      {
+       "method": "Run_PropagatesAcrossDockEdge_WithLiveSeed",
+       "line": 119
+      },
+      {
+       "method": "Run_PropagatesAcrossBreakupEdge_ControlledChildOnly_SkipsDebris",
+       "line": 160
+      },
+      {
+       "method": "Run_DuplicateEdge_TriggersCycleGuard_Warn",
+       "line": 220
+      },
+      {
+       "method": "Run_DAGWalkSummary_LogsInfoLine",
+       "line": 267
+      },
+      {
+       "method": "Run_NinePointOne_AppliesRecordedMinusSmoothedDelta",
+       "line": 305
+      },
+      {
+       "method": "Run_NinePointOne_FallsBackToIdentity_WhenNoSpline",
+       "line": 437
+      },
+      {
+       "method": "Run_ChainContinuity_PropagatesAcrossChainIdGroup",
+       "line": 518
+      },
+      {
+       "method": "Run_ChainContinuity_DoesNotEnumerateParentRecordingIdEvaLinkage",
+       "line": 571
+      },
+      {
+       "method": "Run_SuppressedChild_SkipsEdgeAndLogsVerbose",
+       "line": 604
+      },
+      {
+       "method": "Run_SuppressedParent_SkipsEdgeAndLogsVerbose",
+       "line": 651
+      },
+      {
+       "method": "Run_ChainContinuity_BoundaryMismatch_LogsAndSkips",
+       "line": 692
+      },
+      {
+       "method": "Run_NinePointOne_Inertial_AppliesRecordedMinusSmoothedDelta",
+       "line": 724
+      },
+      {
+       "method": "TryEvaluatePerSegmentWorldPositions_FlaggedLookupIsScopedToSectionFrames",
+       "line": 882
+      },
+      {
+       "method": "TryEvaluatePerSegmentWorldPositions_InertialSpline_DispatchesThroughBodyResolver",
+       "line": 961
+      },
+      {
+       "method": "Run_DeepChain_ReversedBranchPointOrder_StillPropagatesEnd2End",
+       "line": 1036
+      },
+      {
+       "method": "BubbleEntryExit_DeferredSwitchRemoved_ResolverCalled",
+       "line": 1129
+      },
+      {
+       "method": "BubbleEntryExit_PropagatedSummaryIncludesResolvedBubbleCount",
+       "line": 1156
+      },
+      {
+       "method": "Run_NoSeed_NoEdgesProcessed",
+       "line": 1204
+      },
+      {
+       "method": "TryEvaluatePerSegmentWorldPositions_InertialSpline_FallsBackWithoutBodyResolver",
+       "line": 1236
+      },
+      {
+       "method": "Run_TwoSectionParent_EdgeOnUnanchoredSection_DefersUntilSlotIsSeededLater",
+       "line": 1289
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

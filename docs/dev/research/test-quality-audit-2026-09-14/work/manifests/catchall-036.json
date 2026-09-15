@@ -1,0 +1,263 @@
+{
+ "batch_id": "catchall-036",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "DoubleClockAdvisoryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Fires_ForADirectlyDockConnectedPair_AndNamesTheOtherMission",
+       "line": 107
+      },
+      {
+       "method": "Fires_TransitivelyThroughAnIntermediateTree",
+       "line": 126
+      },
+      {
+       "method": "Fires_WithMultipleConnectedLoopingMissions_NamesTheFirstAndCountsTheRest",
+       "line": 144
+      },
+      {
+       "method": "Fires_LogsTheAuditLine",
+       "line": 163
+      },
+      {
+       "method": "SuppressLogging_SilencesTheAuditLineButNotTheAdvisory",
+       "line": 181
+      },
+      {
+       "method": "Silent_WhenTheConnectedMissionIsNotLooping",
+       "line": 200
+      },
+      {
+       "method": "Silent_WhenTheOtherLoopingMissionsTreeIsNotDockConnected",
+       "line": 214
+      },
+      {
+       "method": "Silent_WhenTheGraphIsNull",
+       "line": 227
+      },
+      {
+       "method": "Silent_ForASameTreeLoopingSibling",
+       "line": 238
+      },
+      {
+       "method": "Silent_ForNullOrTreelessInputs",
+       "line": 252
+      },
+      {
+       "method": "SetLoopEnabled_ClearingBehavior_IsUnchanged_OnThePinnedShapes",
+       "line": 269
+      },
+      {
+       "method": "TheAdvisory_ChangesNoLoopState",
+       "line": 312
+      },
+      {
+       "method": "LoopToggle_PostsTheAdvisory_OnEnableOnly_AfterSetLoopEnabled",
+       "line": 331
+      },
+      {
+       "method": "LinkToggle_DoesNotPostTheAdvisory",
+       "line": 367
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SceneChangeTerminalStatePreservationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SceneChangeResetRestorePair_KeepsDestroyedVerdict_OnSpawnedDebris",
+       "line": 119
+      },
+      {
+       "method": "WithoutTheRestoreLeg_TheNextSaveOmitsTheTerminalStateKeyEntirely",
+       "line": 160
+      },
+      {
+       "method": "RestoredVerdict_RoundTripsThroughTheRealCodec",
+       "line": 177
+      },
+      {
+       "method": "RestoreIsScopedToTheIdsTheResetActuallyCleared",
+       "line": 195
+      },
+      {
+       "method": "RestoreIgnoresRecordingsWhoseVerdictSurvivedTheReset",
+       "line": 214
+      },
+      {
+       "method": "SavedNodeWithoutTheKey_LeavesTheRecordingClearedAndConsumesTheId",
+       "line": 235
+      },
+      {
+       "method": "TheRevertGateDecidesWhetherTheVerdictComesBack",
+       "line": 265
+      },
+      {
+       "method": "ClearedIdThatMeetsNoSavedNode_StaysClearedByDesign_AndRemainsInTheResidue",
+       "line": 307
+      },
+      {
+       "method": "CorruptSavedTerminalState_LeavesClearedWarnsAndStaysInTheResidue",
+       "line": 324
+      },
+      {
+       "method": "OutOfRangeSavedTerminalState_IsRejectedLikeACorruptOne",
+       "line": 343
+      },
+      {
+       "method": "NullArguments_AreNoOps",
+       "line": 369
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RenameOnUnfinishedFlightTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Rename_UnfinishedFlight_PersistsToRecording",
+       "line": 99
+      },
+      {
+       "method": "Hide_UnfinishedFlight_WarnsAndDoesNotFlip",
+       "line": 130
+      },
+      {
+       "method": "Hide_NonUnfinishedRecording_FlipsNormally",
+       "line": 172
+      },
+      {
+       "method": "Hide_NormalListUnfinishedFlight_RefusesWithoutVirtualGroup",
+       "line": 201
+      },
+      {
+       "method": "Hide_PolicyGate_IsClassifierOnly_NoDepthCheck",
+       "line": 244
+      },
+      {
+       "method": "ArchiveRefusal_AppliesToHidingOnly",
+       "line": 275
+      },
+      {
+       "method": "GroupArchiveRefusedMessage_NamesTheFolderAndTheCount",
+       "line": 291
+      },
+      {
+       "method": "GroupHideAll_RoutesThroughTheSharedArchiveRefusal",
+       "line": 307
+      },
+      {
+       "method": "TheGroupHideAllScanRedsWhenTheRoutingExistsOnlyInAComment",
+       "line": 327
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "StockOrbitFrameSeamTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ElementFrameBoundary_DeclinesADegenerateZupAndBecomesTheIdentity",
+       "line": 73
+      },
+      {
+       "method": "ElementFrameBoundary_RecoversTheZupPolarAngle",
+       "line": 92
+      },
+      {
+       "method": "ElementFrameBoundary_DeclinesAnOrthonormalNonPolarFrame",
+       "line": 110
+      },
+      {
+       "method": "TryPropagate_MatchesStocksOwnElementToStateChainDirectly",
+       "line": 136
+      },
+      {
+       "method": "SeedPredictedSegment_RoundTripsThroughAStockFrameConsumerUnderAnyZup",
+       "line": 178
+      },
+      {
+       "method": "SeedPredictedSegment_SkippingTheElementFrameBoundaryBreaksTheRoundTrip",
+       "line": 213
+      },
+      {
+       "method": "ExtrapolatedSegments_RoundTripTheKspNativeLongitudeOfAscendingNode",
+       "line": 255
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EccentricOrbitOptimizerInvariantTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OrbitSegmentsOnly_ProducesZeroSplitCandidates_Even_With_Hundreds_Of_Orbits",
+       "line": 71
+      },
+      {
+       "method": "SingleCheckpointTrackSection_With_Many_Orbits_Produces_No_Split_Candidates",
+       "line": 118
+      },
+      {
+       "method": "N_OnRails_Closes_Same_Body_Same_Env_Produce_Zero_Split_Candidates",
+       "line": 160
+      },
+      {
+       "method": "OnRails_Checkpoint_Body_Change_StaysCohesive",
+       "line": 188
+      },
+      {
+       "method": "SplitAtSection_ClipsOverlappingCheckpointBridgeAtSplitBoundary",
+       "line": 229
+      },
+      {
+       "method": "SplitAtSection_ClipsEarlierCheckpointBridgeThatWrapsSplitBoundary",
+       "line": 275
+      },
+      {
+       "method": "Two_Different_Env_TrackSections_Still_Produce_Split_Candidate",
+       "line": 322
+      },
+      {
+       "method": "BackgroundOnRailsState_HasNo_TrackSection_Or_EnvironmentHysteresis_Field",
+       "line": 369
+      },
+      {
+       "method": "BackgroundVesselState_DoesCarry_TrackSection_Fields_Sanity_Check",
+       "line": 403
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

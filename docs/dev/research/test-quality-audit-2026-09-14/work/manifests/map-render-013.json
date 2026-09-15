@@ -1,0 +1,230 @@
+{
+ "batch_id": "map-render-013",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "MapRender/RenderCompositionTailCloseFallbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DwellIsStaleAtClockEvent_IsStrictlyBefore",
+       "line": 68
+      },
+      {
+       "method": "DwellIsStaleAtClockEvent_RefusesUnusableInstants",
+       "line": 76
+      },
+      {
+       "method": "TailCloseFallbackIsDue_OnlyOnAStrictlyLaterFrame",
+       "line": 97
+      },
+      {
+       "method": "TailCloseFallbackIsDue_RefusesUnusableInstants",
+       "line": 105
+      },
+      {
+       "method": "StaleDwell_IsClosedAtTheEventUT_AndBecomesAClosedRecord",
+       "line": 120
+      },
+      {
+       "method": "DwellSampledAtTheEventInstant_IsLeftAlone",
+       "line": 162
+      },
+      {
+       "method": "AlreadyFrameClosedDwell_CannotBeDoubleClosed",
+       "line": 185
+      },
+      {
+       "method": "FallbackIsIdempotent_OnTheRedShape",
+       "line": 201
+      },
+      {
+       "method": "ADwellOfAnotherOwner_IsNeverSwept",
+       "line": 213
+      },
+      {
+       "method": "ADwellFromAnEarlierCycle_IsNeverSwept",
+       "line": 224
+      },
+      {
+       "method": "ADwellOpeningExactlyAtTheCycleStart_IsSwept",
+       "line": 257
+      },
+      {
+       "method": "APendingCloseThatNeverApplied_StillExportsTheDwellOpen",
+       "line": 288
+      },
+      {
+       "method": "ADwellOpenedAfterTheEvent_IsLeftAlone",
+       "line": 318
+      },
+      {
+       "method": "ADwellWithNoOwnerStamp_IsNeverSwept",
+       "line": 329
+      },
+      {
+       "method": "AnUnusableEventInstant_ClosesNothing",
+       "line": 342
+      },
+      {
+       "method": "AnEmptyManifest_ClosesNothing",
+       "line": 354
+      },
+      {
+       "method": "TheTwoFlightShapes_DifferOnlyInWhetherTheSuccessorStateWasSampled",
+       "line": 367
+      },
+      {
+       "method": "RolloverStampsTheCycleStart_TailArms_AndTheNextFrameApplies",
+       "line": 451
+      },
+      {
+       "method": "TheArmingSlotIsConsumed_SoALaterFrameDoesNotSweepAgain",
+       "line": 481
+      },
+      {
+       "method": "Reset_ClearsAPendingClose_SoTheNextFrameAppliesNothing",
+       "line": 500
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapMarkerRendererTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StockIconIndexByVesselType_MatchesDecompiledMapNodeIndices",
+       "line": 38
+      },
+      {
+       "method": "StockIconIndexByVesselType_OmitsDeployedSciencePart",
+       "line": 71
+      },
+      {
+       "method": "ToggleSticky_AddsThenRemoves",
+       "line": 82
+      },
+      {
+       "method": "ToggleSticky_IndependentKeys",
+       "line": 92
+      },
+      {
+       "method": "ToggleSticky_RejectsNullOrEmptyKey",
+       "line": 105
+      },
+      {
+       "method": "ToggleSticky_RejectsNullSet",
+       "line": 114
+      },
+      {
+       "method": "ShouldDrawLabel_ReturnsHoverOrSticky",
+       "line": 126
+      },
+      {
+       "method": "GetLabelColor_ReturnsSharedYellowInsteadOfPerTypePalette",
+       "line": 133
+      },
+      {
+       "method": "WithMarkerOpacity_SetsEightyPercentAlphaWithoutChangingRgb",
+       "line": 149
+      },
+      {
+       "method": "StockVesselIconColor_MatchesStockUnfocusedVesselNodeColor",
+       "line": 167
+      },
+      {
+       "method": "WithMarkerOpacity_UsesFullAlphaWhenPinned",
+       "line": 177
+      },
+      {
+       "method": "IsToggleClick_MatchesMouseDownRightOnly",
+       "line": 205
+      },
+      {
+       "method": "IsHandlerClick_MatchesMouseDownLeftOnly",
+       "line": 219
+      },
+      {
+       "method": "ShouldRouteMarkerClickToHandler_MatchesHandledLeftClickContract",
+       "line": 234
+      },
+      {
+       "method": "FormatHandledClickLogLine_IncludesCallerHandledState",
+       "line": 253
+      },
+      {
+       "method": "FormatClickLogLine_RightButtonToggleOn_IncludesButtonAndStickyOn",
+       "line": 271
+      },
+      {
+       "method": "FormatClickLogLine_RightButtonToggleOff_IncludesButtonAndStickyOff",
+       "line": 283
+      },
+      {
+       "method": "FormatClickLogLine_NullLabel_RendersAsPlaceholder",
+       "line": 293
+      },
+      {
+       "method": "ClickLogLine_RightButtonToggleOn_LoggedUnderMapMarkerTagWithButton",
+       "line": 304
+      },
+      {
+       "method": "ResetForSceneChange_ClearsStickyAndLogsCount",
+       "line": 321
+      },
+      {
+       "method": "InitAttemptedForTesting_DefaultsFalseAfterReset",
+       "line": 345
+      },
+      {
+       "method": "ResetForSceneChange_ClearsInitLatch",
+       "line": 353
+      },
+      {
+       "method": "ResetForTesting_ClearsInitLatch",
+       "line": 365
+      },
+      {
+       "method": "ShouldRetryIconInit_OnlyForZeroLoadedTransientMisses",
+       "line": 377
+      },
+      {
+       "method": "BuildVesselIconEntries_AcceptsSpritesOnSeparateAtlases",
+       "line": 414
+      },
+      {
+       "method": "BuildVesselIconEntries_CountsMissingSpriteVsMissingTextureDistinctly",
+       "line": 469
+      },
+      {
+       "method": "BuildVesselIconEntries_OutOfRangeIsCounted",
+       "line": 495
+      },
+      {
+       "method": "BuildVesselIconEntries_DoesNotLogMultiAtlasMismatchWarn",
+       "line": 513
+      },
+      {
+       "method": "ComputeToggleHitRect_InflatesByToggleClickPaddingPerSide",
+       "line": 535
+      },
+      {
+       "method": "ComputeToggleHitRect_IsWiderThanTheTightHandlerRect",
+       "line": 547
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

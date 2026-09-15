@@ -1,0 +1,211 @@
+{
+ "batch_id": "recorder-events-008",
+ "cluster": "recorder-events",
+ "tier": "A1",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "RuntimePolicyTests.cs",
+   "ranges": [
+    {
+     "start": 630,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyVesselDestruction_None_WhenNotActiveVessel",
+       "line": 630
+      },
+      {
+       "method": "ClassifyVesselDestruction_None_WhenTreeDestructionDialogPending",
+       "line": 643
+      },
+      {
+       "method": "ClassifyVesselDestruction_TreeDeferred_TakesPriorityOverAllLeavesCheck",
+       "line": 656
+      },
+      {
+       "method": "HasPendingPostDestructionCrashResolution_ReturnsTrue_ForPendingSplit",
+       "line": 675
+      },
+      {
+       "method": "HasPendingPostDestructionCrashResolution_ReturnsTrue_ForPendingBreakup",
+       "line": 686
+      },
+      {
+       "method": "HasPendingPostDestructionCrashResolution_ReturnsFalse_WhenActiveNotDestroyed",
+       "line": 697
+      },
+      {
+       "method": "ClassifyPostDestructionMergeResolution_FinalizeWhenAllLeavesTerminal",
+       "line": 708
+      },
+      {
+       "method": "ClassifyPostDestructionMergeResolution_FinalizesWhenOnlyDebrisBlockersRemain",
+       "line": 720
+      },
+      {
+       "method": "ClassifyPostDestructionMergeResolution_WaitsWhilePendingCrashResolutionFinishes",
+       "line": 732
+      },
+      {
+       "method": "ClassifyPostDestructionMergeResolution_PendingCrashResolutionWinsOverTerminalLeaves",
+       "line": 744
+      },
+      {
+       "method": "ClassifyPostDestructionMergeResolution_CancelsWhenRealSurvivorStillExists",
+       "line": 756
+      },
+      {
+       "method": "ClassifyPostDestructionMergeResolution_CancelsWhenNotCrashAndNotTerminal",
+       "line": 768
+      },
+      {
+       "method": "IsTreePadFailure_AllShort_ReturnsTrue",
+       "line": 784
+      },
+      {
+       "method": "IsTreePadFailure_OneLongRecording_ReturnsFalse",
+       "line": 796
+      },
+      {
+       "method": "IsTreePadFailure_EmptyTree_ReturnsFalse",
+       "line": 813
+      },
+      {
+       "method": "ComputeAutoLoopRange_NullSections_ReturnsNaN",
+       "line": 839
+      },
+      {
+       "method": "ComputeAutoLoopRange_SingleSection_ReturnsNaN",
+       "line": 847
+      },
+      {
+       "method": "ComputeAutoLoopRange_AllInteresting_ReturnsNaN",
+       "line": 856
+      },
+      {
+       "method": "ComputeAutoLoopRange_AllBoring_ReturnsNaN",
+       "line": 868
+      },
+      {
+       "method": "ComputeAutoLoopRange_TrimsTrailingCoast",
+       "line": 879
+      },
+      {
+       "method": "ComputeAutoLoopRange_TrimsLeadingCoast",
+       "line": 892
+      },
+      {
+       "method": "ComputeAutoLoopRange_TrimsBothEnds",
+       "line": 905
+      },
+      {
+       "method": "ComputeAutoLoopRange_KeepsBoringMiddle",
+       "line": 919
+      },
+      {
+       "method": "IsBoringEnvironment_ClassifiesCorrectly",
+       "line": 932
+      },
+      {
+       "method": "ApplyAutoLoopRange_ToggleOn_SetsRange",
+       "line": 946
+      },
+      {
+       "method": "ApplyAutoLoopRange_ToggleOff_ClearsRange",
+       "line": 961
+      },
+      {
+       "method": "ApplyAutoLoopRange_NoTrimmableSections_LeavesNaN",
+       "line": 974
+      },
+      {
+       "method": "ShouldCreateStateVectorOrbit_ThresholdBehavior",
+       "line": 1001
+      },
+      {
+       "method": "ShouldRemoveStateVectorOrbit_ThresholdBehavior",
+       "line": 1014
+      },
+      {
+       "method": "StateVectorThresholds_HysteresisGap_AirlessBody",
+       "line": 1020
+      },
+      {
+       "method": "StateVectorThresholds_AtmosphereOverridesAltitude",
+       "line": 1028
+      },
+      {
+       "method": "ShouldAutoFollowChainSeamSpawn_WatchedRecordingIsPredecessor_ReturnsTrue",
+       "line": 1041
+      },
+      {
+       "method": "ShouldAutoFollowChainSeamSpawn_NotAChainSeamSpawn_ReturnsFalse",
+       "line": 1054
+      },
+      {
+       "method": "ShouldAutoFollowChainSeamSpawn_WatchInactive_ReturnsFalse",
+       "line": 1069
+      },
+      {
+       "method": "ShouldAutoFollowChainSeamSpawn_WatchAlreadyOnSpawn_ReturnsFalse",
+       "line": 1082
+      },
+      {
+       "method": "ShouldAutoFollowChainSeamSpawn_WatchOnDifferentRecording_ReturnsFalse",
+       "line": 1096
+      },
+      {
+       "method": "ShouldAutoFollowChainSeamSpawn_SpawnHasNoPredecessor_ReturnsFalse",
+       "line": 1110
+      },
+      {
+       "method": "IsInRelativeFrame_NullTrackSections_ReturnsFalse",
+       "line": 1128
+      },
+      {
+       "method": "IsInRelativeFrame_EmptyTrackSections_ReturnsFalse",
+       "line": 1135
+      },
+      {
+       "method": "IsInRelativeFrame_AbsoluteSection_ReturnsFalse",
+       "line": 1142
+      },
+      {
+       "method": "IsInRelativeFrame_RelativeSection_ReturnsTrue",
+       "line": 1159
+      },
+      {
+       "method": "IsInRelativeFrame_UTOutsideSection_ReturnsFalse",
+       "line": 1176
+      },
+      {
+       "method": "RelativeFrameGuard_DzBelowAltitudeThreshold_WouldTripRemovalWithoutGate",
+       "line": 1204
+      },
+      {
+       "method": "RelativeFrameGuard_AbsoluteFrame_StillEvaluatesThreshold",
+       "line": 1242
+      },
+      {
+       "method": "ShouldDeferLoopShiftedMapPresence_NonLoopMember_ReturnsFalse",
+       "line": 1283
+      },
+      {
+       "method": "ShouldDeferLoopShiftedMapPresence_LoopMemberInWindow_ReturnsTrue",
+       "line": 1291
+      },
+      {
+       "method": "ShouldDeferLoopShiftedMapPresence_NegativeShift_ReturnsTrue",
+       "line": 1299
+      },
+      {
+       "method": "ShouldDeferLoopShiftedMapPresence_RenderHidden_ReturnsTrue",
+       "line": 1307
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

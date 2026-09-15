@@ -1,0 +1,209 @@
+{
+ "batch_id": "catchall-026",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "StockUiOverlayControllerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildTechMarks_EmptyStore_EmptyDict",
+       "line": 61
+      },
+      {
+       "method": "BuildTechMarks_UnreplayedEvent_PopulatedWithUtAndRecordingId",
+       "line": 72
+      },
+      {
+       "method": "BuildTechMarks_AlreadyReplayedEvent_NotIncluded",
+       "line": 94
+      },
+      {
+       "method": "BuildTechMarks_HiddenByTimelineFilter_NotIncluded",
+       "line": 109
+      },
+      {
+       "method": "BuildTechMarks_SignatureHasNoLiveUtParameter",
+       "line": 125
+      },
+      {
+       "method": "BuildApplicantMarks_PrefersFutureHiredOverReserved",
+       "line": 141
+      },
+      {
+       "method": "BuildApplicantMarks_ReservedActiveTooltipIncludesSlotOwner",
+       "line": 160
+      },
+      {
+       "method": "BuildContractMarks_AlreadyActive_SuppressedWithLog",
+       "line": 176
+      },
+      {
+       "method": "BuildContractMarks_LogsSuppressionCountAtVerbose",
+       "line": 198
+      },
+      {
+       "method": "E1_SandboxMode_NoCommittedMarks",
+       "line": 221
+      },
+      {
+       "method": "E2_ScienceMode_EmptyContractSurfaceSuppressesContractMarks",
+       "line": 234
+      },
+      {
+       "method": "E3_EmptyInitialMarks_RebuildAfterTimelineDataIncludesNewEvent",
+       "line": 260
+      },
+      {
+       "method": "E4_ReplayedEventDisappearsOnNextBuild",
+       "line": 275
+      },
+      {
+       "method": "E7_DuplicateCommittedEvents_UsesEarliestUtAndNotesAdditionalCount",
+       "line": 294
+      },
+      {
+       "method": "E8_DeletedRecording_TooltipFallsBackToUtOnlyAndLogs",
+       "line": 312
+      },
+      {
+       "method": "E9_MissingOfferedContract_SuppressesOverlayAndLogs",
+       "line": 331
+      },
+      {
+       "method": "E10_OverlayGateStaysDeleted",
+       "line": 355
+      },
+      {
+       "method": "E15_FutureRetiredApplicant_UsesCrewRemovedKind",
+       "line": 368
+      },
+      {
+       "method": "E17_FutureHiredAlreadyLive_SuppressedFromApplicantMarks",
+       "line": 386
+      },
+      {
+       "method": "E18_BuildTechMarks_CandidateSetMatchesMilestoneHelper",
+       "line": 409
+      },
+      {
+       "method": "E18_BuildContractMarks_CandidateSetMatchesMilestoneHelper",
+       "line": 425
+      },
+      {
+       "method": "E18_BuildApplicantMarks_FutureHireCandidateSetMatchesMilestoneHelper",
+       "line": 443
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "C1CareerLedgerReplayTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FixtureLedger_LoadsAllThreeHundredTwentyThreeActions",
+       "line": 172
+      },
+      {
+       "method": "FixtureLedger_CarriesTheMidCareerSeeds",
+       "line": 179
+      },
+      {
+       "method": "FixtureLedger_CarriesNoKerbalExperienceRows",
+       "line": 205
+      },
+      {
+       "method": "FixtureSave_ParsesWithKnownPools",
+       "line": 214
+      },
+      {
+       "method": "FixtureLedger_CarriesTheUnaffordableHeavyRocketrySpend",
+       "line": 230
+      },
+      {
+       "method": "RealEngine_RefusesTheHeavyRocketrySpend_AndSaysSoInTheLog",
+       "line": 250
+      },
+      {
+       "method": "RealEngine_ReplaysC1Ledger_PoolsVsSave",
+       "line": 282
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissedVesselSwitchRecoveryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldRecoverMissedVesselSwitch_RecorderPidMismatch_ReturnsTrue",
+       "line": 28
+      },
+      {
+       "method": "ShouldRecoverMissedVesselSwitch_OutsiderReturnToTrackedTreeVessel_ReturnsTrue",
+       "line": 48
+      },
+      {
+       "method": "ShouldRecoverMissedVesselSwitch_SamePid_ReturnsFalse",
+       "line": 68
+      },
+      {
+       "method": "ShouldRecoverMissedVesselSwitch_PendingTransientState_ReturnsFalse",
+       "line": 88
+      },
+      {
+       "method": "ShouldRecoverMissedVesselSwitch_RequiresStableActiveTreeContext",
+       "line": 138
+      },
+      {
+       "method": "ShouldRecoverMissedVesselSwitch_ArmedTrackedVessel_ReturnsFalse",
+       "line": 188
+      },
+      {
+       "method": "OnVesselSwitchRecState_NormalBoundary_LogsEveryEntryAndPost",
+       "line": 208
+      },
+      {
+       "method": "OnVesselSwitchRecState_RecoveryLoopSameFingerprint_CoalescesEntryAndPost",
+       "line": 234
+      },
+      {
+       "method": "OnVesselSwitchRecState_RecoveryLoopSummary_PreservesSuppressedCountCadence",
+       "line": 264
+      },
+      {
+       "method": "OnVesselSwitchRecState_RecoveryFingerprintChange_AllowsFreshDiagnostic",
+       "line": 291
+      },
+      {
+       "method": "ShouldAttemptCommittedSpawnedRestoreInUpdate_WhenStableAndDue_ReturnsTrue",
+       "line": 342
+      },
+      {
+       "method": "ShouldAttemptCommittedSpawnedRestoreInUpdate_WhenBlockedOrThrottled_ReturnsFalse",
+       "line": 357
+      },
+      {
+       "method": "Update_CallsMissedVesselSwitchRecoveryBeforeTreeHandlers",
+       "line": 397
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
