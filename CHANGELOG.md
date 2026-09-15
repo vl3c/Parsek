@@ -278,7 +278,7 @@ _(unreleased — entries accumulate here per commit)_
   verbose line, with the max-wins half left to the two cells that already own it. Two
   career-window cells gave the second milestone a duplicate id and both facilities the
   same level, so a crossed read or a dropped guard changed nothing; they now use a fresh
-  id and two different levels. A ten-type "ignores non-rep actions" theory fed all-zero
+  id and two different levels. A nine-type "ignores non-rep actions" theory fed all-zero
   rows, so any misroute was invisible - it now runs against a standing balance with every
   rep-bearing field set, asserts the seed flag stays clear, and drops StrategyActivate,
   which production does route to a rep handler. A recovery-funds cell could not tell a
