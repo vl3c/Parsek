@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index e0d742cb5..e960edf0a 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -4059,6 +4059,7 @@ namespace Parsek
+         {
+             return !terminal.HasValue
+                 || terminal.Value == TerminalState.Orbiting
++                || terminal.Value == TerminalState.SubOrbital
+                 || terminal.Value == TerminalState.Docked;
+         }
+ 

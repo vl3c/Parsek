@@ -1110,6 +1110,54 @@ namespace Parsek.Tests
             Assert.False(string.IsNullOrEmpty(chain.TipRecordingId));
         }
 
+        /// <summary>
+        /// Three chains linked 100 -> 200 -> 300 -> 200: the cycle does NOT include the
+        /// walk origin, so the tipVesselPid == originPid short-circuit cannot see it and
+        /// the per-walk chainVisited set is the only thing that ends the walk. The walk
+        /// runs from ParsekTrackingStation.RefreshGhostActionCache every Update, so a
+        /// missed break is a frozen game, not a wrong ghost.
+        /// </summary>
+        [Fact]
+        public void MergeCrossTreeLinks_TwoChainsPointingAtEachOther_BreaksCycleAndWarns()
+        {
+            // Tree1 claims vessel 100 and leaves the merged vessel carrying PID 200.
+            var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock1");
+            var r1Leaf = MakeRecording("R1-leaf", 200, 1060, 1120,
+                parentBpId: "bp-dock1");
+            var dock1 = MakeBranchPoint("bp-dock1", BranchPointType.Dock,
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf" });
+            var tree1 = MakeTree("tree-1", new[] { r1, r1Leaf }, new[] { dock1 });
+
+            // Tree2 claims vessel 200 and leaves the merged vessel carrying PID 300.
+            var r2 = MakeRecording("R2", 60, 1200, 1260, childBpId: "bp-dock2");
+            var r2Leaf = MakeRecording("R2-leaf", 300, 1260, 1320,
+                parentBpId: "bp-dock2");
+            var dock2 = MakeBranchPoint("bp-dock2", BranchPointType.Dock,
+                1260, 200, new[] { "R2" }, new[] { "R2-leaf" });
+            var tree2 = MakeTree("tree-2", new[] { r2, r2Leaf }, new[] { dock2 });
+
+            // Tree3 claims vessel 300 and leaves the merged vessel carrying PID 200
+            // again - closing the 200 -> 300 -> 200 loop.
+            var r3 = MakeRecording("R3", 70, 1400, 1460, childBpId: "bp-dock3");
+            var r3Leaf = MakeRecording("R3-leaf", 200, 1460, 1520,
+                parentBpId: "bp-dock3");
+            var dock3 = MakeBranchPoint("bp-dock3", BranchPointType.Dock,
+                1460, 300, new[] { "R3" }, new[] { "R3-leaf" });
+            var tree3 = MakeTree("tree-3", new[] { r3, r3Leaf }, new[] { dock3 });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree1, tree2, tree3 }, 900);
+
+            Assert.NotNull(chains);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ChainWalker]")
+                && l.Contains("Cross-tree link cycle detected: vessel=200 already visited"));
+            // The walk stops at the repeat: vessel 200 is absorbed exactly once, so the
+            // merged chain cannot accumulate the loop's links over and over.
+            Assert.True(chains.ContainsKey(100));
+            Assert.Equal(3, chains[100].Links.Count);
+        }
+
         #endregion
 
         #region FindChainForVessel — null safety

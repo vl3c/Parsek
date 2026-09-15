@@ -1041,6 +1041,75 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SweepOrphanRewindRetirements_LiveTargetMissingRestored_RetainedWithWarn()
+        {
+            // A retirement whose fork recording is still live but whose
+            // RestoredRecordingId no longer resolves is degraded metadata, not
+            // an orphan row: dropping it would un-hide the retired fork with
+            // nothing standing in for the old side it named. The sweep keeps
+            // the row and warns about the dangling restore target.
+            InstallTree("tree_missing_restored",
+                new List<Recording>
+                {
+                    Rec("rec_live_fork", MergeState.CommittedProvisional,
+                        treeId: "tree_missing_restored")
+                },
+                new List<BranchPoint>());
+            var retirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_missing_restored",
+                RecordingId = "rec_live_fork",
+                RestoredRecordingId = "rec_deleted_old_side",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { retirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("rrt_missing_restored",
+                scenario.RecordingRewindRetirements[0].RetirementId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Retained 1 rewind-retirement row(s) "
+                    + "whose restored recording no longer exists"));
+        }
+
+        [Fact]
+        public void SweepOrphanRewindRetirements_LiveTargetLiveRestored_RetainedWithoutWarn()
+        {
+            // Mirror of the row above: when the named old side is still in the
+            // committed store the same retirement is retained WITHOUT the
+            // dangling-restore warning, so the warning above discriminates the
+            // missing-restore shape rather than merely reporting retention.
+            InstallTree("tree_live_restored",
+                new List<Recording>
+                {
+                    Rec("rec_live_fork", MergeState.CommittedProvisional,
+                        treeId: "tree_live_restored"),
+                    Rec("rec_live_old_side", MergeState.CommittedProvisional,
+                        treeId: "tree_live_restored")
+                },
+                new List<BranchPoint>());
+            var retirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_live_restored",
+                RecordingId = "rec_live_fork",
+                RestoredRecordingId = "rec_live_old_side",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { retirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("whose restored recording no longer exists"));
+        }
+
+        [Fact]
         public void LegacyOldSideSweep_DeferredAndDurableForMultiOldSideToImmutableForkShape()
         {
             // Pre-canon-forks saves can carry the multi-old-side-to-one-Immutable

@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/LoadTimeSweep.cs b/Source/Parsek/LoadTimeSweep.cs
+index eaf950f0f..04e74be0e 100644
+--- a/Source/Parsek/LoadTimeSweep.cs
++++ b/Source/Parsek/LoadTimeSweep.cs
+@@ -766,7 +766,11 @@ namespace Parsek
+                 bool restoredMissing = !string.IsNullOrEmpty(retirement.RestoredRecordingId)
+                     && !RecordingExists(retirement.RestoredRecordingId, knownRecordingIds);
+                 if (restoredMissing)
++                {
+                     retainedWithMissingRestored++;
++                    scenario.RecordingRewindRetirements.RemoveAt(i);
++                    removed++;
++                }
+             }
+ 
+             // --------------------------------------------------------------
