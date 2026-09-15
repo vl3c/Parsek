@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/GameActions/StrategiesModule.cs b/Source/Parsek/GameActions/StrategiesModule.cs
+index fb1204233..1bdad12fb 100644
+--- a/Source/Parsek/GameActions/StrategiesModule.cs
++++ b/Source/Parsek/GameActions/StrategiesModule.cs
+@@ -80,12 +80,6 @@ namespace Parsek
+         {
+             switch (action.Type)
+             {
+-                case GameActionType.StrategyActivate:
+-                    ProcessActivate(action);
+-                    break;
+-                case GameActionType.StrategyDeactivate:
+-                    ProcessDeactivate(action);
+-                    break;
+                 case GameActionType.ContractComplete:
+                     TransformContractReward(action);
+                     break;

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/KscActionReconciler.cs b/Source/Parsek/GameActions/KscActionReconciler.cs
+index 84dd9aee3..782cdb2eb 100644
+--- a/Source/Parsek/GameActions/KscActionReconciler.cs
++++ b/Source/Parsek/GameActions/KscActionReconciler.cs
+@@ -168,7 +168,7 @@ namespace Parsek
+                 earliestObservedBefore,
+                 tol);
+ 
+-            if (Math.Abs(summedExpected - summedObserved) > tol)
++            if (false && Math.Abs(summedExpected - summedObserved) > tol)
+             {
+                 ParsekLog.Warn(Tag,
+                     $"KSC reconciliation ({channelTag}): action {action.Type} expected delta={leg.ExpectedDelta:F1}, " +

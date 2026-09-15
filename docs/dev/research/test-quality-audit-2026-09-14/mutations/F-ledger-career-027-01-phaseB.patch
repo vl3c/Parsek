@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/GameActions/ContractsModule.cs b/Source/Parsek/GameActions/ContractsModule.cs
+index 68f3052d0..bdbf582e5 100644
+--- a/Source/Parsek/GameActions/ContractsModule.cs
++++ b/Source/Parsek/GameActions/ContractsModule.cs
+@@ -536,8 +536,10 @@ namespace Parsek
+             // Penalties apply unconditionally
+             bool wasActive = activeContracts.Remove(id);
+             terminalContracts.Add(id);
+-            terminalContractActions[id] = GameActionType.ContractCancel;
+-            terminalContractOutcomes[id] = ContractTerminalOutcome.Cancelled;
++            if (!terminalContractActions.ContainsKey(id))
++                terminalContractActions[id] = GameActionType.ContractCancel;
++            if (!terminalContractOutcomes.ContainsKey(id))
++                terminalContractOutcomes[id] = ContractTerminalOutcome.Cancelled;
+             explicitlyResolvedContracts.Add(id);
+ 
+             ParsekLog.Info(Tag,

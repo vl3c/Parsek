@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GameActions/KspStatePatcher.cs b/Source/Parsek/GameActions/KspStatePatcher.cs
+index 8d15fb3f3..e0e887384 100644
+--- a/Source/Parsek/GameActions/KspStatePatcher.cs
++++ b/Source/Parsek/GameActions/KspStatePatcher.cs
+@@ -1192,9 +1192,7 @@ namespace Parsek
+         internal static double ComputePendingAdjustedRunningScience(
+             double preStrategyRunning, double currentLiveScience)
+         {
+-            return preStrategyRunning
+-                - LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit(
+-                    preStrategyRunning, currentLiveScience);
++            return preStrategyRunning;
+         }
+ 
+         /// <summary>

@@ -1474,32 +1474,16 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
         }
 
-        [Fact]
-        public void ClassifyAction_PartPurchase_BypassOff_StaysUntransformed()
-        {
-            try
-            {
-                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
-
-                var a = new GameAction
-                {
-                    Type = GameActionType.FundsSpending,
-                    FundsSpendingSource = FundsSpendingSource.Other,
-                    FundsSpent = 600f
-                };
-                var exp = LedgerOrchestrator.ClassifyAction(a);
-
-                Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
-                Assert.True(exp.FundsLeg.IsPresent);
-                Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
-                Assert.Equal("RnDPartPurchase", exp.FundsLeg.ExpectedReasonKey);
-                Assert.Equal(-600, exp.FundsLeg.ExpectedDelta);
-            }
-            finally
-            {
-                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
-            }
-        }
+        // DELETED (2026-09-16 test-quality audit, F-ledger-career-001-04):
+        // ClassifyAction_PartPurchase_BypassOff_StaysUntransformed installed the bypass
+        // provider and then asserted the same four classifier facts as
+        // ClassifyAction_PartPurchase_UntransformedWithRnDPartPurchaseKey above.
+        // KscActionExpectationClassifier never reads
+        // GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting - the
+        // provider only reaches recorder, store and patcher call sites - so the setup was
+        // inert and the cell was a copy. The bypass branch itself is pinned where it
+        // lives: GameStateRecorderLedgerTests.ComputePartPurchaseFundsSpent_BypassOn_ReturnsZero
+        // and ..._BypassOff_ReturnsEntryCost.
 
         [Fact]
         public void ReconcileKsc_PartPurchase_BypassOff_NoMatchingEvent_StillWarns()
@@ -1538,46 +1522,70 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ReconcileKsc_PartPurchase_BypassOff_EntryCostMatched_NoWarn()
+        public void ReconcileKsc_PartPurchase_EntryCostMatched_NoWarn()
         {
-            // #451: under bypass=false, KSP fires FundsChanged(RnDPartPurchase) with
-            // -entryCost (NOT -part.cost). Pre-#451 the recorder captured part.cost into
-            // FundsSpent, producing a delta-mismatch WARN on every purchase whenever the
-            // two values differed (the common case — entryCost is typically 1.5-3x cost).
-            // Post-#451 the recorder captures entryCost, so the action's expected delta
-            // (-entryCost) matches the event's observed delta (-entryCost) and the
-            // reconciler stays silent.
-            try
+            // The matching half of the #451 pair: the action's expected delta (-entryCost)
+            // equals the event's observed delta, so the reconciler stays silent.
+            //
+            // The #451 pin itself - "the recorder charges entryCost, not part.cost" - is
+            // NOT here and cannot be: both sides of this cell are hand-seeded, so a
+            // recorder that went back to part.cost would seed both at 450 and stay green.
+            // It lives at the recorder seam, in
+            // GameStateRecorderLedgerTests.ComputePartPurchaseFundsSpent_BypassOff_ReturnsEntryCost.
+            // The bypass provider is not installed either: nothing on the reconcile path
+            // reads it. What this cell and its mismatching sibling below pin is the
+            // reconciler's own delta comparison.
+
+            // solidBooster.v2 numbers from the bug report: cost=450, entryCost=800.
+            var events = new List<GameStateEvent>
             {
-                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
-
-                // solidBooster.v2 numbers from the bug report: cost=450, entryCost=800.
-                // Pre-#451 the action carried 450 and the event carried 800 -> WARN.
-                // Post-#451 both sides carry 800.
-                var events = new List<GameStateEvent>
-                {
-                    MakeKeyedFundsChanged(1500, 50000, 49200, "RnDPartPurchase")  // -800
-                };
-                var action = new GameAction
-                {
-                    UT = 1500,
-                    Type = GameActionType.FundsSpending,
-                    FundsSpendingSource = FundsSpendingSource.Other,
-                    FundsSpent = 800f,                        // entryCost, post-#451
-                    DedupKey = "solidBooster.v2"
-                };
-                var ledger = new List<GameAction> { action };
-
-                ReconcileKsc(events, ledger, action, 1500);
-
-                Assert.DoesNotContain(logLines, l =>
-                    l.Contains("[LedgerOrchestrator]") &&
-                    l.Contains("KSC reconciliation (funds)"));
-            }
-            finally
+                MakeKeyedFundsChanged(1500, 50000, 49200, "RnDPartPurchase")  // -800
+            };
+            var action = new GameAction
             {
-                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
-            }
+                UT = 1500,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 800f,                        // entryCost, post-#451
+                DedupKey = "solidBooster.v2"
+            };
+            var ledger = new List<GameAction> { action };
+
+            ReconcileKsc(events, ledger, action, 1500);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KSC reconciliation (funds)"));
+        }
+
+        // The mirror: the PRE-#451 shape, where the action carried part.cost (450) and the
+        // event carried the entry cost KSP actually charged (-800). Without this cell the
+        // silence asserted above is unfalsifiable - a reconciler that never compared
+        // deltas at all would satisfy it.
+        [Fact]
+        public void ReconcileKsc_PartPurchase_PartCostAgainstEntryCostEvent_WarnsDeltaMismatch()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1500, 50000, 49200, "RnDPartPurchase")  // -800
+            };
+            var action = new GameAction
+            {
+                UT = 1500,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 450f,                        // part.cost, pre-#451
+                DedupKey = "solidBooster.v2"
+            };
+            var ledger = new List<GameAction> { action };
+
+            ReconcileKsc(events, ledger, action, 1500);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KSC reconciliation (funds)") &&
+                l.Contains("RnDPartPurchase") &&
+                l.Contains("delta mismatch"));
         }
 
         #region #440 post-walk tests

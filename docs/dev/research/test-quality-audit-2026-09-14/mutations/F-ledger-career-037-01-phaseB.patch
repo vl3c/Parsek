@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/KerbalsModule.cs b/Source/Parsek/KerbalsModule.cs
+index c8f01dde7..7a5001b19 100644
+--- a/Source/Parsek/KerbalsModule.cs
++++ b/Source/Parsek/KerbalsModule.cs
+@@ -1161,7 +1161,7 @@ namespace Parsek
+         {
+             if (string.IsNullOrEmpty(kerbalName))
+                 return KerbalReservationKind.NotManaged;
+-            if (reservations.ContainsKey(kerbalName))
++            if (false)
+                 return KerbalReservationKind.ReservedActive;
+             if (retiredKerbals.Contains(kerbalName))
+                 return KerbalReservationKind.ReservedRetired;

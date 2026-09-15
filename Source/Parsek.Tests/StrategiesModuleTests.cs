@@ -696,6 +696,21 @@ namespace Parsek.Tests
 
             RecalculationEngine.Recalculate(actions);
 
+            // The DISPATCH the name claims, witnessed by the module's own log lines. The
+            // Transformed* assertions below cannot see it: the helper prefills those fields,
+            // so a dead Strategy tier or a removed switch case left them at their seeded
+            // identity values and this cell stayed green (2026-09-16 audit).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") &&
+                l.Contains("Activate: strategyId='UnpaidResearch'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Strategies]") &&
+                l.Contains("Deactivate") &&
+                l.Contains("UnpaidResearch"));
+            // ... and the module carried the activation across the walk rather than being
+            // handed the rows after the fact.
+            Assert.False(module.IsStrategyActive("UnpaidResearch"));
+
             Assert.Equal(50f, actions[1].TransformedRepReward);
             Assert.Equal(0f, actions[1].TransformedScienceReward);
             Assert.Equal(40f, actions[3].TransformedRepReward);
@@ -723,6 +738,17 @@ namespace Parsek.Tests
             Assert.Equal(1, module.GetActiveStrategyCount());
             Assert.Contains(logLines, l =>
                 l.Contains("[Strategies]") && l.Contains("already active") && l.Contains("S1"));
+
+            // THE OVERWRITE ITSELF. The count and the warning are identical whether the
+            // store overwrites or skips, so until the 2026-09-16 audit this cell could not
+            // tell the two apart. The stored state is what discriminates them: the SECOND
+            // activation's commitment and resources are the ones held.
+            StrategiesModule.StrategyState stored;
+            Assert.True(module.TryGetActiveStrategy("S1", out stored));
+            Assert.Equal(0.20f, stored.Commitment);
+            Assert.Equal(200.0, stored.ActivateUT);
+            Assert.Equal(StrategyResource.Reputation, stored.SourceResource);
+            Assert.Equal(StrategyResource.Science, stored.TargetResource);
 
             var contract = MakeContractComplete("c1", 300.0, repReward: 100f, scienceReward: 0f);
             module.ProcessAction(contract);
