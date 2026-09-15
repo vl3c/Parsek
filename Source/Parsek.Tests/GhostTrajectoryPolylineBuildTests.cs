@@ -2506,58 +2506,64 @@ namespace Parsek.Tests
                 GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(Vector3d.zero, x)));
         }
 
-        // Min-angle gate (re-aim launch-aligned-ascent render-polish fix): the now-common case where the
-        // body-fixed launch ascent ALREADY MEETS the inertial escape conic (a few-km positional gap, a
-        // tiny seam angle) must SKIP the bridge - the fixed ~74 deg conic merge slice would bulge a
-        // disproportionate ~200-370 km off such a near-meet, reading as a spurious extra segment. The
-        // gate in DecideSeamBridges is exactly `angleRad <= BridgeMinAngleRadians`; this exercises that
-        // decision through the same pure SeamBridgeAngleRad the gate calls, at Kerbin geometry.
+        // The FOUR-BAND seam-bridge routing (re-aim launch-aligned-ascent render polish), asserted
+        // through the production classifier rather than re-implemented inline. The cell used to
+        // compare each measured angle against BridgeMinAngleRadians itself and call the 4.59 deg
+        // near-meet a SKIP - which is not what production does: (0.5 deg, 5 deg] routes to
+        // SeamBridgeKind.Chord, and only <= 0.5 deg skips as meets-conic. Re-pointing
+        // DecideSeamBridges at a different band therefore left the old cell green. Renamed to the
+        // routing it now drives; the two thresholds stay pinned because the bands are named by them.
         [Fact]
-        public void SeamBridge_MinAngleGate_NearMeetSkips_RealGapBridges()
+        public void SeamBridge_AngleBandRouting_MeetsConicChordAndMergeSlice()
         {
-            // Threshold pinned at 5 deg.
+            // Threshold pinned at 5 deg...
             Assert.Equal(5.0 * System.Math.PI / 180.0,
                 GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians, 9);
-            // ...and comfortably below the 45 deg max (the gate window is non-empty).
+            // ...and comfortably below the 45 deg max (the merge-slice band is non-empty).
             Assert.True(GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians
                 < GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians);
+            // ...and the chord floor at 0.5 deg (the meets-conic band).
+            Assert.Equal(0.5 * System.Math.PI / 180.0,
+                GhostTrajectoryPolylineRenderer.BridgeChordMinAngleRadians, 9);
 
             // Leg endpoint near Kerbin's surface (radius ~670 km from centre).
             const double r = 670000.0;
             Vector3d legRel = new Vector3d(r, 0.0, 0.0);
 
-            // NEAR-MEET: the launch-aligned ascent end and the conic seam are 4.59 deg apart (the largest
-            // redundant launch bridge from the aa48920e playtest; a ~54 km chord). Gate condition true ->
-            // bridge SKIPPED (the leg meets the conic; no disproportionate bridge).
-            Vector3d seamNearMeet = RotZ(legRel, 4.59 * System.Math.PI / 180.0);
-            double nearMeetAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamNearMeet);
-            Assert.True(nearMeetAngle <= GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
-                "a near-aligned launch handoff (4.59 deg) must fall at/below the min gate and skip the bridge");
+            // 0.31 deg: the aligned-seam population the design doc reports. Below the 0.5 deg chord
+            // floor - the leg already meets the conic, so nothing is drawn.
+            AssertSeamBand(legRel, 0.31, GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipMeetsConic);
 
-            // Also the aligned-seam ~0-3 deg population the design doc reports collapses to: skips.
-            Vector3d seamAligned = RotZ(legRel, 0.31 * System.Math.PI / 180.0);
-            Assert.True(
-                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamAligned)
-                    <= GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
-                "a 0.31 deg aligned-seam handoff must skip the bridge");
+            // 4.59 deg: the largest redundant launch bridge from the aa48920e playtest (a ~54 km
+            // chord). Above the chord floor, at/below the 5 deg merge floor -> a zero-bulge straight
+            // CHORD, not a skip and not the ~74 deg merge slice that used to bulge 200-370 km here.
+            AssertSeamBand(legRel, 4.59, GhostTrajectoryPolylineRenderer.SeamBridgeKind.Chord);
 
-            // REAL GAP: a genuine moderate misalignment (the 26.77 deg 8538d9e1 case, a ~310 km chord -
-            // comparable to the bridge's own bulge, within the designed 5-45 deg range). Gate condition
-            // false -> bridge STILL DRAWS (it smooths a real visible gap; not re-opened by this fix).
-            Vector3d seamRealGap = RotZ(legRel, 26.77 * System.Math.PI / 180.0);
-            double realGapAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamRealGap);
-            Assert.True(realGapAngle > GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
-                "a 26.77 deg moderate-misalignment gap must stay above the min gate and still bridge");
-            Assert.True(realGapAngle <= GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
-                "26.77 deg is within the 45 deg max, so the bridge is not skipped as too-large either");
+            // 10 deg and 26.77 deg (the 8538d9e1 case, a ~310 km chord): genuine moderate
+            // misalignments inside the designed 5-45 deg range -> the merge slice still draws.
+            AssertSeamBand(legRel, 10.0, GhostTrajectoryPolylineRenderer.SeamBridgeKind.MergeSlice);
+            AssertSeamBand(legRel, 26.77, GhostTrajectoryPolylineRenderer.SeamBridgeKind.MergeSlice);
 
-            // A mid-range designed bridge (10 deg) also still draws: this fix does not narrow the 5-45
-            // deg range other missions / same-parent loops rely on.
-            Assert.True(
-                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(
-                    legRel, RotZ(legRel, 10.0 * System.Math.PI / 180.0))
-                    > GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
-                "a 10 deg moderate-misalignment gap must still bridge");
+            // Past the 45 deg max the bridge is an honest gap, not a wild spiral.
+            AssertSeamBand(legRel, 60.0, GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipAngleTooLarge);
+
+            // A degenerate (zero-length) endpoint yields an infinite angle -> same honest gap.
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipAngleTooLarge,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(
+                    GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(Vector3d.zero, legRel)));
+        }
+
+        // Rotates the leg endpoint by `degrees` about Z, measures the seam angle with the SAME pure
+        // helper DecideSeamBridges calls, and asserts the production classifier's band for it.
+        private static void AssertSeamBand(
+            Vector3d legRel, double degrees, GhostTrajectoryPolylineRenderer.SeamBridgeKind expected)
+        {
+            Vector3d seam = RotZ(legRel, degrees * System.Math.PI / 180.0);
+            double angleRad = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seam);
+            Assert.Equal(
+                expected,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(angleRad));
         }
 
         // The adjacency rule, both sides (playtest 7): a conic neighbours a leg seam when it shares

@@ -6831,15 +6831,27 @@ namespace Parsek.Tests
         {
             // There is NO pad absence under borrow-repay: sweep across cycles and assert the watch resolver
             // always resolves an in-span loopUT (>= spanStart), never below the span.
+            //
+            // The resolved COUNT is asserted too. The in-span bound sits inside if (resolved), so a
+            // resolver that stopped resolving at every swept UT - the same inert-resolver state the
+            // NoUnits / BeforeSpanStart siblings model as real - would run the loop body zero times
+            // and leave this cell green: "never absent" and "never resolved" were indistinguishable.
             var engine = new GhostPlaybackEngine(null);
             engine.SetLoopUnits(BuildLaunchHoldUnit(0));
+            int swept = 0, resolvedCount = 0;
             for (double t = LhAnchor; t <= LhAnchor + 4.0 * LhCad; t += 23.0)
             {
+                swept++;
                 bool resolved = engine.TryResolveUnitMemberPlaybackUT(
                     0, currentUT: t, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
                 if (resolved)
+                {
+                    resolvedCount++;
                     Assert.True(watchUT >= LhS0 - 1e-6, $"t={t} watchUT {watchUT} below spanStart (pad absence)");
+                }
             }
+            Assert.True(swept > 0, "the sweep must visit at least one currentUT");
+            Assert.Equal(swept, resolvedCount);
         }
 
         #endregion
