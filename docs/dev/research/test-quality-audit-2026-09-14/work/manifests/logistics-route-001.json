@@ -1,0 +1,191 @@
+{
+ "batch_id": "logistics-route-001",
+ "cluster": "logistics-route",
+ "tier": "A1",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "RouteAnalysisEngineTests.cs",
+   "ranges": [
+    {
+     "start": 56,
+     "end": 1654,
+     "methods": [
+      {
+       "method": "AnalyzeRecording_CompletedWindow_ExtractsDeliveryManifest",
+       "line": 56
+      },
+      {
+       "method": "AnalyzeRecording_BaseManifestOnly_RejectsAsMissingProof",
+       "line": 84
+      },
+      {
+       "method": "AnalyzeRecording_DuplicateDockUT_RejectsMultipleConnectionWindows",
+       "line": 114
+      },
+      {
+       "method": "AnalyzeRecording_CompleteWindowWithoutTransfer_RejectsNoDelivery",
+       "line": 140
+      },
+      {
+       "method": "AnalyzeRecording_MixedResourceWindow_AdmitsBothDirections",
+       "line": 178
+      },
+      {
+       "method": "AnalyzeRecording_InventoryPickup_ClassifiesAndAdmits",
+       "line": 216
+      },
+      {
+       "method": "AnalyzeRecording_UnwitnessedInventoryGain_RejectsWindowLocal",
+       "line": 251
+      },
+      {
+       "method": "AnalyzeRecording_UnwitnessedInventoryGain_LogsTheReasonAtInfo",
+       "line": 281
+      },
+      {
+       "method": "AnalyzeRecording_MissingEndpointProof_RejectsCandidate",
+       "line": 312
+      },
+      {
+       "method": "AnalyzeRecording_UndockedStart_Rejected",
+       "line": 342
+      },
+      {
+       "method": "AnalyzeRecording_UndockedStart_DiagnosticNamesOriginRecording",
+       "line": 367
+      },
+      {
+       "method": "AnalyzeTree_UndockedStartOrigin_Rejected",
+       "line": 393
+      },
+      {
+       "method": "AnalyzeTree_KscOrigin_StillEligible",
+       "line": 408
+      },
+      {
+       "method": "AnalyzeTree_DockedProofOrigin_StillEligible",
+       "line": 424
+      },
+      {
+       "method": "AnalyzeTree_FindsCompletedWindowRecording",
+       "line": 466
+      },
+      {
+       "method": "AnalyzeTree_IgnoresCompletedWindowOffActivePath",
+       "line": 505
+      },
+      {
+       "method": "AnalyzeRecording_StackQuantityDelta_MatchesByPayloadIdentity",
+       "line": 532
+      },
+      {
+       "method": "AnalyzeRecording_TransportRechargesEC_StillEligible",
+       "line": 587
+      },
+      {
+       "method": "AnalyzeRecording_IntakeAirDrift_StillEligible",
+       "line": 614
+      },
+      {
+       "method": "AnalyzeRecording_ElectricChargeDelivery_ExcludedFromManifest",
+       "line": 641
+      },
+      {
+       "method": "AnalyzeRecording_ElectricChargeOnly_RejectsNoDelivery",
+       "line": 672
+      },
+      {
+       "method": "AnalyzeRecording_ResourcePickup_ClassifiesAndAdmits",
+       "line": 724
+      },
+      {
+       "method": "AnalyzeRecording_UnwitnessedInventoryGain_DiagnosticNamesIdentity",
+       "line": 782
+      },
+      {
+       "method": "BuildResourceDeliveryManifest_CrpNames_Deliver",
+       "line": 821
+      },
+      {
+       "method": "BuildResourceDeliveryManifest_UndefinedResource_ExcludedAndLogged",
+       "line": 843
+      },
+      {
+       "method": "BuildResourceDeliveryManifest_ZeroCostDefinedResource_StillDelivers",
+       "line": 868
+      },
+      {
+       "method": "HasResourcePickup_UndefinedResourcePickup_StillDetected",
+       "line": 889
+      },
+      {
+       "method": "AnalyzeRecording_UndefinedOnlyDelivery_RejectsNoDelivery",
+       "line": 933
+      },
+      {
+       "method": "AnalyzeRecording_CrpDelivery_Eligible",
+       "line": 957
+      },
+      {
+       "method": "AnalyzeRecording_UndefinedResource_QuietMode_SweepLogIsRateLimitedVerbose",
+       "line": 985
+      },
+      {
+       "method": "AnalyzeTree_DrillRun_UndockedStart_FullyHarvested_Eligible",
+       "line": 1254
+      },
+      {
+       "method": "AnalyzeTree_DrillRun_PartiallyHarvested_UndockedStartOrigin",
+       "line": 1281
+      },
+      {
+       "method": "AnalyzeTree_KscOrigin_UntrackedGain_Rejected",
+       "line": 1306
+      },
+      {
+       "method": "AnalyzeTree_KscOrigin_HarvestedGain_Eligible",
+       "line": 1329
+      },
+      {
+       "method": "AnalyzeTree_OldRecordingNoHarvestData_AnalyzesAsToday",
+       "line": 1354
+      },
+      {
+       "method": "AnalyzeTree_OldRecordingUndockedStart_StillRejectsUndockedStartOrigin",
+       "line": 1378
+      },
+      {
+       "method": "CollectSourcePathRecordingIds_NoActiveRecordingId_IncludesAllRecordings",
+       "line": 1406
+      },
+      {
+       "method": "CollectSourcePathRecordingIds_ActiveSet_WalksLeafToRoot",
+       "line": 1427
+      },
+      {
+       "method": "AnalyzeTree_DockUndockOnTreeWithoutActiveRecordingId_FindsWindowOnMergedChild",
+       "line": 1462
+      },
+      {
+       "method": "BuildResourceLoadManifest_CleanPickup_MirrorsDeliveryWithSignFlip",
+       "line": 1533
+      },
+      {
+       "method": "BuildResourceLoadManifest_OneSidedFlow_NotAdmitted",
+       "line": 1550
+      },
+      {
+       "method": "BuildResourceLoadManifest_UndefinedResource_ExcludedAndLogged",
+       "line": 1578
+      },
+      {
+       "method": "BuildResourceLoadManifest_ElectricCharge_Excluded",
+       "line": 1614
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

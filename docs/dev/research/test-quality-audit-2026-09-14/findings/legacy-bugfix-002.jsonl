@@ -1,0 +1,57 @@
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_BreakupDifferentPid_DoesNotFallbackToActiveChild","line":1247,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"ResolveEffectiveWatchTargetIndex_BreakupDifferentPid_DoesNotFallbackToActiveChild","line":1274,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_DebrisOnlyChildren_ReturnsMinusOne","line":1302,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_NoActiveChildren_ReturnsMinusOne","line":1332,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_RaceCondition_RetryFindsGhost","line":1359,"verdict":"misleading","category":"T3","falsifiability":"falsifiability: Source/Parsek/GhostPlaybackLogic.WatchMode.cs:467; make the same-pid child branch return -1 -> red","note":"Name claims retry behavior; the SUT has no retry, the test just calls the pure resolver twice with two different activity predicates."}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"NoChainNoTree_ReturnsMinusOne","line":1393,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"NullRecording_ReturnsMinusOne","line":1405,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"NullCommitted_ReturnsMinusOne","line":1413,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_PidMatchNoGhost_SuppressesDebrisFallback","line":1424,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_PidMatchNoGhost_RecursiveDescentFindsDeeper","line":1454,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_PidMatchNoGhost_RecursiveDeadEnd_ReturnsMinusOne","line":1491,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_PidMatchNoGhost_PendingActivationUsesActualPayloadStartUT","line":1521,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_PidMatchGhostAlreadyActive_NoPendingActivationReturned","line":1557,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_DifferentPidFallbackNoGhost_PendingActivationReturnedOnUndock","line":1584,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_PidMatchWithGhost_StillPreferred","line":1621,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"Issue316_ArchivedSameTreeDebrisOutsideWatchedBranch_IsNotAutoFollowTarget","line":1649,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"ChainContinuation_NextSlotSupersededByActiveFork_ReturnsForkIndex","line":1696,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"ChainContinuation_SupersedesNull_BehavesAsBefore","line":1718,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"ChainContinuation_SupersedeChainTransitive_ReturnsTerminalIndex","line":1733,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"ChainContinuation_SupersedeTargetMissingFromCommitted_FallsBackToOriginalIndex","line":1757,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_SamePidChildSupersededByActiveFork_ReturnsForkIndex","line":1782,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"ChainContinuation_PendingActivation_UsesForkActivationUT_WhenForkStartsEarlier","line":1817,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"TreeBranch_PidMatchFromSupersedeTarget_RecursesIntoForkChildren","line":1859,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_DebrisGroupedUnderSubgroup","line":1945,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_NoDebris_AllInMainGroup","line":1982,"verdict":"weak","category":"T3","falsifiability":"falsifiability: Source/Parsek/RecordingStore.cs:972; append \" Debris\" to the main group name -> red","note":"Assertions live inside a foreach over CommittedRecordings with no count assertion; a CommitTree regression that commits nothing leaves it green."}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_EvaCrewGroupedUnderCrewSubgroup","line":2005,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_AdoptsOrphanedRecordingByTreeId","line":2036,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_AdoptsOrphanedDebrisWithParentRelation","line":2063,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_AdoptsOrphanedEvaIntoCrewSubgroup","line":2088,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_ReplacesStandaloneAutoGroupWhenAdoptingOrphanEva","line":2116,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_DoesNotAdoptSameNamedManualRootGroupWithoutAutoGroupMarker","line":2144,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"AutoAssignedStandaloneGroupMarker_RoundTripsThroughRecordingNode","line":2171,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"ManualGroupMutations_ClearAutoAssignedStandaloneGroupMarker","line":2187,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"CommitTree_DoesNotAdoptGroupedRecording","line":2207,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"NullVessel_WithFallbackSnapshot_UsesIt","line":2254,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"NullVessel_NoFallback_BothSnapshotsNull","line":2275,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"FallbackSnapshot_CopiedToVesselSnapshot","line":2289,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"NullVessel_WithFallbackTrajectoryPoint_SeedsRecordingPoint","line":2307,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"SeedBreakupChildSnapshots_PrefersPreCapturedGhostButKeepsLiveVesselSnapshot","line":2334,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"WithOrbitSegments_PopulatesTerminalOrbit","line":2381,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"UsesLastSegment_NotFirst","line":2416,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"NoOrbitSegments_DoesNothing","line":2432,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"AlreadyPopulatedWithMatchingTuple_DoesNotOverwrite","line":2444,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"AlreadyPopulatedWithNearlyMatchingSerializedTuple_DoesNotOverwrite","line":2469,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"ExplicitEndpointBody_DisagreesWithLaterOrbitSegment_DoesNotOverwrite","line":2493,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"SameBodyWithStaleTuple_WithPersistedExplicitEndpointBody_DoesNotOverwrite","line":2528,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"SameBodyWithStaleTuple_WithOrbitEndpointAlignedLastSegment_Overwrites","line":2552,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"SameBodyWithStaleTuple_HealLog_UsesInvariantCultureUnderCommaLocale","line":2583,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"MismatchedBody_WithPointEndpointAlignedLastSegment_Overwrites","line":2623,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"MismatchedBody_OrbitOnlyStaleCache_WithEndpointAlignedLastSegment_Overwrites","line":2647,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"MismatchedBody_WithOrbitEndpointAlignedLastSegment_Overwrites","line":2670,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"MismatchedBody_WithoutEndpointAlignedLastSegment_DoesNotOverwrite","line":2698,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"EmptyBody_WithoutEndpointAlignedLastSegment_DoesNotPopulate","line":2725,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"NullOrbitSegmentsList_DoesNothing","line":2746,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/BugFixTests.cs","method":"PreferredEndpointBodyName_WithoutInferredBody_FallsBackToKerbin","line":2757,"verdict":"ok"}
+{"kind":"finding","id":"F-legacy-bugfix-002-01","file":"Source/Parsek.Tests/BugFixTests.cs","line":1982,"method":"CommitTree_NoDebris_AllInMainGroup","category":"T3","severity":"Medium","confidence":"high","falsifiability":"falsifiability: Source/Parsek/RecordingStore.cs:972; append \" Debris\" to the main group name -> red","what_it_asserts":"That every committed recording of a debris-free tree carries a group name without \"Debris\".","why_weak":"All assertions sit inside a foreach over CommittedRecordings with no count assertion, so a CommitTree regression that commits zero recordings passes silently.","proposed_action":"Assert the committed count (2) before the loop, and assert the exact expected group name rather than only the absence of \"Debris\".","effort":"S","july_ref":"none"}
+{"kind":"coverage","sut":"RecordingStore","sut_file":"Source/Parsek/RecordingStore.cs","sut_line":972,"case_kind":"negative","proposed_name":"CommitTree_CommitsEveryTreeRecording","sketch":"Commit a two-recording tree, assert CommittedRecordings contains both RecordingIds before asserting anything about group names.","guards":"A CommitTree regression that silently drops recordings currently passes the grouping tests that iterate the committed list.","risk":"recording"}

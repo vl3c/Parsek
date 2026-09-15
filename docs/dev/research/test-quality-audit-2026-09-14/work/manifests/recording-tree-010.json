@@ -1,0 +1,215 @@
+{
+ "batch_id": "recording-tree-010",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "QuickloadResumeTests.cs",
+   "ranges": [
+    {
+     "start": 67,
+     "end": 1326,
+     "methods": [
+      {
+       "method": "DefaultState_IsFinalized",
+       "line": 67
+      },
+      {
+       "method": "ShouldLoadGroupHierarchyFromSave_InitialLoad_ReturnsTrue",
+       "line": 73
+      },
+      {
+       "method": "ShouldLoadGroupHierarchyFromSave_InSessionLoad_ReturnsFalse",
+       "line": 80
+      },
+      {
+       "method": "ShouldLoadGroupHierarchyFromSave_Rewind_ReturnsFalse",
+       "line": 87
+      },
+      {
+       "method": "LoadCrewAndGroupState_InSessionLoad_PreservesRootLevelDebrisGroup_Unchanged",
+       "line": 94
+      },
+      {
+       "method": "LoadCrewAndGroupState_InitialLoad_ReplacesHierarchyFromSave",
+       "line": 128
+      },
+      {
+       "method": "PrepareForIsolatedBatchFlightBaselineRestore_ClearsSaveScopedInMemoryState",
+       "line": 146
+      },
+      {
+       "method": "LoadCrewAndGroupState_InitialLoad_InitializesKerbalsBeforeLoadingSlots",
+       "line": 245
+      },
+      {
+       "method": "StashPendingTree_DefaultsToFinalized",
+       "line": 269
+      },
+      {
+       "method": "StashPendingTree_WithLimboState_IsLimbo",
+       "line": 278
+      },
+      {
+       "method": "StashPendingTree_Overwriting_LogsWarning",
+       "line": 287
+      },
+      {
+       "method": "MarkPendingTreeFinalized_FlipsLimboToFinalized",
+       "line": 303
+      },
+      {
+       "method": "MarkPendingTreeFinalized_OnAlreadyFinalized_NoOp",
+       "line": 316
+      },
+      {
+       "method": "MarkPendingTreeFinalized_NoPendingTree_NoOp",
+       "line": 330
+      },
+      {
+       "method": "PopPendingTree_ReturnsTreeAndClearsSlot",
+       "line": 342
+      },
+      {
+       "method": "PopPendingTree_NoTree_ReturnsNull",
+       "line": 355
+      },
+      {
+       "method": "DiscardPendingTree_ResetsStateToFinalized",
+       "line": 366
+      },
+      {
+       "method": "CommitPendingTree_ResetsStateToFinalized",
+       "line": 376
+      },
+      {
+       "method": "Clear_ResetsStateToFinalized",
+       "line": 387
+      },
+      {
+       "method": "IsActiveTreeNode_NullNode_ReturnsFalse",
+       "line": 401
+      },
+      {
+       "method": "IsActiveTreeNode_MissingFlag_ReturnsFalse",
+       "line": 407
+      },
+      {
+       "method": "IsActiveTreeNode_FlagFalse_ReturnsFalse",
+       "line": 415
+      },
+      {
+       "method": "IsActiveTreeNode_FlagTrue_ReturnsTrue",
+       "line": 423
+      },
+      {
+       "method": "IsActiveTreeNode_FlagTrueMixedCase_ReturnsTrue",
+       "line": 431
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_NoActiveTreeInSave_ReturnsFalseAndLeavesPendingEmpty",
+       "line": 443
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_SuppressionWithNoActiveTree_ConsumesWithoutPending",
+       "line": 459
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_RewindInProgress_ConsumesSuppressionAndClearsResumeHint",
+       "line": 476
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_WithActiveTree_StashesAsLimbo",
+       "line": 496
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_SuppressedByDiscardReFly_DoesNotStashOrDetachCommittedTree",
+       "line": 513
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_SkipsCommittedTreeStashesActiveTree",
+       "line": 541
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_ParsesResumeRewindSave",
+       "line": 562
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_NoResumeRewindSave_ClearsStaleValue",
+       "line": 581
+      },
+      {
+       "method": "ConfigurePendingQuickloadResumeContext_MatchesActiveTreeEvenIfResumedRecordingChanges",
+       "line": 600
+      },
+      {
+       "method": "PrepareQuickloadResumeStateIfNeeded_LogsResumePrepSummary",
+       "line": 618
+      },
+      {
+       "method": "PrepareQuickloadResumeStateIfNeeded_RunwaySurfaceTail_KeepsRealTakeoffBoundary",
+       "line": 664
+      },
+      {
+       "method": "TrimRecordingPastUT_RemovesFuturePayloadAcrossBuffers",
+       "line": 726
+      },
+      {
+       "method": "TrimRecordingPastUT_CutoffBeforeFirstSample_RemovesFutureOnlyRecording",
+       "line": 782
+      },
+      {
+       "method": "TrimRecordingPastUT_TailEnvironmentAfterTrimUsesRemainingSection",
+       "line": 820
+      },
+      {
+       "method": "TrimRecordingTreePastUT_TrimsSiblingRecordingsAcrossTree",
+       "line": 865
+      },
+      {
+       "method": "TrimRecordingTreePastUT_PrunesFutureOnlyBranchStateAndRebuildsBackgroundMap",
+       "line": 933
+      },
+      {
+       "method": "TrimRecordingTreePastUT_PrunesFutureOnlyBranchEvenWhenPayloadAlreadyCollapsedAtCutoff",
+       "line": 977
+      },
+      {
+       "method": "ChooseQuickloadTrimScope_NoMarker_ReturnsTreeWide",
+       "line": 1026
+      },
+      {
+       "method": "ChooseQuickloadTrimScope_MarkerWithoutTreeId_ReturnsTreeWide",
+       "line": 1035
+      },
+      {
+       "method": "ChooseQuickloadTrimScope_MarkerForDifferentTree_ReturnsTreeWide",
+       "line": 1053
+      },
+      {
+       "method": "ChooseQuickloadTrimScope_MarkerForThisTree_ReturnsActiveRecOnly",
+       "line": 1072
+      },
+      {
+       "method": "ChooseQuickloadTrimScope_NullResumeTreeId_ReturnsTreeWide",
+       "line": 1092
+      },
+      {
+       "method": "PrepareQuickloadResumeStateIfNeeded_ReFlyActive_TrimsActiveOnlyKeepsSibling",
+       "line": 1113
+      },
+      {
+       "method": "PrepareQuickloadResumeStateIfNeeded_ReFlyScopeSurvivesMissingScenarioInstance",
+       "line": 1229
+      },
+      {
+       "method": "PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerCreatedAfterArm_RefreshProtectsSibling",
+       "line": 1286
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

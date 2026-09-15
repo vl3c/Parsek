@@ -1,0 +1,45 @@
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"BasicAcceptAndComplete","line":97,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"OnceEverCompletion_RetroactivePriority","line":125,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"SlotReservation_AcrossRewind","line":168,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Accept_ConsumesSlot","line":209,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Complete_FreesSlot","line":221,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Fail_FreesSlot","line":234,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Cancel_FreesSlot","line":247,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"TerminalContractActionTypes_TrackLatestTerminalOutcome","line":260,"verdict":"misleading","category":"T3","falsifiability":"falsifiability: Source/Parsek/GameActions/ContractsModule.cs:509; set terminalContractActions/terminalContractOutcomes only when the key is absent -> this cell stays green, because each of c1-c4 records exactly one terminal action","note":"No id is resolved twice, so the name's 'latest' ordering is not discriminated: a first-wins guard on the two maps passes every assertion in this cell."}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"CompleteAfterExplicitFailOrCancel_NotEffective","line":286,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"CompleteAtSameUtAsExplicitFailOrCancel_NotEffectiveAfterPrePass","line":309,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"DuplicateCompletion_NotEffective","line":339,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"AvailableSlots_WithMaxSlots","line":360,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Reset_ClearsState","line":373,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"ProcessAction_IgnoresNonContractActions","line":393,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Accept_LogsContractId","line":435,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Complete_LogsEffective","line":446,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Fail_LogsContractIdAndPenalty","line":459,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Cancel_LogsContractIdAndPenalty","line":473,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Accept_Duplicate_LogsWarning","line":487,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Complete_LogsSlotFreed","line":501,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Reset_LogsClearedCounts","line":516,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"SetMaxSlots_LogsNewValue","line":532,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"DeadlineHelpers_TreatExactDeadlineAsElapsed","line":549,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"DeadlineExpired_FreesSlot","line":564,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"DeadlineNaN_NeverExpires","line":593,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"CompletedBeforeDeadline_NoExpiration","line":615,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"CompletedAtDeadline_NotEffectiveAndNotCredited","line":644,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"CompletedAfterDeadline_NotEffectiveAndNotCredited","line":667,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"DeadlineExpired_CheckDeadlinesReturnsExpiredIds","line":690,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"DeadlineExpired_LogsExpiration","line":711,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"DuplicateComplete_LogsNotEffective","line":730,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_InjectsFailForExpiredDeadline","line":751,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_NoInjectionWhenResolved","line":783,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_InjectsFailWhenCompletionAfterDeadline","line":804,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_InjectsFailWhenCompletionAtDeadline","line":830,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_ExplicitFailOrCancelAfterDeadline_NoSyntheticDuplicate","line":858,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_NoInjectionWhenDeadlineNaN","line":877,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_NoInjectionWhenDeadlineInFuture","line":893,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_NoInjectionWhenFailed","line":911,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_NoInjectionWhenCancelled","line":929,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_EmptyActions_NoException","line":947,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"Accept_Fail_Reaccept_Complete_Effective","line":955,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ContractsModuleTests.cs","method":"PrePass_LogsInjectionCount","line":986,"verdict":"ok"}
+{"kind":"finding","id":"F-ledger-career-027-01","file":"Source/Parsek.Tests/ContractsModuleTests.cs","line":260,"method":"TerminalContractActionTypes_TrackLatestTerminalOutcome","category":"T3","severity":"Medium","confidence":"high","falsifiability":"falsifiability: Source/Parsek/GameActions/ContractsModule.cs:509; set terminalContractActions[id]/terminalContractOutcomes[id] only when the key is absent (first-wins) -> this cell stays green, since c1/c2/c3/c4 each record exactly one terminal action","what_it_asserts":"The terminal-action and terminal-outcome maps carry Completed/Failed/Cancelled for c1/c2/c3 and DeadlineExpired for c4 (reached through CheckDeadlines).","why_weak":"Every contract id receives exactly one terminal action, so the 'latest outcome wins' behavior the name claims is never discriminated: a first-wins guard on the two maps passes unchanged. Those maps drive KspStatePatcher's tombstone discrimination (ContractsModule.cs:50-59).","proposed_action":"Add a cell that fails then cancels one id with no intervening Accept (a re-accept clears both maps at ContractsModule.cs:378-379) and assert the maps end on ContractCancel/Cancelled.","effort":"S","july_ref":"none"}
+{"kind":"coverage","sut":"ContractsModule","sut_file":"Source/Parsek/GameActions/ContractsModule.cs","sut_line":244,"case_kind":"state-transition","proposed_name":"PrePass_DuplicateActiveAccept_TracksTheLatestAccept","sketch":"var module = new ContractsModule(); var a1 = new GameAction { Type = GameActionType.ContractAccept, UT = 100, ContractId = \"c1\", DeadlineUT = 500f, FundsPenalty = 100f }; var a2 = new GameAction { Type = GameActionType.ContractAccept, UT = 200, ContractId = \"c1\", DeadlineUT = 900f, FundsPenalty = 700f }; var actions = new List<GameAction> { a1, a2, new GameAction { Type = GameActionType.FundsEarning, UT = 1000 } }; module.PrePass(actions); var injected = actions[actions.Count - 1]; Assert.Equal(GameActionType.ContractFail, injected.Type); Assert.Equal(900f, (float)injected.UT); Assert.Equal(700f, injected.FundsPenalty);","guards":"The tracked[id] = action overwrite at ContractsModule.cs:244 (and activeContracts[id] = action at :376). Ignoring a duplicate still-active accept instead of overwriting leaves the first accept's deadline and penalties on the books; Accept_Duplicate_LogsWarning (ContractsModuleTests.cs:487) only reads the warn log and no cell re-accepts an active id with different values.","risk":"career"}

@@ -1,0 +1,257 @@
+{
+ "batch_id": "catchall-023",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "CommitFlowTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CommitTree_RunsMerger_OverlappingSectionsResolved",
+       "line": 140
+      },
+      {
+       "method": "CommitTree_PreservesTransientFields",
+       "line": 172
+      },
+      {
+       "method": "CommitTree_MergerLogged",
+       "line": 210
+      },
+      {
+       "method": "CommitTree_MultipleRecordings_AllMerged",
+       "line": 226
+      },
+      {
+       "method": "CommitTree_NoSections_NoCrash",
+       "line": 265
+      },
+      {
+       "method": "CommitTree_MergeReplacesInTree",
+       "line": 277
+      },
+      {
+       "method": "RealVesselExists_ZeroPid_ReturnsFalse",
+       "line": 309
+      },
+      {
+       "method": "RealVesselExists_OverrideReturnsTrue_ReturnsTrue",
+       "line": 316
+      },
+      {
+       "method": "RealVesselExists_OverrideReturnsFalse_ReturnsFalse",
+       "line": 323
+      },
+      {
+       "method": "RealVesselExists_NoOverride_ZeroPid_ReturnsFalse",
+       "line": 330
+      },
+      {
+       "method": "ShouldSkip_NullTreeId_ReturnsFalse",
+       "line": 346
+      },
+      {
+       "method": "ShouldSkip_EmptyTreeId_ReturnsFalse",
+       "line": 355
+      },
+      {
+       "method": "ShouldSkip_ActiveRecording_ReturnsFalse",
+       "line": 363
+      },
+      {
+       "method": "ShouldSkip_ZeroPid_ReturnsFalse",
+       "line": 372
+      },
+      {
+       "method": "ShouldSkip_ExternalVesselExists_ReturnsTrue",
+       "line": 380
+      },
+      {
+       "method": "ShouldSkip_ExternalVesselGone_ReturnsFalse",
+       "line": 389
+      },
+      {
+       "method": "ShouldSkip_DifferentPidNotFound_ReturnsFalse",
+       "line": 398
+      },
+      {
+       "method": "ShouldSkip_TreeRecordedVessel_ReturnsFalse",
+       "line": 407
+      },
+      {
+       "method": "ShouldSkip_TreeRecordedEvaBranch_ReturnsFalse",
+       "line": 422
+      },
+      {
+       "method": "ShouldSkip_ExternalVesselNotRecordedByTree_ReturnsTrue",
+       "line": 441
+      },
+      {
+       "method": "ShouldSkip_RecordedVesselPids_PopulatedFromRecordings",
+       "line": 456
+      },
+      {
+       "method": "ShouldSkip_HistoricalPidReuseAcrossTrees_RemainsTreeLocal",
+       "line": 469
+      },
+      {
+       "method": "ShouldSpawn_RealVesselExists_StillReturnsTrue",
+       "line": 496
+      },
+      {
+       "method": "ShouldSpawn_RealVesselGone_ReturnsTrue",
+       "line": 520
+      },
+      {
+       "method": "CommitTree_LogsMergerReplacementPerRecording",
+       "line": 549
+      },
+      {
+       "method": "CommitTree_MergerPreservesPartEvents",
+       "line": 567
+      },
+      {
+       "method": "CommitTree_DuplicateTree_MergerNotRunTwice",
+       "line": 596
+      },
+      {
+       "method": "ResetVesselExistsOverride_RestoresDefault",
+       "line": 623
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TableRowInsetAlignmentTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EveryTableHeaderAndBodyRowDeclareTheSameColumnWidths",
+       "line": 104
+      },
+      {
+       "method": "EveryTableHeaderAndBodyRowOpenWithTheSharedRowContainer",
+       "line": 147
+      },
+      {
+       "method": "TableBodyBoxesUseTheZeroInsetBoxStyle",
+       "line": 184
+      },
+      {
+       "method": "PinnedHeaderTablesForceTheVerticalScrollbar",
+       "line": 206
+      },
+      {
+       "method": "TheSharedRowContainersCarryOneLeftInsetConstant",
+       "line": 226
+      },
+      {
+       "method": "TheReservedGutterIsDerivedFromTheSkinScrollbarAndOneCellMargin",
+       "line": 269
+      },
+      {
+       "method": "TheRecordingsTabGutterRoutesThroughTheSharedDerivation",
+       "line": 317
+      },
+      {
+       "method": "HeaderAndBodyContentWidthsMatchOnlyWithFootprintPlusCellMargin",
+       "line": 339
+      },
+      {
+       "method": "LogisticsKeepsItsHeaderInsideTheSameBubbleAsItsRows",
+       "line": 391
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DestinationArrivalSolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DestRotation_Only_ZeroMoon_FirstInBandWindowSelected",
+       "line": 89
+      },
+      {
+       "method": "DestRotation_Only_NoInBandWindow_BoundedBest",
+       "line": 111
+      },
+      {
+       "method": "DestRotation_Plus_IndependentMoonConfig_JointWorstResidual",
+       "line": 138
+      },
+      {
+       "method": "DegenerateSynodic_FailsClosed",
+       "line": 163
+      },
+      {
+       "method": "TidallyLockedMoon_CollapsesToOneEffectiveConstraint",
+       "line": 187
+      },
+      {
+       "method": "LooseVsPrecise_ChangesSelectedK",
+       "line": 213
+      },
+      {
+       "method": "Off_DropsDestRotation_KeepsMoonConfig",
+       "line": 238
+      },
+      {
+       "method": "NoDrift_AcrossKStartShifts",
+       "line": 263
+      },
+      {
+       "method": "SummaryLogLine_EmittedOnce",
+       "line": 292
+      },
+      {
+       "method": "HoldAware_StationExact_RotationWithinTol_PicksFirstWindow",
+       "line": 320
+      },
+      {
+       "method": "HoldAware_BudgetTooSmall_BoundedBest_NotWithin",
+       "line": 344
+      },
+      {
+       "method": "HoldAware_TidalPeriods_HeldConstraintCollapses",
+       "line": 363
+      },
+      {
+       "method": "HoldAware_OmittedParams_ByteIdenticalToRawGrid",
+       "line": 383
+      },
+      {
+       "method": "PlanJointHoldLattice_Feasible_ReportsWorstMissRun",
+       "line": 404
+      },
+      {
+       "method": "PlanJointHoldLattice_IncommensurateTight_Infeasible",
+       "line": 416
+      },
+      {
+       "method": "PlanJointHoldLattice_TidalExact_FeasibleAtZeroBudget",
+       "line": 430
+      },
+      {
+       "method": "PlanJointHoldLattice_DegenerateInputs_Infeasible",
+       "line": 441
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

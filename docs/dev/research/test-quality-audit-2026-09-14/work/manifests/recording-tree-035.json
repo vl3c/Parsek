@@ -1,0 +1,226 @@
+{
+ "batch_id": "recording-tree-035",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "SwitchSegmentConsumeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Evaluate_NullMarker_ReturnsNoIntent",
+       "line": 69
+      },
+      {
+       "method": "Evaluate_StaleCrossRun_ReturnsCrossRunOutcome",
+       "line": 89
+      },
+      {
+       "method": "Evaluate_StaleTtlExpired_TsFly_ReturnsTtlExpired",
+       "line": 110
+      },
+      {
+       "method": "Evaluate_StaleTtlExpired_MapSwitchTo_ReturnsTtlExpired",
+       "line": 133
+      },
+      {
+       "method": "Evaluate_UtRegressed_ReturnsUtRegressed",
+       "line": 152
+      },
+      {
+       "method": "Evaluate_TargetMismatch_ReturnsTargetMismatch",
+       "line": 176
+      },
+      {
+       "method": "Evaluate_DuplicateSameTarget_ReturnsDuplicateSameTarget",
+       "line": 199
+      },
+      {
+       "method": "Evaluate_DifferentTargetWithActiveSession_AuthorizesNewConsume",
+       "line": 222
+      },
+      {
+       "method": "Evaluate_StaleCrossRun_DuringMissedSwitchRecovery_PrefersStaleCrossRun",
+       "line": 245
+      },
+      {
+       "method": "Evaluate_StaleTtl_DuringMissedSwitchRecovery_PrefersTtlExpired",
+       "line": 267
+      },
+      {
+       "method": "Evaluate_MissedSwitchRecovery_ReturnsRecoveryRefusal",
+       "line": 287
+      },
+      {
+       "method": "Evaluate_FreshAuthorized_ReturnsAuthorized",
+       "line": 310
+      },
+      {
+       "method": "Evaluate_OnSurfaceTarget_Defers",
+       "line": 336
+      },
+      {
+       "method": "Evaluate_OnSurfaceTarget_DoesNotShadowTargetMismatch",
+       "line": 364
+      },
+      {
+       "method": "Evaluate_FlyingTarget_StillAuthorizes",
+       "line": 384
+      },
+      {
+       "method": "TryConsumeStockActionIntent_PassesOnSurfaceSituationToEvaluate",
+       "line": 410
+      },
+      {
+       "method": "MapIntentActionToEntryReason_MapsOneToOne",
+       "line": 449
+      },
+      {
+       "method": "BuildSwitchSegmentBoundaryPoint_NullVessel_ReturnsStubPoint",
+       "line": 463
+      },
+      {
+       "method": "FormatRefusalDiagnostic_IncludesAllFields",
+       "line": 478
+      },
+      {
+       "method": "FormatRefusalDiagnostic_NullMarker_DoesNotThrow",
+       "line": 495
+      },
+      {
+       "method": "ClearStockActionIntent_ClearsMarker_AfterStaleClassification",
+       "line": 512
+      },
+      {
+       "method": "Consume_AuthorizedThenClear_LeavesNoArmedMarker",
+       "line": 537
+      },
+      {
+       "method": "Consume_StartedRoute_BindsRecorderToNewRecordingId",
+       "line": 574
+      },
+      {
+       "method": "OnFlightReady_ConsumeDispatch_RunsBeforeShouldIgnoreReset_AndOnFullResetPath",
+       "line": 639
+      },
+      {
+       "method": "DispatchConsumeIntentIfArmed_RestorePending_DefersAndLogs",
+       "line": 728
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SwitchIntentPatchSmokeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TrackingStationFlyPatch_HasHarmonyPatchAttribute",
+       "line": 23
+      },
+      {
+       "method": "KscVesselMarkerFlyPatch_HasHarmonyPatchAttribute",
+       "line": 40
+      },
+      {
+       "method": "MapFocusObjectOnSelectPatch_TargetMethodResolves",
+       "line": 60
+      },
+      {
+       "method": "MapFocusObjectOnSelectPatch_ShouldArm_GateMatrix",
+       "line": 90
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_NoSession_ReturnsNoPriorSession",
+       "line": 105
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_DifferentTarget_OpensDialog",
+       "line": 126
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_SameTarget_SkipsDialog",
+       "line": 144
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_AnotherDialogOpen_SkipsDialogReEntry",
+       "line": 163
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_NoSession_NoActiveRecording_ReturnsNoPriorSession",
+       "line": 191
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_NoSession_ActiveRecording_LoadedTarget_NonCommitted_ReturnsNoPriorSession",
+       "line": 207
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_NoSession_ActiveRecording_LoadedTarget_SeparateCommitted_OpensDialog",
+       "line": 230
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_NoSession_ActiveRecording_LoadedTarget_SameTreeCommitted_NotSeparate_ReturnsNoPriorSession",
+       "line": 252
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_NoSession_LoadedSeparateCommitted_AnotherDialogOpen_SkipsReEntry",
+       "line": 272
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_SessionActive_LoadedSeparateCommitted_StillSessionPath",
+       "line": 290
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_NoSession_ActiveRecording_UnloadedTarget_OpensDialog",
+       "line": 311
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_NoSession_ActiveRecording_UnloadedTarget_AnotherDialogOpen_SkipsReEntry",
+       "line": 330
+      },
+      {
+       "method": "DecidePreSwitchDialogAction_SessionActive_ActiveRecording_UnloadedTarget_StillSessionPath",
+       "line": 348
+      },
+      {
+       "method": "MergePriorAndSwitchTo_AfterCommit_ClearsSwitchSegmentSession",
+       "line": 402
+      },
+      {
+       "method": "DiscardPriorAndSwitchTo_ClearsSwitchSegmentSession_ViaScopedDiscard",
+       "line": 473
+      },
+      {
+       "method": "MergePriorAndSwitchTo_NoSession_CommitsActiveTree",
+       "line": 537
+      },
+      {
+       "method": "DiscardActiveRecordingAndSwitchTo_NoSession_DiscardsActiveTree",
+       "line": 592
+      },
+      {
+       "method": "AutoDiscardActiveTreeWithMessage_PassesCustomScreenMessage",
+       "line": 658
+      },
+      {
+       "method": "DiscardActiveRecordingAndSwitchTo_NoSession_UsesContextAwareMessage",
+       "line": 730
+      },
+      {
+       "method": "ShowPreSwitchDecisionDialog_AcceptsPriorTreeOverride",
+       "line": 785
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

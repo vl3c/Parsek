@@ -1,0 +1,191 @@
+{
+ "batch_id": "recording-tree-027",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "RecordingStoreTests.cs",
+   "ranges": [
+    {
+     "start": 42,
+     "end": 695,
+     "methods": [
+      {
+       "method": "CreateRecordingFromFlightData_WithPoints_CreatesRecording",
+       "line": 42
+      },
+      {
+       "method": "CreateRecordingFromFlightData_EmptyList_ReturnsNull",
+       "line": 54
+      },
+      {
+       "method": "CreateRecordingFromFlightData_NullList_ReturnsNull",
+       "line": 62
+      },
+      {
+       "method": "CommitRecordingDirect_AddsToCommitted",
+       "line": 70
+      },
+      {
+       "method": "CommitRecordingDirect_NullRecording_DoesNothing",
+       "line": 82
+      },
+      {
+       "method": "Clear_ClearsEverything",
+       "line": 91
+      },
+      {
+       "method": "Recording_StartUT_EndUT_Computed",
+       "line": 103
+      },
+      {
+       "method": "Recording_StartUT_EndUT_EmptyPoints",
+       "line": 113
+      },
+      {
+       "method": "Recording_VesselSnapshot_StoredAndRetrieved",
+       "line": 121
+      },
+      {
+       "method": "Recording_DistanceAndDestroyed_DefaultValues",
+       "line": 135
+      },
+      {
+       "method": "Recording_DefaultFields",
+       "line": 146
+      },
+      {
+       "method": "Recording_DistanceFields_Roundtrip",
+       "line": 160
+      },
+      {
+       "method": "Recording_SpawnFields_Roundtrip",
+       "line": 171
+      },
+      {
+       "method": "Recording_LastAppliedResourceIndex_Tracks",
+       "line": 182
+      },
+      {
+       "method": "CreateRecordingFromFlightData_SinglePoint_ReturnsNull",
+       "line": 191
+      },
+      {
+       "method": "CreateRecordingFromFlightData_ExactlyTwoPoints_Succeeds",
+       "line": 201
+      },
+      {
+       "method": "CreateRecordingFromFlightData_UsesProvidedRecordingMetadata",
+       "line": 215
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_CopiesOnlyPersistenceFields",
+       "line": 230
+      },
+      {
+       "method": "RecordingMetadata_SaveLoad_RoundTrip",
+       "line": 278
+      },
+      {
+       "method": "RecordingMetadata_Load_MissingFields_UsesLegacyFormatVersionAndKeepsOtherDefaults",
+       "line": 302
+      },
+      {
+       "method": "RecordingMetadata_Hidden_SaveLoad_RoundTrip",
+       "line": 318
+      },
+      {
+       "method": "RecordingMetadata_Hidden_DefaultFalse_NotWritten",
+       "line": 340
+      },
+      {
+       "method": "RecordingMetadata_Hidden_MissingField_DefaultsFalse",
+       "line": 362
+      },
+      {
+       "method": "DeleteRecordingFiles_NoId_DoesNotThrow",
+       "line": 376
+      },
+      {
+       "method": "DeleteRecordingFiles_NoSaveContext_DoesNotThrow",
+       "line": 384
+      },
+      {
+       "method": "ExtractRecordingIdFromFileName_Works",
+       "line": 412
+      },
+      {
+       "method": "IsLegacySidecarFile_Works",
+       "line": 427
+      },
+      {
+       "method": "IsTransientSidecarArtifactFile_Works",
+       "line": 445
+      },
+      {
+       "method": "TryExtractPartName_Works",
+       "line": 457
+      },
+      {
+       "method": "TryParseVector3_Works",
+       "line": 467
+      },
+      {
+       "method": "TryParseQuaternion_Works",
+       "line": 479
+      },
+      {
+       "method": "TryParseFxLocalRotation_RejectsMalformedValues",
+       "line": 491
+      },
+      {
+       "method": "TryParseFxLocalRotation_AcceptsValidAxisAngle",
+       "line": 499
+      },
+      {
+       "method": "GetPartTransformRaw_PrefersLegacyKeys_ButSupportsProtoKeys",
+       "line": 508
+      },
+      {
+       "method": "StashPendingTree_SetsPendingStashedThisTransition_ViaTree",
+       "line": 523
+      },
+      {
+       "method": "StashPendingTree_SetsPendingStashedThisTransition",
+       "line": 534
+      },
+      {
+       "method": "StashPendingTree_Null_DoesNotSetFlag",
+       "line": 545
+      },
+      {
+       "method": "ResetForTesting_ClearsPendingStashedFlag",
+       "line": 553
+      },
+      {
+       "method": "SanitizeNonLoopableLoopPlayback_ClearsDebrisAndCoast_KeepsLoopable",
+       "line": 567
+      },
+      {
+       "method": "SanitizeNonLoopableLoopPlayback_Idempotent",
+       "line": 596
+      },
+      {
+       "method": "SanitizeNonLoopableLoopPlayback_LeavesLoopableAlone",
+       "line": 615
+      },
+      {
+       "method": "CrewReplacements_EmptyByDefault",
+       "line": 649
+      },
+      {
+       "method": "ResetReplacementsForTesting_ClearsDictionary",
+       "line": 655
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

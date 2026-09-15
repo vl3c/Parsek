@@ -1,0 +1,291 @@
+{
+ "batch_id": "recorder-events-006",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 68,
+ "files": [
+  {
+   "file": "PartEventFidelityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "P8Members_AreExplicitlyNumbered36Through44_AndDoNotDisturbTheExistingTail",
+       "line": 32
+      },
+      {
+       "method": "OnlyDeployableBroken_IsAGhostingTrigger_TheOtherEightAreCosmetic",
+       "line": 72
+      },
+      {
+       "method": "OnlyDeployableBroken_PrewarmsAHiddenGhost",
+       "line": 98
+      },
+      {
+       "method": "NoP8Member_IsPermanent_BrokenIsReversibleByRepair",
+       "line": 124
+      },
+      {
+       "method": "CheckDeployableBrokenTransition_TruthTable",
+       "line": 161
+      },
+      {
+       "method": "BreakingWhileExtended_SilentlyClearsTheExtendedFlag_SoNoSpuriousRetractFollows",
+       "line": 191
+      },
+      {
+       "method": "RepairEmitsRetractedExplicitly_AndLeavesTheExtendedFlagClear",
+       "line": 218
+      },
+      {
+       "method": "ABreakRepairRedeployCycle_ProducesExactlyThreeEventsInOrder",
+       "line": 243
+      },
+      {
+       "method": "ARecordingThatStartsWithABrokenPanel_SeedsDeployableBrokenAtUT0",
+       "line": 283
+      },
+      {
+       "method": "ARecordingThatStartsIntact_SeedsNoBrokenEvent",
+       "line": 306
+      },
+      {
+       "method": "ATailAfterABreak_SeedsDeployableBrokenVerbatim_NotRetracted",
+       "line": 324
+      },
+      {
+       "method": "ATailAfterABreakThenRepair_SeedsRetracted_BecauseTheFamilyCollapsesToItsLastState",
+       "line": 347
+      },
+      {
+       "method": "BrokenAndExtended_ShareFamilyThree_SoOneSeedWinsPerPart",
+       "line": 366
+      },
+      {
+       "method": "APanelThatBreaksAcrossARailsSpan_EmitsBrokenAndNotAlsoRetracted",
+       "line": 395
+      },
+      {
+       "method": "APanelRepairedAcrossARailsSpan_EmitsRetracted",
+       "line": 417
+      },
+      {
+       "method": "APanelRepairedAndRedeployedAcrossARailsSpan_EmitsBothEvents",
+       "line": 430
+      },
+      {
+       "method": "APanelBrokenOnBothSidesOfARailsSpan_EmitsNothing",
+       "line": 448
+      },
+      {
+       "method": "AnOrdinaryRetractAcrossARailsSpan_StillEmitsRetracted",
+       "line": 459
+      },
+      {
+       "method": "CloningTrackingSets_CarriesTheBrokenSetByVALUE",
+       "line": 474
+      },
+      {
+       "method": "ASnapshotWhoseDeployStateIsBROKEN_FillsTheBrokenBaselineAndNoPoseOpinion",
+       "line": 504
+      },
+      {
+       "method": "ASnapshotWithAnOrdinaryDeployState_IsUnchangedByTheBrokenSlot",
+       "line": 522
+      },
+      {
+       "method": "ASnapshotCaughtMidTravel_StillCarriesNoDeployableOpinionAtAll",
+       "line": 536
+      },
+      {
+       "method": "ABrokenSnapshotBaseline_ResolvesToTheBrokenActionAndNoPoseAction",
+       "line": 555
+      },
+      {
+       "method": "AnOrdinaryDeployableBaseline_ResolvesWithTheBrokenActionOff",
+       "line": 570
+      },
+      {
+       "method": "ABrokenBaseline_SurvivesTheParseToResolveRoundTrip",
+       "line": 586
+      },
+      {
+       "method": "TheSunTrackingGateReportsTheBrokenFlag_SoARedNamesItsOwnCause",
+       "line": 622
+      },
+      {
+       "method": "CheckConverterTransition_TruthTable",
+       "line": 665
+      },
+      {
+       "method": "AMiningSessionProducesExactlyTwoEvents_TheStatedBudget",
+       "line": 689
+      },
+      {
+       "method": "ARecordingThatStartsWithTheDrillRunning_SeedsConverterActivatedAtUT0",
+       "line": 716
+      },
+      {
+       "method": "ADrillToggledAcrossARailsSpan_ReconcilesInBothDirections",
+       "line": 734
+      },
+      {
+       "method": "ATailAfterTheDrillWasSwitchedOff_SeedsTheDeactivation",
+       "line": 757
+      },
+      {
+       "method": "ATailWhileTheDrillIsStillRunning_SeedsTheActivation",
+       "line": 777
+      },
+      {
+       "method": "ConverterEventsAreTheirOwnSeedFamily_NotFoldedIntoTheDeployableOne",
+       "line": 796
+      },
+      {
+       "method": "TheLoopPhaseIsAPureFunctionOfElapsedRecordedTime",
+       "line": 822
+      },
+      {
+       "method": "ReplayingTheSameRecordedMomentAlwaysGivesTheSamePhase",
+       "line": 837
+      },
+      {
+       "method": "AnUnusableClipLengthParksTheLoopAtPhaseZero",
+       "line": 857
+      },
+      {
+       "method": "APlaybackUTBeforeTheLoopStarted_ParksAtPhaseZeroRatherThanGoingNegative",
+       "line": 863
+      },
+      {
+       "method": "ThePhaseIsAlwaysAValidIndexIntoTheSampledPoses",
+       "line": 870
+      },
+      {
+       "method": "TheBlendPairWrapsFromTheLastSampledPhaseBackToTheFirst",
+       "line": 891
+      },
+      {
+       "method": "ASinglePhaseOrNoPhases_DegradesToAStillPose",
+       "line": 916
+      },
+      {
+       "method": "TwelvePhasesIsThePinnedSampleCount",
+       "line": 930
+      },
+      {
+       "method": "CheckEvaJetpackTransition_TruthTable",
+       "line": 953
+      },
+      {
+       "method": "CheckEvaRagdollTransition_TruthTable",
+       "line": 980
+      },
+      {
+       "method": "TheThrustDebounceReusesTheRcsThreshold",
+       "line": 1026
+      },
+      {
+       "method": "ASingleFrameTap_EmitsNothingAtAll",
+       "line": 1035
+      },
+      {
+       "method": "ATapJustShortOfTheThreshold_EmitsNothing_AndLeavesNoStaleState",
+       "line": 1044
+      },
+      {
+       "method": "ASustainedBurst_EmitsExactlyOneStartAndOneStop_TheStatedBudget",
+       "line": 1052
+      },
+      {
+       "method": "TheStartEventFiresOnTheThresholdFrame_AndCarriesValueOne",
+       "line": 1065
+      },
+      {
+       "method": "PastTheThreshold_NoFurtherEventsAreEmittedWhileThrustContinues",
+       "line": 1079
+      },
+      {
+       "method": "TwoSeparateSustainedBursts_EmitTwoPairs",
+       "line": 1089
+      },
+      {
+       "method": "AFilteredTapAfterASustainedBurst_DoesNotEmitAnUnpairedStop",
+       "line": 1108
+      },
+      {
+       "method": "ARecordingThatEndsMidBurst_LeavesTheStartWithNoStop_WhichIsCorrect",
+       "line": 1129
+      },
+      {
+       "method": "ARecordingThatStartsMidSpacewalk_SeedsThePackAndTheRagdoll",
+       "line": 1144
+      },
+      {
+       "method": "TheJetpackPoseAndRagdollReconcileAcrossARailsSpan_ButThrustDoesNot",
+       "line": 1162
+      },
+      {
+       "method": "TheJetpackPoseAndRagdollSeedAcrossASplit_InBothDirections",
+       "line": 1188
+      },
+      {
+       "method": "TheThrustPairIsNotASplitSeedFamily_ItFollowsTheRcsRule",
+       "line": 1220
+      },
+      {
+       "method": "TheJetpackAndRagdollPairsAreSeparateSeedFamilies",
+       "line": 1238
+      },
+      {
+       "method": "TheJetpackPlumeGate_IsTheFullThreeFlagTruthTable",
+       "line": 1268
+      },
+      {
+       "method": "RagdollSuppressesThePlumeEvenWhileTheRecordingSaysThrusting",
+       "line": 1276
+      },
+      {
+       "method": "TryUpdateEvaFlags_TracksAllSixEdgesOnThePlaybackState",
+       "line": 1293
+      },
+      {
+       "method": "AKerbalStillThrustingAtARecordingBoundary_GetsATerminalStop",
+       "line": 1328
+      },
+      {
+       "method": "TheRailsPathClearIsWhatMakesASecondTerminalEmitANoOp_NotARemoveOnEmit",
+       "line": 1359
+      },
+      {
+       "method": "AFalseAlarmStopMidBurst_ResumesTracking_AndClosesAtTheREALThrustEnd",
+       "line": 1381
+      },
+      {
+       "method": "TheTerminalEmitIsUnchangedForANullOrEmptyThrustSet",
+       "line": 1438
+      },
+      {
+       "method": "AnInactiveHierarchyDefersThePlumeRatherThanBuildingOrFailingIt",
+       "line": 1458
+      },
+      {
+       "method": "ThePlumeReconcileClassifierCoversEveryReachableCombination",
+       "line": 1485
+      },
+      {
+       "method": "ThePerFrameSelfHealCostsOneBoolReadForANonThrustingGhost",
+       "line": 1539
+      },
+      {
+       "method": "TryUpdateEvaFlags_IgnoresNonEvaEventTypesAndANullState",
+       "line": 1553
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

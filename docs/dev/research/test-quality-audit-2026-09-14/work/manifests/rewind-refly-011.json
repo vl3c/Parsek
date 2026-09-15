@@ -1,0 +1,123 @@
+{
+ "batch_id": "rewind-refly-011",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "RewindPointReaperTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Reap_SessionProvisional_NotReaped",
+       "line": 170
+      },
+      {
+       "method": "Reap_AllSlotsImmutable_Reaped",
+       "line": 193
+      },
+      {
+       "method": "Reap_StashedOpenSlot_RetainedUntilSealed",
+       "line": 216
+      },
+      {
+       "method": "Reap_StashedBoardedEvaImmutableSlot_CountsAsClosed",
+       "line": 255
+      },
+      {
+       "method": "Reap_StashedWorldInteractingImmutableSlot_CountsAsClosed",
+       "line": 283
+      },
+      {
+       "method": "Reap_StashedOpenSlot_IgnoresTerminalShape_ClosesOnSeal",
+       "line": 309
+      },
+      {
+       "method": "Reap_OpenCrashedSlot_KeepsRpAlive",
+       "line": 363
+      },
+      {
+       "method": "Reap_OpenDestroyedChainTipSlot_KeepsRpAlive",
+       "line": 392
+      },
+      {
+       "method": "Reap_ImmutableChainTipSharedByTwoRps_BothReaped",
+       "line": 450
+      },
+      {
+       "method": "Reap_OpenStrandedEvaSlot_KeepsRpAlive",
+       "line": 505
+      },
+      {
+       "method": "Reap_OpenNonFocusStableLeafSlot_KeepsRpAlive",
+       "line": 535
+      },
+      {
+       "method": "Reap_OpenCrashedSlot_SealedClosesIt",
+       "line": 566
+      },
+      {
+       "method": "Reap_AnySlotNotCommitted_Retained",
+       "line": 601
+      },
+      {
+       "method": "Reap_AnySlotCommittedProvisional_Retained",
+       "line": 624
+      },
+      {
+       "method": "Reap_AllSlotTipsImmutable_Reaped",
+       "line": 647
+      },
+      {
+       "method": "Reap_AnySlotNotCommittedTip_StillRetained",
+       "line": 671
+      },
+      {
+       "method": "Reap_MixedClosedAndOpenSlots_ReapsAfterLastOpenTipSealed",
+       "line": 696
+      },
+      {
+       "method": "Reap_DeletesQuicksaveFile_IfExists",
+       "line": 738
+      },
+      {
+       "method": "Reap_FileDeleteFails_LogsWarn_StillReapsEntry",
+       "line": 765
+      },
+      {
+       "method": "Reap_Idempotent_SecondCallReapsNothing",
+       "line": 801
+      },
+      {
+       "method": "Reap_LogsCount",
+       "line": 819
+      },
+      {
+       "method": "Reap_WalksSupersedesToImmutableEndpoint_Reaped",
+       "line": 852
+      },
+      {
+       "method": "Reap_OrphanSlotRecording_TreatedAsEligible",
+       "line": 882
+      },
+      {
+       "method": "Reap_EmptyRewindPointsList_NoOp_LogsZero",
+       "line": 902
+      },
+      {
+       "method": "Reap_NoScenarioInstance_NoOp_LogsVerbose",
+       "line": 915
+      },
+      {
+       "method": "Reap_RpWithEmptySlotList_Reaped",
+       "line": 928
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

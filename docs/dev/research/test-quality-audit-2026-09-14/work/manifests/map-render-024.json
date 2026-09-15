@@ -1,0 +1,292 @@
+{
+ "batch_id": "map-render-024",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "RenderingZoneTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyDistance_Zero_ReturnsPhysics",
+       "line": 11
+      },
+      {
+       "method": "ClassifyDistance_JustInsideFullFidelityRange_ReturnsPhysics",
+       "line": 17
+      },
+      {
+       "method": "ClassifyDistance_AtFullFidelityBoundary_ReturnsVisual",
+       "line": 25
+      },
+      {
+       "method": "ClassifyDistance_MidVisualRange_ReturnsVisual",
+       "line": 33
+      },
+      {
+       "method": "ClassifyDistance_JustInsideVisualRange_ReturnsVisual",
+       "line": 39
+      },
+      {
+       "method": "ClassifyDistance_AtVisualBoundary_ReturnsBeyond",
+       "line": 45
+      },
+      {
+       "method": "ClassifyDistance_FarBeyond_ReturnsBeyond",
+       "line": 52
+      },
+      {
+       "method": "ShouldSpawnLoopedGhost_WellInsidePhysics_FullFidelity",
+       "line": 65
+      },
+      {
+       "method": "ShouldSpawnLoopedGhost_JustInsideFullFidelityRange_FullFidelity",
+       "line": 73
+      },
+      {
+       "method": "ShouldSpawnLoopedGhost_AtFullFidelityBoundary_Simplified",
+       "line": 82
+      },
+      {
+       "method": "ShouldSpawnLoopedGhost_JustInsideSimplifiedRange_Simplified",
+       "line": 92
+      },
+      {
+       "method": "ShouldSpawnLoopedGhost_AtSimplifiedBoundary_NotSpawned",
+       "line": 100
+      },
+      {
+       "method": "ShouldSpawnLoopedGhost_WayBeyond_NotSpawned",
+       "line": 109
+      },
+      {
+       "method": "ShouldRenderPartEvents_InsideFullFidelityRange_ReturnsTrue",
+       "line": 124
+      },
+      {
+       "method": "ShouldRenderPartEvents_AtFullFidelityBoundary_ReturnsFalse",
+       "line": 132
+      },
+      {
+       "method": "ShouldRenderPartEvents_BeyondPhysicsBubble_ReturnsFalse",
+       "line": 138
+      },
+      {
+       "method": "ShouldRenderMesh_InsideVisualRange_ReturnsTrue",
+       "line": 152
+      },
+      {
+       "method": "ShouldRenderMesh_AtVisualBoundary_ReturnsFalse",
+       "line": 161
+      },
+      {
+       "method": "ShouldRenderMesh_BeyondVisualRange_ReturnsFalse",
+       "line": 167
+      },
+      {
+       "method": "Constants_FullFidelityLessThanVisualRange",
+       "line": 180
+      },
+      {
+       "method": "Constants_FullFidelityExceedsPhysicsBubble",
+       "line": 186
+      },
+      {
+       "method": "Constants_LoopFullFidelityMatchesFullFidelityRange",
+       "line": 194
+      },
+      {
+       "method": "Constants_LoopSimplifiedLessThanVisualRange",
+       "line": 200
+      },
+      {
+       "method": "LogZoneTransition_PhysicsToVisual_LogsTransition",
+       "line": 230
+      },
+      {
+       "method": "LogZoneTransition_VisualToBeyond_LogsTransition",
+       "line": 244
+      },
+      {
+       "method": "LogZoneTransition_BeyondToVisual_LogsTransition",
+       "line": 256
+      },
+      {
+       "method": "LogZoneTransition_UnresolvedDistance_LogsUnresolved",
+       "line": 266
+      },
+      {
+       "method": "LogLoopedGhostSpawn_FullFidelity_LogsCorrectly",
+       "line": 285
+      },
+      {
+       "method": "LogLoopedGhostSpawn_Simplified_LogsCorrectly",
+       "line": 298
+      },
+      {
+       "method": "LogLoopedGhostSpawn_Suppressed_LogsCorrectly",
+       "line": 311
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/RenderManifestConstantExportSourceSyncTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ExportedConstantNames_MatchThePinnedSetExactly",
+       "line": 101
+      },
+      {
+       "method": "ExportedConstantValues_MatchTheRatifiedTable",
+       "line": 120
+      },
+      {
+       "method": "EachExportedConstant_IsDeclaredInternalConstInItsOwningSourceFile",
+       "line": 136
+      },
+      {
+       "method": "ExportedConstantSet_HasAnAntiVacuityFloor",
+       "line": 154
+      },
+      {
+       "method": "ConstantsBlock_IsSerializedIntoTheManifestHeader",
+       "line": 162
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/TrajectoryPhaseTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Treatments_MatchTheSection6Table",
+       "line": 32
+      },
+      {
+       "method": "DualTreatmentSoiDeparture_HonoursExplicitTreatment",
+       "line": 54
+      },
+      {
+       "method": "DualTreatmentSoiArrival_HonoursExplicitTreatment",
+       "line": 65
+      },
+      {
+       "method": "CoversUt_IsHalfOpenInterval",
+       "line": 82
+      },
+      {
+       "method": "CoversUt_NonFinite_IsFalse",
+       "line": 89
+      },
+      {
+       "method": "HoldPhase_CoversWholeSpan_WarpStepSafe",
+       "line": 104
+      },
+      {
+       "method": "ConicPhase_Emits_OneStockConicSegment_WithConicPayloadAndBody",
+       "line": 113
+      },
+      {
+       "method": "ConicPhase_FrameBodyName_PrefersAnchorOverConicAndCtx",
+       "line": 131
+      },
+      {
+       "method": "ConicPhase_FrameBodyName_FallsToConicBody_WhenAnchorProvidesNoBodyName",
+       "line": 143
+      },
+      {
+       "method": "TracedPhase_Emits_OneTracedPathSegment_NoConic",
+       "line": 156
+      },
+      {
+       "method": "SynthesizedConicPhase_Emits_IsGenerated",
+       "line": 170
+      },
+      {
+       "method": "HoldPhase_Emits_Nothing",
+       "line": 180
+      },
+      {
+       "method": "Emit_MapsPhaseSeam_DownToLegacySeamKind",
+       "line": 187
+      },
+      {
+       "method": "Emit_SwitchContinuationSeam_MapsToLegacyNone",
+       "line": 203
+      },
+      {
+       "method": "DualTreatment_TracedPath_EmitsNoConicPayload",
+       "line": 214
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/RenderCompositionRecorderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AutoFlush_FirstFlushOfAProcessAlwaysWrites_EvenWithNoDwells",
+       "line": 38
+      },
+      {
+       "method": "AutoFlush_SkipsOnlyWhenAManifestExistsAndNothingWasObservedSince",
+       "line": 47
+      },
+      {
+       "method": "AutoFlush_WritesWheneverAnythingWasObservedSinceTheLastManifest",
+       "line": 58
+      },
+      {
+       "method": "AutoFlush_SkipReasonIsAGrepStableToken",
+       "line": 66
+      },
+      {
+       "method": "StickyTracingBit_StartsFalseAndLatchesOnceTracingIsSeenOn",
+       "line": 85
+      },
+      {
+       "method": "StickyTracingBit_SurvivesTheTracerGoingQuietAgain",
+       "line": 98
+      },
+      {
+       "method": "StickyTracingBit_ClearsWithTheRecordsItDescribes",
+       "line": 113
+      },
+      {
+       "method": "StickyTracingBit_IsSerializedUnderTheUnchangedHeaderKey",
+       "line": 133
+      },
+      {
+       "method": "EnumTokenTables_MatchEnumToStringForEveryValue",
+       "line": 163
+      },
+      {
+       "method": "Recorder_NeverSpellsAMeasuringRenderWindowCoverageMember",
+       "line": 180
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

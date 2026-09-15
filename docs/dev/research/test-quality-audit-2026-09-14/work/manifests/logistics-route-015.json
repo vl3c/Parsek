@@ -1,0 +1,210 @@
+{
+ "batch_id": "logistics-route-015",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "RouteProofCaptureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ExtractResourceManifest_WithPartPidScope_FiltersResources",
+       "line": 13
+      },
+      {
+       "method": "FormatRouteResourceDelta_SignsAndSortsPerResource",
+       "line": 40
+      },
+      {
+       "method": "FormatRouteResourceDelta_ZeroDeltaIsSignedPlus",
+       "line": 54
+      },
+      {
+       "method": "FormatRouteResourceDelta_NullManifestsAreNone",
+       "line": 64
+      },
+      {
+       "method": "FormatRouteResourceDelta_ResourceOnlyOnOneSideCountsAsFullDelta",
+       "line": 70
+      },
+      {
+       "method": "ExtractInventoryPayloadItems_PreservesExactStoredPartSnapshot",
+       "line": 83
+      },
+      {
+       "method": "InventoryPayloadIdentityHash_IgnoresSlotAndQuantityButIncludesPayload",
+       "line": 110
+      },
+      {
+       "method": "InventoryPayloadIdentityHash_IgnoresNestedProtoPartVolatileValues",
+       "line": 133
+      },
+      {
+       "method": "ExtractInventoryPayloadItems_GroupsStacksByPayloadIdentity",
+       "line": 179
+      },
+      {
+       "method": "RouteConnectionWindow_CapturesDockAndCompletesAtUndock",
+       "line": 199
+      },
+      {
+       "method": "BuildDockRouteConnectionWindow_EndpointPreCoupleSnapshotOverride_ScopesEndpointBaselineToPartner",
+       "line": 267
+      },
+      {
+       "method": "BuildDockRouteConnectionWindow_EndpointPreCoupleSnapshotOverride_DoesNotIncludeTransportContribution",
+       "line": 309
+      },
+      {
+       "method": "BuildDockRouteConnectionWindow_NoEndpointOverride_UsesMergedSnapshotForEndpointBaseline",
+       "line": 355
+      },
+      {
+       "method": "BuildDockRouteConnectionWindow_TransportPreCoupleSnapshot_UsesPreCoupleTransportBaseline",
+       "line": 384
+      },
+      {
+       "method": "BuildDockRouteConnectionWindow_NoTransportOverride_UsesMergedSnapshotForTransportBaseline",
+       "line": 410
+      },
+      {
+       "method": "BuildDockRouteConnectionWindow_TransportPreCoupleSnapshot_MissingTransportPids_FallsBackToMerged",
+       "line": 430
+      },
+      {
+       "method": "BuildDockRouteConnectionWindow_TransportPreCoupleSnapshot_ScopesInventoryBaseline",
+       "line": 455
+      },
+      {
+       "method": "AnalyzeRecording_DeflatedDockTransportBaseline_FalselyRejects_PreCoupleBaselineDoesNot",
+       "line": 488
+      },
+      {
+       "method": "ComputePartSetDifferences_EqualSets_NoDifferences",
+       "line": 557
+      },
+      {
+       "method": "ComputePartSetDifferences_ActualHasExtra_ReturnsAdded",
+       "line": 570
+      },
+      {
+       "method": "ComputePartSetDifferences_ActualMissingPart_ReturnsRemoved",
+       "line": 583
+      },
+      {
+       "method": "ComputePartSetDifferences_BothAddedAndRemoved_ReturnsBothLists",
+       "line": 596
+      },
+      {
+       "method": "ComputePartSetDifferences_NullInputs_TreatedAsEmpty",
+       "line": 609
+      },
+      {
+       "method": "LogRoutePartSetEqualityWarnings_PerfectMatch_EmitsNoWarning",
+       "line": 624
+      },
+      {
+       "method": "LogRoutePartSetEqualityWarnings_TransportGainedPart_EmitsWarning",
+       "line": 652
+      },
+      {
+       "method": "LogRoutePartSetEqualityWarnings_EndpointLostPart_EmitsWarning",
+       "line": 686
+      },
+      {
+       "method": "LogRoutePartSetEqualityWarnings_DisjointAmbiguousSnapshot_SkipsWarning",
+       "line": 721
+      },
+      {
+       "method": "LogRoutePartSetEqualityWarnings_FuelTransferOnly_DoesNotEmitWarning",
+       "line": 755
+      },
+      {
+       "method": "CompleteRouteConnectionWindowAtUndock_MissingEndpointPart_DoesNotMarkComplete",
+       "line": 786
+      },
+      {
+       "method": "CompleteRouteConnectionWindowAtUndock_RouteSetsStillDocked_DoesNotMarkComplete",
+       "line": 809
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteMultiStopFireTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TwoWindowCycle_BothDeliveriesFire_Window2NotSuppressed",
+       "line": 195
+      },
+      {
+       "method": "PartialCycleResume_Window0Skips_Window1Fires",
+       "line": 247
+      },
+      {
+       "method": "DeliveryGuard_IsPerWindow_NotPerCycle",
+       "line": 303
+      },
+      {
+       "method": "TwoWindowCycle_UtSequence_IsTotalOrder",
+       "line": 330
+      },
+      {
+       "method": "CompletedCycles_BumpsOncePerCycle_NotPerWindow",
+       "line": 369
+      },
+      {
+       "method": "CadenceRebase_ResetsPerStopFireIndices",
+       "line": 408
+      },
+      {
+       "method": "Activate_ResetsPerStopFireIndices",
+       "line": 426
+      },
+      {
+       "method": "WarpPastCyclesAndWindows_FiresEachDueWindowOnce_BumpsOnce",
+       "line": 450
+      },
+      {
+       "method": "BlockedMultiStopCycle_EmitsNothing_SnapsAllStops",
+       "line": 488
+      },
+      {
+       "method": "PreDockA_Tick_FiresNothing",
+       "line": 514
+      },
+      {
+       "method": "Blocker1_GapTickWithPriorOwedWindow_NoDroppedCycleOrDelivery",
+       "line": 551
+      },
+      {
+       "method": "Blocker1_SingleGapTickTwoOwedCycles_CatchUpProcessesBoth",
+       "line": 606
+      },
+      {
+       "method": "InGapBlockedThenUnblocked_WholeCycleSkipped_NoSplitDispatch",
+       "line": 662
+      },
+      {
+       "method": "PickupBackstop_NoDoubleDebitAcrossReload",
+       "line": 708
+      },
+      {
+       "method": "PickupBackstop_IsPerWindow_NotPerCycle",
+       "line": 791
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

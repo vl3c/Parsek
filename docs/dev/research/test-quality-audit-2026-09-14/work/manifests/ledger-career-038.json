@@ -1,0 +1,161 @@
+{
+ "batch_id": "ledger-career-038",
+ "cluster": "ledger-career",
+ "tier": "C",
+ "expected_methods": 19,
+ "files": [
+  {
+   "file": "CrewStatusSuppressionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldSuppress_SuppressFlagTrue_ReturnsTrue",
+       "line": 36
+      },
+      {
+       "method": "ShouldSuppress_IdentityTransition_ReturnsTrue",
+       "line": 43
+      },
+      {
+       "method": "ShouldSuppress_ManagedKerbal_ReturnsTrue",
+       "line": 50
+      },
+      {
+       "method": "ShouldSuppress_UnmanagedKerbal_ReturnsFalse",
+       "line": 74
+      },
+      {
+       "method": "ShouldSuppress_NullName_ReturnsFalse",
+       "line": 84
+      },
+      {
+       "method": "ShouldSuppress_AllFlagsOff_ReturnsFalse",
+       "line": 91
+      },
+      {
+       "method": "ShouldSuppress_CrewBeforeReservation_NotSuppressed",
+       "line": 102
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EarningsReconciliationEndToEndTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnKscSpending_CrewHired_WithPairedFundsChangedEvent_ReconcilesSilently",
+       "line": 52
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GameStateStoreExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildEventTypeDistribution_EmptyList_ReturnsEmptyString",
+       "line": 30
+      },
+      {
+       "method": "BuildEventTypeDistribution_SingleEventType_ReturnsCorrectCount",
+       "line": 40
+      },
+      {
+       "method": "BuildEventTypeDistribution_MultipleTypes_AllCounted",
+       "line": 55
+      },
+      {
+       "method": "BuildEventTypeDistribution_AllEventTypes_HandlesAllEnumValues",
+       "line": 75
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KerbalsModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RepeatedWalks_SlotCountStable",
+       "line": 33
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LedgerTombstoneRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LedgerTombstone_AllFields_RoundTrips",
+       "line": 11
+      },
+      {
+       "method": "LedgerTombstone_NoRetiringRecordingId_RoundTripsAsNull",
+       "line": 36
+      },
+      {
+       "method": "LedgerTombstone_RetiringRecordingId_RoundTripsExactly",
+       "line": 54
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GameStateRecorderPartPurchaseTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CreatePartPurchasedEvent_BypassOn_WritesZeroChargedCost",
+       "line": 8
+      },
+      {
+       "method": "CreatePartPurchasedEvent_BypassOff_WritesEntryCostIntoFundsDelta",
+       "line": 25
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CareerStartSnapshotTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldCapture_Cases",
+       "line": 26
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

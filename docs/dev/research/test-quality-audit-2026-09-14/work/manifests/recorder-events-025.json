@@ -1,0 +1,226 @@
+{
+ "batch_id": "recorder-events-025",
+ "cluster": "recorder-events",
+ "tier": "B",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "TerminalEngineRcsEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EmitTerminal_NoActiveKeys_ReturnsEmptyList",
+       "line": 42
+      },
+      {
+       "method": "EmitTerminal_NullSets_ReturnsEmptyList",
+       "line": 56
+      },
+      {
+       "method": "EmitTerminal_NoActiveKeys_NoLogEmitted",
+       "line": 65
+      },
+      {
+       "method": "EmitTerminal_OneActiveEngine_EmitsEngineShutdown",
+       "line": 84
+      },
+      {
+       "method": "EmitTerminal_MultipleActiveEngines_EmitsShutdownForEach",
+       "line": 106
+      },
+      {
+       "method": "EmitTerminal_EngineWithNonZeroModuleIndex_PreservesModuleIndex",
+       "line": 129
+      },
+      {
+       "method": "EmitTerminal_ActiveEngine_LogsTerminalEvent",
+       "line": 147
+      },
+      {
+       "method": "EmitTerminal_OneActiveRcs_EmitsRcsStopped",
+       "line": 168
+      },
+      {
+       "method": "EmitTerminal_MultipleActiveRcs_EmitsStoppedForEach",
+       "line": 190
+      },
+      {
+       "method": "EmitTerminal_ActiveRcs_LogsTerminalEvent",
+       "line": 207
+      },
+      {
+       "method": "EmitTerminal_OneActiveRobotic_EmitsRoboticMotionStopped",
+       "line": 228
+      },
+      {
+       "method": "EmitTerminal_ActiveRoboticNoPositionMap_UsesZero",
+       "line": 250
+      },
+      {
+       "method": "EmitTerminal_ActiveRoboticKeyNotInPositionMap_UsesZero",
+       "line": 264
+      },
+      {
+       "method": "EmitTerminal_ActiveRobotic_LogsTerminalEvent",
+       "line": 279
+      },
+      {
+       "method": "EmitTerminal_EnginesAndRcsAndRobotics_EmitsAllTerminalEvents",
+       "line": 300
+      },
+      {
+       "method": "EmitTerminal_MixedActive_LogsSummaryWithCounts",
+       "line": 322
+      },
+      {
+       "method": "EmitTerminal_AllEventsUseFinalUT",
+       "line": 348
+      },
+      {
+       "method": "EmitTerminal_PartNameIsUnknown",
+       "line": 369
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReentryIntensityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Vacuum_ZeroEverything_ReturnsZero",
+       "line": 16
+      },
+      {
+       "method": "BelowMachThreshold_SeaLevel_ReturnsZero",
+       "line": 24
+      },
+      {
+       "method": "AtMachThreshold_SeaLevel_ReturnsNonZero",
+       "line": 34
+      },
+      {
+       "method": "FullThermal_SeaLevel_Saturated",
+       "line": 44
+      },
+      {
+       "method": "AboveFullThermal_SeaLevel_ClampedToOne",
+       "line": 55
+      },
+      {
+       "method": "MidRange_Mach3_HighAltitude_BetweenZeroAndOne",
+       "line": 65
+      },
+      {
+       "method": "BelowDensityFade_HighMach_ReturnsZero",
+       "line": 78
+      },
+      {
+       "method": "LowDensity_HighMach_LowerIntensity",
+       "line": 88
+      },
+      {
+       "method": "EveLikeDensity_HighMach_Saturated",
+       "line": 105
+      },
+      {
+       "method": "DunaLikeDensity_HighMach_LowIntensity",
+       "line": 116
+      },
+      {
+       "method": "SpeedNaN_ReturnsZero",
+       "line": 129
+      },
+      {
+       "method": "DensityNaN_ReturnsZero",
+       "line": 137
+      },
+      {
+       "method": "MachNaN_ReturnsZero",
+       "line": 145
+      },
+      {
+       "method": "AllNaN_ReturnsZero",
+       "line": 153
+      },
+      {
+       "method": "SpeedNegative_ReturnsZero",
+       "line": 161
+      },
+      {
+       "method": "DensityNegative_ReturnsZero",
+       "line": 169
+      },
+      {
+       "method": "MachNegative_ReturnsZero",
+       "line": 177
+      },
+      {
+       "method": "SpeedPositiveInfinity_ReturnsOne",
+       "line": 185
+      },
+      {
+       "method": "DensityPositiveInfinity_ReturnsOne",
+       "line": 193
+      },
+      {
+       "method": "DensityNegativeInfinity_ReturnsZero",
+       "line": 201
+      },
+      {
+       "method": "JustBelowMachThreshold_ReturnsZero",
+       "line": 211
+      },
+      {
+       "method": "BelowThreshold_ReturnsZero",
+       "line": 227
+      },
+      {
+       "method": "MidRange_ReturnsBetweenZeroAndOne",
+       "line": 237
+      },
+      {
+       "method": "HigherMach_HigherIntensity_SameDensity",
+       "line": 247
+      },
+      {
+       "method": "HigherDensity_HigherIntensity_SameMach",
+       "line": 265
+      },
+      {
+       "method": "Constants_MatchKspPhysicsCfg",
+       "line": 283
+      },
+      {
+       "method": "Midpoint_PreservesDoublePrecision",
+       "line": 299
+      },
+      {
+       "method": "HighValues_NoFloatLoss",
+       "line": 306
+      },
+      {
+       "method": "ZeroFraction_ReturnsBefore",
+       "line": 314
+      },
+      {
+       "method": "OneFraction_ReturnsAfter",
+       "line": 321
+      },
+      {
+       "method": "NegativeAltitudes_Work",
+       "line": 328
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -138,6 +138,20 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
+  Four source-text wiring gates were scanning raw file text, so a call left behind only as a
+  comment - or the same call text inside a nearby log message - kept the gate green after the
+  real call was deleted: the route-orchestrator tick hook, the three render-union seams, the
+  watch-entry consumer sweep and the Missions partner-journey toggle now scan comment-stripped
+  (and, where no log literal is pinned, literal-masked) source, the render-union seam slices the
+  method's brace-matched body instead of a fixed 4000-character window, and the Missions gates
+  anchor their proximity windows to the enclosing method body plus carry a comment-only decoy
+  cell. Two test classes installed a static test hook and never put it back (a rotation-period
+  seam that then answered NaN for every body, and a KerbalsModule on the ledger orchestrator),
+  leaking into every later test in the Sequential collection; the kerbals seam is saved and
+  restored in Dispose, the frame-transform seam is reset on both ends of the class. Each repair carries a mutation or leak-check proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No player-visible change.
+
 - **Unticking a recording's playback box now hides that flight everywhere, not just in
   the world.** The tick box at the left of every row in the Recordings tab promised that
   "the flight stays recorded but no ghost appears" - and it hid the ghost you fly past,

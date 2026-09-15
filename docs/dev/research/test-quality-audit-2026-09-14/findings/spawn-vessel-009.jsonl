@@ -1,0 +1,26 @@
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasNonFiniteOrbitElement_NaNSma_ReturnsTrueNamingSma","line":89,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasNonFiniteOrbitElement_NaNEcc_ReturnsTrueNamingEcc","line":100,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasNonFiniteOrbitElement_PositiveInfinityEpoch_ReturnsTrueNamingEph","line":111,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasNonFiniteOrbitElement_NegativeInfinityInclination_ReturnsTrueNamingInc","line":122,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasNonFiniteOrbitElement_MultipleOffenders_ListsAllInElementOrder","line":133,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasNonFiniteOrbitElement_AllFinite_ReturnsFalseWithNullOffenders","line":144,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasNonFiniteOrbitElement_NullOrbit_ReturnsTrue","line":155,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"IsLandedLikeSituation_MatchesOnlyLandedAndSplashed","line":179,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"WriteCanonicalSurfaceOrbitValues_WritesSurfaceTupleWithBodyIndex","line":185,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"WriteCanonicalSurfaceOrbitValues_NullNode_DoesNotThrow","line":202,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"WriteCanonicalSurfaceOrbitValues_MatchesApplySurfaceOrbitToSnapshotShape","line":208,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"OverrideSnapshotPosition_StampsDeliberateOverrideMarkerAndLogs","line":228,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasDeliberatePositionOverrideStamp_AbsentKey_ReturnsFalse","line":247,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasDeliberatePositionOverrideStamp_NullSnapshot_ReturnsFalse","line":255,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"HasDeliberatePositionOverrideStamp_ParsesValue","line":265,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"StripDeliberatePositionOverrideStamp_RemovesKeyAndLogs","line":274,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"StripDeliberatePositionOverrideStamp_AbsentKey_ReturnsFalse","line":290,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"StripFromRecording_StampedDurableSnapshot_StripsAndReturnsTrue","line":305,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"StripFromRecording_NullRecordingOrSnapshot_Tolerant","line":324,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"StripFromRecording_UnstampedDurableSnapshot_ReturnsFalse","line":333,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"StripFromRecording_IsWiredAsResolutionFinallyInSpawnOrRecover","line":342,"verdict":"source-gate-ok","note":"wiring gate over VesselSpawner.cs:2241-2253; SpawnOrRecoverIfTooClose needs live KSP so a behavioral test is infeasible. Window check is a bare substring, so a call inside a different nearby block would pass."}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"DecideSurfaceRepairCoordinateSource_TruthTable","line":443,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"BuildValidatedRespawnSnapshot_StampedSnapshotWithValidCoords_PreservesWalkbackCoords","line":460,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"BuildValidatedRespawnSnapshot_UnstampedSnapshotWithEndpointCoords_EndpointStillWins","line":511,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"BuildValidatedRespawnSnapshot_StampedButNonFiniteCoords_EndpointRepairStillApplies","line":553,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/SpawnWalkbackFallbackTests.cs","method":"BuildValidatedRespawnSnapshot_StampedWithBodyMismatch_EndpointRepairStillApplies","line":595,"verdict":"ok"}

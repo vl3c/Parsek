@@ -1,0 +1,143 @@
+{
+ "batch_id": "harness-seam-007",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "SeamEndpointOracleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TheMeasuredDunaDefectRaises",
+       "line": 40
+      },
+      {
+       "method": "TheMeasuredKerbinDefectRaises",
+       "line": 54
+      },
+      {
+       "method": "AFaithfulLoopMissingTheDestinationEntirelyRaises",
+       "line": 65
+      },
+      {
+       "method": "AnArcThatReachesTheSphereDoesNotRaise",
+       "line": 83
+      },
+      {
+       "method": "TheMeasuredHealthySeamContinuityDoesNotRaise",
+       "line": 98
+      },
+      {
+       "method": "TheIdealBoundaryIsExactlyOneWhenTheCallerPinsIt",
+       "line": 113
+      },
+      {
+       "method": "TheDefaultToleranceBoundaryIsInclusive",
+       "line": 130
+      },
+      {
+       "method": "DegenerateInputsProduceNoMeasurementAndNeverRaise",
+       "line": 154
+      },
+      {
+       "method": "AnUnusableToleranceFallsBackToTheDefault",
+       "line": 174
+      },
+      {
+       "method": "TheToleranceSeparatesTheTwoMeasuredPopulations",
+       "line": 184
+      },
+      {
+       "method": "AGhostlessPassEmitsNoSummary",
+       "line": 208
+      },
+      {
+       "method": "APassThatTouchedTheLensEmits",
+       "line": 225
+      },
+      {
+       "method": "TheSummaryMirrorsTheFaithfulParityFieldGrammar",
+       "line": 231
+      },
+      {
+       "method": "TheAllSkippedPassRendersItsReasonsAndAZeroEvaluated",
+       "line": 251
+      },
+      {
+       "method": "APassWithNoSkipsRendersJustTheTwoCounters",
+       "line": 269
+      },
+      {
+       "method": "AnUnnamedSkipReasonIsBucketedNotDropped",
+       "line": 285
+      },
+      {
+       "method": "EveryCaptureSkipReasonRendersAsItsOwnBucket",
+       "line": 299
+      },
+      {
+       "method": "TheCoveringScanUsesTheHalfOpenRuleWithAClosedLastSegment",
+       "line": 358
+      },
+      {
+       "method": "TheCoveringScanHandlesAnEmptyOrNullChain",
+       "line": 369
+      },
+      {
+       "method": "TheSuccessorWalkSkipsSameBodyCutsAndStopsAtTheBodyChange",
+       "line": 377
+      },
+      {
+       "method": "TheSuccessorWalkReportsNoneOnASameBodyRemainder",
+       "line": 390
+      },
+      {
+       "method": "TheSuccessorWalkIgnoresUnnamedSegmentsRatherThanCallingThemAChange",
+       "line": 404
+      },
+      {
+       "method": "TheSeamClockMapsBakedAndRawToDifferentInstants",
+       "line": 417
+      },
+      {
+       "method": "ANeitherConventionConicIsLabelledAssumedLiveAndStillMapped",
+       "line": 440
+      },
+      {
+       "method": "AFaithfulOrUnknownSeedKeepsTheRecordedSeamInstant",
+       "line": 454
+      },
+      {
+       "method": "ANonRetimedReaimedSeedStillMeasures",
+       "line": 465
+      },
+      {
+       "method": "ARetimedReaimedSeedRefusesTheRecordedSeamInstant",
+       "line": 479
+      },
+      {
+       "method": "ANonFiniteSeedEndKeepsTheSampleRatherThanInventingASkip",
+       "line": 495
+      },
+      {
+       "method": "AMeasuringPassAndASkipOnlyPassRideDIFFERENTRateLimitKeys",
+       "line": 512
+      },
+      {
+       "method": "EveryMeasuringPassSharesTheOneMeasuredKey",
+       "line": 530
+      },
+      {
+       "method": "TheGhostlessFrameGuardIsUNCHANGEDByTheKeySplit",
+       "line": 540
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

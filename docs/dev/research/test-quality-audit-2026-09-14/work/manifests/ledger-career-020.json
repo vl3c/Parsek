@@ -1,0 +1,143 @@
+{
+ "batch_id": "ledger-career-020",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "StrategyPrefixHoldbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PreFixShapedStore_WithNoBound_HoldsBackTheFullExchangeOnEveryRecalc",
+       "line": 205
+      },
+      {
+       "method": "ShapeA_TheMeasuredWarnIsAPureNoOpClamp_AndTheBoundRemovesIt",
+       "line": 230
+      },
+      {
+       "method": "ShapeB_TheC2Shape_IsSilentOnMain_AndStaysSilentOnTheBranch",
+       "line": 277
+      },
+      {
+       "method": "ShapeB_ApplyingTheWholeBaselineUnconditionally_WouldTripAnUpliftClamp",
+       "line": 305
+      },
+      {
+       "method": "Resolver_NoOverhang_WithholdsTheWholeResidual",
+       "line": 331
+      },
+      {
+       "method": "Resolver_OverhangEqualsTheResidual_WithholdsNothing",
+       "line": 340
+      },
+      {
+       "method": "Resolver_PartialOverhang_LandsTheDiscriminatorExactlyOnLive",
+       "line": 351
+      },
+      {
+       "method": "Resolver_OverhangLargerThanTheResidual_WithholdsNothing_SoAGenuineLeakStillClamps",
+       "line": 370
+      },
+      {
+       "method": "Resolver_RunningBelowLive_WithholdsTheWholeResidual_AndTheDrawdownStillClamps",
+       "line": 405
+      },
+      {
+       "method": "Resolver_ZeroBaseline_IsAlwaysZero",
+       "line": 441
+      },
+      {
+       "method": "LoadSweep_MeasuresThePreFixExchangeAsUnmatchable",
+       "line": 454
+      },
+      {
+       "method": "PostFixSave_WhoseRowAlreadyLanded_MeasuresAZeroBaseline",
+       "line": 460
+      },
+      {
+       "method": "TheSweepIsIdempotent_ReRunningItNeverAccumulates",
+       "line": 478
+      },
+      {
+       "method": "FreshInSessionExchange_StillProducesTheFullHoldBack_OnTopOfTheBound",
+       "line": 503
+      },
+      {
+       "method": "FreshExchangeDrainsOnceItsCommitLandsTheRow_WithTheBoundApplied",
+       "line": 530
+      },
+      {
+       "method": "InFlightRecordingSpanningASaveLoad_IsNotSweptIntoTheBaseline",
+       "line": 559
+      },
+      {
+       "method": "DiscardRehomedUntaggedRow_LeavesTheLiveHoldBackIntact",
+       "line": 585
+      },
+      {
+       "method": "ConverterSourcedRows_DoNotShrinkTheBaseline_Either",
+       "line": 623
+      },
+      {
+       "method": "RetiredTimelineEvents_AreExcludedFromTheBaselineToo",
+       "line": 652
+      },
+      {
+       "method": "TheSweepRefusesANullReachabilityPredicate",
+       "line": 673
+      },
+      {
+       "method": "TheBoundDefaultsToZero_SoEveryPreExistingCallerIsUnchanged",
+       "line": 683
+      },
+      {
+       "method": "CanRowStillLand_UntaggedEvent_IsUnreachable",
+       "line": 702
+      },
+      {
+       "method": "CanRowStillLand_TaggedToACommittedRecording_IsUnreachable",
+       "line": 712
+      },
+      {
+       "method": "CanRowStillLand_TaggedToAnUncommittedRecording_IsStillReachable",
+       "line": 722
+      },
+      {
+       "method": "PreFixSave_ShapeA_PatchTargetIsNoLongerHeldBack_OnceTheLoadSweepHasRun",
+       "line": 733
+      },
+      {
+       "method": "PreFixSave_ShapeB_KeepsItsHoldBack_AfterTheLoadSweep",
+       "line": 775
+      },
+      {
+       "method": "TheGuardDiscriminatorIsTheBasisMinusTheSamePendingAmount",
+       "line": 832
+      },
+      {
+       "method": "TheTargetAdjusterAndTheGuardDiscriminatorResolveTheSamePendingAmount",
+       "line": 916
+      },
+      {
+       "method": "PatchScience_ComputesTheBasisOnce_AfterTheSiblings_AndHandsItToBothConsumers",
+       "line": 975
+      },
+      {
+       "method": "ResetForTesting_ClearsTheBaseline",
+       "line": 1019
+      },
+      {
+       "method": "FormatterSanity_TheMeasuredTakeMatchesTheC2ReconDivergence",
+       "line": 1032
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

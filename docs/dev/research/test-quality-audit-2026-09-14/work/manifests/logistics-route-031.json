@@ -1,0 +1,264 @@
+{
+ "batch_id": "logistics-route-031",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 53,
+ "files": [
+  {
+   "file": "Logistics/RouteFundsCalculatorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullSnapshot_ReturnsZero",
+       "line": 61
+      },
+      {
+       "method": "EmptyPartList_ReturnsZero",
+       "line": 73
+      },
+      {
+       "method": "SinglePart_NoResources_ReturnsPartCost",
+       "line": 87
+      },
+      {
+       "method": "PartPlusResources_SumsCost",
+       "line": 105
+      },
+      {
+       "method": "UnknownPart_TreatedAsZero_WithWarn",
+       "line": 123
+      },
+      {
+       "method": "MissingResourceCost_TreatedAsZero",
+       "line": 141
+      },
+      {
+       "method": "ComputeDispatchFundsCost_ModdedUnitCost_Charged",
+       "line": 164
+      },
+      {
+       "method": "ComputeDispatchFundsCost_ZeroCostResource_AddsNothing",
+       "line": 184
+      },
+      {
+       "method": "ComputeDispatchFundsCost_UndefinedResource_CostZero",
+       "line": 203
+      },
+      {
+       "method": "ComputeDispatchFundsCost_ManifestBasis_UsesStartAmounts",
+       "line": 235
+      },
+      {
+       "method": "ComputeDispatchFundsCost_NullManifest_FallsBackToSnapshotWalk",
+       "line": 257
+      },
+      {
+       "method": "ComputeDispatchFundsCost_HarvestedOreNotCharged_OnLaunchBasis",
+       "line": 293
+      },
+      {
+       "method": "ComputeDispatchFundsCost_TransportSubset_ExcludesEndpointPartsAndResources",
+       "line": 353
+      },
+      {
+       "method": "ComputeDispatchFundsCost_TransportSubset_ManifestBasis_PricesTransportPartsOnly",
+       "line": 378
+      },
+      {
+       "method": "ComputeDispatchFundsCost_TransportSubset_UnidentifiablePart_Excluded",
+       "line": 402
+      },
+      {
+       "method": "ComputeDispatchFundsCost_NullRestriction_MatchesUnrestrictedBases",
+       "line": 431
+      },
+      {
+       "method": "CountRestrictedParts_ReportsKeptOverTotal",
+       "line": 463
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteLoopClockHoldArgWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ArrivalHoldUnit_DeliveryClockEqualsTheRenderClock",
+       "line": 174
+      },
+      {
+       "method": "ArrivalHoldUnit_DeliveryClockDivergesFromTheScheduleOnlyClock",
+       "line": 188
+      },
+      {
+       "method": "LaunchHoldUnit_DeliveryClockEqualsTheRenderClock_AndDivergesFromScheduleOnly",
+       "line": 208
+      },
+      {
+       "method": "HoldFreeUnit_DeliveryRenderAndScheduleOnlyClocksAllAgree",
+       "line": 241
+      },
+      {
+       "method": "CarriesHoldArgs_IsFalseOnAFaithfulUnit_AndTrueOnEachHoldFieldAlone",
+       "line": 265
+      },
+      {
+       "method": "HoldArgsChangeKey_IsTheConstantNone_OnlyWhenNothingIsCarried",
+       "line": 295
+      },
+      {
+       "method": "DescribeHoldArgs_IsInvariantUnderAComma_DecimalCulture",
+       "line": 311
+      },
+      {
+       "method": "SpanClockOptionalArguments_AreExactlyTheForwardedSet",
+       "line": 358
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteRecoveryLandingHarnessTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShippedModel_CreditLandsOneIntervalAfterDispatch_ThreeIntervalsBeforeRecordedLanding",
+       "line": 247
+      },
+      {
+       "method": "ShippedModel_ThreeCreditsPaidBeforeAnyRecordedRecoveryHasLanded",
+       "line": 293
+      },
+      {
+       "method": "ShippedModel_LongInterval_CreditLandsAfterRecordedLanding",
+       "line": 340
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteTreeGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsBound_TrueWhenRouteBindsTreeViaSourceRef_AndVerboseLogged",
+       "line": 100
+      },
+      {
+       "method": "IsBound_BoundLog_IsRateLimitedPerTree",
+       "line": 119
+      },
+      {
+       "method": "IsBound_FalseForUnboundTree",
+       "line": 140
+      },
+      {
+       "method": "IsBound_FalseWhenNoRoutes",
+       "line": 148
+      },
+      {
+       "method": "IsBound_NullOrEmptyTreeId_FalseNoThrow",
+       "line": 156
+      },
+      {
+       "method": "IsBound_TrueForEveryStatus",
+       "line": 178
+      },
+      {
+       "method": "RouteBindingFor_ReturnsBindingRoute",
+       "line": 186
+      },
+      {
+       "method": "RouteBindingFor_MissReturnsFalseNull",
+       "line": 199
+      },
+      {
+       "method": "BoundTreeIds_CollectsDistinctTrees_AcrossRoutesAndMultiSourceRefRoute",
+       "line": 214
+      },
+      {
+       "method": "BoundTreeIds_EmptyWhenNoRoutes",
+       "line": 242
+      },
+      {
+       "method": "ForceClear_ClearsMissionLoopAndPerRecordingLoop_OnBoundTree",
+       "line": 252
+      },
+      {
+       "method": "ForceClear_LeavesOtherTreeLoopsUntouched",
+       "line": 280
+      },
+      {
+       "method": "ForceClear_Idempotent_SecondCallClearsNothing",
+       "line": 307
+      },
+      {
+       "method": "ForceClear_NullTreeId_SkipsWithLog",
+       "line": 324
+      },
+      {
+       "method": "ForceClear_ReturnsClearedCount_MissionPlusRecording",
+       "line": 338
+      },
+      {
+       "method": "ForceClear_ReturnsZero_WhenNoManualLoopOnTree",
+       "line": 355
+      },
+      {
+       "method": "ForceClear_SecondCallReturnsZero_Idempotent",
+       "line": 367
+      },
+      {
+       "method": "ForceClear_NullTreeId_ReturnsZero",
+       "line": 380
+      },
+      {
+       "method": "ForceClearForRoute_ClearsEverySourceTree",
+       "line": 390
+      },
+      {
+       "method": "ForceClearForRoute_NullRoute_SkipsWithLog",
+       "line": 412
+      },
+      {
+       "method": "ForceClearForRoute_ReturnsSummedCountAcrossTrees",
+       "line": 421
+      },
+      {
+       "method": "ForceClearForRoute_ReturnsZero_WhenNoManualLoops",
+       "line": 443
+      },
+      {
+       "method": "ForceClearForRoute_NullRoute_ReturnsZero",
+       "line": 454
+      },
+      {
+       "method": "Toast_PostedWhenLoopActuallyCleared",
+       "line": 468
+      },
+      {
+       "method": "Toast_NotPostedWhenNothingCleared",
+       "line": 488
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

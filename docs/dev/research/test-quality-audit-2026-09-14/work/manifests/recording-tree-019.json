@@ -1,0 +1,51 @@
+{
+ "batch_id": "recording-tree-019",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 8,
+ "files": [
+  {
+   "file": "EffectiveStateGraphFuzzerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Fuzz_CorruptGraphs_AllWalkerInvariantsHold",
+       "line": 120
+      },
+      {
+       "method": "Fuzz_ProductionShapedGraphs_AllWalkerInvariantsHold",
+       "line": 132
+      },
+      {
+       "method": "Fuzz_Corpus_CarriesEveryCorruptShapeAndExercisesTheFilters",
+       "line": 153
+      },
+      {
+       "method": "EffectiveRecordingId_CrossTreeSupersede_DoesNotHaltAtTreeBoundary",
+       "line": 983
+      },
+      {
+       "method": "EffectiveRecordingId_TwoCycle_IsNotIdempotent",
+       "line": 1003
+      },
+      {
+       "method": "SupersededSurfaces_SelfLoopBeforeRealEdge_Disagree",
+       "line": 1037
+      },
+      {
+       "method": "Closure_DanglingBranchPointChildId_IsAdmittedVerbatim",
+       "line": 1077
+      },
+      {
+       "method": "GeneratedCycle_LogsSupersedeCycleWarn",
+       "line": 1127
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

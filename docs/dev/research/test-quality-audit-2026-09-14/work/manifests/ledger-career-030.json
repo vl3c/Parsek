@@ -1,0 +1,162 @@
+{
+ "batch_id": "ledger-career-030",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 33,
+ "files": [
+  {
+   "file": "LedgerGroundTruthParserTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Parse_FundsScienceRep_ReadsScalars",
+       "line": 316
+      },
+      {
+       "method": "Parse_GameWrapperAndBareRoot_BothWork",
+       "line": 334
+      },
+      {
+       "method": "Parse_PerSubjectScience_BuildsDict",
+       "line": 367
+      },
+      {
+       "method": "Parse_FacilityFractions_ReadAllTen",
+       "line": 383
+      },
+      {
+       "method": "Parse_ActiveVsNonActiveContracts_SeparatesStates",
+       "line": 406
+      },
+      {
+       "method": "Parse_Milestones_CompletedVsReached",
+       "line": 427
+      },
+      {
+       "method": "Parse_BodySubtreeMilestones_BuildsQualifiedIds",
+       "line": 444
+      },
+      {
+       "method": "Parse_Milestones_CompletedMannedAndUnmannedCountAsCompleted",
+       "line": 462
+      },
+      {
+       "method": "Parse_Milestones_ReachedBodyNodeStillYieldsItsChildren",
+       "line": 491
+      },
+      {
+       "method": "Parse_VesselResourceTotals_SumsAcrossParts",
+       "line": 528
+      },
+      {
+       "method": "Parse_MissingScenario_SetsHasFalseNoThrow",
+       "line": 549
+      },
+      {
+       "method": "Parse_UnrecognizableShape_ParsedFalseNoThrow",
+       "line": 569
+      },
+      {
+       "method": "Parse_NullRoot_ParsedFalseNoThrow",
+       "line": 582
+      },
+      {
+       "method": "Parse_Roster_ReadsEveryKerbalField",
+       "line": 595
+      },
+      {
+       "method": "Parse_Roster_SkipsNamelessKerbalAndCountsDead",
+       "line": 625
+      },
+      {
+       "method": "Parse_NoRosterNode_HasRosterFalseNoThrow",
+       "line": 643
+      },
+      {
+       "method": "Parse_EmptyRosterNode_HasRosterTrueZeroKerbals",
+       "line": 657
+      },
+      {
+       "method": "Parse_TechNodes_UnlockSetAndRepeatedPartValues",
+       "line": 675
+      },
+      {
+       "method": "Parse_TechNode_WithoutId_IsSkipped",
+       "line": 699
+      },
+      {
+       "method": "Parse_TechTreeFacet_IsIndependentOfSciencePoolParse",
+       "line": 717
+      },
+      {
+       "method": "Parse_NoResearchAndDevelopment_NoTechFacet",
+       "line": 734
+      },
+      {
+       "method": "Parse_Strategies_PresenceIsTheActiveSignal",
+       "line": 751
+      },
+      {
+       "method": "Parse_Strategies_ExplicitIsActiveFalseIsHonoured",
+       "line": 771
+      },
+      {
+       "method": "Parse_EmptyStrategiesBlock_IsTheNormalShape",
+       "line": 788
+      },
+      {
+       "method": "Parse_NoStrategySystemScenario_HasStrategySystemFalse",
+       "line": 807
+      },
+      {
+       "method": "Parse_CommaLocale_InvariantCulture",
+       "line": 818
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KerbalLoadDiagnosticsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnKspLoad_WithMixedTouristRemapAndEndStateRewrite_LogsSingleSummary",
+       "line": 46
+      },
+      {
+       "method": "OnKspLoad_WithSequenceOnlyRepair_DoesNotLogFalseRemapSamples",
+       "line": 122
+      },
+      {
+       "method": "OnKspLoad_WithNestedReservations_LogsChainExtensionSample",
+       "line": 191
+      },
+      {
+       "method": "ApplyToRoster_FacadePath_RecordsRetiredRecreated_AndDeletedUnused",
+       "line": 266
+      },
+      {
+       "method": "ApplyToRoster_FacadePath_WithFailedHistoricalRecreate_DoesNotLogFalseKeep",
+       "line": 344
+      },
+      {
+       "method": "ApplyToRoster_WrapperPath_WithRetiredStandInOnly_DoesNotLogRepairSummary",
+       "line": 398
+      },
+      {
+       "method": "ApplyToRoster_WrapperPath_DeletesUnusedDisplacedStandIn",
+       "line": 453
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

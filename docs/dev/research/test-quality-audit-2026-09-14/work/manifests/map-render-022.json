@@ -1,0 +1,279 @@
+{
+ "batch_id": "map-render-022",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "Rendering/LateUpdateSplineDispatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Pure_NullRecordingId_ReturnsFalse",
+       "line": 105
+      },
+      {
+       "method": "Pure_NegativeSectionIndex_ReturnsFalse",
+       "line": 122
+      },
+      {
+       "method": "Pure_NoSplineInStore_ReturnsFalse",
+       "line": 134
+      },
+      {
+       "method": "Pure_InvalidSpline_ReturnsFalse",
+       "line": 146
+      },
+      {
+       "method": "Pure_NullBody_ReturnsFalse",
+       "line": 162
+      },
+      {
+       "method": "Pure_FrameTag0_DispatchesBodyFixed",
+       "line": 178
+      },
+      {
+       "method": "Pure_FrameTag1_DispatchesInertial",
+       "line": 199
+      },
+      {
+       "method": "Pure_UnknownFrameTag_ReturnsFalse",
+       "line": 230
+      },
+      {
+       "method": "Pure_UnknownFrameTag_WarnDedupSuppressesLateUpdateRepeat",
+       "line": 251
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRenderTracerCoverageTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EveryRenderSurface_HasDistinctNonUnknownToken",
+       "line": 63
+      },
+      {
+       "method": "TierA_StructuralEvent_RoutesToInfoWithSurfaceAndPhase",
+       "line": 108
+      },
+      {
+       "method": "TierB_OnChangeEvent_RoutesToVerboseWithSurfaceAndPhase",
+       "line": 131
+      },
+      {
+       "method": "TierC_Anomaly_RoutesToInfoWithSurfaceAndReason",
+       "line": 151
+      },
+      {
+       "method": "PolylineLegChange_DiffDrawnSets_ProducesAppearAndDisappear",
+       "line": 167
+      },
+      {
+       "method": "GhostMapPresence_EmitsGhostCreatedStructuralEvent_SourceGate",
+       "line": 221
+      },
+      {
+       "method": "GhostOrbitLinePatch_EmitsLineVisibilityOnChange_SourceGate",
+       "line": 231
+      },
+      {
+       "method": "MapRenderProbe_EmitsAnomalies_SourceGate",
+       "line": 240
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/SectionAnnotationStoreTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PutGet_RoundTrip",
+       "line": 41
+      },
+      {
+       "method": "Get_Missing_ReturnsFalse",
+       "line": 59
+      },
+      {
+       "method": "Get_DifferentRecording_ReturnsFalse",
+       "line": 68
+      },
+      {
+       "method": "Put_OverwritesSilently",
+       "line": 78
+      },
+      {
+       "method": "RemoveRecording_ClearsAllSections",
+       "line": 91
+      },
+      {
+       "method": "Clear_EmptiesEverything",
+       "line": 108
+      },
+      {
+       "method": "ResetForTesting_ClearsState",
+       "line": 122
+      },
+      {
+       "method": "RemoveRecording_NoOpOnMissing",
+       "line": 133
+      },
+      {
+       "method": "PutGet_AnchorCandidates_RoundTrip",
+       "line": 147
+      },
+      {
+       "method": "Get_AnchorCandidates_Missing_ReturnsFalse",
+       "line": 163
+      },
+      {
+       "method": "RemoveRecording_ClearsBothSplineAndCandidateMaps",
+       "line": 169
+      },
+      {
+       "method": "Clear_ClearsBothSplineAndCandidateMaps",
+       "line": 188
+      },
+      {
+       "method": "PutGet_OutlierFlags_RoundTrip",
+       "line": 225
+      },
+      {
+       "method": "PutOutlierFlags_OverwritesExisting",
+       "line": 241
+      },
+      {
+       "method": "Get_OutlierFlags_Missing_ReturnsFalse",
+       "line": 252
+      },
+      {
+       "method": "RemoveRecording_ClearsOutlierFlags",
+       "line": 258
+      },
+      {
+       "method": "Clear_ClearsAllFourMaps",
+       "line": 271
+      },
+      {
+       "method": "GetOutlierFlagsCountForRecording_ReturnsZeroWhenAbsent",
+       "line": 291
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KscScienceSubjectLedgerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryRecordKscScienceSubject_UntaggedTransmission_AddsNullOwnerScienceEarning",
+       "line": 48
+      },
+      {
+       "method": "TryRecordKscScienceSubject_WithFutureLedgerActions_RecalculatesAtSubjectUt",
+       "line": 84
+      },
+      {
+       "method": "TryRecordKscScienceSubject_RecoveryWithMatchingRecording_UsesRecoveryOwner",
+       "line": 129
+      },
+      {
+       "method": "TryRecordKscScienceSubject_DuplicateSameSubjectAndUt_IsHandledWithoutSecondLedgerRow",
+       "line": 173
+      },
+      {
+       "method": "TryRecordKscScienceSubject_DirectThenRecordingCommitSameSubjectAndUt_DeduplicatesAcrossPaths",
+       "line": 198
+      },
+      {
+       "method": "GetDedupOccurrenceUt_ReturnsExpectedOccurrenceUt",
+       "line": 323
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MarkerDrawDecisionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DirectorTracedPathDecisionIsAuthoritative",
+       "line": 25
+      },
+      {
+       "method": "PolylineOwningIsAuthoritative",
+       "line": 37
+      },
+      {
+       "method": "LegacyIconSuppressedKeptAsFallback",
+       "line": 47
+      },
+      {
+       "method": "NoSignal_ProtoIconIsTheIndicator_NoDoubleMarker",
+       "line": 59
+      },
+      {
+       "method": "IsSupersetOfLegacy_NoMarkerGap",
+       "line": 70
+      },
+      {
+       "method": "MapSkipReasonToMarkerOutcome_NativeIcon_MapsToProtoIcon",
+       "line": 94
+      },
+      {
+       "method": "MapSkipReasonToMarkerOutcome_Debris_MapsToSkippedDebris",
+       "line": 102
+      },
+      {
+       "method": "MapSkipReasonToMarkerOutcome_None_MapsToDrawnNonProto",
+       "line": 110
+      },
+      {
+       "method": "MapSkipReasonToMarkerOutcome_DecisionSkips_MapToSkippedDecisionFalse",
+       "line": 120
+      },
+      {
+       "method": "BuildMarkerDecisionSignature_TsOverlapInstance_CarriesRealRideAndPolylineSource",
+       "line": 142
+      },
+      {
+       "method": "BuildMarkerDecisionSignature_TsSkipParam_AppendsTokenWhenSet",
+       "line": 169
+      },
+      {
+       "method": "BuildMarkerDecisionSignature_TsSkipParam_OmittedWhenNullOrEmpty_FlightByteIdentical",
+       "line": 193
+      },
+      {
+       "method": "AtmosphericMarkerSkipReasonToken_MapsEveryReason",
+       "line": 223
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,270 @@
+{
+ "batch_id": "recorder-events-021",
+ "cluster": "recorder-events",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "SplitEventDetectionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsTrackableVesselType_SpaceObject_ReturnsTrue",
+       "line": 29
+      },
+      {
+       "method": "IsTrackableVesselType_Debris_ReturnsFalse",
+       "line": 35
+      },
+      {
+       "method": "IsTrackableVesselType_Ship_ReturnsFalse",
+       "line": 41
+      },
+      {
+       "method": "IsTrackableVesselType_Probe_ReturnsFalse",
+       "line": 48
+      },
+      {
+       "method": "IsTrackableVesselType_EVA_ReturnsTrue",
+       "line": 55
+      },
+      {
+       "method": "IsSpaceObjectLikeBreakupScanReject_SpaceObject_ReturnsTrue",
+       "line": 71
+      },
+      {
+       "method": "IsSpaceObjectLikeBreakupScanReject_AsteroidModule_ReturnsTrue",
+       "line": 84
+      },
+      {
+       "method": "IsSpaceObjectLikeBreakupScanReject_PotatoRoidPart_ReturnsTrue",
+       "line": 97
+      },
+      {
+       "method": "IsSpaceObjectLikeBreakupScanReject_NormalShip_ReturnsFalse",
+       "line": 110
+      },
+      {
+       "method": "GetEvaBackgroundInitialEnvironmentOverride_LandedStationaryShip_ReturnsSurfaceStationary",
+       "line": 127
+      },
+      {
+       "method": "GetEvaBackgroundInitialEnvironmentOverride_LandedMovingShip_ReturnsSurfaceMobile",
+       "line": 139
+      },
+      {
+       "method": "GetEvaBackgroundInitialEnvironmentOverride_UsesBackgroundEvaSpeed",
+       "line": 151
+      },
+      {
+       "method": "GetEvaBackgroundInitialEnvironmentOverride_NonSurfaceShip_ReturnsNull",
+       "line": 163
+      },
+      {
+       "method": "GetEvaBackgroundInitialEnvironmentOverride_NonEvaBackgroundChild_ReturnsNull",
+       "line": 175
+      },
+      {
+       "method": "BuildSplitBranchData_Undock_CreatesCorrectBranchPoint",
+       "line": 191
+      },
+      {
+       "method": "BuildSplitBranchData_Undock_CreatesCorrectChildRecordings",
+       "line": 214
+      },
+      {
+       "method": "BuildSplitBranchData_Undock_ChildIdsMatchBranchPoint",
+       "line": 247
+      },
+      {
+       "method": "BuildSplitBranchData_Undock_GeneratesUniqueIds",
+       "line": 264
+      },
+      {
+       "method": "BuildSplitBranchData_Eva_SetsEvaCrewNameOnActiveChild",
+       "line": 287
+      },
+      {
+       "method": "BuildSplitBranchData_Eva_SetsParentRecordingIdOnKerbalChild",
+       "line": 306
+      },
+      {
+       "method": "BuildSplitBranchData_Eva_NoCrewName_NoSpecialFields",
+       "line": 324
+      },
+      {
+       "method": "BuildSplitBranchData_Eva_KerbalIsBackground_SetsEvaFieldsOnBackgroundChild",
+       "line": 343
+      },
+      {
+       "method": "BuildSplitBranchData_JointBreak_CorrectType",
+       "line": 369
+      },
+      {
+       "method": "TreeCreation_FirstSplit_BranchDataHasCorrectTreeId",
+       "line": 392
+      },
+      {
+       "method": "TreeCreation_BackgroundMap_PopulatedCorrectly",
+       "line": 410
+      },
+      {
+       "method": "TreeCreation_RebuildBackgroundMap_MatchesManualSetup",
+       "line": 443
+      },
+      {
+       "method": "FlightRecorder_JointBreakCheck_DefaultFalse",
+       "line": 494
+      },
+      {
+       "method": "MultipleSplits_ProduceDifferentIds",
+       "line": 505
+      },
+      {
+       "method": "BuildSplitBranchData_PreservesExplicitStartUT",
+       "line": 525
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LoopAnchorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LoopAnchorVesselId_Default_IsZero",
+       "line": 32
+      },
+      {
+       "method": "LoopAnchorVesselId_Scenario_SaveLoad_RoundTrip",
+       "line": 41
+      },
+      {
+       "method": "LoopAnchorVesselId_Scenario_Zero_NotWritten",
+       "line": 59
+      },
+      {
+       "method": "LoopAnchorVesselId_Scenario_BackwardCompat_MissingKey_DefaultsZero",
+       "line": 73
+      },
+      {
+       "method": "LoopRange_Scenario_SaveLoad_RoundTrip_ValidValues",
+       "line": 86
+      },
+      {
+       "method": "LoopRange_Scenario_Load_CurrentNegativeInterval_PreservesStoredValue",
+       "line": 105
+      },
+      {
+       "method": "LoopRange_Scenario_Load_CurrentPositiveGap_PreservesStoredValue",
+       "line": 140
+      },
+      {
+       "method": "LoopRange_Scenario_SaveLoad_NaN_NotWritten",
+       "line": 173
+      },
+      {
+       "method": "LoopRange_Scenario_BackwardCompat_MissingKeys_DefaultsNaN",
+       "line": 189
+      },
+      {
+       "method": "LoopAnchorVesselId_Tree_SaveLoad_RoundTrip",
+       "line": 203
+      },
+      {
+       "method": "LoopAnchorVesselId_Tree_Zero_NotWritten",
+       "line": 221
+      },
+      {
+       "method": "LoopAnchorVesselId_Tree_BackwardCompat_MissingKey_DefaultsZero",
+       "line": 235
+      },
+      {
+       "method": "LoopRange_Tree_SaveLoad_RoundTrip",
+       "line": 246
+      },
+      {
+       "method": "LoopRange_Tree_Load_CurrentFormat_PreservesLaunchPeriod",
+       "line": 265
+      },
+      {
+       "method": "LoopRange_Tree_NaN_NotWritten",
+       "line": 287
+      },
+      {
+       "method": "LoopRange_Tree_BackwardCompat_MissingKey_DefaultsNaN",
+       "line": 303
+      },
+      {
+       "method": "ApplyPersistenceArtifacts_CopiesLoopAnchorVesselId",
+       "line": 317
+      },
+      {
+       "method": "ValidateLoopAnchor_ZeroPid_ReturnsFalse",
+       "line": 329
+      },
+      {
+       "method": "ValidateLoopAnchor_VesselExists_ReturnsTrue",
+       "line": 337
+      },
+      {
+       "method": "ValidateLoopAnchor_VesselMissing_ReturnsFalse",
+       "line": 347
+      },
+      {
+       "method": "ValidateLoopAnchor_VesselMissing_LogsWarning",
+       "line": 357
+      },
+      {
+       "method": "ShouldUseLoopAnchor_NullRec_ReturnsFalse",
+       "line": 368
+      },
+      {
+       "method": "ShouldUseLoopAnchor_ZeroAnchor_ReturnsFalse",
+       "line": 374
+      },
+      {
+       "method": "ShouldUseLoopAnchor_NoTrackSections_ReturnsFalse",
+       "line": 381
+      },
+      {
+       "method": "ShouldUseLoopAnchor_OnlyAbsoluteSections_ReturnsFalse",
+       "line": 389
+      },
+      {
+       "method": "ShouldUseLoopAnchor_HasRelativeSection_ReturnsTrue",
+       "line": 405
+      },
+      {
+       "method": "ShouldUseLoopAnchor_MixedSections_WithRelative_ReturnsTrue",
+       "line": 422
+      },
+      {
+       "method": "ShouldUseLoopAnchor_NullTrackSections_ReturnsFalse",
+       "line": 445
+      },
+      {
+       "method": "LoopAnchorVesselId_Scenario_LargePid_RoundTrip",
+       "line": 455
+      },
+      {
+       "method": "LoopAnchorVesselId_Tree_LargePid_RoundTrip",
+       "line": 472
+      },
+      {
+       "method": "LoopAnchorVesselId_SavedKeyName_ConsistentAcrossSerializers",
+       "line": 491
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

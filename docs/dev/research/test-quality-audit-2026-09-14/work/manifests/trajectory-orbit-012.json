@@ -1,0 +1,158 @@
+{
+ "batch_id": "trajectory-orbit-012",
+ "cluster": "trajectory-orbit",
+ "tier": "A",
+ "expected_methods": 32,
+ "files": [
+  {
+   "file": "TrajectorySidecarBinaryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryProbe_MapsVersionToEncodingAndSupport",
+       "line": 55
+      },
+      {
+       "method": "CurrentBinaryVersion_TracksCurrentRecordingFormatVersion",
+       "line": 81
+      },
+      {
+       "method": "TryProbe_CurrentMagicMissingRecordingId_ReturnsFalseWithoutThrowing",
+       "line": 90
+      },
+      {
+       "method": "TryProbe_CurrentMagicMalformedRecordingId_ReturnsFalseWithoutThrowing",
+       "line": 107
+      },
+      {
+       "method": "Read_UsesCurrentProbeVersion_AndBackfillsMissingRecordingId",
+       "line": 126
+      },
+      {
+       "method": "WriteRead_SectionAuthoritativeFixture_RebuildsFlatPayloadFromTrackSections",
+       "line": 151
+      },
+      {
+       "method": "WriteRead_RelativeSection_PreservesBodyFixedPrimaryFrames",
+       "line": 177
+      },
+      {
+       "method": "WriteRead_RelativeSection_PreservesAnchorRecordingIdAndLivePid",
+       "line": 199
+      },
+      {
+       "method": "WriteRead_FlatFallbackFixture_PreservesTailOutsideTrackSections_AndExistingRecordingId",
+       "line": 220
+      },
+      {
+       "method": "WriteRead_RelativeFlatFallback_WritesBodyFixedPrimaryPointsAndPreservesOrbitTail",
+       "line": 241
+      },
+      {
+       "method": "TrackSection_BoundarySeamFlag_RoundTripsThroughBinaryCodec",
+       "line": 756
+      },
+      {
+       "method": "TrackSection_BoundarySeamFlag_PreservesCurrentBinaryValue",
+       "line": 814
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PatchedConicSnapshotTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Snapshot_SinglePatch_CapturesOnePredictedSegment",
+       "line": 28
+      },
+      {
+       "method": "Snapshot_FlybyPredicted_CapturesPreAndPostFlybyPatches",
+       "line": 49
+      },
+      {
+       "method": "Snapshot_ManeuverTransition_IsFlaggedAsUiNodeBoundary",
+       "line": 70
+      },
+      {
+       "method": "Snapshot_CaptureLimitReached_ReportsTruncatedTail",
+       "line": 91
+      },
+      {
+       "method": "Snapshot_NullSolver_ReturnsEmptyList",
+       "line": 114
+      },
+      {
+       "method": "Snapshot_NullSolver_RateLimitsRepeatsForSameVessel",
+       "line": 148
+      },
+      {
+       "method": "Snapshot_NullSolver_BetweenFiveAndThirtySeconds_RemainsSuppressed",
+       "line": 210
+      },
+      {
+       "method": "Snapshot_RestoresLimitOnUpdateException",
+       "line": 259
+      },
+      {
+       "method": "Snapshot_PatchLimitUnavailable_FailsInsteadOfSilentlyProceeding",
+       "line": 279
+      },
+      {
+       "method": "Snapshot_MissingPatchBody_FailsWithoutKerbinFallback",
+       "line": 299
+      },
+      {
+       "method": "Snapshot_NonFinitePatchElements_FailsWithoutCapturingTheNaN",
+       "line": 331
+      },
+      {
+       "method": "Snapshot_NonFinitePatchElements_WarnIsRateLimitedToThirtySeconds",
+       "line": 372
+      },
+      {
+       "method": "Snapshot_NonFinitePatchEndUT_IsRefusedRatherThanClamped",
+       "line": 419
+      },
+      {
+       "method": "Snapshot_NonFinitePatchAfterValidPrefix_KeepsPartialResult",
+       "line": 444
+      },
+      {
+       "method": "HasFinitePatchElements_AcceptsAWellFormedPatchAndRejectsEachNonFiniteField",
+       "line": 479
+      },
+      {
+       "method": "Snapshot_OpenOrbitInfiniteEndUT_IsDeclinedQuietlyNotAsADegeneracy",
+       "line": 529
+      },
+      {
+       "method": "Snapshot_InfiniteEndUTWithADegenerateElement_StillWarnsAsADegeneracy",
+       "line": 566
+      },
+      {
+       "method": "Snapshot_MissingPatchBodyAfterValidPrefix_KeepsPartialResult",
+       "line": 612
+      },
+      {
+       "method": "Snapshot_MissingPatchBodyAfterValidPrefix_StableRepeatsLogOnce",
+       "line": 643
+      },
+      {
+       "method": "Snapshot_LogsPatchCount_AtWalkComplete",
+       "line": 682
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

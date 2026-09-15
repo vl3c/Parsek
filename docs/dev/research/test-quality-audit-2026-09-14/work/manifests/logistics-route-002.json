@@ -1,0 +1,187 @@
+{
+ "batch_id": "logistics-route-002",
+ "cluster": "logistics-route",
+ "tier": "A1",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "RouteAnalysisEngineTests.cs",
+   "ranges": [
+    {
+     "start": 1642,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AnalyzeRecording_PurePickup_NotRejectedAtNoDeliveryManifest",
+       "line": 1642
+      },
+      {
+       "method": "AnalyzeRecording_NoFlowEitherDirection_RejectsNoDeliveryManifest",
+       "line": 1668
+      },
+      {
+       "method": "AnalyzeRecording_MixedDefinedDeliveryUndefinedPickup_AdmitsDeliveryOnly",
+       "line": 1706
+      },
+      {
+       "method": "AnalyzeTree_PurePickup_GainCheckEngaged_AdmitsLoad",
+       "line": 1754
+      },
+      {
+       "method": "AnalyzeTree_UnwitnessedDockGain_RejectsUntrackedCargoGain",
+       "line": 1778
+      },
+      {
+       "method": "ComputeFlowClosure_PlainDeliveryOnly_Closes",
+       "line": 1800
+      },
+      {
+       "method": "ComputeFlowClosure_PositiveConsumptionSlack_Closes",
+       "line": 1818
+      },
+      {
+       "method": "ComputeFlowClosure_OverDelivery_RejectsAndNamesQuantity",
+       "line": 1838
+      },
+      {
+       "method": "ComputeFlowClosure_LoadedTermCovers_Closes",
+       "line": 1858
+      },
+      {
+       "method": "ComputeFlowClosure_MultiWindowSum_OverDeliveryAcrossWindows",
+       "line": 1876
+      },
+      {
+       "method": "ComputeFlowClosure_MixedSameResourceWindow_BothTermsBalance",
+       "line": 1903
+      },
+      {
+       "method": "ComputeFlowClosure_MixedSameResourceWindow_OverDelivery_Rejects",
+       "line": 1925
+      },
+      {
+       "method": "ComputeFlowClosure_ElectricChargeNoise_Ignored",
+       "line": 1944
+      },
+      {
+       "method": "ComputeFlowClosure_IntakeAirNoise_Ignored",
+       "line": 1963
+      },
+      {
+       "method": "AnalyzeTree_OverDelivery_RejectsFlowDoesNotClose",
+       "line": 1987
+      },
+      {
+       "method": "AnalyzeTree_DegradedLineage_ClassifiesPickupWindowLocally",
+       "line": 2107
+      },
+      {
+       "method": "AnalyzeRecording_TwoDeliveryWindows_AcceptsAndOrdersByDockUT",
+       "line": 2143
+      },
+      {
+       "method": "AnalyzeRecording_ReversedDockUTInput_StillOrdersAscending",
+       "line": 2187
+      },
+      {
+       "method": "AnalyzeTree_TwoDeliveryWindows_OverDeliveryAcrossWindows_RejectsFlowDoesNotClose",
+       "line": 2217
+      },
+      {
+       "method": "AnalyzeTree_MultiPickup_CompleteManifest_NoFalseUntrackedCargoGain",
+       "line": 2249
+      },
+      {
+       "method": "AnalyzeRecording_SingleWindow_ByteIdenticalScalarsPlusOneStop",
+       "line": 2272
+      },
+      {
+       "method": "AnalyzeTree_StartDockedShuttle_WithOriginProof_Eligible",
+       "line": 2702
+      },
+      {
+       "method": "AnalyzeTree_ShuttleStart_OverlappingOriginWindow_StillStatus9",
+       "line": 2742
+      },
+      {
+       "method": "AnalyzeTree_ShuttleStart_HarvestDataPath_AcceptedWithoutHarvestOrigin",
+       "line": 2839
+      },
+      {
+       "method": "AnalyzeTree_GenuineUndockedStart_StillStatus6",
+       "line": 2872
+      },
+      {
+       "method": "AnalyzeTree_MidTreeOriginProof_EmitsMidRecordingStartTrim",
+       "line": 2943
+      },
+      {
+       "method": "AnalyzeTree_MidTreeOriginProof_AfterFirstDock_StillStatus6",
+       "line": 2963
+      },
+      {
+       "method": "AnalyzeTree_KscOrigin_ShuttleShape_AdmittedByteIdentical",
+       "line": 2980
+      },
+      {
+       "method": "ClassifyStartTrimShuttle_NoWindows_NotShuttle",
+       "line": 3011
+      },
+      {
+       "method": "ClassifyStartTrimShuttle_SingleWindowNoProof_NotShuttle",
+       "line": 3020
+      },
+      {
+       "method": "ClassifyStartTrimShuttle_PrecedingWindow_Shuttle",
+       "line": 3029
+      },
+      {
+       "method": "ClassifyStartTrimShuttle_OverlappingWindows_NotShuttle",
+       "line": 3048
+      },
+      {
+       "method": "ClassifyStartTrimShuttle_ProofBeforeFirstDock_Shuttle",
+       "line": 3062
+      },
+      {
+       "method": "ClassifyStartTrimShuttle_ProofAtOrAfterFirstDock_NotShuttle",
+       "line": 3074
+      },
+      {
+       "method": "ClassifyStartTrimShuttle_NonFiniteProofUTs_Ignored",
+       "line": 3085
+      },
+      {
+       "method": "CollectMidTreeProofStartUTs_SkipsOriginAndProofless",
+       "line": 3101
+      },
+      {
+       "method": "CollectMidTreeProofStartUTs_NoQualifyingLegs_ReturnsNull",
+       "line": 3122
+      },
+      {
+       "method": "IsSupportedMidTreeDockedOrigin_SupportedShape_True",
+       "line": 3144
+      },
+      {
+       "method": "IsSupportedMidTreeDockedOrigin_NoTree_False",
+       "line": 3156
+      },
+      {
+       "method": "IsSupportedMidTreeDockedOrigin_FewerThanTwoWindows_False",
+       "line": 3168
+      },
+      {
+       "method": "IsSupportedMidTreeDockedOrigin_OriginUndockNotStrictlyBeforeNextDock_False",
+       "line": 3183
+      },
+      {
+       "method": "IsSupportedMidTreeDockedOrigin_InvertedOrProoflessOriginWindow_False",
+       "line": 3196
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

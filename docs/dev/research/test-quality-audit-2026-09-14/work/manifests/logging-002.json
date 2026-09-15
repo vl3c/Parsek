@@ -1,0 +1,266 @@
+{
+ "batch_id": "logging-002",
+ "cluster": "logging",
+ "tier": "A",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "DiagnosticsStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EmitsAtWarnLevel_EvenWhenVerboseDisabled",
+       "line": 28
+      },
+      {
+       "method": "RateLimits_SecondCallSuppressed",
+       "line": 41
+      },
+      {
+       "method": "EmitsAfterIntervalPasses",
+       "line": 54
+      },
+      {
+       "method": "DifferentKeys_IndependentRateLimiting",
+       "line": 79
+      },
+      {
+       "method": "Append_SingleEntry_CountIsOne",
+       "line": 100
+      },
+      {
+       "method": "ComputeStats_KnownSequence",
+       "line": 111
+      },
+      {
+       "method": "ComputeStats_WindowEviction",
+       "line": 133
+      },
+      {
+       "method": "ComputeStats_EmptyBuffer",
+       "line": 153
+      },
+      {
+       "method": "ComputeStats_AllEntriesOutsideWindow_ReportsZeroEntries",
+       "line": 166
+      },
+      {
+       "method": "Reset_ClearsBuffer",
+       "line": 189
+      },
+      {
+       "method": "Append_FullBuffer_OverwritesOldest",
+       "line": 202
+      },
+      {
+       "method": "Reset_ZerosAllFields",
+       "line": 230
+      },
+      {
+       "method": "ResetSessionCounters_ClearsEverything",
+       "line": 278
+      },
+      {
+       "method": "ResetForTesting_ClearsAllState",
+       "line": 308
+      },
+      {
+       "method": "InvalidateSnapshotCache_ClearsFlag",
+       "line": 334
+      },
+      {
+       "method": "WaypointCache_SequentialAccess_CountsAsHit",
+       "line": 346
+      },
+      {
+       "method": "WaypointCache_RandomJump_CountsAsMiss",
+       "line": 368
+      },
+      {
+       "method": "WaypointCache_Reset_ZeroesBoth",
+       "line": 388
+      },
+      {
+       "method": "FormatBytes_Zero",
+       "line": 428
+      },
+      {
+       "method": "FormatBytes_Bytes",
+       "line": 434
+      },
+      {
+       "method": "FormatBytes_Kilobytes",
+       "line": 440
+      },
+      {
+       "method": "FormatBytes_Megabytes",
+       "line": 447
+      },
+      {
+       "method": "FormatBytes_Gigabytes",
+       "line": 457
+      },
+      {
+       "method": "FormatDuration_Zero",
+       "line": 469
+      },
+      {
+       "method": "FormatDuration_Seconds",
+       "line": 475
+      },
+      {
+       "method": "FormatDuration_MinutesAndSeconds",
+       "line": 481
+      },
+      {
+       "method": "FormatReport_KnownValues",
+       "line": 490
+      },
+      {
+       "method": "FormatReport_EmptyRollingBuffer",
+       "line": 578
+      },
+      {
+       "method": "FormatReport_ZeroDuration",
+       "line": 592
+      },
+      {
+       "method": "FormatReport_NoRecordings",
+       "line": 625
+      },
+      {
+       "method": "MemoryEstimation_Formula",
+       "line": 640
+      },
+      {
+       "method": "CacheHitRate_ZeroLookups",
+       "line": 679
+      },
+      {
+       "method": "GrowthRate_ZeroElapsed",
+       "line": 699
+      },
+      {
+       "method": "ComputeSnapshot_NoRecordings_Zeros",
+       "line": 727
+      },
+      {
+       "method": "ComputeSnapshot_CopiesGhostObservabilityFromPlaybackBudget",
+       "line": 745
+      },
+      {
+       "method": "PopulateGhostStateCounts_ClassifiesLiveLodTiers",
+       "line": 790
+      },
+      {
+       "method": "PopulateGhostStateCounts_UsesRenderDistanceInsteadOfActiveVesselDistance",
+       "line": 853
+      },
+      {
+       "method": "PopulateGhostStateCounts_WatchedOverlapCycleMismatch_DoesNotCountOverride",
+       "line": 891
+      },
+      {
+       "method": "GetOrComputeSnapshot_ReturnsCachedWithinTTL",
+       "line": 935
+      },
+      {
+       "method": "GetOrComputeSnapshot_RecomputesAfterTTL",
+       "line": 952
+      },
+      {
+       "method": "FormatReport_RecordingBudget_InactiveWhenNoGrowthRate",
+       "line": 972
+      },
+      {
+       "method": "FormatReport_HealthSection_WithHits",
+       "line": 986
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ObservabilityPersistencePhase3Tests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnLoadTimingMessage_IncludesPhaseAndStatus",
+       "line": 67
+      },
+      {
+       "method": "OnLoadSource_HasSingleTimingCallSite",
+       "line": 81
+      },
+      {
+       "method": "ScenarioLifecycleExceptionLog_IncludesTopLevelContextAndRecState",
+       "line": 100
+      },
+      {
+       "method": "OnSaveScenarioLifecycleExceptionLog_IncludesTopLevelContextAndRecState",
+       "line": 154
+      },
+      {
+       "method": "SnapshotSidecarInvalidLog_IncludesRecordingPathEpochAndProbeContext",
+       "line": 232
+      },
+      {
+       "method": "SnapshotSidecarUnsupportedLog_IncludesProbeVersionContext",
+       "line": 259
+      },
+      {
+       "method": "SaveRecordingFilesFailureLog_IncludesAllSidecarPaths",
+       "line": 291
+      },
+      {
+       "method": "ResolveSaveScopedPathMissingContext_LogsVerboseWithRelativePath",
+       "line": 331
+      },
+      {
+       "method": "EnsureDirectoryMissingContext_LogsWarn",
+       "line": 343
+      },
+      {
+       "method": "SidecarTransientCleanupFailure_LogsSummary",
+       "line": 355
+      },
+      {
+       "method": "CanInvoke_LogsOnlyWhenDecisionReasonChanges",
+       "line": 381
+      },
+      {
+       "method": "CanInvoke_LogsDeepParseFailureReason",
+       "line": 413
+      },
+      {
+       "method": "RewindSlotCanInvoke_LogsDisabledSlotReasonWithoutRepeatSpam",
+       "line": 440
+      },
+      {
+       "method": "RewindSlotCanInvokeLogState_ClearAllowsRemovedRpIdentityToRelease",
+       "line": 470
+      },
+      {
+       "method": "RewindSlotCanInvoke_LogsSlotOkAndGlobalFailureContext",
+       "line": 497
+      },
+      {
+       "method": "RewindSlotCanInvoke_ManyConsecutiveCalls_EmitsOnceForStableSlotOk",
+       "line": 536
+      },
+      {
+       "method": "RewindSlotCanInvoke_TimelineOnlyCalls_DoNotRespamAfterRecordingsClose",
+       "line": 570
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

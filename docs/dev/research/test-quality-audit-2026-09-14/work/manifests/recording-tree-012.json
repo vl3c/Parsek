@@ -1,0 +1,123 @@
+{
+ "batch_id": "recording-tree-012",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "RecordingStorageRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 59,
+     "end": 1099,
+     "methods": [
+      {
+       "method": "RepresentativeFixture_RoundTripsThroughRecordingStore",
+       "line": 59
+      },
+      {
+       "method": "ScenarioWriter_WritesExpectedSidecars_ForRepresentativeFixture",
+       "line": 73
+      },
+      {
+       "method": "SerializeTrajectoryInto_BackgroundFixture_LogsSingleSectionSummary",
+       "line": 158
+      },
+      {
+       "method": "BaselineFixtures_PreserveExpectedOnDiskDuplicationShape",
+       "line": 181
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecar_WritesBinaryHeader_AndRoundTrips",
+       "line": 198
+      },
+      {
+       "method": "TextTrajectorySidecar_IsUnsupportedAfterReset",
+       "line": 223
+      },
+      {
+       "method": "TextTrajectoryNode_OrbitSegmentWithoutPredictedFlag_DefaultsFalse",
+       "line": 240
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecar_PredictedCheckpoint_RoundTripsThroughSectionAuthoritativeBinary",
+       "line": 269
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecar_PredictedTailBeyondTrackSections_FallsBackToFlatBinaryAndRoundTrips",
+       "line": 323
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecar_OrbitOnlyPredictedTailAfterAtmosphericSections_FallsBackToFlatBinaryAndRoundTrips",
+       "line": 365
+      },
+      {
+       "method": "CurrentBinaryTrajectorySidecar_WithPredictedSegments_PreservesFlag",
+       "line": 467
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecar_MixedBackgroundCheckpointFallback_RoundTripsWithoutDroppingOrbitSegments",
+       "line": 503
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecar_RecorderLoadedToOnRailsFallback_RoundTripsWithoutDroppingOrbitSegments",
+       "line": 590
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecar_LegacyTopLevelOrbitBridge_NormalizesToSectionAuthoritativeCheckpoint",
+       "line": 619
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecar_FullyCoveredLegacyTopLevelOrbit_DropsFlatOrbitCache",
+       "line": 739
+      },
+      {
+       "method": "CurrentFormatTrajectorySidecars_LoadInSameProcess",
+       "line": 810
+      },
+      {
+       "method": "SnapshotSidecar_LegacyTextFormat_IsUnsupported",
+       "line": 844
+      },
+      {
+       "method": "SnapshotSidecar_CompressedFormat_UsesOptimalCompression_AndRoundTrips",
+       "line": 862
+      },
+      {
+       "method": "SnapshotSidecar_MixedLegacyAndCompressedFiles_RejectsLegacyAndLoadsCompressed",
+       "line": 886
+      },
+      {
+       "method": "SnapshotSidecar_CompressedFormat_IsSmallerThanEquivalentLegacyText",
+       "line": 911
+      },
+      {
+       "method": "UnsupportedBinaryTrajectoryVersion_IsRejected",
+       "line": 929
+      },
+      {
+       "method": "UnsupportedSnapshotSidecarVersion_IsRejected",
+       "line": 954
+      },
+      {
+       "method": "SnapshotLoad_AliasMode_RecoversFromGhostSidecar_WhenVesselSidecarMissing",
+       "line": 981
+      },
+      {
+       "method": "SnapshotLoad_SeparateMode_FallsBackToVesselSnapshot_WhenGhostSidecarMissing",
+       "line": 1008
+      },
+      {
+       "method": "SnapshotLoad_GhostOnlyRecording_RemainsSeparate",
+       "line": 1035
+      },
+      {
+       "method": "SnapshotLoad_InvalidCompressedEnvelope_IsRejectedAndLogged",
+       "line": 1059
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

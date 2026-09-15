@@ -1,0 +1,214 @@
+{
+ "batch_id": "rewind-refly-013",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "RewindPointAuthorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Begin_SceneNotFlight_Aborts_LogsWarn",
+       "line": 157
+      },
+      {
+       "method": "Begin_AppendsRpAndSetsBranchPointId_Immediately",
+       "line": 189
+      },
+      {
+       "method": "Begin_MultiControllableSplit_BuildsChildSlots_OneEach",
+       "line": 231
+      },
+      {
+       "method": "Begin_CapturesFocusedSlotIndex_WhenActiveVesselMatchesSlotPid",
+       "line": 265
+      },
+      {
+       "method": "Begin_CapturesNoFocusSignal_WhenActiveVesselDoesNotMatchAnySlot",
+       "line": 306
+      },
+      {
+       "method": "ResolveFocusSlotIndex_MultiplePidMatches_ReturnsFirstAndLogs",
+       "line": 345
+      },
+      {
+       "method": "Begin_NoSlots_ReturnsNull",
+       "line": 377
+      },
+      {
+       "method": "DeferredRun_PopulatesPidSlotMap_FromLiveVessels",
+       "line": 448
+      },
+      {
+       "method": "DeferredRun_PopulatesRootPartPidMap_FromRootParts",
+       "line": 480
+      },
+      {
+       "method": "DeferredRun_PartialSlotFailure_DisablesFailedSlot_ContinuesOthers",
+       "line": 507
+      },
+      {
+       "method": "DeferredRun_AllSlotsFail_MarksCorrupted_KeepsRP",
+       "line": 541
+      },
+      {
+       "method": "DeferredRun_RestoresTimeWarp_OnException",
+       "line": 574
+      },
+      {
+       "method": "DeferredRun_HighWarp_DropsThenRestores_OnSuccess",
+       "line": 624
+      },
+      {
+       "method": "DeferredRun_LowWarp_NoDropNoRestore",
+       "line": 657
+      },
+      {
+       "method": "DeferredRun_Succeeds_MovesSaveFileIntoRewindPointsDir",
+       "line": 686
+      },
+      {
+       "method": "DeferredRun_SaveThrows_RollsBackBranchPointIdAndScenarioList",
+       "line": 717
+      },
+      {
+       "method": "ResolveSlotVesselPid_ResolverReturnsPid_UsesIt",
+       "line": 749
+      },
+      {
+       "method": "ResolveSlotVesselPid_NullSlot_ReturnsNull",
+       "line": 757
+      },
+      {
+       "method": "ResolveSlotVesselPid_EmptyRecordingId_ReturnsNull",
+       "line": 763
+      },
+      {
+       "method": "RunDeferred_SceneChangedMidCoroutine_RollsBack",
+       "line": 782
+      },
+      {
+       "method": "Begin_UnderActiveSession_CopiesCreatingSessionId",
+       "line": 849
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindTreeLookupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetRewindSaveFileName_DirectSave_ReturnsSave",
+       "line": 89
+      },
+      {
+       "method": "GetRewindSaveFileName_NoSaveNoTree_ReturnsNull",
+       "line": 104
+      },
+      {
+       "method": "GetRewindSaveFileName_TreeBranch_ReturnsRootSave",
+       "line": 118
+      },
+      {
+       "method": "GetRewindSaveFileName_TreeBranchRootHasNoSave_ReturnsNull",
+       "line": 132
+      },
+      {
+       "method": "GetRewindSaveFileName_TreeNotFound_ReturnsNull",
+       "line": 146
+      },
+      {
+       "method": "GetRewindRecording_TreeBranch_ReturnsRootRecording",
+       "line": 165
+      },
+      {
+       "method": "GetRewindRecording_MultipleTrees_FindsCorrectTree",
+       "line": 180
+      },
+      {
+       "method": "GetRewindRecording_DirectSave_ReturnsSelf",
+       "line": 198
+      },
+      {
+       "method": "GetRewindRecording_NullRecording_ReturnsNull",
+       "line": 212
+      },
+      {
+       "method": "CanRewind_TreeBranch_ResolvesViaRoot",
+       "line": 224
+      },
+      {
+       "method": "CanRewind_NoBranchNoSave_ReturnsNoSaveAvailable",
+       "line": 246
+      },
+      {
+       "method": "CanRewind_TreeBranchRootHasNoSave_ReturnsNoSaveAvailable",
+       "line": 262
+      },
+      {
+       "method": "CanRewind_TreeBranchSaveFileMissing_ReturnsSaveMissing",
+       "line": 280
+      },
+      {
+       "method": "GetRewindRecording_TreeBranch_NoExtraLogging",
+       "line": 302
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_StandaloneWithOwnSave_ReturnsTrue",
+       "line": 336
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_TreeRootWithSave_ReturnsTrue",
+       "line": 354
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_TreeBranchNonOwner_ReturnsFalse",
+       "line": 374
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_ReFlyReplacementOfHiddenRoot_ReturnsTrue",
+       "line": 399
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_ReFlySupersedeChainEndpointOnly_ReturnsTrue",
+       "line": 497
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_ChainMemberOfUnfinishedFlight_ReturnsFalse",
+       "line": 550
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_FutureRecording_ReturnsFalse",
+       "line": 632
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_NullRecording_ReturnsFalse",
+       "line": 651
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_NoRewindSaveAnywhere_ReturnsFalse",
+       "line": 659
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_ChainHeadWithUnfinishedTip_ReturnsTrue",
+       "line": 676
+      },
+      {
+       "method": "ShouldShowLegacyRewindButton_StandaloneCrashedRecording_StillReturnsTrue",
+       "line": 767
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

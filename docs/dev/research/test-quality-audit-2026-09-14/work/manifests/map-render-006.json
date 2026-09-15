@@ -1,0 +1,266 @@
+{
+ "batch_id": "map-render-006",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "MapRender/CrossMemberSeamStitcherTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DescentSeamHead_TriggeredFrame_ReAnchorsToSweptDeorbitHead",
+       "line": 116
+      },
+      {
+       "method": "DescentSeamHead_BeforeTrigger_IsLoiter_NotRendered",
+       "line": 142
+      },
+      {
+       "method": "DescentSeamHead_ExactlyAtDescentEnd_StillRenders_OneTickPastRetires",
+       "line": 163
+      },
+      {
+       "method": "DescentSeamHead_NonDescentMember_ReturnsFalse_ByteIdentical",
+       "line": 210
+      },
+      {
+       "method": "DeorbitTailLegHead_EligibleLegBelowSeam_GatesOnSweptHead",
+       "line": 227
+      },
+      {
+       "method": "TangentSeam_AlignedTangents_AreContinuous",
+       "line": 249
+      },
+      {
+       "method": "TangentSeam_DivergentTangents_AreDiscontinuity",
+       "line": 257
+      },
+      {
+       "method": "TangentSeam_DegenerateTangent_IsContinuous_NoFalseAnomaly",
+       "line": 265
+      },
+      {
+       "method": "TangentSeam_RespectsCustomTolerance",
+       "line": 274
+      },
+      {
+       "method": "TangentFromPositions_FirstDifference_IsTheSegmentDirection",
+       "line": 284
+      },
+      {
+       "method": "TangentFromPositions_DegeneratePair_IsZero",
+       "line": 293
+      },
+      {
+       "method": "OrbitLandingSeam_IsRigidG1_OnCamera",
+       "line": 303
+      },
+      {
+       "method": "Stitch_ComposesAfterRemap_HeadIsReAnchored_NotTheRawSampleUT",
+       "line": 317
+      },
+      {
+       "method": "Stitch_TriggeredDescentMember_PromotesVisibleTracedPathDescent",
+       "line": 346
+      },
+      {
+       "method": "Stitch_TracedFamilyPromotionTarget_StitchesWithNoWarn",
+       "line": 416
+      },
+      {
+       "method": "StampOrbitLandingSeam_SetsRigidLeading_PreservesEverythingElse",
+       "line": 478
+      },
+      {
+       "method": "Stitch_NonReaimUnit_ReturnsFalse_ByteIdentical",
+       "line": 500
+      },
+      {
+       "method": "Stitch_NonDescentMember_OfDescentUnit_ReturnsFalse",
+       "line": 514
+      },
+      {
+       "method": "Stitch_PastDescentEnd_RetiresSubSurfaceGhost_NoHeldSample",
+       "line": 527
+      },
+      {
+       "method": "ChainSampler_PastClip_SpanClockRenderHiddenIsTheProductionRetire_OutsideWindow",
+       "line": 560
+      },
+      {
+       "method": "Stitch_NullChain_OrNullUnits_ReturnsFalse",
+       "line": 581
+      },
+      {
+       "method": "DescentStitchedDetails_CarryMemberHeadPhaseAndRigidG1Seam",
+       "line": 593
+      },
+      {
+       "method": "TangentDiscontinuity_TokenDetailsAndRaiseDecision",
+       "line": 611
+      },
+      {
+       "method": "Stitch_Triggered_RecordsDescentStitchTraceOnce_OnChange",
+       "line": 634
+      },
+      {
+       "method": "ShouldEmitDescentStitchOnChange_DirectPredicate_TrueRepeatFalse_ChangeTrue",
+       "line": 674
+      },
+      {
+       "method": "ShouldEmitDescentStitchOnChange_Disabled_NeverEmits",
+       "line": 702
+      },
+      {
+       "method": "TransferDeorbitTailHead_LoiterFrame_TransferMember_ResolvesSweptHead",
+       "line": 721
+      },
+      {
+       "method": "TransferDeorbitTailHead_NonTransferMember_ReturnsFalse_ByteIdentical",
+       "line": 751
+      },
+      {
+       "method": "ShouldEvaluateTangentSeamAtDraw_GatesOnAllFourConditions",
+       "line": 774
+      },
+      {
+       "method": "TangentSeamAngleRadians_MeasurablePairs_MatchThePredicateGeometry",
+       "line": 782
+      },
+      {
+       "method": "TangentSeamAngleRadians_UnmeasurablePair_IsNaN_NeverAFalseAngle",
+       "line": 793
+      },
+      {
+       "method": "TangentSeamOnChange_OncePerOnset_ReArmsAfterContinuous",
+       "line": 804
+      },
+      {
+       "method": "TangentSeamOnChange_Disabled_NeverEmits",
+       "line": 828
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/RenderSessionStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryFindFirstNonRejectedFrameAtOrAfter_SkipsRejectedBoundaryFrame",
+       "line": 179
+      },
+      {
+       "method": "TryFindFirstNonRejectedFrameAtOrAfter_DoesNotBacktrackBeforeBoundary",
+       "line": 199
+      },
+      {
+       "method": "TryEvaluatePerSegmentWorldPositions_OutlierFlags_FailsWhenNoCleanAtOrAfterBoundary",
+       "line": 220
+      },
+      {
+       "method": "TryEvaluatePerSegmentWorldPositions_OutlierFlags_SkipsRejectedRawBoundarySample",
+       "line": 261
+      },
+      {
+       "method": "RebuildFromMarker_NullMarker_NoAnchors_LogsInfo",
+       "line": 298
+      },
+      {
+       "method": "RebuildFromMarker_OrphanMarker_LogsWarn_NoAnchors",
+       "line": 323
+      },
+      {
+       "method": "RebuildFromMarker_DestroyedLiveVessel_NoAnchors_LogsWarn",
+       "line": 352
+      },
+      {
+       "method": "RebuildFromMarker_SingleSibling_OneAnchor_EpsilonMatchesOffset",
+       "line": 384
+      },
+      {
+       "method": "RebuildFromMarker_TwoSiblings_TwoAnchors",
+       "line": 448
+      },
+      {
+       "method": "RebuildFromMarker_SameMarkerTwice_Idempotent",
+       "line": 480
+      },
+      {
+       "method": "RebuildFromMarker_DifferentSession_OverwritesPrevious",
+       "line": 518
+      },
+      {
+       "method": "Clear_RemovesAll_LogsInfoWithReason",
+       "line": 564
+      },
+      {
+       "method": "TryLookup_AfterClear_ReturnsFalse",
+       "line": 595
+      },
+      {
+       "method": "TryLookup_UnknownKey_ReturnsFalse",
+       "line": 622
+      },
+      {
+       "method": "LiveReadHappensExactlyOnce_AcrossMultipleSiblings",
+       "line": 634
+      },
+      {
+       "method": "RebuildFromMarker_RelativeSection_SkippedWithVerbose",
+       "line": 671
+      },
+      {
+       "method": "RebuildFromMarker_InertialSpline_FallsBackToRawSample",
+       "line": 736
+      },
+      {
+       "method": "RebuildFromMarker_InertialSpline_LogsSkip",
+       "line": 787
+      },
+      {
+       "method": "RebuildFromMarker_BodyFixedSpline_StillUsesSplineEvaluation",
+       "line": 826
+      },
+      {
+       "method": "RebuildFromMarker_LiveLookupKeysOffActiveReFlyRecordingId",
+       "line": 865
+      },
+      {
+       "method": "ResolveLiveVesselPidForRecording_PrefersVesselPersistentId",
+       "line": 909
+      },
+      {
+       "method": "ResolveLiveVesselPidForRecording_FallsBackToSpawnedPid",
+       "line": 931
+      },
+      {
+       "method": "ResolveLiveVesselPidForRecording_PrefersVesselOverSpawnedWhenBothSet",
+       "line": 951
+      },
+      {
+       "method": "ResolveLiveVesselPidForRecording_BothZero_ReturnsZero",
+       "line": 970
+      },
+      {
+       "method": "ResolveLiveVesselPidForRecording_RecordingMissing_ReturnsZero",
+       "line": 989
+      },
+      {
+       "method": "RebuildFromMarker_ClearsLerpDedupSets",
+       "line": 1001
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

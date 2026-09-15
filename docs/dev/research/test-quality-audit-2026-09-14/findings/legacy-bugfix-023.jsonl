@@ -1,0 +1,58 @@
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_NullRecordingIdAndRolloutDedupKey_True","line":77,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_AdoptedAction_False","line":85,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_OrdinaryRecordingBuildAction_False","line":93,"verdict":"duplicate","category":"T2","twin":"Bug452RolloutLabelTests.cs.IsUnclaimedRolloutAction_AdoptedAction_False","falsifiability":"falsifiability: Source/Parsek/GameActions/GameActionDisplay.cs:213; drop the RecordingId and DedupKey-empty guards -> both red together","note":"MakeOrdinaryBuildAction and MakeAdoptedRollout build field-identical GameActions (RecordingId=rec-A, DedupKey=null); same assertion, same observable."}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_NonRolloutDedupKey_False","line":101,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_DedupKeyIsRolloutWithoutColon_False","line":117,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_ProductionShapeDedupKey_True","line":135,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_RecordingIdSetAndRolloutDedupKeyNonNull_False","line":158,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_DedupKeyIsRolloutPrefixOnly_True","line":178,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_VesselBuildButNoDedupKey_False","line":198,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_NonFundsSpendingType_False","line":215,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"IsUnclaimedRolloutAction_NullAction_False","line":226,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"GetDescription_UnclaimedRollout_AppendsCancelledRolloutSuffix","line":236,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"GetDescription_AdoptedRollout_NoSuffix","line":245,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"GetDescription_OrdinaryRecordingBuildCost_NoSuffix","line":253,"verdict":"duplicate","category":"T2","twin":"Bug452RolloutLabelTests.cs.GetDescription_AdoptedRollout_NoSuffix","falsifiability":"falsifiability: Source/Parsek/GameActions/GameActionDisplay.cs:46; append the suffix unconditionally -> both red together","note":"Input GameActions are field-identical; both assert the same string Vessel build -5000."}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"TimelineGetGameActionText_UnclaimedRollout_AppendsCancelledRolloutSuffix","line":266,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"TimelineGetGameActionText_AdoptedRollout_NoSuffix","line":276,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","method":"TimelineGetGameActionText_OrdinaryRecordingBuildCost_NoSuffix","line":284,"verdict":"duplicate","category":"T2","twin":"Bug452RolloutLabelTests.cs.TimelineGetGameActionText_AdoptedRollout_NoSuffix","falsifiability":"falsifiability: Source/Parsek/Timeline/TimelineEntryDisplay.cs:369; append the suffix unconditionally -> both red together","note":"Input GameActions are field-identical; both assert Build -5000."}
+{"kind":"finding","id":"F-legacy-bugfix-023-01","file":"Source/Parsek.Tests/Bug452RolloutLabelTests.cs","line":60,"method":"IsUnclaimedRolloutAction_OrdinaryRecordingBuildAction_False","category":"T2","severity":"Low","confidence":"high","falsifiability":"falsifiability: Source/Parsek/GameActions/GameActionDisplay.cs:205; any mutation that reds one test of a pair reds its twin -> both red","what_it_asserts":"Three test pairs assert the adopted-rollout case and the ordinary-build case, but MakeAdoptedRollout (line 48) and MakeOrdinaryBuildAction (line 60) produce field-identical GameActions.","why_weak":"The helpers differ only in name and comment, so each pair asserts one behavior twice and covers no extra branch.","proposed_action":"Give MakeOrdinaryBuildAction a distinguishing field (for example a non-rollout DedupKey the recording-side delta path can set), or merge each pair into a single test.","effort":"S","july_ref":"none"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"IncludesCommittedRecordingIds","line":49,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"IncludesPendingTreeRecordingIds","line":59,"verdict":"duplicate","category":"T2","twin":"Bug290OrphanSidecarTests.cs.PendingTreeIds_NotTreatedAsOrphans","falsifiability":"falsifiability: Source/Parsek/RecordingStore.OrphanCleanup.cs:277; drop the pendingTree AddKnownTreeRecordingIds call -> both red together","note":"Twin stashes the same tree shape with three recordings and additionally pins Count==3; this test asserts a strict subset."}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"PendingTreeIds_NotTreatedAsOrphans","line":90,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"CombinesCommittedAndPendingIds","line":130,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"NoPendingTree_OnlyReturnsCommitted","line":157,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"EmptyStore_ReturnsEmptySet","line":172,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"SkipsNullOrEmptyRecordingIds","line":179,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"DeduplicatesCommittedRecordingsAndTrees","line":213,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"OutOverload_ReportsPendingTreeCount","line":230,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug290OrphanSidecarTests.cs","method":"CleanOrphanFiles_DeletesTransientArtifacts_WithoutTouchingValidSidecars","line":265,"verdict":"ok"}
+{"kind":"coverage","sut":"RecordingStore","sut_file":"Source/Parsek/RecordingStore.OrphanCleanup.cs","sut_line":278,"case_kind":"negative","proposed_name":"BuildKnownRecordingIds_SavedPendingTreeDuringActiveRestore_IdsAreKnown","sketch":"Populate savedPendingTreeDuringActiveRestore with a two-recording tree, call BuildKnownRecordingIds(out count), assert both ids are present and count is 2.","guards":"Dropping the savedPendingTreeDuringActiveRestore contribution would quarantine live sidecars during an active-tree restore; no committed test covers that second source.","risk":"data-loss"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsPadFailure_ShortDurationAndCloseDistance_ReturnsTrue","line":49,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsPadFailure_LongDuration_ReturnsFalse","line":56,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsPadFailure_FarDistance_ReturnsFalse","line":63,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsPadFailure_ExactThresholds_ReturnsFalse","line":70,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsPadFailure_BothExceedThresholds_ReturnsFalse","line":77,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsPadFailure_ZeroDurationAndZeroDistance_ReturnsTrue","line":83,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsPadFailure_DistanceJustUnderThreshold_ReturnsTrue","line":90,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsIdleOnPad_ZeroDistance_ReturnsTrue","line":100,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsIdleOnPad_JustUnderThreshold_ReturnsTrue","line":106,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsIdleOnPad_ExactThreshold_ReturnsFalse","line":112,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsIdleOnPad_AboveThreshold_ReturnsFalse","line":119,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsIdleOnPad_ToppledPadDropOverride_ReturnsTrue","line":125,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsPadFailure_ToppledPadDropOverride_ReturnsTrue","line":137,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsIdleOnPad_VerticalLaunchBeyondPadAltitudeThreshold_ReturnsFalse","line":147,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsIdleOnPad_DownhillSlideBeyondPadAltitudeThreshold_ReturnsFalse","line":159,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsTreeIdleOnPad_AllIdleRecordings_ReturnsTrue","line":170,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsTreeIdleOnPad_MixedPointsAndZeroPoints_ReturnsTrue","line":183,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsTreeIdleOnPad_ZeroPointRecordings_ReturnsFalse","line":197,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsTreeIdleOnPad_MixedRecordings_ReturnsFalse","line":210,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsTreeIdleOnPad_NullTree_ReturnsFalse","line":219,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsTreeIdleOnPad_EmptyTree_ReturnsFalse","line":225,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsTreeIdleOnPad_AfterConfigNodeRoundTrip_RetainsMaxDistance","line":232,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"IsTreePadFailure_ToppledPadDropOverride_ReturnsTrue","line":258,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"ComputeTerrainClearance_InsideBubble_Returns05","line":275,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"ComputeTerrainClearance_AtBubbleEdge_Returns2","line":282,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"ComputeTerrainClearance_AtVisualRange_Returns5","line":289,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"ComputeTerrainClearance_BeyondVisualRange_ClampedAt5","line":295,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"ComputeTerrainClearance_Midpoint_LerpsCorrectly","line":301,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Bug156Tests.cs","method":"CacheEngineModules_NullVessel_ReturnsEmptyList","line":320,"verdict":"ok"}

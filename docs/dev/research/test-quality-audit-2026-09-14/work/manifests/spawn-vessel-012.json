@@ -1,0 +1,242 @@
+{
+ "batch_id": "spawn-vessel-012",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 53,
+ "files": [
+  {
+   "file": "SpawnRotationContractTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Fixture_WorldAndSurfaceRelativeRotationsAreDistinguishable",
+       "line": 125
+      },
+      {
+       "method": "ComputeProtoVesselSpawnRotation_ReturnsRecordedSurfaceRelative_NotBodyComposed",
+       "line": 143
+      },
+      {
+       "method": "ComputeProtoVesselSpawnRotation_SanitizesNonFiniteComponents",
+       "line": 156
+      },
+      {
+       "method": "ApplyProtoVesselSpawnRotationToNode_WritesRawSurfaceRelative_UnderNonIdentityBody",
+       "line": 175
+      },
+      {
+       "method": "ApplyProtoVesselSpawnRotationToNode_WrittenValueRecoversWorldRotationOnLoad",
+       "line": 196
+      },
+      {
+       "method": "ApplyProtoVesselSpawnRotationToNode_LogsSurfaceRelativeFrameAndBothQuaternions",
+       "line": 217
+      },
+      {
+       "method": "ApplyProtoVesselSpawnRotationToNode_LogsBodyRotationUnavailableWhenNotResolved",
+       "line": 233
+      },
+      {
+       "method": "TryApplySpawnRotation_NullNode_ReturnsFalse",
+       "line": 253
+      },
+      {
+       "method": "TryApplySpawnRotation_NoRecordedRotation_LeavesNodeRotUntouched",
+       "line": 260
+      },
+      {
+       "method": "TryApplySpawnRotation_PresentRotation_OverwritesNodeRot",
+       "line": 277
+      },
+      {
+       "method": "TryGetPreferredSpawnRotationFrame_LandedTerminalPose_PrefersTerminalPose",
+       "line": 330
+      },
+      {
+       "method": "TryGetPreferredSpawnRotationFrame_OrbitingTerminal_IsNotASurfaceFrame",
+       "line": 349
+      },
+      {
+       "method": "TryGetPreferredSpawnRotationFrame_SplashedTerminal_IsASurfaceFrame",
+       "line": 370
+      },
+      {
+       "method": "TryGetPreferredSpawnRotationFrame_TerminalPoseWithoutRotation_FallsBackToTrajectoryTail",
+       "line": 383
+      },
+      {
+       "method": "TryGetPreferredSpawnRotationFrame_NoBodyAnywhere_ReportsNoFrame",
+       "line": 404
+      },
+      {
+       "method": "TryGetPreferredSpawnRotationFrame_SanitizesNonFiniteTerminalRotation",
+       "line": 417
+      },
+      {
+       "method": "TryResolvePreferredSpawnRotation_UnresolvableBody_KeepsSurfaceRelativeAndNullsBodyRotation",
+       "line": 430
+      },
+      {
+       "method": "TryApplyPreferredSpawnRotation_NonSurfaceTerminal_LeavesSnapshotRotUntouched",
+       "line": 458
+      },
+      {
+       "method": "ApplyResolvedSpawnStateToSnapshot_LandedRecording_WritesRawSurfaceRelativeRot",
+       "line": 480
+      },
+      {
+       "method": "ApplyResolvedSpawnStateToSnapshot_PreferredRotationDisallowed_KeepsRecordedRot",
+       "line": 513
+      },
+      {
+       "method": "PrepareSpawnNodeAtPosition_WithSurfaceRelativeRotation_WritesRawValue",
+       "line": 538
+      },
+      {
+       "method": "PrepareSpawnNodeAtPosition_WithoutRotation_LeavesRecordedRotUntouched",
+       "line": 563
+      },
+      {
+       "method": "OverrideSnapshotPosition_WritesRawSurfaceRelativeRotAndLogsSource",
+       "line": 583
+      },
+      {
+       "method": "VesselSnapshotBuilder_DefaultRotationIsIdentityLiteral",
+       "line": 611
+      },
+      {
+       "method": "VesselSnapshotBuilder_NonIdentityRotationRoundTripsThroughKspParser",
+       "line": 621
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DebrisParentAnchorContractTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ApplyParentAnchorContract_NonDebrisChild_StampsParentRecordingId",
+       "line": 54
+      },
+      {
+       "method": "ApplyParentAnchorContract_DebrisChild_StampsParentRecordingId",
+       "line": 68
+      },
+      {
+       "method": "ApplyParentAnchorContract_DebrisChild_NullParent_LeavesFieldNull",
+       "line": 79
+      },
+      {
+       "method": "ApplyParentAnchorContract_StringOverload_DebrisChild_StampsId",
+       "line": 89
+      },
+      {
+       "method": "ApplyParentAnchorContract_StringOverload_NonDebrisChild_StampsId",
+       "line": 99
+      },
+      {
+       "method": "ApplyParentAnchorContract_NullParentString_LeavesFieldNull",
+       "line": 110
+      },
+      {
+       "method": "ApplyParentAnchorContract_ParentWithEmptyRecordingId_LeavesFieldNull",
+       "line": 123
+      },
+      {
+       "method": "ApplyParentAnchorContract_NullChild_DoesNotThrow",
+       "line": 135
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_DebrisChild_StampsParentRecordingId",
+       "line": 146
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_ControlledChild_StampsParentRecordingId",
+       "line": 163
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_MixedChildren_AllReceiveParentAnchor",
+       "line": 183
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_DebrisRecording_PropagatesParentRecordingId",
+       "line": 210
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_NonDebrisRecording_LeavesFieldNull",
+       "line": 227
+      },
+      {
+       "method": "SessionMerger_DebrisRecording_MergedCopyKeepsParentRecordingId",
+       "line": 245
+      },
+      {
+       "method": "SessionMerger_NonDebrisRecording_MergedCopyHasNullParentRecordingId",
+       "line": 287
+      },
+      {
+       "method": "CopyInheritedIdentityForFork_DebrisProvisional_PropagatesParentRecordingId",
+       "line": 337
+      },
+      {
+       "method": "CopyInheritedIdentityForFork_NonDebrisProvisional_LeavesParentRecordingIdNull",
+       "line": 388
+      },
+      {
+       "method": "CopyInheritedIdentityForFork_NullGuards_AreNoOp",
+       "line": 411
+      },
+      {
+       "method": "SplitAtSection_DebrisRecording_BothHalvesKeepParentRecordingId",
+       "line": 426
+      },
+      {
+       "method": "CanAutoMerge_BothNonDebris_ReturnsTrue",
+       "line": 505
+      },
+      {
+       "method": "CanAutoMerge_OneDebrisOneNotDebris_ReturnsFalse",
+       "line": 514
+      },
+      {
+       "method": "CanAutoMerge_BothDebrisDifferentParents_ReturnsFalse",
+       "line": 526
+      },
+      {
+       "method": "CanAutoMerge_BothDebrisSameParent_ReturnsTrue",
+       "line": 539
+      },
+      {
+       "method": "IsReFlyPostLoadSettleActiveForRecording_NoFocusRecorder_ReturnsFalse",
+       "line": 554
+      },
+      {
+       "method": "IsReFlyPostLoadSettleActiveForRecording_FocusActiveButNoSettle_ReturnsFalse",
+       "line": 562
+      },
+      {
+       "method": "IsReFlyPostLoadSettleActiveForRecording_SettleActiveButIdMismatch_ReturnsFalse",
+       "line": 577
+      },
+      {
+       "method": "IsReFlyPostLoadSettleActiveForRecording_SettleActiveAndIdMatches_ReturnsTrue",
+       "line": 593
+      },
+      {
+       "method": "IsReFlyPostLoadSettleActiveForRecording_NullRecordingId_ReturnsFalse",
+       "line": 609
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

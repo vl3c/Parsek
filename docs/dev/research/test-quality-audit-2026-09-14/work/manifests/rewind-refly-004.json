@@ -1,0 +1,191 @@
+{
+ "batch_id": "rewind-refly-004",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "RewindSupersedeRollbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Drops_OwnerRow_WhenForkInFuture",
+       "line": 88
+      },
+      {
+       "method": "Drops_BranchRow_WhenForkInFuture",
+       "line": 113
+      },
+      {
+       "method": "Keeps_RowFromUnrelatedTree",
+       "line": 148
+      },
+      {
+       "method": "Keeps_ForkBeforeRewindUT",
+       "line": 177
+      },
+      {
+       "method": "Drops_MultiGenerationalChain",
+       "line": 204
+      },
+      {
+       "method": "DetailedRollback_MultiGenerationalChain_RetiresForksAndRestoresOnlyOrigin",
+       "line": 235
+      },
+      {
+       "method": "LiveRollback_DeduplicatesRetirement_WhenMultipleOldRowsPointToSameNew",
+       "line": 266
+      },
+      {
+       "method": "LiveRollback_DoesNotRetireOldSides_WhenForksAreNotCommitted",
+       "line": 315
+      },
+      {
+       "method": "LiveRollback_KeepsOwnerVisible_WhenOwnerWasOldSide",
+       "line": 394
+      },
+      {
+       "method": "LiveRollback_DoesNotRetireOldSide_WhenForkIsCommittedProvisional",
+       "line": 443
+      },
+      {
+       "method": "LiveRollback_NoOldSideRetirement_InDemotedImmutableChain",
+       "line": 496
+      },
+      {
+       "method": "LiveRollback_OrphanRelation_DoesNotRetireOldSide",
+       "line": 540
+      },
+      {
+       "method": "LiveRollback_SelfRewindOnCanon_DoesNotRetireOldSide",
+       "line": 576
+      },
+      {
+       "method": "AnyDroppedRelationRetiresPriorTipPermanently_TruthTable",
+       "line": 619
+      },
+      {
+       "method": "LiveRollback_KeepsOriginAtBoundary_WhenStartUTEqualsRewindUT",
+       "line": 704
+      },
+      {
+       "method": "ReapplyRewindSupersedeDropAfterLoad_Idempotent_DoesNotDuplicateOldSideRetirements",
+       "line": 745
+      },
+      {
+       "method": "ReapplyRewindSupersedeDropAfterLoad_RecreatesRetirement_WhenScenarioRestoresSupersede",
+       "line": 785
+      },
+      {
+       "method": "LiveRollback_CreatedUTFallsBackToRewindAdjustedUT_WhenClockUnavailable",
+       "line": 813
+      },
+      {
+       "method": "CanFastForwardAtUT_RewindRetiredRecording_ReturnsFalse",
+       "line": 844
+      },
+      {
+       "method": "NullArgs_NoOp",
+       "line": 873
+      },
+      {
+       "method": "Pure_HandlesNullOwnerTreeRecordings_OwnerOnlyDrop",
+       "line": 885
+      },
+      {
+       "method": "OrphanRow_DropsByRelUT_WhenForkMissingFromLiveDict",
+       "line": 912
+      },
+      {
+       "method": "TryFindCommittedRecordingById_ReturnsRecording_WhenIdMatches",
+       "line": 949
+      },
+      {
+       "method": "TryFindCommittedRecordingById_ReturnsNull_OnNullEmptyOrUnknownId",
+       "line": 965
+      },
+      {
+       "method": "ReapplyRewindSupersedeDropAfterLoad_NoOp_WhenNotRewinding",
+       "line": 973
+      },
+      {
+       "method": "ReapplyRewindSupersedeDropAfterLoad_NoOp_WhenOwnerIdEmpty",
+       "line": 982
+      },
+      {
+       "method": "OrphanRow_KeptWhenRelUT_BeforeRewindUT",
+       "line": 1000
+      },
+      {
+       "method": "Rollback_PreservesRelation_WhenForkIsImmutable",
+       "line": 1077
+      },
+      {
+       "method": "Rollback_DropsRelation_WhenForkIsCommittedProvisional",
+       "line": 1107
+      },
+      {
+       "method": "Rollback_DropsRelation_WhenForkIsNotCommitted",
+       "line": 1133
+      },
+      {
+       "method": "Rollback_MixedChain_DemotesImmutablePreservation_WhenPriorTipIsRetired",
+       "line": 1158
+      },
+      {
+       "method": "Rollback_TwoGenerationCanon_ChainPreservedIntact",
+       "line": 1196
+      },
+      {
+       "method": "Rollback_LogsSkippedImmutableSummary",
+       "line": 1232
+      },
+      {
+       "method": "Rollback_DropsImmutable_WhenLiveLookupMissing",
+       "line": 1266
+      },
+      {
+       "method": "Rollback_ThreeGenChain_TransitiveDemotion_AllNonCanonRetire",
+       "line": 1294
+      },
+      {
+       "method": "Rollback_FourGenWithCanonHead_TransitiveDemotionStopsAtCanonBoundary",
+       "line": 1367
+      },
+      {
+       "method": "LiveRollback_DemotedImmutableFork_WritesRetirement",
+       "line": 1417
+      },
+      {
+       "method": "LiveRollback_HybridChain_CanonPreserved_SiblingOldSideRetired",
+       "line": 1489
+      },
+      {
+       "method": "LiveRollback_DemotedImmutableFork_RetirementCarriesDemotedCanonReason",
+       "line": 1574
+      },
+      {
+       "method": "Rollback_SelfRewindOnImmutableFork_DropsIncomingSupersede",
+       "line": 1619
+      },
+      {
+       "method": "LiveRollback_FourGenWithCanonHead_PreservedCanonNotRetiredByOldSidePass",
+       "line": 1670
+      },
+      {
+       "method": "LiveRollback_SelfRewindOnImmutableFork_WritesRetirementWithSelfRewoundReason",
+       "line": 1742
+      },
+      {
+       "method": "Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops",
+       "line": 1802
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

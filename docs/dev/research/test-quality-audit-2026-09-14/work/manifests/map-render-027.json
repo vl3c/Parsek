@@ -1,0 +1,101 @@
+{
+ "batch_id": "map-render-027",
+ "cluster": "map-render",
+ "tier": "C",
+ "expected_methods": 15,
+ "files": [
+  {
+   "file": "MapRender/ChainAssemblerLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_EmitsAssemblySummaryLine_WithCountsAndWindow",
+       "line": 58
+      },
+      {
+       "method": "Build_FaithfulFallback_IsReflectedInTheAssemblyLine",
+       "line": 75
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/PhaseIdTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Equality_SameComponents_AreEqual",
+       "line": 19
+      },
+      {
+       "method": "Equality_DifferentInstanceKey_AreDistinct",
+       "line": 28
+      },
+      {
+       "method": "Equality_DifferentOrdinal_AreDistinct",
+       "line": 36
+      },
+      {
+       "method": "Equality_DifferentRecording_AreDistinct",
+       "line": 44
+      },
+      {
+       "method": "CanKeyADictionary_OverlappingInstancesDoNotCollide",
+       "line": 52
+      },
+      {
+       "method": "IsEmpty_DefaultStruct",
+       "line": 65
+      },
+      {
+       "method": "ToString_IsGrepStable",
+       "line": 72
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/TrajectoryPointFlagsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "None_IsZero",
+       "line": 15
+      },
+      {
+       "method": "StructuralEventSnapshot_IsBitZero",
+       "line": 21
+      },
+      {
+       "method": "StructuralEventSnapshot_HasFlagDetectsSetBit",
+       "line": 27
+      },
+      {
+       "method": "None_HasFlagDetectsNoSetBit",
+       "line": 35
+      },
+      {
+       "method": "OrCombines_PreservesBitZero",
+       "line": 43
+      },
+      {
+       "method": "DefaultTrajectoryPoint_FlagsIsZero",
+       "line": 55
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,199 @@
+{
+ "batch_id": "spawn-vessel-003",
+ "cluster": "spawn-vessel",
+ "tier": "A",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "VesselSwitchTreeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DecideOnVesselSwitch_NoTree_FallbackTransitionToBackground",
+       "line": 120
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_TargetInBackgroundMap_ReturnsPromote",
+       "line": 128
+      },
+      {
+       "method": "IdleSwitchToTrackedBackgroundMember_ArmsWatcherInsteadOfPromotingImmediately",
+       "line": 137
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_TargetNotInTree_ReturnsTransition",
+       "line": 166
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_UndockSibling_TakesPriority",
+       "line": 176
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_EvaToEva_TakesPriority",
+       "line": 186
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_ChainToVessel_TakesPriority",
+       "line": 196
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_SamePid_ReturnsNone",
+       "line": 206
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_EmptyBackgroundMap_ReturnsTransition",
+       "line": 215
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeNull_DoesNotCrash",
+       "line": 225
+      },
+      {
+       "method": "BackgroundMap_RebuiltCorrectly_AfterTransition",
+       "line": 237
+      },
+      {
+       "method": "TryFindCommittedTreeForSpawnedVessel_PrefersLatestRestorableRecordingForSpawnedPid",
+       "line": 292
+      },
+      {
+       "method": "TryFindCommittedTreeForSpawnedVessel_PrefersNewestCommittedTreeAcrossList",
+       "line": 334
+      },
+      {
+       "method": "TryFindCommittedTreeForSpawnedVessel_AdoptedSourcePidMatchesSourceVessel",
+       "line": 376
+      },
+      {
+       "method": "TryFindCommittedTreeForSpawnedVessel_MatchesTreeReloadedFromConfigNode",
+       "line": 395
+      },
+      {
+       "method": "PrepareCommittedTreeRestoreForSpawnedVessel_BackgroundTarget_UsesSpawnedPidAndClearsStaleBackgroundEntry",
+       "line": 439
+      },
+      {
+       "method": "PrepareCommittedTreeRestoreForSpawnedVessel_ActiveTarget_ResumesAndClearsStaleBackgroundEntry",
+       "line": 464
+      },
+      {
+       "method": "TryTakeCommittedTreeForSpawnedVesselRestore_ClonesTreeAndAllowsRecommit",
+       "line": 487
+      },
+      {
+       "method": "DiscardPendingTree_AfterCommittedSpawnedRestore_KeepsCommittedTreeAndPurgesAttemptEventTails",
+       "line": 552
+      },
+      {
+       "method": "CommittedTreeRestoreAttemptEventPersistenceFilter_OnlySuppressesPostCommitTail",
+       "line": 640
+      },
+      {
+       "method": "CommittedTreeRestoreAttemptEventPersistenceFilter_SuppressesPendingOnlyAttemptIds",
+       "line": 691
+      },
+      {
+       "method": "CommitTree_SameTreeIdCopyWithPayloadChanges_ReplacesCommittedTree",
+       "line": 756
+      },
+      {
+       "method": "TryTakeCommittedTreeForSpawnedVesselRestore_ClearsPriorSpawnFlagsAndKeepsLivePid",
+       "line": 782
+      },
+      {
+       "method": "IsCommittedSpawnedRecordingRestorable_RejectsTerminalStates",
+       "line": 824
+      },
+      {
+       "method": "IsCommittedSpawnedRecordingRestorable_RejectsMidChainSegment",
+       "line": 852
+      },
+      {
+       "method": "IsFreshLaunchStartupBehaviour_TrueForNewFromFile",
+       "line": 903
+      },
+      {
+       "method": "IsFreshLaunchStartupBehaviour_TrueForNewFromCraftNode",
+       "line": 911
+      },
+      {
+       "method": "IsFreshLaunchStartupBehaviour_FalseForResumeSavedFile",
+       "line": 919
+      },
+      {
+       "method": "IsFreshLaunchStartupBehaviour_FalseForResumeSavedCache",
+       "line": 927
+      },
+      {
+       "method": "ShouldSkipCommittedTreeRestoreForFreshLaunch_SkipsForCapturedRolloutPid",
+       "line": 935
+      },
+      {
+       "method": "ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsRestoreOfDifferentCommittedSpawnedPidInNewFromFileScene",
+       "line": 945
+      },
+      {
+       "method": "ShouldSkipCommittedTreeRestoreForFreshLaunch_IdentityMatrix",
+       "line": 966
+      },
+      {
+       "method": "ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenNoRolloutCaptured",
+       "line": 998
+      },
+      {
+       "method": "ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenActivePidZero",
+       "line": 1009
+      },
+      {
+       "method": "ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenBothZero",
+       "line": 1021
+      },
+      {
+       "method": "TryFindCommittedTreeForSpawnedVessel_StillMatchesAfterFreshLaunchGuardLayer",
+       "line": 1029
+      },
+      {
+       "method": "TryFindCommittedTreeForSpawnedVessel_DirectVesselPidMatchForFreshLaunchedRecording",
+       "line": 1053
+      },
+      {
+       "method": "TryFindCommittedTreeForSpawnedVessel_DirectPidMatchGuidMismatch_DoesNotMatchRelaunch",
+       "line": 1087
+      },
+      {
+       "method": "TryFindCommittedTreeForSpawnedVessel_DoesNotMatchNonActiveDestroyedFreshLaunchRecording",
+       "line": 1119
+      },
+      {
+       "method": "DecideOnVesselSwitch_LegacyCallsite_NoTreeParam_StillWorks",
+       "line": 1161
+      },
+      {
+       "method": "DecideOnVesselSwitch_LegacyCallsite_WithUndock_StillWorks",
+       "line": 1170
+      },
+      {
+       "method": "TryFindCommittedTreeMatchingVessel_FocusedPidIsParsekSpawnedFromCommittedTree_ReturnsTrue",
+       "line": 1195
+      },
+      {
+       "method": "TryFindCommittedTreeMatchingVessel_FocusedPidIsUnrelated_ReturnsFalse",
+       "line": 1220
+      },
+      {
+       "method": "TryFindCommittedTreeMatchingVessel_VesselSpawnedFalse_DoesNotMatchSpawnedPid",
+       "line": 1241
+      },
+      {
+       "method": "TryFindCommittedTreeMatchingVessel_OutParam_ReturnsMatchedTree_AndBoolOverloadsDelegate",
+       "line": 1269
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

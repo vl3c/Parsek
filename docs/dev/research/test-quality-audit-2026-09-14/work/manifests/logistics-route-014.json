@@ -1,0 +1,130 @@
+{
+ "batch_id": "logistics-route-014",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 25,
+ "files": [
+  {
+   "file": "Logistics/RouteLoopPickupFireTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MixedWindow_FiresPickupAndDelivery_UnderOneCycleId",
+       "line": 269
+      },
+      {
+       "method": "InventoryPickup_FiresInventoryHalf_RowCarriesInventoryManifest",
+       "line": 314
+      },
+      {
+       "method": "MixedSameResourceWindow_PickupFiresBeforeDelivery",
+       "line": 364
+      },
+      {
+       "method": "PickupRow_SequenceIsAfterDispatch",
+       "line": 442
+      },
+      {
+       "method": "PurePickup_EmitsNoDeliveredRow",
+       "line": 474
+      },
+      {
+       "method": "DeliveryOnly_UnchangedNoPickupRow",
+       "line": 500
+      },
+      {
+       "method": "PurePickup_ReplayedCycle_IsIdempotent_NoSecondDebit",
+       "line": 527
+      },
+      {
+       "method": "MixedWindow_ReplayedCycle_IsIdempotent_NoSecondFire",
+       "line": 570
+      },
+      {
+       "method": "PurePickup_ReplayBranch_BumpsCompletedCycles_AdvancesId",
+       "line": 612
+      },
+      {
+       "method": "MixedWindow_DeliveryEndpointLost_PickupStillDebited",
+       "line": 653
+      },
+      {
+       "method": "PickupShortAtApply_RecordsRequestedManifest_Warns",
+       "line": 699
+      },
+      {
+       "method": "RouteHasPickupManifest_TrueOnlyWithNonEmptyManifest",
+       "line": 724
+      },
+      {
+       "method": "RouteHasDeliveryManifest_TrueOnlyWithNonEmptyManifest",
+       "line": 734
+      },
+      {
+       "method": "SendOnceArmed_PurePickupCycle_EndsPaused_ClearsFlags_OneToast",
+       "line": 758
+      },
+      {
+       "method": "Unarmed_PurePickupCycle_StaysActive_NoPauseNoToast",
+       "line": 797
+      },
+      {
+       "method": "PauseAfterCycleArmed_PurePickupCycle_PausesWithoutToast",
+       "line": 817
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteBackingMissionLoopUnitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RouteMission_ThroughUnchangedBuild_TrimmedToLaunchDock",
+       "line": 172
+      },
+      {
+       "method": "RouteMissionUnion_WithManualLoopOnOtherTree_HasDisjointOwnerByIndex",
+       "line": 230
+      },
+      {
+       "method": "PostCreationFork_AutoExcluded_SpanEndStaysAtCreationSegmentEnd",
+       "line": 321
+      },
+      {
+       "method": "PostCreationContinuation_OnMemberThroughLine_SpanStable_NothingAutoExcluded",
+       "line": 359
+      },
+      {
+       "method": "PostCreationContinuationWithPeel_MintedTailKeyTrimmed_SpanAndCadenceStable",
+       "line": 403
+      },
+      {
+       "method": "PostCreationMidSubtreeFork_RenumberedTailTrimmed_SpanAndCadenceStable",
+       "line": 462
+      },
+      {
+       "method": "Compute_MultiStop_ExcludesAtAndAfterLastDock_KeepsIntermediateSurvivor",
+       "line": 519
+      },
+      {
+       "method": "NoSpawnPin_MultiStopLoopUnit_KeptMembersLoop_PostLastDockNonMembers",
+       "line": 582
+      },
+      {
+       "method": "RouteMission_MidTreeOrigin_SpanStartsAtOriginUndock_TrimmedToDock",
+       "line": 698
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

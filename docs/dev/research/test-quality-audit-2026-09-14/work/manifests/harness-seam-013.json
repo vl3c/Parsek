@@ -1,0 +1,175 @@
+{
+ "batch_id": "harness-seam-013",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "TestCommandDispatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "JournalClaimed_Interrupted_EvenForExecutableVerb",
+       "line": 41
+      },
+      {
+       "method": "Malformed_Rejects_WithParseError",
+       "line": 52
+      },
+      {
+       "method": "MissingId_Rejects_MissingId",
+       "line": 61
+      },
+      {
+       "method": "ReservedVerb_Rejects_NotImplementedV1",
+       "line": 70
+      },
+      {
+       "method": "UnknownVerb_Rejects_UnknownCommand",
+       "line": 82
+      },
+      {
+       "method": "Transitioning_Defers_NotSafePoint",
+       "line": 92
+      },
+      {
+       "method": "LoadingScene_Defers_NotSafePoint",
+       "line": 102
+      },
+      {
+       "method": "SettleCounter_Defers_NotSafePoint",
+       "line": 111
+      },
+      {
+       "method": "BatchRunning_Defers_BatchRunning",
+       "line": 121
+      },
+      {
+       "method": "FlightVerb_OutsideFlight_Defers_NotInFlight",
+       "line": 137
+      },
+      {
+       "method": "FlightVerb_InFlight_Executes",
+       "line": 148
+      },
+      {
+       "method": "CommitTree_InFlight_NoTree_StillExecutes_HandlerEmitsError",
+       "line": 155
+      },
+      {
+       "method": "SetSetting_NoGame_Defers_GameNotLoaded",
+       "line": 166
+      },
+      {
+       "method": "SetSetting_GameLoaded_AnyScene_Executes",
+       "line": 175
+      },
+      {
+       "method": "AnySceneVerb_ExecutesEvenAtTrackingStation",
+       "line": 186
+      },
+      {
+       "method": "RunTests_NoBatch_Executes",
+       "line": 194
+      },
+      {
+       "method": "LoadGame_AtMainMenu_NoRecorder_Executes",
+       "line": 203
+      },
+      {
+       "method": "LoadGame_LiveRecorder_Rejects_RecordingActive",
+       "line": 210
+      },
+      {
+       "method": "LoadGame_LiveRecorder_AllowReFlyArg_WithMarker_Executes",
+       "line": 228
+      },
+      {
+       "method": "LoadGame_LiveRecorder_AllowReFlyArg_NoMarker_StillRejects_RecordingActive",
+       "line": 239
+      },
+      {
+       "method": "LoadGame_LiveRecorder_MarkerWithoutArg_StillRejects_RecordingActive",
+       "line": 251
+      },
+      {
+       "method": "LoadGame_AllowLiveRecorder_BadValue_Rejects_ArgInvalid",
+       "line": 265
+      },
+      {
+       "method": "LoadGame_AllowLiveRecorder_BadValue_RejectsEvenWithNoRecorder",
+       "line": 276
+      },
+      {
+       "method": "AllowLiveRecorder_OnlyRelaxesLoadGame_NotInvokeRewind",
+       "line": 292
+      },
+      {
+       "method": "LoadGame_AllowLiveRecorder_DoesNotRelaxLoadInFlight",
+       "line": 306
+      },
+      {
+       "method": "LoadGame_LoadInFlight_Rejects_LoadInFlight",
+       "line": 319
+      },
+      {
+       "method": "ExitToSpaceCenter_InFlight_Executes",
+       "line": 331
+      },
+      {
+       "method": "ExitToSpaceCenter_OutsideFlight_Defers_NotInFlight",
+       "line": 338
+      },
+      {
+       "method": "ExitToSpaceCenter_LiveRecorder_StillExecutes",
+       "line": 349
+      },
+      {
+       "method": "ExitToSpaceCenter_LoadInFlight_Rejects_LoadInFlight",
+       "line": 363
+      },
+      {
+       "method": "ExitToSpaceCenter_MergeJournalInFlight_Rejects_MergeJournalInFlight",
+       "line": 373
+      },
+      {
+       "method": "ExitToSpaceCenter_LoadInFlight_TakesPrecedenceOverMergeJournal",
+       "line": 385
+      },
+      {
+       "method": "SimulateStockSwitchClick_NoLongerReserved_Executes",
+       "line": 398
+      },
+      {
+       "method": "SimulateStockSwitchClick_OutsideFlight_Defers_NotInFlight",
+       "line": 408
+      },
+      {
+       "method": "SimulateStockSwitchClick_LiveRecorder_StillExecutes",
+       "line": 419
+      },
+      {
+       "method": "SimulateStockSwitchClick_LoadInFlight_Rejects_LoadInFlight",
+       "line": 433
+      },
+      {
+       "method": "SimulateStockSwitchClick_MergeJournalInFlight_Rejects_MergeJournalInFlight",
+       "line": 443
+      },
+      {
+       "method": "SimulateStockSwitchClick_LoadInFlight_TakesPrecedenceOverMergeJournal",
+       "line": 453
+      },
+      {
+       "method": "SimulateStockSwitchClick_RidesTheDefaultBudget",
+       "line": 464
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

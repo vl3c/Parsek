@@ -1,0 +1,327 @@
+{
+ "batch_id": "ghost-playback-009",
+ "cluster": "ghost-playback",
+ "tier": "A1",
+ "expected_methods": 77,
+ "files": [
+  {
+   "file": "GhostMapPresenceTests.cs",
+   "ranges": [
+    {
+     "start": 1841,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldCreate_NullTerminal_WithSegment_UTInRange_Created",
+       "line": 1841
+      },
+      {
+       "method": "ShouldCreate_NullTerminal_WithRecordedPointsAndExtendedOrbitTail_Created",
+       "line": 1860
+      },
+      {
+       "method": "ShouldCreate_NullTerminal_WithSameBodyGap_Created",
+       "line": 1897
+      },
+      {
+       "method": "ShouldCreate_CurrentOrbitContinuationWithFutureChild_Created",
+       "line": 1916
+      },
+      {
+       "method": "GetTrackingStationGhostRemovalReason_SuppressedTerminalOrbitParent_RemovesExistingGhost",
+       "line": 1981
+      },
+      {
+       "method": "GetTrackingStationGhostRemovalReason_MaterializedRealVessel_RemovesExistingGhost",
+       "line": 2001
+      },
+      {
+       "method": "GetTrackingStationGhostRemovalReason_NullRecording_ReturnsRecordingMissing",
+       "line": 2023
+      },
+      {
+       "method": "GetTrackingStationGhostRemovalReason_MaterializedLoopMemberInWindow_KeepsGhost",
+       "line": 2038
+      },
+      {
+       "method": "GetTrackingStationGhostRemovalReason_SuppressedLoopMemberInWindow_StillRemoves",
+       "line": 2065
+      },
+      {
+       "method": "GetTrackingStationGhostRemovalReason_StateVectorPastEndUT_ExpiresGhost",
+       "line": 2090
+      },
+      {
+       "method": "TrackingStationRefresh_RelativeFrameStateVector_WouldTripRemovalWithoutGate",
+       "line": 2135
+      },
+      {
+       "method": "TrackingStationRefresh_AbsoluteFrameStateVector_StillEvaluatesThreshold",
+       "line": 2170
+      },
+      {
+       "method": "ShouldCreate_NullTerminal_WithSameBodyOrbitChangeGap_Skipped",
+       "line": 2204
+      },
+      {
+       "method": "ShouldCreate_NullTerminal_WithSegment_UTPastRange_Skipped",
+       "line": 2226
+      },
+      {
+       "method": "ShouldCreate_NoOrbitData_Skipped",
+       "line": 2245
+      },
+      {
+       "method": "ShouldCreate_Landed_Skipped",
+       "line": 2257
+      },
+      {
+       "method": "ShouldCreate_Docked_Created",
+       "line": 2274
+      },
+      {
+       "method": "ShouldCreate_TerminalOrbitWithComputedConflictingEndpoint_SkippedAsEndpointConflict",
+       "line": 2287
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_VisibleSegment_MatchesTrackingStationWrapper",
+       "line": 2314
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_StateVectorFallback_MatchesTrackingStationWrapper",
+       "line": 2378
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_EndpointConflict_MatchesTrackingStationWrapper",
+       "line": 2436
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_MaterializedRealVessel_MatchesTrackingStationWrapper",
+       "line": 2482
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_StateVectorBelowThreshold_SkipsWithThresholdReason",
+       "line": 2526
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_RelativeFrame_WithoutAnchorRecordingIdSkipsUnresolved",
+       "line": 2573
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_RelativeFrame_AnchorRecordingIdPresent_ReturnsStateVector",
+       "line": 2645
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_RelativeFrame_MissingAnchorRecordingId_DefersWithRelativeAnchorUnresolved",
+       "line": 2675
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_RelativeFrame_DzBelowAltitudeThreshold_StillReturnsStateVector",
+       "line": 2704
+      },
+      {
+       "method": "TryResolveStateVectorMapPointPure_ParentAnchoredRelativeFrame_UsesBodyFixedPrimaryPoint",
+       "line": 2742
+      },
+      {
+       "method": "ResolveBodyFixedPrimaryAnchorPid_ParentAnchoredDebris_ReturnsParentRecordingPid",
+       "line": 2762
+      },
+      {
+       "method": "TryResolveStateVectorMapPointPure_ParentAnchoredRelativeFrame_MissingBodyFixedPrimarySkips",
+       "line": 2791
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_RelativeFrame_WithOrbitSegmentsElsewhere_StillReachesStateVectorBranch",
+       "line": 2808
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_RelativeFrame_BetweenOrbitSegments_DefersStateVectorBranch",
+       "line": 2850
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_RelativeFrame_AfterSegmentGap_ReturnsBoundedSegment",
+       "line": 2887
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_NoTerminalFallback_StateVectorFailure_NormalizesSkipReason",
+       "line": 3055
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_OrbitalCheckpointWithCoexistingSegment_ReturnsSegment",
+       "line": 3090
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_TerminalFallback_FillsSparseOrbitGapBeforeEnd",
+       "line": 3179
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_TerminalFallback_DoesNotOverrideRecordedPreOrbitCoverage",
+       "line": 3263
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_MaterializedRecordingSuppressesMapGhost",
+       "line": 3338
+      },
+      {
+       "method": "HasRecordedTrackCoverageAtUT_LegacyPoints_RequiresDenseBracket",
+       "line": 3397
+      },
+      {
+       "method": "TryResolveTerminalFallbackMapOrbitUpdate_ExistingOrbitSwitchesAcrossSparseGap",
+       "line": 3421
+      },
+      {
+       "method": "TryResolveGhostProtoOrbitSeed_TerminalOrbitOnly_UsesTerminalSeed",
+       "line": 3512
+      },
+      {
+       "method": "TryResolveGhostProtoOrbitSeed_MismatchedTerminalOrbitBody_UsesEndpointAlignedSeed",
+       "line": 3552
+      },
+      {
+       "method": "TryResolveGhostProtoOrbitSeed_NoEndpointAlignedSeed_ReturnsFalse",
+       "line": 3600
+      },
+      {
+       "method": "TryGetEndpointAlignedOrbitSeed_ConflictingEndpoint_ReportsEndpointConflict",
+       "line": 3626
+      },
+      {
+       "method": "ChainAware_DestroyedTipWithoutStart_KeepsCurrentOrbitVisible",
+       "line": 3663
+      },
+      {
+       "method": "ChainAware_ActiveOrbitTip_GhostCreated",
+       "line": 3716
+      },
+      {
+       "method": "ChainAware_SupersedeRelationSuppressesOldRecording",
+       "line": 3743
+      },
+      {
+       "method": "ChainAware_RewindRetirementSuppressesRetiredRecording",
+       "line": 3785
+      },
+      {
+       "method": "ChainAware_Standalone_OrbitRecording_GhostCreated",
+       "line": 3835
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_SubOrbitalTerminalState_NotFiltered",
+       "line": 3861
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_DestroyedTerminalState_NotFiltered",
+       "line": 3879
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_RecoveredTerminalState_NotFiltered",
+       "line": 3896
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_LandedTerminalState_NotFiltered",
+       "line": 3913
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_OutOfTimeWindow_Filtered",
+       "line": 3930
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_Debris_Filtered",
+       "line": 3948
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_Suppressed_Filtered",
+       "line": 3965
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_CurrentAtmosphericContinuationWithFutureChild_NotFiltered",
+       "line": 3982
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_NoPoints_Filtered",
+       "line": 4019
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_InOrbitSegment_Filtered",
+       "line": 4031
+      },
+      {
+       "method": "ShouldDrawAtmosphericMarker_InAtmosphericPhaseOfMixedRecording_NotFiltered",
+       "line": 4055
+      },
+      {
+       "method": "ResetBetweenTestRuns_ClearsGhostMapVesselPids",
+       "line": 4089
+      },
+      {
+       "method": "ResetBetweenTestRuns_ClearsAllPerGhostDicts",
+       "line": 4107
+      },
+      {
+       "method": "ResetBetweenTestRuns_IsIdempotent",
+       "line": 4130
+      },
+      {
+       "method": "ResetBetweenTestRuns_NullReason_DoesNotThrow",
+       "line": 4151
+      },
+      {
+       "method": "DominantBodyCheck_GhostPid_Skipped",
+       "line": 4171
+      },
+      {
+       "method": "DominantBodyCheck_RealVesselPid_NotSkipped",
+       "line": 4179
+      },
+      {
+       "method": "DominantBodyCheck_AfterGhostRemoved_NotSkipped",
+       "line": 4187
+      },
+      {
+       "method": "GhostOrbitBodyChanged_NoPriorBody_True",
+       "line": 4205
+      },
+      {
+       "method": "GhostOrbitBodyChanged_SameBody_False",
+       "line": 4213
+      },
+      {
+       "method": "GhostOrbitBodyChanged_DifferentBody_True",
+       "line": 4221
+      },
+      {
+       "method": "GhostOrbitBodyChanged_CaseDiffers_True",
+       "line": 4229
+      },
+      {
+       "method": "GhostOrbitBodyChanged_TransferSequence_FiresOncePerSeam",
+       "line": 4242
+      },
+      {
+       "method": "TryGetParkingConicLineHold_NoStamp_FalseAndNaN",
+       "line": 4270
+      },
+      {
+       "method": "TryGetParkingConicLineHold_NaNStamp_False",
+       "line": 4278
+      },
+      {
+       "method": "TryGetParkingConicLineHold_BeforeAndAtDeadline_HoldsInclusive",
+       "line": 4287
+      },
+      {
+       "method": "TryGetParkingConicLineHold_PastDeadline_Releases",
+       "line": 4302
+      },
+      {
+       "method": "ClearParkingConicLineHold_RemovesStamp",
+       "line": 4312
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

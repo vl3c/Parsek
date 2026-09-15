@@ -1,0 +1,131 @@
+{
+ "batch_id": "recorder-events-009",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 28,
+ "files": [
+  {
+   "file": "FlightPlaybackExplainabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GhostPlaybackSkipReasonTokens_AreStable",
+       "line": 105
+      },
+      {
+       "method": "ResolveGhostPlaybackSkipReason_PrioritizesExplicitReasons",
+       "line": 125
+      },
+      {
+       "method": "LogGhostSkipReasonChangeForTesting_LogsOnlyOnReasonChange",
+       "line": 169
+      },
+      {
+       "method": "ComputePlaybackFlags_SupersededByRelation_SkipsGhostAndSpawn",
+       "line": 206
+      },
+      {
+       "method": "ComputePlaybackFlags_LogsGhostSkipReasonAndSuppressesStableRepeats",
+       "line": 255
+      },
+      {
+       "method": "ComputePlaybackFlags_EmitsOneBatchedSpawnSuppressedSummary",
+       "line": 314
+      },
+      {
+       "method": "ComputePlaybackFlags_LiveBindSuppression_HidesAnchorGhostWhenLaunchMatchedLiveVesselLoadedAndLiveBound",
+       "line": 366
+      },
+      {
+       "method": "ComputePlaybackFlags_LiveBindSuppression_AnchorWithLiveVesselButNoLiveBind_NotSuppressed",
+       "line": 433
+      },
+      {
+       "method": "ComputePlaybackFlags_LiveBindSuppression_RelativeMemberWithLiveAnchorLoaded_NotSuppressed",
+       "line": 469
+      },
+      {
+       "method": "ComputePlaybackFlags_LiveBindSuppression_DifferentLaunch_DoesNotSuppressAnchorGhost",
+       "line": 507
+      },
+      {
+       "method": "ComputePlaybackFlags_LiveBindSuppression_NoLiveVessel_DoesNotSuppressAnchorGhost",
+       "line": 543
+      },
+      {
+       "method": "ComputePlaybackFlags_LiveBindSuppression_NonLoopRecording_NotSuppressedEvenWithLaunchMatchedLiveVessel",
+       "line": 577
+      },
+      {
+       "method": "ComputePlaybackFlags_HistoricalNeverReplayed_SkipsGhostAndSpawnDuringForwardPlay",
+       "line": 622
+      },
+      {
+       "method": "ComputePlaybackFlags_RewoundIntoReplayScope_RendersAndSpawns",
+       "line": 653
+      },
+      {
+       "method": "ComputePlaybackFlags_LoopingRecording_NotHistoricalDuringForwardPlay",
+       "line": 680
+      },
+      {
+       "method": "ComputePlaybackFlags_RewindRetired_SkipsGhostAndSpawn",
+       "line": 707
+      },
+      {
+       "method": "ComputePlaybackFlags_RetiredParentCascade_SkipsOrphanDebrisChildGhostAndSpawn",
+       "line": 758
+      },
+      {
+       "method": "ComputePlaybackFlags_RewindRetiredRelativeAnchorChain_SkipsBothBeforeAnchorResolution",
+       "line": 833
+      },
+      {
+       "method": "ComputePlaybackFlags_ReFlySettleClearHold_SetsAnchorUnstableAndLogsTransitions",
+       "line": 911
+      },
+      {
+       "method": "FrameSummary_IncludesAggregateSkipCounters",
+       "line": 949
+      },
+      {
+       "method": "FrameSummary_DoesNotEmitForStableActiveOnlyFrame",
+       "line": 999
+      },
+      {
+       "method": "FrameSummary_EmitsWhenSpawnSuppressedDeadOnArrivalNonZero",
+       "line": 1007
+      },
+      {
+       "method": "FrameSummary_EmitsWhenAnchorReFlyUnstableNonZero",
+       "line": 1014
+      },
+      {
+       "method": "FrameSummary_EmitsWhenRewindRetiredNonZero",
+       "line": 1021
+      },
+      {
+       "method": "FrameSummary_EmitsWhenAnchorRotationUnreliableNonZero",
+       "line": 1028
+      },
+      {
+       "method": "FastForwardWatchHandoff_ClassifiesActiveGhostAsReady",
+       "line": 1035
+      },
+      {
+       "method": "FastForwardWatchHandoff_ReportsSkipReasonWhenGhostMissing",
+       "line": 1059
+      },
+      {
+       "method": "FastForwardWatchHandoff_StaleRecordingIsQuietFailure",
+       "line": 1082
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

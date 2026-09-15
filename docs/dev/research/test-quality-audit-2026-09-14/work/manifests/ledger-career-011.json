@@ -1,0 +1,195 @@
+{
+ "batch_id": "ledger-career-011",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 44,
+ "files": [
+  {
+   "file": "GameStateEventConverterTests.cs",
+   "ranges": [
+    {
+     "start": 55,
+     "end": 848,
+     "methods": [
+      {
+       "method": "ConvertEvent_TechResearched_ReturnsScienceSpending",
+       "line": 55
+      },
+      {
+       "method": "ConvertEvent_TechResearched_NoCost_DefaultsToZero",
+       "line": 70
+      },
+      {
+       "method": "ConvertEvent_PartPurchased_ReturnsFundsSpending",
+       "line": 87
+      },
+      {
+       "method": "ConvertEvent_PartPurchased_UsesCostToken_WhenEntryCostAlsoPresent",
+       "line": 103
+      },
+      {
+       "method": "ConvertEvent_PartPurchased_CostOnly_StillParses",
+       "line": 119
+      },
+      {
+       "method": "ConvertEvent_PartPurchased_EntryCostOnly_FallsBackWhenCostMissing",
+       "line": 133
+      },
+      {
+       "method": "ConvertEvent_FacilityUpgraded_ReturnsFacilityUpgrade",
+       "line": 150
+      },
+      {
+       "method": "ConvertEvent_FacilityUpgraded_FullUpgrade_Level3",
+       "line": 166
+      },
+      {
+       "method": "ConvertEvent_BuildingDestroyed_ReturnsFacilityDestruction",
+       "line": 182
+      },
+      {
+       "method": "ConvertEvent_BuildingRepaired_ReturnsFacilityRepair",
+       "line": 198
+      },
+      {
+       "method": "ConvertEvent_CrewHired_ReturnsKerbalHire",
+       "line": 214
+      },
+      {
+       "method": "ConvertEvent_ContractAccepted_ReturnsContractAccept",
+       "line": 231
+      },
+      {
+       "method": "ConvertEvent_ContractCompleted_ReturnsContractComplete",
+       "line": 248
+      },
+      {
+       "method": "ConvertEvents_DuplicateContractCompletedSameUt_ConvertsOnce",
+       "line": 260
+      },
+      {
+       "method": "ConvertEvents_DistinctContractsSameUt_BothConverted",
+       "line": 289
+      },
+      {
+       "method": "ConvertEvents_SameContractCompletedFarApart_BothConverted",
+       "line": 306
+      },
+      {
+       "method": "ConvertEvent_ContractFailed_ReturnsContractFail",
+       "line": 326
+      },
+      {
+       "method": "ConvertEvent_ContractCancelled_ReturnsContractCancel",
+       "line": 342
+      },
+      {
+       "method": "ConvertEvent_SkippedTypes_ReturnsNull",
+       "line": 366
+      },
+      {
+       "method": "ConvertEvent_FundsChanged_StrategyOutput_ReturnsFundsEarningStrategy",
+       "line": 383
+      },
+      {
+       "method": "ConvertEvent_FundsChanged_StrategyOutput_NonPositive_ReturnsNull",
+       "line": 399
+      },
+      {
+       "method": "ConvertEvent_FundsChanged_NonStrategyReason_StillReturnsNull",
+       "line": 408
+      },
+      {
+       "method": "ConvertEvent_ReputationChanged_StrategyInput_ReturnsReputationPenaltyStrategy",
+       "line": 417
+      },
+      {
+       "method": "ConvertEvent_ReputationChanged_StrategyInput_NonNegative_ReturnsNull",
+       "line": 434
+      },
+      {
+       "method": "ConvertEvent_ReputationChanged_NonStrategyReason_StillReturnsNull",
+       "line": 443
+      },
+      {
+       "method": "ConvertEvent_ScienceChanged_StrategyInput_ReturnsStrategyScienceDebit",
+       "line": 451
+      },
+      {
+       "method": "ConvertEvent_ScienceChanged_StrategyInput_NonNegative_ReturnsNull",
+       "line": 470
+      },
+      {
+       "method": "ConvertEvent_ScienceChanged_NonStrategyReason_StillReturnsNull",
+       "line": 489
+      },
+      {
+       "method": "ConvertEvent_ScienceChanged_TechResearchReason_StillReturnsNull",
+       "line": 500
+      },
+      {
+       "method": "ConvertEvents_FiltersByUtRange",
+       "line": 514
+      },
+      {
+       "method": "ConvertEvents_TaggedEventAfterWindow_IsKept",
+       "line": 535
+      },
+      {
+       "method": "ConvertEvents_UntaggedEventAfterWindow_IsFiltered",
+       "line": 561
+      },
+      {
+       "method": "ConvertEvents_CrossRecordingEventAfterWindow_IsFiltered",
+       "line": 576
+      },
+      {
+       "method": "ConvertEvents_TaggedEventBeforeWindow_IsFiltered",
+       "line": 596
+      },
+      {
+       "method": "ConvertEvents_WhenRecordingIdSupplied_IgnoresOtherRecordingTags",
+       "line": 616
+      },
+      {
+       "method": "ConvertEvents_SkipsNonConvertibleTypes",
+       "line": 648
+      },
+      {
+       "method": "ConvertEvents_EmptyList_ReturnsEmpty",
+       "line": 664
+      },
+      {
+       "method": "ConvertEvents_NullList_ReturnsEmpty",
+       "line": 672
+      },
+      {
+       "method": "ConvertEvents_LogsSummary",
+       "line": 683
+      },
+      {
+       "method": "ConvertScienceSubjects_ValidSubjects_ReturnsScienceEarnings",
+       "line": 702
+      },
+      {
+       "method": "ConvertScienceSubjects_TaggedCaptureInsideRecordingWindow_PropagatesCaptureWindowAndScienceMethod",
+       "line": 723
+      },
+      {
+       "method": "ConvertScienceSubjects_TaggedCaptureBeforeRecordingStart_IsSkipped",
+       "line": 756
+      },
+      {
+       "method": "ConvertScienceSubjects_TaggedCaptureAfterRecordingEnd_IsKeptAnchoredAtEnd",
+       "line": 776
+      },
+      {
+       "method": "ConvertScienceSubjects_TaggedCaptureNaN_IsSkipped",
+       "line": 808
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

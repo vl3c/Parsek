@@ -1,0 +1,31 @@
+{
+ "batch_id": "analyzer-005",
+ "cluster": "analyzer",
+ "tier": "C",
+ "expected_methods": 3,
+ "files": [
+  {
+   "file": "Analyzer/Rules/Inv6ResourceManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ManifestPresent_RoundTrips_NoFindings",
+       "line": 26
+      },
+      {
+       "method": "ManifestAbsent_NoFindings",
+       "line": 50
+      },
+      {
+       "method": "ManifestRoundTripDropsResource_Fails",
+       "line": 60
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

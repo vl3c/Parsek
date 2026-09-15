@@ -1,0 +1,123 @@
+{
+ "batch_id": "recording-tree-023",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "RecordingTreeSplitterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SplitOriginAtRewindUT_OriginSpansRewindUT_SplitsHeadAndTip",
+       "line": 167
+      },
+      {
+       "method": "SplitOriginAtRewindUT_NoPromotion_WhenActiveIdDiffersFromOrigin",
+       "line": 235
+      },
+      {
+       "method": "SplitOriginAtRewindUT_OriginEntirelyPreRewind_NoSplit",
+       "line": 259
+      },
+      {
+       "method": "SplitOriginAtRewindUT_OriginEntirelyPostRewind_NoSplit",
+       "line": 281
+      },
+      {
+       "method": "SplitOriginAtRewindUT_StaleExplicitStartUT_NoEmptyHeadSplit",
+       "line": 314
+      },
+      {
+       "method": "SplitOriginAtRewindUT_StaleExplicitEndUT_NoEmptyTipSplit",
+       "line": 376
+      },
+      {
+       "method": "SplitOriginAtRewindUT_NoActualBounds_NoSplit",
+       "line": 430
+      },
+      {
+       "method": "SplitOriginAtRewindUT_NaNRewindUT_NoSplit",
+       "line": 472
+      },
+      {
+       "method": "SplitOriginAtRewindUT_BPsReparented",
+       "line": 492
+      },
+      {
+       "method": "SplitOriginAtRewindUT_DebrisReparented",
+       "line": 551
+      },
+      {
+       "method": "SplitOriginAtRewindUT_ContinuationParentedDebris_NotReparentedToTip",
+       "line": 638
+      },
+      {
+       "method": "SplitOriginAtRewindUT_LedgerActionsRetagged",
+       "line": 675
+      },
+      {
+       "method": "SplitOriginAtRewindUT_PartialResumeIdempotent",
+       "line": 725
+      },
+      {
+       "method": "SplitOriginAtRewindUT_OrbitSegmentStraddlesRewindUT_SplitsCleanly",
+       "line": 776
+      },
+      {
+       "method": "SplitOriginAtRewindUT_OriginIsEVARecording_SplitsAndPreservesEVALinkage",
+       "line": 884
+      },
+      {
+       "method": "SplitOriginAtRewindUT_ChildBranchPointIdMovesPerRewindUTRule_PreRewindStays",
+       "line": 911
+      },
+      {
+       "method": "SplitOriginAtRewindUT_ChildBranchPointIdMovesPerRewindUTRule_AtOrAfterRewindMoves",
+       "line": 940
+      },
+      {
+       "method": "SplitOriginAtRewindUT_MilestonesRetaggedByUT",
+       "line": 974
+      },
+      {
+       "method": "SplitOriginAtRewindUT_RollBackInMemory_DirectInvocation_RestoresAllMutations",
+       "line": 1047
+      },
+      {
+       "method": "SplitOriginAtRewindUT_RollBackInMemory_SwapsOriginReferenceBack",
+       "line": 1170
+      },
+      {
+       "method": "SplitThenSupersedeRow_OptimizerPreservesHeadAndTip",
+       "line": 1224
+      },
+      {
+       "method": "SplitOriginAtRewindUT_RollBackInMemory_RestoresMarkerSupersedeTargetId",
+       "line": 1313
+      },
+      {
+       "method": "SplitOriginAtRewindUT_EnvClassSiblingAtChainIndexPlusOne_DoesNotFalsePositiveIntoIdempotentReentry",
+       "line": 1392
+      },
+      {
+       "method": "SplitOriginAtRewindUT_OriginWithMultipleEnvClasses_LogsWarnAndProceeds",
+       "line": 1463
+      },
+      {
+       "method": "SplitOriginAtRewindUT_OriginWithSingleEnvClass_DoesNotLogWarn",
+       "line": 1555
+      },
+      {
+       "method": "SplitOriginAtRewindUT_RollBackInMemory_MarkerUntouchedIfSupersedeTargetIdNotCaptured",
+       "line": 1576
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

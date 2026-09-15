@@ -1,0 +1,275 @@
+{
+ "batch_id": "recording-tree-004",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 64,
+ "files": [
+  {
+   "file": "RecordingOptimizerTests.cs",
+   "ranges": [
+    {
+     "start": 4156,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TrimBoringTail_PartEventInBoringTail_ExtendsBuffer",
+       "line": 4156
+      },
+      {
+       "method": "TrimBoringTail_StableOrbitLateZeroThrottleEngineSeed_StillTrims",
+       "line": 4171
+      },
+      {
+       "method": "TrimBoringTail_StableOrbitingTerminalShape_StillTrims",
+       "line": 4214
+      },
+      {
+       "method": "TrimBoringTail_OrbitChangesAfterTrimPoint_DoesNotTrim",
+       "line": 4244
+      },
+      {
+       "method": "TrimBoringTail_SubOrbitalTerminal_RefusesTrim_ShapeMismatch",
+       "line": 4288
+      },
+      {
+       "method": "TrimBoringTail_SubOrbitalTerminal_RefusesTrim_RegardlessOfShapeMatch",
+       "line": 4319
+      },
+      {
+       "method": "TrimBoringTail_DockedTerminal_RefusesTrim",
+       "line": 4375
+      },
+      {
+       "method": "IsSpawnableTerminal_MatchesShouldSpawnAtRecordingEndRefusalSet",
+       "line": 4414
+      },
+      {
+       "method": "TrimBoringTail_RoverScenario_OnlyStartSeedEvents_TrimsCorrectly",
+       "line": 4502
+      },
+      {
+       "method": "TrimBoringTail_RoverScenario_StaleLateSeedEvent_BlocksTrim",
+       "line": 4543
+      },
+      {
+       "method": "TrimBoringTail_MultipleTrailingBoringSections",
+       "line": 4575
+      },
+      {
+       "method": "TrimBoringTail_CustomBufferSeconds",
+       "line": 4599
+      },
+      {
+       "method": "TrimBoringTail_AllPointsPastTrimUT_ReturnsFalse",
+       "line": 4613
+      },
+      {
+       "method": "TrimBoringTail_StableOrbitWithRailsJitter_StillTrims",
+       "line": 4639
+      },
+      {
+       "method": "TrimBoringTail_StableOrbitWithRealManeuver_DoesNotTrim",
+       "line": 4675
+      },
+      {
+       "method": "TrimBoringTail_LanWrapsAroundZeroBoundary_StillTrims",
+       "line": 4714
+      },
+      {
+       "method": "TrimBoringTail_ArgPWrapsAroundZeroBoundary_StillTrims",
+       "line": 4747
+      },
+      {
+       "method": "TrimBoringTail_LanCrossBoundaryRealManeuver_DoesNotTrim",
+       "line": 4779
+      },
+      {
+       "method": "TrimBoringTail_NotLeaf_LogsSkipReason",
+       "line": 4828
+      },
+      {
+       "method": "TrimBoringTail_TooShort_LogsSkipReason",
+       "line": 4862
+      },
+      {
+       "method": "TrimBoringTail_TerminalMismatch_LogsSkipReasonWithDelta",
+       "line": 4883
+      },
+      {
+       "method": "TrimBoringTailInternal_LogSkipReasonFalse_SuppressesPerRecordingLogAndReportsCategory",
+       "line": 4934
+      },
+      {
+       "method": "TrimBoringTailInternal_LogSkipReasonTrue_MatchesLegacyPerRecordingLog",
+       "line": 4963
+      },
+      {
+       "method": "TrimBoringTailInternal_LogSkipReasonFalse_UnstableTerminal_SuppressesRefusalLogAndReportsCategory",
+       "line": 5000
+      },
+      {
+       "method": "TrimBoringTailInternal_LogSkipReasonTrue_UnstableTerminal_EmitsDedicatedRefusalLog",
+       "line": 5036
+      },
+      {
+       "method": "RunOptimizationPass_TreeMultiSection_SplitsIntoChainSegments",
+       "line": 5082
+      },
+      {
+       "method": "RunOptimizationPass_MultiStageTree_SplitsChildBranchesAndPreservesBranchTopology",
+       "line": 5205
+      },
+      {
+       "method": "RunOptimizationPass_AllBoringLeaf_TrimmedToMinimalWindow",
+       "line": 5431
+      },
+      {
+       "method": "SplitAtSection_PropagatesEvaCrewName",
+       "line": 5483
+      },
+      {
+       "method": "SplitAtSection_NullEvaFieldsStayNull",
+       "line": 5498
+      },
+      {
+       "method": "TrimBoringTailPayload_RelativeSection_TrimsBodyFixedPrimaryFrames",
+       "line": 5515
+      },
+      {
+       "method": "TrimOverlappingSectionFrames_RelativeSection_TrimsBodyFixedPrimaryFrames",
+       "line": 5553
+      },
+      {
+       "method": "Persistence_AscentLongAtmoLongExo_Splits",
+       "line": 5661
+      },
+      {
+       "method": "Persistence_DeorbitLongExoMediumAtmoLongSurface_Splits",
+       "line": 5679
+      },
+      {
+       "method": "Persistence_EccentricGrazing_4Crossings_AllSuppress",
+       "line": 5696
+      },
+      {
+       "method": "Persistence_AerobrakeSinglePass_BothBoundariesSuppress",
+       "line": 5711
+      },
+      {
+       "method": "Persistence_KarmanLineHop_ExoBracketed_SuppressesExoSplits",
+       "line": 5726
+      },
+      {
+       "method": "Persistence_RealSuborbitalArc_LongApogee_AllSplit",
+       "line": 5752
+      },
+      {
+       "method": "Persistence_BoundarySeam_NotASplitCandidate",
+       "line": 5770
+      },
+      {
+       "method": "Persistence_BoundarySeamFlagOnEitherSide_NotASplitCandidate",
+       "line": 5783
+      },
+      {
+       "method": "Persistence_ExoPropulsiveAtCrossing_AlwaysSplits_RegressionOfS3",
+       "line": 5796
+      },
+      {
+       "method": "Persistence_BodyChange_ExoBallisticCoast_StaysCohesive",
+       "line": 5811
+      },
+      {
+       "method": "Persistence_BodyChange_ExoPropulsiveCrossing_Splits",
+       "line": 5824
+      },
+      {
+       "method": "Persistence_BodyChange_AndClassChange_NoBracket_Splits",
+       "line": 5838
+      },
+      {
+       "method": "Persistence_ApproachExoGrazing_BothSuppress",
+       "line": 5852
+      },
+      {
+       "method": "Persistence_ApproachToSurface_AlwaysSplits",
+       "line": 5866
+      },
+      {
+       "method": "Persistence_SurfaceAtmoSurfaceTouchdownGraze_SuppressesAndLogsSurfaceCounters",
+       "line": 5878
+      },
+      {
+       "method": "Persistence_SurfaceAtmoSurface_LongAtmoRunStillSplits",
+       "line": 5921
+      },
+      {
+       "method": "Persistence_SurfaceBodyChange_RemainsHardSplit",
+       "line": 5937
+      },
+      {
+       "method": "Persistence_ReentryExoAtmoSurfaceEndingInSurface_StillSplits",
+       "line": 5949
+      },
+      {
+       "method": "Persistence_SurfaceApproachSurfaceGraze_Suppresses",
+       "line": 5965
+      },
+      {
+       "method": "Persistence_EndOfRecording_BriefNextNoFollowup_Splits",
+       "line": 5991
+      },
+      {
+       "method": "Persistence_EndOfRecording_BriefNextWithSeamFlag_Suppressed",
+       "line": 6009
+      },
+      {
+       "method": "Persistence_BoundaryAtIndexOne_NoBackwardLookup_DoesntCrash",
+       "line": 6022
+      },
+      {
+       "method": "Persistence_BoundaryAtIndexOne_BriefPrev_DoesntCrash_Splits",
+       "line": 6041
+      },
+      {
+       "method": "Persistence_BriefSectionWithMinimalDuration_Suppresses",
+       "line": 6064
+      },
+      {
+       "method": "Persistence_ForcedBreakSameEnvMidGraze_CollapseWalkSuppresses",
+       "line": 6083
+      },
+      {
+       "method": "Persistence_ThrustToggleAdjacentToGraze_CollapseWalkSuppresses",
+       "line": 6109
+      },
+      {
+       "method": "Persistence_CumulativeRunBeyondK_Splits",
+       "line": 6136
+      },
+      {
+       "method": "Persistence_AggregateSuppressionLog_FiresOncePerRecording",
+       "line": 6166
+      },
+      {
+       "method": "Persistence_AcceptanceLog_EmitsDiscriminator",
+       "line": 6205
+      },
+      {
+       "method": "OptimizationPass_PassiveDeorbitReentry_ProducesAscentExoReentryChain",
+       "line": 6256
+      },
+      {
+       "method": "OptimizationPass_EccentricGrazing_StaysOneSegment",
+       "line": 6284
+      },
+      {
+       "method": "OptimizationPass_ProducerCSeam_NotSplit_NoChainGrowth",
+       "line": 6309
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

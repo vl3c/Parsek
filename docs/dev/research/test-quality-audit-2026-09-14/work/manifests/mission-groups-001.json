@@ -1,0 +1,219 @@
+{
+ "batch_id": "mission-groups-001",
+ "cluster": "mission-groups",
+ "tier": "A1",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "MissionPeriodicityTests.cs",
+   "ranges": [
+    {
+     "start": 265,
+     "end": 1613,
+     "methods": [
+      {
+       "method": "Extract_SingleBodyOrbit_NoSurface_EmptyConstraintSet",
+       "line": 265
+      },
+      {
+       "method": "Extract_LaunchPlusKerbinOrbit_OneRotationConstraint",
+       "line": 280
+      },
+      {
+       "method": "Extract_AtmosphericOnly_NoOrbit_NoRotationConstraint",
+       "line": 304
+      },
+      {
+       "method": "Extract_LaunchPlusOrbit_StillLocksRotation_HandoffRegressionGuard",
+       "line": 328
+      },
+      {
+       "method": "Extract_MunMission_RotationKerbinPlusOrbitalMunDirectChild",
+       "line": 355
+      },
+      {
+       "method": "Extract_CrossParentDuna_UnsupportedCrossParent",
+       "line": 386
+      },
+      {
+       "method": "Extract_TransientFlyby_OrbitalConstraintPresent",
+       "line": 408
+      },
+      {
+       "method": "Extract_BackgroundedCheckpointBridgedSoi_SurfacesBodyChange",
+       "line": 428
+      },
+      {
+       "method": "Extract_PredictedTail_DoesNotEmitConstraint",
+       "line": 450
+      },
+      {
+       "method": "Extract_AscentTrimmed_DropsRotationConstraint",
+       "line": 471
+      },
+      {
+       "method": "Extract_NoMembers_EmptyAndNaNUt0",
+       "line": 549
+      },
+      {
+       "method": "Extract_ZeroRotationPeriod_NoRotationConstraint",
+       "line": 566
+      },
+      {
+       "method": "Extract_RetrogradeRotation_UsesMagnitude",
+       "line": 586
+      },
+      {
+       "method": "Extract_MunSurfaceAndIntercept_TidallyLockedSharePeriod",
+       "line": 606
+      },
+      {
+       "method": "Extract_RendezvousRelativeSection_UnsupportedRendezvous",
+       "line": 631
+      },
+      {
+       "method": "Extract_LogsVerboseSummary",
+       "line": 660
+      },
+      {
+       "method": "Extract_MinmusAlsoDirectChild_Supported",
+       "line": 679
+      },
+      {
+       "method": "Extract_SingleSameParentAnchor_EmitsVesselOrbital",
+       "line": 780
+      },
+      {
+       "method": "Extract_MultipleSectionsSamePid_CollapseToEarliestUT",
+       "line": 802
+      },
+      {
+       "method": "Extract_TwoDistinctPids_UnsupportedRendezvous",
+       "line": 822
+      },
+      {
+       "method": "Extract_AnchorRecordingOnlySection_ResolvesThroughCommittedRecording",
+       "line": 849
+      },
+      {
+       "method": "Extract_AnchorRecordingNotCommitted_UnsupportedRendezvous",
+       "line": 876
+      },
+      {
+       "method": "Extract_AnchorRecordingIsDifferentLaunch_UnsupportedRendezvous",
+       "line": 894
+      },
+      {
+       "method": "Extract_MixedPidAndRecordingSections_SameAnchor_OneConstraintAtEarliest",
+       "line": 917
+      },
+      {
+       "method": "Extract_MutualDockAnchoring_ReattributesToPartner_OneConstraintAtFirstRendezvous",
+       "line": 939
+      },
+      {
+       "method": "Extract_AllSelfAnchoring_NoForeignAnchor_NoConstraintNoReject",
+       "line": 975
+      },
+      {
+       "method": "Extract_DriftAmber_BackfilledRecordingCoveringEarliestUT_StillCompares",
+       "line": 999
+      },
+      {
+       "method": "Extract_SamePidDifferentLaunches_UnsupportedRendezvous",
+       "line": 1029
+      },
+      {
+       "method": "Extract_AnchorNotResolvable_UnsupportedRendezvous",
+       "line": 1053
+      },
+      {
+       "method": "Extract_NonTransitedStation_UnsupportedRendezvous",
+       "line": 1066
+      },
+      {
+       "method": "Extract_NullLaunchBody_VesselAnchor_UnsupportedRendezvous",
+       "line": 1079
+      },
+      {
+       "method": "Extract_ParentAnchoredRecording_RelativeSectionNotARendezvous",
+       "line": 1106
+      },
+      {
+       "method": "Tolerance_VesselOrbital_ThreeDegreesOfPeriod_NotTheSoiFormula",
+       "line": 1146
+      },
+      {
+       "method": "Extract_DriftAmber_BeyondTolerance_SetsReason_SupportUnaffected",
+       "line": 1170
+      },
+      {
+       "method": "Extract_DriftAmber_WithinTolerance_NoReason",
+       "line": 1193
+      },
+      {
+       "method": "Extract_DriftAmber_NoAnchorRecording_NoComparisonNoAmber",
+       "line": 1211
+      },
+      {
+       "method": "Extract_DriftAmber_TransitionLoggedOncePerChange",
+       "line": 1222
+      },
+      {
+       "method": "IsPhaseAnchorEligible_RejectsSurfaceAndAtmosphereIntersectingAnchors",
+       "line": 1293
+      },
+      {
+       "method": "IsPhaseAnchorEligible_AcceptsOrbitingAnchors",
+       "line": 1313
+      },
+      {
+       "method": "IsSurfaceAnchorSituation_ClassifiesTheLoggedSurfaceCase",
+       "line": 1342
+      },
+      {
+       "method": "Solve_LoneVesselOrbital_LocksStationPeriod_SingleVesselOrbitalMethod",
+       "line": 1350
+      },
+      {
+       "method": "Solve_PadPlusStation_VesselOrbitalDominatesLikeOrbital",
+       "line": 1370
+      },
+      {
+       "method": "Extract_VesselOrbital_LogsConstraintInSummary",
+       "line": 1396
+      },
+      {
+       "method": "Extract_RejectedRendezvous_LogsReason",
+       "line": 1408
+      },
+      {
+       "method": "Extract_CrossParentTransitedStation_EmitsVesselOrbital_SupportUntouched",
+       "line": 1441
+      },
+      {
+       "method": "Extract_SameParentTransitedStation_EmitsVesselOrbital_StaysSupported",
+       "line": 1462
+      },
+      {
+       "method": "Extract_CrossParentStation_VanishedAnchor_Rejected",
+       "line": 1490
+      },
+      {
+       "method": "Build_SameParentDepot_AttachesScheduleNoHold",
+       "line": 1504
+      },
+      {
+       "method": "ScheduleK_TwoShiftableConstraints_JointlySatisfied",
+       "line": 1545
+      },
+      {
+       "method": "Extract_CrossParentStation_DifferentLaunchGuid_Rejected",
+       "line": 1573
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

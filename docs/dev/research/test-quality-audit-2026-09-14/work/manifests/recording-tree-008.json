@@ -1,0 +1,195 @@
+{
+ "batch_id": "recording-tree-008",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 44,
+ "files": [
+  {
+   "file": "SessionMergerTests.cs",
+   "ranges": [
+    {
+     "start": 177,
+     "end": 1331,
+     "methods": [
+      {
+       "method": "ResolveOverlaps_NoOverlap_ThreeSections_OutputUnchanged",
+       "line": 177
+      },
+      {
+       "method": "ResolveOverlaps_ActiveBeatsBackground",
+       "line": 207
+      },
+      {
+       "method": "ResolveOverlaps_ActiveBeatsCheckpoint",
+       "line": 233
+      },
+      {
+       "method": "ResolveOverlaps_BackgroundBeatsCheckpoint",
+       "line": 258
+      },
+      {
+       "method": "ResolveOverlaps_ActiveIslandInBackground",
+       "line": 283
+      },
+      {
+       "method": "ResolveOverlaps_TrimsRelativeBodyFixedPrimaryWithFrames",
+       "line": 312
+      },
+      {
+       "method": "ResolveOverlaps_GapBetweenSections_Preserved",
+       "line": 351
+      },
+      {
+       "method": "ResolveOverlaps_EmptyInput_EmptyOutput",
+       "line": 373
+      },
+      {
+       "method": "ResolveOverlaps_NullInput_EmptyOutput",
+       "line": 380
+      },
+      {
+       "method": "ResolveOverlaps_SingleSection_OutputUnchanged",
+       "line": 391
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_DifferentPositions_CorrectMeters",
+       "line": 411
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_SamePosition_ZeroMeters",
+       "line": 428
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_NoFramesPrev_ReturnsZero",
+       "line": 442
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_NoFramesNext_ReturnsZero",
+       "line": 453
+      },
+      {
+       "method": "ResolveOverlaps_ComputesDiscontinuityAtJunctions",
+       "line": 468
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_SharedBoundaryPoint_ZeroGap",
+       "line": 489
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_CrossReferenceFrame_ReturnsZero",
+       "line": 510
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_SameReferenceFrame_ComputesDistance",
+       "line": 526
+      },
+      {
+       "method": "ResolveOverlaps_CrossReferenceFrameBoundary_ZeroDiscontinuity",
+       "line": 541
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_CrossReferenceFrameWithShadow_ComputesDistance",
+       "line": 563
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_RelativeToAbsoluteWithShadow_ComputesDistance",
+       "line": 585
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_RelativeCrossAnchorWithShadows_ComputesDistance",
+       "line": 609
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_RelativeShadowUtMismatch_ReturnsZero",
+       "line": 637
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_RelativeSameAnchorSmallDt_UsesAnchorLocalMeters",
+       "line": 661
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_RelativeSameAnchorFiftyMsWithoutShadow_ReturnsZero",
+       "line": 681
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_RelativeSameAnchorLargeDt_UsesAlignedShadows",
+       "line": 701
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_RelativeUsesCurrentAnchorLocalContract",
+       "line": 729
+      },
+      {
+       "method": "AnchorIdentityKey_RelativeWithoutAnchor_ReturnsEmpty",
+       "line": 749
+      },
+      {
+       "method": "MergeTree_RelativeThreadsCurrentRecordingFormatThroughProductionCallers",
+       "line": 760
+      },
+      {
+       "method": "MergePartEvents_DuplicateEvent_Deduplicated",
+       "line": 796
+      },
+      {
+       "method": "MergePartEvents_SameUtDifferentParts_BothKept",
+       "line": 815
+      },
+      {
+       "method": "MergePartEvents_SameUtSamePartDifferentType_BothKept",
+       "line": 832
+      },
+      {
+       "method": "MergePartEvents_Ordering_SortedByUT",
+       "line": 853
+      },
+      {
+       "method": "MergeTree_TwoRecordings_BothMerged",
+       "line": 880
+      },
+      {
+       "method": "MergeTree_NullTree_EmptyResult",
+       "line": 909
+      },
+      {
+       "method": "MergeTree_EmptyTree_EmptyResult",
+       "line": 916
+      },
+      {
+       "method": "MergeTree_PreservesVesselNameAndId",
+       "line": 931
+      },
+      {
+       "method": "MergeTree_RebuildsFlatTrajectoryFromAbsoluteTrackSections",
+       "line": 953
+      },
+      {
+       "method": "MergeTree_PreservesFlatTailWhenTrackSectionsAreStale",
+       "line": 979
+      },
+      {
+       "method": "MergeTree_PreservesOrbitOnlyPredictedTailWhenSectionsHaveNoCheckpoints",
+       "line": 1025
+      },
+      {
+       "method": "MergeTree_PreservesOrbitOnlyPredictedTailWhenFlatPointsAreStale",
+       "line": 1070
+      },
+      {
+       "method": "MergeTree_PreservesPredictedTailAfterCheckpointPrefixWithRoundTripDrift",
+       "line": 1128
+      },
+      {
+       "method": "MergeTree_PreservesPredictedTailAfterClippedCheckpointPrefix",
+       "line": 1210
+      },
+      {
+       "method": "MergeTree_LegacyBackgroundOnRailsOrbitSegments_NormalizesCheckpointBridge",
+       "line": 1291
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

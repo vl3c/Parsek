@@ -1,0 +1,271 @@
+{
+ "batch_id": "spawn-vessel-001",
+ "cluster": "spawn-vessel",
+ "tier": "A1",
+ "expected_methods": 63,
+ "files": [
+  {
+   "file": "SpawnSafetyNetTests.cs",
+   "ranges": [
+    {
+     "start": 57,
+     "end": 1172,
+     "methods": [
+      {
+       "method": "IsNonLeafInCommittedTree_ParentOfBranchPoint_ReturnsTrue",
+       "line": 57
+      },
+      {
+       "method": "IsNonLeafInCommittedTree_LeafRecording_ReturnsFalse",
+       "line": 112
+      },
+      {
+       "method": "IsNonLeafInCommittedTree_StandaloneRecording_ReturnsFalse",
+       "line": 140
+      },
+      {
+       "method": "IsNonLeafInCommittedTree_EmptyRecordingId_ReturnsFalse",
+       "line": 156
+      },
+      {
+       "method": "IsNonLeafInCommittedTree_TreeNotCommitted_ReturnsFalse",
+       "line": 170
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_Flying_ReturnsTrue",
+       "line": 189
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_SubOrbital_ReturnsTrue",
+       "line": 198
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_Landed_ReturnsFalse",
+       "line": 207
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_Orbiting_ReturnsFalse",
+       "line": 216
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_Splashed_ReturnsFalse",
+       "line": 225
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_Prelaunch_ReturnsFalse",
+       "line": 234
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_NullSnapshot_ReturnsFalse",
+       "line": 243
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_NoSitField_ReturnsFalse",
+       "line": 249
+      },
+      {
+       "method": "IsSnapshotSituationUnsafe_CaseInsensitive",
+       "line": 257
+      },
+      {
+       "method": "ShouldSpawn_FlyingSnapshot_ReturnsFalse",
+       "line": 270
+      },
+      {
+       "method": "ShouldSpawn_SubOrbitalSnapshot_ReturnsFalse",
+       "line": 289
+      },
+      {
+       "method": "ShouldSpawn_LandedSnapshot_NoTerminalState_Allowed",
+       "line": 308
+      },
+      {
+       "method": "ShouldSpawn_UnfinalizedRecording_NonSpawnableSituation_ReturnsFalse",
+       "line": 338
+      },
+      {
+       "method": "ShouldSpawn_UnfinalizedRecording_SpawnableSituation_StillAllowed",
+       "line": 367
+      },
+      {
+       "method": "UnfinalizedRecording_AbsentSit_IsUnchangedByDesign",
+       "line": 390
+      },
+      {
+       "method": "SituationNameMapping_MirrorsDetermineTerminalState",
+       "line": 418
+      },
+      {
+       "method": "ShouldSpawn_FlyingSnapshot_TerminalOrbiting_Allowed",
+       "line": 443
+      },
+      {
+       "method": "ShouldSpawn_FlyingSnapshot_TerminalLanded_Allowed",
+       "line": 461
+      },
+      {
+       "method": "ShouldSpawn_FlyingSnapshot_TerminalSplashed_Allowed",
+       "line": 479
+      },
+      {
+       "method": "ShouldSpawn_FlyingSnapshot_TerminalDestroyed_Blocked",
+       "line": 497
+      },
+      {
+       "method": "ShouldSpawn_NonLeafInTree_NullChildBranchPointId_ReturnsFalse",
+       "line": 520
+      },
+      {
+       "method": "ShouldSpawn_NonLeafInTree_NullChildBranchPointId_StillReturnsFalse",
+       "line": 560
+      },
+      {
+       "method": "ShouldSpawn_NonLeafInPendingTreeContext_NullChildBranchPointId_ReturnsFalse",
+       "line": 601
+      },
+      {
+       "method": "ShouldStripCrewForSpawn_Destroyed_ReturnsTrue",
+       "line": 644
+      },
+      {
+       "method": "ShouldStripCrewForSpawn_Landed_ReturnsFalse",
+       "line": 652
+      },
+      {
+       "method": "ShouldStripCrewForSpawn_Orbiting_ReturnsFalse",
+       "line": 660
+      },
+      {
+       "method": "ShouldStripCrewForSpawn_NullTerminalState_ReturnsFalse",
+       "line": 668
+      },
+      {
+       "method": "ShouldStripCrewForSpawn_Recovered_ReturnsFalse",
+       "line": 676
+      },
+      {
+       "method": "ShouldStripCrewForSpawn_SubOrbital_ReturnsFalse",
+       "line": 684
+      },
+      {
+       "method": "StripAllCrewFromSnapshot_RemovesAllCrew",
+       "line": 696
+      },
+      {
+       "method": "StripAllCrewFromSnapshot_NoCrew_ReturnsZero",
+       "line": 719
+      },
+      {
+       "method": "StripAllCrewFromSnapshot_NullSnapshot_ReturnsZero",
+       "line": 731
+      },
+      {
+       "method": "StripAllCrewFromSnapshot_LogsRemovedCrew",
+       "line": 739
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithLanded_ReturnsLanded",
+       "line": 759
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithSplashed_ReturnsSplashed",
+       "line": 766
+      },
+      {
+       "method": "ComputeCorrectedSituation_SubOrbitalWithLanded_ReturnsLanded",
+       "line": 773
+      },
+      {
+       "method": "ComputeCorrectedSituation_SubOrbitalWithSplashed_ReturnsSplashed",
+       "line": 780
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithDestroyed_ReturnsNull",
+       "line": 787
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithOrbiting_ReturnsOrbiting",
+       "line": 794
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithNull_ReturnsNull",
+       "line": 802
+      },
+      {
+       "method": "ComputeCorrectedSituation_LandedWithLanded_ReturnsNull",
+       "line": 809
+      },
+      {
+       "method": "ComputeCorrectedSituation_OrbitingWithLanded_ReturnsNull",
+       "line": 817
+      },
+      {
+       "method": "ComputeCorrectedSituation_NullSit_ReturnsNull",
+       "line": 825
+      },
+      {
+       "method": "ComputeCorrectedSituation_EmptySit_ReturnsNull",
+       "line": 832
+      },
+      {
+       "method": "ComputeCorrectedSituation_CaseInsensitive",
+       "line": 839
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithSubOrbital_ReturnsNull",
+       "line": 846
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithDocked_ReturnsNull",
+       "line": 854
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithBoarded_ReturnsNull",
+       "line": 861
+      },
+      {
+       "method": "ComputeCorrectedSituation_FlyingWithRecovered_ReturnsNull",
+       "line": 868
+      },
+      {
+       "method": "CorrectUnsafeSnapshotSituation_FlyingToLanded_CorrectsSitAndFlags",
+       "line": 879
+      },
+      {
+       "method": "CorrectUnsafeSnapshotSituation_FlyingToSplashed_CorrectsSitAndFlags",
+       "line": 899
+      },
+      {
+       "method": "CorrectUnsafeSnapshotSituation_FlyingToOrbiting_ClearsStaleSiteLabels",
+       "line": 917
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_MalformedSnapshotWithoutEndpoint_Rejects",
+       "line": 937
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_NoPartSubnodes_RejectsBeforeMaterialization",
+       "line": 964
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_EmptyVesselSnapshotWithGhostParts_LogsExplicitCounts",
+       "line": 1004
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_NonFiniteSurfaceVector_RejectsBeforeMaterialization",
+       "line": 1045
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_UnrepairableOrbit_PropagatesAbandonReason",
+       "line": 1091
+      },
+      {
+       "method": "RespawnValidatedRecording_UnrepairableOrbit_AbandonsInsteadOfRetrying",
+       "line": 1132
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

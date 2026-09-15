@@ -1,0 +1,127 @@
+{
+ "batch_id": "recording-tree-007",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 27,
+ "files": [
+  {
+   "file": "SceneExitFinalizationIntegrationTests.cs",
+   "ranges": [
+    {
+     "start": 2977,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_BodyMismatchStillClassifiesDestroyed",
+       "line": 2977
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_NonCatastrophicAltitudeStillClassifiesDestroyed",
+       "line": 3005
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_SubSurfaceWarnsOncePerTransition",
+       "line": 3053
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_VerboseRateLimitedPerRecordingAndReason",
+       "line": 3135
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_NullSolver_BetweenFiveAndThirtySeconds_RemainsSuppressed",
+       "line": 3252
+      },
+      {
+       "method": "TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_DiscardTailAndUsesLiveState",
+       "line": 3356
+      },
+      {
+       "method": "TryBuildStartStateFromSegment_CopiesOrbitalFrameRotation",
+       "line": 3456
+      },
+      {
+       "method": "SeedPredictedSegmentOrbitalFrameRotations_PreservesBoundaryWorldRotationAcrossSegments",
+       "line": 3496
+      },
+      {
+       "method": "SeedPredictedSegmentOrbitalFrameRotations_RoundTripsThroughThePlaybackConsumerFrame",
+       "line": 3633
+      },
+      {
+       "method": "SeedPredictedSegmentOrbitalFrameRotations_StableRepeatsLogOnce",
+       "line": 3732
+      },
+      {
+       "method": "TryApply_HookDecline_LogsWhenUsingNonTestHook",
+       "line": 3778
+      },
+      {
+       "method": "TryApply_DefaultPath_FlightGlobalsUnavailable_DeclinesAndLogs",
+       "line": 3856
+      },
+      {
+       "method": "IsFlightGlobalsRuntimeAvailable_TransientUnavailableProbe_IsNotCached",
+       "line": 3878
+      },
+      {
+       "method": "IsFlightGlobalsRuntimeAvailable_PermanentFailureProbe_IsCached",
+       "line": 3895
+      },
+      {
+       "method": "TryApply_RejectsUnsetTerminalState",
+       "line": 3910
+      },
+      {
+       "method": "TryApply_RejectsInvalidTerminalState",
+       "line": 3943
+      },
+      {
+       "method": "TryApply_RejectsTerminalUtThatMovesBackwardBeforeCurrentEnd",
+       "line": 3976
+      },
+      {
+       "method": "FinalizeIndividualRecording_SceneExitHook_PreservesHookPopulatedTerminalOrbitMetadata",
+       "line": 4010
+      },
+      {
+       "method": "FinalizeIndividualRecording_SceneExitHook_SameUtPointAnchor_StaysOnSceneExitPreservePath",
+       "line": 4059
+      },
+      {
+       "method": "FinalizeIndividualRecording_SceneExitHook_DoesNotTreatStaleTerminalOrbitAsHookAuthored",
+       "line": 4108
+      },
+      {
+       "method": "FinalizeIndividualRecording_GhostOnlySurfaceHook_PreservesExistingSurfaceMetadataAndLogs",
+       "line": 4172
+      },
+      {
+       "method": "RefreshActiveEffectiveLeafSnapshot_ExtendedLifetime_SkipsLiveResnapshot",
+       "line": 4219
+      },
+      {
+       "method": "ClearStaleDestroyedTerminalForResume_RecordingWithDestroyedVerdict_ClearsAndReleasesShortCircuit",
+       "line": 4496
+      },
+      {
+       "method": "ClearStaleDestroyedTerminalForResume_RecordingWithoutTerminalState_NoOp",
+       "line": 4534
+      },
+      {
+       "method": "ClearStaleDestroyedTerminalForResume_RecordingWithOrbitingVerdict_NoOpAndKeepsVerdict",
+       "line": 4558
+      },
+      {
+       "method": "ClearStaleDestroyedTerminalForResume_NullRecording_ReturnsFalseSafely",
+       "line": 4583
+      },
+      {
+       "method": "ClearStaleDestroyedTerminalForResume_AfterClear_FinalizerCacheRefreshNoLongerShortCircuits",
+       "line": 4595
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

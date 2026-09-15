@@ -1,0 +1,226 @@
+{
+ "batch_id": "logistics-route-011",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "Logistics/RouteRecoveryCreditTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EmitPendingRecoveryCredit_Amount_EqualsSumRecoveredCredits",
+       "line": 259
+      },
+      {
+       "method": "EmitPendingRecoveryCredit_Amount_SumsMultipleRecoveries",
+       "line": 285
+      },
+      {
+       "method": "EmitPendingRecoveryCredit_ZeroRecovery_NoRow_ClearsPending",
+       "line": 303
+      },
+      {
+       "method": "TwoCrossings_CreditFiresNextCrossing_KeyedOnPriorCycle",
+       "line": 327
+      },
+      {
+       "method": "FirstCycle_NoCreditOnOwnCrossing_OnlyArmsPending_FundsDownByGrossOnly",
+       "line": 371
+      },
+      {
+       "method": "FundsTimeline_DownByGrossOnly_AfterFirstCrossing",
+       "line": 412
+      },
+      {
+       "method": "ThreeCrossings_OneCreditEach_AfterFirst_ConstantAmount",
+       "line": 444
+      },
+      {
+       "method": "BlockedCrossing_NoOwnRow_ButFlushesPriorCredit",
+       "line": 480
+      },
+      {
+       "method": "NonCareer_NoPendingMarker_NoCredit",
+       "line": 518
+      },
+      {
+       "method": "NonKscOrigin_Career_NoPendingMarker_NoCredit",
+       "line": 536
+      },
+      {
+       "method": "StalePendingMarker_ReopenedInSandbox_ClearedNotEmitted",
+       "line": 556
+      },
+      {
+       "method": "Pause_FlushesFinalOwedCredit_Once_NoDuplicateOnResume",
+       "line": 581
+      },
+      {
+       "method": "ArmedPauseAfterCycle_FlushesOwedRecoveryCredit_BeforePaused",
+       "line": 617
+      },
+      {
+       "method": "EndpointLostAtDelivery_FlushCall_EmitsOwedRecoveryCredit",
+       "line": 676
+      },
+      {
+       "method": "RepresentedCrossing_CreditAlreadyInLedger_EmitsOnce",
+       "line": 704
+      },
+      {
+       "method": "PendingOnDisk_CreditNotYetInLedger_FlushesOnNextCrossing",
+       "line": 734
+      },
+      {
+       "method": "CreditInLedger_AndPendingSet_BackstopSuppresses",
+       "line": 757
+      },
+      {
+       "method": "CrashWindow_SourceRecoveryTombstoned_ReplayFlushEmitsNothing",
+       "line": 802
+      },
+      {
+       "method": "TombstonedRecovery_FutureCreditComputesZero_PastCreditsIntact",
+       "line": 847
+      },
+      {
+       "method": "PostCreationRecoveredBranch_DoesNotInflateCredit",
+       "line": 904
+      },
+      {
+       "method": "RouteRecoveryCredited_ExcludedFromWorldStateChangingPredicate",
+       "line": 943
+      },
+      {
+       "method": "RouteCargoPickedUp_ExcludedFromWorldStateChangingPredicate",
+       "line": 965
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RouteOriginProofCaptureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsSettledDockSeam_PinsEveryInputShape",
+       "line": 66
+      },
+      {
+       "method": "SettledDockSeamCandidates_MergedVesselDescriptor_CapturesLandedSurfaceOrigin",
+       "line": 80
+      },
+      {
+       "method": "SettledDockSeamCandidates_PrelaunchHost_StillSkipsBeforeWalkingCandidates",
+       "line": 127
+      },
+      {
+       "method": "Resolves_SinglePartner_ReturnsCapturedAndPid",
+       "line": 159
+      },
+      {
+       "method": "EmptyCandidates_ReturnsNoExternalCoupling",
+       "line": 185
+      },
+      {
+       "method": "ActiveVesselPrelaunch_ReturnsActiveVesselPrelaunch",
+       "line": 200
+      },
+      {
+       "method": "EvaActiveVessel_ReturnsNoExternalCoupling",
+       "line": 221
+      },
+      {
+       "method": "AllPartnersZeroPid_ReturnsPartnerPidZero",
+       "line": 242
+      },
+      {
+       "method": "AllPartnersPrelaunch_ReturnsPartnerPrelaunch",
+       "line": 265
+      },
+      {
+       "method": "MultipleDistinctPartners_ReturnsPartnerAmbiguous",
+       "line": 288
+      },
+      {
+       "method": "SinglePartner_OneCandidatePrelaunchOneFlying_PicksFlying",
+       "line": 311
+      },
+      {
+       "method": "CapturedBranch_LogsInfo",
+       "line": 337
+      },
+      {
+       "method": "NoExternalCouplingBranch_LogsVerbose",
+       "line": 368
+      },
+      {
+       "method": "ActiveVesselPrelaunchBranch_LogsVerbose",
+       "line": 390
+      },
+      {
+       "method": "PartnerPrelaunchBranch_LogsVerbose",
+       "line": 418
+      },
+      {
+       "method": "PartnerPidZeroBranch_LogsWarn",
+       "line": 446
+      },
+      {
+       "method": "PartnerAmbiguousBranch_LogsWarn",
+       "line": 475
+      },
+      {
+       "method": "GloopsMode_LogsVerboseSkip",
+       "line": 509
+      },
+      {
+       "method": "NullSnapshot_LogsWarnSkip",
+       "line": 538
+      },
+      {
+       "method": "CaptureProducer_DockedStart_FillsRouteOriginProof",
+       "line": 569
+      },
+      {
+       "method": "CaptureProducer_NotDocked_LeavesRouteOriginProofNull",
+       "line": 620
+      },
+      {
+       "method": "BuildCaptureRecording_DockedStart_FillsEndManifestsFromTransportPartSet",
+       "line": 644
+      },
+      {
+       "method": "BuildCaptureRecording_DockedStart_RoundTripsThroughRouteProofCodec",
+       "line": 697
+      },
+      {
+       "method": "IsSurfaceOriginSituation_LandedSplashedTrue_OthersFalse",
+       "line": 765
+      },
+      {
+       "method": "Captured_PopulatesPartnerDescriptor",
+       "line": 779
+      },
+      {
+       "method": "Captured_LandedPartner_IsSurfaceTrue",
+       "line": 822
+      },
+      {
+       "method": "Captured_OrbitalPartner_IsSurfaceFalse",
+       "line": 851
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,257 @@
+{
+ "batch_id": "legacy-bugfix-018",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "Bug419DebrisMonotonicityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsAppendUTMonotonic_NullPoints_ReturnsTrue",
+       "line": 49
+      },
+      {
+       "method": "IsAppendUTMonotonic_EmptyPoints_ReturnsTrue",
+       "line": 56
+      },
+      {
+       "method": "IsAppendUTMonotonic_StrictlyIncreasingUT_ReturnsTrue",
+       "line": 64
+      },
+      {
+       "method": "IsAppendUTMonotonic_EqualUT_ReturnsTrue",
+       "line": 75
+      },
+      {
+       "method": "IsAppendUTMonotonic_StrictlyDecreasingUT_ReturnsFalse",
+       "line": 88
+      },
+      {
+       "method": "TrimPointsAtOrAfterUT_NullPoints_ReturnsZero",
+       "line": 102
+      },
+      {
+       "method": "TrimPointsAtOrAfterUT_EmptyPoints_ReturnsZero",
+       "line": 108
+      },
+      {
+       "method": "TrimPointsAtOrAfterUT_AllPointsBeforeBoundary_ReturnsZero",
+       "line": 117
+      },
+      {
+       "method": "TrimPointsAtOrAfterUT_BoundaryAtSampleGrid_RemovesBoundaryAndLater",
+       "line": 131
+      },
+      {
+       "method": "TrimPointsAtOrAfterUT_BoundaryBetweenSamples_RemovesOnlyLaterPoints",
+       "line": 152
+      },
+      {
+       "method": "TrimPointsAtOrAfterUT_AllPointsAtOrAfterBoundary_RemovesAll",
+       "line": 173
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_FirstPoint_AppendsAndSetsEndUT",
+       "line": 188
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_MonotonicAppend_Appends",
+       "line": 201
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_EqualUT_AppendsDuplicate",
+       "line": 216
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_NonMonotonicAppend_RejectsAndLogs",
+       "line": 231
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_NonMonotonicAppend_EndUTStaysAtLastGoodValue",
+       "line": 270
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_NullRecording_DoesNotThrow",
+       "line": 290
+      },
+      {
+       "method": "Regression_DuplicateThirteenPointBlock_GuardRejectsAllDuplicates",
+       "line": 302
+      },
+      {
+       "method": "TrimAtBreakupBoundary_EmptyChildRecording_IsNoOp",
+       "line": 352
+      },
+      {
+       "method": "TrimAtBreakupBoundary_GridAlignedBreakup_NewSeedStartsMonotonic",
+       "line": 364
+      },
+      {
+       "method": "TrimAtBreakupBoundary_OffGridBreakup_LastInheritedIsStrictlyBefore",
+       "line": 401
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_NullRecording_ReturnsFalse",
+       "line": 431
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_Monotonic_ReturnsTrue",
+       "line": 441
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_NonMonotonic_ReturnsFalseAndLeavesPointsUnchanged",
+       "line": 453
+      },
+      {
+       "method": "ApplyTrajectoryPointToRecording_EqualUT_ReturnsTrue",
+       "line": 472
+      },
+      {
+       "method": "AppendPointsFromTrackSections_MonotonicRebuilt_AppendsAll",
+       "line": 487
+      },
+      {
+       "method": "AppendPointsFromTrackSections_NonMonotonicRebuilt_SkipsViolatingFrames",
+       "line": 519
+      },
+      {
+       "method": "AppendPointsFromTrackSections_EmptyExisting_NoGuardFires",
+       "line": 564
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug614GhostMapAncestorChainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SuppressesRoot_WhenChainSplitMidIsBetweenRootAndLeafActive",
+       "line": 132
+      },
+      {
+       "method": "SuppressesMid_WhenChainSplitMidIsDirectParentOfLeafActive",
+       "line": 157
+      },
+      {
+       "method": "DoesNotSuppressSibling_WhenLeafIsOnDifferentBranchFromActiveLeaf",
+       "line": 183
+      },
+      {
+       "method": "DoesNotSuppressUnrelatedTreeRecording",
+       "line": 224
+      },
+      {
+       "method": "SuppressesAllChainAncestors_WhenChainHasMultipleSplitSegments",
+       "line": 268
+      },
+      {
+       "method": "SuppressesChainPredecessor_WhenActiveIsMidChainNoBpParent",
+       "line": 316
+      },
+      {
+       "method": "BailsWithDistinctReason_WhenActiveIsTrueRootNoChainNoBp",
+       "line": 344
+      },
+      {
+       "method": "HandlesChainCycleGracefully_VisitedSetCapsTheWalk",
+       "line": 377
+      },
+      {
+       "method": "TryFindChainPredecessor_ReturnsNullForStandaloneRecording",
+       "line": 426
+      },
+      {
+       "method": "TryFindChainPredecessor_ReturnsNullForChainIndexZero",
+       "line": 436
+      },
+      {
+       "method": "TryFindChainPredecessor_ScopedByChainBranch",
+       "line": 451
+      },
+      {
+       "method": "TryFindChainPredecessor_ReturnsNullForMissingPredecessor",
+       "line": 486
+      },
+      {
+       "method": "EndToEnd_SuppressesRoot_ProductionGate_UserShape",
+       "line": 515
+      },
+      {
+       "method": "WalkTrace_OnSuccess_CarriesChainHopsCounter_ForFutureRegressionVisibility",
+       "line": 565
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug618ReFlyMergeParentChainTipTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildDefaultVesselDecisions_ParentChainOptimizerTip_RemainsSpawnableWhenNotSuppressed",
+       "line": 62
+      },
+      {
+       "method": "MergeCommitAdoption_ParentChainOptimizerTipWithExistingSource_AdoptsInsteadOfDuplicating",
+       "line": 98
+      },
+      {
+       "method": "MergeCommit_ParentChainOptimizerTipSplitByOptimizer_AdoptsFinalTip",
+       "line": 142
+      },
+      {
+       "method": "MergeCommit_ParentChainOptimizerTipMergedByOptimizer_AdoptsSurvivingRecording",
+       "line": 210
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_SuppressedParentChainOptimizerTip_DefaultsGhostOnly",
+       "line": 276
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_ParentChainOptimizerTipWithoutSnapshot_RemainsGhostOnly",
+       "line": 302
+      },
+      {
+       "method": "BuildDefaultVesselDecisions_ActiveTargetOnProbeTip_KeepsActiveTipSpawnable",
+       "line": 328
+      },
+      {
+       "method": "CollectParentChainTips_SkipsMultiParentBranch",
+       "line": 353
+      },
+      {
+       "method": "CollectParentChainTips_UsesChainIdentityWhenTerminalHasNoBranchPointBacklink",
+       "line": 377
+      },
+      {
+       "method": "TryResolvePersistDecisionForOptimizedTip_UsesClosestSameChainPredecessorDecision",
+       "line": 393
+      },
+      {
+       "method": "TryResolvePersistDecisionForOptimizedTip_ReturnsFalseWhenOptimizedTipLosesOriginalAndPredecessorDecision",
+       "line": 430
+      },
+      {
+       "method": "ResolveChainTerminalRecording_UsesPendingTreeContext",
+       "line": 468
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

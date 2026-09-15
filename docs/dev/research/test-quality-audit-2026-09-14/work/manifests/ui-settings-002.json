@@ -1,0 +1,249 @@
+{
+ "batch_id": "ui-settings-002",
+ "cluster": "ui-settings",
+ "tier": "A",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "TooltipEchoBudgetTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LiteralGuiContentTooltips_FitTheHelpStrip",
+       "line": 151
+      },
+      {
+       "method": "DensityTooltips_FitTheSettingsStrip",
+       "line": 190
+      },
+      {
+       "method": "RouteRunCostTooltip_FitsTheLogisticsStrip",
+       "line": 211
+      },
+      {
+       "method": "RuntimeComposedLogisticsTooltips_FitTheSingleLineStrip",
+       "line": 237
+      },
+      {
+       "method": "SortableHeaderTooltips_FitTheRecordingsStrip",
+       "line": 296
+      },
+      {
+       "method": "StripHeightColumn_MatchesTheWindowConstructor",
+       "line": 360
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TimelineWindowUITests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetRowActionButtonWidth_ShortTimelineActionsShareWidth_AndGoToStaysWider",
+       "line": 25
+      },
+      {
+       "method": "TryConsumeCountdownTimeLabel_OnlyFirstVisibleFutureRow_ReturnsTrue",
+       "line": 40
+      },
+      {
+       "method": "TryConsumeCountdownTimeLabel_HiddenFutureRow_DoesNotConsumeLatch",
+       "line": 62
+      },
+      {
+       "method": "FormatTimelineEntryTimeLabel_CountdownRow_UsesTMinusCountdown",
+       "line": 76
+      },
+      {
+       "method": "ShouldShowFastForwardButton_FutureRecording_ReturnsTrue",
+       "line": 85
+      },
+      {
+       "method": "ShouldShowRewindButton_PastRecordingWithSave_ReturnsTrue",
+       "line": 93
+      },
+      {
+       "method": "ShouldShowRewindButton_ActiveParentUnfinishedFlightWithLaunchSave_ReturnsTrue",
+       "line": 101
+      },
+      {
+       "method": "ShouldShowWatchButton_InFlightRecording_ReturnsTrue",
+       "line": 142
+      },
+      {
+       "method": "ShouldShowWatchButton_NonFlightRecording_ReturnsFalse",
+       "line": 149
+      },
+      {
+       "method": "BuildWatchButtonDescriptor_EligibleRow_IsEnabledForEnter",
+       "line": 156
+      },
+      {
+       "method": "BuildFlySealButtonDescriptor_ResolvedSlot_EnablesBothActions",
+       "line": 169
+      },
+      {
+       "method": "BuildFlySealButtonDescriptor_ResolvedButNotInvokable_OnlyDisablesFly",
+       "line": 181
+      },
+      {
+       "method": "BuildFlySealButtonDescriptor_UnresolvedSlot_DisablesBothActions",
+       "line": 193
+      },
+      {
+       "method": "BuildFlySealButtonDescriptor_UnresolvedWithoutReason_UsesGenericUnavailableCopy",
+       "line": 205
+      },
+      {
+       "method": "BuildRecordingIndexLookup_MapsRecordingIdsToIndices",
+       "line": 217
+      },
+      {
+       "method": "BuildRecordingIndexLookup_NullRecordings_ReturnsEmpty",
+       "line": 232
+      },
+      {
+       "method": "BuildRecordingIndexLookup_ErsAndCommittedIndicesDivergeAfterSupersede",
+       "line": 247
+      },
+      {
+       "method": "FindCommittedRecordingIndexById_ReturnsCommittedIndex_IncludingForErsFilteredRecordings",
+       "line": 288
+      },
+      {
+       "method": "BuildWatchButtonDescriptor_WatchedUnavailableRow_UsesExitTooltipAndStaysEnabled",
+       "line": 308
+      },
+      {
+       "method": "GetWatchButtonAction_TogglesWatchedRowsOff",
+       "line": 321
+      },
+      {
+       "method": "ApplyWatchButtonAction_ExitAction_CallsExitOnly",
+       "line": 330
+      },
+      {
+       "method": "ApplyWatchButtonAction_EnterAction_CallsEnterWithRecordingIndex",
+       "line": 346
+      },
+      {
+       "method": "HasActionableRewindOrFastForwardButton_FutureRecordingStart_ReturnsTrue",
+       "line": 362
+      },
+      {
+       "method": "HasActionableRewindOrFastForwardButton_FutureRecordingStartWithoutAvailableFastForward_ReturnsFalse",
+       "line": 377
+      },
+      {
+       "method": "HasActionableRewindOrFastForwardButton_PastRecordingWithoutRewindSave_ReturnsFalse",
+       "line": 392
+      },
+      {
+       "method": "HasActionableRewindOrFastForwardButton_PastRecordingWithDisabledRewind_ReturnsFalse",
+       "line": 407
+      },
+      {
+       "method": "HasActionableFlyOrSealButton_UnfinishedFlightSeparationResolvedSlot_ReturnsTrue",
+       "line": 426
+      },
+      {
+       "method": "HasActionableFlyOrSealButton_UnresolvedSlot_ReturnsFalse",
+       "line": 452
+      },
+      {
+       "method": "HasActionableFlyOrSealButton_RecordingStart_ReturnsFalse",
+       "line": 471
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TimelineGoToMissionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GoToOpensTheMissionsTabAndSchedulesTheOwningMission",
+       "line": 92
+      },
+      {
+       "method": "GoToMovesTheSelectionOffTheRecordingsTab",
+       "line": 113
+      },
+      {
+       "method": "GoToPicksTheTreesOriginalMissionNotAClone",
+       "line": 133
+      },
+      {
+       "method": "GoToQueuesTheArchiveFilterClearWhenItWouldHideTheTarget",
+       "line": 155
+      },
+      {
+       "method": "GoToNeverUnarchivesTheMission",
+       "line": 174
+      },
+      {
+       "method": "GoToLeavesTheArchiveFilterAloneForANonArchivedTarget",
+       "line": 189
+      },
+      {
+       "method": "GoToWarnsAndSchedulesNothingWhenTheRecordingIsNotEffective",
+       "line": 204
+      },
+      {
+       "method": "GoToWarnsAndSchedulesNothingWhenTheRecordingHasNoTree",
+       "line": 219
+      },
+      {
+       "method": "GoToWarnsAndSchedulesNothingWhenTheTreeIsNotCommitted",
+       "line": 234
+      },
+      {
+       "method": "GoToSeedsTheDefaultMissionForATreeCommittedMidScene",
+       "line": 251
+      },
+      {
+       "method": "AFailedRevealClearsAPreviouslyScheduledTarget",
+       "line": 278
+      },
+      {
+       "method": "GoToIsDisabledForARecordingThatBelongsToNoMission",
+       "line": 299
+      },
+      {
+       "method": "TimelineDisablesBothGoToButtonsOnTheCanGoToPredicate",
+       "line": 318
+      },
+      {
+       "method": "SpawnControlReachabilityFollowsTheModeGate",
+       "line": 334
+      },
+      {
+       "method": "ProximityNotificationAsksTheUiWhetherSpawnControlIsReachable",
+       "line": 358
+      },
+      {
+       "method": "TheGoToGateKeyResolvesVisibleInBothModes",
+       "line": 380
+      },
+      {
+       "method": "TimelineGatesBothGoToButtonsOnTheMissionsSurface",
+       "line": 394
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

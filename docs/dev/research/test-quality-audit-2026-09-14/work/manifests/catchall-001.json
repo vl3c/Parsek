@@ -1,0 +1,91 @@
+{
+ "batch_id": "catchall-001",
+ "cluster": "catchall",
+ "tier": "A1",
+ "expected_methods": 18,
+ "files": [
+  {
+   "file": "SyntheticRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 614,
+     "end": 3391,
+     "methods": [
+      {
+       "method": "PipelineOutlierKrakenFixture_ClassifiesBubbleSpikeWithoutCluster",
+       "line": 614
+      },
+      {
+       "method": "PadWalk_HasEvaGhostSnapshot",
+       "line": 3067
+      },
+      {
+       "method": "KscHopper_BuildsValidRecording",
+       "line": 3081
+      },
+      {
+       "method": "FleaFlight_HasVesselSnapshotAndPartEvents",
+       "line": 3104
+      },
+      {
+       "method": "SuborbitalArc_BuildsValidRecording",
+       "line": 3131
+      },
+      {
+       "method": "KscPadDestroyed_HasNoSnapshot",
+       "line": 3162
+      },
+      {
+       "method": "Orbit1_HasOrbitSegmentAndSnapshot",
+       "line": 3172
+      },
+      {
+       "method": "Orbit1_OrbitSegment_HasAngularVelocityKeys",
+       "line": 3204
+      },
+      {
+       "method": "TruncatedPlaneCruise_BuildsValidRecording",
+       "line": 3232
+      },
+      {
+       "method": "TruncatedSuborbitalRecording_HasKerbinTailSegment",
+       "line": 3242
+      },
+      {
+       "method": "TruncatedHyperbolicRecording_HasHyperbolicOrbitSegment",
+       "line": 3252
+      },
+      {
+       "method": "TruncatedMunFlybyRecording_HasKerbinOrbitSnapshot",
+       "line": 3262
+      },
+      {
+       "method": "TruncatedMunImpactRecording_HasMunOrbitSegment",
+       "line": 3272
+      },
+      {
+       "method": "CloseSpawnConflict_HasLandedSnapshotNearKsc",
+       "line": 3282
+      },
+      {
+       "method": "IslandProbe_HasFleaRocketWithCrew",
+       "line": 3294
+      },
+      {
+       "method": "ScenarioWriter_SerializesCorrectly",
+       "line": 3311
+      },
+      {
+       "method": "ScenarioWriter_AddRecordingsAsTree_PreservesChainParentLinks",
+       "line": 3326
+      },
+      {
+       "method": "ScenarioWriter_InjectIntoSave_InsertsBeforeFlightstate",
+       "line": 3351
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

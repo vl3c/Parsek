@@ -1,0 +1,159 @@
+{
+ "batch_id": "mission-groups-007",
+ "cluster": "mission-groups",
+ "tier": "A",
+ "expected_methods": 35,
+ "files": [
+  {
+   "file": "MissionLoiterKnobTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DetectRuns_ExposesRunMetadata",
+       "line": 101
+      },
+      {
+       "method": "ComputeCuts_DelegationMatchesRunMetadata",
+       "line": 121
+      },
+      {
+       "method": "ScheduleK_EmptyShiftGroup_MatchesBaseOverload",
+       "line": 137
+      },
+      {
+       "method": "ScheduleK_KnobUnlocksWindowTheBaseScanRejects",
+       "line": 158
+      },
+      {
+       "method": "ScheduleK_MagnitudeTie_PrefersTheCut",
+       "line": 183
+      },
+      {
+       "method": "ScheduleK_BoundsRespected_OuterScanCompensates",
+       "line": 198
+      },
+      {
+       "method": "ScheduleK_NothingReachable_BoundedBestEarlierK",
+       "line": 221
+      },
+      {
+       "method": "Schedule_MaterializesPerLaunchTiming_CutAndExtensionShapes",
+       "line": 261
+      },
+      {
+       "method": "Schedule_SpacingUnderExtension_NextLaunchClearsEffectiveSpan",
+       "line": 290
+      },
+      {
+       "method": "Schedule_KnobLess_HasNoTiming",
+       "line": 312
+      },
+      {
+       "method": "SpanClock_PerLaunchCut_SkipsTheCutWindow",
+       "line": 345
+      },
+      {
+       "method": "SpanClock_PerLaunchTail_ParksAtSpanEndAtEffectiveSpan",
+       "line": 357
+      },
+      {
+       "method": "SpanClock_Extension_WrapsFinalRevThenResumes",
+       "line": 370
+      },
+      {
+       "method": "ApplyLoiterExtensionToPhase_Seams",
+       "line": 391
+      },
+      {
+       "method": "BuildSchedule_StationShape_EngagesKnob",
+       "line": 440
+      },
+      {
+       "method": "BuildSchedule_AnchorEventInsideRun_DisengagesKnob_Rule3",
+       "line": 452
+      },
+      {
+       "method": "BuildSchedule_NoEventAfterRun_DisengagesKnob_Rule4",
+       "line": 467
+      },
+      {
+       "method": "BuildSchedule_NullKnobInput_BehavesAsToday",
+       "line": 481
+      },
+      {
+       "method": "KnobInput_HappyPath_PicksRunBeforeRendezvous",
+       "line": 548
+      },
+      {
+       "method": "KnobInput_RendezvousBeforeRunEnd_NoPhasingRun_Rule2",
+       "line": 568
+      },
+      {
+       "method": "KnobInput_UT0SpanStartMismatch_Disengages_Rule5",
+       "line": 581
+      },
+      {
+       "method": "KnobInput_BodyChangeGuard_RunAfterSoiExit_Disengages",
+       "line": 594
+      },
+      {
+       "method": "KnobInput_EarlierRuns_BecomeStaticCuts",
+       "line": 611
+      },
+      {
+       "method": "KnobInput_RunStartsBeforeSpanStart_Disengages",
+       "line": 640
+      },
+      {
+       "method": "KnobInput_PreSpanRun_NeverBecomesAStaticCut",
+       "line": 657
+      },
+      {
+       "method": "KnobInput_ChainMission_FindsLoiterInContinuationSegment",
+       "line": 683
+      },
+      {
+       "method": "KnobInput_OwnerWithoutLoiter_Null",
+       "line": 721
+      },
+      {
+       "method": "KnobInput_DestinationBodyLoiter_EngagesOnTheMunParkingOrbit",
+       "line": 734
+      },
+      {
+       "method": "KnobInput_LaunchBodyLoiter_StillEngages_Regression",
+       "line": 761
+      },
+      {
+       "method": "KnobInput_ThirdBodySoiEntry_ClampsGuard_ExcludesLoiter",
+       "line": 781
+      },
+      {
+       "method": "IsPhasingRunBodyAccepted_LaunchOrRendezvousOnly",
+       "line": 804
+      },
+      {
+       "method": "BodyFixedShift_TracksClockPhases_CutWrapAndPostExtension",
+       "line": 824
+      },
+      {
+       "method": "BodyFixedShift_UnitMemberSeam_KnobAndKnobLessAndNonMember",
+       "line": 847
+      },
+      {
+       "method": "ShiftLongitudeDegrees_DerotatesByRotationFraction",
+       "line": 873
+      },
+      {
+       "method": "RouteDockCrossing_ExtensionSawtooth_FiresOncePerCycle",
+       "line": 903
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

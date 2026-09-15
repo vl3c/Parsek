@@ -1,0 +1,221 @@
+{
+ "batch_id": "catchall-033",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "RevertVesselStripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Revert_PidCollisionDifferentGuid_NotStripped",
+       "line": 70
+      },
+      {
+       "method": "Revert_SameLaunchAdoption_NotInScope_WouldStrip_ButGuidGateAlonePasses",
+       "line": 90
+      },
+      {
+       "method": "Revert_SameLaunchAdoption_InLaunchQuicksave_NotStripped",
+       "line": 109
+      },
+      {
+       "method": "Revert_GenuineSpawn_DuringRevertedFlight_NotInQuicksave_Stripped",
+       "line": 129
+      },
+      {
+       "method": "Revert_ScopeRequired_NullWhitelist_FailsClosed_NotStripped",
+       "line": 149
+      },
+      {
+       "method": "Revert_PrelaunchVessel_Skipped_WhenSkipPrelaunch",
+       "line": 166
+      },
+      {
+       "method": "Revert_CandidatePidZero_NotStripped",
+       "line": 182
+      },
+      {
+       "method": "Revert_NoMatchingRecording_NotStripped",
+       "line": 191
+      },
+      {
+       "method": "Rewind_MatchSource_RecordedVessel_SameLaunch_Stripped",
+       "line": 206
+      },
+      {
+       "method": "Rewind_MatchSource_DifferentLaunchSameCraft_NotStripped",
+       "line": 229
+      },
+      {
+       "method": "Rewind_GuidlessAdoption_VesselInQuicksave_ProtectedByWhitelist",
+       "line": 254
+      },
+      {
+       "method": "Rewind_GuidlessAdoption_VesselNotInQuicksave_StillStripped",
+       "line": 275
+      },
+      {
+       "method": "Reconcile_GuidAware_SurvivorIsDifferentLaunch_ResetsForRespawn",
+       "line": 296
+      },
+      {
+       "method": "Reconcile_GuidAware_SurvivorIsSameLaunch_PreservesSpawnState",
+       "line": 314
+      },
+      {
+       "method": "Reconcile_GuidAware_GenuineSpawnSurvives_ByPid_PreservesSpawnState",
+       "line": 329
+      },
+      {
+       "method": "Reconcile_GuidAware_NullSurvivors_ResetsAllSpawned",
+       "line": 342
+      },
+      {
+       "method": "ShouldResetSpawnState_GuidAware_NeverSpawned_NoReset",
+       "line": 352
+      },
+      {
+       "method": "ExtractFlightStateVesselPids_GameWrapper_ParsesVesselPids",
+       "line": 362
+      },
+      {
+       "method": "ExtractFlightStateVesselPids_NoGameWrapper_StillParses",
+       "line": 382
+      },
+      {
+       "method": "ExtractFlightStateVesselPids_SkipsZeroAndUnparseable",
+       "line": 396
+      },
+      {
+       "method": "ExtractFlightStateVesselPids_NullOrMissingFlightState_ReturnsEmpty",
+       "line": 411
+      },
+      {
+       "method": "BuildRevertTargetWhitelist_PopulatedSnapshot_ReturnsPidSet",
+       "line": 420
+      },
+      {
+       "method": "BuildRevertTargetWhitelist_EmptyOrUnparseableSnapshot_ReturnsNull_SoStripFailsClosed",
+       "line": 433
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BranchPointExtensionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BranchPointType_Launch_HasValue5",
+       "line": 36
+      },
+      {
+       "method": "BranchPointType_Breakup_HasValue6",
+       "line": 42
+      },
+      {
+       "method": "BranchPointType_Terminal_HasValue7",
+       "line": 48
+      },
+      {
+       "method": "BranchPointType_VesselSwitchContinuation_HasValue8",
+       "line": 54
+      },
+      {
+       "method": "BranchPoint_Breakup_AllMetadata_RoundTrips",
+       "line": 67
+      },
+      {
+       "method": "BranchPoint_Terminal_WithCause_RoundTrips",
+       "line": 102
+      },
+      {
+       "method": "BranchPoint_Launch_NoExtraMetadata_RoundTrips",
+       "line": 129
+      },
+      {
+       "method": "BranchPoint_VesselSwitchContinuation_NoMetadata_RoundTrips",
+       "line": 166
+      },
+      {
+       "method": "BranchPointType_VesselSwitchContinuation_IsNotClaiming",
+       "line": 222
+      },
+      {
+       "method": "BranchPoint_Undock_WithSplitMetadata_RoundTrips",
+       "line": 240
+      },
+      {
+       "method": "BranchPoint_Dock_WithMergeMetadata_RoundTrips",
+       "line": 267
+      },
+      {
+       "method": "BranchPoint_OldFormat_WithoutNewMetadata_DefaultsToNullAndZero",
+       "line": 294
+      },
+      {
+       "method": "BranchPoint_UnknownTypeInteger_DoesNotCrash_LogsWarning",
+       "line": 329
+      },
+      {
+       "method": "BranchPoint_ToString_IncludesNewTypeName",
+       "line": 357
+      },
+      {
+       "method": "BranchPoint_Save_Breakup_LogsMetadata",
+       "line": 375
+      },
+      {
+       "method": "BranchPoint_Load_Breakup_LogsMetadata",
+       "line": 407
+      },
+      {
+       "method": "BranchPoint_Breakup_OverheatCause_RoundTrips",
+       "line": 438
+      },
+      {
+       "method": "BranchPoint_Terminal_DestroyedCause_RoundTrips",
+       "line": 465
+      },
+      {
+       "method": "BranchPoint_Save_OmitsDefaultValues",
+       "line": 488
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DoubleClockVerificationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TwoDisjointTreeMissions_BothBuildLoopUnits_AndTheEnforcementDoesNotCoupleThem",
+       "line": 190
+      },
+      {
+       "method": "CollisionProbe_TheSameMatterIsToldToRenderAtTwoDifferentRecordedTimes",
+       "line": 222
+      },
+      {
+       "method": "Control_WithMission2NotLooping_NoUTInTheSweepDoubleRenders",
+       "line": 326
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

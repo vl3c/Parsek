@@ -1,0 +1,275 @@
+{
+ "batch_id": "map-render-001",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 64,
+ "files": [
+  {
+   "file": "KscGhostPlaybackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryInterpolateKscPlaybackPose_RelativeSection_UsesAnchorLocalOffset",
+       "line": 346
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_RelativeSection_UnresolvedAnchorSkips",
+       "line": 377
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_ParentAnchoredDebris_UsesBodyFixedPrimary",
+       "line": 403
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_ParentAnchoredDebrisWithoutBodyFixedPrimary_FailsClosed",
+       "line": 438
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_LoopAnchoredDebrisChain_UsesRelativeFrames",
+       "line": 469
+      },
+      {
+       "method": "ShouldHideKscRelativeAnchorUnresolvedGhost_HidesOnlyBeforeFirstPose",
+       "line": 496
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_AbsoluteSection_UsesSurfaceLookup",
+       "line": 511
+      },
+      {
+       "method": "ShouldTriggerKscExplosionAtCurrentPose_UsesFrozenPoseAfterFirstPosition",
+       "line": 540
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_OrbitalCheckpointFrames_UseSurfaceLookup",
+       "line": 554
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_NoSection_UsesAbsoluteSurfaceLookup",
+       "line": 594
+      },
+      {
+       "method": "SurfaceResolvedLines_PointAndSegmentPaths_EmitIndependentlyAndBothCarryBody",
+       "line": 634
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_ResetsCacheWhenFrameSourceChanges",
+       "line": 677
+      },
+      {
+       "method": "TryInterpolateKscPlaybackPose_NoPoints_RateLimitedLogPerRecording",
+       "line": 714
+      },
+      {
+       "method": "ShouldShowInKSC_ValidKerbinRecording_ReturnsTrue",
+       "line": 785
+      },
+      {
+       "method": "ShouldShowInKSC_SupersededRelation_ReturnsFalse",
+       "line": 792
+      },
+      {
+       "method": "ShouldShowInKSC_RewindRetired_ReturnsFalse",
+       "line": 809
+      },
+      {
+       "method": "ShouldShowInKSC_DisabledRecording_ReturnsFalse",
+       "line": 831
+      },
+      {
+       "method": "ShouldShowInKSC_EmptyPoints_ReturnsFalse",
+       "line": 838
+      },
+      {
+       "method": "ShouldShowInKSC_SinglePoint_ReturnsFalse",
+       "line": 849
+      },
+      {
+       "method": "ShouldShowInKSC_NonKerbinBody_ReturnsFalse",
+       "line": 861
+      },
+      {
+       "method": "ShouldShowInKSC_ChainMidSegment_ReturnsTrue",
+       "line": 868
+      },
+      {
+       "method": "ShouldShowInKSC_ChainFirstSegment_ReturnsTrue",
+       "line": 876
+      },
+      {
+       "method": "ShouldShowInKSC_NullPoints_ReturnsFalse",
+       "line": 883
+      },
+      {
+       "method": "ShouldShowInKSC_DestroyedRecording_StillShows",
+       "line": 895
+      },
+      {
+       "method": "ShouldShowInKSC_CrossBodyRecording_PassesFilter",
+       "line": 903
+      },
+      {
+       "method": "ShouldShowInKSC_IsPureFunction_NoLogging",
+       "line": 912
+      },
+      {
+       "method": "TryComputeLoopUT_BeforeStart_ReturnsFalse",
+       "line": 924
+      },
+      {
+       "method": "TryComputeLoopUT_AtExactStart_ReturnsTrue",
+       "line": 938
+      },
+      {
+       "method": "TryComputeLoopUT_WithinFirstCycle_ReturnsCorrectUT",
+       "line": 957
+      },
+      {
+       "method": "TryComputeLoopUT_InPauseWindow_SetsFlag",
+       "line": 975
+      },
+      {
+       "method": "TryComputeLoopUT_JustPastBoundaryWithinEpsilon_StaysInPlayback",
+       "line": 995
+      },
+      {
+       "method": "TryComputeLoopUT_SecondCycle_ReturnsCorrectCycleIndex",
+       "line": 1013
+      },
+      {
+       "method": "TryComputeLoopUT_NullRecording_ReturnsFalse",
+       "line": 1033
+      },
+      {
+       "method": "TryComputeLoopUT_TooShortRecording_ReturnsFalse",
+       "line": 1046
+      },
+      {
+       "method": "TryComputeLoopUT_ZeroInterval_ClampsAndCycles",
+       "line": 1066
+      },
+      {
+       "method": "TryComputeLoopUT_LargeCycleJump_NoOverflow",
+       "line": 1086
+      },
+      {
+       "method": "TryComputeLoopUT_AtEndOfCycle_NotInPauseWindow",
+       "line": 1106
+      },
+      {
+       "method": "TryComputeLoopUT_AutoQueueUsesSharedLaunchSchedule",
+       "line": 1127
+      },
+      {
+       "method": "TryComputeLoopUT_UsesProvidedAutoQueueCache",
+       "line": 1169
+      },
+      {
+       "method": "GetLoopIntervalSeconds_NullRecording_ReturnsDefault",
+       "line": 1201
+      },
+      {
+       "method": "GetLoopIntervalSeconds_NaN_ReturnsDefault",
+       "line": 1207
+      },
+      {
+       "method": "GetLoopIntervalSeconds_Infinity_ReturnsDefault",
+       "line": 1215
+      },
+      {
+       "method": "GetLoopIntervalSeconds_NegativeValue_ClampedToMinCycleDuration",
+       "line": 1223
+      },
+      {
+       "method": "GetLoopIntervalSeconds_VeryNegativeValue_ClampedToMinCycleDuration",
+       "line": 1232
+      },
+      {
+       "method": "GetLoopIntervalSeconds_PositiveValue_ReturnsAsIs",
+       "line": 1241
+      },
+      {
+       "method": "GetLoopIntervalSeconds_Zero_ClampsToMinCycleDuration",
+       "line": 1249
+      },
+      {
+       "method": "GetLoopIntervalSeconds_AutoQueueReturnsQueueCadenceWhenRecordingIndexProvided",
+       "line": 1258
+      },
+      {
+       "method": "GetLoopIntervalSeconds_UsesProvidedAutoQueueCache",
+       "line": 1288
+      },
+      {
+       "method": "GetLoopIntervalSeconds_ManualLoopWithRecordingIndex_ReturnsRecordingCadence",
+       "line": 1304
+      },
+      {
+       "method": "RebuildAutoLoopLaunchScheduleCache_BuildsOrderedSharedSchedule",
+       "line": 1315
+      },
+      {
+       "method": "RebuildAutoLoopLaunchScheduleCache_StableQueueLogsOnceUntilFingerprintChanges",
+       "line": 1379
+      },
+      {
+       "method": "PlaybackDisabledPastEndSpawnAttempt_LogsOncePerRecordingAndReason",
+       "line": 1434
+      },
+      {
+       "method": "TryComputeLoopUT_PeriodShorterThanDuration_Overlaps",
+       "line": 1463
+      },
+      {
+       "method": "EffectiveLoopDuration_SubrangeAndFullRange_OverlapDecisionDiffers",
+       "line": 1483
+      },
+      {
+       "method": "ResolveLoopPlaybackEndpointUT_Subrange_UsesEffectiveLoopEnd",
+       "line": 1500
+      },
+      {
+       "method": "EffectiveLoopDuration_SubrangeChangesOverlapCycleBoundsComparedToFullRange",
+       "line": 1511
+      },
+      {
+       "method": "TryComputeLoopUT_NegativeInterval_ClampsDefensively_NoThrow",
+       "line": 1543
+      },
+      {
+       "method": "ApplyAudioActionToGhostSet_VisitsPrimaryAndOverlapGhosts",
+       "line": 1568
+      },
+      {
+       "method": "ShouldApplyRuntimeGhostEvents_RespectsPauseLatch",
+       "line": 1601
+      },
+      {
+       "method": "ShouldQueueKscExplicitExplosionAudio_OnlyWhenUnpausedAndStockFailed",
+       "line": 1612
+      },
+      {
+       "method": "ApplyAudioActionToActiveGhosts_LogsVisitedCounts",
+       "line": 1623
+      },
+      {
+       "method": "OnGamePause_WrapperLatchesPauseAndDispatches",
+       "line": 1652
+      },
+      {
+       "method": "OnGameUnpause_WrapperClearsPauseAndDispatches",
+       "line": 1706
+      },
+      {
+       "method": "IsOrphanedGhostIndex_BoundaryContract",
+       "line": 1782
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

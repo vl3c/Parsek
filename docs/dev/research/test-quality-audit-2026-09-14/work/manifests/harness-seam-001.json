@@ -1,0 +1,339 @@
+{
+ "batch_id": "harness-seam-001",
+ "cluster": "harness-seam",
+ "tier": "A",
+ "expected_methods": 80,
+ "files": [
+  {
+   "file": "TestCommandUiCensusOpsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RectClamp_RaisesBothAxesToTheWindowsOwnFloor",
+       "line": 29
+      },
+      {
+       "method": "RectClamp_LeavesAGenerousRectAlone_AndReportsNoClamp",
+       "line": 49
+      },
+      {
+       "method": "RectClamp_IsInertForAWindowWithNoMinimum",
+       "line": 60
+      },
+      {
+       "method": "RectClamp_OnlyRaises_NeverLowers",
+       "line": 73
+      },
+      {
+       "method": "RectPayload_CarriesTheClampAndTheFloorThatCausedIt",
+       "line": 92
+      },
+      {
+       "method": "MinSizeFormatsAsADashOnlyWhenThereIsNoMinimum",
+       "line": 107
+      },
+      {
+       "method": "SettleChecksHostShowUi_IsExactlyOpenAndRect",
+       "line": 114
+      },
+      {
+       "method": "Pointer_TakesEitherACoordinatePairOrPark_NeverNeither",
+       "line": 134
+      },
+      {
+       "method": "Pointer_RefusesAHalfCoordinate",
+       "line": 142
+      },
+      {
+       "method": "Pointer_RefusesParkAndCoordinatesTogether",
+       "line": 152
+      },
+      {
+       "method": "Pointer_ParkGoesToTheClientCorner",
+       "line": 160
+      },
+      {
+       "method": "Pointer_ParkFalseIsAnOrdinaryMove_SoAGeneratedSpecCanAlwaysCarryTheKey",
+       "line": 170
+      },
+      {
+       "method": "Pointer_ParkIsCaseSensitiveAndClosed",
+       "line": 183
+      },
+      {
+       "method": "Pointer_CoordinatesMustBeFiniteInvariantFloatsInRange",
+       "line": 195
+      },
+      {
+       "method": "Pointer_CoordinateParseIsCultureInvariant",
+       "line": 203
+      },
+      {
+       "method": "Pointer_ClientBoxIsHalfOpenOnTheFarEdges",
+       "line": 220
+      },
+      {
+       "method": "Pointer_ClientBoxIsEmptyWhenTheScreenIsUnreadable",
+       "line": 226
+      },
+      {
+       "method": "Pointer_YFlipIsTheSameExpressionUnityUsesForTheImguiPass",
+       "line": 232
+      },
+      {
+       "method": "Pointer_ReadBackToleranceAbsorbsTheYFlipsOffByOne_AndNothingMore",
+       "line": 243
+      },
+      {
+       "method": "PointerPayload_ReportsTheReadBackAndHowTheWindowWasFound",
+       "line": 252
+      },
+      {
+       "method": "PointerPayload_KeysAreAllCapturable",
+       "line": 267
+      },
+      {
+       "method": "Find_RequiresText_AndRefusesTheEmptyString",
+       "line": 285
+      },
+      {
+       "method": "Find_CtrlIsOptionalAndClosed",
+       "line": 297
+      },
+      {
+       "method": "Find_CtrlVocabularyMirrorsTheDumpsOwnKindNames",
+       "line": 308
+      },
+      {
+       "method": "Find_IndexDefaultsToTheFirstMatch",
+       "line": 318
+      },
+      {
+       "method": "Find_IndexMustBeANonNegativeInteger",
+       "line": 328
+      },
+      {
+       "method": "Find_TheLadderTakesTheFirstRungWithAnyHit",
+       "line": 335
+      },
+      {
+       "method": "Find_FallsToPrefixThenContains",
+       "line": 356
+      },
+      {
+       "method": "Find_IsCaseSensitive",
+       "line": 383
+      },
+      {
+       "method": "Find_CtrlFilterNarrowsTheSearchedSet",
+       "line": 393
+      },
+      {
+       "method": "Find_IndexSelectsWithinTheWinningRungInDrawOrder",
+       "line": 409
+      },
+      {
+       "method": "Find_IndexPastTheEndIsItsOwnError_NotControlNotFound",
+       "line": 425
+      },
+      {
+       "method": "Find_AnEmptyWindowAnswersControlNotFoundWithAZeroSearchedCount",
+       "line": 442
+      },
+      {
+       "method": "Find_CentreIsTheRectsMiddle",
+       "line": 452
+      },
+      {
+       "method": "FindPayload_CarriesTheNodesOwnTextAndACapturableCentre",
+       "line": 461
+      },
+      {
+       "method": "FindMatchTokensArePinned",
+       "line": 485
+      },
+      {
+       "method": "Expand_OnlyTwoWindowsKeepDriveableExpansionState",
+       "line": 496
+      },
+      {
+       "method": "Expand_AnUnsupportedWindowIsNamedRatherThanSilentlyInert",
+       "line": 514
+      },
+      {
+       "method": "Expand_KeyIsRequired",
+       "line": 525
+      },
+      {
+       "method": "Expand_BulkTokensAreScopesRatherThanKeys",
+       "line": 535
+      },
+      {
+       "method": "Expand_ABulkKeyWithAnExplicitStateIsRefused_NotSilentlyOverridden",
+       "line": 556
+      },
+      {
+       "method": "Expand_KeySplitsAtTheFirstColonSoTheValueMayCarryMore",
+       "line": 582
+      },
+      {
+       "method": "Expand_AMalformedOrForeignKeyIsRejectedWithTheWindowsOwnPrefixList",
+       "line": 601
+      },
+      {
+       "method": "Expand_TheMissionsWindowCoversBothOfItsTabs",
+       "line": 615
+      },
+      {
+       "method": "Expand_StateDefaultsToExpanding",
+       "line": 626
+      },
+      {
+       "method": "Expand_StateIsAClosedSet",
+       "line": 635
+      },
+      {
+       "method": "Expand_StateIsCaseSensitive",
+       "line": 642
+      },
+      {
+       "method": "ExpandPayload_ReportsBothItsOwnEffectAndTheStandingState",
+       "line": 649
+      },
+      {
+       "method": "CandidateListsAreCappedWithACountedTail",
+       "line": 666
+      },
+      {
+       "method": "Target_OnlyTheStructureWindowHasATargetedOpener",
+       "line": 685
+      },
+      {
+       "method": "Target_NeedsExactlyOneSelector",
+       "line": 694
+      },
+      {
+       "method": "Target_ResolvesEachSelectorToItsOwnKind",
+       "line": 710
+      },
+      {
+       "method": "TargetPayload_CarriesTheRowCountTheOpenerProduced",
+       "line": 728
+      },
+      {
+       "method": "Picker_MissionsTakesAGroupOrARecording",
+       "line": 745
+      },
+      {
+       "method": "Picker_LogisticsTakesARoute",
+       "line": 763
+      },
+      {
+       "method": "Picker_RefusesASelectorTheNamedWindowDoesNotOwn",
+       "line": 774
+      },
+      {
+       "method": "Picker_RefusesTwoMissionsSelectorsAtOnce",
+       "line": 791
+      },
+      {
+       "method": "Picker_NeedsASelector",
+       "line": 800
+      },
+      {
+       "method": "Picker_AnUnsupportedWindowIsNamed",
+       "line": 813
+      },
+      {
+       "method": "PickerPayload_NamesWhichPopupOpened",
+       "line": 823
+      },
+      {
+       "method": "Dialog_TheAnswerArgDefaultsToTheTreeMergeDialog",
+       "line": 837
+      },
+      {
+       "method": "Dialog_TheAnswerArgIsAClosedSet_SoAWrongValueCannotFallBack",
+       "line": 845
+      },
+      {
+       "method": "Dialog_TheTwoMergeDialogNamesAreDistinct",
+       "line": 859
+      },
+      {
+       "method": "Dialog_ParsekOwnershipIsAPrefixScan",
+       "line": 877
+      },
+      {
+       "method": "DialogPayload_CarriesAllSevenKeysBothWays",
+       "line": 886
+      },
+      {
+       "method": "DialogPayload_ButtonSeparatorRidesTheWireRaw",
+       "line": 908
+      },
+      {
+       "method": "DialogPayload_EmptyLabelsBecomeTheDashSentinel",
+       "line": 928
+      },
+      {
+       "method": "EveryNewReasonTokenIsDistinct",
+       "line": 937
+      },
+      {
+       "method": "PointerPoll_WaitsForTheReadBackInsteadOfReadingItOnce",
+       "line": 988
+      },
+      {
+       "method": "PointerPoll_FramesAreAFloorAndNotTheSignal",
+       "line": 1006
+      },
+      {
+       "method": "PointerPoll_SettledBeatsTheBudgetOnTheSamePoll",
+       "line": 1021
+      },
+      {
+       "method": "PointerPoll_UsesTheSameToleranceTheReadBackDoes",
+       "line": 1042
+      },
+      {
+       "method": "DialogButtons_AreFoundInsideNestedLayouts",
+       "line": 1056
+      },
+      {
+       "method": "DialogButtons_KeepDepthFirstLeftToRightOrder",
+       "line": 1075
+      },
+      {
+       "method": "DialogButtons_DoNotDescendIntoAButtonsOwnChildren",
+       "line": 1095
+      },
+      {
+       "method": "DialogButtons_TolerateNullsAndACyclicChildGraph",
+       "line": 1109
+      },
+      {
+       "method": "AnswerDialogArg_RejectsEveryValueOutsideTheClosedSet",
+       "line": 1131
+      },
+      {
+       "method": "LogisticsCandidateRowKey_IsTheKeyTheDrawSiteUses",
+       "line": 1155
+      },
+      {
+       "method": "LogisticsCandidateRowKey_MatchesTheDrawSitesNullForm",
+       "line": 1168
+      },
+      {
+       "method": "LogisticsCandidateRowKey_CarriesTheWindowsOwnExpandPrefix",
+       "line": 1179
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

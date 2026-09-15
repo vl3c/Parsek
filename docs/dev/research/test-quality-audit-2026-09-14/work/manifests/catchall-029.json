@@ -1,0 +1,277 @@
+{
+ "batch_id": "catchall-029",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "PendingTreeSaveTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SaveTreeRecordings_WritesPendingTreeNode_WithIsPendingTrue",
+       "line": 54
+      },
+      {
+       "method": "SaveTreeRecordings_PendingTreeSuppressesStrandedSidecarWarn",
+       "line": 75
+      },
+      {
+       "method": "SaveTreeRecordings_WritesLimboPendingAsActiveResumeNode_ForCrashSafety",
+       "line": 92
+      },
+      {
+       "method": "SaveTreeRecordings_WritesLimboVesselSwitchPending_AndRoundTrips",
+       "line": 129
+      },
+      {
+       "method": "CollectParkedTreeIdsForMissionPrune_ReturnsActiveAndPendingNodeIds_NotCommitted",
+       "line": 154
+      },
+      {
+       "method": "HasActiveTreeNode_DetectsActiveMarker_GuardForLimboCoexistence",
+       "line": 172
+      },
+      {
+       "method": "LoadRecordingTrees_SkipsPendingTreeNode_NotCommitted",
+       "line": 191
+      },
+      {
+       "method": "TryRestorePendingTreeNode_RestoresFinalizedPendingAndClearsStashedThisTransition",
+       "line": 209
+      },
+      {
+       "method": "TryRestorePendingTreeNode_ActiveAndPendingMarkers_PreservesPendingAlongsideActiveRestore",
+       "line": 230
+      },
+      {
+       "method": "TryRestorePendingTreeNode_ActiveMarkerWithoutActiveRestore_RestoresPendingMainSlot",
+       "line": 297
+      },
+      {
+       "method": "QuickloadDiscard_DoesNotDiscardPendingRestoredFromSave",
+       "line": 322
+      },
+      {
+       "method": "CleanOrphanFiles_KeepsSidecarsForRestoredPendingTree",
+       "line": 339
+      },
+      {
+       "method": "OnKspLoadValidIds_IncludesPendingTreeIds",
+       "line": 357
+      },
+      {
+       "method": "DiscardPendingTree_SkipsCommittedRecordingIdsWhenDeletingPendingFiles",
+       "line": 368
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ComputeStatsExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AccumulateOrbitSegmentStats_EmptySegments_StatsUnchanged",
+       "line": 44
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_NullBodyLookup_StatsUnchanged",
+       "line": 61
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_UnknownBody_SkipsSegment",
+       "line": 83
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_SingleSegment_CorrectApoapsisAltitude",
+       "line": 105
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_SingleSegment_CorrectPeriapsisSpeed",
+       "line": 127
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_SingleSegment_CorrectDistance",
+       "line": 150
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_MultipleSegments_AccumulatesDistance",
+       "line": 173
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_PreservesExistingStats",
+       "line": 213
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_ZeroSemiMajorAxis_SkipsSpeedAndDistance",
+       "line": 242
+      },
+      {
+       "method": "AccumulateOrbitSegmentStats_NullBodyName_DefaultsToKerbin",
+       "line": 264
+      },
+      {
+       "method": "DeterminePrimaryBody_EmptyDict_ReturnsNull",
+       "line": 290
+      },
+      {
+       "method": "DeterminePrimaryBody_SingleBody_ReturnsThatBody",
+       "line": 298
+      },
+      {
+       "method": "DeterminePrimaryBody_MultipleBodies_ReturnsMostFrequent",
+       "line": 307
+      },
+      {
+       "method": "DeterminePrimaryBody_SecondBodyMoreFrequent_ReturnsSecond",
+       "line": 321
+      },
+      {
+       "method": "ComputeStats_EmptyTrajectory_LogsEmpty",
+       "line": 338
+      },
+      {
+       "method": "ComputeStats_NonEmptyTrajectory_LogsCompletion",
+       "line": 349
+      },
+      {
+       "method": "ComputePairwiseTravelDistance_RelativeFrame_UsesEuclideanMetreOffsets",
+       "line": 374
+      },
+      {
+       "method": "ComputePairwiseTravelDistance_RelativeFrame_IncludesAltitudeAxis",
+       "line": 390
+      },
+      {
+       "method": "ComputePairwiseTravelDistance_AbsoluteFrame_PureAltitudeChange_EqualsAltDelta",
+       "line": 402
+      },
+      {
+       "method": "ComputePairwiseTravelDistance_AbsoluteFrame_LatChange_UsesHaversineNotEuclidean",
+       "line": 416
+      },
+      {
+       "method": "ComputePointRangeFromStart_BothRelative_UsesEuclideanMetreOffsets",
+       "line": 440
+      },
+      {
+       "method": "ComputePointRangeFromStart_CurrentRelativeOnly_ReturnsZero",
+       "line": 452
+      },
+      {
+       "method": "ComputePointRangeFromStart_BothAbsolute_UsesHaversineFromStart",
+       "line": 466
+      },
+      {
+       "method": "ComputePointRangeFromStart_StartRelativeCurrentAbsolute_UsesHaversine",
+       "line": 480
+      },
+      {
+       "method": "FindFirstMovingPoint_AltitudeTrigger_LogsAltitude",
+       "line": 500
+      },
+      {
+       "method": "FindFirstMovingPoint_SpeedTrigger_LogsSpeed",
+       "line": 516
+      },
+      {
+       "method": "FindFirstMovingPoint_NeverMoved_LogsNeverMoved",
+       "line": 531
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DestinationConstraintExtractorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CrossParentLanding_Duna_EmitsDestRotationOnly",
+       "line": 67
+      },
+      {
+       "method": "CrossParentLanding_WithOneMoon_EmitsDestRotationPlusMoonConfig",
+       "line": 91
+      },
+      {
+       "method": "OrbitOnlyFlyby_NoLanding_EmptyConstraintsButSupported",
+       "line": 115
+      },
+      {
+       "method": "ZeroMoonDestination_Moho_DestRotationOnly",
+       "line": 135
+      },
+      {
+       "method": "TwoConstrainedMoons_JoolClass_EmitsMultiMoonSet",
+       "line": 155
+      },
+      {
+       "method": "ExcludesTargetOwnOrbitalAndForeignMoons",
+       "line": 183
+      },
+      {
+       "method": "DuplicateMoonSoiEntries_CountedOnce",
+       "line": 205
+      },
+      {
+       "method": "MoonRotation_NotCountedAsMoonConfig",
+       "line": 224
+      },
+      {
+       "method": "DoesNotMutateInput",
+       "line": 252
+      },
+      {
+       "method": "SummaryLogLine_EmittedOnce",
+       "line": 270
+      },
+      {
+       "method": "StationAtTarget_HasStation_PeriodAndPid_ConstraintsListUnchanged",
+       "line": 292
+      },
+      {
+       "method": "LaunchSideStation_SkippedAndCounted_NoStationFields",
+       "line": 312
+      },
+      {
+       "method": "MoonOrbitingStation_FailsClosed_WithInSystemReason",
+       "line": 330
+      },
+      {
+       "method": "StationPlusLanding_JointCandidate_StaysSupported",
+       "line": 348
+      },
+      {
+       "method": "StationPlusConstrainedMoon_D8Widened_FailsClosed",
+       "line": 375
+      },
+      {
+       "method": "LandingPlusMoon_NoStation_StaysSupported_DunaOneRegression",
+       "line": 396
+      },
+      {
+       "method": "StationBearingJoolClass_StationMoonReasonWins_StationFieldsSurvive",
+       "line": 417
+      },
+      {
+       "method": "StationLogLine_CarriesPidPeriodAndNonDestCount",
+       "line": 439
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

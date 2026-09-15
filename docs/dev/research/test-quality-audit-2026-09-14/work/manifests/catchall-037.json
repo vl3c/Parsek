@@ -1,0 +1,218 @@
+{
+ "batch_id": "catchall-037",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "CachedModuleOwnershipGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "APartStillOnTheRecordedVesselIsPolled",
+       "line": 25
+      },
+      {
+       "method": "AStagedAwayBoosterStillHoldingALiveEngineIsNotPolled",
+       "line": 35
+      },
+      {
+       "method": "APartWhoseVesselIsNullMidSplitIsNotPolled",
+       "line": 47
+      },
+      {
+       "method": "ADestroyedPartIsReportedAsANullEntryNotAsAForeignVessel",
+       "line": 59
+      },
+      {
+       "method": "ADestroyedModuleOnASurvivingPartIsANullEntry",
+       "line": 71
+      },
+      {
+       "method": "TheNullEntryVerdictWinsEvenWhenTheVesselStillMatches",
+       "line": 81
+      },
+      {
+       "method": "OnlyTheAllFourTrueCombinationPolls",
+       "line": 92
+      },
+      {
+       "method": "AStagedAwayBoosterGetsNoTerminalShutdownInTheParentRecording",
+       "line": 162
+      },
+      {
+       "method": "TheBoringTailTrimWindowIsNotExtendedByAStaleShutdown",
+       "line": 180
+      },
+      {
+       "method": "WithoutThePruneTheSameStaleShutdownPinsTheTailToTheEnd",
+       "line": 210
+      },
+      {
+       "method": "APartStillOnTheVesselKeepsItsBurnEvenWhenItsModuleFellOutOfTheCache",
+       "line": 233
+      },
+      {
+       "method": "AnEmptySurvivingSetIsTreatedAsATransientReadAndPrunesNothing",
+       "line": 258
+      },
+      {
+       "method": "EveryCacheFedTrackingCollectionDropsTheDepartedPid",
+       "line": 275
+      },
+      {
+       "method": "ThePruneIsSilentAndWritesNoSyntheticEvent",
+       "line": 308
+      },
+      {
+       "method": "ADepartedBoostersThrottleSurvivesForTheDeferredBreakupSnapshot",
+       "line": 325
+      },
+      {
+       "method": "TheLivePollWinsOverACarryOverEntryForTheSameKey",
+       "line": 345
+      },
+      {
+       "method": "AnEmptyUnionStaysNullSoNothingWasRunningKeepsItsMeaning",
+       "line": 362
+      },
+      {
+       "method": "APidThatComesBackClearsItsOwnCarryOver",
+       "line": 375
+      },
+      {
+       "method": "RoboticKeysGetNoCarryOverBecauseTheyHaveNoInheritancePath",
+       "line": 388
+      },
+      {
+       "method": "ANullCollectionSetPrunesNothingRatherThanThrowing",
+       "line": 402
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BroadExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ChooseSplitCandidateIndex_NoDeferredId_ReturnsFirstCandidate",
+       "line": 40
+      },
+      {
+       "method": "ChooseSplitCandidateIndex_EmptyDeferredId_ReturnsFirstCandidate",
+       "line": 57
+      },
+      {
+       "method": "ChooseSplitCandidateIndex_DeferredIdSkipsThatCandidate",
+       "line": 70
+      },
+      {
+       "method": "ChooseSplitCandidateIndex_AllCandidatesDeferred_ReturnsMinusOne",
+       "line": 88
+      },
+      {
+       "method": "ChooseSplitCandidateIndex_OutOfRangeCandidateIndex_Skipped",
+       "line": 105
+      },
+      {
+       "method": "ChooseSplitCandidateIndex_NullCandidateRecording_IsChosenNotDeferred",
+       "line": 124
+      },
+      {
+       "method": "ShouldMove_NullTreeId_ReturnsFalse",
+       "line": 154
+      },
+      {
+       "method": "ShouldMove_NullBranchPointId_ReturnsFalse",
+       "line": 161
+      },
+      {
+       "method": "ShouldMove_NaNSecondStartUT_ReturnsFalse",
+       "line": 168
+      },
+      {
+       "method": "ShouldMove_InfinitySecondStartUT_ReturnsFalse",
+       "line": 176
+      },
+      {
+       "method": "ShouldMove_BranchPointAfterSplitUT_ReturnsTrue",
+       "line": 184
+      },
+      {
+       "method": "ShouldMove_BranchPointBeforeSplitUT_ReturnsFalse",
+       "line": 194
+      },
+      {
+       "method": "ShouldMove_BranchPointAtSplitUTWithinEpsilon_ReturnsTrue",
+       "line": 203
+      },
+      {
+       "method": "ShouldMove_UnknownTreeId_ReturnsFalse",
+       "line": 212
+      },
+      {
+       "method": "ShouldMove_UnknownBranchPointInMatchedTree_ReturnsFalse",
+       "line": 220
+      },
+      {
+       "method": "ClearRejectedRefs_NullRecording_NoThrow",
+       "line": 232
+      },
+      {
+       "method": "ClearRejectedRefs_NullRemovedBranchPoints_StillClearsRecordingRefs",
+       "line": 241
+      },
+      {
+       "method": "ClearRejectedRefs_EmptyRemovedBranchPoints_ShortCircuitsBranchPointClears",
+       "line": 262
+      },
+      {
+       "method": "ClearRejectedRefs_NormalClear_ClearsAllFourFieldsIndependently",
+       "line": 279
+      },
+      {
+       "method": "ClearRejectedRefs_NonRejectedRefs_Preserved",
+       "line": 300
+      },
+      {
+       "method": "ComputeHeatColorRamp_NoColorNoEmissive_HotEqualsColdEmissionBlack",
+       "line": 325
+      },
+      {
+       "method": "ComputeHeatColorRamp_HasColor_HotLerpsTowardHeatTint",
+       "line": 342
+      },
+      {
+       "method": "ComputeHeatColorRamp_HasEmissive_HotEmissionIsHeatEmissionColor",
+       "line": 361
+      },
+      {
+       "method": "ComputeHeatColorRamp_ColorOnly_EmissionStaysBlack",
+       "line": 379
+      },
+      {
+       "method": "ClassifyAeroEventName_PinsKeywordClassification",
+       "line": 406
+      },
+      {
+       "method": "ClassifyAeroEventName_GuiNameAlsoMatched",
+       "line": 417
+      },
+      {
+       "method": "ClassifyAeroEventName_DeployAndRetractKeywordsBothPresent_BothSet",
+       "line": 428
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,222 @@
+{
+ "batch_id": "spawn-vessel-011",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "SpawnStateReconciliationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldResetSpawnState_PidZero_ReturnsFalse",
+       "line": 73
+      },
+      {
+       "method": "ShouldResetSpawnState_PidInSurvivingSet_ReturnsFalse",
+       "line": 80
+      },
+      {
+       "method": "ShouldResetSpawnState_PidNotInSurvivingSet_ReturnsTrue",
+       "line": 87
+      },
+      {
+       "method": "ShouldResetSpawnState_NullSurvivingSet_ReturnsTrue",
+       "line": 94
+      },
+      {
+       "method": "ShouldResetSpawnState_EmptySurvivingSet_ReturnsTrue",
+       "line": 101
+      },
+      {
+       "method": "ShouldResetSpawnState_AdoptionStampSurvivorFromADifferentLaunch_ReturnsTrue",
+       "line": 109
+      },
+      {
+       "method": "ShouldResetSpawnState_AdoptionStampSurvivorOfTheSameLaunch_ReturnsFalse",
+       "line": 127
+      },
+      {
+       "method": "ShouldResetSpawnState_AdoptionStampSurvivorWithUnknownGuid_FallsBackToPidOnly",
+       "line": 138
+      },
+      {
+       "method": "Reconcile_StrippedVessel_ResetsSpawnState",
+       "line": 151
+      },
+      {
+       "method": "Reconcile_SurvivingVessel_PreservesSpawnState",
+       "line": 176
+      },
+      {
+       "method": "Reconcile_NeverSpawned_NoChange",
+       "line": 195
+      },
+      {
+       "method": "Reconcile_MixedRecordings_OnlyResetsStripped",
+       "line": 214
+      },
+      {
+       "method": "Reconcile_NullRecordings_ReturnsZero",
+       "line": 241
+      },
+      {
+       "method": "Reconcile_EmptyRecordings_ReturnsZero",
+       "line": 248
+      },
+      {
+       "method": "Reconcile_NullSurvivors_ResetsAllNonZeroPids",
+       "line": 255
+      },
+      {
+       "method": "Reconcile_LogsSummary_WhenReconciled",
+       "line": 274
+      },
+      {
+       "method": "Reconcile_StrippedVessel_PreservesNonSpawnFields",
+       "line": 292
+      },
+      {
+       "method": "Reconcile_NoLogSummary_WhenNothingReconciled",
+       "line": 313
+      },
+      {
+       "method": "Reconcile_PlainRewindShape_PreservedRelaunchDoesNotPinSpawnState",
+       "line": 338
+      },
+      {
+       "method": "Reconcile_PlainRewindShape_SurvivingOwnVessel_KeepsSpawnState",
+       "line": 361
+      },
+      {
+       "method": "ReconcilePostStrip_SurvivorSharingCraftBakedPidFromADifferentLaunch_StillResets",
+       "line": 388
+      },
+      {
+       "method": "ReconcilePostStrip_SurvivorOfTheSameLaunch_DoesNotReset",
+       "line": 433
+      },
+      {
+       "method": "ReconcilePostStrip_StrippedPidIsSubtractedEvenWhenItsIdentityCarriesAGuid",
+       "line": 463
+      },
+      {
+       "method": "ReconcilePostStrip_ProductionShape_ResetsStrippedSiblings_AndLogsCounts",
+       "line": 493
+      },
+      {
+       "method": "ReconcilePostStrip_NullCommitted_ReturnsZero_NoSummaryLog",
+       "line": 554
+      },
+      {
+       "method": "ReconcilePostStrip_EmptyCommitted_ReturnsZero_NoSummaryLog",
+       "line": 564
+      },
+      {
+       "method": "ReconcilePostStrip_NullProtoVesselPids_TreatsAllSpawnedAsStripped",
+       "line": 574
+      },
+      {
+       "method": "ReconcilePostStrip_NullStrippedPids_AllProtoSurvive_NoReset",
+       "line": 599
+      },
+      {
+       "method": "RestorePersistedTerminalAbandon_SavedFlag_ReappliesAbandonAfterReset",
+       "line": 626
+      },
+      {
+       "method": "RestorePersistedTerminalAbandon_NoSavedFlag_LeavesAbandonClear",
+       "line": 652
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "OrphanCleanupSafetyGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CleanOrphanFiles_RefusesDeletion_WhenKnownIdsEmptyButDiskHasSidecarIds",
+       "line": 71
+      },
+      {
+       "method": "CleanOrphanFiles_StillCleansTransientArtifacts_WhenKnownIdsEmpty",
+       "line": 106
+      },
+      {
+       "method": "CleanOrphanFiles_QuarantinesOrphan_WhenKnownIdsNonEmpty",
+       "line": 131
+      },
+      {
+       "method": "CleanOrphanFiles_QuarantinesPartialLoss_WhenSomeTreesSurvive",
+       "line": 162
+      },
+      {
+       "method": "CleanOrphanFiles_QuarantineDoesNotOverwriteExisting_OnRepeatedSweep",
+       "line": 192
+      },
+      {
+       "method": "CleanOrphanFiles_EmptyDirectory_DoesNotWarn",
+       "line": 216
+      },
+      {
+       "method": "CollectSidecarIdsOnDisk_ReturnsDistinctIds_FromSidecarFiles",
+       "line": 231
+      },
+      {
+       "method": "CollectSidecarIdsOnDisk_ExcludesTransientAndLegacyArtifacts",
+       "line": 248
+      },
+      {
+       "method": "CollectSidecarIdsOnDisk_ReturnsEmpty_WhenDirectoryDoesNotExist",
+       "line": 265
+      },
+      {
+       "method": "PreserveGuard_TriggerDecision_FiresOnlyOnLoadFaultFingerprint",
+       "line": 288
+      },
+      {
+       "method": "PreserveGuard_RehydratesCommittedTreesAndMissions_WhenCommittedStoreEmpty",
+       "line": 304
+      },
+      {
+       "method": "PreserveGuard_PreservesLiveActiveNode_AndSkipsOnDiskActiveMarker",
+       "line": 332
+      },
+      {
+       "method": "PreserveGuard_Warns_WhenStrandedButOnDiskHasNoCommittedTrees",
+       "line": 366
+      },
+      {
+       "method": "PreserveGuard_DoesNotInjectMissions_WhenNoCommittedTreesOnDisk",
+       "line": 389
+      },
+      {
+       "method": "PreserveGuard_Warns_AndDoesNotThrow_WhenSfsMalformed",
+       "line": 409
+      },
+      {
+       "method": "PreserveGuard_NoOp_WhenNoStrandedSidecars",
+       "line": 431
+      },
+      {
+       "method": "PreserveGuard_NoOp_WhenCommittedStoreNonEmpty",
+       "line": 449
+      },
+      {
+       "method": "PreserveGuard_NoOp_WhenCommittedTreeStateLoaded",
+       "line": 471
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

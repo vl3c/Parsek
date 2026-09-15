@@ -1,0 +1,147 @@
+{
+ "batch_id": "map-render-007",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 32,
+ "files": [
+  {
+   "file": "MapRender/PhaseFactoryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FullChain_FactoryGeometry_ByteMatchesAssembler",
+       "line": 67
+      },
+      {
+       "method": "BelowSurfaceDescent_FactoryGeometry_ByteMatchesAssembler",
+       "line": 73
+      },
+      {
+       "method": "Coalesce_FactoryGeometry_ByteMatchesAssembler",
+       "line": 94
+      },
+      {
+       "method": "FaithfulFallbackFlag_FactoryGeometry_ByteMatchesAssembler",
+       "line": 112
+      },
+      {
+       "method": "FullChain_ClassifiesAscentLoiterArrival",
+       "line": 120
+      },
+      {
+       "method": "SurfaceEnv_ClassifiesSurfacePhase",
+       "line": 146
+      },
+      {
+       "method": "ReaimedMember_ClassifiesSynthesizedHeliocentricTransfer",
+       "line": 161
+      },
+      {
+       "method": "HeliocentricParkVariant_UnreachableThroughAssembler_ByteParityOnly",
+       "line": 191
+      },
+      {
+       "method": "ClassifySegment_ReaimedNonGeneratedAncestorConic_IsSynthesizedDepartureLoiter",
+       "line": 231
+      },
+      {
+       "method": "ResolveProvenance_GeneratedNonPredicted_IsSynthesized",
+       "line": 266
+      },
+      {
+       "method": "ResolveProvenance_OverMarkedPredictedTail_NonReaimed_IsFinalizedPredicted",
+       "line": 275
+      },
+      {
+       "method": "ResolveProvenance_GeneratedPredicted_ReaimedMember_StaysSynthesized",
+       "line": 286
+      },
+      {
+       "method": "ResolveProvenance_RecordedPredictedConic_IsFinalizedPredicted",
+       "line": 296
+      },
+      {
+       "method": "ResolveProvenance_PlainRecordedConic_IsRecorded",
+       "line": 305
+      },
+      {
+       "method": "ClassifySegment_OverMarkedPredictedTail_NonReaimed_IsLoiterNotTransfer",
+       "line": 313
+      },
+      {
+       "method": "IsArrivalConic_FragmentedDestinationPark_CoalescesBeforeLastInTimeCheck",
+       "line": 331
+      },
+      {
+       "method": "BgOnRails_NoTrackSections_AllOrbitalChain_NoSurfaceOrDescent",
+       "line": 354
+      },
+      {
+       "method": "SingleRecording_EmptyPoints_ConicOnlyChain",
+       "line": 382
+      },
+      {
+       "method": "SingleRecording_FullyEmpty_EmptyChain",
+       "line": 400
+      },
+      {
+       "method": "NullTrajectory_EmptyChain_ByteMatchesAssembler",
+       "line": 416
+      },
+      {
+       "method": "ChainLevelFields_PropagateFromAssembler",
+       "line": 429
+      },
+      {
+       "method": "ParentAnchoredChild_WithReaimedOverride_FallsBackToFaithful_LoudWarn",
+       "line": 441
+      },
+      {
+       "method": "FaithfulParentAnchoredChild_WithTracedLeg_ByteMatchesAssembler",
+       "line": 474
+      },
+      {
+       "method": "BuildOrderedRecordedBodies_CollapsesAdjacentDuplicates_KeepsNonAdjacentRepeat",
+       "line": 519
+      },
+      {
+       "method": "BuildOrderedRecordedBodies_SkipsNullAndEmptyBodyNames",
+       "line": 539
+      },
+      {
+       "method": "BuildOrderedRecordedBodies_NullOrEmptyOrbitList_IsEmpty",
+       "line": 557
+      },
+      {
+       "method": "ClassifyTracedKind_AscentBeforeFirstConic_DescentAfter",
+       "line": 584
+      },
+      {
+       "method": "ClassifyTracedKind_SurfaceEnv_WinsOverAscentDescent",
+       "line": 611
+      },
+      {
+       "method": "ResolveEnvPhaseForWindow_MultiSection_UsesLastOverlapping",
+       "line": 638
+      },
+      {
+       "method": "IsArrivalConic_ApproachEnv_True",
+       "line": 666
+      },
+      {
+       "method": "IsArrivalConic_DifferentBodyLastInTime_True",
+       "line": 689
+      },
+      {
+       "method": "IsArrivalConic_DepartureBodyConic_False",
+       "line": 709
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

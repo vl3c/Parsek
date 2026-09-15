@@ -1,0 +1,265 @@
+{
+ "batch_id": "recorder-events-028",
+ "cluster": "recorder-events",
+ "tier": "C",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "LoopIconWarpLagTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ElementsChanged_FirstApply_True",
+       "line": 23
+      },
+      {
+       "method": "ElementsChanged_Unchanged_False",
+       "line": 31
+      },
+      {
+       "method": "ElementsChanged_SmaDiffers_True",
+       "line": 38
+      },
+      {
+       "method": "ElementsChanged_EccDiffers_True",
+       "line": 46
+      },
+      {
+       "method": "ElementsChanged_EpochDiffers_True",
+       "line": 54
+      },
+      {
+       "method": "ElementsChanged_HyperbolicEcc_True",
+       "line": 63
+      },
+      {
+       "method": "ElementsChanged_WithinEpsilon_False",
+       "line": 72
+      },
+      {
+       "method": "ElementsChanged_NaNNewSma_True",
+       "line": 82
+      },
+      {
+       "method": "ElementsChanged_InfinityNewEpoch_True",
+       "line": 91
+      },
+      {
+       "method": "IconVsOrbit_Aligned_Zero",
+       "line": 100
+      },
+      {
+       "method": "IconVsOrbit_Opposed_180",
+       "line": 108
+      },
+      {
+       "method": "IconVsOrbit_Perpendicular_90",
+       "line": 116
+      },
+      {
+       "method": "IconVsOrbit_DegenerateIcon_NaN",
+       "line": 124
+      },
+      {
+       "method": "IconVsOrbit_DegenerateOrbit_NaN",
+       "line": 134
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LoopedInterplanetaryFixtureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "The_fixture_round_trips_with_sixteen_segments_and_the_loop_flag",
+       "line": 32
+      },
+      {
+       "method": "The_enumerator_finds_exactly_the_two_flown_soi_seams",
+       "line": 52
+      },
+      {
+       "method": "Burn_gaps_and_same_body_splits_are_not_seams",
+       "line": 68
+      },
+      {
+       "method": "Degenerate_inputs_enumerate_no_seams",
+       "line": 84
+      },
+      {
+       "method": "A_gap_wider_than_the_tolerance_is_not_a_seam",
+       "line": 98
+      },
+      {
+       "method": "The_ingame_cells_and_the_fixture_agree_on_the_recording_id",
+       "line": 111
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FlightRecorderDiagnosticsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatPendingJointChildPartOriginSeedIds_NullOrEmpty_ReturnsNone",
+       "line": 10
+      },
+      {
+       "method": "FormatPendingJointChildPartOriginSeedIds_UnderCap_ListsIds",
+       "line": 21
+      },
+      {
+       "method": "FormatPendingJointChildPartOriginSeedIds_OverCap_AppendsSuffix",
+       "line": 31
+      },
+      {
+       "method": "FormatPendingJointChildPartOriginSeedIds_MaxBelowOne_StillListsOneId",
+       "line": 41
+      },
+      {
+       "method": "PendingJointChildPartOriginSeedIdsContainPid_MatchesExactPidOnly",
+       "line": 51
+      },
+      {
+       "method": "TryFindStructuralEventSnapshotPointForUT_SelectsFlaggedPointWithinTolerance",
+       "line": 62
+      },
+      {
+       "method": "TryFindStructuralEventSnapshotPointForUT_RejectsUnflaggedOrOutsideTolerance",
+       "line": 89
+      },
+      {
+       "method": "ComputeRelativeLocalRotationFromAbsolutePointRotation_UsesSurfaceRelativePointRotation",
+       "line": 110
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CompoundPartPlaybackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildSnapshotPartIdSet_CollectsAllPersistentIds",
+       "line": 10
+      },
+      {
+       "method": "ShouldHideCompoundPart_HidesWhenTargetMissingFromSnapshot",
+       "line": 27
+      },
+      {
+       "method": "ShouldHideCompoundPart_DoesNotHideWhenTargetIdUnknown",
+       "line": 39
+      },
+      {
+       "method": "ShouldHideCompoundPart_DoesNotHideWhenTargetExistsLogicallyWithoutVisualRoot",
+       "line": 51
+      },
+      {
+       "method": "ShouldHideCompoundPart_HidesWhenTargetVisualIsInactive",
+       "line": 63
+      },
+      {
+       "method": "ShouldRestoreCompoundPart_RestoresWhenSourcePresentAndTargetVisible",
+       "line": 75
+      },
+      {
+       "method": "ShouldRestoreCompoundPart_DoesNotRestoreWhenSourceNoLongerPresent",
+       "line": 88
+      },
+      {
+       "method": "RemovePartSubtreeFromLogicalPresence_RemovesRootAndChildren",
+       "line": 101
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EngineFxRestoreTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldRestartEngineFxAfterSuppression_FiresOnlyOnUnsuppressTransition",
+       "line": 44
+      },
+      {
+       "method": "RestoreActiveEngineFx_NoThrottledEngines_DoesNotLogOrThrow",
+       "line": 54
+      },
+      {
+       "method": "RestoreActiveEngineFx_NullEngineInfos_IsNoOp",
+       "line": 77
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FxDiagnosticsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeDirectionAngleDegrees_ReturnsExpectedAngles",
+       "line": 12
+      },
+      {
+       "method": "ComputeDirectionAngleDegrees_ZeroVector_ReturnsNaN",
+       "line": 26
+      },
+      {
+       "method": "BuildFxFrameDiagnostic_ReportsExpectedMetrics",
+       "line": 34
+      },
+      {
+       "method": "BuildEngineFxEmissionDiagnostic_IncludesCoreFields",
+       "line": 53
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BackgroundAttitudeSamplingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveBackgroundAttitudeMinSampleInterval_NormalSamplingUsesForegroundFloor",
+       "line": 9
+      },
+      {
+       "method": "ResolveBackgroundAttitudeMinSampleInterval_HighFidelityKeepsMotionFloorWhenMoreAggressive",
+       "line": 20
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,299 @@
+{
+ "batch_id": "ghost-playback-023",
+ "cluster": "ghost-playback",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "GloopsEventSuppressionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CreateKerbalAssignmentActions_GhostOnlyRecording_ReturnsEmpty",
+       "line": 76
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_NormalRecording_ProducesRow",
+       "line": 97
+      },
+      {
+       "method": "CreateVesselCostActions_GhostOnlyRecording_ReturnsEmpty",
+       "line": 116
+      },
+      {
+       "method": "PurgeGhostOnlyActionsFromLedger_DropsGhostOnlyRowsAndMutatesLedger",
+       "line": 147
+      },
+      {
+       "method": "PurgeGhostOnlyActionsFromLedger_PreservesMigratedOldSaveActionsWithNullTag",
+       "line": 178
+      },
+      {
+       "method": "PurgeGhostOnlyActionsFromLedger_NoGhostOnlyRecordings_Noop",
+       "line": 201
+      },
+      {
+       "method": "PurgeGhostOnlyActionsFromLedger_RemovesAllTypesForGhostOnlyRecording",
+       "line": 216
+      },
+      {
+       "method": "PurgeEventsForRecordings_RemovesForcedGloopsTaggedEvent_LiveAndSnapshot",
+       "line": 235
+      },
+      {
+       "method": "RecalculateAndPatch_PurgesGhostOnlyActions_AndSecondCallIsNoop",
+       "line": 278
+      },
+      {
+       "method": "RecalculateAndPatch_NoPurgeLog_WhenNoGhostOnlyRecordings",
+       "line": 314
+      },
+      {
+       "method": "OnKspLoad_RewritesStaleGhostOnlyKerbalRowsToEmpty",
+       "line": 347
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "WatchEntryAcceptanceWiringGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsGhostOnSameBody_ResolvesTheBodyFromTheTrajectoryWhenTheCacheIsNotCurrent",
+       "line": 33
+      },
+      {
+       "method": "EveryConsumerReachesTheTermThroughTheOneFixedForwarder",
+       "line": 69
+      },
+      {
+       "method": "TryResolveWatchEntryState_UsesTheForwarderRatherThanItsOwnInlineCacheRead",
+       "line": 124
+      },
+      {
+       "method": "ResolveWatchPlaybackUT_KeysBothLoopHelpersOnItsParameterNotTheWatchedField",
+       "line": 154
+      },
+      {
+       "method": "TryStartWatchSession_RoutesTheLoopPhaseResetThroughThePredicate",
+       "line": 183
+      },
+      {
+       "method": "TryStartWatchSession_LogsWhichWayTheLoopPhaseDecisionWent",
+       "line": 216
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostVisualFrameTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DescribeAppearanceActiveSection_RelativeFrameIncludesAnchorRecordingOnly",
+       "line": 11
+      },
+      {
+       "method": "DescribeAppearanceRecordingStartPoint_RelativeFrameLogsOffsetInsteadOfWorldPosition",
+       "line": 37
+      },
+      {
+       "method": "DescribeAppearanceRecordingStartPoint_RelativeSectionFlatPointLabelsFallback",
+       "line": 79
+      },
+      {
+       "method": "DoesPointMatchSectionFrame_ReturnsFalseWithoutContainingSectionOrFrames",
+       "line": 129
+      },
+      {
+       "method": "DoesPointMatchSectionFrame_MatchesExactOrWithinTolerance",
+       "line": 144
+      },
+      {
+       "method": "DoesPointMatchSectionFrame_RejectsValuesOutsideTolerance",
+       "line": 168
+      },
+      {
+       "method": "TryGetGhostActivationStartUT_PrefersFirstPlayableFrameOverExplicitStartAndSectionBoundary",
+       "line": 192
+      },
+      {
+       "method": "ResolveGhostActivationStartUT_UsesRecordingActivationStartInsteadOfSemanticStart",
+       "line": 221
+      },
+      {
+       "method": "ResolveGhostActivationStartUT_FallsBackToSemanticStartWhenNoPlayablePayloadExists",
+       "line": 240
+      },
+      {
+       "method": "ResolveGhostActivationStartUT_UsesInterfacePayloadStartForNonRecordingTrajectory",
+       "line": 264
+      },
+      {
+       "method": "ResolveGhostActivationStartUT_UsesOrbitalCheckpointPayloadStartForNonRecordingTrajectory",
+       "line": 291
+      },
+      {
+       "method": "TryGetGhostActivationStartUT_UsesSeededBoundaryPointBeforeLaterOrbitSegment",
+       "line": 318
+      },
+      {
+       "method": "ShouldPrimeSinglePointGhostFromOrbit_ReturnsTrueAfterSeedPointUT",
+       "line": 340
+      },
+      {
+       "method": "ShouldPrimeSinglePointGhostFromOrbit_ReturnsFalseBeforeFirstOrbitSegmentStarts",
+       "line": 360
+      },
+      {
+       "method": "ShouldUseOrbitEndpoint_WhenOrbitExtendsPastLastPoint_ReturnsTrue",
+       "line": 380
+      },
+      {
+       "method": "TryGetOrbitEndpointUT_ReturnsLastOrbitSegmentEndUT",
+       "line": 400
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "WatchCycleResolutionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullCommitted_ReturnsEmpty",
+       "line": 44
+      },
+      {
+       "method": "EmptyCommitted_ReturnsEmpty",
+       "line": 55
+      },
+      {
+       "method": "NullPredicate_ReturnsEmpty",
+       "line": 64
+      },
+      {
+       "method": "AllIneligible_ReturnsEmpty",
+       "line": 73
+      },
+      {
+       "method": "OnlyWatchedIsEligible_ReturnsToggleOffWithoutTarget",
+       "line": 89
+      },
+      {
+       "method": "TwoEligibleCursorNull_AdvancesPastWatched",
+       "line": 111
+      },
+      {
+       "method": "CursorOnWatched_WrapsToNonWatched",
+       "line": 129
+      },
+      {
+       "method": "ThreeEligibleAdvancesInStartUtOrder",
+       "line": 148
+      },
+      {
+       "method": "DebrisFilteredOutByPredicate",
+       "line": 175
+      },
+      {
+       "method": "CoverageRetiredChild_SkippedByPredicate",
+       "line": 196
+      },
+      {
+       "method": "CoverageRetiredChild_AsOnlyOtherCandidate_ReportsNoAdvance",
+       "line": 226
+      },
+      {
+       "method": "WatchedIndexOutOfRange_TreatedAsNoWatchedId",
+       "line": 251
+      },
+      {
+       "method": "WatchedIndexNegative_TreatedAsNoWatchedId",
+       "line": 269
+      },
+      {
+       "method": "NullRecordingIdInCommitted_FilteredOutOfRotation",
+       "line": 288
+      },
+      {
+       "method": "GlobalScope_IncludesEveryCommittedIndex",
+       "line": 309
+      },
+      {
+       "method": "WatchModeLockMaskIncludesPitch",
+       "line": 337
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostPlaybackEngineExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildPlaybackBudgetPhases_TicksConvertToMicroseconds",
+       "line": 46
+      },
+      {
+       "method": "BuildPlaybackBudgetPhases_NegativeMainLoop_ClampsToZero",
+       "line": 86
+      },
+      {
+       "method": "BuildPlaybackBudgetPhases_NegativeBuildOther_ClampsToZero",
+       "line": 120
+      },
+      {
+       "method": "BuildPlaybackBudgetPhases_PositiveBuildOther_IsResidual",
+       "line": 161
+      },
+      {
+       "method": "BuildPlaybackBudgetPhases_PassThroughFields",
+       "line": 200
+      },
+      {
+       "method": "IsSpawnSuppressedDeadOnArrival_PastEndUT_NotHeld_True",
+       "line": 247
+      },
+      {
+       "method": "IsSpawnSuppressedDeadOnArrival_PastChainEndUTOnly_NotHeld_True",
+       "line": 255
+      },
+      {
+       "method": "IsSpawnSuppressedDeadOnArrival_PastEnd_Held_False",
+       "line": 264
+      },
+      {
+       "method": "IsSpawnSuppressedDeadOnArrival_BeforeBothEnds_NotHeld_False",
+       "line": 273
+      },
+      {
+       "method": "IsSpawnSuppressedDeadOnArrival_AtEndUTBoundary_False",
+       "line": 281
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

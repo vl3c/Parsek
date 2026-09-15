@@ -1,0 +1,15 @@
+{"kind":"method","file":"Source/Parsek.Tests/MergeDialogExtractedTests.cs","method":"ClearPendingFlag_ClearsDeferredFlagAndLogsReason","line":32,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/MergeDialogExtractedTests.cs","method":"ComputeTreeDurationRange_NullTree_ReturnsZero","line":52,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/MergeDialogExtractedTests.cs","method":"ComputeTreeDurationRange_EmptyRecordings_ReturnsZero","line":59,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/MergeDialogExtractedTests.cs","method":"ComputeTreeDurationRange_SingleRecording_ReturnsDuration","line":67,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/MergeDialogExtractedTests.cs","method":"ComputeTreeDurationRange_MultipleRecordings_ReturnsFullSpan","line":80,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/MergeDialogExtractedTests.cs","method":"ComputeTreeDurationRange_OverlappingRecordings_CorrectSpan","line":99,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/RecordingPathsLoggingTests.cs","method":"ValidateRecordingId_ProductionContextLogsWarnForRejectedId","line":25,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/RecordingPathsLoggingTests.cs","method":"ValidateRecordingId_TestContextLogsVerboseForRejectedId","line":39,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/RecordingPathsLoggingTests.cs","method":"ValidateRecordingId_TestContextLogsVerboseForInvalidFileNameChar","line":55,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/RecordingSupersedeRelationRoundTripTests.cs","method":"RecordingSupersedeRelation_AllFields_RoundTrips","line":12,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/RecordingSupersedeRelationRoundTripTests.cs","method":"RecordingSupersedeRelation_MissingCreatedRealTime_DefaultsNull","line":37,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/MergeDialogTests.cs","method":"FormatDuration_AllBranches","line":33,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ChainTipSpawnTests.cs","method":"ShouldRegenerateIdentity_DefaultFalse_ReturnsTrue","line":12,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/ChainTipSpawnTests.cs","method":"ShouldRegenerateIdentity_PreserveTrue_ReturnsFalse","line":21,"verdict":"ok"}
+{"kind":"coverage","sut":"MergeDialog","sut_file":"Source/Parsek/MergeDialog.DialogText.cs","sut_line":534,"case_kind":"integration","proposed_name":"ComputeTreeDurationRange_PointsOnlyRecordings_UsesTrajectoryBounds","sketch":"RecordingTree with one Recording carrying Points[{ut:100},{ut:124}] and ExplicitStartUT=ExplicitEndUT=NaN; Assert.Equal(24, MergeDialog.ComputeTreeDurationRange(tree)).","guards":"StartUT/EndUT derive from trajectory bounds when the explicit UTs are NaN (Recording.cs:439-467). A refactor reading ExplicitStartUT/ExplicitEndUT directly returns 0 and the merge dialog shows '0s' for real point-carrying recordings; all five existing rows set explicit UTs, so that swap is suite-green.","risk":"ui"}

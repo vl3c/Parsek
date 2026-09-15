@@ -1,0 +1,78 @@
+{
+ "batch_id": "spawn-vessel-022",
+ "cluster": "spawn-vessel",
+ "tier": "D",
+ "expected_methods": 12,
+ "files": [
+  {
+   "file": "DebrisFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SinglePartLowMass_NotRecorded",
+       "line": 10
+      },
+      {
+       "method": "TwoPartsLowMass_NotRecorded",
+       "line": 16
+      },
+      {
+       "method": "ZeroPartsZeroMass_NotRecorded",
+       "line": 22
+      },
+      {
+       "method": "ThreeParts_Recorded",
+       "line": 28
+      },
+      {
+       "method": "ManyParts_Recorded",
+       "line": 35
+      },
+      {
+       "method": "HeavySinglePart_Recorded",
+       "line": 41
+      },
+      {
+       "method": "HeavyMultiPart_Recorded",
+       "line": 48
+      },
+      {
+       "method": "JustBelowBothThresholds_NotRecorded",
+       "line": 54
+      },
+      {
+       "method": "AtExactMassThreshold_Recorded",
+       "line": 60
+      },
+      {
+       "method": "AtExactPartThreshold_Recorded",
+       "line": 66
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DebrisFrameContractRecordingFixtureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Fixture_ProvidesMixedDualSurfaceDebrisRecording",
+       "line": 9
+      },
+      {
+       "method": "Fixture_ProvidesLoopAnchoredParentVariant",
+       "line": 22
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

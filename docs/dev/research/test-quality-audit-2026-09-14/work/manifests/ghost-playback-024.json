@@ -1,0 +1,278 @@
+{
+ "batch_id": "ghost-playback-024",
+ "cluster": "ghost-playback",
+ "tier": "B",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "WatchModeTargetLossWiringGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "HandleGhostDestroyed_NotifiesTheWatchControllerBeforeTheEngineTearsDown",
+       "line": 32
+      },
+      {
+       "method": "NotifyWatchedGhostDestroying_CannotAbortTheEnginesDestroy",
+       "line": 51
+      },
+      {
+       "method": "BridgeHelper_RoutesTheDecisionThroughThePurePredicate",
+       "line": 70
+      },
+      {
+       "method": "UpdateWatchCamera_RoutesBothLossCausesThroughTheClassifier",
+       "line": 81
+      },
+      {
+       "method": "UpdateWatchCamera_CountsTheCameraInfrastructureLossInsteadOfReturningUncounted",
+       "line": 92
+      },
+      {
+       "method": "UpdateWatchCamera_ResolvesTheCycleBridgeOnTheContinuePath",
+       "line": 126
+      },
+      {
+       "method": "ResolveWatchCycleBridgeAnchor_RebindsRatherThanOnlyReleasing",
+       "line": 137
+      },
+      {
+       "method": "FindWatchedGhostState_CommitsTheFallbackOnlyOnARebindThatTook",
+       "line": 150
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostSpawnDeployableBaselineTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PopulateGhostInfoDictionaries_DeployableInfosPresent_LogsStowBaseline",
+       "line": 45
+      },
+      {
+       "method": "PopulateGhostInfoDictionaries_NoDeployableInfos_DoesNotLogStowBaseline",
+       "line": 89
+      },
+      {
+       "method": "PopulateGhostInfoDictionaries_EmptyDeployableInfosList_DoesNotLogStowBaseline",
+       "line": 109
+      },
+      {
+       "method": "PopulateGhostInfoDictionaries_DeployableInfo_BuildsDictKeyedByPartPersistentId",
+       "line": 130
+      },
+      {
+       "method": "ApplyDeployableState_DeployedFalse_NullTransforms_ReturnsFalse_NoThrow",
+       "line": 168
+      },
+      {
+       "method": "ApplyDeployableState_UnknownPid_ReturnsFalse",
+       "line": 199
+      },
+      {
+       "method": "ShouldEvaluateOrphanEnginePlayback_NullTrajectory_ReturnsFalse",
+       "line": 218
+      },
+      {
+       "method": "ShouldEvaluateOrphanEnginePlayback_NoEngineOrAudioInfos_ReturnsFalse",
+       "line": 232
+      },
+      {
+       "method": "ShouldEvaluateOrphanEnginePlayback_EngineOrAudioInfosPresent_ReturnsTrue",
+       "line": 240
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostPlaybackLogHygieneTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PendingPlaybackInterpolation_SameKeyDifferentUT_EmitsOnceUntilIntervalElapses",
+       "line": 58
+      },
+      {
+       "method": "PendingPlaybackInterpolation_DifferentRecordings_TrackedIndependently",
+       "line": 96
+      },
+      {
+       "method": "PendingPlaybackInterpolation_Unresolved_SeparateKeyFromResolved",
+       "line": 112
+      },
+      {
+       "method": "DebrisSkip_StableIndexKey_CollapsesToOneEmitPerWindow",
+       "line": 139
+      },
+      {
+       "method": "OverlapLifecycle_StableRecIdxKey_CollapsesAndSurfacesSuppressed",
+       "line": 158
+      },
+      {
+       "method": "OverlapRemove_StableRecIdxKey_CycleInBodyNotKey",
+       "line": 183
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostVisualBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetGhostSnapshot_PrefersGhostVisualOverVesselSnapshot",
+       "line": 10
+      },
+      {
+       "method": "GetGhostSnapshot_ReturnsGhostWhenVesselSnapshotIsNull",
+       "line": 26
+      },
+      {
+       "method": "GetGhostSnapshot_BothNull_ReturnsNull",
+       "line": 40
+      },
+      {
+       "method": "GetGhostSnapshot_NullRecording_ReturnsNull",
+       "line": 48
+      },
+      {
+       "method": "GetGhostSnapshot_OnlyVesselSnapshot_ReturnsFallback",
+       "line": 54
+      },
+      {
+       "method": "GroupColorChangersByPartId_NullList_ReturnsEmptyDictionary",
+       "line": 68
+      },
+      {
+       "method": "GroupColorChangersByPartId_GroupsByPersistentId_AndPreservesEncounterOrder",
+       "line": 78
+      },
+      {
+       "method": "NormalizeFxPrefabName_TrimsAndStripsOnlyTrailingCloneSuffix",
+       "line": 99
+      },
+      {
+       "method": "ReentryFireDensityTunables_PinExpectedEmissionRangeAndCap",
+       "line": 105
+      },
+      {
+       "method": "TryGetSnapshotRootPartInfo_UsesSnapshotRootIndex",
+       "line": 114
+      },
+      {
+       "method": "TryGetSnapshotRootPartInfo_InvalidRootFallsBackToFirstPartAndSupportsPartAlias",
+       "line": 149
+      },
+      {
+       "method": "TryGetSnapshotCenterOfMass_MissingValue_ReturnsFalse",
+       "line": 177
+      },
+      {
+       "method": "TryGetSnapshotCenterOfMass_ParsesCoMValue",
+       "line": 188
+      },
+      {
+       "method": "TryTriggerStockExplosionFx_ReturnsFalseWhenFxMongerIsUnavailable",
+       "line": 200
+      },
+      {
+       "method": "TryTriggerStockExplosionFx_ReturnsFalseWhenStockExplodeThrows",
+       "line": 217
+      },
+      {
+       "method": "TryTriggerStockExplosionFx_ReturnsTrueWhenStockExplodeRuns",
+       "line": 238
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PlaybackOrbitDiagnosticsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryGetRecordedPayloadEndUT_UsesTrackSectionPayloadInsteadOfFlatOrbitTail",
+       "line": 10
+      },
+      {
+       "method": "TryGetRecordedPayloadEndUT_UsesLaterRecordedOrbitPayloadAlongsideTrackSections",
+       "line": 75
+      },
+      {
+       "method": "TryBuildPlaybackPredictedTailLog_AfterPayloadEnd_ReturnsDetails",
+       "line": 108
+      },
+      {
+       "method": "TryBuildPlaybackPredictedTailLog_BeforePayloadEnd_ReturnsFalse",
+       "line": 128
+      },
+      {
+       "method": "TryGetRecordedPayloadEndUT_UsesRecordedOrbitPayloadWhenNoTrackSectionsExist",
+       "line": 142
+      },
+      {
+       "method": "TryBuildPlaybackPredictedTailLog_NonPredictedOrbitSegment_ReturnsFalse",
+       "line": 184
+      },
+      {
+       "method": "TryBuildMapPredictedTailLog_AfterPayloadEnd_ReturnsDetails",
+       "line": 223
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostSpawnPendingNotifyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Engine_DeclaresSpawnPendingEvent_AndDeferredList",
+       "line": 31
+      },
+      {
+       "method": "Engine_AllFourPrimaryRegistrationSites_Notify_SecondaryDoesNot",
+       "line": 39
+      },
+      {
+       "method": "Engine_EveryNotify_SitsAfterItsFailedStatusCheck",
+       "line": 62
+      },
+      {
+       "method": "Engine_FrameTail_FiresPendingBeforeCreated",
+       "line": 86
+      },
+      {
+       "method": "Policy_SubscribesUnsubscribes_AndRoutesToMapPresence",
+       "line": 101
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

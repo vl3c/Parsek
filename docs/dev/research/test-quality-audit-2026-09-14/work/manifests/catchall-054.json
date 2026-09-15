@@ -1,0 +1,265 @@
+{
+ "batch_id": "catchall-054",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "FlyIndexDriftTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FiveGhostsAllBeforeTarget_DriftIsFive",
+       "line": 37
+      },
+      {
+       "method": "TargetAtIndexZero_GhostsAfter_DriftIsZero",
+       "line": 52
+      },
+      {
+       "method": "GhostsInterleaved_DriftCountsOnlyGhostsBeforeTarget",
+       "line": 65
+      },
+      {
+       "method": "NoGhostsInLiveList_DriftIsZero",
+       "line": 78
+      },
+      {
+       "method": "TargetAbsentFromLiveList_ReturnsSentinel",
+       "line": 91
+      },
+      {
+       "method": "EmptyLiveList_ReturnsSentinel",
+       "line": 104
+      },
+      {
+       "method": "EmptyGhostSet_TargetPresent_DriftIsZero",
+       "line": 116
+      },
+      {
+       "method": "NullLiveList_ReturnsSentinel",
+       "line": 129
+      },
+      {
+       "method": "NullGhostSet_TargetPresent_DriftIsZero",
+       "line": 136
+      },
+      {
+       "method": "DuplicateTargetPid_UsesFirstOccurrence",
+       "line": 148
+      },
+      {
+       "method": "FormatFlyStripDiagnostic_ContainsAllFields",
+       "line": 192
+      },
+      {
+       "method": "Info_WithFlyStripDiagnostic_EmitsSwitchIntentPatchTaggedLine",
+       "line": 208
+      },
+      {
+       "method": "FormatFlyStripDiagnostic_DriftZeroCase_StillReportsZero",
+       "line": 229
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReverseMapCrewNamesInSnapshotTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullSnapshot_ReturnsZero_NoCrash",
+       "line": 60
+      },
+      {
+       "method": "SnapshotWithoutCrewParts_ReturnsZero",
+       "line": 68
+      },
+      {
+       "method": "SnapshotWithOnlyOriginalNames_ReturnsZero_NamesUnchanged",
+       "line": 78
+      },
+      {
+       "method": "SnapshotWithStandInName_RewritesToOriginal_ViaReplacementsDict",
+       "line": 93
+      },
+      {
+       "method": "SnapshotWithMultipleStandIns_RewritesAll",
+       "line": 112
+      },
+      {
+       "method": "MultiplePartsWithMixedCrew_RewritesOnlyStandIns",
+       "line": 129
+      },
+      {
+       "method": "EmptyReplacementsDict_LeavesNamesUnchanged",
+       "line": 148
+      },
+      {
+       "method": "NullReplacementsDict_DoesNotCrash",
+       "line": 162
+      },
+      {
+       "method": "EmptyCrewName_IsPreservedNotDropped",
+       "line": 178
+      },
+      {
+       "method": "StandInRewrite_PreservesOrderWithinPart",
+       "line": 199
+      },
+      {
+       "method": "ZeroRewrites_DoesNotEmitSummaryLog",
+       "line": 215
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TimeRangeFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullBounds_AlwaysReturnsTrue",
+       "line": 9
+      },
+      {
+       "method": "MinOnly_PassesAboveMin",
+       "line": 17
+      },
+      {
+       "method": "MinOnly_FailsBelowMin",
+       "line": 24
+      },
+      {
+       "method": "MaxOnly_PassesBelowMax",
+       "line": 30
+      },
+      {
+       "method": "MaxOnly_FailsAboveMax",
+       "line": 37
+      },
+      {
+       "method": "BothBounds_PassesInsideRange",
+       "line": 43
+      },
+      {
+       "method": "BothBounds_FailsOutsideRange",
+       "line": 51
+      },
+      {
+       "method": "NoBounds_AlwaysOverlaps",
+       "line": 61
+      },
+      {
+       "method": "FullyInsideRange_Overlaps",
+       "line": 68
+      },
+      {
+       "method": "PartialOverlap_StartBeforeRange_Overlaps",
+       "line": 75
+      },
+      {
+       "method": "PartialOverlap_EndAfterRange_Overlaps",
+       "line": 82
+      },
+      {
+       "method": "RecordingSpansRange_Overlaps",
+       "line": 89
+      },
+      {
+       "method": "FullyBeforeRange_DoesNotOverlap",
+       "line": 96
+      },
+      {
+       "method": "FullyAfterRange_DoesNotOverlap",
+       "line": 103
+      },
+      {
+       "method": "ExactBoundaryTouch_Start_Overlaps",
+       "line": 110
+      },
+      {
+       "method": "ExactBoundaryTouch_End_Overlaps",
+       "line": 118
+      },
+      {
+       "method": "InProgressRecording_EndBeforeOrEqualStart_OverlapsAnything",
+       "line": 126
+      },
+      {
+       "method": "InProgressRecording_StartAfterRange_DoesNotOverlap",
+       "line": 134
+      },
+      {
+       "method": "MinOnly_RecordingEndsBefore_DoesNotOverlap",
+       "line": 142
+      },
+      {
+       "method": "MaxOnly_RecordingStartsAfter_DoesNotOverlap",
+       "line": 149
+      },
+      {
+       "method": "EmptyList_ReturnsZero",
+       "line": 168
+      },
+      {
+       "method": "NullList_ReturnsZero",
+       "line": 177
+      },
+      {
+       "method": "SingleRecording_BoundsMatchRecording",
+       "line": 186
+      },
+      {
+       "method": "CurrentUT_ExtendsMaxBound",
+       "line": 197
+      },
+      {
+       "method": "MultipleRecordings_SpansAll",
+       "line": 208
+      },
+      {
+       "method": "ZeroDurationRecording_UsesExactInstantBounds",
+       "line": 223
+      },
+      {
+       "method": "ZeroDurationRecording_AfterFilter_DoesNotOverlap",
+       "line": 237
+      },
+      {
+       "method": "ZeroDurationRecording_AtFilterInstant_Overlaps",
+       "line": 244
+      },
+      {
+       "method": "Default_IsNotActive",
+       "line": 254
+      },
+      {
+       "method": "SetRange_BecomesActive",
+       "line": 264
+      },
+      {
+       "method": "Clear_BecomesInactive",
+       "line": 275
+      },
+      {
+       "method": "SetRange_NullPreset_CustomRange",
+       "line": 287
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

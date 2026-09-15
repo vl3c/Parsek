@@ -1,0 +1,214 @@
+{
+ "batch_id": "logistics-route-023",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "Logistics/RouteDispatchEvaluatorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Skip_WhenPaused",
+       "line": 121
+      },
+      {
+       "method": "Skip_WhenMissingSourceRecording",
+       "line": 135
+      },
+      {
+       "method": "Skip_WhenSourceChanged",
+       "line": 149
+      },
+      {
+       "method": "Skip_WhenInTransitAndNotArrived",
+       "line": 163
+      },
+      {
+       "method": "InTransitComplete_WhenTransitDurationElapsed",
+       "line": 179
+      },
+      {
+       "method": "InTransitComplete_NotEmittedTwice",
+       "line": 195
+      },
+      {
+       "method": "Skip_WhenRateLimited",
+       "line": 212
+      },
+      {
+       "method": "Skip_WhenNotDueYet",
+       "line": 226
+      },
+      {
+       "method": "Skip_WhenSourcesStale",
+       "line": 240
+      },
+      {
+       "method": "EndpointLost_OnStopUnresolved",
+       "line": 256
+      },
+      {
+       "method": "EndpointLost_OnNonKscOriginUnresolved",
+       "line": 280
+      },
+      {
+       "method": "KscOrigin_SkipsOriginResolutionCheck",
+       "line": 305
+      },
+      {
+       "method": "WaitResources_OnEmptyOrigin",
+       "line": 324
+      },
+      {
+       "method": "CheckEligibility_OriginCargoShort_ThreadsEnvShortfall",
+       "line": 347
+      },
+      {
+       "method": "CheckEligibility_OriginCargoShort_UnknownShortfallStaysZero",
+       "line": 368
+      },
+      {
+       "method": "WaitFunds_OnlyInCareer",
+       "line": 386
+      },
+      {
+       "method": "WaitFunds_SkippedInSandbox",
+       "line": 405
+      },
+      {
+       "method": "WaitFunds_SkippedForNonKscOriginEvenInCareer",
+       "line": 423
+      },
+      {
+       "method": "WaitDestinationFull_DoesNotAdvanceNextDispatchUT",
+       "line": 444
+      },
+      {
+       "method": "Dispatch_AllConditionsMet",
+       "line": 466
+      },
+      {
+       "method": "Decision_NullRoute_IsSafe",
+       "line": 479
+      },
+      {
+       "method": "Decision_NullEnv_IsSafe",
+       "line": 491
+      },
+      {
+       "method": "CheckEligibility_OriginCargoShort_WaitResourcesNamesResource",
+       "line": 618
+      },
+      {
+       "method": "CheckEligibility_HarvestOrigin_SkipsOriginResolutionAndCargo",
+       "line": 661
+      },
+      {
+       "method": "CheckEligibility_OriginCargoCovered_PassesToFundsGate",
+       "line": 701
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteInventoryPickupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildInventoryLoadManifest_SignFlipMirror_LoadsEndpointLossMatchedByTransportGain",
+       "line": 58
+      },
+      {
+       "method": "BuildInventoryLoadManifest_ClampsToMinOfLossAndGain",
+       "line": 90
+      },
+      {
+       "method": "BuildInventoryLoadManifest_DeliveryDirection_ReturnsNull",
+       "line": 114
+      },
+      {
+       "method": "HasUnwitnessedInventoryGain_TransportGainNoEndpointLoss_True",
+       "line": 139
+      },
+      {
+       "method": "HasUnwitnessedInventoryGain_GainMatchedByLoss_False",
+       "line": 158
+      },
+      {
+       "method": "HasUnwitnessedInventoryGain_PartialUnwitnessed_FlagsRemainder",
+       "line": 175
+      },
+      {
+       "method": "IdentityHash_CrossVessel_SamePayloadDifferentTransients_MatchesidenticalHash",
+       "line": 201
+      },
+      {
+       "method": "IdentityHash_ProtoVsLoadedSaveShape_MatchesAfterCanonicalStrip",
+       "line": 227
+      },
+      {
+       "method": "HasRequiredInventory_ShortIdentity_FailsNamingFirst",
+       "line": 264
+      },
+      {
+       "method": "HasRequiredInventory_FullyCovered_Passes",
+       "line": 284
+      },
+      {
+       "method": "HasRequiredInventory_NullOrEmpty_Passes",
+       "line": 299
+      },
+      {
+       "method": "InventoryPickupSeam_ShortCircuits_WithEndpointAndManifest",
+       "line": 314
+      },
+      {
+       "method": "InventoryPickup_EmptyManifest_NoOp_ResolvedNotShort",
+       "line": 344
+      },
+      {
+       "method": "InventoryPickup_UnresolvedEndpoint_FullRequested_ShortAndUnresolved",
+       "line": 366
+      },
+      {
+       "method": "InventoryPickup_ResolvedNullVessel_TreatedAsUnresolved",
+       "line": 395
+      },
+      {
+       "method": "FindUnloadedMatchNode_TwoSlotsSameIdentity_PicksLowestSlot",
+       "line": 422
+      },
+      {
+       "method": "FindUnloadedMatchNode_NoMatch_ReturnsNull",
+       "line": 450
+      },
+      {
+       "method": "RemoveOneUnitFromStoredPartsNode_StackedSlot_DecrementsQuantity",
+       "line": 464
+      },
+      {
+       "method": "RemoveOneUnitFromStoredPartsNode_SingleUnit_RemovesNode",
+       "line": 485
+      },
+      {
+       "method": "CountStoredByPartName_MatchesByNameAcrossIdentities",
+       "line": 594
+      },
+      {
+       "method": "CountStoredByPartName_Degenerates",
+       "line": 625
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
