@@ -1,6 +1,6 @@
 schema = 1
 id = "MC-3-better-time-warp"
-tier = "operator"
+tier = "nightly"
 # =====================================================================================
 # MC-3: THE BETTER-TIME-WARP INTERACTION, READ ON A LIVE AIRLESS-BODY RECORDING.
 # READ 2026-09-10 ON OUTCOME (A), PINNED FROM THAT RUN'S BYTES, THEN ARMED-DISCIPLINE

@@ -17,7 +17,9 @@ report; headline values only here.
 
 - **D1 Recording lifecycle**: auto-record on launch / on EVA / on
   first-modification-after-switch (all shipped defaults, ParsekSettings.cs),
-  manual Gloops ghost-only, stop-on-switch (no Stop decision), commit via
+  manual Gloops ghost-only, switch-backgrounds-recording (renamed from
+  `stop-on-switch` 2026-09-15, register B3: there is no Stop decision, and a
+  vessel switch BACKGROUNDS the live recording), commit via
   revert-merge / scene exit / abort, commit in a FOREIGN SOI (the recording
   closes while the vessel is parked in orbit around another body - the B11/B12
   ORBIT lane), discard (career rollback), auto-merge, sub-2-point drop,
@@ -30,7 +32,8 @@ report; headline values only here.
   loop (live PID), parent-anchored debris, boundary seam sections.
 - **D4 Environment classification / optimizer**: Atmospheric / ExoPropulsive /
   ExoBallistic / SurfaceMobile / SurfaceStationary + hysteresis, env/body
-  splits, surface graze suppression, cohesive cross-body coast, tail trim,
+  splits, surface graze suppression (optimizer step 5), persistence graze
+  suppression (step 7, the `IsGrazePattern` collapse-walk), cohesive cross-body coast, tail trim,
   seed-event split, SplitAtUT.
 - **D5 Tree / chain topology**: single-node tree, undock split, staging debris
   (TTL, promotion), EVA branch, controlled-decoupled child, dock merge
@@ -54,7 +57,8 @@ report; headline values only here.
   engine, orchestrator, KspStatePatcher, tombstones, ERS/ELS routing,
   ground-truth harness (CareerSaveParser + LedgerGroundTruthDiff), action
   blocking, recalc-from-ut0, epoch isolation after revert.
-- **D9 Rewind / re-fly**: Rewind-to-Launch, Fast-Forward, Rewind-to-
+- **D9 Rewind / re-fly**: Rewind-to-Launch (and repeat Rewind-to-Launch off the
+  same committed tree and the same `parsek_rw_` quicksave), Fast-Forward, Rewind-to-
   Separation, re-fly gate (5 preconditions), Unfinished Flights / STASH,
   Seal / Stash / Fly, supersede relation, tombstones, merge journal (crash
   recovery), HEAD/TIP origin split, terminal-kind classify, load-time sweep,
@@ -97,7 +101,10 @@ report; headline values only here.
   generation 4), path validation, safe-write, pre-Parsek backup.
 - **D17 Mod compatibility**: Waterfall + SWE pristine fallback, ReStock/+,
   PersistentRotation, BetterTimeWarp, RemoteTech/CommNet, Making History.
-  Runs ONLY on the modded-compat instance profile (plan section 10).
+  Runs ONLY on the modded-compat instance profile (plan section 10), with ONE
+  exception ruled 2026-09-15 (register B5): Making History is junctioned into
+  every instance as a stock asset payload, so its cell is alt-site launch
+  capture hosted on stock-minimal.
 - **D18 Ghost chains / paradox prevention** (flight-recorder design 12-14;
   the mod's headline promise, previously uncovered): committed-interaction
   vessel claiming, ghost conversion of quicksave vessels after rewind,
