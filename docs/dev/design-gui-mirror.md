@@ -275,7 +275,27 @@ shape: a tab selected in BASIC mode (Missions' own tab, two Timeline tabs, both
 Kerbals tabs, all four Career tabs). Basic draws no tab bar, so the census never
 took them. They are listed in the left rail, greyed, and clicking one says why.
 
-## 11. What this page is not
+## 11. Known differences from the frame
+
+Read off the side-by-side and overlay modes over the Career, Kerbals, Settings and
+Missions captures. None of the three is fixable from the dump alone; each needs a
+value the dump does not carry, or a font.
+
+1. **A slider draws its track and not its handle.** The dump gives the slider's
+   rect and no value, so there is nothing to position a knob from. The Settings
+   ghost-audio row therefore reads as an empty groove where the game shows a knob
+   near 70%. Fixable only by having the recorder emit the slider's value.
+2. **A toggle's mark is an ASCII `x` in a CSS box.** The dump carries the boolean,
+   not the glyph, and KSP draws a tick in its own skin texture. Right state, wrong
+   shape, and the box is drawn rather than sampled.
+3. **Very long single lines clip a few characters early.** Arial at 13px matches
+   KSP's face to under a pixel over a 140 px run (that is how the size was
+   chosen), but the error accumulates: the Settings rewind-point disk line ends
+   `crashed=0, stabl` in the mirror against `crashed=0, stable` in the frame. A
+   real fix means shipping KSP's own font metrics, which is a bigger thing than
+   this page.
+
+## 12. What this page is not
 
 * Not a status authority. `docs/dev/autotest-status.md` owns the census's status
   and `design-gui-inventory.md` owns the structural map.
