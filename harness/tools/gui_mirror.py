@@ -408,13 +408,27 @@ def subsample(w, h, bpp, px, factor):
     return nw, nh, bytes(out)
 
 
-def sample_colors(w, h, bpp, px, rect, step=2):
-    """Background and foreground colour actually drawn inside a control's rect.
+def sample_colors(w, h, bpp, px, rect, step=2, exclude=()):
+    """Background and foreground colour actually drawn on a control's OWN surface.
 
-    Background is the modal colour; foreground is the mean of the pixels furthest
-    from it in luminance, which on a flat skin is exactly the glyph ink. This is
-    how the mirror gets the blue clickable rows, the dimmed rows and the status
-    tints: the dump records the style NAME only, and a name has no colour.
+    `exclude` carries the node's children in the same screen coordinates. Only
+    points inside `rect` and outside every child are probed, because a container's
+    colour is the colour of its own padding and gutters - the pixels its children
+    do not cover. Probing the whole rect made a window take the colour of whatever
+    opaque child happened to sit under the probe point: the Kerbals window of
+    `ksc-kerbals-outcomes-advanced` has a 404 px content box over its centre, so
+    the whole window painted in that box's `#292929` while every other Kerbals
+    capture painted `#444444`. The same mechanism waits for any container whose
+    sample point falls inside an opaque child.
+
+    Background is the MEDIAN of the uncovered points by luminance (a mode can be
+    swung by one thin border run); foreground is the mean of the points furthest
+    from it, which on a flat skin is exactly the glyph ink - and which for a
+    container legitimately comes back empty, because its margins carry no text.
+
+    When the children cover the rect completely there is no own surface to read,
+    so it falls back to the whole rect: a wrong-but-consistent colour beats None,
+    and the fallback is what the old behaviour always did.
     """
     x0, y0, rw, rh = rect
     x0, y0 = int(x0), int(y0)
@@ -425,28 +439,54 @@ def sample_colors(w, h, bpp, px, rect, step=2):
     x0, y0 = max(0, x0), max(0, y0)
     if x1 <= x0 or y1 <= y0:
         return None, None
-    hist = Counter()
-    pixels = []
-    for y in range(y0, y1, step):
-        rowbase = y * w * bpp
-        for x in range(x0, x1, step):
-            o = rowbase + x * bpp
-            rgb = (px[o], px[o + 1], px[o + 2])
-            hist[rgb] += 1
-            pixels.append(rgb)
+
+    boxes = []
+    for c in exclude or ():
+        cx, cy, cw, ch = [int(v) for v in c[:4]]
+        if cw > 0 and ch > 0:
+            boxes.append((cx, cy, cx + cw, cy + ch))
+
+    def covered(x, y):
+        for bx0, by0, bx1, by1 in boxes:
+            if bx0 <= x < bx1 and by0 <= y < by1:
+                return True
+        return False
+
+    pixels = _probe(w, bpp, px, x0, y0, x1, y1, step, covered if boxes else None)
+    if not pixels:
+        # fully covered: no own surface to read
+        pixels = _probe(w, bpp, px, x0, y0, x1, y1, step, None)
     if not pixels:
         return None, None
-    bg = hist.most_common(1)[0][0]
-    bl = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
-    scored = sorted(pixels, key=lambda p: -abs(0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] - bl))
+
+    ordered = sorted(pixels, key=_lum)
+    bg = ordered[len(ordered) // 2]
+    bl = _lum(bg)
+    scored = sorted(pixels, key=lambda q: -abs(_lum(q) - bl))
     take = scored[:max(1, len(scored) // 20)]
     # Ink is the extreme tail; averaging the whole tail would drag it back
     # towards the anti-aliased edge pixels, so only the strongest fifth counts.
     strong = take[:max(1, len(take) // 5)]
-    fg = tuple(sum(p[i] for p in strong) // len(strong) for i in range(3))
-    if abs(0.299 * fg[0] + 0.587 * fg[1] + 0.114 * fg[2] - bl) < 12:
+    fg = tuple(sum(q[i] for q in strong) // len(strong) for i in range(3))
+    if abs(_lum(fg) - bl) < 12:
         fg = None
     return _hex(bg), (_hex(fg) if fg else None)
+
+
+def _probe(w, bpp, px, x0, y0, x1, y1, step, covered):
+    out = []
+    for y in range(y0, y1, step):
+        rowbase = y * w * bpp
+        for x in range(x0, x1, step):
+            if covered is not None and covered(x, y):
+                continue
+            o = rowbase + x * bpp
+            out.append((px[o], px[o + 1], px[o + 2]))
+    return out
+
+
+def _lum(rgb):
+    return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
 
 
 def grid_label_runs(w, h, bpp, px, rect, min_width=18, gap=16, bright=150):
@@ -582,7 +622,7 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
                 cells = []
                 for i in range(len(runs)):
                     cbg, _cfg = sampler([int(rect[0] + i * seg), rect[1],
-                                         max(1, int(seg)), rect[3]])
+                                         max(1, int(seg)), rect[3]], ())
                     cells.append(cbg)
                 if all(cells):
                     out["gc"] = cells
@@ -590,7 +630,9 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
         out["hz"] = 1 if node["horizontal"] else 0
     bg = None
     if sampler is not None and out["w"] > 0 and out["h"] > 0:
-        bg, fg = sampler(rect)
+        kid_rects = [c.get("rect") or [0, 0, 0, 0]
+                     for c in (node.get("children") or ())]
+        bg, fg = sampler(rect, kid_rects)
         # A background identical to the parent's is what CSS already inherits,
         # so storing it again would only make the page bigger.
         if bg and bg != parent_bg and (out["k"] in BG_KINDS or style == "box"):
@@ -1214,8 +1256,9 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
                         % (pw, ph, sw, sh))
                 pix = (pw, ph, bpp, px)
 
-                def sampler(rect, _p=pix):
-                    return sample_colors(_p[0], _p[1], _p[2], _p[3], rect)
+                def sampler(rect, exclude=(), _p=pix):
+                    return sample_colors(_p[0], _p[1], _p[2], _p[3], rect,
+                                         exclude=exclude)
 
                 def grid_runs(rect, _p=pix):
                     return grid_label_runs(_p[0], _p[1], _p[2], _p[3], rect)
@@ -1238,7 +1281,7 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             if sampler is not None and node["title"]:
                 # The title bar only: sampling the whole window rect finds the
                 # ink of whatever row happens to be brightest instead.
-                _tbg, tfg = sampler([rect[0], rect[1], rect[2], 24])
+                _tbg, tfg = sampler([rect[0], rect[1], rect[2], 24], ())
                 node["fg"] = tfg or None
                 if not node["fg"]:
                     node.pop("fg", None)
@@ -2169,8 +2212,11 @@ function buildRail(){
     row.setAttribute('tabindex', '0');
     row.setAttribute('aria-expanded', open ? 'true' : 'false');
     row.setAttribute('aria-controls', listId);
-    row.title = (open ? 'Hide' : 'Show') + ' the ' + w.captureCount +
-                ' captures of ' + w.token;
+    var here = (w.token === S.window);
+    row.title = here
+      ? (open ? 'Hide' : 'Show') + ' the ' + w.captureCount + ' captures of ' +
+        w.token
+      : 'Show the ' + w.token + ' window';
     row.appendChild(el('span', 'caret' + (open ? ' open' : ''), '\u25b8'));
     row.appendChild(el('b', null, w.token));
     var cmpBtn = el('span', 'cmpbtn', 'cmp');
@@ -2184,8 +2230,18 @@ function buildRail(){
     };
     row.appendChild(cmpBtn);
     row.appendChild(el('span', 'n', String(w.captureCount)));
+    /* A title click on a window that is NOT the one on screen shows it - that is
+       what a reader means by clicking a window's name - and select() unfolds its
+       list on the way in. On the window already shown there is nothing to switch
+       to, so the click is the fold toggle, which is how the toggle stays usable
+       at all. */
     function toggle(ev){
       if (ev) ev.stopPropagation();
+      if (!here){
+        go(w.token, null, null, S.mode);
+        if (S.view === 'compare') buildCompare();
+        return;
+      }
       S.collapsed[w.token] = open;   /* was open -> now collapsed */
       saveCollapsed();
       buildRail();

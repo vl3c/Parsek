@@ -815,6 +815,22 @@ class RailDisclosureTests(unittest.TestCase):
         self.assertIn("S.collapsed[w.token] = open;", self.html)
         self.assertIn("row.onclick = toggle;", self.html)
 
+    def test_clicking_a_non_shown_windows_title_selects_it(self):
+        # Clicking a window's NAME is how a reader asks to see that window; only
+        # on the window already shown is the click the fold toggle, which is what
+        # keeps the toggle usable at all.
+        self.assertIn("var here = (w.token === S.window);", self.html)
+        body = self.html[self.html.index("function toggle(ev){"):]
+        body = body[:body.index("row.onclick = toggle;")]
+        self.assertIn("if (!here){", body)
+        self.assertIn("go(w.token, null, null, S.mode);", body)
+        self.assertIn("S.collapsed[w.token] = open;", body)
+        # the show branch returns before the fold branch, so a title click on
+        # another window never doubles as a collapse
+        self.assertLess(body.index("go(w.token, null, null, S.mode);"),
+                        body.index("S.collapsed[w.token] = open;"))
+        self.assertIn("return;", body)
+
     def test_selecting_a_capture_unfolds_its_own_window(self):
         self.assertIn("S.collapsed[cap.window] = false;", self.html)
 
@@ -1267,6 +1283,105 @@ class SuperSizeGuardTests(unittest.TestCase):
             self.assertIn("does not match the dump", err.getvalue())
         finally:
             shutil.rmtree(root, ignore_errors=True)
+
+
+class ContainerSamplingTests(unittest.TestCase):
+    """A container's colour is the colour of its OWN padding, not of whatever
+    opaque child sits under the probe point.
+
+    The defect this pins: the Kerbals window of `ksc-kerbals-outcomes-advanced`
+    has a 404 px content box over its centre, so the window sampled that box and
+    the whole window painted `#292929` while every other Kerbals capture painted
+    `#444444`.
+    """
+
+    WIN = (68, 68, 68)      # the window's own grey
+    BOX = (41, 41, 41)      # an opaque content box
+
+    def frame(self, child_boxes):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        path = os.path.join(root, "f.png")
+        tiny_png(path, 400, 300, self.WIN)
+        # repaint the child boxes in the darker colour
+        w, h, bpp, px = gmi.read_png(path)
+        px = bytearray(px)
+        for (x0, y0, x1, y1) in child_boxes:
+            for y in range(y0, y1):
+                for x in range(x0, x1):
+                    o = (y * w + x) * bpp
+                    px[o:o + 3] = bytes(self.BOX)
+        return w, h, bpp, bytes(px)
+
+    def test_a_full_cover_child_does_not_lend_the_window_its_colour(self):
+        # The child covers the window's centre and most of its area; the window's
+        # own colour survives only in the margin, which is where it must be read.
+        child = (10, 40, 390, 290)
+        w, h, bpp, px = self.frame([child])
+        rect = [0, 0, 400, 300]
+        naive, _ = gmi.sample_colors(w, h, bpp, px, rect)
+        self.assertEqual(naive, "#292929",
+                         "the fixture does not reproduce the defect")
+        own, _ = gmi.sample_colors(w, h, bpp, px, rect,
+                                   exclude=[[10, 40, 380, 250]])
+        self.assertEqual(own, "#444444",
+                         "the window took its child's colour")
+
+    def test_the_child_still_reads_its_own_colour(self):
+        child = (10, 40, 390, 290)
+        w, h, bpp, px = self.frame([child])
+        got, _ = gmi.sample_colors(w, h, bpp, px, [10, 40, 380, 250])
+        self.assertEqual(got, "#292929")
+
+    def test_a_totally_covered_container_falls_back_to_its_whole_rect(self):
+        # No own surface to read: a consistent wrong colour beats None, and that
+        # is what the old behaviour always did.
+        w, h, bpp, px = self.frame([(0, 0, 400, 300)])
+        got, _ = gmi.sample_colors(w, h, bpp, px, [0, 0, 400, 300],
+                                   exclude=[[0, 0, 400, 300]])
+        self.assertEqual(got, "#292929")
+
+    def test_a_leaf_with_no_children_is_unaffected(self):
+        w, h, bpp, px = self.frame([])
+        a, _ = gmi.sample_colors(w, h, bpp, px, [0, 0, 400, 300])
+        b, _ = gmi.sample_colors(w, h, bpp, px, [0, 0, 400, 300], exclude=())
+        self.assertEqual(a, b)
+        self.assertEqual(a, "#444444")
+
+    def test_the_whole_pipeline_reads_the_container_colour(self):
+        # End to end through compact_tree, which is what hands the sampler the
+        # children: a window with a full-cover dark box must still be its own
+        # colour on the page.
+        w, h, bpp, px = self.frame([(10, 40, 390, 290)])
+
+        def sampler(rect, exclude=()):
+            return gmi.sample_colors(w, h, bpp, px, rect, exclude=exclude)
+
+        root = node("window", [0, 0, 400, 300], "W", style="window", children=[
+            node("box", [10, 40, 380, 250], None, style="box", children=[])])
+        out = gmi.compact_tree(root, [0, 0], sampler)
+        self.assertEqual(out["bg"], "#444444",
+                         "the window still took its child's colour")
+        self.assertEqual(out["c"][0]["bg"], "#292929")
+
+    def test_the_real_capture_that_found_this(self):
+        # The capture itself, if the census dirs are on this machine.
+        import glob
+        hits = glob.glob(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))))),
+            "Parsek-gui-census-dump", "harness", "results",
+            "2026-09-11_0548_*_shots", "ksc-kerbals-outcomes-advanced.gui.json"))
+        if not hits:
+            self.skipTest("the census shots directory is not on this machine")
+        shots = os.path.dirname(hits[0])
+        model = gmi.build_model([shots], None)
+        cap = [c for c in model["captures"]
+               if c["label"] == "ksc-kerbals-outcomes-advanced"][0]
+        win = [r for r in cap["roots"]
+               if not r.get("foreign") and "Kerbals" in (r.get("title") or "")][0]
+        self.assertEqual(win.get("bg"), "#444444",
+                         "the Kerbals window is still painting its box's colour")
 
 
 class MutationPinningTests(unittest.TestCase):

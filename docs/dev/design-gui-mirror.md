@@ -56,6 +56,18 @@ mirror uses 13px. Getting this wrong is visible at once - the dump's rects were
 laid out by KSP's own font, so a font that is 8% wide overflows cells the game
 fits, and the photo toggle is how it was caught.
 
+### A container's colour is its own padding
+
+The sampler probes only the points inside a node's rect and OUTSIDE every child's,
+takes the median by luminance, and falls back to the whole rect when the children
+cover it completely. A container's colour is the colour of the pixels its children
+do not cover; probing the whole rect made a window take the colour of whatever
+opaque child sat under the probe point. The Kerbals window of
+`ksc-kerbals-outcomes-advanced` has a 404 px content box over its centre, so that
+one capture painted `#292929` while every other Kerbals capture painted `#444444`,
+and the same mechanism waited for any container whose sample point fell inside an
+opaque child. A leaf has no children, so nothing about labels or buttons changed.
+
 ### Rich text
 
 KSP draws a Unity rich-text subset in labels and the dump carries the raw markup -
@@ -222,8 +234,11 @@ scrolled off the top of a tall capture.
 
 ### The rail folds
 
-Each window header in the left rail is a disclosure toggle: it folds that window's
-capture list away and selects nothing, keeps its count badge, and flips a caret.
+Clicking a window header in the left rail SHOWS that window - selecting its
+default capture through the same ranking every other click uses - and unfolds its
+capture list on the way in. On the window already shown there is nothing to switch
+to, so there the click is the fold toggle; that is what keeps the toggle usable at
+all. The header keeps its count badge and flips a caret.
 Everything starts folded except the window being shown, a capture selected from
 anywhere else (a launcher, a tab, the Compare view) unfolds its own window on the
 way in, and the folded set is remembered in `localStorage` as a per-viewer
