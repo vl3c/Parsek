@@ -5479,8 +5479,7 @@ namespace Parsek
                     // the one family where the deflection and the rate share a sign — the wheels
                     // point INTO the turn — so the two negations cancel. Shared clamp/deadband/NaN
                     // handling is worth the one confusing sign.
-                    float targetSteering = ComputeSynthDeflectionDegrees(
-                        -steeringHeadingRate, WheelSteeringGainDegPerDegPerSec, MaxWheelSteeringDegrees);
+                    float targetSteering = ComputeTargetWheelSteeringDegrees(steeringHeadingRate);
                     info.steeringAngleDegrees = SlewTowardDegrees(
                         info.steeringAngleDegrees, targetSteering,
                         WheelSteeringSlewDegPerSec, deltaSeconds);
@@ -5494,6 +5493,21 @@ namespace Parsek
 
                 info.lastUpdateUT = currentUT;
             }
+        }
+
+        /// <summary>
+        /// The wheel-caliper target angle for a ground-track heading rate. Extracted from the
+        /// ghost wheel-steering drive so the CALLER-SIDE negate is testable without a servo
+        /// transform: the rate is negated on the way in because
+        /// <see cref="ComputeSynthDeflectionDegrees"/> inverts (a control deflection OPPOSES the
+        /// body rate it produced), and steering is the one family where deflection and rate share
+        /// a sign - the wheels point INTO the turn - so the two negations cancel. Byte-identical
+        /// to the inline expression it replaces.
+        /// </summary>
+        internal static float ComputeTargetWheelSteeringDegrees(float headingRateDegPerSec)
+        {
+            return ComputeSynthDeflectionDegrees(
+                -headingRateDegPerSec, WheelSteeringGainDegPerDegPerSec, MaxWheelSteeringDegrees);
         }
 
         /// <summary>Degrees of caliper angle per deg/s of ground-track heading change.</summary>
