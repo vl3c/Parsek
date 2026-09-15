@@ -459,7 +459,7 @@ cheap.
 | 20 | C-recording-tree-039-01 | data-loss | `RecordingStore.OrphanCleanup.cs:56` | integration | seam | 2 | delete the `RewindSaveFileName` limb at :56-57 |
 
 **Phase B status (2026-09-15).** The five priority-1 data-loss rows have landed as xUnit cells
-on `testfix-t5-coverage`, each mutation-proved in that worktree with the mutant the CSV names
+on `testfix-t5-coverage`, each mutation-proved in that worktree with the mutant the CSV names (C-legacy-bugfix-024-01 in the shared save body both entry points route through, not the public wrapper; the wrapper stays guarded by the source-text pin)
 (patches under `research/test-quality-audit-2026-09-14/mutations/<cand_id>-phaseB.patch`):
 C-legacy-bugfix-023-01, C-legacy-bugfix-024-01, C-recording-tree-034-01, C-rewind-refly-011-01,
 C-rewind-refly-020-01. Their `status` in the CSV is now `done`.
