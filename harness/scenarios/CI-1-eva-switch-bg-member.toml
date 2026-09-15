@@ -8,7 +8,7 @@ tier = "daily"
 # from the phantom `stop-on-switch` - and its one gating token (the
 # `Transitioned to background` line at the bottom of [expectations.logContracts]).
 #
-# INERT UNTIL FLOWN. Nothing in this PR flew: the token was pinned OFF ARCHIVED BYTES of
+# FLOWN 2026-09-15. The token was pinned OFF ARCHIVED BYTES of
 # this lane's 2026-09-08 run day, where BOTH collected logs carry it twice and the FIRST
 # occurrence is byte-identical in each. Reading run `2026-09-08_1054`
 # (../logs/2026-09-08_1355_CI-1-eva-switch-bg-member - collect-logs directory names are
@@ -29,9 +29,11 @@ tier = "daily"
 # `FlightRecorder.TransitionToBackground` (FlightRecorder.cs:11280), which
 # `DecideOnVesselSwitch` (:11676) reaches on a vessel switch with NO Stop branch
 # anywhere in it - the fact the renamed value names.
-# THE FLIGHT OPERATOR STILL OWES: an ARMED re-flight with the token in place, and ONE
-# NEGATIVE CONTROL inverting exactly this token (`points=1` -> `points=99`). Until both
-# are on the record in autotest-status.md, read the D1 entry below as PENDING.
+# THE DISCIPLINE IS COMPLETE. The ARMED RE-FLIGHT with the token in place is
+# `2026-09-15_1529`, PASS attempt 1, 64 s. The NEGATIVE CONTROL is `2026-09-15_1532`,
+# which inverted exactly this token (`points=1` -> `points=99`) and red on exactly that
+# leaf; the edit was reverted. Both are on the record in autotest-status.md, so the D1
+# entry below reads CLAIMED.
 # =====================================================================================
 # THE CHAIN-INTERACTION WAVE, LANE 1 (roadmap priority register item 2, riding R10).
 #
@@ -157,7 +159,9 @@ steps = [
 #       is BACKGROUND it - the physics-frame patch disconnected, part events
 #       unsubscribed, `IsRecording` still true - not stop it. That is the whole content
 #       of the value the registry renamed from `stop-on-switch` in the same commit, and
-#       this lane is its first declarer. INERT UNTIL FLOWN: see the header.
+#       this lane is its first declarer. FLOWN 2026-09-15: armed re-flight
+#       `2026-09-15_1529` PASS, negative control `2026-09-15_1532` red on exactly this
+#       token. See the header.
 D1  = ["switch-segment", "switch-backgrounds-recording"]
 D5  = ["chain-continuation-switch", "eva-branch"]
 D14 = ["kerbin", "sandbox", "scene-flight"]

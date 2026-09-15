@@ -108,7 +108,9 @@ values = ["absolute", "surface-body-fixed", "orbital-checkpoint",
 # WITNESS / DECLARER: LT-2-long-tail-spacecenter, whose in-game cell
 # `EccentricGrazing_StaysOneSegment_InGame` (InGameTests/PersistenceSplitOptimizerTest.cs:166)
 # drives the production `RunOptimizationPass`, off the `Split summary ... grazeForward=2
-# grazeBackward=2 ...` line (gating token in that spec; INERT UNTIL FLOWN - see its header).
+# grazeBackward=2 ...` line (gating token in that spec; FLOWN 2026-09-15 - armed
+# re-flight `2026-09-15_1525` PASS, negative control `2026-09-15_1527` red on exactly
+# that token).
 values = ["atmospheric", "exo-propulsive", "exo-ballistic", "surface-mobile",
           "surface-stationary", "hysteresis", "env-body-split", "surface-graze-suppression",
           "persistence-graze-suppression",

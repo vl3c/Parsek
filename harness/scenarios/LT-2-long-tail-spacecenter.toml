@@ -7,9 +7,9 @@ tier = "nightly"
 # `persistence-graze-suppression` claim and its one gating token (the `Split summary`
 # line at the bottom of [expectations.logContracts]).
 #
-# INERT UNTIL FLOWN. Nothing in this PR flew: the token was pinned OFF ARCHIVED BYTES of
-# the last GREEN LT-2 run, the armed re-flight `2026-09-10_1957` (PASS attempt 1, 48 s,
-# mismatches=0), whose collected KSP.log carries the line ONCE, byte for byte:
+# FLOWN 2026-09-15. The token was pinned OFF ARCHIVED BYTES of the last GREEN LT-2 run,
+# the armed re-flight `2026-09-10_1957` (PASS attempt 1, 48 s, mismatches=0), whose
+# collected KSP.log carries the line ONCE, byte for byte:
 #   [LOG 22:58:32.250] [Parsek][VERBOSE][Optimizer] Split summary:
 #   rec=rec_persistence_smoke_grazing evaluated=4 grazeForward=2 grazeBackward=2
 #   surfaceGrazeForward=0 surfaceGrazeBackward=0 seamSkipped=0 exoCoastBodyChangeKept=0
@@ -18,12 +18,15 @@ tier = "nightly"
 # whose collected copies are ../logs/2026-09-10_2301 / _2303 / _2305 - the collect-logs
 # directory names are WALL CLOCK, three hours ahead of the run ids.) Memo s1 reports the
 # line byte-identical in 9 of 9 logs that ran the cell.
-# THE FLIGHT OPERATOR STILL OWES, before this claim is anything but declared: an ARMED
-# re-flight with the token in place, and ONE NEGATIVE CONTROL inverting exactly this
-# token (`grazeForward=2` -> `grazeForward=3`), about 50 s each. Until both are on the
-# record in autotest-status.md, read the [dimensionsCovered] D4 entry as PENDING.
+# THE DISCIPLINE IS COMPLETE. The ARMED RE-FLIGHT with the token in place is
+# `2026-09-15_1525`, PASS attempt 1, 58 s. The NEGATIVE CONTROL is `2026-09-15_1527`,
+# which inverted exactly this token (`grazeForward=2` -> `grazeForward=3`) and red on
+# exactly that leaf; the edit was reverted. Both are on the record in
+# autotest-status.md, so the [dimensionsCovered] D4 entry reads CLAIMED.
 #
 # THE RE-PIN OF THIS LANE'S BATCH_COMPLETE TALLIES IS NOT THIS PR'S WORK. Register item
+# C2 owns it, and no tally moved this session, so no re-pin was needed; nothing below
+# touches a tally.
 # C2 re-pins them from the operator's own session bytes; nothing below touches a tally.
 # =====================================================================================
 # THE LONG TAIL'S SPACECENTER SLICE, ONE BOOT. Six categories whose executable cells
@@ -174,8 +177,9 @@ steps = [
 #    which is what RF-1 claims as `surface-graze-suppression`. RF-1's token pins the
 #    step-7 pair literally AT ZERO, so this is the suite's first gate on the
 #    persistence predicate having actually FIRED. Every value in the line is a fixture
-#    literal (rec id, 4 boundaries, 2 + 2), so the pattern is literal. INERT UNTIL
-#    FLOWN: see the header for what the operator still owes.
+#    literal (rec id, 4 boundaries, 2 + 2), so the pattern is literal. FLOWN
+#    2026-09-15: armed re-flight `2026-09-15_1525` PASS, negative control
+#    `2026-09-15_1527` red on exactly this token. See the header.
 D3  = ["relative-anchored-nonloop"]
 D4  = ["tail-trim", "persistence-graze-suppression"]
 D5  = ["bg-on-rails"]
