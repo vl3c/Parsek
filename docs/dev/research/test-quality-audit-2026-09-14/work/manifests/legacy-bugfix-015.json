@@ -1,0 +1,203 @@
+{
+ "batch_id": "legacy-bugfix-015",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "TimeJumpManagerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeEpochShift_CircularOrbit_MeanAnomalyAdvances",
+       "line": 96
+      },
+      {
+       "method": "ComputeEpochShift_ZeroDelta_Unchanged",
+       "line": 121
+      },
+      {
+       "method": "ComputeEpochShift_FullPeriod_ReturnsSameAnomaly",
+       "line": 139
+      },
+      {
+       "method": "ComputeEpochShift_NormalizesTo2Pi",
+       "line": 157
+      },
+      {
+       "method": "FindCrossedChainTips_SingleTipCrossed",
+       "line": 185
+      },
+      {
+       "method": "FindCrossedChainTips_MultipleTipsCrossed_SortedChronologically",
+       "line": 205
+      },
+      {
+       "method": "FindCrossedChainTips_TipBeforeT0_NotIncluded",
+       "line": 227
+      },
+      {
+       "method": "FindCrossedChainTips_TipAfterTarget_NotIncluded",
+       "line": 244
+      },
+      {
+       "method": "FindCrossedChainTips_TerminatedChain_NotIncluded",
+       "line": 261
+      },
+      {
+       "method": "FindCrossedChainTips_EmptyChains_ReturnsEmpty",
+       "line": 280
+      },
+      {
+       "method": "FindCrossedChainTips_TipExactlyAtTarget_Included",
+       "line": 295
+      },
+      {
+       "method": "FindCrossedChainTips_TipExactlyAtT0_NotIncluded",
+       "line": 313
+      },
+      {
+       "method": "SpawnCrossedChainTips_SceneEntrySourceExists_PassesReplayDuplicateBypass",
+       "line": 330
+      },
+      {
+       "method": "SpawnCrossedChainTips_LinkedTipSceneEntrySourceExists_UsesTipPidForReplayBypass",
+       "line": 361
+      },
+      {
+       "method": "ComputeJumpTargetUT_SingleChain_ReturnsSpawnUT",
+       "line": 400
+      },
+      {
+       "method": "ComputeJumpTargetUT_NonExistentPid_ReturnsZero",
+       "line": 417
+      },
+      {
+       "method": "ComputeJumpTargetUT_EarlierIndependentTips_ReturnsSelectedSpawnUT",
+       "line": 437
+      },
+      {
+       "method": "ComputeJumpTargetUT_NullChains_ReturnsZero",
+       "line": 458
+      },
+      {
+       "method": "IsValidJump_ForwardJump_True",
+       "line": 473
+      },
+      {
+       "method": "IsValidJump_BackwardJump_False",
+       "line": 482
+      },
+      {
+       "method": "IsValidJump_SameUT_False",
+       "line": 491
+      },
+      {
+       "method": "IsValidJump_TinyForwardJump_True",
+       "line": 501
+      },
+      {
+       "method": "ApplyJumpLead_AmpleRoom_SubtractsLeadTime",
+       "line": 515
+      },
+      {
+       "method": "ApplyJumpLead_LeadMatchesRewindConstant",
+       "line": 530
+      },
+      {
+       "method": "ApplyJumpLead_InsideLeadWindow_ClampsToEventUT",
+       "line": 546
+      },
+      {
+       "method": "ApplyJumpLead_ExactlyAtLeadBoundary_ClampsToEventUT",
+       "line": 563
+      },
+      {
+       "method": "ApplyJumpLead_Logs",
+       "line": 577
+      },
+      {
+       "method": "IsTimeJumpLaunchAutoRecordSuppressed_InProgress_ReturnsTrue",
+       "line": 591
+      },
+      {
+       "method": "IsTimeJumpLaunchAutoRecordSuppressed_PostJumpFrameWindow_ReturnsTrue",
+       "line": 602
+      },
+      {
+       "method": "IsTimeJumpLaunchAutoRecordSuppressed_AtFrameBoundary_ReturnsTrue",
+       "line": 613
+      },
+      {
+       "method": "IsTimeJumpLaunchAutoRecordSuppressed_FrameExpiry_DoesNotRearmOnEarlierUtRollback",
+       "line": 624
+      },
+      {
+       "method": "RecalculateLedgerAfterTimeJump_InvokesRecalculateHook",
+       "line": 642
+      },
+      {
+       "method": "RecalculateLedgerAfterTimeJump_CatchesAndLogsFailures",
+       "line": 672
+      },
+      {
+       "method": "ExecuteJumpPaths_CallRecalculateHelperWithTargetUt",
+       "line": 691
+      },
+      {
+       "method": "CreateTimeJumpEvent_FieldsCorrect",
+       "line": 713
+      },
+      {
+       "method": "CreateTimeJumpEvent_Logs",
+       "line": 736
+      },
+      {
+       "method": "TimeJumpSegmentEvent_SerializationRoundTrip",
+       "line": 754
+      },
+      {
+       "method": "TimeJumpEnumValue_Is8",
+       "line": 787
+      },
+      {
+       "method": "IsValidJump_Logs",
+       "line": 800
+      },
+      {
+       "method": "ComputeJumpTargetUT_Logs",
+       "line": 812
+      },
+      {
+       "method": "FindCrossedChainTips_LogsCrossedCount",
+       "line": 829
+      },
+      {
+       "method": "NotePlayheadSweepBeforeJump_AheadWindow_LatchesBeforeJumpCrossesStart",
+       "line": 870
+      },
+      {
+       "method": "NotePlayheadSweepBeforeJump_TrueHistorical_IsNotRescued",
+       "line": 888
+      },
+      {
+       "method": "NotePlayheadSweepBeforeJump_AlreadyLatched_NotCountedAsNew",
+       "line": 901
+      },
+      {
+       "method": "NotePlayheadSweepBeforeJump_NullEntriesAndMissingIds_AreSkippedAndCounted",
+       "line": 914
+      },
+      {
+       "method": "NotePlayheadSweepBeforeJump_EmptyAndNullLists_LogSummaryAndReturnZero",
+       "line": 937
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

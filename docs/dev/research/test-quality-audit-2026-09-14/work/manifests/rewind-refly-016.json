@@ -1,0 +1,257 @@
+{
+ "batch_id": "rewind-refly-016",
+ "cluster": "rewind-refly",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "TombstoneEligibilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "KerbalDeath_Eligible",
+       "line": 71
+      },
+      {
+       "method": "KerbalAssignment_NotDeadState_NotEligible",
+       "line": 78
+      },
+      {
+       "method": "NullScopedAction_NotEligible",
+       "line": 87
+      },
+      {
+       "method": "NullAction_NotEligible",
+       "line": 95
+      },
+      {
+       "method": "ContractAccept_NotEligible",
+       "line": 103
+      },
+      {
+       "method": "ContractComplete_NotEligible",
+       "line": 115
+      },
+      {
+       "method": "ContractFail_NotEligible",
+       "line": 128
+      },
+      {
+       "method": "MilestoneAchievement_NotEligible",
+       "line": 141
+      },
+      {
+       "method": "FacilityUpgrade_NotEligible",
+       "line": 154
+      },
+      {
+       "method": "StrategyActivate_NotEligible",
+       "line": 167
+      },
+      {
+       "method": "TechResearched_NotEligible",
+       "line": 179
+      },
+      {
+       "method": "ScienceEarning_NotEligible",
+       "line": 193
+      },
+      {
+       "method": "VesselDestructionRep_NotEligible",
+       "line": 206
+      },
+      {
+       "method": "OnlyKerbalDeathAndBundledRep_Eligible_DirectCase",
+       "line": 215
+      },
+      {
+       "method": "RepPenalty_PairedWithKerbalDeath_Eligible",
+       "line": 248
+      },
+      {
+       "method": "RepPenalty_DifferentRecording_NotPaired",
+       "line": 260
+      },
+      {
+       "method": "RepPenalty_UTTooFar_NotPaired",
+       "line": 273
+      },
+      {
+       "method": "RepPenalty_KerbalDeathSource_PairsAcrossTheProducersRealUtGap",
+       "line": 288
+      },
+      {
+       "method": "RepPenalty_KerbalDeathSource_StillNeedsADeathOnTheRecording",
+       "line": 304
+      },
+      {
+       "method": "RepPenalty_KerbalDeathPair_IsNotWorldStateChanging",
+       "line": 318
+      },
+      {
+       "method": "RepPenalty_WithoutDeathInSlice_NotPaired",
+       "line": 339
+      },
+      {
+       "method": "RepPenalty_NullRecordingId_NotPaired",
+       "line": 353
+      },
+      {
+       "method": "RepPenalty_NonRepType_NotPaired",
+       "line": 366
+      },
+      {
+       "method": "RepPenalty_EmptySlice_NotPaired",
+       "line": 378
+      },
+      {
+       "method": "RepPenalty_PairedWithDeathAtExactUTBoundary_Eligible",
+       "line": 389
+      },
+      {
+       "method": "OnlyKerbalDeathAndBundledRep_Eligible_BundledCase",
+       "line": 402
+      },
+      {
+       "method": "SupersedeTombstoneEligibility_CareerActionsEligible",
+       "line": 437
+      },
+      {
+       "method": "SupersedeTombstoneEligibility_PreservesSeedsNullScopeAndRollout",
+       "line": 471
+      },
+      {
+       "method": "SupersedeTombstoneEligibility_StrategyScienceDebit_IsEligibleWhenTagged",
+       "line": 492
+      },
+      {
+       "method": "SupersedeTombstoneEligibility_UnknownFutureType_PreservedUntilReviewed",
+       "line": 519
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindCrewLossFixtureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TheFixturesPodShapeMakesTheProductInferDead",
+       "line": 51
+      },
+      {
+       "method": "ThePodCarriesNoVesselSnapshotSoTheGateCannotShortCircuit",
+       "line": 88
+      },
+      {
+       "method": "ThePodIsDestroyedAndCarriesTheCrewMember",
+       "line": 116
+      },
+      {
+       "method": "TheRootStaysCrewlessSoThePodIsTheOnlyCrewSourceInTheTree",
+       "line": 143
+      },
+      {
+       "method": "TheProbeSiblingStaysCrewlessSoTheTombstoneTallyIsAttributable",
+       "line": 191
+      },
+      {
+       "method": "TheFixturesVesselLossEventMakesTheProducerEmitOneRow",
+       "line": 222
+      },
+      {
+       "method": "TheVesselLossEventIsWrittenIntoTheInjectedEventsFile",
+       "line": 252
+      },
+      {
+       "method": "BuildRewindPoint_HasFixedIdNullSessionAndTwoControllableSlots",
+       "line": 272
+      },
+      {
+       "method": "TheRewindTargetIsTheCrewedSlotNotTheFocusSlot",
+       "line": 293
+      },
+      {
+       "method": "PidMapsAgreeWithTheDerivedSlotPids",
+       "line": 305
+      },
+      {
+       "method": "ThePodsRecordedGuidMatchesTheSidecarDerivedLaunchGuid",
+       "line": 324
+      },
+      {
+       "method": "InjectedSaveCarriesTheTreeAndTheRewindPoint",
+       "line": 337
+      },
+      {
+       "method": "TheRewindPointIdIsDistinctFromB9sSoTheTwoFixturesCannotCollide",
+       "line": 350
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReFlySaveScrubTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_RemovesOtherSlotsButPreservesUnrelatedVessels",
+       "line": 40
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_PreservesWorldObjectsOutsideTheSlotSet",
+       "line": 88
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_PreservesAGhostNamedPlayerCraft",
+       "line": 125
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_DoesNotZeroThrottleOnPreservedVessels",
+       "line": 156
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_UsesRootPartFallback",
+       "line": 184
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_SkipsWhenOnlyUnrelatedVesselsSurvive",
+       "line": 218
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_ClosesThrottleFieldsOnKeptVessels",
+       "line": 249
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_RefreshesRecordingSidecarEpochsFromCurrentSidecar",
+       "line": 294
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_DoesNotDowngradeNewerSfsSidecarEpoch",
+       "line": 326
+      },
+      {
+       "method": "ScrubQuicksaveToSelectedSlot_LeavesFileUntouchedWhenSelectedMissing",
+       "line": 358
+      },
+      {
+       "method": "RequireSelectedSlotScrubApplied_ThrowsWhenSelectedMissing",
+       "line": 377
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

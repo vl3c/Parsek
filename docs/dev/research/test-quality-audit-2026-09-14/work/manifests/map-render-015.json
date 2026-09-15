@@ -1,0 +1,237 @@
+{
+ "batch_id": "map-render-015",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "MapRender/RenderManifestSampleFixtureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SampleManifest_MatchesTheCommittedFixtureByteForByte",
+       "line": 28
+      },
+      {
+       "method": "SampleManifest_ContainsOneRecordOfEveryNodeKind",
+       "line": 56
+      },
+      {
+       "method": "SampleManifest_CarriesEverySchemaV11OptionalKey",
+       "line": 105
+      },
+      {
+       "method": "SampleManifest_OmitsDetailDOnEveryKindThatDoesNotMeasureOne",
+       "line": 170
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/CutoverHardeningTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsLiveClockReady_OnlyPositiveFiniteUt",
+       "line": 69
+      },
+      {
+       "method": "IsLiveClockReady_MatchesLedgerCutoffReadiness_ForPositiveUt",
+       "line": 78
+      },
+      {
+       "method": "IsRetireNotHeld_OutsideWindowAndStillVisible_IsTrue",
+       "line": 94
+      },
+      {
+       "method": "IsRetireNotHeld_OtherCombinations_AreFalse",
+       "line": 107
+      },
+      {
+       "method": "AnchorFrameResolver_OutcomeToken_IsGrepStable",
+       "line": 121
+      },
+      {
+       "method": "AnchorFrameResolver_OutcomeToken_OutOfRangeValue_IsUnknown",
+       "line": 128
+      },
+      {
+       "method": "ResolveBodyAndRaise_FailClosedMissingName_EmitsAnchorResolveFailWithNoneBody",
+       "line": 137
+      },
+      {
+       "method": "ResolveBodyAndRaise_NoOpWhenTracingDisabled",
+       "line": 156
+      },
+      {
+       "method": "ResolveBodyAndRaise_DedupesSamePidBodyOutcome_ReEmitsOnChangedBody",
+       "line": 171
+      },
+      {
+       "method": "ResolveBodyAndRaise_FailClosedUnknownBody_EmitsAnchorResolveFail",
+       "line": 190
+      },
+      {
+       "method": "ResolveBodyAndRaise_Resolved_EmitsNothing",
+       "line": 210
+      },
+      {
+       "method": "EmitClockNotReady_LandsClockNotReadyReason_OnDefer",
+       "line": 224
+      },
+      {
+       "method": "EmitRetireNotHeld_LandsRetireNotHeldReason",
+       "line": 236
+      },
+      {
+       "method": "EmitAnchorResolveFail_LandsAnchorResolveFailReason_Directly",
+       "line": 249
+      },
+      {
+       "method": "EmitRetireNotHeld_ReEmitsWhenHeldTreatmentChanges_OnSamePid",
+       "line": 267
+      },
+      {
+       "method": "EmitHelpers_AreNoOpWhenTracingDisabled",
+       "line": 284
+      },
+      {
+       "method": "ShouldEmitCutoverAnomaly_EmitsOncePerSignatureThenSuppresses",
+       "line": 300
+      },
+      {
+       "method": "ShouldEmitCutoverAnomaly_NoOpWhenDisabled",
+       "line": 312
+      },
+      {
+       "method": "ShouldEmitCutoverAnomaly_EmptyKey_AllowedThrough",
+       "line": 319
+      },
+      {
+       "method": "EmitClockNotReady_IsDedupedOncePerEvent_NotPerFrame",
+       "line": 328
+      },
+      {
+       "method": "ShouldEmitCutoverAnomaly_WarpCapBoundsTheDict",
+       "line": 343
+      },
+      {
+       "method": "RunFrame_ColdLoadGuard_Unconditional_AndDefers_SourceGate",
+       "line": 369
+      },
+      {
+       "method": "RunFrame_AssemblerExceptionFallback_WarnsLoudly_SourceGate",
+       "line": 381
+      },
+      {
+       "method": "RunFrame_RetireNotHeld_IsTracingGated_SourceGate",
+       "line": 393
+      },
+      {
+       "method": "RunFrame_AnchorResolveFail_IsTracingGated_SourceGate",
+       "line": 403
+      },
+      {
+       "method": "SpineFallbackWarnedPidSet_IsClearedOnReset",
+       "line": 414
+      },
+      {
+       "method": "RunFrame_ColdLoadGuard_DoesNotPruneStaleState_SourceGate",
+       "line": 427
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/FlightRecorderTerrainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolvePhase7EffectiveAltitude_NaNClearance_ReturnsRecordedAltitude",
+       "line": 51
+      },
+      {
+       "method": "ResolvePhase7EffectiveAltitude_FiniteClearance_AppliesTerrainPlusClearance",
+       "line": 74
+      },
+      {
+       "method": "ResolvePhase7EffectiveAltitude_TerrainShifted_KeepsConstantClearance",
+       "line": 89
+      },
+      {
+       "method": "ResolvePhase7EffectiveAltitude_ResolverNaN_FallsBackToRecordedAltitude",
+       "line": 113
+      },
+      {
+       "method": "ResolvePhase7EffectiveAltitude_NullBody_ReturnsRecordedAltitude",
+       "line": 133
+      },
+      {
+       "method": "ResolvePhase7EffectiveAltitude_RelativeFrame_FiniteClearance_ReturnsRecordedAltitude",
+       "line": 146
+      },
+      {
+       "method": "ResolvePhase7EffectiveAltitude_OrbitalCheckpointFrame_FiniteClearance_ReturnsRecordedAltitude",
+       "line": 183
+      },
+      {
+       "method": "RecordedClearance_EqualsAltitudeMinusTerrain",
+       "line": 213
+      },
+      {
+       "method": "ResolvePhase7EffectiveAltitude_AnyLatLon_AppliesFormula",
+       "line": 239
+      },
+      {
+       "method": "ResolveEffectiveAltitudeWithTailLift_NaNClearance_AddsRampLift",
+       "line": 253
+      },
+      {
+       "method": "ResolveEffectiveAltitudeWithTailLift_FiniteClearance_DoesNotAddRampLift",
+       "line": 275
+      },
+      {
+       "method": "ResolveEffectiveAltitudeWithTailLift_CurrentBodyNotTerminal_DoesNotCacheWrongPlan",
+       "line": 294
+      },
+      {
+       "method": "ResolveEffectiveAltitudeWithTailLift_RelativeTerminalFrame_DoesNotApplyLift",
+       "line": 332
+      },
+      {
+       "method": "ResolveEffectiveAltitudeWithTailLift_TerrainNaN_RetriesLaterFiniteTerrain",
+       "line": 363
+      },
+      {
+       "method": "TailLift_ManualPreviewInterpolationPassesRecordingId",
+       "line": 404
+      },
+      {
+       "method": "TailLift_PreviewRecordingFallback_AppliesLiftWithoutCommit",
+       "line": 434
+      },
+      {
+       "method": "TailLift_PreviewRecordingClear_RestoresRecordingMissing",
+       "line": 468
+      },
+      {
+       "method": "PositionGhostAt_AltitudeAuthoritative_DoesNotDoubleApplyLift",
+       "line": 490
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

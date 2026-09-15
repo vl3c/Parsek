@@ -1,0 +1,243 @@
+{
+ "batch_id": "ghost-playback-006",
+ "cluster": "ghost-playback",
+ "tier": "A1",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "GhostTrajectoryPolylineBuildTests.cs",
+   "ranges": [
+    {
+     "start": 1204,
+     "end": 2181,
+     "methods": [
+      {
+       "method": "WalkInclusion_PrimaryRendersNoSecondary_WalkPrimaryOnly",
+       "line": 1204
+      },
+      {
+       "method": "WalkInclusion_PrimaryHiddenNoSecondary_Skip",
+       "line": 1218
+      },
+      {
+       "method": "WalkInclusion_PrimaryHiddenSecondaryLive_WalkSecondaryOnly",
+       "line": 1232
+      },
+      {
+       "method": "WalkInclusion_PrimaryRendersSecondaryLive_WalkBoth",
+       "line": 1250
+      },
+      {
+       "method": "ForwardArcDictKey_Primary_IsRecordingIdVerbatim",
+       "line": 1273
+      },
+      {
+       "method": "ForwardArcDictKey_Secondary_IsDistinctFromPrimary",
+       "line": 1281
+      },
+      {
+       "method": "ForwardArcDictKey_DistinctRecordings_SecondaryKeysNeverCollide",
+       "line": 1292
+      },
+      {
+       "method": "ForwardArcDictKey_NullOrEmpty_PassesThrough",
+       "line": 1304
+      },
+      {
+       "method": "FindBracketingOrbitSegments_PicksLoiterBeforeAndEscapeAfter",
+       "line": 1384
+      },
+      {
+       "method": "FindBracketingOrbitSegments_IgnoresOtherBodyAndDegenerateSegments",
+       "line": 1401
+      },
+      {
+       "method": "FindBracketingOrbitSegments_NoneWhenNoAdjacency",
+       "line": 1418
+      },
+      {
+       "method": "IsSeamResidualTooLarge_KerbinEscapeZeroResidual_Anchors",
+       "line": 1435
+      },
+      {
+       "method": "IsSeamResidualTooLarge_DunaIkeArrivalLegs_Rejected",
+       "line": 1445
+      },
+      {
+       "method": "IsSeamResidualTooLarge_SmallAbsoluteOnLargeRadius_RejectedByAbsoluteFloor",
+       "line": 1453
+      },
+      {
+       "method": "IsSeamResidualTooLarge_TinyResidualWithinTolerance_Anchors",
+       "line": 1460
+      },
+      {
+       "method": "BodyFixedLongitudeAtUT_LiveEqualsStartUT_ReturnsRecordedLonUnchanged",
+       "line": 1469
+      },
+      {
+       "method": "BodyFixedLongitudeAtUT_LiveAheadOfStartUT_CounterRotatesWest",
+       "line": 1480
+      },
+      {
+       "method": "BodyFixedLongitudeAtUT_ShiftScalesWithElapsedSpin",
+       "line": 1491
+      },
+      {
+       "method": "BodyFixedLongitudeAtUT_NonRotatingOrInvalidPeriod_ReturnsRecordedLon",
+       "line": 1504
+      },
+      {
+       "method": "ResolveAnchoredPointBasisUT_MatchingRecordedUTs_ReturnsOwnUT",
+       "line": 1520
+      },
+      {
+       "method": "ResolveAnchoredPointBasisUT_NullOrMismatchedUTs_FallsBackToLegStart",
+       "line": 1532
+      },
+      {
+       "method": "ResolveAnchoredPointBasisUT_IndexOutOfRange_FallsBackToLegStart",
+       "line": 1545
+      },
+      {
+       "method": "AnchoredPointBasis_InertialEvaluationIsTimeConstant",
+       "line": 1555
+      },
+      {
+       "method": "ConicAnchor_InertialRecapture_RunsOnlyOnAnchoredPath_SourceGate",
+       "line": 1578
+      },
+      {
+       "method": "WillLegDraw_ResolvedBodyTwoPoints_WillDraw",
+       "line": 1608
+      },
+      {
+       "method": "WillLegDraw_FewerThanTwoPoints_WontDraw",
+       "line": 1616
+      },
+      {
+       "method": "WillLegDraw_BodyNotResolved_WontDraw",
+       "line": 1624
+      },
+      {
+       "method": "IsHeadInInterLegGap_HeadInsideOverallSpan_True",
+       "line": 1634
+      },
+      {
+       "method": "IsHeadInInterLegGap_HeadOnSpanBoundaries_True",
+       "line": 1641
+      },
+      {
+       "method": "IsHeadInInterLegGap_HeadPastLastLeg_False",
+       "line": 1648
+      },
+      {
+       "method": "IsHeadInInterLegGap_HeadBeforeFirstLeg_False",
+       "line": 1655
+      },
+      {
+       "method": "TryHoldLastGood_FreshNearUT_HoldsCachedPosition",
+       "line": 1663
+      },
+      {
+       "method": "TryHoldLastGood_NoCacheEntry_DeepFallback",
+       "line": 1679
+      },
+      {
+       "method": "TryHoldLastGood_StaleByFrame_DeepFallback",
+       "line": 1687
+      },
+      {
+       "method": "TryHoldLastGood_StaleByHeadUT_DeepFallback",
+       "line": 1705
+      },
+      {
+       "method": "TryHoldLastGood_ClearedByClear_DeepFallback",
+       "line": 1726
+      },
+      {
+       "method": "TryHoldLastGood_ClearedByReleaseForRecording_DeepFallback",
+       "line": 1738
+      },
+      {
+       "method": "ShouldDrawForwardLeg_FutureLegOverlappingWindow_Draws",
+       "line": 1756
+      },
+      {
+       "method": "ShouldDrawForwardLeg_CurrentLeg_NotForward",
+       "line": 1766
+      },
+      {
+       "method": "ShouldDrawForwardLeg_LegPastStop_NotDrawn",
+       "line": 1775
+      },
+      {
+       "method": "ShouldDrawForwardLeg_PastLeg_NotDrawn",
+       "line": 1784
+      },
+      {
+       "method": "ShouldDrawForwardLeg_EmptyRange_NeverDraws",
+       "line": 1793
+      },
+      {
+       "method": "BuildForwardArcKey_ChangesOnSelectedSetOrWindow",
+       "line": 1803
+      },
+      {
+       "method": "SelectForwardArcSegmentIndices_ExcludesCurrentArc_IncludesFutureArc",
+       "line": 1823
+      },
+      {
+       "method": "SelectForwardArcSegmentIndices_BelowSurfaceSegment_ExcludedFromArcs",
+       "line": 1838
+      },
+      {
+       "method": "SelectForwardArcSegmentIndices_EmptyRange_SelectsNothing",
+       "line": 1852
+      },
+      {
+       "method": "SelectForwardArcSegmentIndices_BufferOverload_ClearsAndFills_SameAsAllocating",
+       "line": 1869
+      },
+      {
+       "method": "CollectChainRunMembers_StandaloneRecording_SingleMember",
+       "line": 1913
+      },
+      {
+       "method": "CollectChainRunMembers_ChainMembers_SortedByStartUT_OthersExcluded",
+       "line": 1930
+      },
+      {
+       "method": "CollectChainRunMembers_DescentMember_ExcludedFromRun",
+       "line": 1958
+      },
+      {
+       "method": "CollectChainRunMembers_NonChainDescentMemberAsRec_NotReAdded",
+       "line": 2021
+      },
+      {
+       "method": "CollectChainRunMembers_NonChainNonDescentMember_StillSingleMember",
+       "line": 2044
+      },
+      {
+       "method": "IsDescentTriggerMember_TruthTable",
+       "line": 2060
+      },
+      {
+       "method": "ClampChainDataEndForDescentTransfer_CapsTransferMemberAtShiftedConicEnd",
+       "line": 2090
+      },
+      {
+       "method": "ClampChainDataEndForDescentTransfer_UnchangedWhenGuardFalse",
+       "line": 2107
+      },
+      {
+       "method": "ClampChainDataEndForDescentTransfer_RideAlongMemberNotClamped",
+       "line": 2141
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

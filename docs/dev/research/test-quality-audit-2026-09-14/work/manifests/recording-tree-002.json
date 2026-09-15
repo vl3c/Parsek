@@ -1,0 +1,275 @@
+{
+ "batch_id": "recording-tree-002",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 64,
+ "files": [
+  {
+   "file": "RecordingOptimizerTests.cs",
+   "ranges": [
+    {
+     "start": 1039,
+     "end": 2629,
+     "methods": [
+      {
+       "method": "MergeInto_NoTerminalOnAbsorbed_LeavesTargetMergeStateAlone",
+       "line": 1039
+      },
+      {
+       "method": "MergeInto_ClearsExplicitUTRanges",
+       "line": 1055
+      },
+      {
+       "method": "MergeInto_TransfersBranchAndTerminalMetadata",
+       "line": 1067
+      },
+      {
+       "method": "MergeInto_RefreshesEndpointDecisionFromMergedTerminalState",
+       "line": 1096
+      },
+      {
+       "method": "SplitAtSection_PartitionsPoints",
+       "line": 1128
+      },
+      {
+       "method": "SplitAtSection_PartitionsSections",
+       "line": 1142
+      },
+      {
+       "method": "SplitAtSection_ClonesSnapshot",
+       "line": 1155
+      },
+      {
+       "method": "SplitAtSection_TagsPhaseFromEnvironment",
+       "line": 1169
+      },
+      {
+       "method": "SplitAtSection_SurfaceTaggedAsSurface",
+       "line": 1182
+      },
+      {
+       "method": "SplitAtSection_BothHalvesHaveValidUTRanges",
+       "line": 1194
+      },
+      {
+       "method": "SplitAtSection_PreservesOrbitOnlyPredictedTailOnSecondHalf",
+       "line": 1210
+      },
+      {
+       "method": "SplitAtSection_SeedsRunningEngineStateIntoSecondHalf",
+       "line": 1278
+      },
+      {
+       "method": "SplitAtSection_EngineThrottleWithoutPriorIgnite_SeedsRunningEngine",
+       "line": 1312
+      },
+      {
+       "method": "SplitAtSection_ActiveEngineAtZeroThrottle_SeedsZeroThrottleIntoSecondHalf",
+       "line": 1337
+      },
+      {
+       "method": "SplitAtSection_ThrottleZeroWithoutPriorIgnite_SeedsShutdownSentinelIntoSecondHalf",
+       "line": 1371
+      },
+      {
+       "method": "SplitAtSection_SeedsActiveRcsStateIntoSecondHalf",
+       "line": 1396
+      },
+      {
+       "method": "SplitAtSection_DeployableExtendedBeforeSplit_SeedsDeployableIntoSecondHalf",
+       "line": 1430
+      },
+      {
+       "method": "SplitAtSection_DeployableRetractedBeforeSplit_SeedsTheRetract",
+       "line": 1459
+      },
+      {
+       "method": "SplitAtSection_DeployableRetractedOnSamePartDifferentModule_SeedsOneRetract",
+       "line": 1496
+      },
+      {
+       "method": "SplitAtSection_ReversibleVisualStatesBeforeSplit_SeedsActiveStatesIntoSecondHalf",
+       "line": 1525
+      },
+      {
+       "method": "SplitAtSection_BoundaryDeployableExtendedSuppressesDuplicateSeed",
+       "line": 1603
+      },
+      {
+       "method": "SplitAtSection_ParachuteCutBeforeSplit_ForwardsTheCut",
+       "line": 1641
+      },
+      {
+       "method": "SplitAtSection_HeatColdOnSamePartDifferentModule_ClearsPidLevelHeatSeed",
+       "line": 1669
+      },
+      {
+       "method": "SplitAtSection_InsertsPermanentSeedsBeforeTransientSeeds",
+       "line": 1696
+      },
+      {
+       "method": "SplitAtSection_BoundaryTransientEventSuppressesDuplicateSeed",
+       "line": 1727
+      },
+      {
+       "method": "SplitAtSection_BoundaryZeroThrottleSuppressesDuplicateIdleSeed",
+       "line": 1758
+      },
+      {
+       "method": "SplitAtSection_WithConcreteTrackFrames_RebuildsFlatTrajectoryPerHalf",
+       "line": 1792
+      },
+      {
+       "method": "ReindexChain_AfterMerge_IndicesSequential",
+       "line": 1838
+      },
+      {
+       "method": "ReindexChain_PreservesChainBranch",
+       "line": 1852
+      },
+      {
+       "method": "RunOptimizationPass_MergesThreeExoSegments",
+       "line": 1875
+      },
+      {
+       "method": "RunOptimizationPass_MergeUpdatesTreeMembershipAndBranchParentLinks",
+       "line": 1903
+      },
+      {
+       "method": "RunOptimizationPass_SkipsUserModifiedSegments",
+       "line": 1963
+      },
+      {
+       "method": "RunOptimizationPass_ContinuousEvaAtmosphereSurfaceRemainsSingleRecording",
+       "line": 1987
+      },
+      {
+       "method": "RunOptimizationPass_EvaBoundarySurfaceBridgeWithLaterSurfaceGapRemainsSingleRecording",
+       "line": 2013
+      },
+      {
+       "method": "RunOptimizationPass_HealsSplitEvaAtmosphereSurfacePairWithoutNonMonotonicPoints",
+       "line": 2091
+      },
+      {
+       "method": "RunOptimizationPass_MergesDifferentChainsSeparately",
+       "line": 2164
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_AllowsEngineEvents",
+       "line": 2193
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_AllowsTreeRecordings",
+       "line": 2204
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_StillChecksMinDuration",
+       "line": 2214
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_L6LandedTailUnderTheFloor_DoesNotSplit",
+       "line": 2248
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_L6LandedTailOverTheFloor_Splits",
+       "line": 2258
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_FloorIsInclusiveAtExactlyFiveSeconds",
+       "line": 2273
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_L6LongDwellVariantTail_Splits",
+       "line": 2288
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_TheFloorGuardsBOTHHalves",
+       "line": 2304
+      },
+      {
+       "method": "CanAutoSplitIgnoringGhostTriggers_StillChecksSectionCount",
+       "line": 2315
+      },
+      {
+       "method": "FindSplitCandidatesForOptimizer_FindsCandidatesWithGhostingEvents",
+       "line": 2334
+      },
+      {
+       "method": "FindSplitCandidatesForOptimizer_FindsTreeRecordings",
+       "line": 2349
+      },
+      {
+       "method": "FindSplitCandidatesForOptimizer_SkipsExoToExo",
+       "line": 2362
+      },
+      {
+       "method": "FindSplitCandidatesForOptimizer_SkipsContinuousEvaAtmosphereSurfaceBoundary",
+       "line": 2373
+      },
+      {
+       "method": "FindSplitCandidatesForOptimizer_NonEvaAtmosphereSurfaceStillSplits",
+       "line": 2385
+      },
+      {
+       "method": "FindSplitCandidatesForOptimizer_SkipsContinuousEvaSurfaceAtmoSurface",
+       "line": 2397
+      },
+      {
+       "method": "SplitEnvironmentClass_ExoTypesAreSameClass",
+       "line": 2415
+      },
+      {
+       "method": "SplitEnvironmentClass_SurfaceTypesAreSameClass",
+       "line": 2423
+      },
+      {
+       "method": "SplitEnvironmentClass_AtmoAndExoAreDifferent",
+       "line": 2431
+      },
+      {
+       "method": "SplitEnvironmentClass_ExoAndSurfaceAreDifferent",
+       "line": 2439
+      },
+      {
+       "method": "SplitEnvironmentClass_ApproachIsDistinctFromExo",
+       "line": 2447
+      },
+      {
+       "method": "SplitEnvironmentClass_ApproachIsDistinctFromSurface",
+       "line": 2455
+      },
+      {
+       "method": "FindSplitCandidates_ExoToApproach_ReturnsSplit",
+       "line": 2463
+      },
+      {
+       "method": "SplitAtSection_TransfersVesselSnapshotToSecondHalf",
+       "line": 2478
+      },
+      {
+       "method": "SplitAtSection_TransfersTerminalStateToSecondHalf",
+       "line": 2491
+      },
+      {
+       "method": "SplitAtSection_RecomputesEndpointDecisionForBothHalves",
+       "line": 2531
+      },
+      {
+       "method": "SplitAtSection_CopiesControllersToBoth",
+       "line": 2551
+      },
+      {
+       "method": "SplitAtSection_CopiesAntennaSpecsToBoth",
+       "line": 2570
+      },
+      {
+       "method": "SplitAtSection_CopiesIsDebris",
+       "line": 2589
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,143 @@
+{
+ "batch_id": "harness-seam-012",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "TestCommandRewindToLaunchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StillRewinding_WithinBudget_StillWaiting",
+       "line": 33
+      },
+      {
+       "method": "StillRewinding_AtSpaceCenter_WithinBudget_StillWaiting",
+       "line": 43
+      },
+      {
+       "method": "FlagsCleared_AtSpaceCenter_DeferredDrained_CompleteOk",
+       "line": 54
+      },
+      {
+       "method": "FlagsCleared_AtSpaceCenter_DeferredPending_WithinBudget_StillWaiting",
+       "line": 65
+      },
+      {
+       "method": "FlagsCleared_AtSpaceCenter_DeferredPending_BudgetExpired_RewindTimeout",
+       "line": 79
+      },
+      {
+       "method": "FlagsCleared_NotAtSpaceCenter_WithinBudget_RewindFailed",
+       "line": 91
+      },
+      {
+       "method": "StillRewinding_BudgetExpired_RewindTimeout",
+       "line": 104
+      },
+      {
+       "method": "TimeoutWinsOverStillWaiting_AtBudgetBoundary",
+       "line": 116
+      },
+      {
+       "method": "FlagsCleared_NotAtSpaceCenter_BudgetExpired_RewindTimeout",
+       "line": 130
+      },
+      {
+       "method": "CompleteOk_WinsOverBudgetExpiry",
+       "line": 141
+      },
+      {
+       "method": "DeferredPending_NeverCompletesOk_WhateverTheOtherHalvesSay",
+       "line": 152
+      },
+      {
+       "method": "ResolveTarget_ExplicitId_Found_Selected",
+       "line": 167
+      },
+      {
+       "method": "ResolveTarget_ExplicitId_NotFound_UnknownTree",
+       "line": 177
+      },
+      {
+       "method": "ResolveTarget_ExplicitId_EmptyList_UnknownTree",
+       "line": 187
+      },
+      {
+       "method": "ResolveTarget_NoArg_NoTrees_NoCommittedTree",
+       "line": 197
+      },
+      {
+       "method": "ResolveTarget_NoArg_SingleTree_Selected",
+       "line": 205
+      },
+      {
+       "method": "ResolveTarget_NoArg_MultipleTrees_AmbiguousTree",
+       "line": 213
+      },
+      {
+       "method": "ResolveTarget_EmptyArgIsTreatedAsAbsent",
+       "line": 224
+      },
+      {
+       "method": "ResolveTarget_NullList_IsHandled",
+       "line": 234
+      },
+      {
+       "method": "ResolveTarget_Latest_PicksTheMostRecentlyCommittedTree",
+       "line": 254
+      },
+      {
+       "method": "ResolveTarget_Latest_OverASingleTree_SelectsIt",
+       "line": 270
+      },
+      {
+       "method": "ResolveTarget_Latest_WithNoCommittedTree_IsNoCommittedTree",
+       "line": 280
+      },
+      {
+       "method": "ResolveTarget_Latest_IsCaseInsensitive_WhileIdsStayOrdinal",
+       "line": 296
+      },
+      {
+       "method": "ResolveTarget_ExplicitIdStillWins_EvenForATreeNamedLatest",
+       "line": 310
+      },
+      {
+       "method": "ResolveTarget_TheKeywordDoesNotRelaxTheAmbiguityRule",
+       "line": 324
+      },
+      {
+       "method": "ResolveTarget_ResolutionIsReportedForEverySelectingPath",
+       "line": 344
+      },
+      {
+       "method": "GateRefusalMsg_SurfacesReasonVerbatimBehindPrefix",
+       "line": 369
+      },
+      {
+       "method": "GateRefusalMsg_PrefixIsDistinctFromTheReFlyGate",
+       "line": 380
+      },
+      {
+       "method": "CompletePayload_CarriesRewoundRecTreeAdjustedUt",
+       "line": 391
+      },
+      {
+       "method": "CompletePayload_NullIdsBecomeEmptyStrings",
+       "line": 403
+      },
+      {
+       "method": "CompletePayload_AdjustedUt_IsInvariantCulture",
+       "line": 412
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

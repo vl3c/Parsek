@@ -1,0 +1,339 @@
+{
+ "batch_id": "recorder-events-014",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 80,
+ "files": [
+  {
+   "file": "FlightRecorderExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DecideOnVesselSwitch_SamePid_ReturnsNone",
+       "line": 43
+      },
+      {
+       "method": "DecideOnVesselSwitch_DifferentPid_NonEva_NoTree_ReturnsTransitionToBackground",
+       "line": 50
+      },
+      {
+       "method": "DecideOnVesselSwitch_UndockSiblingPid_ReturnsUndockSwitch",
+       "line": 57
+      },
+      {
+       "method": "DecideOnVesselSwitch_EvaToEva_ReturnsContinueOnEva",
+       "line": 64
+      },
+      {
+       "method": "DecideOnVesselSwitch_EvaToVessel_ReturnsChainToVessel",
+       "line": 71
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_TargetInBackground_ReturnsPromote",
+       "line": 78
+      },
+      {
+       "method": "DecideOnVesselSwitch_TreeActive_TargetNotInBackground_ReturnsTransitionToBackground",
+       "line": 105
+      },
+      {
+       "method": "BuildRelativeModeExitedLogMessage_UnresolvedAnchor_LogsUnresolvedDistance",
+       "line": 129
+      },
+      {
+       "method": "FormatRelativeExitDistanceForLog_FiniteAnchorDistance_FormatsMeters",
+       "line": 151
+      },
+      {
+       "method": "EvaluateReFlyPostLoadSettle_Packed_HoldsAndResetsUnpackedFrames",
+       "line": 176
+      },
+      {
+       "method": "EvaluateReFlyPostLoadSettle_Inactive_DoesNotHoldOrClear",
+       "line": 191
+      },
+      {
+       "method": "EvaluateReFlyPostLoadSettle_FirstUnpackedFrame_Holds",
+       "line": 206
+      },
+      {
+       "method": "EvaluateReFlyPostLoadSettle_UnpackedButTooSoon_Holds",
+       "line": 221
+      },
+      {
+       "method": "EvaluateReFlyPostLoadSettle_UnpackedAndSettled_Clears",
+       "line": 236
+      },
+      {
+       "method": "ShouldArmReFlyPostLoadSettle_MatchingAtmosphericPromotion_ReturnsTrue",
+       "line": 251
+      },
+      {
+       "method": "ShouldArmReFlyPostLoadSettle_RejectionsReturnExpectedReason",
+       "line": 281
+      },
+      {
+       "method": "AppendSectionStartSeamPoint_PostLoadSettleActive_SuppressesTrajectoryWrite",
+       "line": 314
+      },
+      {
+       "method": "CloseCurrentTrackSection_PostLoadSettleSuppressedSeam_DiscardsShortEmptySection",
+       "line": 339
+      },
+      {
+       "method": "CloseCurrentTrackSection_SeedOnlyAbsoluteTransient_NotDiscarded",
+       "line": 365
+      },
+      {
+       "method": "ShouldRefreshSnapshot_ForceTrue_AlwaysReturnsTrue",
+       "line": 403
+      },
+      {
+       "method": "ShouldRefreshSnapshot_MinValue_AlwaysReturnsTrue",
+       "line": 409
+      },
+      {
+       "method": "ShouldRefreshSnapshot_IntervalNotElapsed_ReturnsFalse",
+       "line": 415
+      },
+      {
+       "method": "ShouldRefreshSnapshot_IntervalElapsed_ReturnsTrue",
+       "line": 421
+      },
+      {
+       "method": "ClassifyPartDeath_WithChute_ReturnsParachuteDestroyed",
+       "line": 431
+      },
+      {
+       "method": "ClassifyPartDeath_WithoutChute_ReturnsDestroyed",
+       "line": 440
+      },
+      {
+       "method": "ClassifyPartDeath_ChuteNotDeployed_ReturnsDestroyed",
+       "line": 448
+      },
+      {
+       "method": "EncodeEngineKey_BasicEncoding",
+       "line": 460
+      },
+      {
+       "method": "EncodeEngineKey_WithModuleIndex",
+       "line": 467
+      },
+      {
+       "method": "EncodeEngineKey_DifferentParts_DifferentKeys",
+       "line": 474
+      },
+      {
+       "method": "ParseJettisonNames_EmptyString_ReturnsEmpty",
+       "line": 486
+      },
+      {
+       "method": "ParseJettisonNames_SingleName_ReturnsSingle",
+       "line": 493
+      },
+      {
+       "method": "ParseJettisonNames_MultipleNames_ReturnsTrimmed",
+       "line": 501
+      },
+      {
+       "method": "ParseJettisonNames_Whitespace_ReturnsEmpty",
+       "line": 511
+      },
+      {
+       "method": "IsRoboticModuleName_Hinge_ReturnsTrue",
+       "line": 522
+      },
+      {
+       "method": "IsRoboticModuleName_Piston_ReturnsTrue",
+       "line": 528
+      },
+      {
+       "method": "IsRoboticModuleName_RotationServo_ReturnsTrue",
+       "line": 534
+      },
+      {
+       "method": "IsRoboticModuleName_Rotor_ReturnsTrue",
+       "line": 540
+      },
+      {
+       "method": "IsRoboticModuleName_WheelSuspension_ReturnsTrue",
+       "line": 546
+      },
+      {
+       "method": "IsRoboticModuleName_Unknown_ReturnsFalse",
+       "line": 552
+      },
+      {
+       "method": "ComputeRcsPower_ZeroPower_ReturnsZero",
+       "line": 562
+      },
+      {
+       "method": "ComputeRcsPower_EmptyForces_ReturnsZero",
+       "line": 568
+      },
+      {
+       "method": "ComputeRcsPower_FullThrust_ReturnsOne",
+       "line": 574
+      },
+      {
+       "method": "ComputeRcsPower_HalfThrust_ReturnsHalf",
+       "line": 581
+      },
+      {
+       "method": "ClassifyGearState_Deployed",
+       "line": 592
+      },
+      {
+       "method": "ClassifyGearState_Retracted",
+       "line": 600
+      },
+      {
+       "method": "ClassifyGearState_Deploying_NeitherDeployedNorRetracted",
+       "line": 608
+      },
+      {
+       "method": "ClassifyCargoBayState_ClosedPosition1_AtEnd_IsClosed",
+       "line": 620
+      },
+      {
+       "method": "ClassifyCargoBayState_ClosedPosition0_AtEnd_IsOpen",
+       "line": 628
+      },
+      {
+       "method": "ClassifyCargoBayState_MidPosition_NeitherOpenNorClosed",
+       "line": 636
+      },
+      {
+       "method": "ClassifyLadderState_FullyExtended",
+       "line": 648
+      },
+      {
+       "method": "ClassifyLadderState_FullyRetracted",
+       "line": 656
+      },
+      {
+       "method": "ClassifyLadderState_MidTransition_Neither",
+       "line": 664
+      },
+      {
+       "method": "TryClassifyLadderStateFromEventActivity_CanRetract_IsDeployed",
+       "line": 676
+      },
+      {
+       "method": "TryClassifyLadderStateFromEventActivity_CanExtend_IsRetracted",
+       "line": 686
+      },
+      {
+       "method": "TryClassifyLadderStateFromEventActivity_BothActive_ReturnsFalse",
+       "line": 696
+      },
+      {
+       "method": "TryClassifyRetractableLadderStateName_Extended_IsDeployed",
+       "line": 704
+      },
+      {
+       "method": "TryClassifyRetractableLadderStateName_Retracted_IsRetracted",
+       "line": 715
+      },
+      {
+       "method": "TryClassifyRetractableLadderStateName_ModdedSynonyms_Classifies",
+       "line": 728
+      },
+      {
+       "method": "TryClassifyRetractableLadderStateName_TransientOrUnknown_ReturnsFalse",
+       "line": 745
+      },
+      {
+       "method": "IsRetractableLadderTransientStateName_Transient_ReturnsTrue",
+       "line": 759
+      },
+      {
+       "method": "IsRetractableLadderTransientStateName_StableOrUnknown_ReturnsFalse",
+       "line": 771
+      },
+      {
+       "method": "ShouldSkipOrbitSegment_BelowAtmosphere_ReturnsTrue",
+       "line": 782
+      },
+      {
+       "method": "ShouldSkipOrbitSegment_AboveAtmosphere_ReturnsFalse",
+       "line": 789
+      },
+      {
+       "method": "ShouldSkipOrbitSegment_NoAtmosphere_ReturnsFalse",
+       "line": 795
+      },
+      {
+       "method": "ShouldSkipOrbitSegment_ExactlyAtBoundary_ReturnsFalse",
+       "line": 802
+      },
+      {
+       "method": "TrimRecordingToUT_TrimsPointsAfterNewUT",
+       "line": 813
+      },
+      {
+       "method": "TrimRecordingToUT_TrimsPartEventsAfterNewUT",
+       "line": 830
+      },
+      {
+       "method": "TrimRecordingToUT_TrimsOrbitSegmentsAfterNewUT",
+       "line": 844
+      },
+      {
+       "method": "TrimRecordingToUT_AllPointsBeforeNewUT_NoTrim",
+       "line": 858
+      },
+      {
+       "method": "TrimRecordingToUT_AllPointsAfterNewUT_TrimsAll",
+       "line": 870
+      },
+      {
+       "method": "PhantomCrash_LandedEvaPacked_ReturnsTrue",
+       "line": 886
+      },
+      {
+       "method": "PhantomCrash_SplashedEvaPacked_ReturnsTrue",
+       "line": 895
+      },
+      {
+       "method": "PhantomCrash_FlyingPrePack_ReturnsFalse",
+       "line": 904
+      },
+      {
+       "method": "PhantomCrash_NonEva_ReturnsFalse",
+       "line": 913
+      },
+      {
+       "method": "PhantomCrash_EmptyEvaName_ReturnsFalse",
+       "line": 922
+      },
+      {
+       "method": "PhantomCrash_ElapsedOverThreshold_ReturnsFalse",
+       "line": 931
+      },
+      {
+       "method": "PhantomCrash_ExactlyAtThreshold_ReturnsFalse",
+       "line": 940
+      },
+      {
+       "method": "PhantomCrash_JustUnderThreshold_ReturnsTrue",
+       "line": 950
+      },
+      {
+       "method": "DecideOnVesselSwitch_AlwaysTree_TargetNotInBackground_ReturnsTransitionToBackground",
+       "line": 963
+      },
+      {
+       "method": "DecideOnVesselSwitch_SafetyFallback_NullTree_ReturnsTransitionToBackground",
+       "line": 988
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

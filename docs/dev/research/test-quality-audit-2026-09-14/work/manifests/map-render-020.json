@@ -1,0 +1,260 @@
+{
+ "batch_id": "map-render-020",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "TrackingStationControlSurfaceUITests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildGhostPopupText_UsesNativeMenuStatusLabels",
+       "line": 13
+      },
+      {
+       "method": "FormatGhostPopupVesselName_StripsStockGhostPrefixes",
+       "line": 37
+      },
+      {
+       "method": "BuildGhostPopupText_BeforeEndpoint_ShowsStableEndpointStatus",
+       "line": 46
+      },
+      {
+       "method": "BuildMaterializeButtonLabel_FastForwardMaterialize_ShowsLiveWarpDuration",
+       "line": 67
+      },
+      {
+       "method": "BuildGhostPopupStatusPhase_ChangesAtEndpoint",
+       "line": 101
+      },
+      {
+       "method": "FormatAtmosphericMarkerStockActionLockLine_IncludesDisabledButtonsAndClearError",
+       "line": 124
+      },
+      {
+       "method": "ShouldOpenSelectedGhostPopup_UsesSelectionIntent",
+       "line": 145
+      },
+      {
+       "method": "TrySelectTrackingStationFocusFrames_RelativeSectionUsesBodyFixedPrimaryFrames",
+       "line": 177
+      },
+      {
+       "method": "TrySelectTrackingStationFocusFrames_RelativeSectionWithoutBodyFixedPrimaryFailsClosed",
+       "line": 216
+      },
+      {
+       "method": "TrySelectTrackingStationFocusFrames_AfterRelativeSectionRejectsStaleBodyFixedPrimaryFrames",
+       "line": 253
+      },
+      {
+       "method": "TrySelectTrackingStationFocusFrames_BeforeRelativeSectionWithoutShadowFailsClosed",
+       "line": 297
+      },
+      {
+       "method": "TrySelectTrackingStationFocusFrames_OrbitalCheckpointFailsClosed",
+       "line": 334
+      },
+      {
+       "method": "ShouldProcessAtmosphericMarkerEvent_OnlyPassesAllowedCases",
+       "line": 373
+      },
+      {
+       "method": "ShouldBlockAtmosphericMarkerClickForGhostPopup_OnlyBlocksClickEvents",
+       "line": 391
+      },
+      {
+       "method": "ShouldDismissGhostPopupOnOutsideClick_OnlyOnFreshArmedOutsidePress",
+       "line": 416
+      },
+      {
+       "method": "IsPointerOverOpenWindow_RequiresOpenSizedRectContainingMouse",
+       "line": 431
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/GhostRenderReconcilerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Visibility_HeldVisibleButOldDrewNothing_FlagsGapVsRetire",
+       "line": 57
+      },
+      {
+       "method": "Visibility_RetiredButOldStillDrawing_FlagsGapVsRetire",
+       "line": 67
+      },
+      {
+       "method": "Visibility_UnknownTruth_NoFalsePositive",
+       "line": 76
+      },
+      {
+       "method": "Visibility_Consistent_Empty",
+       "line": 86
+      },
+      {
+       "method": "Treatment_StockConicIntentButPolylineDrew_FlagsDecisionVsTruth",
+       "line": 97
+      },
+      {
+       "method": "Treatment_TracedPathIntentButStockDrew_FlagsDecisionVsTruth",
+       "line": 105
+      },
+      {
+       "method": "Treatment_Agreeing_Empty",
+       "line": 113
+      },
+      {
+       "method": "OriginShift_DivergentShiftOnShiftFrame_True",
+       "line": 124
+      },
+      {
+       "method": "OriginShift_UniformShift_False",
+       "line": 133
+      },
+      {
+       "method": "OriginShift_NotAShiftFrame_False",
+       "line": 141
+      },
+      {
+       "method": "Check_GapVsRetire_EmitsAnomalyLine",
+       "line": 154
+      },
+      {
+       "method": "Check_DecisionVsOldTruth_EmitsAnomalyLine",
+       "line": 167
+      },
+      {
+       "method": "Check_Consistent_EmitsNoAnomaly",
+       "line": 181
+      },
+      {
+       "method": "Check_StaleIntent_IsDropped_NotReconciled",
+       "line": 193
+      },
+      {
+       "method": "Check_GapVsRetire_RepeatWithinInterval_SuppressesDuplicate",
+       "line": 211
+      },
+      {
+       "method": "Check_GapVsRetire_AfterInterval_EmitsAgain",
+       "line": 227
+      },
+      {
+       "method": "Check_RateLimit_IsPerClass_ClassTransitionEmitsImmediately",
+       "line": 245
+      },
+      {
+       "method": "Check_GapVsRetire_SuppressedFrame_StillRefreshesDetailedWindow",
+       "line": 264
+      },
+      {
+       "method": "Check_RateLimit_IsPerPid_OtherPidNotSuppressed",
+       "line": 294
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/TrajectorySidecarBinaryTerrainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "V9RoundTrip_SurfacePoint_PreservesFiniteClearance",
+       "line": 64
+      },
+      {
+       "method": "V9RoundTrip_NaNClearance_PreservesNaN",
+       "line": 112
+      },
+      {
+       "method": "CurrentBinaryRead_PreservesClearance_AndEveryOtherField",
+       "line": 150
+      },
+      {
+       "method": "V9RoundTrip_SectionFrames_PreserveClearancePerFrame",
+       "line": 208
+      },
+      {
+       "method": "V8LegacyRead_EveryRestoredPoint_RoutesThroughRendererToRecordedAltitude",
+       "line": 268
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/ChainAssemblerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_AssignsTreatmentsFramesAndSeams",
+       "line": 41
+      },
+      {
+       "method": "Build_BodyChangeSplitsTracedRun_OneFramePerSegment",
+       "line": 76
+      },
+      {
+       "method": "Build_FaithfulFallbackFlag_PassesThrough",
+       "line": 92
+      },
+      {
+       "method": "Build_NullTrajectory_EmptyChain",
+       "line": 99
+      },
+      {
+       "method": "Build_DropsSinglePointRun",
+       "line": 106
+      },
+      {
+       "method": "Build_BelowSurfaceOrbit_FallsToTracedPath_NotStockConic",
+       "line": 120
+      },
+      {
+       "method": "Build_AboveSurfaceOrbit_WithProvider_StaysStockConic",
+       "line": 139
+      },
+      {
+       "method": "Build_CoalescesSameOrbitFragments_IntoOneStockConic",
+       "line": 156
+      },
+      {
+       "method": "Build_OrbitSegmentsOverride_UsesOverrideConic_StillTracesRecordedPoints",
+       "line": 187
+      },
+      {
+       "method": "Build_OrbitSegmentsOverride_MarksInWindowHeliocentricSegment_TransferIsGenerated",
+       "line": 226
+      },
+      {
+       "method": "Build_NullOverride_IsByteIdenticalToToday",
+       "line": 255
+      },
+      {
+       "method": "Build_OrbitSegmentsOverride_NoAncestorMatch_DoesNotMarkTransfer",
+       "line": 277
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

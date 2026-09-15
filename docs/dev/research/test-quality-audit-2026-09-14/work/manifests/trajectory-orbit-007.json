@@ -1,0 +1,155 @@
+{
+ "batch_id": "trajectory-orbit-007",
+ "cluster": "trajectory-orbit",
+ "tier": "A",
+ "expected_methods": 34,
+ "files": [
+  {
+   "file": "ReaimTransferSynthesizerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsSaneTransferConic_AcceptsBoundEllipsesRejectsDegenerate",
+       "line": 43
+      },
+      {
+       "method": "IsSaneTransferConic_NaNInfinity_Rejected",
+       "line": 50
+      },
+      {
+       "method": "IsRetrogradeTransfer_FlagsInclinationOver90",
+       "line": 69
+      },
+      {
+       "method": "IsRetrogradeTransfer_NaN_NotRetrograde",
+       "line": 75
+      },
+      {
+       "method": "ProjectOntoPlane_RemovesNormalComponent",
+       "line": 86
+      },
+      {
+       "method": "ProjectOntoPlane_VectorAlreadyInPlane_Unchanged",
+       "line": 98
+      },
+      {
+       "method": "ProjectOntoPlane_ResultIsOrthogonalToNormal",
+       "line": 111
+      },
+      {
+       "method": "ProjectOntoPlane_DegenerateNormal_ReturnsInput",
+       "line": 122
+      },
+      {
+       "method": "ConstrainTransferPlane_PinsPlaneAndPreservesSpeedHandedness",
+       "line": 158
+      },
+      {
+       "method": "ConstrainTransferPlane_OffPlaneR1_RespectsAchievableBound",
+       "line": 206
+      },
+      {
+       "method": "ConstrainTransferPlaneIsSafe_GatesDunaApplyMohoAdverseDecline",
+       "line": 236
+      },
+      {
+       "method": "ComputeIntendedPlaneNormal_KnownGeometryAndDegenerate",
+       "line": 275
+      },
+      {
+       "method": "IsExcessiveTiltTransfer_Theory",
+       "line": 310
+      },
+      {
+       "method": "InclinationBoundDegrees_Theory",
+       "line": 321
+      },
+      {
+       "method": "InclinationBoundDegrees_NaN_Handled",
+       "line": 327
+      },
+      {
+       "method": "EveCycleZero_ModelFrameIsYUp_FlatOrbitReadsZeroInclination",
+       "line": 367
+      },
+      {
+       "method": "EveCycleZero_PlaneInclinationSequence_MatchesTheLiveV8Run",
+       "line": 407
+      },
+      {
+       "method": "EveCycleZero_AchievablePlaneInclination_Is1p2358AndCandidateInvariant",
+       "line": 442
+      },
+      {
+       "method": "EveCycleZero_ConstrainTransferPlaneIsSafe_RefusesTheWindow",
+       "line": 488
+      },
+      {
+       "method": "EveCycleZero_FlattenMiss_ExceedsThreeEveSoiRadii",
+       "line": 522
+      },
+      {
+       "method": "EveCycleZero_PlaneOfEndpointsInclination_ExceedsTheBoundForEveryCandidate",
+       "line": 569
+      },
+      {
+       "method": "EveCycleZero_TransferAngleAtRecordedTof_IsNear180",
+       "line": 603
+      },
+      {
+       "method": "EveRecordedTransfer_SunLegInclinations_ShowABrokenPlaneTransfer",
+       "line": 632
+      },
+      {
+       "method": "DecideTiltDisposition_EveCycleZeroBand_RetainsEveryCandidate",
+       "line": 695
+      },
+      {
+       "method": "DecideTiltDisposition_ExcessiveTiltWithUnsafeGate_Retains",
+       "line": 740
+      },
+      {
+       "method": "DecideTiltDisposition_ExcessiveTiltWithSafeGate_Fires",
+       "line": 758
+      },
+      {
+       "method": "DecideTiltDisposition_NotExcessive_IsNoopEitherWay",
+       "line": 773
+      },
+      {
+       "method": "DecideTiltDisposition_NearNinetyEdge_RetainsUnderNinetyAndDefersToTheDirectionGuardOver",
+       "line": 797
+      },
+      {
+       "method": "RecordRetainedTilt_BumpsBothCountersButNotTheDeclineCount",
+       "line": 833
+      },
+      {
+       "method": "RecordRetainedTilt_EmitsTheGrepStableRetainedLine",
+       "line": 853
+      },
+      {
+       "method": "IsGenuineTargetSoiEntry_TheMeasuredLaunchTransitionInstants_AreRejected",
+       "line": 880
+      },
+      {
+       "method": "IsGenuineTargetSoiEntry_TheMeasuredGenuineEntries_AreAccepted",
+       "line": 906
+      },
+      {
+       "method": "IsGenuineTargetSoiEntry_OnTheSoiSphere_IsInsideAndTheToleranceIsHairline",
+       "line": 919
+      },
+      {
+       "method": "IsGenuineTargetSoiEntry_DegenerateInput_FailsClosed",
+       "line": 952
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

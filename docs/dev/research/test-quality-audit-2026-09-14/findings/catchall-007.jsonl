@@ -1,0 +1,14 @@
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"IdentityZup_TwoBodyOrbitReproducesStocksElementToStateMapExactly","line":153,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"ElementFrameBoundary_MakesTheTwoElementToStateMapsAgreeDirectly","line":199,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"MeasuredPadFixture_ElementSeededStateAgreesWithStockDirectly","line":262,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"EquatorialOrbit_TheLanShiftIsStillThePolarRotation","line":303,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"HyperbolicSegment_CrossesTheElementFrameBoundaryToo","line":355,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"ZupRotation_PreservesThePolarComponentAndTheRadialVelocityAngle","line":412,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"MeasuredSite4Reading_IsReproducedByTheZupRotationAlone","line":492,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"RecorderStyleWorldWorldEncode_RoundTripsThroughTheConsumer_ButNotThroughTheOldMixedOne","line":562,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"ElementFrameSkew_UnderTheCurrentConsumer_IsExactlyTheZupAngle","line":617,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"HighEccentricity_TwoBodyOrbitTracksStocksExtremeEccSolverOverTheFullSweep","line":721,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"ExtremeEccentricity_TheSolvedAnomalySatisfiesKeplersEquation","line":785,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"DispatchThreshold_IsContinuousAcrossTheTwoSolvers","line":826,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"StandardBranchIterationCap_ReturnsFiniteAndLogsRatherThanHanging","line":875,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/StockOrbitElementFrameParityTests.cs","method":"NonFiniteInputs_ReturnNaNRatherThanThrowing","line":910,"verdict":"ok"}

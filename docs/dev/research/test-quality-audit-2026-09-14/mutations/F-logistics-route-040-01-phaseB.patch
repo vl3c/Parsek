@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index b5e79c0fa..d41058eeb 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -19288,6 +19288,9 @@ namespace Parsek
+                     "(interval trimmed out or loop off) - exiting watch before its ghost is torn down");
+                 watchMode.ExitWatchModePreservingLineage();
+             }
++            cachedLoopUnits = MissionLoopUnitBuilder.Build(
++                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
++                forceFaithful, DockEventGraphCache.GetOrBuild());
+         }
+ 
+         // UpdateTimelinePlayback removed (T25 Phase 9 — engine is primary path)

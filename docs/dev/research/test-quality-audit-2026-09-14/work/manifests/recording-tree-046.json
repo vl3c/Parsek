@@ -1,0 +1,233 @@
+{
+ "batch_id": "recording-tree-046",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "ChainSaveLoadTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ChainsDerivedFromCommittedTrees_Deterministic",
+       "line": 150
+      },
+      {
+       "method": "DeterministicWithMultipleChains",
+       "line": 186
+      },
+      {
+       "method": "NoCommittedTrees_NoChainsOnLoad",
+       "line": 231
+      },
+      {
+       "method": "NullCommittedTrees_NoChainsOnLoad",
+       "line": 245
+      },
+      {
+       "method": "CommittedTreesWithoutClaims_NoChainsOnLoad",
+       "line": 258
+      },
+      {
+       "method": "ChainsDerivedAtDifferentUTs_ProduceDifferentResults",
+       "line": 282
+      },
+      {
+       "method": "MidChainUT_ChainActive",
+       "line": 319
+      },
+      {
+       "method": "ExactSpawnUT_ChainNotActive",
+       "line": 341
+      },
+      {
+       "method": "JustBeforeSpawnUT_ChainStillActive",
+       "line": 361
+      },
+      {
+       "method": "MultipleLoads_ChainsReEvaluated",
+       "line": 384
+      },
+      {
+       "method": "TreeRemoved_ChainDisappearsOnReEvaluation",
+       "line": 426
+      },
+      {
+       "method": "BackwardCompat_V6RecordingsWithMerge_TriggerGhosting",
+       "line": 470
+      },
+      {
+       "method": "BackwardCompat_V6BackgroundEvents_TriggerGhosting",
+       "line": 502
+      },
+      {
+       "method": "ChainStateNotPersistedInScenario",
+       "line": 541
+      },
+      {
+       "method": "DeterministicReDerivation_StableInput_ReturnsIdenticalChains",
+       "line": 583
+      },
+      {
+       "method": "EmptyTrees_LogsNoCommittedTrees",
+       "line": 610
+      },
+      {
+       "method": "ReEvaluation_NewChainLogged",
+       "line": 625
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SwitchSegmentSuppressionNarrowingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsMarkerOwnedSwitchSegmentRecordingId_NoActiveSession_ReturnsFalse",
+       "line": 127
+      },
+      {
+       "method": "IsMarkerOwnedSwitchSegmentRecordingId_SessionArmed_RecordingNotStamped_ReturnsFalse",
+       "line": 147
+      },
+      {
+       "method": "IsMarkerOwnedSwitchSegmentRecordingId_SessionArmed_RecordingStampedWithOtherSession_ReturnsFalse",
+       "line": 165
+      },
+      {
+       "method": "IsMarkerOwnedSwitchSegmentRecordingId_SessionArmed_RecordingStampedWithActiveSession_ReturnsTrue",
+       "line": 183
+      },
+      {
+       "method": "IsMarkerOwnedSwitchSegmentRecordingId_CommittedAndPendingHaveSameId_PrefersCommittedCopyResult",
+       "line": 204
+      },
+      {
+       "method": "ShouldSuppressEventPersistence_MarkerOwnedRecordingId_ReturnsFalse_EvenWithRestoreAttemptArmed",
+       "line": 244
+      },
+      {
+       "method": "ShouldSuppressEventPersistence_CommittedRecordingId_StillSuppressed_DuringRestoreAttempt",
+       "line": 282
+      },
+      {
+       "method": "ShouldSuppressEventPersistence_PendingOnlyNonMarkerOwned_StillSuppressed_DuringRestoreAttempt",
+       "line": 312
+      },
+      {
+       "method": "ShouldDeferPendingEventMilestoneFlush_AllMarkerOwned_ReturnsFalse",
+       "line": 352
+      },
+      {
+       "method": "ShouldDeferPendingEventMilestoneFlush_MixedMilestones_ReturnsTrue",
+       "line": 388
+      },
+      {
+       "method": "SaveActiveTreeIfAny_MarkerOwnedRecording_BypassesDirtySidecarSkip",
+       "line": 428
+      },
+      {
+       "method": "Audit_NoCodepath_WritesCloneParentChildBranchPointIdToCommittedSidecar",
+       "line": 502
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MergeEventDetectionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildMergeBranchData_Dock_TwoParents_CreatesCorrectBranchPoint",
+       "line": 33
+      },
+      {
+       "method": "BuildMergeBranchData_Dock_SingleParent_CreatesCorrectBranchPoint",
+       "line": 60
+      },
+      {
+       "method": "BuildMergeBranchData_Board_TwoParents_CreatesCorrectBranchPoint",
+       "line": 83
+      },
+      {
+       "method": "BuildMergeBranchData_Dock_ChildRecordingHasCorrectFields",
+       "line": 112
+      },
+      {
+       "method": "BuildMergeBranchData_GeneratesUniqueIds",
+       "line": 139
+      },
+      {
+       "method": "BuildMergeBranchData_BpIdMatchesChildParentBranchPointId",
+       "line": 158
+      },
+      {
+       "method": "BuildMergeBranchData_ChildIdMatchesBpChildRecordingIds",
+       "line": 168
+      },
+      {
+       "method": "BuildMergeBranchData_Dock_UsesExplicitTargetPid",
+       "line": 179
+      },
+      {
+       "method": "BuildMergeBranchData_DockWithoutExplicitTarget_DoesNotInventRouteProof",
+       "line": 198
+      },
+      {
+       "method": "ResolveDockRouteTargetPid_UsesOtherDockedVessel",
+       "line": 215
+      },
+      {
+       "method": "TryBuildRouteEndpointFromSnapshot_UsesAbsorbedVesselSnapshot",
+       "line": 232
+      },
+      {
+       "method": "BranchPoint_Dock_TwoParents_SerializesRoundTrip",
+       "line": 274
+      },
+      {
+       "method": "BranchPoint_Board_SingleParent_SerializesRoundTrip",
+       "line": 298
+      },
+      {
+       "method": "RebuildBackgroundMap_ExcludesDockedRecordings",
+       "line": 325
+      },
+      {
+       "method": "RebuildBackgroundMap_ExcludesBoardedRecordings",
+       "line": 359
+      },
+      {
+       "method": "RebuildBackgroundMap_ExcludesRecordingsWithChildBranchPoint",
+       "line": 391
+      },
+      {
+       "method": "RebuildBackgroundMap_IncludesActiveRecordingsWithNoTerminalState",
+       "line": 423
+      },
+      {
+       "method": "MergeIntegration_TwoParentDock_ProducesCorrectTreeStructure",
+       "line": 460
+      },
+      {
+       "method": "MergeIntegration_SingleParentBoard_ProducesCorrectTreeStructure",
+       "line": 541
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

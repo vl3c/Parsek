@@ -1,0 +1,222 @@
+{
+ "batch_id": "catchall-014",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "DockEventGraphTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_ReachesEveryPartnerStatus",
+       "line": 139
+      },
+      {
+       "method": "Build_CrossTreeNode_CarriesTheClaimedRecordingAndTree",
+       "line": 162
+      },
+      {
+       "method": "Build_SameTreeRecoveredNode_ClaimsThePartnersOwnLine",
+       "line": 178
+      },
+      {
+       "method": "Build_UndockNodes_ArePresentWithNoResolution",
+       "line": 191
+      },
+      {
+       "method": "Build_IgnoresNonDockBranchPointTypes",
+       "line": 208
+      },
+      {
+       "method": "Build_NodesSortedByUTThenBranchPointId",
+       "line": 227
+      },
+      {
+       "method": "Build_NodesByTreeId_RegistersCrossTreeNodeUnderBothTrees",
+       "line": 247
+      },
+      {
+       "method": "Build_ParticipantsByRecordingId_CoversParentsMergedChildAndPartner",
+       "line": 263
+      },
+      {
+       "method": "Build_DockConnectedTreePairs_CarriesTheCrossTreePairOnly",
+       "line": 279
+      },
+      {
+       "method": "Build_TwoParentNode_CarriesBothParentNames",
+       "line": 294
+      },
+      {
+       "method": "Build_EmptyOrNullTrees_ProduceAnEmptyGraph",
+       "line": 308
+      },
+      {
+       "method": "Build_StoresTheHostSignatureVerbatim",
+       "line": 317
+      },
+      {
+       "method": "Build_SupersededMergedChild_FlagsTheNode_AndNamingDeclines",
+       "line": 329
+      },
+      {
+       "method": "Build_NullVisibilityPredicate_FlagsNothing",
+       "line": 348
+      },
+      {
+       "method": "Build_EmitsTheGrepStableSummaryLine",
+       "line": 363
+      },
+      {
+       "method": "Build_LogsEveryRecoveryAndGuidRejection",
+       "line": 379
+      },
+      {
+       "method": "Build_SuppressLogging_SilencesTheGraphAndRestoresTheSiblingFlag",
+       "line": 394
+      },
+      {
+       "method": "Build_LetsTheSameTreeScannerKeepItsOwnEvidenceLine",
+       "line": 415
+      },
+      {
+       "method": "Build_SuppressLogging_AlsoSilencesTheSameTreeScanner",
+       "line": 430
+      },
+      {
+       "method": "Describe_TwoParent_NamesTheOtherParent_FromEitherSide",
+       "line": 452
+      },
+      {
+       "method": "Describe_TwoParent_DeclinesForANonParentViewer",
+       "line": 470
+      },
+      {
+       "method": "Describe_CrossTree_IsViewerRelative",
+       "line": 486
+      },
+      {
+       "method": "Describe_SameTreeRecovered_IsViewerRelative",
+       "line": 509
+      },
+      {
+       "method": "Describe_CrossTree_DeclinesForANonParticipantViewer",
+       "line": 527
+      },
+      {
+       "method": "Describe_PlumbsTheMissionNameResolver",
+       "line": 557
+      },
+      {
+       "method": "Describe_UnresolvableStatuses_StaySilent",
+       "line": 575
+      },
+      {
+       "method": "Describe_UndockNodesAndUnknownIds_Decline",
+       "line": 590
+      },
+      {
+       "method": "TheGraphFilesNeverReadCommittedRecordings",
+       "line": 608
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "UnserializableTreeCarryForwardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SaveTreeRecordings_UnserializableTree_KeepsItsNodeFromTheOnDiskSave",
+       "line": 86
+      },
+      {
+       "method": "SaveTreeRecordings_UnserializableTreeWithNoDiskNode_DropsLoudly",
+       "line": 123
+      },
+      {
+       "method": "SaveTreeRecordings_SerializableTree_WritesFromMemoryOnce",
+       "line": 145
+      },
+      {
+       "method": "FindCommittedTreeNodeById_MatchesCommitted_AndSkipsActiveOrPending",
+       "line": 163
+      },
+      {
+       "method": "TryCarryForward_NullInputs_ReturnFalseAndNeverThrow",
+       "line": 184
+      },
+      {
+       "method": "CarryForward_DropsRecordingsTheLiveTreeNoLongerHas",
+       "line": 205
+      },
+      {
+       "method": "CarryForward_KeepsLiveRecordingsWhoseSidecarsAreGone",
+       "line": 230
+      },
+      {
+       "method": "CarryForward_RefusesWhenReconciliationLeavesNoRecordings",
+       "line": 255
+      },
+      {
+       "method": "CarryForward_RefusesWhenTheCarriedRootDidNotSurvive",
+       "line": 279
+      },
+      {
+       "method": "CarryForward_NullsADanglingActiveRecordingId",
+       "line": 302
+      },
+      {
+       "method": "CarryForward_DropsBranchPointsReferencingDroppedRecordings",
+       "line": 326
+      },
+      {
+       "method": "PruneCarriedBranchPoints_KeepsFullyReferencedPointsAndCountsDrops",
+       "line": 360
+      },
+      {
+       "method": "CarryForwardSource_IsTheCampaignSave",
+       "line": 393
+      },
+      {
+       "method": "CarryForwardSource_MissingFile_ReturnsNullAndNeverThrows",
+       "line": 406
+      },
+      {
+       "method": "IsCarriedRecordingStillReal_IsLiveTreeMembershipOnly",
+       "line": 414
+      },
+      {
+       "method": "CollectCommittedRecordingIds_IncludesParkedNodesAboutToBeRestored",
+       "line": 440
+      },
+      {
+       "method": "ShouldPreserveCommittedOverlapOnPendingDiscard_Matrix",
+       "line": 474
+      },
+      {
+       "method": "DurableCommittedRecordingIdHint_RoundTripsAndClears",
+       "line": 482
+      },
+      {
+       "method": "DiscardPendingTree_ColdLoadOverlap_RoutesOverlapIdsToPreserveViaDurableHint",
+       "line": 516
+      },
+      {
+       "method": "DiscardPendingTree_ColdLoadOverlap_WithoutHint_TakesTheDeleteBranch",
+       "line": 552
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

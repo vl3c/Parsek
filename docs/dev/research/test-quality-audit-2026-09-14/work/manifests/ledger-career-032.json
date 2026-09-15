@@ -1,0 +1,115 @@
+{
+ "batch_id": "ledger-career-032",
+ "cluster": "ledger-career",
+ "tier": "B",
+ "expected_methods": 24,
+ "files": [
+  {
+   "file": "KerbalEndStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "InferCrewEndState_NullTerminalState_ReturnsUnknown",
+       "line": 38
+      },
+      {
+       "method": "InferCrewEndState_Destroyed_ReturnsDead",
+       "line": 51
+      },
+      {
+       "method": "InferCrewEndState_Recovered_ReturnsRecovered",
+       "line": 64
+      },
+      {
+       "method": "InferCrewEndState_OrbitingInSnapshot_ReturnsAboard",
+       "line": 77
+      },
+      {
+       "method": "InferCrewEndState_UndockedPodCrewInChildSnapshot_ReturnsAboard",
+       "line": 97
+      },
+      {
+       "method": "InferCrewEndState_LandedNotInSnapshot_ReturnsDead",
+       "line": 115
+      },
+      {
+       "method": "InferCrewEndState_BoardedInSnapshot_ReturnsAboard",
+       "line": 128
+      },
+      {
+       "method": "InferCrewEndState_DockedNotInSnapshot_ReturnsUnknown",
+       "line": 141
+      },
+      {
+       "method": "InferCrewEndState_NullSnapshotCrew_IntactState_ReturnsDead",
+       "line": 154
+      },
+      {
+       "method": "PopulateCrewEndStates_WithCrew_PopulatesDict",
+       "line": 170
+      },
+      {
+       "method": "PopulateCrewEndStates_NoCrew_LeavesNullButMarksResolved",
+       "line": 199
+      },
+      {
+       "method": "PopulateCrewEndStates_MissingStartSnapshot_LeavesUnresolved",
+       "line": 218
+      },
+      {
+       "method": "PopulateCrewEndStates_NullRecording_NoThrow",
+       "line": 241
+      },
+      {
+       "method": "PopulateCrewEndStates_Batch_SkipsAlreadyPopulated",
+       "line": 257
+      },
+      {
+       "method": "CrewEndStates_RoundTrip_PreservesData",
+       "line": 304
+      },
+      {
+       "method": "DeserializeCrewEndStates_MissingNode_LeavesNull",
+       "line": 342
+      },
+      {
+       "method": "SerializeCrewEndStates_NullDict_WritesNothing",
+       "line": 358
+      },
+      {
+       "method": "RecordingTree_SaveLoad_PreservesResolvedNoCrewState",
+       "line": 369
+      },
+      {
+       "method": "Recalculate_LoopingChain_RecoveredCrew_StaysInfinite",
+       "line": 410
+      },
+      {
+       "method": "Recalculate_NonLoopingChain_RecoveredCrew_UsesFiniteEndUT",
+       "line": 460
+      },
+      {
+       "method": "PopulateCrewEndStates_ReverseMapStandInNames",
+       "line": 511
+      },
+      {
+       "method": "PopulateCrewEndStates_EvaKerbalDestroyed_InfersDead",
+       "line": 555
+      },
+      {
+       "method": "PopulateCrewEndStates_EvaKerbalLanded_InfersAboard",
+       "line": 576
+      },
+      {
+       "method": "PopulateCrewEndStates_NoEvaCrewName_SkipsEmptyCrew",
+       "line": 597
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

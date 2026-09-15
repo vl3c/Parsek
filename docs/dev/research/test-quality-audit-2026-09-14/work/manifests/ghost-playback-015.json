@@ -1,0 +1,246 @@
+{
+ "batch_id": "ghost-playback-015",
+ "cluster": "ghost-playback",
+ "tier": "A",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "GhostPartEventApplyLogTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TheLineGrammarIsTheSevenTokenShapeAHarnessParserCanSplitOnWhitespace",
+       "line": 91
+      },
+      {
+       "method": "TheFamilyTokenIsTheEnumMemberNameForEveryDefinedMember_SoASpecCanPinItByName",
+       "line": 114
+      },
+      {
+       "method": "EveryOutcomeAndSurfaceHasADistinctKebabToken_AndNoneIsUnknown",
+       "line": 126
+      },
+      {
+       "method": "OnlyAppliedCountsAsApplied_TheTwoDeliberateNoOpsAreSkipsWithTheirOwnReason",
+       "line": 144
+      },
+      {
+       "method": "TheNumbersAreInvariantFormatted_UnderACommaDecimalCulture",
+       "line": 158
+      },
+      {
+       "method": "OneLinePerFamilyAndSurface_AggregatingEveryEventInTheBatch",
+       "line": 187
+      },
+      {
+       "method": "AMixedBatchReportsBothCountsAndKeepsTheFirstSkipsPidAndReason",
+       "line": 219
+      },
+      {
+       "method": "FlushWritesTheLineThroughParsekLogUnderTheGhostPartEventsSubsystem",
+       "line": 236
+      },
+      {
+       "method": "ATallyThatRecordedNothingEmitsNothing",
+       "line": 250
+      },
+      {
+       "method": "OnlyTheThreeContinuouslySampledFamiliesAreRateLimited",
+       "line": 257
+      },
+      {
+       "method": "ABoundedFamilysSecondOccurrenceIsNotSuppressed_TheSkipMustSurvive",
+       "line": 277
+      },
+      {
+       "method": "APerFrameFamilysSecondOccurrenceInsideTheWindowIsRateLimited",
+       "line": 303
+      },
+      {
+       "method": "EngineFx_ReportsNoFamilyStateThenNoInfoForPart",
+       "line": 341
+      },
+      {
+       "method": "RcsFx_ReportsNoFamilyStateThenNoInfoForPart",
+       "line": 380
+      },
+      {
+       "method": "Deployable_SeparatesNoFamilyStateNoInfoForPartAndAPoseLessInfo",
+       "line": 405
+      },
+      {
+       "method": "DeployableBroken_SeparatesNoFamilyStateFromNoInfoForPart",
+       "line": 435
+      },
+      {
+       "method": "JettisonPanel_SplitsTheOldSingleReturnFalseIntoItsThreeFacts",
+       "line": 456
+      },
+      {
+       "method": "CargoBayCascade_ReportsBothArmsAndOnlyReachesJettisonWhenTheDeployableArmDeclined",
+       "line": 486
+      },
+      {
+       "method": "Heat_ReportsNoFamilyStateNoInfoForPartAndAnInfoWithNothingToWrite",
+       "line": 509
+      },
+      {
+       "method": "ConverterLoop_AppliedThenAlreadyInStateThenNoInfoForPart",
+       "line": 540
+      },
+      {
+       "method": "ColorChanger_TellsApartTheFourWaysACabinLightCanFailToToggle",
+       "line": 583
+      },
+      {
+       "method": "LightPowerEvent_ReportsItsTwoSurfacesIndependently",
+       "line": 636
+      },
+      {
+       "method": "LightOnWhileBlinking_IsDeferredToTheDriverRatherThanReportedAsAnApply",
+       "line": 668
+      },
+      {
+       "method": "BlinkRate_DiscardsANonPositiveRateAndSaysSo",
+       "line": 688
+      },
+      {
+       "method": "Fairing_SplitsTheOldNestedIfIntoThreeNamedFacts",
+       "line": 707
+      },
+      {
+       "method": "Eva_AnEventTypeTheFlagReducerDoesNotModelIsUnhandledRatherThanSilentlyApplied",
+       "line": 730
+      },
+      {
+       "method": "TheOneBoolWrapperThatIsHeadlesslyCallableStillReturnsExactlyWhatItUsedTo",
+       "line": 752
+      },
+      {
+       "method": "EveryClassifierAgreesWithItsHandlerOnTheEmptyState",
+       "line": 781
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PlaybackTraceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsInWindow_NullTrajectory_ReturnsFalse",
+       "line": 35
+      },
+      {
+       "method": "IsInWindow_NullOrEmptyRecordingId_ReturnsFalse",
+       "line": 41
+      },
+      {
+       "method": "IsInWindow_NoStructuralEventFlags_ReturnsFalse",
+       "line": 52
+      },
+      {
+       "method": "IsInWindow_WithinFiveSeconds_ReturnsTrue",
+       "line": 65
+      },
+      {
+       "method": "IsInWindow_PastFiveSeconds_ReturnsFalse",
+       "line": 78
+      },
+      {
+       "method": "IsInWindow_BeforeAnyEvent_ReturnsFalse",
+       "line": 89
+      },
+      {
+       "method": "IsInWindow_MultipleEvents_TracksMostRecent",
+       "line": 100
+      },
+      {
+       "method": "IsInWindow_UnsortedPoints_StillCorrectViaDefensiveSort",
+       "line": 118
+      },
+      {
+       "method": "Cache_LazilyPopulatedOnFirstQuery",
+       "line": 134
+      },
+      {
+       "method": "Cache_NoFlaggedPoints_StoresEmptyList",
+       "line": 149
+      },
+      {
+       "method": "Reset_ClearsCacheAndTraceState",
+       "line": 166
+      },
+      {
+       "method": "MaybeEmitFrame_OutsideWindow_NoLogEmitted",
+       "line": 183
+      },
+      {
+       "method": "MaybeEmitFrame_InsideWindow_EmitsLogLine",
+       "line": 201
+      },
+      {
+       "method": "MaybeEmitFrame_TwoFrames_DeltaReflectsMotion",
+       "line": 237
+      },
+      {
+       "method": "MaybeEmitFrame_CrossesSection_FlagsSectionCrossed",
+       "line": 264
+      },
+      {
+       "method": "MaybeEmitFrame_LoopWraparound_SuppressesRepeatEventWindow",
+       "line": 317
+      },
+      {
+       "method": "MaybeEmitFrame_LoopWraparound_NewEventStillEmits",
+       "line": 365
+      },
+      {
+       "method": "MaybeEmitFrame_LoopWraparound_StateRecordsLastEventUT",
+       "line": 407
+      },
+      {
+       "method": "MaybeEmitFrame_GateCloseRetiresEvent",
+       "line": 424
+      },
+      {
+       "method": "MaybeEmitFrame_GateClosedPastSkippedLaterEvent_RetiresEarlierTracedEvent",
+       "line": 447
+      },
+      {
+       "method": "MaybeEmitFrame_LoopWrapGateClosedBetweenEvents_RetiresTracedEvent",
+       "line": 500
+      },
+      {
+       "method": "MaybeEmitFrame_ReEntryAtOrAboveHighWater_Suppressed",
+       "line": 551
+      },
+      {
+       "method": "MaybeEmitFrame_PreEventFrameAfterWrap_RetiresTracedEvent",
+       "line": 591
+      },
+      {
+       "method": "MaybeEmitFrame_FirstPassEndsEarly_LoopTailNotReEmitted",
+       "line": 635
+      },
+      {
+       "method": "MaybeEmitFrame_HiddenThroughPreEventAndIntoWindow_ResidualIsBoundedAndSelfHeals",
+       "line": 672
+      },
+      {
+       "method": "MaybeEmitFrame_NoTrackSections_EmitsWithUnknownSection",
+       "line": 723
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

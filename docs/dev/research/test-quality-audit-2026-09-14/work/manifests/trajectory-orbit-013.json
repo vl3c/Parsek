@@ -1,0 +1,179 @@
+{
+ "batch_id": "trajectory-orbit-013",
+ "cluster": "trajectory-orbit",
+ "tier": "A",
+ "expected_methods": 40,
+ "files": [
+  {
+   "file": "RelativeAnchorResolutionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Decide_ResolverReturnsTrue_OutcomeResolved",
+       "line": 49
+      },
+      {
+       "method": "Decide_ResolverReturnsFalse_OutcomeRetired",
+       "line": 59
+      },
+      {
+       "method": "Decide_AnchorPidZero_OutcomeRetired",
+       "line": 71
+      },
+      {
+       "method": "Decide_ResolverNull_OutcomeRetired",
+       "line": 85
+      },
+      {
+       "method": "RecordedRelativeOffsetSpike_CorrectsIsolatedSample",
+       "line": 97
+      },
+      {
+       "method": "RecordedRelativeOffsetSpike_KeepsSteadyDrift",
+       "line": 117
+      },
+      {
+       "method": "RecordedRelativeOffsetSpike_KeepsEndpointSamples",
+       "line": 133
+      },
+      {
+       "method": "RecordedAnchorPointListCoversUT_TargetInside_ReturnsTrue",
+       "line": 165
+      },
+      {
+       "method": "RecordedAnchorPointListCoversUT_TargetBeforeStart_ReturnsFalse",
+       "line": 177
+      },
+      {
+       "method": "RecordedAnchorPointListCoversUT_TargetAfterEnd_ReturnsFalse",
+       "line": 189
+      },
+      {
+       "method": "RecordedAnchorPointListCoversUT_SinglePointRequiresSameUT",
+       "line": 201
+      },
+      {
+       "method": "RecordedAnchorPointListCoversUT_NullOrEmpty_ReturnsFalse",
+       "line": 213
+      },
+      {
+       "method": "DistanceOutsideRecordedAnchorCoverage_ReportsEndpointFallbackGap",
+       "line": 221
+      },
+      {
+       "method": "TryFindBodyFixedPrimaryBridgeFrame_UsesPriorAbsoluteSectionBoundary",
+       "line": 235
+      },
+      {
+       "method": "ResolveBodyFixedPrimaryPlaybackFrames_TargetAfterShadow_ReturnsOriginalFrames",
+       "line": 277
+      },
+      {
+       "method": "ShouldWarnRecordedAnchorFallbackGap_OnlyWarnsForLargeFiniteGap",
+       "line": 315
+      },
+      {
+       "method": "BuildRecordedAnchorFallbackGapLog_IncludesGapAndRecordingContext",
+       "line": 324
+      },
+      {
+       "method": "PreReFlyAnchorTrajectory_CaptureCopiesMutableTrajectoryLists",
+       "line": 342
+      },
+      {
+       "method": "BuildPreReFlyAnchorTrajectoryRecording_CachesUntilSnapshotChanges",
+       "line": 384
+      },
+      {
+       "method": "ShouldUsePreReFlyAnchorTrajectory_RequiresActiveInPlaceRecording",
+       "line": 430
+      },
+      {
+       "method": "ShouldSkipMutableActiveReFlyAnchorCandidate_OnlyDuringBypass",
+       "line": 463
+      },
+      {
+       "method": "BuildRelativeOffsetAppliedLog_ReportsRecordedOrLiveSource",
+       "line": 485
+      },
+      {
+       "method": "BuildDeadOnArrivalControlledChildSkipLog_ReportsSnapshotPresence",
+       "line": 508
+      },
+      {
+       "method": "DedupeKey_SameRecordingSameAnchor_ProducesSameKey",
+       "line": 528
+      },
+      {
+       "method": "DedupeKey_DifferentRecording_ProducesDifferentKey",
+       "line": 536
+      },
+      {
+       "method": "DedupeKey_DifferentAnchor_ProducesDifferentKey",
+       "line": 546
+      },
+      {
+       "method": "DedupeKey_HandlesMaxRecordingIndexAndPid",
+       "line": 554
+      },
+      {
+       "method": "FormatRetiredMessage_IncludesGreppableKeyword",
+       "line": 572
+      },
+      {
+       "method": "FormatRetiredMessage_IncludesIdentifyingFields",
+       "line": 584
+      },
+      {
+       "method": "FormatRetiredMessage_NullVesselName_RendersUnknownPlaceholder",
+       "line": 599
+      },
+      {
+       "method": "FormatRetiredMessage_MentionsRewindRootCause",
+       "line": 611
+      },
+      {
+       "method": "RetiredMessage_LoggedToParsekLog_AppearsInWarnSink",
+       "line": 630
+      },
+      {
+       "method": "Decide_RewindScenario_AnchorAliveStillResolves",
+       "line": 648
+      },
+      {
+       "method": "Decide_RewindScenario_AnchorErasedReturnsRetired_NoFreezePath",
+       "line": 664
+      },
+      {
+       "method": "OutcomeEnum_HasOnlyTwoStates",
+       "line": 681
+      },
+      {
+       "method": "ShouldSkipPostPositionPipeline_FlagFalse_ReturnsFalse",
+       "line": 699
+      },
+      {
+       "method": "ShouldSkipPostPositionPipeline_FlagTrue_ReturnsTrue",
+       "line": 710
+      },
+      {
+       "method": "ShouldSkipPostPositionPipeline_IsPureFunction_NoSideEffects",
+       "line": 721
+      },
+      {
+       "method": "GhostPlaybackState_AnchorRetiredThisFrame_DefaultsToFalse",
+       "line": 742
+      },
+      {
+       "method": "RetireBranch_LogsOnceAndGatesPipeline_SimulatedIntegration",
+       "line": 757
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,219 @@
+{
+ "batch_id": "mission-groups-002",
+ "cluster": "mission-groups",
+ "tier": "A1",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "MissionPeriodicityTests.cs",
+   "ranges": [
+    {
+     "start": 1598,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Extract_CrossParentStation_AnchorRecordingUnresolvable_Rejected",
+       "line": 1598
+      },
+      {
+       "method": "Build_ReaimWithDestinationStation_AppliesStationHold",
+       "line": 1639
+      },
+      {
+       "method": "Build_ReaimWithStationAndLanding_Loose_EngagesJointHold",
+       "line": 1667
+      },
+      {
+       "method": "Build_ReaimWithStationAndLanding_Tight_FailsClosedWithAmber",
+       "line": 1701
+      },
+      {
+       "method": "Build_ReaimJoolMultiMoonTour_EngagesConfigHold",
+       "line": 1780
+      },
+      {
+       "method": "BuildSignature_StationAnchorDigest_TracksLivePeriodAndPresence",
+       "line": 1812
+      },
+      {
+       "method": "AddAnchorIdentity_OrderIndependentMerge",
+       "line": 1854
+      },
+      {
+       "method": "BuildSignature_StationAnchorDigest_StableAcrossAnchorOrder",
+       "line": 1895
+      },
+      {
+       "method": "Solve_ZeroConstraints_UsesMinCycleDuration",
+       "line": 1948
+      },
+      {
+       "method": "Solve_SingleRotation_PIsRotationPeriod_ResidualZero",
+       "line": 1963
+      },
+      {
+       "method": "Solve_SingleDirectChildOrbital_PIsOrbitPeriod",
+       "line": 1979
+      },
+      {
+       "method": "Solve_MunCase_JointBestFitLocksMunAndMinimizesRotationDrift",
+       "line": 1993
+      },
+      {
+       "method": "FindBestJointMultiple_ExactResonance_PicksSmallestResonantMultiple",
+       "line": 2024
+      },
+      {
+       "method": "FindBestJointMultiple_NoBetterMultiple_StaysAtOne",
+       "line": 2041
+      },
+      {
+       "method": "AllDroppedWithinTolerance_JudgesEachConstraintAgainstItsOwnTolerance",
+       "line": 2059
+      },
+      {
+       "method": "JointStepResidual_WorstDroppedError_OverOneCadenceStep",
+       "line": 2083
+      },
+      {
+       "method": "Solve_TidallyLockedMun_RotationAndOrbitalCollapse",
+       "line": 2100
+      },
+      {
+       "method": "Solve_NextWindow_FutureWindowK",
+       "line": 2119
+      },
+      {
+       "method": "Solve_FutureDatedUT0_NegativeK_ResolvesToFirstWindowAtOrAfterNow",
+       "line": 2134
+      },
+      {
+       "method": "Solve_NowEqualsUT0_WindowIsUT0",
+       "line": 2152
+      },
+      {
+       "method": "Solve_ZeroRotationPeriodConstraint_NeverReachesSolve_ButGuardedAnyway",
+       "line": 2164
+      },
+      {
+       "method": "Solve_Unsupported_ReturnsNoLockSentinel",
+       "line": 2178
+      },
+      {
+       "method": "Solve_OverConstrainedTwoRotations_BestEffortLockNonZeroResidual_NeverThrows",
+       "line": 2197
+      },
+      {
+       "method": "Solve_ToleranceBoundary_FlipsWithinTolerance",
+       "line": 2225
+      },
+      {
+       "method": "Solve_LogsVerboseSummary",
+       "line": 2262
+      },
+      {
+       "method": "Solve_OverConstrainedLogsWarn",
+       "line": 2275
+      },
+      {
+       "method": "Quantize_RaisesToMultipleOfP_AtOrAboveCadence",
+       "line": 2295
+      },
+      {
+       "method": "Build_SupportedSingleBody_SnapsPhaseAnchorToNextWindow",
+       "line": 2327
+      },
+      {
+       "method": "Build_SupportedSameParentMun_AttachesZeroDriftSchedule",
+       "line": 2358
+      },
+      {
+       "method": "Build_SingleConstraint_NoZeroDriftSchedule_KeepsFixedCadence",
+       "line": 2418
+      },
+      {
+       "method": "Build_DriftingLongSpan_ThrottleFlooredAtSpan_NonOverlappingByConstruction",
+       "line": 2441
+      },
+      {
+       "method": "Build_Scheduled_HasNoLoiterCutsOrArrivalHold",
+       "line": 2475
+      },
+      {
+       "method": "Build_NonDriftingOrUnsupportedConfigs_AttachNoSchedule",
+       "line": 2523
+      },
+      {
+       "method": "Schedule_SaveLoadRoundTrip_RederivesIdentical",
+       "line": 2586
+      },
+      {
+       "method": "Build_LoopAnchorBeforeFirstPlay_ClampsAnchorToAfterTheFirstPlay",
+       "line": 2667
+      },
+      {
+       "method": "Build_UnsupportedCrossParent_LeavesAnchorAtRawLoopAnchorUT_NoRegression",
+       "line": 2713
+      },
+      {
+       "method": "Build_AllSuppressFlags_EmitsNoPipelineDiagnostics",
+       "line": 2762
+      },
+      {
+       "method": "Build_NoBodyInfo_ByteIdenticalToTodaysBehavior",
+       "line": 2799
+      },
+      {
+       "method": "BuildSignature_BodyGeometryChange_Rebuilds",
+       "line": 2820
+      },
+      {
+       "method": "BuildSignature_NoBodyInfo_ByteIdenticalToOldSignature",
+       "line": 2845
+      },
+      {
+       "method": "AncestorChain_StockBodies_ChildToRootInclusive",
+       "line": 2878
+      },
+      {
+       "method": "AncestorChain_NullOrUnknown_HandledCleanly",
+       "line": 2885
+      },
+      {
+       "method": "AncestorChain_CyclicGraph_TerminatesNoHang",
+       "line": 2894
+      },
+      {
+       "method": "TryFindCommonAncestor_StockPairs",
+       "line": 2907
+      },
+      {
+       "method": "TryFindCommonAncestor_SameBody_AncestorIsItselfBothChainsEmpty",
+       "line": 2919
+      },
+      {
+       "method": "TryFindCommonAncestor_SameParentVsCrossParent_DistinguishesReaimMode",
+       "line": 2930
+      },
+      {
+       "method": "TryFindCommonAncestor_Disconnected_ReturnsFalse",
+       "line": 2941
+      },
+      {
+       "method": "Extract_MunPadLaunch_EmitsRotationMunPad_LaunchBodyMun",
+       "line": 2962
+      },
+      {
+       "method": "Extract_MunPadStationResupply_ScheduleAnchorsToMunPadRotation",
+       "line": 2997
+      },
+      {
+       "method": "Extract_MunLaunchKerbinReturn_CrossParentUnsupported_ScheduleDeclines",
+       "line": 3054
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

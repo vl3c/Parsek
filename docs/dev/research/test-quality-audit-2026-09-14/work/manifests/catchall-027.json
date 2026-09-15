@@ -1,0 +1,273 @@
+{
+ "batch_id": "catchall-027",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "StructureListBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Mission_SingleLaunchToLanded_EmitsLaunchAndTerminal",
+       "line": 94
+      },
+      {
+       "method": "Mission_ControlledDecouple_DebrisStaging_DedupsDecoupledByDecouplerPid",
+       "line": 113
+      },
+      {
+       "method": "Mission_SamePhysicalStaging_RecordedOnTwoRecordings_CollapsesToOneStep",
+       "line": 139
+      },
+      {
+       "method": "Mission_SamePidStaging_FarApartInTime_BothSurvive",
+       "line": 155
+      },
+      {
+       "method": "Mission_StaleStagingContext_BlanksStatusKeepsBody",
+       "line": 172
+      },
+      {
+       "method": "Mission_SimultaneousIdenticalStaging_CollapsesToCountedRow",
+       "line": 196
+      },
+      {
+       "method": "Mission_DockThenUndock_AreOrderedByUT",
+       "line": 214
+      },
+      {
+       "method": "Mission_Eva_EmitsEvaStep",
+       "line": 231
+      },
+      {
+       "method": "Mission_Build_IsDeterministic",
+       "line": 242
+      },
+      {
+       "method": "Mission_EmitsVerboseSummaryLine",
+       "line": 263
+      },
+      {
+       "method": "Route_KscOrigin_OneStop_EmitsOrderedSteps",
+       "line": 273
+      },
+      {
+       "method": "Route_VesselOrigin_LabelsDepot",
+       "line": 317
+      },
+      {
+       "method": "Route_MissingSourceRecording_NoWindowSteps_NoThrow",
+       "line": 333
+      },
+      {
+       "method": "Route_NullRoute_ReturnsEmpty",
+       "line": 352
+      },
+      {
+       "method": "LocationFormatter_BodyBiome_IsAlwaysBodyThenBiome",
+       "line": 361
+      },
+      {
+       "method": "LocationFormatter_Endpoint_KscSurfaceOrbit",
+       "line": 370
+      },
+      {
+       "method": "LocationFormatter_SurfaceEndpoint_BiomeResolverReplacesCoordinates",
+       "line": 390
+      },
+      {
+       "method": "Route_SurfaceEndpoint_UsesInjectedBiomeResolver",
+       "line": 407
+      },
+      {
+       "method": "FormatStopLabel_PurePickup_RendersPickUp",
+       "line": 433
+      },
+      {
+       "method": "FormatStopLabel_DeliveryOnly_RendersDeliver",
+       "line": 444
+      },
+      {
+       "method": "FormatStopLabel_Mixed_RendersBothDirections",
+       "line": 455
+      },
+      {
+       "method": "FormatStopLabel_Empty_FallsBackToBareDeliver",
+       "line": 467
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "UiComplexityModePersistenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetStoredUiComplexityMode_DefaultsNull",
+       "line": 51
+      },
+      {
+       "method": "StoredUiComplexityModeRoundTripsThroughApplyTo",
+       "line": 59
+      },
+      {
+       "method": "StoredValueWinsOverFootprintInApplyTo",
+       "line": 77
+      },
+      {
+       "method": "ResolutionIsSticky",
+       "line": 98
+      },
+      {
+       "method": "NoFootprintResolvesAndPersistsBasic",
+       "line": 121
+      },
+      {
+       "method": "SavesRootParsekDirectoryIsFootprintSignalOne",
+       "line": 136
+      },
+      {
+       "method": "SavesRootHasParsekDirectory_MissingOrEmptyRootIsNoFootprint",
+       "line": 162
+      },
+      {
+       "method": "ScenarioNodePopulatedAloneResolvesAdvanced",
+       "line": 172
+      },
+      {
+       "method": "AnyOtherStoredSettingsKeyAloneResolvesAdvanced",
+       "line": 186
+      },
+      {
+       "method": "HasAnyStoredValue_FalseOnEmptyStore",
+       "line": 199
+      },
+      {
+       "method": "ResetForTesting_ClearsStoredUiComplexityMode",
+       "line": 206
+      },
+      {
+       "method": "OutOfRangeStoredValueResolvesToAdvanced",
+       "line": 218
+      },
+      {
+       "method": "TypedAccessorRoundTripsInRangeValues",
+       "line": 228
+      },
+      {
+       "method": "RawFieldDefaultIsAdvancedFailOpen",
+       "line": 243
+      },
+      {
+       "method": "ModeChangeLogsTransition",
+       "line": 257
+      },
+      {
+       "method": "ModeChangeToTheActiveModeIsANoOp",
+       "line": 275
+      },
+      {
+       "method": "SeamQueuesPendingWithoutLatchingTheAppliedMode",
+       "line": 298
+      },
+      {
+       "method": "ApplyIsIdempotentAfterTheFirstLatch",
+       "line": 326
+      },
+      {
+       "method": "ApplyWithNothingPendingIsSilent",
+       "line": 345
+      },
+      {
+       "method": "PendingModeEqualToTheAppliedModeCollapsesToNoTransition",
+       "line": 357
+      },
+      {
+       "method": "ApplyingBasicClampsTheMissionsWindowTab",
+       "line": 380
+      },
+      {
+       "method": "FirstRunDefaultResolvedLogsSignalsModeAndPersisted",
+       "line": 440
+      },
+      {
+       "method": "FirstRunDefaultResolvedLogsBasicWhenNoSignalFired",
+       "line": 457
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "StateVectorWorldFrameTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Absolute_UsesSurfaceLookup_ReturnsLookupResult",
+       "line": 79
+      },
+      {
+       "method": "Relative_FormatV6_UsesAnchorPosPlusRotatedOffset_NotSurfaceLookup",
+       "line": 116
+      },
+      {
+       "method": "Relative_FormatV6_AnchorRotated90Y_OffsetRotatesIntoWorldFrame",
+       "line": 158
+      },
+      {
+       "method": "Relative_AnchorNotFound_ReturnsUnresolvedWithReason",
+       "line": 196
+      },
+      {
+       "method": "RetryPolicy_RelativeAnchorMiss_IsRetryable",
+       "line": 225
+      },
+      {
+       "method": "RetryPolicy_NonRelativeMiss_IsNotRetryable",
+       "line": 239
+      },
+      {
+       "method": "OrbitalCheckpoint_ReturnsUnresolvedWithReason",
+       "line": 257
+      },
+      {
+       "method": "OrbitalCheckpoint_ExplicitSoiGapRecovery_UsesSurfaceLookup",
+       "line": 285
+      },
+      {
+       "method": "NoSection_FallsBackToAbsoluteSurfaceLookup",
+       "line": 323
+      },
+      {
+       "method": "Absolute_vs_Relative_SameData_DifferentWorldPositions",
+       "line": 358
+      },
+      {
+       "method": "EveryBranch_PopulatesBranchTagForLogging",
+       "line": 416
+      },
+      {
+       "method": "BodyFixedPrimary_UsesShadowSurfaceLookup_ReturnsLookupResult",
+       "line": 455
+      },
+      {
+       "method": "BodyFixedPrimary_NullShadow_FallsThroughToRelativeBranch",
+       "line": 510
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

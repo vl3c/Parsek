@@ -1,0 +1,123 @@
+{
+ "batch_id": "recording-tree-013",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "RecordingStorageRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1095,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SnapshotSidecar_OversizedLengthField_IsRejectedBeforeAllocation",
+       "line": 1095
+      },
+      {
+       "method": "LoadRecordingFiles_InvalidVesselSnapshot_MarksSidecarLoadFailure",
+       "line": 1120
+      },
+      {
+       "method": "LoadRecordingFiles_BadGhostSnapshot_DoesNotFallBackToVesselSnapshot",
+       "line": 1164
+      },
+      {
+       "method": "SaveRecordingFiles_FailedGhostWrite_RollsBackOnDiskSidecars_AndLaterRewriteHeals",
+       "line": 1220
+      },
+      {
+       "method": "SaveRecordingFiles_FirstWriteFailureAfterTrajectoryCommit_RollsBackNewFiles",
+       "line": 1312
+      },
+      {
+       "method": "RecordingSidecarStore_SaveRecordingFilesToPaths_WritesAuthoritativeSidecarsAndClearsDirty",
+       "line": 1342
+      },
+      {
+       "method": "RecordingSidecarStore_LoadRecordingFilesFromPaths_PreservesHydratedTrajectoryOnSnapshotFailure",
+       "line": 1376
+      },
+      {
+       "method": "SaveRecordingFiles_ReadableMirrorsDisabled_DeletesExistingMirrorFiles",
+       "line": 1420
+      },
+      {
+       "method": "ReconcileReadableMirrorsToPaths_DisabledDeletesExistingMirrors_WithoutRewritingAuthoritativeSidecars",
+       "line": 1460
+      },
+      {
+       "method": "ReconcileReadableMirrorsToPaths_UsesPreservedAuthoritativeVesselSnapshot_WhenInMemorySnapshotIsNull",
+       "line": 1509
+      },
+      {
+       "method": "SaveRecordingFiles_LogsReadableVesselSource_WhenMirrorUsesPreservedAuthoritativeSnapshot",
+       "line": 1546
+      },
+      {
+       "method": "SaveRecordingFiles_ReadableMirrorFailure_DoesNotRollBackAuthoritativeSidecars",
+       "line": 1582
+      },
+      {
+       "method": "ApplyStagedSidecarChanges_DeleteExistingRollback_RestoresOriginalGhostFile",
+       "line": 1638
+      },
+      {
+       "method": "CurrentBinaryTrajectorySidecar_IsSmallerThanReadableTextMirror",
+       "line": 1667
+      },
+      {
+       "method": "CurrentBinaryTrajectorySidecar_UsesSparseBinaryEncoding",
+       "line": 1698
+      },
+      {
+       "method": "SparseBinaryTrajectorySidecar_RoundTripsStableBodyAndCareerDefaultsExactly",
+       "line": 1718
+      },
+      {
+       "method": "TrajectorySidecarBinary_TryProbe_FileShorterThanMagic_ReturnsFalse",
+       "line": 2163
+      },
+      {
+       "method": "TrajectorySidecarBinary_TryProbe_PartialMagic_ReturnsFalse",
+       "line": 2177
+      },
+      {
+       "method": "TrajectorySidecarBinary_TryProbe_MagicButHeaderBodyTruncated_ReturnsFalse",
+       "line": 2190
+      },
+      {
+       "method": "TrajectorySidecarBinary_Read_PointListCountExceedsRemainingBytes_ThrowsInvalidData",
+       "line": 2209
+      },
+      {
+       "method": "TrajectorySidecarBinary_Read_SparsePointListFlagPresent_TruncatedMidPoint_ThrowsInvalidData",
+       "line": 2250
+      },
+      {
+       "method": "TrajectorySidecarBinary_Read_ValidHeaderWithZeroPoints_ReturnsEmptyRecording",
+       "line": 2288
+      },
+      {
+       "method": "SparseBinaryTrajectorySidecar_AllPresentAbsentCombinations_RoundTripLossless",
+       "line": 2333
+      },
+      {
+       "method": "SparseBinaryTrajectorySidecar_BodyDefaultWithFundsOverride_MixedCase_RoundTripLossless",
+       "line": 2352
+      },
+      {
+       "method": "SparseBinaryTrajectorySidecar_NoFieldsShareDefaults_UsesDenseListFlag_RoundTripLossless",
+       "line": 2399
+      },
+      {
+       "method": "CodecRoundTripMatrix_EveryFormatPreservesSemanticsAndBoundaryPairs",
+       "line": 2495
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

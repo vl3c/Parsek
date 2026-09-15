@@ -1,0 +1,207 @@
+{
+ "batch_id": "spawn-vessel-016",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "SelectiveSpawnUITests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsSpawnCandidate_AllConditionsMet_True",
+       "line": 32
+      },
+      {
+       "method": "IsSpawnCandidate_PastEndUT_False",
+       "line": 42
+      },
+      {
+       "method": "IsSpawnCandidate_NoSpawnNeeded_False",
+       "line": 52
+      },
+      {
+       "method": "IsSpawnCandidate_ChainSuppressed_False",
+       "line": 62
+      },
+      {
+       "method": "IsSpawnCandidate_OutsideRadius_False",
+       "line": 72
+      },
+      {
+       "method": "IsSpawnCandidate_AtExactRadius_True",
+       "line": 82
+      },
+      {
+       "method": "IsSpawnCandidate_EndUTEqualsCurrentUT_False",
+       "line": 92
+      },
+      {
+       "method": "IsSpawnCandidate_AboveMaxRelativeSpeed_False",
+       "line": 102
+      },
+      {
+       "method": "IsSpawnCandidate_AtExactMaxRelativeSpeed_True",
+       "line": 112
+      },
+      {
+       "method": "IsSpawnCandidate_ZeroRelativeSpeed_True",
+       "line": 122
+      },
+      {
+       "method": "ComputeRelativeSpeed_StationKeeping_ReturnsZero",
+       "line": 134
+      },
+      {
+       "method": "ComputeRelativeSpeed_FrameShift_Cancels",
+       "line": 148
+      },
+      {
+       "method": "ComputeRelativeSpeed_ApproachingAt3MperS_Returns3",
+       "line": 164
+      },
+      {
+       "method": "ComputeRelativeSpeed_DtTooShort_ReturnsInfinity",
+       "line": 178
+      },
+      {
+       "method": "ComputeRelativeSpeed_DtTooLong_ReturnsInfinity",
+       "line": 187
+      },
+      {
+       "method": "ComputeRelativeSpeed_NegativeDt_ReturnsInfinity",
+       "line": 197
+      },
+      {
+       "method": "FindNextSpawnCandidate_ReturnsEarliestFuture",
+       "line": 208
+      },
+      {
+       "method": "FindNextSpawnCandidate_AllPast_ReturnsNull",
+       "line": 224
+      },
+      {
+       "method": "FindNextSpawnCandidate_Empty_ReturnsNull",
+       "line": 236
+      },
+      {
+       "method": "FindNextSpawnCandidate_Null_ReturnsNull",
+       "line": 243
+      },
+      {
+       "method": "FindNextSpawnCandidate_EndUTEqualsCurrentUT_ReturnsNull",
+       "line": 249
+      },
+      {
+       "method": "FindNextSpawnCandidate_FarButSlow_SkippedInFavorOfInnerCandidate",
+       "line": 260
+      },
+      {
+       "method": "FindNextSpawnCandidate_OnlyFarSlowCandidate_ReturnsNull",
+       "line": 290
+      },
+      {
+       "method": "FormatTimeDelta_UnderMinute",
+       "line": 311
+      },
+      {
+       "method": "FormatTimeDelta_UnderHour",
+       "line": 317
+      },
+      {
+       "method": "FormatTimeDelta_OverHour",
+       "line": 323
+      },
+      {
+       "method": "FormatTimeDelta_Negative_Clamps",
+       "line": 329
+      },
+      {
+       "method": "FormatTimeDelta_Zero",
+       "line": 335
+      },
+      {
+       "method": "FormatCountdown_SecondsOnly",
+       "line": 343
+      },
+      {
+       "method": "FormatCountdown_MinutesAndSeconds",
+       "line": 349
+      },
+      {
+       "method": "FormatCountdown_HoursMinutesSeconds",
+       "line": 355
+      },
+      {
+       "method": "FormatCountdown_DaysHoursMinutesSeconds",
+       "line": 361
+      },
+      {
+       "method": "FormatCountdown_YearsDaysHours",
+       "line": 367
+      },
+      {
+       "method": "FormatCountdown_HidesLeadingZeros",
+       "line": 373
+      },
+      {
+       "method": "FormatCountdown_Negative_ShowsTPlus",
+       "line": 380
+      },
+      {
+       "method": "FormatCountdown_Zero",
+       "line": 386
+      },
+      {
+       "method": "FormatCountdown_KerbinTime_DaysUse6HourDay",
+       "line": 394
+      },
+      {
+       "method": "FormatCountdown_KerbinTime_YearsUse426Days",
+       "line": 402
+      },
+      {
+       "method": "FormatCountdown_KerbinTime_MixedComponents",
+       "line": 411
+      },
+      {
+       "method": "FormatCountdown_EarthTime_DaysUse24HourDay",
+       "line": 419
+      },
+      {
+       "method": "FormatCountdown_LargeValue_NoIntOverflow",
+       "line": 427
+      },
+      {
+       "method": "FormatNextSpawnTooltip_HasCandidate",
+       "line": 439
+      },
+      {
+       "method": "FormatNextSpawnTooltip_DepartingCandidate_UsesDepartAction",
+       "line": 450
+      },
+      {
+       "method": "FormatNextSpawnTooltip_NullCandidate",
+       "line": 468
+      },
+      {
+       "method": "FormatProximityNotification_Reachable_NamesTheWindow",
+       "line": 481
+      },
+      {
+       "method": "FormatProximityNotification_Unreachable_DropsTheInstruction",
+       "line": 493
+      },
+      {
+       "method": "FormatProximityNotification_Departing_KeepsTheDepartureFactsInBothModes",
+       "line": 504
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

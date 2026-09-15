@@ -1,0 +1,279 @@
+{
+ "batch_id": "logistics-route-038",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "RouteDockCaptureMathTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Transfer_WhenBothSidesAllowIt_MovesTheRequestedAmount",
+       "line": 18
+      },
+      {
+       "method": "Transfer_ClampsToWhatTheSourceHolds",
+       "line": 24
+      },
+      {
+       "method": "Transfer_ClampsToTheDestinationFreeCapacity",
+       "line": 30
+      },
+      {
+       "method": "Transfer_EmptySourceMovesNothing",
+       "line": 36
+      },
+      {
+       "method": "Transfer_FullDestinationMovesNothing",
+       "line": 42
+      },
+      {
+       "method": "Transfer_DegenerateInputsClampToZero",
+       "line": 54
+      },
+      {
+       "method": "ExternalParent_TrueOnlyWhenTheParentVesselIsAnotherVessel",
+       "line": 67
+      },
+      {
+       "method": "ExternalParent_FalseOnEveryOtherShape",
+       "line": 80
+      },
+      {
+       "method": "ProbeLine_CarriesEveryMeasuredFactInAStableOrder",
+       "line": 92
+      },
+      {
+       "method": "ProbeLine_BoundTokenIsAppended_SoThePreP12PrefixIsUnchanged",
+       "line": 103
+      },
+      {
+       "method": "ProbeLine_CapturedBranchReadsTrue",
+       "line": 117
+      },
+      {
+       "method": "ProbeLine_MissingOutcomeStillFormats",
+       "line": 127
+      },
+      {
+       "method": "StartDockedOriginLine_HasTheFixedFieldOrderTheSpecPins",
+       "line": 138
+      },
+      {
+       "method": "StartDockedOriginLine_NegativeControlShapeStillCarriesEveryField",
+       "line": 151
+      },
+      {
+       "method": "StartDockedOriginLine_EmptyRunAndDetailAreNamedRatherThanBlank",
+       "line": 169
+      },
+      {
+       "method": "PassLine_HasTheFixedFieldOrderTheSpecPins",
+       "line": 184
+      },
+      {
+       "method": "PassLine_EmptyDetailIsNamedRatherThanBlank",
+       "line": 197
+      },
+      {
+       "method": "Drift_ContractHeldWhenWarnFiredWindowClosedAndPartUnmanifested",
+       "line": 209
+      },
+      {
+       "method": "Drift_IncompleteWindowIsNamedFirst",
+       "line": 217
+      },
+      {
+       "method": "Drift_MissingWarningIsNamed",
+       "line": 228
+      },
+      {
+       "method": "Drift_PartLeakingIntoAManifestIsNamed",
+       "line": 236
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RouteLinePaintArbitrationSourceGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DeactivationSweep_RetiresTheHiddenLegsPaintMembership",
+       "line": 44
+      },
+      {
+       "method": "LegLineRebuild_RetiresThePaintMembershipItJustDestroyed",
+       "line": 53
+      },
+      {
+       "method": "DrawAll_ConsumesBothArbitrationArms",
+       "line": 68
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteEndpointRootIdResolutionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RootMatch_FindsTheVesselCarryingThatRootPart",
+       "line": 40
+      },
+      {
+       "method": "RootMatch_IsNotPositional_ADistantDepotStillWins",
+       "line": 56
+      },
+      {
+       "method": "NoRootMatch_FallsThroughSoProximityCanRun",
+       "line": 75
+      },
+      {
+       "method": "ZeroRootId_SkipsTheStepEntirely",
+       "line": 93
+      },
+      {
+       "method": "GhostMapVessels_AreExcluded",
+       "line": 110
+      },
+      {
+       "method": "TwoVesselsSharingARootFlightId_TakeTheFirstAndSaySo",
+       "line": 126
+      },
+      {
+       "method": "EmptyOrNullSnapshots_MissCleanly",
+       "line": 148
+      },
+      {
+       "method": "RouteBuilderStampsTheRootIdOntoTheOriginEndpoint_AndItRoundTrips",
+       "line": 161
+      },
+      {
+       "method": "EndpointWithoutARootId_OmitsTheKey_SoOldRoutesRoundTripByteIdentically",
+       "line": 185
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsCapacityContextTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatCapacityContext_FullTank_ZeroFree",
+       "line": 35
+      },
+      {
+       "method": "FormatCapacityContext_PartialFree",
+       "line": 49
+      },
+      {
+       "method": "FormatCapacityContext_MultiResource_OrdinalSorted",
+       "line": 63
+      },
+      {
+       "method": "FormatCapacityContext_InvariantCulture_NoCommaDecimal",
+       "line": 79
+      },
+      {
+       "method": "FormatCapacityContext_NullOrEmptyEntries_CapacityUnknown",
+       "line": 95
+      },
+      {
+       "method": "FormatCapacityContext_NullName_FallsBackToDestination",
+       "line": 107
+      },
+      {
+       "method": "ShouldOfferEndpointRescan_SurfaceLostWithBody_True",
+       "line": 130
+      },
+      {
+       "method": "ShouldOfferEndpointRescan_OrbitalLost_False",
+       "line": 140
+      },
+      {
+       "method": "ShouldOfferEndpointRescan_SurfaceLostNoBody_False",
+       "line": 149
+      },
+      {
+       "method": "ShouldOfferEndpointRescan_NonEndpointLost_False",
+       "line": 164
+      },
+      {
+       "method": "RescanIneligibleReason_OrbitalVsNoBody_Distinct",
+       "line": 179
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteDiscardObservabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Window_MinMaxOverRecordings",
+       "line": 48
+      },
+      {
+       "method": "Window_SkipsNullAndBoundslessPlaceholders",
+       "line": 63
+      },
+      {
+       "method": "Window_EmptyOrAllPlaceholdersReturnsFalse",
+       "line": 79
+      },
+      {
+       "method": "Window_SkipsStartOnlyInvertedRecording",
+       "line": 88
+      },
+      {
+       "method": "Summarize_RewindBacked_ReportsNothing",
+       "line": 114
+      },
+      {
+       "method": "Summarize_NonRewind_CountsOnlyPhysicalRowsInWindow",
+       "line": 129
+      },
+      {
+       "method": "Summarize_OnlyFundsOrMarkerRows_ReportsNothing",
+       "line": 150
+      },
+      {
+       "method": "Report_EmitsWarnForLeak",
+       "line": 170
+      },
+      {
+       "method": "Report_RewindBacked_NoWarn",
+       "line": 190
+      },
+      {
+       "method": "Report_NoWindow_NoWarn",
+       "line": 209
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

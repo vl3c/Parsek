@@ -1,0 +1,298 @@
+{
+ "batch_id": "catchall-058",
+ "cluster": "catchall",
+ "tier": "C",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "ResolveLoopIntervalWarnDedupeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DegenerateInterval_HundredCalls_SameRecording_EmitsExactlyOneWarning",
+       "line": 49
+      },
+      {
+       "method": "DegenerateInterval_HundredCallsEach_TwoRecordings_EmitsExactlyTwoWarnings",
+       "line": 73
+      },
+      {
+       "method": "DegenerateInterval_DedupesOnRecordingId_EvenWhenVesselNamesCollide",
+       "line": 106
+      },
+      {
+       "method": "DegenerateInterval_FallsBackToVesselName_WhenRecordingIdMissing",
+       "line": 135
+      },
+      {
+       "method": "HealthyInterval_DoesNotWarn_AndDoesNotConsumeDedupeSlot",
+       "line": 156
+      },
+      {
+       "method": "ResetForTesting_AllowsWarningToFireAgain",
+       "line": 173
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReviewFollowupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PopulateTerminalOrbitFromLastSegment_EmptyBody_FallsBack",
+       "line": 56
+      },
+      {
+       "method": "PopulateTerminalOrbitFromLastSegment_NullOrbitSegments_LeavesEmpty",
+       "line": 88
+      },
+      {
+       "method": "TimeRegressionThreshold_IsOneSecond",
+       "line": 117
+      },
+      {
+       "method": "TrimRecordingToUT_UsesInvariantCultureForLogging",
+       "line": 126
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ResolveParentVesselPidTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolvesParentPid_FromCommittedTree",
+       "line": 38
+      },
+      {
+       "method": "ReturnsZero_WhenNoParentRecordingId",
+       "line": 73
+      },
+      {
+       "method": "ReturnsZero_WhenNoTreeId",
+       "line": 89
+      },
+      {
+       "method": "ReturnsZero_WhenTreeNotFound",
+       "line": 105
+      },
+      {
+       "method": "ReturnsZero_WhenParentRecordingNotInTree",
+       "line": 121
+      },
+      {
+       "method": "ReturnsZero_WhenParentHasNoPid",
+       "line": 156
+      },
+      {
+       "method": "ReturnsZero_WhenNullRecording",
+       "line": 191
+      },
+      {
+       "method": "LogsParentResolution",
+       "line": 198
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ForegroundMonotonicityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_EmptyBuffer_Appends",
+       "line": 28
+      },
+      {
+       "method": "Classify_MonotonicIncreasing_Appends",
+       "line": 35
+      },
+      {
+       "method": "Classify_EqualUT_Appends",
+       "line": 42
+      },
+      {
+       "method": "Classify_LargeRegression_TrimsThenAppends",
+       "line": 50
+      },
+      {
+       "method": "Classify_SubThresholdRegression_Rejects",
+       "line": 58
+      },
+      {
+       "method": "Classify_RegressionExactlyAtThreshold_Rejects",
+       "line": 69
+      },
+      {
+       "method": "Classify_RegressionJustPastThreshold_Trims",
+       "line": 80
+      },
+      {
+       "method": "Drop_Null_ReturnsZero",
+       "line": 91
+      },
+      {
+       "method": "Drop_SinglePoint_ReturnsZero",
+       "line": 97
+      },
+      {
+       "method": "Drop_AlreadyMonotonic_ReturnsZeroAndPreservesOrder",
+       "line": 105
+      },
+      {
+       "method": "Drop_CapturedCorruptShape_DropsTheBackwardsPoint",
+       "line": 119
+      },
+      {
+       "method": "Drop_MultipleBackwardsPoints_DropsAllAndStaysMonotonic",
+       "line": 147
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestBatchMarkerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Reconcile_NullMarker_NoMarker",
+       "line": 16
+      },
+      {
+       "method": "Reconcile_NoBackupPath_False",
+       "line": 26
+      },
+      {
+       "method": "Reconcile_SaveFolderMismatch_False",
+       "line": 42
+      },
+      {
+       "method": "Reconcile_SameProcess_NoCrash_False",
+       "line": 58
+      },
+      {
+       "method": "Reconcile_DifferentProcess_SaveMatch_BackupPresent_True",
+       "line": 74
+      },
+      {
+       "method": "RoundTrip_AllFieldsSurvive",
+       "line": 92
+      },
+      {
+       "method": "RoundTrip_AbsentFields_DefaultToNull",
+       "line": 121
+      },
+      {
+       "method": "RoundTrip_ParsekSnapshotDir_PresentSurvives",
+       "line": 148
+      },
+      {
+       "method": "RoundTrip_ParsekSnapshotDir_DiskOnlyAbsent_RoundTripsNull",
+       "line": 165
+      },
+      {
+       "method": "NodeName_IsStable",
+       "line": 185
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TransferWindowMathTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "HohmannPhaseAngle_EarthToMars_About44Degrees",
+       "line": 20
+      },
+      {
+       "method": "HohmannPhaseAngle_KerbinToDuna_About44Degrees",
+       "line": 28
+      },
+      {
+       "method": "HohmannTransferTime_EarthToMars_About259Days",
+       "line": 35
+      },
+      {
+       "method": "SynodicPeriod_EarthToMars_About780Days",
+       "line": 43
+      },
+      {
+       "method": "SynodicPeriod_KerbinToDuna_About2Point1KerbinYears",
+       "line": 51
+      },
+      {
+       "method": "SynodicPeriod_EqualOrDegeneratePeriods_Infinity",
+       "line": 59
+      },
+      {
+       "method": "TimeToNextWindow_PhaseAlreadyAtTarget_IsZero",
+       "line": 67
+      },
+      {
+       "method": "TimeToNextWindow_JustMissed_WrapsToNearlyAFullSynodic",
+       "line": 75
+      },
+      {
+       "method": "TimeToNextWindow_EqualPeriods_Infinity",
+       "line": 86
+      },
+      {
+       "method": "NextDepartureUT_AddsTimeToNextWindow",
+       "line": 93
+      },
+      {
+       "method": "NextDepartureUT_DegeneratePeriods_NaN",
+       "line": 102
+      },
+      {
+       "method": "ClampDegrees360_WrapsIntoZeroTo360",
+       "line": 114
+      },
+      {
+       "method": "ClampDegrees180_WrapsIntoMinus180To180",
+       "line": 124
+      },
+      {
+       "method": "DegenerateSmas_ReturnNaN",
+       "line": 130
+      },
+      {
+       "method": "LongitudeOfPeriapsis_SumsAndWraps",
+       "line": 146
+      },
+      {
+       "method": "LongitudeOfPeriapsis_NaNPropagates",
+       "line": 152
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

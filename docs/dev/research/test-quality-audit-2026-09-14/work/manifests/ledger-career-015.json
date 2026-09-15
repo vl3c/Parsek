@@ -1,0 +1,271 @@
+{
+ "batch_id": "ledger-career-015",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 63,
+ "files": [
+  {
+   "file": "KerbalReservationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Recalculate_SingleRecording_ReservesAllCrew",
+       "line": 76
+      },
+      {
+       "method": "Recalculate_RecoveredCrew_TemporaryReservation",
+       "line": 90
+      },
+      {
+       "method": "Recalculate_DeadCrew_PermanentReservation",
+       "line": 103
+      },
+      {
+       "method": "Recalculate_MultipleRecordings_MaxEndUT",
+       "line": 116
+      },
+      {
+       "method": "Recalculate_AboardCrew_OpenEndedReservation",
+       "line": 131
+      },
+      {
+       "method": "Recalculate_OrbitingCrew_OpenEndedReservation",
+       "line": 146
+      },
+      {
+       "method": "Recalculate_NoCrewRecording_NoReservations",
+       "line": 160
+      },
+      {
+       "method": "Recalculate_SkipsLoopRecordings",
+       "line": 181
+      },
+      {
+       "method": "Recalculate_DisabledChain_StillReservesCrew",
+       "line": 194
+      },
+      {
+       "method": "Recalculate_NullCrewEndStates_DefaultsToAboard",
+       "line": 212
+      },
+      {
+       "method": "Recalculate_MixedDeadAndRecovered_PermanentWins",
+       "line": 239
+      },
+      {
+       "method": "Recalculate_TemporaryReservation_CreatesSlot",
+       "line": 259
+      },
+      {
+       "method": "Recalculate_TemporaryReservation_ChainHasNullPlaceholder",
+       "line": 272
+      },
+      {
+       "method": "Recalculate_PermanentReservation_NoNewSlotChain",
+       "line": 286
+      },
+      {
+       "method": "Recalculate_PermanentReservation_WithExistingChain_HasNoActiveStandIn",
+       "line": 302
+      },
+      {
+       "method": "Recalculate_RemovedPermanentReservation_ClearsOwnerPermanentlyGone",
+       "line": 325
+      },
+      {
+       "method": "Recalculate_ExistingChainEntry_Reused",
+       "line": 345
+      },
+      {
+       "method": "Recalculate_ChainStandInAlsoReserved_ExtendsChain",
+       "line": 370
+      },
+      {
+       "method": "GetActiveOccupant_OwnerFree_ReturnsOwner",
+       "line": 402
+      },
+      {
+       "method": "GetActiveOccupant_OwnerReserved_ReturnsChainStandIn",
+       "line": 409
+      },
+      {
+       "method": "GetActiveOccupant_FirstFreeStandInReclaimsFromDeeperFreeStandIn",
+       "line": 432
+      },
+      {
+       "method": "GetActiveOccupant_AllReserved_ReturnsNull",
+       "line": 456
+      },
+      {
+       "method": "GetReservationKind_UnmanagedKerbal_ReturnsNotManaged",
+       "line": 483
+      },
+      {
+       "method": "GetReservationKind_ReservedOwner_ReturnsReservedActive",
+       "line": 493
+      },
+      {
+       "method": "GetReservationKind_ActiveStandIn_ReturnsNotManaged",
+       "line": 504
+      },
+      {
+       "method": "GetReservationKind_AllReservedPrefix_ReturnsReservedActive",
+       "line": 527
+      },
+      {
+       "method": "GetReservationKind_PermanentReservationNoActiveStandIn_ReturnsReservedActiveForOwner",
+       "line": 553
+      },
+      {
+       "method": "GetReservationKind_DisplacedUsedStandIn_ReturnsReservedRetired",
+       "line": 576
+      },
+      {
+       "method": "IsManaged_ReservedKerbal_ReturnsTrue",
+       "line": 623
+      },
+      {
+       "method": "IsManaged_UnmanagedKerbal_ReturnsFalse",
+       "line": 634
+      },
+      {
+       "method": "IsManaged_StandInKerbal_ReturnsTrue",
+       "line": 641
+      },
+      {
+       "method": "IsKerbalInAnyRecording_Present_ReturnsTrue",
+       "line": 658
+      },
+      {
+       "method": "IsKerbalInAnyRecording_Absent_ReturnsFalse",
+       "line": 669
+      },
+      {
+       "method": "IsKerbalInAnyRecording_SkipsLoopRecordings",
+       "line": 680
+      },
+      {
+       "method": "FindTraitForKerbal_NoRoster_ReturnsPilot",
+       "line": 692
+      },
+      {
+       "method": "FindTraitForKerbal_FallsBackToLatestBaselineTrait",
+       "line": 699
+      },
+      {
+       "method": "ProcessAction_TouristKerbalAssignment_IsIgnored",
+       "line": 713
+      },
+      {
+       "method": "ComputeRetiredSet_DisplacedUsedStandIn_IsRetired",
+       "line": 743
+      },
+      {
+       "method": "ComputeRetiredSet_StandInNotUsed_NotRetired",
+       "line": 772
+      },
+      {
+       "method": "ComputeRetiredSet_FreeIntermediateDisplacesUsedDeeperStandIn",
+       "line": 792
+      },
+      {
+       "method": "ApplyToRoster_DisplacedUnusedStandIn_IsNotRecreated",
+       "line": 842
+      },
+      {
+       "method": "ApplyToRoster_DisplacedRetiredStandIn_IsStillRecreated",
+       "line": 872
+      },
+      {
+       "method": "Recalculate_RepairedStandInRecording_StillRetiresHistoricalStandIn",
+       "line": 906
+      },
+      {
+       "method": "SaveSlots_LoadSlots_RoundTrip",
+       "line": 961
+      },
+      {
+       "method": "LoadSlots_EmptyParent_ClearsSlots",
+       "line": 1003
+      },
+      {
+       "method": "Migration_OldCrewReplacements_LoadsAsChainDepth0",
+       "line": 1022
+      },
+      {
+       "method": "Migration_PreferNewFormat_OverLegacy",
+       "line": 1040
+      },
+      {
+       "method": "SaveSlots_NoSlots_DoesNotCreateNode",
+       "line": 1067
+      },
+      {
+       "method": "Recalculate_LogsReservationCount",
+       "line": 1079
+      },
+      {
+       "method": "Recalculate_LogsSlotCount",
+       "line": 1092
+      },
+      {
+       "method": "IsKerbalAvailable_LogsReservedStatus",
+       "line": 1105
+      },
+      {
+       "method": "IsKerbalAvailable_LogsAvailableStatus",
+       "line": 1119
+      },
+      {
+       "method": "LoadSlots_LogsMigrationCount",
+       "line": 1129
+      },
+      {
+       "method": "SaveSlots_LogsSaveCount",
+       "line": 1145
+      },
+      {
+       "method": "MiaRespawnOverride_DeadKerbal_StaysReservedAcrossRecalculations",
+       "line": 1172
+      },
+      {
+       "method": "MiaRespawnOverride_RecoveredKerbal_StaysReservedUntilEndUT",
+       "line": 1199
+      },
+      {
+       "method": "MiaRespawnOverride_NonReservedKerbal_NotAffected",
+       "line": 1215
+      },
+      {
+       "method": "MiaRespawnOverride_DeadKerbal_SurvivesMultipleRecalculations",
+       "line": 1239
+      },
+      {
+       "method": "MiaRespawnOverride_MixedCrew_OnlyReservedAffected",
+       "line": 1263
+      },
+      {
+       "method": "ApplyToRoster_TombstonedAvailableRosterKerbal_Removed",
+       "line": 1313
+      },
+      {
+       "method": "ApplyToRoster_TombstonedRosterKerbalStillCreatedByELS_Preserved",
+       "line": 1330
+      },
+      {
+       "method": "ApplyToRoster_TombstonedNonAvailableRosterKerbal_Skipped",
+       "line": 1353
+      },
+      {
+       "method": "ResetForTesting_ClearsAllState",
+       "line": 1372
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

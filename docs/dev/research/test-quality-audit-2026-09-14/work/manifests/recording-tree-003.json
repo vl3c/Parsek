@@ -1,0 +1,275 @@
+{
+ "batch_id": "recording-tree-003",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 64,
+ "files": [
+  {
+   "file": "RecordingOptimizerTests.cs",
+   "ranges": [
+    {
+     "start": 2602,
+     "end": 4182,
+     "methods": [
+      {
+       "method": "SplitAtSection_CopiesRecordingFormatVersion",
+       "line": 2602
+      },
+      {
+       "method": "SplitAtSection_CopiesGeneration",
+       "line": 2614
+      },
+      {
+       "method": "RunOptimizationPass_SplitsMultiEnvRecording",
+       "line": 2633
+      },
+      {
+       "method": "RunOptimizationPass_SplitAssignsChainIdAndIndexes",
+       "line": 2663
+      },
+      {
+       "method": "RunOptimizationPass_SplitsTreeRecordingsAtEnvBoundary",
+       "line": 2687
+      },
+      {
+       "method": "RunOptimizationPass_SplitDerivesSegmentBodyNameFromPoints",
+       "line": 2724
+      },
+      {
+       "method": "RunOptimizationPass_SplitsTreeRecordingAndUpdatesBranchPoint",
+       "line": 2747
+      },
+      {
+       "method": "RunOptimizationPass_SplitKeepsBranchPointOnFirstHalfWhenBranchUTPrecedesSplit",
+       "line": 2805
+      },
+      {
+       "method": "RunOptimizationPass_SingleEnvNotSplit",
+       "line": 2849
+      },
+      {
+       "method": "RunOptimizationPass_SplitIsIdempotent",
+       "line": 2870
+      },
+      {
+       "method": "RunOptimizationPass_SplitCopiesPreLaunchBudget",
+       "line": 2898
+      },
+      {
+       "method": "RunOptimizationPass_SplitCopiesRecordingGroups",
+       "line": 2924
+      },
+      {
+       "method": "RunOptimizationPass_DoesNotSetParentRecordingId",
+       "line": 2950
+      },
+      {
+       "method": "SplitAtSection_PointExactlyAtSplitUT_NoExtraPointCreated",
+       "line": 2976
+      },
+      {
+       "method": "SplitAtSection_PointExactlyAtSplitUT_FirstHalfEndsBeforeBoundary",
+       "line": 2995
+      },
+      {
+       "method": "SplitAtSection_ZeroPoints_HandlesGracefully",
+       "line": 3012
+      },
+      {
+       "method": "SplitAtSection_ZeroPoints_PreservesEnvironmentTags",
+       "line": 3041
+      },
+      {
+       "method": "SplitAtSection_AllPointsBeforeSplitUT_SecondHalfEmpty",
+       "line": 3067
+      },
+      {
+       "method": "PopulateLoopSync_LinksDebrisToParent",
+       "line": 3115
+      },
+      {
+       "method": "PopulateLoopSync_NonDebrisGetsMinusOne",
+       "line": 3145
+      },
+      {
+       "method": "PopulateLoopSync_DebrisWithoutMatchingParent_GetsMinusOne",
+       "line": 3164
+      },
+      {
+       "method": "PopulateLoopSync_DebrisWithoutTreeId_GetsMinusOne",
+       "line": 3184
+      },
+      {
+       "method": "PopulateLoopSync_MultipleDebris_LinkToCorrectParents",
+       "line": 3203
+      },
+      {
+       "method": "Issue316_PopulateLoopSync_LateDebrisAfterWatchedSegment_GetsMinusOne",
+       "line": 3241
+      },
+      {
+       "method": "FindLastInterestingUT_LastNonBoringSectionEnd",
+       "line": 3316
+      },
+      {
+       "method": "FindLastInterestingUT_PartEventAfterBoringSectionStart",
+       "line": 3328
+      },
+      {
+       "method": "FindLastInterestingUT_ZeroThrottleEngineSeedInBoringTail_Ignored",
+       "line": 3341
+      },
+      {
+       "method": "FindLastInterestingUT_SegmentEventTakesMaximum",
+       "line": 3362
+      },
+      {
+       "method": "FindLastInterestingUT_FlagEventTakesMaximum",
+       "line": 3375
+      },
+      {
+       "method": "FindLastInterestingUT_AllBoring_ReturnsNaN",
+       "line": 3388
+      },
+      {
+       "method": "FindLastInterestingUT_NoSections_ReturnsNaN",
+       "line": 3398
+      },
+      {
+       "method": "FindLastInterestingUT_NoBoringTail_ReturnsLastSectionEnd",
+       "line": 3405
+      },
+      {
+       "method": "IsLeafRecording_Standalone_ReturnsTrue",
+       "line": 3421
+      },
+      {
+       "method": "IsLeafRecording_HasChildBranch_ReturnsFalse",
+       "line": 3428
+      },
+      {
+       "method": "IsLeafRecording_MidChain_ReturnsFalse",
+       "line": 3435
+      },
+      {
+       "method": "IsLeafRecording_LastInChain_ReturnsTrue",
+       "line": 3443
+      },
+      {
+       "method": "IsLeafRecording_BranchNonZero_ReturnsTrue",
+       "line": 3451
+      },
+      {
+       "method": "TrimBoringTail_TrimsLongSurfaceStationaryTail",
+       "line": 3492
+      },
+      {
+       "method": "TrimBoringTail_ClampsExplicitEndUTToTrimmedBounds",
+       "line": 3506
+      },
+      {
+       "method": "TrimBoringTail_LandedStableTerminalState_StillTrims",
+       "line": 3534
+      },
+      {
+       "method": "TryGetTerminalSurfaceReference_LastPointIdentityRotation_DoesNotMarkRotationRecorded",
+       "line": 3577
+      },
+      {
+       "method": "TrimBoringTail_LandedIdleTailWithFloatJitter_StillTrims",
+       "line": 3612
+      },
+      {
+       "method": "TrimBoringTail_LandedTerminalStateChangesLater_DoesNotTrim",
+       "line": 3663
+      },
+      {
+       "method": "TrimBoringTail_TrimsExoBallisticTail",
+       "line": 3699
+      },
+      {
+       "method": "TrimBoringTail_PreservesBufferSeconds",
+       "line": 3710
+      },
+      {
+       "method": "TrimBoringTail_NoBoringTail_ReturnsFalse",
+       "line": 3724
+      },
+      {
+       "method": "TrimBoringTail_ShortRecording_ReturnsFalse",
+       "line": 3737
+      },
+      {
+       "method": "TrimBoringTail_Idempotent",
+       "line": 3749
+      },
+      {
+       "method": "TrimBoringTail_HasChildBranch_ReturnsFalse",
+       "line": 3762
+      },
+      {
+       "method": "TrimBoringTail_MidChain_ReturnsFalse",
+       "line": 3773
+      },
+      {
+       "method": "TrimBoringTail_DestroyedTerminalWithPredictedTail_RefusesTrim",
+       "line": 3789
+      },
+      {
+       "method": "TrimBoringTail_BoardedTerminal_RefusesTrim",
+       "line": 3857
+      },
+      {
+       "method": "TrimBoringTail_RecoveredTerminal_RefusesTrim",
+       "line": 3869
+      },
+      {
+       "method": "TailPreservesTerminalSpawnState_NullTerminal_AllowsTrim",
+       "line": 3881
+      },
+      {
+       "method": "TrimBoringTail_TrimsOrbitSegments",
+       "line": 3888
+      },
+      {
+       "method": "TrimBoringTail_ShortensMidSpanTrackSection",
+       "line": 3901
+      },
+      {
+       "method": "TrimBoringTail_TrimsSectionFramesAndFlatSyncDoesNotRegrowTail",
+       "line": 3914
+      },
+      {
+       "method": "TrimBoringTail_TrimsCheckpointSectionsAndFlatSyncDoesNotRegrowTail",
+       "line": 3970
+      },
+      {
+       "method": "SplitAtSection_RelativeSectionsUseFlatSync",
+       "line": 4027
+      },
+      {
+       "method": "TrimBoringTail_PreservesEventsBeforeTrimUT",
+       "line": 4074
+      },
+      {
+       "method": "TrimBoringTail_StripsEventsPastNewEndUT",
+       "line": 4090
+      },
+      {
+       "method": "TrimBoringTail_AllBoringSections_TrimsToMinimalWindow",
+       "line": 4110
+      },
+      {
+       "method": "TrimBoringTail_AllBoringSections_TooFewPoints_ReturnsFalse",
+       "line": 4127
+      },
+      {
+       "method": "TrimBoringTail_InvalidatesCachedStats",
+       "line": 4142
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

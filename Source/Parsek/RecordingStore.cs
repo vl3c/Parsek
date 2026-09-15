@@ -1257,7 +1257,14 @@ namespace Parsek
                 // Immutable-qualifies workaround currently compensates. Demote the tip so
                 // open/closed can be read directly from MergeState (plan §4.2). Tips are
                 // disjoint across slots, so this cannot cross-close another slot.
-                string tipId = slot.EffectiveRecordingId(supersedes);
+                // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: resolved with the PENDING
+                // tree as context rather than through slot.EffectiveRecordingId.
+                // The tip walk now hops VesselSwitchContinuation branch points, and
+                // reading those needs the owning tree, which is not in
+                // CommittedTrees yet at this point in CommitTree. Same id the
+                // slot-facing surface returns once the tree is committed.
+                string tipId = EffectiveState.EffectiveTipRecordingId(
+                    slot.OriginChildRecordingId, supersedes, recById: null, treeContext: tree);
                 if (!string.IsNullOrEmpty(tipId)
                     && !string.Equals(tipId, rec.RecordingId, StringComparison.Ordinal)
                     && tree.Recordings.TryGetValue(tipId, out var tipRec)
@@ -1287,7 +1294,10 @@ namespace Parsek
             if (!string.Equals(qualifyReason, "strandedEva", StringComparison.Ordinal))
                 return false;
 
-            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: this decides whether to CLOSE
+            // the slot, so it must read the terminal over the recording the slot's
+            // effective tip now resolves to (EffectiveState.EffectiveTipRecordingId).
+            Recording tip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, tree);
             if (tip == null || string.IsNullOrEmpty(tip.EvaCrewName)
                 || !tip.TerminalStateValue.HasValue)
                 return false;
@@ -1307,7 +1317,10 @@ namespace Parsek
             if (slot == null)
                 return false;
 
-            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: same walk as the decision in
+            // ShouldAutoSealStableEvaCommitSlot, so the logged terminal cannot name a
+            // different recording than the one the seal was decided on.
+            Recording tip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, tree);
             string terminal = tip?.TerminalStateValue.HasValue == true
                 ? tip.TerminalStateValue.Value.ToString()
                 : "<none>";

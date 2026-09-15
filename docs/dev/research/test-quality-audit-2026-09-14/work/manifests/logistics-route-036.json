@@ -1,0 +1,240 @@
+{
+ "batch_id": "logistics-route-036",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "Logistics/LogisticsSortPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SortRoutes_ByName_Ascending_IsCaseInsensitive",
+       "line": 86
+      },
+      {
+       "method": "SortRoutes_ByName_Descending_ReversesAscending",
+       "line": 96
+      },
+      {
+       "method": "SortRoutes_ByInterval_OrdersByDispatchInterval",
+       "line": 108
+      },
+      {
+       "method": "SortRoutes_ByCycles_OrdersByCompletedCycles",
+       "line": 118
+      },
+      {
+       "method": "SortRoutes_ByOrigin_UsesInjectedKey",
+       "line": 128
+      },
+      {
+       "method": "SortRoutes_ByDestination_UsesInjectedKey",
+       "line": 138
+      },
+      {
+       "method": "SortRoutes_ByStatus_UsesInjectedKey",
+       "line": 148
+      },
+      {
+       "method": "SortRoutes_ByDelivery_UsesInjectedKey",
+       "line": 158
+      },
+      {
+       "method": "SortRoutes_ByNextDelivery_NoCountdownSortsLastAscending",
+       "line": 168
+      },
+      {
+       "method": "SortRoutes_ByNextDelivery_DescendingPutsNoCountdownFirst",
+       "line": 178
+      },
+      {
+       "method": "SortRoutes_DoesNotMutateInput",
+       "line": 188
+      },
+      {
+       "method": "SortRoutes_NullList_ReturnsEmpty",
+       "line": 199
+      },
+      {
+       "method": "SortRoutes_NullRoutesAndNullNames_AreTolerated",
+       "line": 208
+      },
+      {
+       "method": "SortRoutes_MissingKeyEntry_FallsBackToEmptyKeysNoThrow",
+       "line": 227
+      },
+      {
+       "method": "SortRoutes_EqualPrimaryKey_TieBreaksByRouteIdDeterministically",
+       "line": 250
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteLinkMutatorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LinkRoutes_SetsBothDirections_AndResetsCursors",
+       "line": 56
+      },
+      {
+       "method": "LinkRoutes_ResetsNonZeroCursors_OnRelink",
+       "line": 72
+      },
+      {
+       "method": "LinkRoutes_SelfLink_Rejected",
+       "line": 89
+      },
+      {
+       "method": "LinkRoutes_NullOrEmptyId_Rejected",
+       "line": 105
+      },
+      {
+       "method": "LinkRoutes_UnknownId_Rejected",
+       "line": 117
+      },
+      {
+       "method": "LinkRoutes_AlreadyLinkedToDifferentRoute_Rejected",
+       "line": 130
+      },
+      {
+       "method": "LinkRoutes_RelinkSamePair_Idempotent_PreservesLiveCursors",
+       "line": 152
+      },
+      {
+       "method": "LinkRoutes_RepairsHalfLink_AndResetsCursors",
+       "line": 174
+      },
+      {
+       "method": "UnlinkRoute_ClearsBothAndResetsCursors",
+       "line": 195
+      },
+      {
+       "method": "UnlinkRoute_NotLinked_NoOp",
+       "line": 216
+      },
+      {
+       "method": "UnlinkRoute_PartnerPointsElsewhere_ClearsSelfOnly",
+       "line": 228
+      },
+      {
+       "method": "UnlinkRoute_NullOrEmpty_Rejected",
+       "line": 247
+      },
+      {
+       "method": "UnlinkRoute_UnknownId_Rejected",
+       "line": 255
+      },
+      {
+       "method": "RemoveRoute_ClearsDanglingPartnerLink",
+       "line": 267
+      },
+      {
+       "method": "RemoveRoute_StandalonePartner_SerializesSparse_ByteIdenticalToNeverLinked",
+       "line": 285
+      },
+      {
+       "method": "RemoveRoute_Unlinked_NoPartnerCleanupNoise",
+       "line": 313
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteOriginCargoCheckTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "HasRequired_AllCovered_True",
+       "line": 23
+      },
+      {
+       "method": "HasRequired_NamesFirstShortResourceOrdinal",
+       "line": 49
+      },
+      {
+       "method": "HasRequired_SkipsNonPositiveEntries",
+       "line": 76
+      },
+      {
+       "method": "HasRequired_EmptyManifest_True",
+       "line": 100
+      },
+      {
+       "method": "HasRequired_NullReader_FailsClosed",
+       "line": 112
+      },
+      {
+       "method": "HasRequired_CrpNames_CoveredAndShort",
+       "line": 128
+      },
+      {
+       "method": "RequiresInventoryDebit_NonKscWithInventory_True",
+       "line": 160
+      },
+      {
+       "method": "BuildInventoryShortToken_AbsentPart_NamesPart",
+       "line": 209
+      },
+      {
+       "method": "BuildInventoryShortToken_NearMiss_StateToken",
+       "line": 222
+      },
+      {
+       "method": "BuildInventoryShortToken_QuantityShortWithExactMatches_NotStateToken",
+       "line": 240
+      },
+      {
+       "method": "BuildInventoryShortToken_Fallbacks",
+       "line": 268
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteLoopUnitCacheTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SteadyState_SecondResolve_ReusesCachedUnit_NoSecondRebuild",
+       "line": 135
+      },
+      {
+       "method": "CachedUnit_FieldIdentical_ToUnchangedOneElementBuild",
+       "line": 165
+      },
+      {
+       "method": "BuilderInputChange_DispatchInterval_RebuildsWithNewCadence",
+       "line": 202
+      },
+      {
+       "method": "CountNeutralTopologyChange_BranchPointIdSwap_Rebuilds",
+       "line": 228
+      },
+      {
+       "method": "TestSeam_BypassesCache_NoCacheFieldsWritten",
+       "line": 249
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

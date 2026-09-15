@@ -1,0 +1,16 @@
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandMissionMarkTests.cs", "method": "FormatMarkMessage_WithUt_IsStable", "line": 21, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandMissionMarkTests.cs", "method": "FormatMarkMessage_NoGame_RendersUtNone", "line": 28, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandMissionMarkTests.cs", "method": "FormatMarkMessage_NullLabel_EmptyLabel", "line": 35, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandMissionMarkTests.cs", "method": "EmitMark_LogsTaggedInfoLine", "line": 42, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandExecutionTests.cs", "method": "ExceptionTerminal_ProducesError_WithExceptionTypeName", "line": 15, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandExecutionTests.cs", "method": "ExceptionTerminal_NullOrEmptyType_StillError", "line": 26, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandExecutionTests.cs", "method": "ErrorVerdict_AdvancesQueue", "line": 34, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandExecutionTests.cs", "method": "TerminalVerdicts_AdvanceQueue", "line": 45, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandExecutionTests.cs", "method": "PendingVerdict_HoldsHead_DoesNotAdvance", "line": 51, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandSaveGameTests.cs", "method": "ResolveName_DefaultsToPersistent", "line": 19, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandSaveGameTests.cs", "method": "CanSave_RequiresGameAndFolder", "line": 29, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandSaveGameTests.cs", "method": "BuildPayload_CarriesSavedName", "line": 35, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandSaveGameTests.cs", "method": "BuildPayload_NullNameIsEmptyString", "line": 44, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandEnvGateTests.cs", "method": "ExactlyOne_Arms", "line": 16, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandEnvGateTests.cs", "method": "AnythingElse_StaysInert", "line": 31, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/TestCommandEnvGateTests.cs", "method": "FormatEnvForLog_RendersDistinctly", "line": 41, "verdict": "ok"}

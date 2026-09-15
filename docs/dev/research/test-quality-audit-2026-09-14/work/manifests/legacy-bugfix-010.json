@@ -1,0 +1,230 @@
+{
+ "batch_id": "legacy-bugfix-010",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "UnfinishedFlightsMembershipTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "HasStashedResolvedSlot_StashedThenSealedSlot_ReturnsFalse",
+       "line": 163
+      },
+      {
+       "method": "ImmutableDestroyedUnderRP_IsMember",
+       "line": 191
+      },
+      {
+       "method": "DestroyedWithRecordingScopedScienceEarningAction_NotMember",
+       "line": 215
+      },
+      {
+       "method": "DestroyedWithRecordingScopedScienceSpendingAction_IsMember",
+       "line": 243
+      },
+      {
+       "method": "DestroyedWithRecordingScopedMilestoneAction_IsMember",
+       "line": 265
+      },
+      {
+       "method": "DestroyedWithOnlyTombstoneableKerbalDeathActions_IsMember",
+       "line": 297
+      },
+      {
+       "method": "StrandedEvaWithRecordingScopedScienceEarningAction_NotMember",
+       "line": 332
+      },
+      {
+       "method": "StrandedEvaWithRecordingScopedScienceSpendingAction_IsMember",
+       "line": 358
+      },
+      {
+       "method": "DestroyedStagesWithDownstreamCrashBranch_AreMembers",
+       "line": 380
+      },
+      {
+       "method": "DestroyedWithRealDownstreamRewindPoint_PrefersDownstreamRoute",
+       "line": 431
+      },
+      {
+       "method": "NonDestroyedWithParentAndChildRewindPoints_PrefersChildRoute",
+       "line": 462
+      },
+      {
+       "method": "DestroyedAgainstOlderRewindPointWithRealDownstreamRoute_NotMemberForOlderPoint",
+       "line": 493
+      },
+      {
+       "method": "CommittedProvisionalDestroyedUnderRP_IsMember",
+       "line": 518
+      },
+      {
+       "method": "DestroyedUnderRPWithoutSlot_NotMember",
+       "line": 537
+      },
+      {
+       "method": "ImmutableLandedUnderRP_NotMember",
+       "line": 563
+      },
+      {
+       "method": "StashedImmutableLandedUnderRP_IsMember",
+       "line": 577
+      },
+      {
+       "method": "OrbitingNonFocusUnderPostFeatureRP_IsMember",
+       "line": 604
+      },
+      {
+       "method": "OrbitingFocusSlotUnderPostFeatureRP_NotMember",
+       "line": 621
+      },
+      {
+       "method": "StashedOrbitingFocusSlotUnderPostFeatureRP_IsMember",
+       "line": 639
+      },
+      {
+       "method": "OrbitingLegacyNoFocusSignal_NotMember",
+       "line": 667
+      },
+      {
+       "method": "StashedOrbitingLegacyNoFocusSignal_IsMember",
+       "line": 685
+      },
+      {
+       "method": "OrbitingDebrisUnderPostFeatureRP_NotMember",
+       "line": 712
+      },
+      {
+       "method": "SubOrbitalNonFocusUnderPostFeatureRP_IsMember",
+       "line": 730
+      },
+      {
+       "method": "SubOrbitalFocusSlotUnderPostFeatureRP_IsMember",
+       "line": 747
+      },
+      {
+       "method": "StrandedEvaLegacyNoFocusSignal_IsMember",
+       "line": 779
+      },
+      {
+       "method": "StashedBoardedEva_NotMember",
+       "line": 796
+      },
+      {
+       "method": "StashedWorldInteractingTerminal_NotMember",
+       "line": 825
+      },
+      {
+       "method": "SealedSlot_NotMember",
+       "line": 853
+      },
+      {
+       "method": "StashedThenSealedSlot_NotMember",
+       "line": 883
+      },
+      {
+       "method": "ImmutableDestroyedNotUnderRP_NotMember",
+       "line": 912
+      },
+      {
+       "method": "NotCommittedDestroyedUnderRP_NotMember",
+       "line": 928
+      },
+      {
+       "method": "SupersededDestroyedUnderRP_NotMember",
+       "line": 943
+      },
+      {
+       "method": "ActiveReFlySessionSuppressed_NotInList",
+       "line": 974
+      },
+      {
+       "method": "ComputeMembers_EmptyList_NoException_LogsRecompute",
+       "line": 1000
+      },
+      {
+       "method": "ComputeMembers_LogsCount",
+       "line": 1016
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug601ReFlyPostMergeSplitPreservationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Splice_TreeWithMissingPostSplitRecordings_PullsThemFromCommitted",
+       "line": 65
+      },
+      {
+       "method": "Splice_TreeAlreadyMatches_NoSplice_LogsAlreadyInSync",
+       "line": 137
+      },
+      {
+       "method": "Splice_NoCommittedTreeForId_GracefulNoOp",
+       "line": 170
+      },
+      {
+       "method": "Splice_BranchPointOnlyInCommitted_ClonedIntoLoaded",
+       "line": 192
+      },
+      {
+       "method": "Splice_StructuredLogShape_MatchesContract",
+       "line": 235
+      },
+      {
+       "method": "Splice_ActiveStaleFirstHalfAfterSplit_RefreshesAndPreservesRecorderOwnedState",
+       "line": 321
+      },
+      {
+       "method": "Splice_OptimizerSuccessorWithLostFirstHalfChain_RepairsPredecessorChain",
+       "line": 427
+      },
+      {
+       "method": "RepairMissingContiguousChainPredecessors_DoesNotRepairDifferentVessel",
+       "line": 476
+      },
+      {
+       "method": "RepairMissingContiguousChainPredecessors_IsIdempotentOnSecondCall",
+       "line": 497
+      },
+      {
+       "method": "RepairMissingContiguousChainPredecessors_RejectsUnsetTreeOrder",
+       "line": 531
+      },
+      {
+       "method": "RepairMissingContiguousChainPredecessors_LogsBoundaryUTAndGapMs",
+       "line": 586
+      },
+      {
+       "method": "RepairMissingContiguousChainPredecessors_TieBreaksByTreeOrderThenRecordingId",
+       "line": 615
+      },
+      {
+       "method": "Splice_NonActiveStaleFirstHalfAfterSplit_RefreshesInFullMode",
+       "line": 645
+      },
+      {
+       "method": "Splice_RecorderOwnedFlagsPreservedOnActiveRefresh",
+       "line": 693
+      },
+      {
+       "method": "Splice_ActiveRecordingAlreadyMatchesCommitted_NoRefreshNoFlagChurn",
+       "line": 744
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

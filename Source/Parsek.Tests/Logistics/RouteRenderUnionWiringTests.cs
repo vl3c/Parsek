@@ -44,21 +44,40 @@ namespace Parsek.Tests.Logistics
             return File.ReadAllText(path);
         }
 
-        // The single block of source we care about in each seam: the body of the
-        // private DriveMissionLoopUnits method. We slice from its declaration to the
-        // next top-level method so the assertions cannot be satisfied by an unrelated
-        // appearance of the same call elsewhere in the (very large) file.
+        // The single block of source we care about in each seam: the BRACE-MATCHED body of the
+        // private DriveMissionLoopUnits method, taken from a SANITIZED copy of the file
+        // (comments blanked, string-literal contents masked, length preserved). Brace-matched
+        // rather than a fixed-length slice: a character budget either stops short of a long body
+        // (so the negative DoesNotMatch arms never see its tail) or overruns into the following
+        // method. Sanitized so neither a comment nor a log literal naming a call satisfies a pin.
         private static string ExtractDriveMissionLoopUnitsBody(string source)
         {
-            int decl = source.IndexOf(
-                "private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)",
-                StringComparison.Ordinal);
+            const string Decl =
+                "private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)";
+
+            string sanitized = SourceScanText.StripCommentsAndMaskLiterals(source);
+            int decl = sanitized.IndexOf(Decl, StringComparison.Ordinal);
             Assert.True(decl >= 0,
                 "DriveMissionLoopUnits(IReadOnlyList<Recording> committed) declaration not found");
+            Assert.True(sanitized.IndexOf(Decl, decl + 1, StringComparison.Ordinal) < 0,
+                "DriveMissionLoopUnits(IReadOnlyList<Recording> committed) declaration is not unique");
 
-            // Grab a generous slice; the method is well under this many chars.
-            int end = Math.Min(source.Length, decl + 4000);
-            return source.Substring(decl, end - decl);
+            int open = sanitized.IndexOf('{', decl + Decl.Length);
+            Assert.True(open >= 0, "no body brace after the DriveMissionLoopUnits declaration");
+
+            int depth = 0;
+            for (int i = open; i < sanitized.Length; i++)
+            {
+                if (sanitized[i] == '{') depth++;
+                else if (sanitized[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0) return sanitized.Substring(open, i - open + 1);
+                }
+            }
+
+            Assert.True(false, "unbalanced braces walking the DriveMissionLoopUnits body");
+            return null;
         }
 
         [Theory]

@@ -1,0 +1,243 @@
+{
+ "batch_id": "recorder-events-004",
+ "cluster": "recorder-events",
+ "tier": "A1",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "BackgroundRecorderTests.cs",
+   "ranges": [
+    {
+     "start": 68,
+     "end": 1351,
+     "methods": [
+      {
+       "method": "ShouldPreferRootPartSurfacePoseForBackgroundSample_ReturnsFalseForNullRecording",
+       "line": 68
+      },
+      {
+       "method": "ShouldPreferRootPartSurfacePoseForBackgroundSample_ReturnsFalseWithoutParentAnchor",
+       "line": 76
+      },
+      {
+       "method": "ShouldPreferRootPartSurfacePoseForBackgroundSample_ReturnsTrueForParentAnchoredDebrisContract",
+       "line": 88
+      },
+      {
+       "method": "ShouldPreferRootPartSurfacePoseForBackgroundSample_FollowsParentAnchorContractField",
+       "line": 100
+      },
+      {
+       "method": "ClassifyBackgroundRelativeFrameContract_RecordedActiveSnapshot_IsFrozenReFly",
+       "line": 112
+      },
+      {
+       "method": "ClassifyBackgroundRelativeFrameContract_RecordedWithoutSnapshot_IsRecorded",
+       "line": 125
+      },
+      {
+       "method": "ClassifyBackgroundRelativeFrameContract_LiveWarnFallback_IsLive",
+       "line": 138
+      },
+      {
+       "method": "ClassifyBackgroundRelativeFrameContract_QueuedParentSeed_IsRecorded",
+       "line": 151
+      },
+      {
+       "method": "ClassifyBackgroundRelativeFrameContract_QueuedParentSeedWithoutCurrentCandidate_IsRecorded",
+       "line": 164
+      },
+      {
+       "method": "IsActiveReFlyParentMatch_RequiresActiveIdAndParentMatch",
+       "line": 177
+      },
+      {
+       "method": "FormatActiveReFlyParentDriftFromRecorded_ReturnsNullOutsideActiveParentMatch",
+       "line": 186
+      },
+      {
+       "method": "FormatActiveReFlyParentDriftFromRecorded_ReturnsUnresolvedWhenLiveParentMissing",
+       "line": 199
+      },
+      {
+       "method": "FormatActiveReFlyParentDriftFromRecorded_ComputesMeterDelta",
+       "line": 212
+      },
+      {
+       "method": "FormatParentDriftLogField_OmitsKeyWhenGuardSkipped",
+       "line": 225
+      },
+      {
+       "method": "IsPendingDebrisSeedParentAnchorUsable_AcceptsMatchingParentAndUT",
+       "line": 234
+      },
+      {
+       "method": "IsPendingDebrisSeedParentAnchorUsable_RejectsParentMismatch",
+       "line": 247
+      },
+      {
+       "method": "IsPendingDebrisSeedParentAnchorUsable_RejectsUTMismatch",
+       "line": 259
+      },
+      {
+       "method": "IsPendingDebrisSeedParentAnchorUsable_RejectsInvalidTolerance",
+       "line": 272
+      },
+      {
+       "method": "Constructor_InitializesOnRailsState_ForEachBackgroundVessel",
+       "line": 287
+      },
+      {
+       "method": "DiscardWithoutPersist_ClearsTrackingStateWithoutFlushing",
+       "line": 303
+      },
+      {
+       "method": "Constructor_OnRailsState_HasNoOpenOrbitSegment",
+       "line": 363
+      },
+      {
+       "method": "Constructor_OnRailsState_LastExplicitEndUpdate_IsNegativeOne",
+       "line": 375
+      },
+      {
+       "method": "RefreshOnRailsFinalizationCacheForTesting_CachesStableOrbit",
+       "line": 385
+      },
+      {
+       "method": "RefreshOnRailsFinalizationCacheForTesting_TouchesStableCacheWhenDigestUnchanged",
+       "line": 418
+      },
+      {
+       "method": "RefreshOnRailsFinalizationCache_AlreadyDestroyedSkipRefreshesOnCadence",
+       "line": 454
+      },
+      {
+       "method": "TryTouchSkippedFinalizationCache_PeriodicRequired_DoesNotAdvanceCacheCadence",
+       "line": 521
+      },
+      {
+       "method": "TryTouchSkippedFinalizationCache_StableBackgroundOrbit_AdvancesObservedTerminal",
+       "line": 550
+      },
+      {
+       "method": "AdoptFinalizationCacheForTesting_PreservesOwnerUntilRefresh",
+       "line": 579
+      },
+      {
+       "method": "OnVesselRemovedFromBackground_ClearsFinalizationCache",
+       "line": 605
+      },
+      {
+       "method": "ForgetFinalizationCache_RemovesDeferredDestructionCache",
+       "line": 627
+      },
+      {
+       "method": "GetFinalizationCacheForRecording_ResolvesByRecordingIdWhenPidUnknown",
+       "line": 649
+      },
+      {
+       "method": "FinalizeAllForCommit_MissingLoadedVessel_KeepsCacheApplicableFromLastSample",
+       "line": 685
+      },
+      {
+       "method": "ScopeFinalizationCacheToBackgroundEnd_DestroyedCapsAtDeletionUT",
+       "line": 745
+      },
+      {
+       "method": "PeekFinalizationCacheTerminal_ReportsThePredictedDestroyedTheClampWouldHide",
+       "line": 767
+      },
+      {
+       "method": "PeekFinalizationCacheTerminal_NullCache_ReturnsNull",
+       "line": 792
+      },
+      {
+       "method": "TryPeekFinalizationCacheTerminal_ResolvesTheSameCacheTheApplyWould",
+       "line": 799
+      },
+      {
+       "method": "TryPeekFinalizationCacheTerminal_NoCache_ReturnsFalse",
+       "line": 818
+      },
+      {
+       "method": "TryApplyFinalizationCacheForBackgroundEnd_RejectsNonDestroyedCacheForConfirmedDestroy",
+       "line": 833
+      },
+      {
+       "method": "TryApplyFinalizationCacheForBackgroundEnd_ConfirmedDestroyed_ClampsRetrogradeDestroyedTerminal",
+       "line": 860
+      },
+      {
+       "method": "TryApplyFinalizationCacheForBackgroundEnd_UnconfirmedDestroy_DoesNotClampRetrogradeDestroyedTerminal",
+       "line": 908
+      },
+      {
+       "method": "TryApplyFinalizationCacheForBackgroundEnd_ConfirmedDestroyed_DoesNotClampPastEndUT",
+       "line": 955
+      },
+      {
+       "method": "CheckDebrisTTL_MissingVessel_AppliesCacheBeforeDestroyedFallback",
+       "line": 993
+      },
+      {
+       "method": "CheckDebrisTTL_MissingVessel_ClampsDestroyedCacheAfterTrackSectionFlush",
+       "line": 1029
+      },
+      {
+       "method": "CheckDebrisTTL_MissingVessel_UsesStableCacheInsteadOfDestroyedFallback",
+       "line": 1084
+      },
+      {
+       "method": "Constructor_EmptyBackgroundMap_CreatesNoStates",
+       "line": 1124
+      },
+      {
+       "method": "UpdateOnRails_UpdatesExplicitEndUT_AfterInterval",
+       "line": 1134
+      },
+      {
+       "method": "UpdateOnRails_DoesNotUpdate_WhenIntervalNotElapsed",
+       "line": 1149
+      },
+      {
+       "method": "UpdateOnRails_Updates_WhenIntervalElapsed",
+       "line": 1168
+      },
+      {
+       "method": "UpdateOnRails_MultipleVessels_UpdatesIndependently",
+       "line": 1186
+      },
+      {
+       "method": "UpdateOnRails_NullTree_DoesNotThrow",
+       "line": 1206
+      },
+      {
+       "method": "Constructor_CreatesMinimalOnRailsState_ForBackgroundVessels",
+       "line": 1223
+      },
+      {
+       "method": "Constructor_VesselNotInBackgroundMap_HasNoState",
+       "line": 1244
+      },
+      {
+       "method": "Constructor_MultipleVessels_AllGetIndependentState",
+       "line": 1255
+      },
+      {
+       "method": "CheckParachuteTransition_WorksWithBackgroundStateCollections",
+       "line": 1272
+      },
+      {
+       "method": "CheckEngineTransition_WorksWithBackgroundStateCollections",
+       "line": 1289
+      },
+      {
+       "method": "CheckDeployableTransition_WorksWithBackgroundStateCollections",
+       "line": 1311
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

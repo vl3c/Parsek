@@ -1,0 +1,155 @@
+{
+ "batch_id": "recording-tree-043",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 34,
+ "files": [
+  {
+   "file": "RecordingBuilderV6Tests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AddTrackSection_SerializeDeserialize_RoundTrip",
+       "line": 39
+      },
+      {
+       "method": "AddTrackSection_WithBackground_PreservesFlag",
+       "line": 84
+      },
+      {
+       "method": "AddMultipleTrackSections_OrderPreserved",
+       "line": 101
+      },
+      {
+       "method": "AddAtmosphericSection_CreatesCorrectDefaults",
+       "line": 132
+      },
+      {
+       "method": "AddAtmosphericSection_SerializeDeserialize_RoundTrip",
+       "line": 151
+      },
+      {
+       "method": "AddOrbitalCheckpointSection_IncludesCheckpoint",
+       "line": 170
+      },
+      {
+       "method": "AddOrbitalCheckpointSection_SerializeDeserialize_RoundTrip",
+       "line": 196
+      },
+      {
+       "method": "AddSegmentEvent_SerializeDeserialize_RoundTrip",
+       "line": 229
+      },
+      {
+       "method": "AddControllerChangeEvent_CreatesCorrectEvent",
+       "line": 256
+      },
+      {
+       "method": "AddPartDestroyedEvent_CreatesCorrectEvent",
+       "line": 269
+      },
+      {
+       "method": "AddPartDestroyedEvent_SerializeDeserialize_RoundTrip",
+       "line": 282
+      },
+      {
+       "method": "WithControllers_BuildV3Metadata_ContainsControllerNodes",
+       "line": 302
+      },
+      {
+       "method": "AddController_BuildV3Metadata_ContainsControllerNode",
+       "line": 324
+      },
+      {
+       "method": "AddController_MultipleAdds_AccumulatesControllers",
+       "line": 339
+      },
+      {
+       "method": "WithControllers_Build_ContainsControllerNodes",
+       "line": 352
+      },
+      {
+       "method": "NoControllers_BuildV3Metadata_NoControllerNodes",
+       "line": 366
+      },
+      {
+       "method": "AsDebris_BuildV3Metadata_IsDebrisTrue",
+       "line": 381
+      },
+      {
+       "method": "AsDebris_Build_IsDebrisTrue",
+       "line": 392
+      },
+      {
+       "method": "NotDebris_BuildV3Metadata_NoIsDebrisKey",
+       "line": 403
+      },
+      {
+       "method": "WithParentAnchorRecordingId_AsDebris_BuildV3Metadata_EmitsField",
+       "line": 419
+      },
+      {
+       "method": "WithParentAnchorRecordingId_AsDebris_Build_EmitsField",
+       "line": 432
+      },
+      {
+       "method": "WithParentAnchorRecordingId_NonDebris_DoesNotEmitField",
+       "line": 445
+      },
+      {
+       "method": "AsDebris_WithoutParentId_DoesNotEmitField",
+       "line": 460
+      },
+      {
+       "method": "GetParentAnchorRecordingId_ReturnsValue",
+       "line": 475
+      },
+      {
+       "method": "GetParentAnchorRecordingId_NotSet_ReturnsNull",
+       "line": 487
+      },
+      {
+       "method": "BoosterDropDebrisPair_BuildsValidParentAndDebrisRecordings",
+       "line": 495
+      },
+      {
+       "method": "FullV6Recording_BuildTrajectoryNode_CompleteRoundTrip",
+       "line": 548
+      },
+      {
+       "method": "FullV6Recording_BuildV3Metadata_IncludesAllV6Fields",
+       "line": 615
+      },
+      {
+       "method": "FullV6Recording_Build_IncludesSegmentEventsAndTrackSections",
+       "line": 640
+      },
+      {
+       "method": "GetTrackSections_ReturnsBuiltSections",
+       "line": 665
+      },
+      {
+       "method": "GetSegmentEvents_ReturnsBuiltEvents",
+       "line": 678
+      },
+      {
+       "method": "NoTrackSections_BuildTrajectoryNode_NoTrackSectionNodes",
+       "line": 695
+      },
+      {
+       "method": "NoSegmentEvents_BuildTrajectoryNode_NoSegmentEventNodes",
+       "line": 706
+      },
+      {
+       "method": "NoV6Data_Build_NoExtraNodes",
+       "line": 717
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

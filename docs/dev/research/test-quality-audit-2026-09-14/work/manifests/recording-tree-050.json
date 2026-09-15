@@ -1,0 +1,291 @@
+{
+ "batch_id": "recording-tree-050",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "RecordingFieldExtensionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ControllerInfo_ToString_ReturnsReadableOutput",
+       "line": 36
+      },
+      {
+       "method": "Controllers_TwoControllers_RoundTripViaSaveLoad",
+       "line": 58
+      },
+      {
+       "method": "IsDebris_True_SavesAndLoadsCorrectly",
+       "line": 89
+      },
+      {
+       "method": "IsDebris_FalseDefault_NotWrittenToConfigNode",
+       "line": 105
+      },
+      {
+       "method": "ParentAnchorRecordingId_Set_RoundTripsViaSaveLoad",
+       "line": 121
+      },
+      {
+       "method": "ParentAnchorRecordingId_NullOnNonDebris_NotWrittenToConfigNode",
+       "line": 141
+      },
+      {
+       "method": "ParentAnchorRecordingId_NullOnDebris_NotWrittenToConfigNode",
+       "line": 157
+      },
+      {
+       "method": "BackwardCompat_LegacyV11Debris_IsRejected",
+       "line": 173
+      },
+      {
+       "method": "ParentAnchorRecordingId_ExposedViaInterfaceBridge",
+       "line": 190
+      },
+      {
+       "method": "BackwardCompat_NoControllerNodes_ControllersIsNull",
+       "line": 212
+      },
+      {
+       "method": "BackwardCompat_NoIsDebris_DefaultsFalse",
+       "line": 228
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_CopiesControllersIsDebrisSegmentEventsTracks",
+       "line": 243
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_NullControllers_TargetStaysNull",
+       "line": 284
+      },
+      {
+       "method": "GhostSnapshotMode_IdenticalSnapshots_SaveLoad_AsAliasVessel",
+       "line": 298
+      },
+      {
+       "method": "GhostSnapshotMode_DifferentSnapshots_SaveLoad_AsSeparate",
+       "line": 321
+      },
+      {
+       "method": "GhostSnapshotMode_PersistsLastSidecarMode_WhenSnapshotsDriftInMemory",
+       "line": 344
+      },
+      {
+       "method": "GhostSnapshotMode_InvalidMetadata_DefaultsToUnspecifiedAndLogsWarning",
+       "line": 366
+      },
+      {
+       "method": "EmptyControllersList_NoControllerNodesWritten",
+       "line": 395
+      },
+      {
+       "method": "SaveControllers_LogsCount",
+       "line": 412
+      },
+      {
+       "method": "MaxDistanceFromLaunch_RoundTrip_PreservedAcrossReload",
+       "line": 434
+      },
+      {
+       "method": "MaxDistanceFromLaunch_Zero_NotWrittenToConfigNode",
+       "line": 450
+      },
+      {
+       "method": "BackwardCompat_NoMaxDist_DefaultsToZero",
+       "line": 463
+      },
+      {
+       "method": "LoadControllers_LogsCount",
+       "line": 478
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EffectiveStateCompositeWalkerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EffectiveTipRecordingId_SupersedeOnly_WalksSupersede",
+       "line": 139
+      },
+      {
+       "method": "EffectiveTipRecordingId_ChainOnly_WalksChainTip",
+       "line": 165
+      },
+      {
+       "method": "EffectiveTipRecordingId_ChainThenSupersede_WalksBoth",
+       "line": 186
+      },
+      {
+       "method": "EffectiveTipRecordingId_SupersedeIntoChain_WalksBoth",
+       "line": 208
+      },
+      {
+       "method": "EffectiveTipRecordingId_CycleDetected_ReturnsLastVisited",
+       "line": 230
+      },
+      {
+       "method": "EffectiveTipRecordingId_CrossEdgeCycle_ReturnsLastVisited",
+       "line": 259
+      },
+      {
+       "method": "EffectiveTipRecordingId_NestedReFly_WalksHeadOneThroughForkTwo",
+       "line": 298
+      },
+      {
+       "method": "EffectiveTipRecordingId_MidChainSupersede_AssumptionHolds",
+       "line": 348
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MergeDialogSwitchSegmentDurationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DialogBody_SwitchSegmentActive_InCommittedCloneTree_ShowsSegmentDuration",
+       "line": 124
+      },
+      {
+       "method": "DialogBody_SwitchSegmentActive_InStandaloneTree_ShowsSegmentDuration",
+       "line": 152
+      },
+      {
+       "method": "DialogBody_NoActiveSwitchSegmentSession_ShowsFullTreeDuration",
+       "line": 175
+      },
+      {
+       "method": "DialogBody_SegmentSessionForDifferentTree_ShowsFullTreeDuration",
+       "line": 194
+      },
+      {
+       "method": "DialogBody_MalformedSegmentBounds_FallsBackToTreeDuration_AndLogsWarn",
+       "line": 214
+      },
+      {
+       "method": "DialogBody_LiveSegmentNotYetFinalized_ShowsCurrentUTMinusStartUT",
+       "line": 252
+      },
+      {
+       "method": "DialogBody_FinalizedSegment_ShowsEndUTMinusStartUT",
+       "line": 291
+      },
+      {
+       "method": "DialogBody_LiveSegmentNegativeOrNonFiniteUT_ClampsToZero",
+       "line": 320
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CommittedRecordingImmutabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ContinuationVesselDestroyed_PreservesVesselSnapshot",
+       "line": 90
+      },
+      {
+       "method": "ContinuationVesselDestroyed_VesselDestroyedGatesSpawn",
+       "line": 107
+      },
+      {
+       "method": "ContinuationVesselDestroyed_SnapshotPreservedForRevertSpawn",
+       "line": 124
+      },
+      {
+       "method": "EvaBoardingContinuationStop_PreservesVesselSnapshot",
+       "line": 151
+      },
+      {
+       "method": "EvaBoardingContinuationStop_LogsPreservation",
+       "line": 173
+      },
+      {
+       "method": "UpdateRecordingsForTerminalEvent_SkipsCommittedRecordings",
+       "line": 205
+      },
+      {
+       "method": "UpdateRecordingsForTerminalEvent_SkipsCommitted_EvenWhenNotSpawned",
+       "line": 227
+      },
+      {
+       "method": "UpdateRecordingsForTerminalEvent_DoesNotAffectNonCommittedRecordings",
+       "line": 247
+      },
+      {
+       "method": "ResetAllPlaybackState_ClearsVesselDestroyed",
+       "line": 263
+      },
+      {
+       "method": "ResetAllPlaybackState_ClearsVesselDestroyed_SpawnEligibleAfter",
+       "line": 278
+      },
+      {
+       "method": "ContinuationVesselDestroyed_LogMessageFormat_ContainsExpectedText",
+       "line": 300
+      },
+      {
+       "method": "UpdateTerminalEvent_NoMatchingCommitted_LogsSkip",
+       "line": 319
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MergeDialogLiveResumedSegmentDurationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DialogBody_NoSession_LiveResumedSegmentInTree_ShowsCurrentUTMinusResumeStartUT",
+       "line": 152
+      },
+      {
+       "method": "DialogBody_NoSession_NoLiveResumedSegment_FallsBackToTreeWide",
+       "line": 181
+      },
+      {
+       "method": "DialogBody_NoSession_LiveResumedRecordingNotInThisTree_FallsBackToTreeWide",
+       "line": 206
+      },
+      {
+       "method": "DialogBody_NoSession_LiveResume_CurrentUTRegressedBehindResumeStart_FallsBackToTreeWide",
+       "line": 232
+      },
+      {
+       "method": "DialogBody_NoSession_LiveResume_NaNResumeStartUT_FallsBackToTreeWide",
+       "line": 262
+      },
+      {
+       "method": "DialogBody_SessionArmed_TakesPrecedenceOverLiveResumeProvider",
+       "line": 287
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,171 @@
+{
+ "batch_id": "recorder-events-017",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 38,
+ "files": [
+  {
+   "file": "SeedEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DecodeEngineKey_RoundtripsWithEncodeEngineKey",
+       "line": 42
+      },
+      {
+       "method": "DecodeEngineKey_ZeroModuleIndex",
+       "line": 57
+      },
+      {
+       "method": "DecodeEngineKey_MaxModuleIndex255",
+       "line": 72
+      },
+      {
+       "method": "DecodeEngineKey_LargePid",
+       "line": 87
+      },
+      {
+       "method": "EmitSeedEvents_EmptySets_ReturnsZeroEvents",
+       "line": 106
+      },
+      {
+       "method": "EmitSeedEvents_NullSets_ReturnsZeroEvents",
+       "line": 140
+      },
+      {
+       "method": "EmitSeedEvents_OneExtendedDeployable_EmitsDeployableExtended",
+       "line": 151
+      },
+      {
+       "method": "EmitSeedEvents_OneJettisonedShroud_EmitsShroudJettisoned",
+       "line": 169
+      },
+      {
+       "method": "EmitSeedEvents_DeployedFairing_EmitsFairingJettisoned",
+       "line": 185
+      },
+      {
+       "method": "EmitSeedEvents_LightOn_EmitsLightOn",
+       "line": 199
+      },
+      {
+       "method": "EmitSeedEvents_BlinkingLight_EmitsLightBlinkEnabledWithRate",
+       "line": 213
+      },
+      {
+       "method": "EmitSeedEvents_DeployedGear_EmitsGearDeployed",
+       "line": 230
+      },
+      {
+       "method": "EmitSeedEvents_OpenCargoBay_EmitsCargoBayOpened",
+       "line": 244
+      },
+      {
+       "method": "EmitSeedEvents_ParachuteDeployed_EmitsParachuteDeployed",
+       "line": 258
+      },
+      {
+       "method": "EmitSeedEvents_ParachuteSemiDeployed_EmitsParachuteSemiDeployed",
+       "line": 272
+      },
+      {
+       "method": "EmitSeedEvents_ParachuteStowed_NoEvent",
+       "line": 286
+      },
+      {
+       "method": "EmitSeedEvents_DeployedLadder_EmitsDeployableExtendedWithModuleIndex",
+       "line": 302
+      },
+      {
+       "method": "EmitSeedEvents_DeployedAnimationGroup_EmitsDeployableExtendedWithModuleIndex",
+       "line": 321
+      },
+      {
+       "method": "EmitSeedEvents_DeployedAnimateGeneric_EmitsDeployableExtendedWithModuleIndex",
+       "line": 339
+      },
+      {
+       "method": "EmitSeedEvents_DeployedAeroSurface_EmitsDeployableExtendedWithModuleIndex",
+       "line": 357
+      },
+      {
+       "method": "EmitSeedEvents_DeployedControlSurface_EmitsDeployableExtendedWithModuleIndex",
+       "line": 375
+      },
+      {
+       "method": "EmitSeedEvents_DeployedRobotArmScanner_EmitsDeployableExtendedWithModuleIndex",
+       "line": 393
+      },
+      {
+       "method": "EmitSeedEvents_HeatLevelHot_EmitsThermalAnimationHot",
+       "line": 415
+      },
+      {
+       "method": "EmitSeedEvents_HeatLevelMedium_EmitsThermalAnimationMedium",
+       "line": 433
+      },
+      {
+       "method": "EmitSeedEvents_HeatLevelCold_NoEvent",
+       "line": 451
+      },
+      {
+       "method": "EmitSeedEvents_ActiveEngine_EmitsEngineIgnitedWithThrottle",
+       "line": 466
+      },
+      {
+       "method": "EmitSeedEvents_ActiveEngine_NoThrottleEntry_SkippedAsZeroThrottle",
+       "line": 487
+      },
+      {
+       "method": "EmitSeedEvents_ActiveEngine_ZeroThrottle_EmitsShutdownSentinel",
+       "line": 506
+      },
+      {
+       "method": "EmitSeedEvents_ActiveEngine_SmallPositiveThrottle_Emitted",
+       "line": 530
+      },
+      {
+       "method": "EmitSeedEvents_MultipleEngines_MixedThrottle_OnlyNonZeroEmitted",
+       "line": 550
+      },
+      {
+       "method": "EmitSeedEvents_DeadEngine_InAllButNotActive_EmitsShutdownSentinel",
+       "line": 578
+      },
+      {
+       "method": "EmitSeedEvents_AllEnginesActive_NoShutdownSentinels",
+       "line": 610
+      },
+      {
+       "method": "EmitSeedEvents_EmptyAllEngineKeys_NoSentinels",
+       "line": 629
+      },
+      {
+       "method": "ShouldSkipZeroThrottleEngineSeed_CorrectForThrottleValues",
+       "line": 652
+      },
+      {
+       "method": "EmitSeedEvents_ActiveRcs_EmitsRCSActivatedWithPower",
+       "line": 658
+      },
+      {
+       "method": "EmitSeedEvents_MultipleMixedStates_CorrectCountAndAllAtStartUT",
+       "line": 683
+      },
+      {
+       "method": "EmitSeedEvents_UnknownPid_UsesUnknownPartName",
+       "line": 744
+      },
+      {
+       "method": "EmitSeedEvents_NullPartNamesByPid_UsesUnknown",
+       "line": 757
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,190 @@
+{
+ "batch_id": "catchall-019",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 40,
+ "files": [
+  {
+   "file": "DisassembledTerminalStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyVesselDeath_AllThreeConjunctsTrue_IsDisassembled",
+       "line": 57
+      },
+      {
+       "method": "ClassifyVesselDeath_AnyConjunctFalse_IsDestroyed",
+       "line": 85
+      },
+      {
+       "method": "ClassifyVesselDeath_EvidenceOverload_AgreesWithPrimitiveOverload",
+       "line": 95
+      },
+      {
+       "method": "ClassifyLiveVesselDeath_NullVessel_FailsClosedToDestroyed",
+       "line": 114
+      },
+      {
+       "method": "ShouldStampDisassembledTerminal_DisassembledAndUnstamped_True",
+       "line": 130
+      },
+      {
+       "method": "ShouldStampDisassembledTerminal_OrdinaryDestruction_False",
+       "line": 138
+      },
+      {
+       "method": "ShouldStampDisassembledTerminal_NullRecording_False",
+       "line": 146
+      },
+      {
+       "method": "ShouldStampDisassembledTerminal_AlreadyStamped_False",
+       "line": 156
+      },
+      {
+       "method": "ApplyDisassembledTerminal_StampsTerminalAndEndUT_ButNotVesselDestroyed",
+       "line": 171
+      },
+      {
+       "method": "ApplyDisassembledTerminal_NullRecording_DoesNotThrow",
+       "line": 191
+      },
+      {
+       "method": "FormatDisassembledTerminalLog_CarriesTheGrepStableTokens",
+       "line": 201
+      },
+      {
+       "method": "FormatDisassembledTerminalLog_NullNames_RenderPlaceholders",
+       "line": 216
+      },
+      {
+       "method": "FormatDisassembledTerminalLog_IsInvariantUnderACommaCulture",
+       "line": 224
+      },
+      {
+       "method": "Codec_RoundTripsDisassembledTerminal",
+       "line": 248
+      },
+      {
+       "method": "SchemaGeneration_StaysAtFour_AdditiveEnumMemberIsNotASchemaChange",
+       "line": 272
+      },
+      {
+       "method": "TerminalKindClassifier_Disassembled_IsLandedNotCrashed",
+       "line": 296
+      },
+      {
+       "method": "RecordingTree_DisassembledLeaf_IsNotSpawnableAndIsTerminal",
+       "line": 309
+      },
+      {
+       "method": "GhostPlaybackLogic_DisassembledIsNotSpawnable",
+       "line": 325
+      },
+      {
+       "method": "GhostChainWalker_DisassembledLeaf_TreeIsFullyTerminated",
+       "line": 331
+      },
+      {
+       "method": "MissionRowWording_Disassembled_ReadsAsAnEndingNotALoss",
+       "line": 352
+      },
+      {
+       "method": "RecordingsTable_EndPosition_RendersDisassembledWithBody",
+       "line": 366
+      },
+      {
+       "method": "Ledger_Disassembled_ProducesNoRecoveryEarning",
+       "line": 385
+      },
+      {
+       "method": "ResurrectionEligibility_Disassembled_IsNotARecoveryAnchor",
+       "line": 412
+      },
+      {
+       "method": "CanOverwriteTerminalState_DisassembledBlocksEveryIncomingState",
+       "line": 446
+      },
+      {
+       "method": "UpdateRecordingsForTerminalEvent_SameNameRecovery_LeavesDisassembledAndItsSnapshot",
+       "line": 464
+      },
+      {
+       "method": "UpdateRecordingsForTerminalEvent_SameNameRecovery_StillClaimsAnUnstampedSibling",
+       "line": 500
+      },
+      {
+       "method": "IsBackgroundRecordingDestroyed_DisassembledRecording_IsFalse",
+       "line": 534
+      },
+      {
+       "method": "ShouldApplyFinalizationCacheOnDeferredDestruction_SkipsThePocket",
+       "line": 569
+      },
+      {
+       "method": "ShouldApplyTerminalDestructionOnDeferredDestruction_SkipsThePocket",
+       "line": 585
+      },
+      {
+       "method": "IsSinglePointDebrisLeaf_DisassembledOneSampleDebris_IsAStub",
+       "line": 599
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "C2CareerPostFixReplayTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FixtureLedger_LoadsAllFifteenActions",
+       "line": 201
+      },
+      {
+       "method": "FixtureLedger_CarriesTheRecoveredCrewsExperienceRowScopedToTheRecovery",
+       "line": 213
+      },
+      {
+       "method": "FixtureSave_ParsesWithKnownPools",
+       "line": 238
+      },
+      {
+       "method": "FixtureRecordings_ExistOnDiskForEveryRecordingTheLedgerReferences",
+       "line": 250
+      },
+      {
+       "method": "FixtureRecordings_CarryNoStaleSidecarsFromTheSupersededHarvest",
+       "line": 293
+      },
+      {
+       "method": "FixtureSave_CarriesNoVessel_BecauseTheCraftWasRecovered",
+       "line": 324
+      },
+      {
+       "method": "FixtureLedger_CarriesFlightScienceAndARecoverySubject",
+       "line": 338
+      },
+      {
+       "method": "FixtureLedger_CarriesTheVesselRecoveryFundsCredit",
+       "line": 366
+      },
+      {
+       "method": "FixtureLedger_SeedsAllThreePoolsAtTheCareersRealStartingValues",
+       "line": 391
+      },
+      {
+       "method": "RealEngine_ReplaysPostFixLedger_PoolsVsSave",
+       "line": 427
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,107 @@
+{
+ "batch_id": "recording-tree-031",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 22,
+ "files": [
+  {
+   "file": "SwitchSegmentDiscardScopeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Discard_RehomesSegmentContractCompletion_ToLedgerAsDirectAction",
+       "line": 180
+      },
+      {
+       "method": "Discard_AfterCommittedSpawnedSwitch_PreservesOtherRecordingUncommittedScience",
+       "line": 219
+      },
+      {
+       "method": "Discard_NoActiveSession_ReturnsFalse_WithReason",
+       "line": 320
+      },
+      {
+       "method": "Discard_DebrisFromBreakupDuringSegment_IsRemoved",
+       "line": 350
+      },
+      {
+       "method": "Discard_RecordingInSiblingTree_IsNotRemoved",
+       "line": 396
+      },
+      {
+       "method": "CollectSubtree_DeepChain_CollectsAllDescendants",
+       "line": 434
+      },
+      {
+       "method": "CollectSubtree_CycleProtection_LogsWarn_AndReturnsPartialList",
+       "line": 486
+      },
+      {
+       "method": "Discard_RemovesAllMarkerOwnedRecordings_AndDescendants",
+       "line": 522
+      },
+      {
+       "method": "Discard_RemovesAttemptOwnedRecordings_AndDescendantsFromTreeAndBranchPoints",
+       "line": 570
+      },
+      {
+       "method": "Discard_RemovesAttemptOwnedEvents_ButLeavesPriorEventsIntact",
+       "line": 592
+      },
+      {
+       "method": "Discard_RemovesAttemptOwnedSidecars_ByDeletingOnlyMarkerOwnedRecordingFiles",
+       "line": 636
+      },
+      {
+       "method": "Discard_ClearsSwitchSegmentSessionMarker_AfterSuccess",
+       "line": 678
+      },
+      {
+       "method": "Discard_AfterCommittedSpawnedSwitch_DropsActiveClone_AndClearsRestoreAttempt",
+       "line": 703
+      },
+      {
+       "method": "IsCommittedTreeRestoreAttemptTree_TracksArmedTree",
+       "line": 779
+      },
+      {
+       "method": "Discard_AfterCommittedSpawnedSwitch_PreservesAllCommittedIds",
+       "line": 804
+      },
+      {
+       "method": "Discard_DoesNotCommitPrunedCloneBackOverOriginal",
+       "line": 893
+      },
+      {
+       "method": "Merge_AfterSwitchSegment_ClearsMarker_OnCommitSuccess",
+       "line": 925
+      },
+      {
+       "method": "Merge_AfterPendingTreeSwitch_CommitsPrunedSegmentNormally_AndClearsMarker",
+       "line": 948
+      },
+      {
+       "method": "DialogBody_AlwaysIncludesDuration",
+       "line": 984
+      },
+      {
+       "method": "DialogBody_NullTree_RendersFallback",
+       "line": 1000
+      },
+      {
+       "method": "MergeDiscard_CallsScopedSwitchSegmentHookBeforeWholeTreeFallback",
+       "line": 1017
+      },
+      {
+       "method": "MergeDiscard_DoesNotOpenSecondaryDialog_AfterScopedDiscard",
+       "line": 1051
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,198 @@
+{
+ "batch_id": "logistics-route-024",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "Logistics/RouteProofHashTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Hash_DeterministicAcrossRuns",
+       "line": 106
+      },
+      {
+       "method": "Hash_NoRouteProof_StableSentinel",
+       "line": 120
+      },
+      {
+       "method": "Hash_DiffersOnTransferTargetVesselPid",
+       "line": 140
+      },
+      {
+       "method": "Hash_DiffersOnDockUT",
+       "line": 155
+      },
+      {
+       "method": "Hash_DiffersOnEndpointInventoryItemIdentityHash",
+       "line": 171
+      },
+      {
+       "method": "Hash_StableOnInventoryItemReorder",
+       "line": 187
+      },
+      {
+       "method": "Hash_DiffersOnOriginProofStartDockedOriginVesselPid",
+       "line": 208
+      },
+      {
+       "method": "Hash_CrpNames_DeterministicAndNameSensitive",
+       "line": 225
+      },
+      {
+       "method": "Hash_IndependentOfResourceDefinitionLookup",
+       "line": 248
+      },
+      {
+       "method": "Hash_RunManifestOnlyRecording_NotSentinel",
+       "line": 298
+      },
+      {
+       "method": "Hash_ChangesWhenRunManifestPresent",
+       "line": 328
+      },
+      {
+       "method": "Hash_ChangesOnRunManifestEndCaptured",
+       "line": 357
+      },
+      {
+       "method": "Hash_HarvestOnlyRecording_NotSentinel",
+       "line": 400
+      },
+      {
+       "method": "Hash_ChangesOnHarvestWindowQuantitiesAndSpan",
+       "line": 417
+      },
+      {
+       "method": "Hash_IgnoresHarvestLocationAndConverterIds",
+       "line": 444
+      },
+      {
+       "method": "Hash_UnchangedByRunManifestVoidedFlag",
+       "line": 477
+      },
+      {
+       "method": "Hash_PreM2Recording_ByteStable",
+       "line": 506
+      },
+      {
+       "method": "Hash_PreP12Recording_ByteStable",
+       "line": 523
+      },
+      {
+       "method": "Hash_ChangesWhenTheOriginBindsOrItsPickupValidationFlips",
+       "line": 540
+      },
+      {
+       "method": "Hash_ChangesWhenACapturedPairHalfChangesIdentity",
+       "line": 567
+      },
+      {
+       "method": "Hash_PreM3Recording_ByteStable",
+       "line": 610
+      },
+      {
+       "method": "Hash_UnchangedByOriginDescriptorFields",
+       "line": 624
+      },
+      {
+       "method": "Hash_ChangesWithTheOriginRootPartUId",
+       "line": 650
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteEndpointTransferTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Evaluate_ProximityOntoAnotherVessel_Transfers",
+       "line": 96
+      },
+      {
+       "method": "Evaluate_ProximityOntoTheSameVessel_Keeps",
+       "line": 110
+      },
+      {
+       "method": "Evaluate_ProximitySamePidDifferentLaunch_Transfers",
+       "line": 124
+      },
+      {
+       "method": "Evaluate_PidStep_TransfersOnlyWhenLaunchesConclusivelyDiffer",
+       "line": 140
+      },
+      {
+       "method": "Evaluate_RootPartStep_NeverTransfers",
+       "line": 167
+      },
+      {
+       "method": "Evaluate_ResolvedPidUnknown_Keeps",
+       "line": 181
+      },
+      {
+       "method": "IsRouteTransport_GuidFirstPidFallback",
+       "line": 199
+      },
+      {
+       "method": "SurfaceFallback_ExcludesTheRouteOwnTransport_NextNearestWins",
+       "line": 232
+      },
+      {
+       "method": "SurfaceFallback_TransportIsTheOnlyCandidate_MissesWithItsOwnReason",
+       "line": 270
+      },
+      {
+       "method": "SurfaceFallback_NoTransports_UnchangedMissToken",
+       "line": 306
+      },
+      {
+       "method": "FindOwners_MatchesStopAndOriginAndLabelsTheRole",
+       "line": 331
+      },
+      {
+       "method": "FindOwners_DifferentCoordinates_NoMatch",
+       "line": 357
+      },
+      {
+       "method": "ClassifyStopRole_PickupOnlyAndMixed",
+       "line": 375
+      },
+      {
+       "method": "CollectTransportIdentities_OneEntryPerCarrier",
+       "line": 398
+      },
+      {
+       "method": "ApplyTransfers_RebindsTheStopAndLogsOnce",
+       "line": 451
+      },
+      {
+       "method": "ApplyTransfers_SameVessel_NoRebindNoMessage",
+       "line": 496
+      },
+      {
+       "method": "ApplyTransfers_OriginRole_RebindsAndSaysLoadingFrom",
+       "line": 530
+      },
+      {
+       "method": "FormatTransferLine_IsInvariantUnderACommaDecimalCulture",
+       "line": 564
+      },
+      {
+       "method": "ReboundStop_RoundTripsThroughTheCodec",
+       "line": 597
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

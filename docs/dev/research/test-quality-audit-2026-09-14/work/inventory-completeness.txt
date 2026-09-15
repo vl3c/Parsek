@@ -1,0 +1,11 @@
+inventory methods: 20218
+trx methods: 20225
+trx-only (scanner missed): 7
+  + ClawCoupleRecordingTests.ClawedAsteroidShip_Snapshot_HasCoupledPotatoRoidAndResolvableRoot
+  + ClawCoupleRecordingTests.MergedClawShip_RejectedFromDeferredBreakupScan_ByAsteroidPart
+  + ClawCoupleRecordingTests.RawAsteroid_RejectedFromDeferredBreakupScan_AsSpaceObject
+  + ClawCoupleRecordingTests.TryExtractPartName_PotatoRoid_SurvivesWithAndWithoutUidSuffix
+  + MissionsWindowLoopGateTests.TheGateScanAcceptsTheProductionGateShapes
+  + RouteRecoveryLandingHarnessTests.UtMappedIdeal_CreditForCycle0_WouldLandAtRecordedRecoveryUT
+  + TestCommandEvaExitTests.Standoff_NoOtherLoadedVessel_ReadsClear
+inventory-only (scanner extra / not executed): 0

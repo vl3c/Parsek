@@ -1,0 +1,238 @@
+{
+ "batch_id": "ledger-career-031",
+ "cluster": "ledger-career",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "StrategiesModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BasicTransform_WithinWindow_IdentityAfterPhaseE1_5",
+       "line": 98
+      },
+      {
+       "method": "RetroactiveCommit_OutsideWindow",
+       "line": 150
+      },
+      {
+       "method": "ReservationBlocksNewStrategy",
+       "line": 173
+      },
+      {
+       "method": "Activate_AddsStrategy",
+       "line": 192
+      },
+      {
+       "method": "Deactivate_RemovesStrategy",
+       "line": 205
+      },
+      {
+       "method": "Deactivate_NonexistentStrategy_Ignored",
+       "line": 216
+      },
+      {
+       "method": "SlotCounting_MultipleStrategies",
+       "line": 232
+      },
+      {
+       "method": "SlotCounting_DeactivateFreesSlot",
+       "line": 248
+      },
+      {
+       "method": "Reset_ClearsAllStrategies",
+       "line": 266
+      },
+      {
+       "method": "ProcessAction_IgnoresNonStrategyNonContractActions",
+       "line": 296
+      },
+      {
+       "method": "Transform_FundsSource_IsIdentityNoOp",
+       "line": 315
+      },
+      {
+       "method": "Transform_ScienceSource_IsIdentityNoOp",
+       "line": 331
+      },
+      {
+       "method": "Transform_ReputationSource_IsIdentityNoOp",
+       "line": 347
+      },
+      {
+       "method": "Transform_MinCommitment_StillIdentity",
+       "line": 367
+      },
+      {
+       "method": "Transform_MaxCommitment_StillIdentity",
+       "line": 382
+      },
+      {
+       "method": "TransformContractReward_IsIdentityNoOp_AfterPhaseE1_5",
+       "line": 397
+      },
+      {
+       "method": "Transform_NonEffectiveContract_NotTransformed",
+       "line": 426
+      },
+      {
+       "method": "Transform_NoActiveStrategies_NoTransform",
+       "line": 450
+      },
+      {
+       "method": "Transform_ContractBeforeActivationUT_NotTransformed",
+       "line": 466
+      },
+      {
+       "method": "Transform_MilestoneNotTransformed",
+       "line": 487
+      },
+      {
+       "method": "Transform_MultipleStrategies_IdentityNoOp",
+       "line": 515
+      },
+      {
+       "method": "Activate_LogsStrategyId",
+       "line": 544
+      },
+      {
+       "method": "Deactivate_LogsStrategyId",
+       "line": 557
+      },
+      {
+       "method": "Transform_LogsIdentityNoOp",
+       "line": 569
+      },
+      {
+       "method": "Activate_Duplicate_LogsWarning",
+       "line": 589
+      },
+      {
+       "method": "Transform_NonEffective_LogsIdentityNoOp",
+       "line": 608
+      },
+      {
+       "method": "Transform_NoActiveStrategies_LogsIdentityNoOp",
+       "line": 629
+      },
+      {
+       "method": "SetMaxSlots_LogsNewValue",
+       "line": 645
+      },
+      {
+       "method": "Reset_LogsClearedCount",
+       "line": 658
+      },
+      {
+       "method": "Integration_EngineDispatchesStrategyActions_IdentityRewards",
+       "line": 677
+      },
+      {
+       "method": "Activate_SameStrategyTwice_OverwritesPrevious",
+       "line": 710
+      },
+      {
+       "method": "Transform_ZeroReward_NoDivision",
+       "line": 735
+      },
+      {
+       "method": "IsStrategyActive_False_BeforeActivation",
+       "line": 752
+      },
+      {
+       "method": "GetAvailableSlots_DefaultMaxSlots",
+       "line": 758
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CrewReservationNameHitFallbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryResolveActiveVesselPartForSeat_PidHit_ReturnsPidMatch",
+       "line": 91
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_NameHitUniqueMatch_Succeeds",
+       "line": 112
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_NameHitMultipleMatches_PicksMinFreeSeats",
+       "line": 134
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_NoMatch_PidAndNameBothMiss_ReturnsMinusOne",
+       "line": 158
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_Bug578_WrongActiveVessel_DiagnosesMissingSnapshotPart",
+       "line": 179
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_MissReasons_CoverAllReachableBranches",
+       "line": 224
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_PidCollisionWrongVessel_ReportsMissingSnapshotPart",
+       "line": 281
+      },
+      {
+       "method": "LogOrphanPlacementDeferred_EmitsReasonAndStandInRetrySemantics",
+       "line": 310
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_PidCoincidence_PidHitWinsOverNameHit",
+       "line": 345
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_PidMatchesButPartIsFull_FallsBackToName",
+       "line": 373
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_ZeroSnapshotPid_SkipsPidTierGoesToName",
+       "line": 394
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_NullOrEmptyParts_ReturnsMinusOne",
+       "line": 414
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_NameHitTieOnFreeSeats_FirstWins",
+       "line": 432
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_EmptyOrNullSnapshotName_SkipsNameTier",
+       "line": 453
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_RegressionPlaytestScenario_SingleSeatPodFull_ReturnsMinusOne",
+       "line": 474
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_DoesNotMutateInputList",
+       "line": 512
+      },
+      {
+       "method": "TryResolveActiveVesselPartForSeat_DeterministicAcrossRepeatedCalls",
+       "line": 532
+      },
+      {
+       "method": "FormatSeatMatchAttemptDiagnostic_ReportsAttemptedTiersTruthfully",
+       "line": 562
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

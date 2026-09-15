@@ -1,0 +1,56 @@
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "ShouldAttemptGhosting_ZeroPid_ReturnsFalse", "line": 40, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "ShouldAttemptGhosting_VesselMissing_ReturnsFalse", "line": 46, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "ShouldAttemptGhosting_ValidVessel_ReturnsTrue", "line": 52, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "ShouldAttemptGhosting_ZeroPidAndMissing_ReturnsFalse", "line": 58, "verdict": "duplicate", "category": "T2", "twin": "VesselGhosterTests.cs.ShouldAttemptGhosting_ZeroPid_ReturnsFalse", "falsifiability": "falsifiability: Source/Parsek/VesselGhoster.cs:1184; drop both clauses (return true) -> both red; no mutation of the two-clause predicate reds this row alone", "note": "combined negative input adds no discriminating power over the two single-clause negatives"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CanSpawnAtChainTip_NullChain_ReturnsFalse", "line": 68, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CanSpawnAtChainTip_TerminatedChain_ReturnsFalse", "line": 74, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CanSpawnAtChainTip_NullTipRecordingId_ReturnsFalse", "line": 86, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CanSpawnAtChainTip_EmptyTipRecordingId_ReturnsFalse", "line": 98, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CanSpawnAtChainTip_ValidChain_ReturnsTrue", "line": 110, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "SpawnAtChainTip_SourceExists_AdoptsBeforeSnapshotOrCollisionChecks", "line": 126, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "TrySpawnBlockedChain_SourceExists_AdoptsBeforeBlockedCollisionRecheck", "line": 155, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "MarkChainTipRecordingSpawned_ValidPid_SetsSpawnState", "line": 191, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "MarkChainTipRecordingSpawned_ZeroPid_DoesNotMutate", "line": 218, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "MarkChainTipRecordingSpawned_NullRecording_ReturnsFalse", "line": 239, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "IsGhosted_NotGhosted_ReturnsFalse", "line": 254, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "IsGhosted_AfterDirectAdd_ReturnsTrue", "line": 260, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "IsGhosted_DifferentPid_ReturnsFalse", "line": 267, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "GhostedCount_Empty_ReturnsZero", "line": 278, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "GhostedCount_AfterAdd_ReturnsCorrect", "line": 284, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "GhostedCount_DuplicatePid_ReturnsOne", "line": 292, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CleanupAll_ClearsState", "line": 304, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CleanupAll_EmptyDict_NoThrow", "line": 318, "verdict": "weak", "category": "T3", "falsifiability": "falsifiability: Source/Parsek/VesselGhoster.cs:1134; make CleanupAll throw on an empty dictionary -> red; emptying the Clear()/Destroy body leaves it green", "note": "assertion is count==0 on a never-populated ghoster; only a thrown exception can red it"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CleanupAll_LogsCount", "line": 326, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "CleanupAll_EmptyDict_LogsZero", "line": 339, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "GetGhostedInfo_NotGhosted_ReturnsNull", "line": 353, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "GetGhostedInfo_Ghosted_ReturnsInfo", "line": 359, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "GetGhostGO_NotGhosted_ReturnsNull", "line": 377, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "GetGhostGO_GhostedButNoGO_ReturnsNull", "line": 383, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "ResetForTesting_ClearsAllState", "line": 395, "verdict": "weak", "category": "T3", "falsifiability": "falsifiability: Source/Parsek/VesselGhoster.cs:1160; sut=test-infrastructure; remove ghostedVessels.Clear() from ResetForTesting -> red", "note": "SUT is the test-only ResetForTesting helper, not a production path; CleanupAll_ClearsState covers the shipped clear"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "AddThenCleanup_ThenAdd_StateConsistent", "line": 412, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "TryResolvePropagatedOrbitSeed_MismatchedTerminalOrbitBody_UsesEndpointAlignedSeed", "line": 431, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "TryResolvePropagatedOrbitSeed_NoEndpointAlignedSeed_ReturnsFalse", "line": 476, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/VesselGhosterTests.cs", "method": "TryResolvePropagatedOrbitSeed_SurfaceEndpoint_DoesNotReuseStaleTerminalOrbit", "line": 499, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_AppliesAtFarTier_WhenDebrisAndParentSet", "line": 23, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_NoOp_WhenLegacyV11Debris_ParentIdNull", "line": 39, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_NoOp_WhenLegacyV11Debris_ParentIdEmpty", "line": 55, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_NoOp_WhenNonDebrisRecording", "line": 71, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_NoOp_WhenTreeRecNull", "line": 87, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_PreservesCloserDockingTier", "line": 96, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_PreservesMidTierAtIdentity", "line": 112, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_PreservesOutOfRangeShortCircuit", "line": 128, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "SkipGate_OutOfFocusedRangeWithoutDebrisTier_ReturnsTrue", "line": 148, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "SkipGate_OutOfFocusedRangeWithParentDebrisTier_ReturnsFalse", "line": 159, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "SkipGate_HighFidelityActive_ReturnsFalse", "line": 168, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Cap_PreservesPositiveInfinityAsOutOfRangeEquivalent", "line": 177, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "GateEligible_DebrisWithParentId_True", "line": 197, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "GateEligible_NonDebris_False", "line": 204, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "GateEligible_DebrisWithoutParentId_False", "line": 211, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "GateEligible_Null_False", "line": 218, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "MaxCap_AppliesAtMediumDefault_WhenDebrisAndParentSet", "line": 226, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "MaxCap_NoOp_WhenLegacyV11Debris", "line": 258, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "MaxCap_NoOp_WhenNonDebris", "line": 274, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "MaxCap_PreservesTighterMaxAtIdentity_WhenAlreadyBelowMid", "line": 290, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Integration_StableVelocity_V12Debris_BackstopFiresWithin500ms", "line": 319, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "Integration_StableVelocity_NonDebris_BackstopUnchanged", "line": 368, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/DebrisParentSamplingCeilingTests.cs", "method": "MaxCap_AppliesAtLowDefault_WhenDebrisAndParentSet", "line": 242, "verdict": "duplicate", "category": "T2", "twin": "DebrisParentSamplingCeilingTests.cs.MaxCap_AppliesAtMediumDefault_WhenDebrisAndParentSet", "falsifiability": "falsifiability: Source/Parsek/BackgroundRecorder.cs:6481; change the cap constant or return configuredMax -> both red; the capped output is MidInterval for every configuredMax above it", "note": "differs from the Medium twin only in the density preset feeding a value the cap discards; merge as a [Theory] row"}

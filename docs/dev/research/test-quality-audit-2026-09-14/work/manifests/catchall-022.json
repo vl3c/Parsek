@@ -1,0 +1,171 @@
+{
+ "batch_id": "catchall-022",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 38,
+ "files": [
+  {
+   "file": "DrawdownGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsGuardableDrawdown_RunningMoreThanEpsilonBelowLive_IsGuardable",
+       "line": 49
+      },
+      {
+       "method": "IsGuardableDrawdown_RunningWithinEpsilonBelowLive_IsNotGuardable",
+       "line": 56
+      },
+      {
+       "method": "IsGuardableDrawdown_RunningExactlyEpsilonBelowLive_IsNotGuardable",
+       "line": 63
+      },
+      {
+       "method": "IsGuardableDrawdown_RunningEqualsLive_IsNotGuardable",
+       "line": 70
+      },
+      {
+       "method": "IsGuardableDrawdown_RunningAboveLive_IsNotGuardable",
+       "line": 76
+      },
+      {
+       "method": "IsGuardableUplift_RunningMoreThanEpsilonAboveLive_IsGuardable",
+       "line": 87
+      },
+      {
+       "method": "IsGuardableUplift_RunningWithinEpsilonAboveLive_IsNotGuardable",
+       "line": 94
+      },
+      {
+       "method": "IsGuardableUplift_RunningExactlyEpsilonAboveLive_IsNotGuardable",
+       "line": 101
+      },
+      {
+       "method": "IsGuardableUplift_RunningEqualsLive_IsNotGuardable",
+       "line": 108
+      },
+      {
+       "method": "IsGuardableUplift_RunningBelowLive_IsNotGuardable",
+       "line": 114
+      },
+      {
+       "method": "IsAuthoritativeReduction_AllFalse_IsFalse",
+       "line": 125
+      },
+      {
+       "method": "IsAuthoritativeReduction_IsRewinding_IsTrue",
+       "line": 132
+      },
+      {
+       "method": "IsAuthoritativeReduction_ReFlyMarker_IsTrue",
+       "line": 139
+      },
+      {
+       "method": "IsAuthoritativeReduction_MergeJournal_IsTrue",
+       "line": 146
+      },
+      {
+       "method": "IsAuthoritativeReduction_TombstonePath_IsTrue",
+       "line": 153
+      },
+      {
+       "method": "IsAuthoritativeReduction_RewindResourceAdjustment_IsTrue",
+       "line": 160
+      },
+      {
+       "method": "IsAuthoritativeReduction_Combinations_IsTrue",
+       "line": 168
+      },
+      {
+       "method": "ApplyDrawdownGuard_RunningAboveLive_ReturnsTargetUnchanged_ReservationCase",
+       "line": 179
+      },
+      {
+       "method": "ApplyDrawdownGuard_RunningBelowLive_Authoritative_ReturnsTargetUnchanged",
+       "line": 194
+      },
+      {
+       "method": "ApplyDrawdownGuard_RunningBelowLive_NoSignal_ClampsToLive",
+       "line": 208
+      },
+      {
+       "method": "ApplyDrawdownGuard_TargetAboveLive_ReturnsTargetWhenClamped",
+       "line": 221
+      },
+      {
+       "method": "ApplyDrawdownGuard_EpsilonNoOp_DoesNotClamp",
+       "line": 235
+      },
+      {
+       "method": "ApplyDrawdownGuard_NegativeRepRange_ClampsCorrectly",
+       "line": 248
+      },
+      {
+       "method": "ApplyDrawdownGuard_NegativeRange_AuthorizedReductionApplies",
+       "line": 262
+      },
+      {
+       "method": "ApplyDrawdownGuard_RunningAboveLive_NoSignal_ClampsDownToLive",
+       "line": 279
+      },
+      {
+       "method": "ApplyDrawdownGuard_RunningAboveLive_Authoritative_ReturnsTargetUnchanged",
+       "line": 294
+      },
+      {
+       "method": "ApplyDrawdownGuard_RunningAboveLive_TargetAlreadyBelowLive_DoesNotFlagNoOpClamp",
+       "line": 309
+      },
+      {
+       "method": "ApplyDrawdownGuard_RunningBelowLive_NoSignal_DirectionIsUp",
+       "line": 325
+      },
+      {
+       "method": "Reservation_RunningEqualsLive_TargetBelowLive_NoUpliftClamp",
+       "line": 339
+      },
+      {
+       "method": "ApplyDrawdownGuard_Science_RunningAboveLive_NoSignal_ClampsDownToLive",
+       "line": 356
+      },
+      {
+       "method": "ApplyDrawdownGuard_Reputation_RunningAboveLive_NoSignal_ClampsDownToLive",
+       "line": 370
+      },
+      {
+       "method": "EmitDrawdownGuardClamp_Funds_WarnsWithNumbersAndToastsOnce",
+       "line": 389
+      },
+      {
+       "method": "EmitDrawdownGuardClamp_Funds_Down_WarnsWithUpliftWordingAndToastsOnce",
+       "line": 413
+      },
+      {
+       "method": "EmitDrawdownGuardClamp_Science_WarnNotesPerSubjectDivergence",
+       "line": 443
+      },
+      {
+       "method": "EmitDrawdownGuardClamp_Reputation_Toasts",
+       "line": 461
+      },
+      {
+       "method": "EmitDrawdownGuardClamp_SessionLatch_WarnsEveryTimeButToastsOnce",
+       "line": 477
+      },
+      {
+       "method": "Blocker2_ReservationLowersAvailableButNotRunning_GuardDoesNotClamp",
+       "line": 502
+      },
+      {
+       "method": "ResetDrawdownGuardSessionLatches_ReArmsTheToast",
+       "line": 541
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

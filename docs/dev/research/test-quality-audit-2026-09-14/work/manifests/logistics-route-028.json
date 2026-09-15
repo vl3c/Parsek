@@ -1,0 +1,217 @@
+{
+ "batch_id": "logistics-route-028",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 44,
+ "files": [
+  {
+   "file": "Logistics/LogisticsRejectPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DescribeNearMiss_Sealed_DelegatesToRejectMessage",
+       "line": 48
+      },
+      {
+       "method": "DescribeNearMiss_UndockedStartOrigin_PassesThrough",
+       "line": 62
+      },
+      {
+       "method": "DescribeNearMiss_MidRecordingStartTrimUnsupported_PassesThrough",
+       "line": 82
+      },
+      {
+       "method": "DescribeNearMiss_MidRecordingStartTrim_PassesDetailThrough",
+       "line": 102
+      },
+      {
+       "method": "DescribeNearMiss_UntrackedCargoGain_PassesDetailThrough",
+       "line": 123
+      },
+      {
+       "method": "DescribeNearMiss_FlowDoesNotClose_PassesDetailThrough",
+       "line": 144
+      },
+      {
+       "method": "DescribeNearMiss_NullDetail_MatchesLegacyOverload",
+       "line": 162
+      },
+      {
+       "method": "DescribeNearMiss_NotSealed_Singular",
+       "line": 176
+      },
+      {
+       "method": "DescribeNearMiss_NotSealed_Plural",
+       "line": 185
+      },
+      {
+       "method": "DescribeNearMiss_NotSealed_IgnoresStatus",
+       "line": 195
+      },
+      {
+       "method": "DeriveNearMisses_UnsealedTree_NotSealedNearMiss",
+       "line": 211
+      },
+      {
+       "method": "DeriveNearMisses_TwoReflyable_CountsBoth",
+       "line": 229
+      },
+      {
+       "method": "DeriveNearMisses_SealedIneligible_CarriesStatus",
+       "line": 247
+      },
+      {
+       "method": "DeriveNearMisses_EligibleUnpromoted_NotANearMiss",
+       "line": 263
+      },
+      {
+       "method": "DeriveNearMisses_EligiblePromoted_NotANearMiss",
+       "line": 277
+      },
+      {
+       "method": "DeriveNearMisses_NoTrees_ReturnsEmpty",
+       "line": 288
+      },
+      {
+       "method": "DeriveNearMisses_EmptyTree_NotANearMiss",
+       "line": 299
+      },
+      {
+       "method": "DeriveNearMisses_ThenDescribe_RendersReflyableCount",
+       "line": 312
+      },
+      {
+       "method": "DeriveNearMisses_OverDeliveryTree_TextNamesResourceAndQuantity",
+       "line": 335
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/GroundSupplyRouteTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GroundSupplyRun_KscOriginLandedEndpoint_AnalyzesAndBuilds",
+       "line": 61
+      },
+      {
+       "method": "RouteProofAuthoredByBuilder_RoundTripsThroughTreeMetadataCodec",
+       "line": 171
+      },
+      {
+       "method": "AddStoredPartToInventory_ExtractsThroughProductionWalk",
+       "line": 273
+      },
+      {
+       "method": "SealedRoverTree_SurfacesAsCandidate_ProvisionalChildHidesIt",
+       "line": 330
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RouteModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ProcessAction_RouteDispatched_TracksCycle",
+       "line": 103
+      },
+      {
+       "method": "ProcessAction_RouteCargoDelivered_TracksStop",
+       "line": 115
+      },
+      {
+       "method": "ProcessAction_RouteCargoDeliveredWithoutDispatch_LogsWarnAndSkips",
+       "line": 128
+      },
+      {
+       "method": "ProcessAction_RoutePaused_SetsPausedFlag",
+       "line": 145
+      },
+      {
+       "method": "ProcessAction_RouteEndpointLost_SetsFlag",
+       "line": 157
+      },
+      {
+       "method": "ProcessAction_RouteDispatched_OnPausedRoute_WarnsAndKeepsPausedTrue",
+       "line": 168
+      },
+      {
+       "method": "ProcessAction_RouteResumed_ClearsPausedFlag",
+       "line": 193
+      },
+      {
+       "method": "ProcessAction_SendOnceDispatch_OnPausedRoute_NoWarnKeepsPaused",
+       "line": 209
+      },
+      {
+       "method": "ProcessAction_RouteDispatched_OnEndpointLostRoute_KeepsEndpointLostTrue",
+       "line": 235
+      },
+      {
+       "method": "ProcessAction_RouteRecoveryCredited_IncrementsCreditedCounter",
+       "line": 257
+      },
+      {
+       "method": "ProcessAction_RouteRecoveryCredited_DoesNotTouchOtherCounters",
+       "line": 270
+      },
+      {
+       "method": "LogContract_ProcessRecoveryCredited_EmitsObserveOnlyVerbose",
+       "line": 286
+      },
+      {
+       "method": "PostWalk_ReportsTotalCreditedCount",
+       "line": 302
+      },
+      {
+       "method": "ProcessCargoDebited_PhysicalRow_ObserveOnly_LogsOriginPid",
+       "line": 324
+      },
+      {
+       "method": "ProcessCargoPickedUp_PhysicalRow_ObserveOnly_LogsEndpointPid",
+       "line": 378
+      },
+      {
+       "method": "ProcessCargoPickedUp_UnresolvedRow_Pid0_NotCountedPhysical",
+       "line": 430
+      },
+      {
+       "method": "Reset_ClearsAllState",
+       "line": 453
+      },
+      {
+       "method": "Reset_ThenReapply_ProducesIdenticalState",
+       "line": 467
+      },
+      {
+       "method": "ProcessAction_IgnoresNonRouteActionTypes",
+       "line": 492
+      },
+      {
+       "method": "LogContract_ProcessRouteDispatched_EmitsInfoWithRouteAndCycle",
+       "line": 526
+      },
+      {
+       "method": "LogContract_Reset_EmitsVerboseWithPreviousCount",
+       "line": 541
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

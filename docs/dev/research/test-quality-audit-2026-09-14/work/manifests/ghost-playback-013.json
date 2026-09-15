@@ -1,0 +1,315 @@
+{
+ "batch_id": "ghost-playback-013",
+ "cluster": "ghost-playback",
+ "tier": "A",
+ "expected_methods": 74,
+ "files": [
+  {
+   "file": "PlaybackFidelityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FxMagnitudeRatio_ZeroPowerIsZero",
+       "line": 48
+      },
+      {
+       "method": "FxMagnitudeRatio_FullPowerIsExactlyOne",
+       "line": 54
+      },
+      {
+       "method": "FxMagnitudeRatio_MidThrottleIsTheMagnitudeRatio",
+       "line": 63
+      },
+      {
+       "method": "FxMagnitudeRatio_HoldsTheVisibilityFloorAtVeryLowThrottle",
+       "line": 69
+      },
+      {
+       "method": "FxMagnitudeRatio_DegradesToOneRatherThanToZero",
+       "line": 83
+      },
+      {
+       "method": "FxMagnitudeRatio_NeverExceedsOneEvenOnARisingCurve",
+       "line": 91
+      },
+      {
+       "method": "EngineMagnitudeHelpers_FallBackLinearlyWithoutACurve",
+       "line": 97
+      },
+      {
+       "method": "EngineRatio_TracksThrottleMonotonicallyThroughTheHelpers",
+       "line": 105
+      },
+      {
+       "method": "RcsRatio_KeepsTheShowcaseVisibilityFloorAliveAsARatio",
+       "line": 120
+      },
+      {
+       "method": "RcsRatio_NonShowcaseIsTheStraightCurveRatio",
+       "line": 136
+      },
+      {
+       "method": "ClipSeconds_UnreadableLengthStillAnimates",
+       "line": 150
+      },
+      {
+       "method": "ClipSeconds_ClampsAbsurdEnds",
+       "line": 160
+      },
+      {
+       "method": "TransitionFraction_StartsAtTheStowedEndAndReachesDeployed",
+       "line": 170
+      },
+      {
+       "method": "TransitionFraction_StrictlyBetweenTheEndpointsMidClip",
+       "line": 188
+      },
+      {
+       "method": "TransitionFraction_CatchUpFromFarInThePastLandsAtTheTarget",
+       "line": 196
+      },
+      {
+       "method": "TransitionFraction_ReversalTakesOnlyTheDistanceItHasToTravel",
+       "line": 207
+      },
+      {
+       "method": "TransitionFraction_BackwardsUtHoldsTheStartPoseRatherThanInvertingTheClip",
+       "line": 224
+      },
+      {
+       "method": "TransitionFraction_NoDistanceIsInstantlyComplete",
+       "line": 233
+      },
+      {
+       "method": "TransitionFraction_NonFiniteUtSnapsToTheTargetInsteadOfFreezing",
+       "line": 242
+      },
+      {
+       "method": "AngularVelocity_IdenticalRotationsProduceNoRate",
+       "line": 253
+      },
+      {
+       "method": "AngularVelocity_TenDegreesAboutYOverHalfASecondIsTwentyDegPerSecOnY",
+       "line": 261
+      },
+      {
+       "method": "AngularVelocity_SignFollowsTheDirectionOfRotation",
+       "line": 272
+      },
+      {
+       "method": "AngularVelocity_TakesTheShortestArcAcrossTheDoubleCover",
+       "line": 284
+      },
+      {
+       "method": "AngularVelocity_NonPositiveDeltaAnswersZeroRatherThanInfinity",
+       "line": 300
+      },
+      {
+       "method": "EmaVector_BlendsTowardTheNewSampleWithoutOvershooting",
+       "line": 308
+      },
+      {
+       "method": "Deflection_OpposesTheBodyRateThatProducedIt",
+       "line": 323
+      },
+      {
+       "method": "Deflection_ClampsToTheModulesOwnAuthority",
+       "line": 330
+      },
+      {
+       "method": "Deflection_DeadbandsSamplingNoiseToExactlyNeutral",
+       "line": 337
+      },
+      {
+       "method": "Deflection_NonFiniteRateIsNeutral",
+       "line": 349
+      },
+      {
+       "method": "Deflection_UnusableRangeFallsBackToTheDefaultAuthority",
+       "line": 355
+      },
+      {
+       "method": "Slew_MovesAtMostTheRateTimesTheStep",
+       "line": 362
+      },
+      {
+       "method": "Slew_SnapsWhenTheTargetIsWithinOneStep",
+       "line": 369
+      },
+      {
+       "method": "Slew_NonPositiveStepHolds",
+       "line": 378
+      },
+      {
+       "method": "Slew_NonFiniteTargetHolds",
+       "line": 384
+      },
+      {
+       "method": "HeadingRate_TurningLeftAboutUpIsPositive",
+       "line": 392
+      },
+      {
+       "method": "HeadingRate_ReversesSignWithTheTurn",
+       "line": 403
+      },
+      {
+       "method": "HeadingRate_StraightLineTravelIsZero",
+       "line": 413
+      },
+      {
+       "method": "HeadingRate_NonPositiveStepIsZero",
+       "line": 423
+      },
+      {
+       "method": "HeadingRate_DegenerateInputsAnswerZeroRatherThanNaN",
+       "line": 431
+      },
+      {
+       "method": "SteeringAngle_PointsIntoTheTurnAndClampsAtTheCaliperLimit",
+       "line": 444
+      },
+      {
+       "method": "AimAngle_ResolvesTheInPlaneAngleBetweenReferenceAndTarget",
+       "line": 462
+      },
+      {
+       "method": "AimAngle_IgnoresTheComponentAlongTheAxis",
+       "line": 474
+      },
+      {
+       "method": "AimAngle_TargetAlongTheAxisDeclinesSoTheCallerHolds",
+       "line": 487
+      },
+      {
+       "method": "AimAngle_DegenerateInputsDecline",
+       "line": 495
+      },
+      {
+       "method": "DustGroundLatch_TakesTheFirstPointCarryingAFiniteClearance",
+       "line": 523
+      },
+      {
+       "method": "DustGroundLatch_NoClearanceAnywhereMeansNoDustEver",
+       "line": 532
+      },
+      {
+       "method": "DustGroundLatch_EmptyOrNullInputDeclines",
+       "line": 542
+      },
+      {
+       "method": "DustIntensity_NoEnginePowerIsTheFirstGate",
+       "line": 550
+      },
+      {
+       "method": "DustIntensity_UnlatchedGroundReferenceIsTheSecondGate",
+       "line": 558
+      },
+      {
+       "method": "DustIntensity_FadesOutWithHeightAboveGroundAndStopsAtTheCeiling",
+       "line": 565
+      },
+      {
+       "method": "DustIntensity_ScalesWithThrottleAtTheSameHeight",
+       "line": 584
+      },
+      {
+       "method": "DustIntensity_TolerantOfSmallNegativeAglButNotOfAWrongReference",
+       "line": 593
+      },
+      {
+       "method": "EmitterVelocity_LocalSpaceIsAPlainRatio",
+       "line": 609
+      },
+      {
+       "method": "EmitterVelocity_WorldSpaceNeverScalesBelowTheMinimumFlowFloor",
+       "line": 618
+      },
+      {
+       "method": "EmitterVelocity_WorldSpaceKeepsTheRatioWhileItStaysAboveTheFloor",
+       "line": 632
+      },
+      {
+       "method": "EmitterVelocity_TheClampIsAFloorNeverABoost",
+       "line": 646
+      },
+      {
+       "method": "EmitterVelocity_NonPositiveRatioIsLeftAloneEvenInWorldSpace",
+       "line": 658
+      },
+      {
+       "method": "EmitterVelocity_AZeroBaselineStaysZero",
+       "line": 668
+      },
+      {
+       "method": "DecayRateTowardZero_ShrinksByTheEmaWeightPerGapFrame",
+       "line": 678
+      },
+      {
+       "method": "DecayRateTowardZero_KeepsTheSignAndSettlesExactlyAtZero",
+       "line": 690
+      },
+      {
+       "method": "DecayRateTowardZero_DegradesSafelyOnNonFiniteInputs",
+       "line": 705
+      },
+      {
+       "method": "FxMagnitudeWrite_ConvertsForEveryRealKspParticleEmitterFieldTypeItTouches",
+       "line": 742
+      },
+      {
+       "method": "FxMagnitudeWrite_ActuallyLandsOnARealKspParticleEmitterInstance",
+       "line": 792
+      },
+      {
+       "method": "MagnitudeConversion_RoundsToTheNearestIntegerRatherThanTruncating",
+       "line": 819
+      },
+      {
+       "method": "MagnitudeConversion_NeverQuantisesALitPlumeDownToZero",
+       "line": 831
+      },
+      {
+       "method": "MagnitudeConversion_KeepsTheNegativeMaxEmissionSentinelNegative",
+       "line": 851
+      },
+      {
+       "method": "MagnitudeConversion_PassesFloatsThroughUnchanged",
+       "line": 862
+      },
+      {
+       "method": "MagnitudeConversion_RefusesNonFiniteMagnitudes",
+       "line": 877
+      },
+      {
+       "method": "MagnitudeConversion_RefusesTypesItCannotExpressRatherThanGuessing",
+       "line": 884
+      },
+      {
+       "method": "SunTrackingReference_IsAlwaysPerpendicularToTheAxis",
+       "line": 905
+      },
+      {
+       "method": "SunTrackingReference_KeepsTheStockZeroAngleDirectionWhereItCan",
+       "line": 933
+      },
+      {
+       "method": "SunTrackingAim_ResolvesWithTheResolvedReferenceWhereTheOldOneDegenerated",
+       "line": 948
+      },
+      {
+       "method": "SunTrackingAim_StillDeclinesWhenTheSunGenuinelyLiesAlongTheAxis",
+       "line": 972
+      },
+      {
+       "method": "SnapshotBaselineActions_StillResolveDeployableOpinionsUnchanged",
+       "line": 987
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/VesselSpawner.cs b/Source/Parsek/VesselSpawner.cs
+index 5bf3624bb..b5f60b949 100644
+--- a/Source/Parsek/VesselSpawner.cs
++++ b/Source/Parsek/VesselSpawner.cs
+@@ -3238,7 +3238,7 @@ namespace Parsek
+         /// </summary>
+         public static void RemoveDuplicateCrewFromSnapshot(ConfigNode snapshot)
+         {
+-            if (snapshot == null) return;
++            return; // MUTATION-T1 stub: dedup removal loop and Warn deleted
+ 
+             // Build name -> holding live vessel, so a removal can name the holder.
+             var existingCrew = BuildExistingCrewHolders();

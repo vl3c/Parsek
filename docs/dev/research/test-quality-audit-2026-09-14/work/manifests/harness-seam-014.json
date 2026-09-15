@@ -1,0 +1,218 @@
+{
+ "batch_id": "harness-seam-014",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "TestCommandEvaChuteDeployTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsCanopyOpen_OnlySemiOrFull",
+       "line": 23
+      },
+      {
+       "method": "IsDownSituation_OnlyLandedOrSplashed",
+       "line": 46
+      },
+      {
+       "method": "ArmRefusal_None_WhenEveryGateOpen",
+       "line": 54
+      },
+      {
+       "method": "ArmRefusal_NotEva_TakesPrecedence",
+       "line": 62
+      },
+      {
+       "method": "ArmRefusal_NoModule_BeforeUnavailable",
+       "line": 72
+      },
+      {
+       "method": "ArmRefusal_Unavailable_WhenModuleSwitchedOff",
+       "line": 81
+      },
+      {
+       "method": "ArmRefusal_NotStowed_ForEveryNonStowedState",
+       "line": 92
+      },
+      {
+       "method": "ArmRefusal_JetpackDeployed_MirrorsStockRefusal",
+       "line": 109
+      },
+      {
+       "method": "ArmTook_RejectsStillStowed",
+       "line": 122
+      },
+      {
+       "method": "Completion_Ok_WhenCanopyVerifiedAndDownAndSettled",
+       "line": 137
+      },
+      {
+       "method": "Completion_Ok_AtCanopyOnly_WhenAwaitDownOff",
+       "line": 147
+      },
+      {
+       "method": "Completion_Waits_WhileChuteMerelyArmed",
+       "line": 158
+      },
+      {
+       "method": "Completion_Waits_WhileStillDescending",
+       "line": 170
+      },
+      {
+       "method": "Completion_Waits_WhileSceneUnsettled",
+       "line": 180
+      },
+      {
+       "method": "Completion_CanopyTimeout_NamesTheStalledStage",
+       "line": 190
+      },
+      {
+       "method": "Completion_DownTimeout_WhenCanopyOpenedButNeverLanded",
+       "line": 204
+      },
+      {
+       "method": "KerbalTreatedAlive_AliveReadIsAlwaysAlive",
+       "line": 218
+      },
+      {
+       "method": "KerbalTreatedAlive_AbsorbsTransientGoneReads",
+       "line": 229
+      },
+      {
+       "method": "KerbalTreatedAlive_RealLossSurvivesTheDebounce",
+       "line": 237
+      },
+      {
+       "method": "Completion_KerbalLost_BeatsEverything",
+       "line": 246
+      },
+      {
+       "method": "Completion_NeverOk_OnThePollTheKerbalFirstReadsGone",
+       "line": 260
+      },
+      {
+       "method": "Completion_LossWinsOnceTheDebounceExpires",
+       "line": 281
+      },
+      {
+       "method": "Completion_TimesOutHonestly_WhenBudgetEndsMidLossDebounce",
+       "line": 296
+      },
+      {
+       "method": "ErrorTokenFor_NullOnNonTerminalDecisions",
+       "line": 314
+      },
+      {
+       "method": "CompletePayload_CarriesLatchedCanopyAndArrivalEvidence",
+       "line": 323
+      },
+      {
+       "method": "CompletePayload_NullKerbalBecomesEmptyString",
+       "line": 341
+      },
+      {
+       "method": "EvaChuteDeploy_IsImplementedNotReserved",
+       "line": 354
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandDumpGuiTreeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MissingLabel_IsItsOwnReject_NotTheInvalidOne",
+       "line": 27
+      },
+      {
+       "method": "FilenameSafeLabels_Parse",
+       "line": 46
+      },
+      {
+       "method": "UnsafeLabels_AreRejectedFailClosed",
+       "line": 70
+      },
+      {
+       "method": "TheLabelRuleIsTheCaptureVerbsRule_NotACopyOfIt",
+       "line": 90
+      },
+      {
+       "method": "AnAcceptedLabelSurvivesTheRecordersSanitiserUnchanged",
+       "line": 114
+      },
+      {
+       "method": "ALabelTheSanitiserWouldTrim_IsRefusedRatherThanReportedWrong",
+       "line": 134
+      },
+      {
+       "method": "APollBeforeAnythingHappens_IsNotYet",
+       "line": 150
+      },
+      {
+       "method": "AWrittenDumpForThisArm_Settles",
+       "line": 159
+      },
+      {
+       "method": "SettledIsDecidedBeforeTheBudget",
+       "line": 168
+      },
+      {
+       "method": "AFaultBeatsAWrittenDump",
+       "line": 180
+      },
+      {
+       "method": "AnIdleRecorderWithNoDump_GivesUp_WithoutWaitingOutTheBudget",
+       "line": 198
+      },
+      {
+       "method": "AStillWorkingRecorderAtTheBudget_TimesOut",
+       "line": 210
+      },
+      {
+       "method": "TheTwoNoDumpOutcomesShareOneWireToken",
+       "line": 219
+      },
+      {
+       "method": "RelativePath_IsTheHarvestedDirectory_WithForwardSlashes",
+       "line": 234
+      },
+      {
+       "method": "TheDumpDirectoryAndSuffixAreTheRecordersOwn",
+       "line": 245
+      },
+      {
+       "method": "TheDumpAndTheCaptureShareALabelAndDifferOnlyInSuffix",
+       "line": 257
+      },
+      {
+       "method": "Payload_CarriesEveryKey_InvariantlyFormatted",
+       "line": 270
+      },
+      {
+       "method": "PatchedIsAPairAndNamesTheShippedFunnelCount",
+       "line": 287
+      },
+      {
+       "method": "Payload_IsCultureInvariant",
+       "line": 300
+      },
+      {
+       "method": "Payload_ReportsAnUnstattableFileAsMinusOneRatherThanZero",
+       "line": 316
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

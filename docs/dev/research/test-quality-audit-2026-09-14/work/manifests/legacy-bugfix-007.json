@@ -1,0 +1,175 @@
+{
+ "batch_id": "legacy-bugfix-007",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "EnvironmentTrackingIntegrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StartNewTrackSection_CreatesValidSection_WithCorrectFields",
+       "line": 44
+      },
+      {
+       "method": "StartNewTrackSection_ExoPropulsive_SetsEnvironmentCorrectly",
+       "line": 65
+      },
+      {
+       "method": "StartNewTrackSection_InitializesEmptyFramesList",
+       "line": 75
+      },
+      {
+       "method": "StartNewTrackSection_InitializesEmptyCheckpointsList",
+       "line": 84
+      },
+      {
+       "method": "CloseCurrentTrackSection_ComputesCorrectSampleRate",
+       "line": 97
+      },
+      {
+       "method": "CloseCurrentTrackSection_SetsEndUT",
+       "line": 130
+      },
+      {
+       "method": "CloseCurrentTrackSection_WhenNoActiveSection_DoesNothing",
+       "line": 140
+      },
+      {
+       "method": "CloseCurrentTrackSection_DoubleClose_DoesNotDuplicate",
+       "line": 149
+      },
+      {
+       "method": "TrackSections_AccumulatesSectionsAcrossEnvironmentChanges",
+       "line": 163
+      },
+      {
+       "method": "TrackSections_SectionsHaveContiguousUTRanges",
+       "line": 191
+      },
+      {
+       "method": "TrackSections_SingleSectionRecording_ProducesOneSection",
+       "line": 204
+      },
+      {
+       "method": "RestoreTrackSectionAfterFalseAlarm_ReopensContinuationSection_AndSeedsBoundaryPoint",
+       "line": 217
+      },
+      {
+       "method": "RestoreTrackSectionAfterFalseAlarm_ResumeAnchorDowngrade_DoesNotSeedRelativeOffsetAsAbsoluteBoundary",
+       "line": 263
+      },
+      {
+       "method": "RestoreTrackSectionAfterFalseAlarm_StaleAnchorDowngrade_NoShadow_SkipsBoundarySeed",
+       "line": 336
+      },
+      {
+       "method": "AppendSectionStartSeamPoint_AbsoluteSection_CommitsUnflaggedFocusedVesselPointAtSectionStart",
+       "line": 381
+      },
+      {
+       "method": "RestoreTrackSectionAfterFalseAlarm_PreservesRelativeAnchorMetadata",
+       "line": 422
+      },
+      {
+       "method": "RestoreTrackSectionAfterFalseAlarm_SkipsDiscardedCurrentSectionWithoutPayload",
+       "line": 466
+      },
+      {
+       "method": "RestoreTrackSectionAfterFalseAlarm_CheckpointResumeRestoresOnRailsState",
+       "line": 513
+      },
+      {
+       "method": "RestoreTrackSectionAfterFalseAlarm_B5BoosterSeparationShape_ClampsStopFrameOverhang",
+       "line": 563
+      },
+      {
+       "method": "RestoreTrackSectionAfterFalseAlarm_SeedBelowClosedSectionStart_RefusesClampAndWarns",
+       "line": 611
+      },
+      {
+       "method": "TryClampClosedSectionEnd_OverhangWithNoPayloadPastSeed_Clamps",
+       "line": 654
+      },
+      {
+       "method": "TryClampClosedSectionEnd_MultiFrameSection_RecomputesSampleRateForClampedDuration",
+       "line": 680
+      },
+      {
+       "method": "TryClampClosedSectionEnd_ExactTouch_DoesNothing",
+       "line": 710
+      },
+      {
+       "method": "TryClampClosedSectionEnd_SeedBelowSectionStart_RefusesInversion",
+       "line": 733
+      },
+      {
+       "method": "TryClampClosedSectionEnd_FramePastSeed_RefusesDataLoss",
+       "line": 755
+      },
+      {
+       "method": "TryClampClosedSectionEnd_BodyFixedFramePastSeed_RefusesDataLoss",
+       "line": 780
+      },
+      {
+       "method": "TryClampClosedSectionEnd_CheckpointPastSeed_RefusesDataLoss",
+       "line": 809
+      },
+      {
+       "method": "TryClampClosedSectionEnd_EmptyListOrNonFiniteSeed_DoesNothing",
+       "line": 837
+      },
+      {
+       "method": "TryApplyRestoreEnvironmentResync_MatchingTailEnvironmentRelabelsOpenSection",
+       "line": 864
+      },
+      {
+       "method": "TryApplyRestoreEnvironmentResync_NonMatchingTransitionDisarmsWithoutRelabel",
+       "line": 887
+      },
+      {
+       "method": "StartNewTrackSection_LogsEnvironmentAndUT",
+       "line": 966
+      },
+      {
+       "method": "StartNewTrackSection_LogsReferenceFrame",
+       "line": 980
+      },
+      {
+       "method": "CloseCurrentTrackSection_LogsEnvironmentAndDuration",
+       "line": 993
+      },
+      {
+       "method": "CloseCurrentTrackSection_LogsFrameCount",
+       "line": 1008
+      },
+      {
+       "method": "CloseCurrentTrackSection_WhenNoActiveSection_DoesNotLog",
+       "line": 1022
+      },
+      {
+       "method": "TrackSections_IsInitializedEmpty",
+       "line": 1035
+      },
+      {
+       "method": "EnvironmentTransition_ProducesConsecutiveSections",
+       "line": 1047
+      },
+      {
+       "method": "EnvironmentTransition_LogsBothStartAndCloseForEachSection",
+       "line": 1071
+      },
+      {
+       "method": "TrackSections_SurviveAcrossMultipleOpenCloseTransitions",
+       "line": 1097
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

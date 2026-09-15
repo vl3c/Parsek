@@ -1,0 +1,54 @@
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsResourceDrift_WithinTolerance_False","line":50,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsResourceDrift_BeyondTolerance_True","line":58,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsResourceDrift_ExactlyAtTolerance_False","line":65,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsResourceDrift_NaNActual_False","line":74,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsResourceDrift_InfinityActual_False","line":82,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsResourceDrift_NaNTarget_True","line":89,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsResourceDrift_InfinityTarget_True","line":97,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsSubjectScienceDrift_WithinTolerance_False","line":106,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsSubjectScienceDrift_BeyondTolerance_True","line":112,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsSubjectScienceDrift_ExactlyAtTolerance_False","line":118,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsSubjectScienceDrift_NaNActual_False","line":125,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsSubjectScienceDrift_InfinityActual_False","line":131,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsSubjectScienceDrift_NaNTarget_True","line":137,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsSubjectScienceDrift_InfinityTarget_True","line":143,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsFacilityLevelMismatch_EqualLevels_False","line":151,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsFacilityLevelMismatch_DifferentLevels_True","line":157,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsTechNodePresenceMismatch_AllCombos","line":166,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsContractPresenceMismatch_AllCombos","line":178,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"ResourceTolerance_MatchesPatcherMagnitudes","line":189,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"FormatStructural_FieldOrderIsStableAndComplete","line":207,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"FormatStructural_NullCutoff_RendersNullToken","line":242,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"FormatStructural_ValuedCutoff_RendersInvariantValue","line":250,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"FormatStructural_AuthReductionFalse_RendersFalse","line":259,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"FormatStructural_NaNNumerics_RenderSafely","line":267,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"FormatStructural_CarriesRecalcSeq","line":283,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitStructural_Enabled_EmitsOneInfoStructuralLine","line":294,"verdict":"weak","category":"T3","falsifiability":"falsifiability: Source/Parsek/LedgerTrace.cs:250; drop the '[INFO]' level or the funds= formatting -> red; a duplicated emit at the same line -> still green because only Contains is asserted","note":"Name says One line but the assertion is Assert.Contains over logLines; an accidental double emit (log spam) stays green. Assert.Single over the matching lines is feasible."}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitStructural_Disabled_NoOp","line":319,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitStructural_UsesCurrentRecalcSeq","line":327,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitOnChange_Disabled_NoOp","line":344,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitOnChange_FirstValue_Emits","line":352,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitOnChange_SameValueTwice_EmitsOnce","line":368,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitOnChange_NewValue_EmitsFreshLine","line":383,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitOnChange_DifferentKeysIndependent","line":395,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"BeginRecalc_ClearsSteadyStateGuard_SoSameValueReEmits","line":408,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitAnomaly_Disabled_NoOp","line":429,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitAnomaly_Enabled_EmitsOneWarnLedgerVsTruthLine","line":437,"verdict":"weak","category":"T3","falsifiability":"falsifiability: Source/Parsek/LedgerTrace.cs:327; drop the '[WARN]' level or the reason= token -> red; a duplicated emit at the same line -> still green because only Contains is asserted","note":"Name says One line but the assertion is Assert.Contains over logLines; a duplicated anomaly emit (the loudest tier) stays green. Assert.Single over the matching lines is feasible."}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"EmitAnomaly_CarriesRecalcSeq","line":456,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"AllEmits_DisabledViaForceFlagAndSetting_ProduceZeroLines","line":469,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"AllEmits_EnabledViaSetting_ResumeEmission","line":489,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"IsEnabled_FollowsParsekSettingsCurrent","line":508,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"GetStoredLedgerTracing_DefaultsNull","line":526,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"SetStoredLedgerTracing_RoundTrips","line":532,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"RecordLedgerTracing_UpdatesInMemoryStore","line":539,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"ResetForTesting_ClearsStoredLedgerTracing","line":546,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/LedgerTraceTests.cs","method":"ApplyTo_RestoresStoredLedgerTracing","line":554,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/CrewReservationRecomputeTests.cs","method":"RecomputeAfterTombstones_DeadKerbalReturnsActive","line":140,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/CrewReservationRecomputeTests.cs","method":"RecomputeAfterTombstones_DifferentRetryCrew_ReleasesOldCrewKeepsRetryCrew","line":189,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/CrewReservationRecomputeTests.cs","method":"RecomputeAfterTombstones_SurvivingRosterCreationRowPreservesQueuedCleanup","line":231,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/CrewReservationRecomputeTests.cs","method":"RecomputeAfterTombstones_LogsCount","line":269,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/CrewReservationRecomputeTests.cs","method":"RecomputeAfterTombstones_DeathRowStrippedUnderASurvivingLiveRow_DemotesPermanentToTemporary","line":292,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/CrewReservationRecomputeTests.cs","method":"RecomputeAfterTombstones_NoTombstones_NoChange","line":357,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/CrewReservationRecomputeTests.cs","method":"RecomputeAfterTombstones_NoKerbalsModule_NoOp","line":379,"verdict":"ok"}
+{"kind":"finding","id":"F-ledger-career-033-01","file":"Source/Parsek.Tests/LedgerTraceTests.cs","line":294,"method":"EmitStructural_Enabled_EmitsOneInfoStructuralLine","category":"T3","severity":"Low","confidence":"high","falsifiability":"falsifiability: Source/Parsek/LedgerTrace.cs:250; drop the '[INFO]' level or the funds= formatting -> red; a duplicated emit at the same line -> still green because only Contains is asserted","what_it_asserts":"EmitStructural with ForceEnabledForTesting emits an Info [LedgerTrace] phase=Structural line carrying funds=100.00 and facilities=[VAB:1].","why_weak":"The name and the one-line-per-recalc contract say one line, but the assertion is Assert.Contains over logLines, so a second emit (duplicated Info call) reds nothing. Assert.Single or a count of matching lines is feasible and cheap.","proposed_action":"Replace Assert.Contains with Assert.Single over the phase=Structural lines (or assert the matching count is 1).","effort":"S","july_ref":"none"}
+{"kind":"finding","id":"F-ledger-career-033-02","file":"Source/Parsek.Tests/LedgerTraceTests.cs","line":437,"method":"EmitAnomaly_Enabled_EmitsOneWarnLedgerVsTruthLine","category":"T3","severity":"Low","confidence":"high","falsifiability":"falsifiability: Source/Parsek/LedgerTrace.cs:327; drop the '[WARN]' level or the reason= token -> red; a duplicated emit at the same line -> still green because only Contains is asserted","what_it_asserts":"EmitAnomaly with ForceEnabledForTesting emits a Warn [LedgerTrace] phase=Anomaly reason=ledger-vs-truth line with the resource/id and detail tail.","why_weak":"The name says One line; the assertion is Assert.Contains over logLines, so a duplicated anomaly emit (the loudest, most costly tier) stays green. Assert.Single over the matching lines is feasible.","proposed_action":"Replace Assert.Contains with Assert.Single over the phase=Anomaly lines (or assert the matching count is 1).","effort":"S","july_ref":"none"}

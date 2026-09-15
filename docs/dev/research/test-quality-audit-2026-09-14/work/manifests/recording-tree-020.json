@@ -1,0 +1,327 @@
+{
+ "batch_id": "recording-tree-020",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 77,
+ "files": [
+  {
+   "file": "TreeCommitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetSpawnableLeaves_SimpleTree_ReturnsRoot",
+       "line": 137
+      },
+      {
+       "method": "GetSpawnableLeaves_BranchTree_ReturnsChildren",
+       "line": 149
+      },
+      {
+       "method": "GetSpawnableLeaves_DestroyedLeaf_Excluded",
+       "line": 166
+      },
+      {
+       "method": "GetSpawnableLeaves_AllTerminalStates",
+       "line": 180
+      },
+      {
+       "method": "GetSpawnableLeaves_NullSnapshot_Excluded",
+       "line": 231
+      },
+      {
+       "method": "GetSpawnableLeaves_InternalNodeWithChild_Excluded",
+       "line": 243
+      },
+      {
+       "method": "GetAllLeaves_IncludesDestroyed",
+       "line": 259
+      },
+      {
+       "method": "DetermineTerminalState_AllSituations",
+       "line": 284
+      },
+      {
+       "method": "IsSpawnableLeaf_OrbitingWithSnapshot_True",
+       "line": 293
+      },
+      {
+       "method": "IsSpawnableLeaf_DestroyedWithSnapshot_False",
+       "line": 303
+      },
+      {
+       "method": "IsSpawnableLeaf_DockedWithSnapshot_False",
+       "line": 313
+      },
+      {
+       "method": "IsSpawnableLeaf_BoardedWithSnapshot_False",
+       "line": 323
+      },
+      {
+       "method": "IsSpawnableLeaf_HasChild_False",
+       "line": 333
+      },
+      {
+       "method": "IsSpawnableLeaf_NoTerminalState_WithSnapshot_True",
+       "line": 344
+      },
+      {
+       "method": "CommitTree_AddsRecordingsToCommittedList",
+       "line": 356
+      },
+      {
+       "method": "CommitTree_MarksPriorSpawnEndpointSupersededByContinuation",
+       "line": 371
+      },
+      {
+       "method": "CommitTree_DoesNotSupersedeAdoptionStampedPriorByDifferentLaunch",
+       "line": 409
+      },
+      {
+       "method": "MarkTerminalSpawnSupersededByDockMerge_SupersedesAdoptedAbsorbedLeaf",
+       "line": 444
+      },
+      {
+       "method": "MarkTerminalSpawnSupersededByDockMerge_GuidGate_DoesNotSupersedeRelaunchCollision",
+       "line": 477
+      },
+      {
+       "method": "MarkTerminalSpawnSupersededByDockMerge_TargetSurvivedAsMergedVessel_NoOp",
+       "line": 504
+      },
+      {
+       "method": "MarkTerminalSpawnSupersededByDockMerge_UniqueSpawnPid_SupersedesWithoutGuid",
+       "line": 531
+      },
+      {
+       "method": "MarkTerminalSpawnSupersededByDockMerge_AlreadySuperseded_Skipped",
+       "line": 556
+      },
+      {
+       "method": "CommitTree_MarksPriorSpawnEndpointSupersededByPidMatchAfterRename",
+       "line": 580
+      },
+      {
+       "method": "ResetAllPlaybackState_MarksPollutedSameNameEndpointSupersededBeforePidReset",
+       "line": 615
+      },
+      {
+       "method": "RewindReplayTargetScope_SurvivesCommittedListReload",
+       "line": 674
+      },
+      {
+       "method": "CommitTree_DestroyedChildUnderRewindPoint_PromotesToCommittedProvisional",
+       "line": 692
+      },
+      {
+       "method": "CommitTree_DestroyedChildUnderRewindPointWithoutSlot_RemainsImmutable",
+       "line": 724
+      },
+      {
+       "method": "CommitTree_NormalStagingRewindPointPromoted_AllImmutableSlotsCanReap",
+       "line": 754
+      },
+      {
+       "method": "CommitTree_OrbitingNonFocusChildUnderRewindPoint_PromotesToCommittedProvisional",
+       "line": 784
+      },
+      {
+       "method": "CommitTree_LandedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting",
+       "line": 813
+      },
+      {
+       "method": "CommitTree_SplashedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting",
+       "line": 819
+      },
+      {
+       "method": "CommitTree_OrbitingEvaChildUnderRewindPoint_StillPromotesToCommittedProvisional",
+       "line": 888
+      },
+      {
+       "method": "CommitTree_AlreadyConcludedOrbitingChild_StaysImmutable",
+       "line": 920
+      },
+      {
+       "method": "CommitTree_OrbitingFocusChildUnderRewindPoint_RemainsImmutable",
+       "line": 964
+      },
+      {
+       "method": "CommitTree_DestroyedChildWithoutRewindPoint_RemainsImmutable",
+       "line": 993
+      },
+      {
+       "method": "CommitTree_DuplicateTreeId_Skipped",
+       "line": 1006
+      },
+      {
+       "method": "CommitTree_DuplicateTreeIdEquivalentCopy_Skipped",
+       "line": 1023
+      },
+      {
+       "method": "CommitTree_DuplicateTreeIdPoorerCopy_DoesNotReplaceCommittedTree",
+       "line": 1038
+      },
+      {
+       "method": "CommitPendingTree_SameTreeIdDifferentTopology_ReplacesCommittedTreeAndSavesReplacement",
+       "line": 1055
+      },
+      {
+       "method": "CommitPendingTree_SameTreeIdReplacement_PreservesRewindSaveFileName",
+       "line": 1104
+      },
+      {
+       "method": "CommitPendingTree_SameTreeIdReplacement_PreservesSpawnStateCluster",
+       "line": 1153
+      },
+      {
+       "method": "CommitPendingTree_SameTreeIdReplacement_PreservesAutoGroupName",
+       "line": 1220
+      },
+      {
+       "method": "StashPendingTree_Stashes",
+       "line": 1266
+      },
+      {
+       "method": "CommitPendingTree_CommitsAndClears",
+       "line": 1277
+      },
+      {
+       "method": "DiscardPendingTree_ClearsWithoutCommitting",
+       "line": 1290
+      },
+      {
+       "method": "ClearCommitted_ClearsTreesToo",
+       "line": 1303
+      },
+      {
+       "method": "SaveRecordingInto_IncludesMutableState",
+       "line": 1320
+      },
+      {
+       "method": "LoadRecordingFrom_RestoresMutableState",
+       "line": 1350
+      },
+      {
+       "method": "TreeSaveLoad_MutableStateRoundTrips",
+       "line": 1377
+      },
+      {
+       "method": "TreeSaveLoad_TerminalOrbitRoundTrips",
+       "line": 1407
+      },
+      {
+       "method": "TreeSaveLoad_TerminalPositionRoundTrips",
+       "line": 1439
+      },
+      {
+       "method": "GetSpawnableLeaves_DeepChainOfSplits_OnlyFinalLeaves",
+       "line": 1470
+      },
+      {
+       "method": "ResetForTesting_ClearsTrees",
+       "line": 1516
+      },
+      {
+       "method": "IsSpawnableLeaf_NullSnapshot_NoTerminal_False",
+       "line": 1534
+      },
+      {
+       "method": "IsSpawnableLeaf_Recovered_WithSnapshot_False",
+       "line": 1544
+      },
+      {
+       "method": "IsSpawnableLeaf_Landed_WithSnapshot_True",
+       "line": 1554
+      },
+      {
+       "method": "IsSpawnableLeaf_Splashed_WithSnapshot_True",
+       "line": 1564
+      },
+      {
+       "method": "IsSpawnableLeaf_SubOrbital_WithSnapshot_True",
+       "line": 1574
+      },
+      {
+       "method": "GetAllLeaves_IncludesRecovered_GetSpawnableExcludes",
+       "line": 1588
+      },
+      {
+       "method": "GetSpawnableLeaves_DockMerge_DAG_ReturnsOnlyMergedChild",
+       "line": 1636
+      },
+      {
+       "method": "CommitTree_Null_NoCrashNoStateChange",
+       "line": 1697
+      },
+      {
+       "method": "DetermineTerminalState_IntOverload_BackwardCompat",
+       "line": 1721
+      },
+      {
+       "method": "DetermineTerminalState_VesselOverload_NullVessel_FallsThrough",
+       "line": 1737
+      },
+      {
+       "method": "DetermineTerminalState_UnexpectedSituation_DefaultsToSubOrbital",
+       "line": 1746
+      },
+      {
+       "method": "DetermineTerminalStateFromOrbitEvidence_SubOrbitalBoundAboveSurface_ReturnsOrbiting",
+       "line": 1757
+      },
+      {
+       "method": "DetermineTerminalStateFromOrbitEvidence_OrbitingSubSurfacePeriapsis_ReturnsSubOrbital",
+       "line": 1769
+      },
+      {
+       "method": "DetermineTerminalStateFromOrbitEvidence_OrbitingUnbound_ReturnsSubOrbital",
+       "line": 1781
+      },
+      {
+       "method": "DetermineTerminalStateFromOrbitEvidence_OrbitingAboveSurface_RemainsOrbiting",
+       "line": 1793
+      },
+      {
+       "method": "DetermineTerminalStateFromOrbitEvidence_OrbitingInsideAtmosphere_ReturnsSubOrbital",
+       "line": 1805
+      },
+      {
+       "method": "DetermineTerminalStateFromOrbitEvidence_SubOrbitalInsideAtmosphere_RemainsSubOrbital",
+       "line": 1819
+      },
+      {
+       "method": "IsBoundOrbitAboveAtmosphere_NoAtmosphere_AcceptsAboveSurface",
+       "line": 1843
+      },
+      {
+       "method": "IsBoundOrbitAboveAtmosphere_NoAtmosphere_RejectsBelowSurface",
+       "line": 1856
+      },
+      {
+       "method": "IsBoundOrbitAboveAtmosphere_Atmosphere_RejectsInsideAtmo",
+       "line": 1871
+      },
+      {
+       "method": "IsBoundOrbitAboveAtmosphere_Atmosphere_AcceptsAboveAtmo",
+       "line": 1885
+      },
+      {
+       "method": "IsBoundOrbitAboveAtmosphere_Atmosphere_AtAtmosphereTopExactly",
+       "line": 1898
+      },
+      {
+       "method": "IsBoundOrbitAboveAtmosphere_Hyperbolic_AlwaysFalse",
+       "line": 1913
+      },
+      {
+       "method": "IsBoundOrbitAboveAtmosphere_ParabolicEdge_RejectsAtEcc1",
+       "line": 1926
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

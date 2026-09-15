@@ -1,0 +1,135 @@
+{
+ "batch_id": "recording-tree-005",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 29,
+ "files": [
+  {
+   "file": "SceneExitFinalizationIntegrationTests.cs",
+   "ranges": [
+    {
+     "start": 31,
+     "end": 1220,
+     "methods": [
+      {
+       "method": "ShouldApplyExtrapolatorResult_SubSurfaceStart_AppliesEvenWithNoSegments",
+       "line": 31
+      },
+      {
+       "method": "ShouldApplyExtrapolatorResult_SubSurfaceStart_AppliesEvenIfTerminalUtNotAdvanced",
+       "line": 46
+      },
+      {
+       "method": "ShouldApplyExtrapolatorResult_NoSolverStart_AppliesEvenWithNoSegments",
+       "line": 57
+      },
+      {
+       "method": "ShouldApplyExtrapolatorResult_SegmentsAppended_Applies",
+       "line": 84
+      },
+      {
+       "method": "ShouldApplyExtrapolatorResult_TerminalUtAdvanced_Applies",
+       "line": 94
+      },
+      {
+       "method": "ShouldApplyExtrapolatorResult_NoSegmentsNoAdvancement_DoesNotApply",
+       "line": 104
+      },
+      {
+       "method": "ShouldApplyExtrapolatorResult_NanTerminalUt_DoesNotApply",
+       "line": 116
+      },
+      {
+       "method": "ShouldApplyExtrapolatorResult_NanRecordingEndUt_AppliesWithFiniteTerminal",
+       "line": 126
+      },
+      {
+       "method": "TryReseedFirstPredictedTailSegmentFromRecordedAnchor_UsesLastBodyFixedPrimaryPoint",
+       "line": 137
+      },
+      {
+       "method": "TryReseedFirstPredictedTailSegmentFromRecordedAnchor_DistantAnchor_ReturnsFalse",
+       "line": 217
+      },
+      {
+       "method": "ResetLifecycleDiagnostics_AllowsFreshSubSurfaceClassificationLog",
+       "line": 259
+      },
+      {
+       "method": "SubSurfaceClassification_BackgroundPath_LogsAtVerboseNotWarn",
+       "line": 289
+      },
+      {
+       "method": "SubSurfaceClassification_SceneExitPath_StillLogsAtWarn",
+       "line": 315
+      },
+      {
+       "method": "TryApply_AlreadyDestroyed_DoesNotReapplyOrMutateTerminal",
+       "line": 334
+      },
+      {
+       "method": "FinalizeIndividualRecording_SceneExitHook_AppendsTailAndExtendsEndUT",
+       "line": 387
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_SceneExitHook_ExtendsActiveNonLeafLifetime",
+       "line": 467
+      },
+      {
+       "method": "FinalizeIndividualRecording_SceneExitHook_SurfaceEndpointPopulatesSurfaceMetadata",
+       "line": 538
+      },
+      {
+       "method": "FinalizeIndividualRecording_GhostOnlySnapshot_DoesNotSuppressLiveResnapshot",
+       "line": 596
+      },
+      {
+       "method": "FinalizeIndividualRecording_CacheFallback_AppliesWhenVesselMissing",
+       "line": 630
+      },
+      {
+       "method": "FinalizeIndividualRecording_StaleCacheFallback_AppliesAndWarnsWhenVesselMissing",
+       "line": 682
+      },
+      {
+       "method": "FinalizeIndividualRecording_CacheRejected_FallsBackToTrajectoryInference",
+       "line": 725
+      },
+      {
+       "method": "FinalizeIndividualRecording_LiveSceneExitFinalizerWinsOverCache",
+       "line": 777
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_CacheFallback_AppliesWhenVesselMissing",
+       "line": 847
+      },
+      {
+       "method": "HasFallbackCandidateCache_RequiresCacheAndMissingVessel",
+       "line": 895
+      },
+      {
+       "method": "FinalizeTreeRecordingsAfterFlush_AppliesBackgroundCacheBeforeInference",
+       "line": 936
+      },
+      {
+       "method": "FinalizeTreeRecordingsAfterFlush_NonSceneActiveCrash_AppliesCacheBeforeDestroyedFallback",
+       "line": 1019
+      },
+      {
+       "method": "TryHandleDeferredDestructionAbort_FalseDestroyReattachesBackgroundRecorder",
+       "line": 1070
+      },
+      {
+       "method": "TryShortCircuitSolverPredictedImpact_AirlessBodyImpact_ReturnsDestroyedTerminalUt",
+       "line": 1137
+      },
+      {
+       "method": "TryShortCircuitSolverPredictedImpact_AtmosphericBody_ReturnsFalse",
+       "line": 1180
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

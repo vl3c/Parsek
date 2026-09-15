@@ -1,0 +1,271 @@
+{
+ "batch_id": "ledger-career-001",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 63,
+ "files": [
+  {
+   "file": "EarningsReconciliationTests.cs",
+   "ranges": [
+    {
+     "start": 64,
+     "end": 1991,
+     "methods": [
+      {
+       "method": "Reconcile_PerfectMatch_NoWarn",
+       "line": 64
+      },
+      {
+       "method": "Reconcile_MissingFundsEarning_LogsWarn",
+       "line": 89
+      },
+      {
+       "method": "Reconcile_ReputationMismatch_LogsWarn",
+       "line": 108
+      },
+      {
+       "method": "Reconcile_ScienceMismatch_LogsWarn",
+       "line": 131
+      },
+      {
+       "method": "Reconcile_StrategyExchangeInsideCommitWindow_NoMissingChannelWarn",
+       "line": 153
+      },
+      {
+       "method": "Reconcile_AllTrackersUnavailable_SkipsWarns_AndLogsOnce",
+       "line": 191
+      },
+      {
+       "method": "Reconcile_FundsTrackerUnavailable_OnlyTrackedLegsWarn",
+       "line": 218
+      },
+      {
+       "method": "Reconcile_OutsideWindow_Ignored",
+       "line": 251
+      },
+      {
+       "method": "Reconcile_ContractCompleteMatchesStore_Silent",
+       "line": 269
+      },
+      {
+       "method": "Reconcile_MilestoneAchievementMatchesStore_Silent",
+       "line": 309
+      },
+      {
+       "method": "Reconcile_FundsSpendingMatchesDroppedNegative_Silent",
+       "line": 344
+      },
+      {
+       "method": "ReconcileKsc_PartPurchase_KeyedRnDPartPurchase_NoWarn",
+       "line": 495
+      },
+      {
+       "method": "ReconcileKsc_FacilityUpgrade_KeyedStructureConstruction_NoWarn",
+       "line": 519
+      },
+      {
+       "method": "ReconcileKsc_FacilityRepair_KeyedStructureRepair_NoWarn",
+       "line": 541
+      },
+      {
+       "method": "ReconcileKsc_TechUnlock_KeyedRnDTechResearch_NoWarn",
+       "line": 562
+      },
+      {
+       "method": "ReconcileKsc_KerbalHire_KeyedCrewRecruited_NoWarn",
+       "line": 583
+      },
+      {
+       "method": "ReconcileKsc_ContractAdvance_KeyedContractAdvance_NoWarn",
+       "line": 604
+      },
+      {
+       "method": "ReconcileKsc_StrategyActivate_AllThreeResourceEventsPresent_NoWarn",
+       "line": 625
+      },
+      {
+       "method": "ReconcileKsc_StrategyActivate_MissingRepEvent_OnlyRepWarn",
+       "line": 651
+      },
+      {
+       "method": "ReconcileKsc_StrategyActivate_MissingSciEvent_OnlySciWarn",
+       "line": 680
+      },
+      {
+       "method": "ReconcileKsc_StrategyActivate_CoalescedRepEvent_ReplaysCurveAcrossAllMatchingLegs",
+       "line": 711
+      },
+      {
+       "method": "ComputeExpectedDeltaForLeg_ReputationCurve_SameUtMatchesUseSequenceTiebreaker",
+       "line": 743
+      },
+      {
+       "method": "ReconcileKsc_PartPurchase_EventKeyedDifferently_LogsWarn",
+       "line": 807
+      },
+      {
+       "method": "ReconcileKsc_TechUnlock_DeltaMismatch_LogsWarn",
+       "line": 838
+      },
+      {
+       "method": "ReconcileKsc_ContractComplete_SkipsWithVerbose",
+       "line": 866
+      },
+      {
+       "method": "ReconcileKsc_MilestoneAchievement_SkipsWithVerbose",
+       "line": 897
+      },
+      {
+       "method": "ReconcileKsc_ReputationEarning_SkipsWithVerbose",
+       "line": 921
+      },
+      {
+       "method": "ReconcileKsc_ContractCancel_SkipsWithVerbose",
+       "line": 941
+      },
+      {
+       "method": "ReconcileKsc_TwoPartPurchases_CoalescedEvent_NoFalseWarn",
+       "line": 968
+      },
+      {
+       "method": "ReconcileKsc_TwoPartPurchases_CoalescedFirstActionAlsoSilent",
+       "line": 1004
+      },
+      {
+       "method": "ReconcileKsc_EventOutsideEpsilon_LogsMissingEventWarn",
+       "line": 1042
+      },
+      {
+       "method": "ReconcileKsc_TwoSameKeyEvents_0p3sApart_NotAggregated",
+       "line": 1068
+      },
+      {
+       "method": "ReconcileKsc_TwoSameKeyEvents_0p3sApart_OpposingErrors_BothWarn",
+       "line": 1108
+      },
+      {
+       "method": "ReconcileKsc_EventJustInsideWindow_NoWarn",
+       "line": 1151
+      },
+      {
+       "method": "ReconcileKsc_EventJustOutsideBoundary_WarnsMissing",
+       "line": 1178
+      },
+      {
+       "method": "ReconcileKsc_KerbalAssignment_NoReconciliation",
+       "line": 1207
+      },
+      {
+       "method": "ReconcileKsc_NullEvents_WarnsMissingMatch",
+       "line": 1228
+      },
+      {
+       "method": "ReconcileKsc_NullLedgerActions_FallsBackToSingleAction",
+       "line": 1250
+      },
+      {
+       "method": "ClassifyAction_PartPurchase_UntransformedWithRnDPartPurchaseKey",
+       "line": 1275
+      },
+      {
+       "method": "ClassifyAction_ContractComplete_Transformed",
+       "line": 1294
+      },
+      {
+       "method": "ClassifyAction_KerbalAssignment_NoResourceImpact",
+       "line": 1308
+      },
+      {
+       "method": "ClassifyAction_StrategyActivate_FundsLegPresent",
+       "line": 1316
+      },
+      {
+       "method": "ClassifyAction_StrategyActivate_ThreeResourceSetupCost_ThreeLegs",
+       "line": 1333
+      },
+      {
+       "method": "ClassifyAction_StrategyActivate_FundsOnly_OneLeg",
+       "line": 1364
+      },
+      {
+       "method": "ClassifyAction_StrategyActivate_ZeroSetupCost_ShortCircuits",
+       "line": 1386
+      },
+      {
+       "method": "ClassifyAction_StrategyDeactivate_NoResourceImpact",
+       "line": 1406
+      },
+      {
+       "method": "ReconcileKsc_PartPurchase_ZeroCost_NoMatchingEvent_Silent",
+       "line": 1416
+      },
+      {
+       "method": "ClassifyAction_PartPurchase_BypassOff_StaysUntransformed",
+       "line": 1439
+      },
+      {
+       "method": "ReconcileKsc_PartPurchase_BypassOff_NoMatchingEvent_StillWarns",
+       "line": 1466
+      },
+      {
+       "method": "ReconcileKsc_PartPurchase_BypassOff_EntryCostMatched_NoWarn",
+       "line": 1502
+      },
+      {
+       "method": "PostWalk_ReputationCurveMatchesKsp",
+       "line": 1588
+      },
+      {
+       "method": "PostWalk_ContractComplete_AllLegsMatch_NoWarn",
+       "line": 1630
+      },
+      {
+       "method": "PostWalk_ContractComplete_FundsMismatch_OnlyFundsWarn",
+       "line": 1656
+      },
+      {
+       "method": "PostWalk_ContractComplete_RepMismatch_OnlyRepWarn",
+       "line": 1688
+      },
+      {
+       "method": "PostWalk_ContractComplete_SciMismatch_OnlySciWarn",
+       "line": 1718
+      },
+      {
+       "method": "PostWalk_ContractFail_RepCurve_NoWarn",
+       "line": 1750
+      },
+      {
+       "method": "PostWalk_ContractCancel_FundsAndRep_Match_NoWarn",
+       "line": 1774
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_EffectiveTrue_AllLegsMatch_NoWarn",
+       "line": 1800
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_OtherRecordingProgressionIgnored_NoWarn",
+       "line": 1827
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_NullTaggedSiblingDefersToTaggedScope_NoWarn",
+       "line": 1851
+      },
+      {
+       "method": "PostWalk_ContractComplete_NullTaggedAction_MatchesTaggedEvent_NoWarn",
+       "line": 1894
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_EffectiveFalseDuplicate_Skipped_NoWarn",
+       "line": 1917
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_CoalescedWindow_MatchesOnce_NoWarn",
+       "line": 1951
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

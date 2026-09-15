@@ -78,6 +78,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
+  Four source-text wiring gates were scanning raw file text, so a call left behind only as a
+  comment - or the same call text inside a nearby log message - kept the gate green after the
+  real call was deleted: the route-orchestrator tick hook, the three render-union seams, the
+  watch-entry consumer sweep and the Missions partner-journey toggle now scan comment-stripped
+  (and, where no log literal is pinned, literal-masked) source, the render-union seam slices the
+  method's brace-matched body instead of a fixed 4000-character window, and the Missions gates
+  anchor their proximity windows to the enclosing method body plus carry a comment-only decoy
+  cell. Two test classes installed a static test hook and never put it back (a rotation-period
+  seam that then answered NaN for every body, and a KerbalsModule on the ledger orchestrator),
+  leaking into every later test in the Sequential collection; the kerbals seam is saved and
+  restored in Dispose, the frame-transform seam is reset on both ends of the class. Each repair carries a mutation or leak-check proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No player-visible change.
+
 - **Unticking a recording's playback box now hides that flight everywhere, not just in
   the world.** The tick box at the left of every row in the Recordings tab promised that
   "the flight stays recorded but no ghost appears" - and it hid the ghost you fly past,
@@ -712,6 +726,24 @@ _(unreleased — entries accumulate here per commit)_
   reputation while the announcement is still being handled would read the figure from
   just before the award and lose it. Saves written before this change carry no mark
   and behave exactly as they did.
+
+- **A flight you continued by clicking Switch-To now answers as ONE flight everywhere,
+  so its Unfinished Flight row cannot be shown and then quietly closed.** Parsek asked
+  two questions about such a flight and answered them over two different recordings:
+  "does this qualify as an Unfinished Flight" was answered over the segment the stock
+  Switch-To opened (which carries how the flight actually ended), while "is that flight
+  still open" was answered over the segment it left behind (which carries no ending at
+  all). Nothing in play had been seen to hit the disagreement, but on paper it goes both
+  ways: a row could be offered and then read as closed, or the promotion that keeps the
+  row alive could be written to a recording the qualify side never looks at. Both
+  questions now walk the same path. The confirmation box that asks before sealing such a
+  flight is part of this: it used to say "Unknown" where the flight's ending belongs, and
+  now names the real ending, so the one dialog that asks approval for something permanent
+  describes what it is about to close. The same correction reaches the seal and stash log
+  lines and four internal safety checks that read a flight's ending and, finding none,
+  used to wave a re-fly through. A real split - an undock, a dock, an EVA, a breakup -
+  still ends the walk exactly where it did, and a switch point with more than one thing
+  hanging off it is left alone rather than guessed at.
 
 - **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
   where the edit was quietly thrown away.** That screen used to show a "Parsek" section
@@ -1562,6 +1594,17 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Test tooling: ten open decisions about the automated-test coverage registry were ruled
+  and applied.** Two new coverage cells were added and claimed (a second, distinct
+  optimizer graze-suppression path, and rewinding one committed flight to its launch twice
+  off the same quicksave); one cell that named a decision the recorder no longer makes was
+  renamed to what a vessel switch actually does - it backgrounds the live recording - and
+  claimed for the first time; four test lanes moved from run-by-hand to the nightly
+  rotation; one lane's tolerance for stray engine exceptions was widened to the maximum
+  the known set can legally produce; a new check pins every lane's declared game mode to
+  its own save fixture; and the Making History coverage cell finally has a definition.
+  Test-tooling only; no gameplay change.
 
 - **Docs: GUI inventory and feature-exposure design doc.** `docs/dev/design-gui-inventory.md`
   is the condensed structural map of every player-facing surface and of what the backend

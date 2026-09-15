@@ -1,0 +1,327 @@
+{
+ "batch_id": "ghost-playback-008",
+ "cluster": "ghost-playback",
+ "tier": "A1",
+ "expected_methods": 77,
+ "files": [
+  {
+   "file": "GhostMapPresenceTests.cs",
+   "ranges": [
+    {
+     "start": 46,
+     "end": 1864,
+     "methods": [
+      {
+       "method": "HasOrbitData_WithTerminalOrbit_True",
+       "line": 46
+      },
+      {
+       "method": "HasOrbitData_SurfaceOnly_False",
+       "line": 68
+      },
+      {
+       "method": "HasOrbitData_NoData_False",
+       "line": 95
+      },
+      {
+       "method": "HasOrbitData_ZeroSMA_False",
+       "line": 109
+      },
+      {
+       "method": "HasOrbitData_NoBody_False",
+       "line": 127
+      },
+      {
+       "method": "ComputeGhostDisplayInfo_ActiveChain_ShowsSpawnUT",
+       "line": 148
+      },
+      {
+       "method": "ComputeGhostDisplayInfo_TerminatedChain_ShowsTerminated",
+       "line": 177
+      },
+      {
+       "method": "ComputeGhostDisplayInfo_BlockedChain_ShowsBlocked",
+       "line": 205
+      },
+      {
+       "method": "ComputeGhostDisplayInfo_NullChain_ReturnsSafeDefaults",
+       "line": 235
+      },
+      {
+       "method": "ComputeGhostDisplayInfo_NullVesselName_ShowsUnnamed",
+       "line": 253
+      },
+      {
+       "method": "IsGhostMapVessel_EmptySet_ReturnsFalse",
+       "line": 278
+      },
+      {
+       "method": "IsGhostMapVessel_AfterAdd_ReturnsTrue",
+       "line": 288
+      },
+      {
+       "method": "IsGhostMapVessel_AfterRemove_ReturnsFalse",
+       "line": 299
+      },
+      {
+       "method": "ResetForTesting_ClearsAllState",
+       "line": 311
+      },
+      {
+       "method": "HasOrbitData_NullTrajectory_ReturnsFalse",
+       "line": 341
+      },
+      {
+       "method": "HasOrbitData_ViaInterface_ReturnsTrue",
+       "line": 351
+      },
+      {
+       "method": "HasOrbitData_TrajectoryStableCalls_LogOnceWithSuppressedCounter",
+       "line": 368
+      },
+      {
+       "method": "HasOrbitData_TrajectoryDistinctRecordings_LogIndependently",
+       "line": 411
+      },
+      {
+       "method": "RemoveAllGhostVessels_NoGhosts_RateLimitsRepeatedCleanupLogs",
+       "line": 443
+      },
+      {
+       "method": "ResolveVesselType_NullSnapshot_ReturnsShip",
+       "line": 475
+      },
+      {
+       "method": "ResolveVesselType_MissingTypeValue_ReturnsShip",
+       "line": 486
+      },
+      {
+       "method": "ResolveVesselType_Ship_ReturnsShip",
+       "line": 499
+      },
+      {
+       "method": "ResolveVesselType_Station_ReturnsStation",
+       "line": 511
+      },
+      {
+       "method": "ResolveVesselType_Relay_ReturnsRelay",
+       "line": 523
+      },
+      {
+       "method": "ResolveVesselType_UnrecognizedType_ReturnsShipAndLogs",
+       "line": 535
+      },
+      {
+       "method": "ResolveVesselType_CaseInsensitive_ParsesCorrectly",
+       "line": 551
+      },
+      {
+       "method": "HasOrbitData_NegativeSMA_ReturnsFalse",
+       "line": 570
+      },
+      {
+       "method": "PidSetAndVesselDict_PidAddedButNoVessel_GetGhostVesselReturnsNull",
+       "line": 595
+      },
+      {
+       "method": "ResetForTesting_ClearsPidsEvenIfNoVesselsExist",
+       "line": 608
+      },
+      {
+       "method": "PidSet_MultiplePids_IndependentTracking",
+       "line": 629
+      },
+      {
+       "method": "HasOrbitData_LogsResult",
+       "line": 656
+      },
+      {
+       "method": "TerminalFilter_Destroyed_ShouldNotGetProtoVessel",
+       "line": 676
+      },
+      {
+       "method": "SubOrbital_HasOrbitData_ReturnsTrue",
+       "line": 698
+      },
+      {
+       "method": "TerminalFilter_Landed_ShouldNotGetProtoVessel",
+       "line": 715
+      },
+      {
+       "method": "TerminalFilter_Orbiting_ShouldGetProtoVessel",
+       "line": 732
+      },
+      {
+       "method": "TerminalFilter_Docked_ShouldGetProtoVessel",
+       "line": 749
+      },
+      {
+       "method": "TerminalFilter_NullState_ShouldGetProtoVessel",
+       "line": 766
+      },
+      {
+       "method": "DebrisFilter_IsDebris_ShouldNotGetProtoVessel",
+       "line": 787
+      },
+      {
+       "method": "DebrisFilter_NotDebris_ShouldGetProtoVessel",
+       "line": 804
+      },
+      {
+       "method": "FindRecordingIndex_EmptyState_ReturnsNegativeOne",
+       "line": 825
+      },
+      {
+       "method": "RecordingIndexTracking_MultipleIndices_Independent",
+       "line": 835
+      },
+      {
+       "method": "GhostChain_OrbitTracking_InitiallyNull",
+       "line": 857
+      },
+      {
+       "method": "GhostChain_OrbitTracking_RetainsValues",
+       "line": 869
+      },
+      {
+       "method": "GhostChain_OrbitTracking_SameValues_NoChange",
+       "line": 884
+      },
+      {
+       "method": "GhostChain_OrbitTracking_BodyChange_DetectedAsSOITransition",
+       "line": 901
+      },
+      {
+       "method": "StartsInOrbit_NoSegments_ReturnsFalse",
+       "line": 921
+      },
+      {
+       "method": "StartsInOrbit_OrbitOnly_NoPoints_ReturnsTrue",
+       "line": 935
+      },
+      {
+       "method": "StartsInOrbit_UTBeforeSegment_ReturnsFalse",
+       "line": 952
+      },
+      {
+       "method": "StartsInOrbit_UTWithinSegment_ReturnsTrue",
+       "line": 969
+      },
+      {
+       "method": "DefensiveNodes_AddedToVesselNodeMissingThem",
+       "line": 987
+      },
+      {
+       "method": "DefensiveNodes_IdempotentWhenAlreadyPresent",
+       "line": 1009
+      },
+      {
+       "method": "FindSuperseded_Empty_ReturnsEmpty",
+       "line": 1038
+      },
+      {
+       "method": "FindSuperseded_Null_ReturnsEmpty",
+       "line": 1048
+      },
+      {
+       "method": "FindSuperseded_StandaloneRecording_NotSuperseded",
+       "line": 1058
+      },
+      {
+       "method": "FindSuperseded_SimpleChain_ParentSuperseded",
+       "line": 1072
+      },
+      {
+       "method": "FindSuperseded_ThreeNodeChain_OnlyTipNotSuperseded",
+       "line": 1088
+      },
+      {
+       "method": "FindSuperseded_TwoChains_EachTipNotSuperseded",
+       "line": 1106
+      },
+      {
+       "method": "FindTrackingStationSuppressedRecordingIds_FutureChildDoesNotHideCurrentContinuation",
+       "line": 1123
+      },
+      {
+       "method": "FindTrackingStationSuppressedRecordingIds_StartedChildHidesParent",
+       "line": 1158
+      },
+      {
+       "method": "FindTrackingStationSuppressedRecordingIds_IndeterminateChildStart_DoesNotHideParent",
+       "line": 1193
+      },
+      {
+       "method": "ShouldCreate_Debris_Skipped",
+       "line": 1230
+      },
+      {
+       "method": "ShouldCreate_Suppressed_Skipped",
+       "line": 1248
+      },
+      {
+       "method": "ShouldCreate_AlreadySpawned_Skipped",
+       "line": 1265
+      },
+      {
+       "method": "ShouldCreate_SpawnedPidSet_Skipped",
+       "line": 1292
+      },
+      {
+       "method": "ShouldCreate_Destroyed_Skipped",
+       "line": 1310
+      },
+      {
+       "method": "ShouldCreate_OrbitingWithData_Created",
+       "line": 1327
+      },
+      {
+       "method": "ResolveTrackingStationGhostSource_FutureTipBeforeActivation_SkipsTerminalOrbit",
+       "line": 1345
+      },
+      {
+       "method": "ResolveTrackingStationGhostSource_VisibleSegment_PrefersSegmentOverFutureTerminalOrbit",
+       "line": 1381
+      },
+      {
+       "method": "ResolveTrackingStationGhostSource_BeforeRecordingEnd_SkipsTerminalOrbitFallback",
+       "line": 1435
+      },
+      {
+       "method": "ResolveTrackingStationGhostSource_AfterRecordingEnd_UsesTerminalOrbitFallback",
+       "line": 1470
+      },
+      {
+       "method": "CreateGhostVesselsFromCommittedRecordings_SummarySeparatesFutureTipSkipBuckets",
+       "line": 1508
+      },
+      {
+       "method": "CreateGhostVesselsFromCommittedRecordings_AggregatesRepeatedSkipReasons",
+       "line": 1566
+      },
+      {
+       "method": "CreateGhostVesselsFromCommittedRecordings_SuppressesHistoricalOrbitalGhost",
+       "line": 1634
+      },
+      {
+       "method": "BuildStartupTrackingStationLoopUnits_NoMissions_ReturnsEmpty",
+       "line": 1714
+      },
+      {
+       "method": "BuildStartupTrackingStationLoopUnits_LoopingMission_MapsMember",
+       "line": 1739
+      },
+      {
+       "method": "CreateGhostVesselsFromCommittedRecordings_LoopMember_NoTerminalSeedAtRawUT",
+       "line": 1770
+      },
+      {
+       "method": "ShouldCreate_NullTerminal_WithOrbitData_Created",
+       "line": 1824
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

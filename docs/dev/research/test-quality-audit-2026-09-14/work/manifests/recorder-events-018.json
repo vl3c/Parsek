@@ -1,0 +1,191 @@
+{
+ "batch_id": "recorder-events-018",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "RcsDebounceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Activation_EmitsNothingBeforeThresholdIsReached",
+       "line": 133
+      },
+      {
+       "method": "Activation_EmitsExactlyOneActivatedEventOnTheThresholdFrame",
+       "line": 148
+      },
+      {
+       "method": "Activation_MarksKeyActiveAndRecordsEmittedPower",
+       "line": 163
+      },
+      {
+       "method": "Activation_EventCarriesCallerIdentityAndFrameUt",
+       "line": 175
+      },
+      {
+       "method": "Activation_EventValueIsTheNormalizedPowerAtTheThresholdFrame",
+       "line": 191
+      },
+      {
+       "method": "Activation_SustainedFramesAtConstantPowerEmitNothingFurther",
+       "line": 207
+      },
+      {
+       "method": "Activation_FrameCountIsStrictlyMonotonicWhileActive",
+       "line": 220
+      },
+      {
+       "method": "Deactivation_AfterSustainedRun_EmitsExactlyOneStoppedEvent",
+       "line": 240
+      },
+      {
+       "method": "Deactivation_StoppedEventCarriesIdentityUtAndNoPower",
+       "line": 252
+      },
+      {
+       "method": "Deactivation_ClearsEveryPerKeyEntry",
+       "line": 268
+      },
+      {
+       "method": "Deactivation_RepeatedInactiveFramesEmitOnlyTheFirstStopped",
+       "line": 280
+      },
+      {
+       "method": "Deactivation_BeforeThreshold_EmitsNothingAndLeavesNoState",
+       "line": 295
+      },
+      {
+       "method": "Deactivation_OfNeverSeenKey_IsAFullNoOp",
+       "line": 309
+      },
+      {
+       "method": "Deactivation_MicroCorrectionBurstsNeverEmitAnything",
+       "line": 322
+      },
+      {
+       "method": "DebounceWindow_InterruptedRunRestartsTheCounter",
+       "line": 343
+      },
+      {
+       "method": "Reactivation_AfterStop_RequiresAFullWindowAgain",
+       "line": 362
+      },
+      {
+       "method": "Reactivation_ProducesAStrictlyAlternatingActivatedStoppedSequence",
+       "line": 379
+      },
+      {
+       "method": "Reactivation_AfterStop_RecordsTheNewRunsPowerNotTheOldOne",
+       "line": 404
+      },
+      {
+       "method": "Throttle_ChangeBeyondDeadband_EmitsThrottleEvent",
+       "line": 427
+      },
+      {
+       "method": "Throttle_ChangeWithinDeadband_IsSuppressed",
+       "line": 448
+      },
+      {
+       "method": "Throttle_ChangeExactlyAtTheDeadband_IsSuppressed",
+       "line": 461
+      },
+      {
+       "method": "Throttle_ReferenceIsLastEmittedPowerNotLastObservedPower",
+       "line": 477
+      },
+      {
+       "method": "Throttle_EmittedEventAdvancesTheReferenceSoTheNextSmallStepIsSuppressed",
+       "line": 493
+      },
+      {
+       "method": "Throttle_NoEventsWhileTheRunIsStillDebouncing",
+       "line": 507
+      },
+      {
+       "method": "Throttle_EventsAreSuppressedOnceTheRunStops",
+       "line": 519
+      },
+      {
+       "method": "Throttle_ARunOfChangesEmitsMonotonicNonDecreasingUts",
+       "line": 534
+      },
+      {
+       "method": "Power_ActivationValueIsAlwaysTheClampedNormalizedPower",
+       "line": 567
+      },
+      {
+       "method": "Power_ZeroPowerRunStillActivates_ActivationTracksTheFlagNotTheThrust",
+       "line": 582
+      },
+      {
+       "method": "Power_EveryEmittedValueStaysWithinTheNormalizedRange",
+       "line": 597
+      },
+      {
+       "method": "MultipleKeys_DebounceIndependently",
+       "line": 616
+      },
+      {
+       "method": "MultipleKeys_StoppingOneLeavesTheOtherRecording",
+       "line": 638
+      },
+      {
+       "method": "MultipleKeys_SamePartDifferentModuleIndexAreDistinct",
+       "line": 655
+      },
+      {
+       "method": "MultipleKeys_ThrottleReferencesDoNotBleedAcrossKeys",
+       "line": 670
+      },
+      {
+       "method": "SeededBaseline_SuppressesASpuriousActivationOnResume",
+       "line": 690
+      },
+      {
+       "method": "SeededBaseline_StillReportsARealThrottleChange",
+       "line": 707
+      },
+      {
+       "method": "SeededBaseline_StillReportsTheStop",
+       "line": 721
+      },
+      {
+       "method": "SeededCountWithoutMembership_ActivatesOnTheNextActiveFrame",
+       "line": 736
+      },
+      {
+       "method": "SeededSubThresholdCount_DeactivatingDropsStaleMembershipWithoutAnEvent",
+       "line": 752
+      },
+      {
+       "method": "Events_AreAppendedWithoutDisturbingExistingBufferContents",
+       "line": 772
+      },
+      {
+       "method": "Events_NeverExceedOnePerKeyPerFrame",
+       "line": 795
+      },
+      {
+       "method": "Events_ShareTheFrameUtWhenTwoKeysTransitionOnTheSameFrame",
+       "line": 820
+      },
+      {
+       "method": "Events_ForOneKeyAlwaysOpenWithActivatedAndCloseWithStopped",
+       "line": 842
+      },
+      {
+       "method": "Events_ANeverFiringModuleProducesNothingOverALongIdleRun",
+       "line": 858
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

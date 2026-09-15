@@ -1,0 +1,123 @@
+{
+ "batch_id": "spawn-vessel-009",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "SpawnWalkbackFallbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "HasNonFiniteOrbitElement_NaNSma_ReturnsTrueNamingSma",
+       "line": 89
+      },
+      {
+       "method": "HasNonFiniteOrbitElement_NaNEcc_ReturnsTrueNamingEcc",
+       "line": 100
+      },
+      {
+       "method": "HasNonFiniteOrbitElement_PositiveInfinityEpoch_ReturnsTrueNamingEph",
+       "line": 111
+      },
+      {
+       "method": "HasNonFiniteOrbitElement_NegativeInfinityInclination_ReturnsTrueNamingInc",
+       "line": 122
+      },
+      {
+       "method": "HasNonFiniteOrbitElement_MultipleOffenders_ListsAllInElementOrder",
+       "line": 133
+      },
+      {
+       "method": "HasNonFiniteOrbitElement_AllFinite_ReturnsFalseWithNullOffenders",
+       "line": 144
+      },
+      {
+       "method": "HasNonFiniteOrbitElement_NullOrbit_ReturnsTrue",
+       "line": 155
+      },
+      {
+       "method": "IsLandedLikeSituation_MatchesOnlyLandedAndSplashed",
+       "line": 179
+      },
+      {
+       "method": "WriteCanonicalSurfaceOrbitValues_WritesSurfaceTupleWithBodyIndex",
+       "line": 185
+      },
+      {
+       "method": "WriteCanonicalSurfaceOrbitValues_NullNode_DoesNotThrow",
+       "line": 202
+      },
+      {
+       "method": "WriteCanonicalSurfaceOrbitValues_MatchesApplySurfaceOrbitToSnapshotShape",
+       "line": 208
+      },
+      {
+       "method": "OverrideSnapshotPosition_StampsDeliberateOverrideMarkerAndLogs",
+       "line": 228
+      },
+      {
+       "method": "HasDeliberatePositionOverrideStamp_AbsentKey_ReturnsFalse",
+       "line": 247
+      },
+      {
+       "method": "HasDeliberatePositionOverrideStamp_NullSnapshot_ReturnsFalse",
+       "line": 255
+      },
+      {
+       "method": "HasDeliberatePositionOverrideStamp_ParsesValue",
+       "line": 265
+      },
+      {
+       "method": "StripDeliberatePositionOverrideStamp_RemovesKeyAndLogs",
+       "line": 274
+      },
+      {
+       "method": "StripDeliberatePositionOverrideStamp_AbsentKey_ReturnsFalse",
+       "line": 290
+      },
+      {
+       "method": "StripFromRecording_StampedDurableSnapshot_StripsAndReturnsTrue",
+       "line": 305
+      },
+      {
+       "method": "StripFromRecording_NullRecordingOrSnapshot_Tolerant",
+       "line": 324
+      },
+      {
+       "method": "StripFromRecording_UnstampedDurableSnapshot_ReturnsFalse",
+       "line": 333
+      },
+      {
+       "method": "StripFromRecording_IsWiredAsResolutionFinallyInSpawnOrRecover",
+       "line": 342
+      },
+      {
+       "method": "DecideSurfaceRepairCoordinateSource_TruthTable",
+       "line": 443
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_StampedSnapshotWithValidCoords_PreservesWalkbackCoords",
+       "line": 460
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_UnstampedSnapshotWithEndpointCoords_EndpointStillWins",
+       "line": 511
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_StampedButNonFiniteCoords_EndpointRepairStillApplies",
+       "line": 553
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_StampedWithBodyMismatch_EndpointRepairStillApplies",
+       "line": 595
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

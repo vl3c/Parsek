@@ -1,0 +1,243 @@
+{
+ "batch_id": "legacy-bugfix-003",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "Bug587StripPreExistingDebrisTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveDebris_NullMarker_ReturnsEmpty",
+       "line": 52
+      },
+      {
+       "method": "ResolveDebris_PlaceholderPattern_ReturnsEmpty",
+       "line": 67
+      },
+      {
+       "method": "ResolveDebris_InPlaceMarker_KillsDebrisMatchingDestroyedRec",
+       "line": 92
+      },
+      {
+       "method": "ResolveDebris_InPlaceMarker_KillsNameMatchingSuppressedSubtreeRec",
+       "line": 126
+      },
+      {
+       "method": "ResolveDebris_InPlaceMarker_KillsNameMatchingParentChainRec",
+       "line": 171
+      },
+      {
+       "method": "ResolveDebris_NullSuppressedSubtree_FallsBackToDestroyedTerminalOnly",
+       "line": 209
+      },
+      {
+       "method": "ResolveDebris_SuppressedSubtreeAndDestroyedRecsBoth_KillsAllMatching",
+       "line": 243
+      },
+      {
+       "method": "ResolveDebris_SuppressedSubtreeKill_RespectsProtectedPids",
+       "line": 283
+      },
+      {
+       "method": "ResolveDebris_LogsKillEligibleCounters_WhenMatchesFound",
+       "line": 322
+      },
+      {
+       "method": "ResolveDebris_NameMatchesNonDestroyedRec_KeepsAlive",
+       "line": 368
+      },
+      {
+       "method": "ResolveDebris_ProtectedPidNotKilled",
+       "line": 396
+      },
+      {
+       "method": "ResolveDebris_TreeIdMismatch_ReturnsEmpty",
+       "line": 429
+      },
+      {
+       "method": "ResolveDebris_NoDestroyedRecsInTree_ReturnsEmpty",
+       "line": 452
+      },
+      {
+       "method": "ResolveDebris_EmptyLeftAlone_ReturnsEmpty",
+       "line": 478
+      },
+      {
+       "method": "SnapshotKillTargets_NullSource_ReturnsEmpty",
+       "line": 514
+      },
+      {
+       "method": "SnapshotKillTargets_NullKillSet_ReturnsEmpty",
+       "line": 526
+      },
+      {
+       "method": "SnapshotKillTargets_EmptyKillSet_ReturnsEmpty",
+       "line": 536
+      },
+      {
+       "method": "SnapshotKillTargets_NullPidGetter_ReturnsEmpty",
+       "line": 546
+      },
+      {
+       "method": "SnapshotKillTargets_FiltersByPidAndSkipsZeroAndNull",
+       "line": 556
+      },
+      {
+       "method": "SnapshotKillTargets_SourceMutatedDuringConsumption_AllTargetsKilled",
+       "line": 576
+      },
+      {
+       "method": "SnapshotKillTargets_NoneMatch_ReturnsEmpty",
+       "line": 614
+      },
+      {
+       "method": "SurveyLiveLeftAloneCollisions_AllLeftAlonePidsKilled_ReturnsZero",
+       "line": 661
+      },
+      {
+       "method": "SurveyLiveLeftAloneCollisions_PartialKill_ReportsSurvivorInstanceAndNameCount",
+       "line": 688
+      },
+      {
+       "method": "SurveyLiveLeftAloneCollisions_MultipleInstancesSameName_CountsInstancesNotNames",
+       "line": 711
+      },
+      {
+       "method": "SurveyLiveLeftAloneCollisions_SelectedPidExcluded_DoesNotCountAsLeftover",
+       "line": 733
+      },
+      {
+       "method": "SurveyLiveLeftAloneCollisions_StrippedPidExcluded_DoesNotCountAsLeftover",
+       "line": 759
+      },
+      {
+       "method": "SurveyLiveLeftAloneCollisions_GhostMapPidExcluded_DoesNotCountAsLeftover",
+       "line": 784
+      },
+      {
+       "method": "SurveyLiveLeftAloneCollisions_AllExcludedAndAllKilled_ReturnsZero",
+       "line": 810
+      },
+      {
+       "method": "SurveyLiveLeftAloneCollisions_NullInputs_AreDefensive",
+       "line": 844
+      },
+      {
+       "method": "EmitStripLeftAloneWarn_AllKilled_LogsVerboseAndNoWarn",
+       "line": 895
+      },
+      {
+       "method": "EmitStripLeftAloneWarn_LiveVesselsRemain_LogsSeparateInstanceAndNameCounts",
+       "line": 919
+      },
+      {
+       "method": "EmitStripLeftAloneWarn_PartialKill_ReportsSurvivors",
+       "line": 939
+      },
+      {
+       "method": "EmitStripLeftAloneWarn_NoCollidingNames_NoLog",
+       "line": 955
+      },
+      {
+       "method": "EmitStripLeftAloneWarn_AllExcluded_LogsVerboseWithExclusionCounters",
+       "line": 966
+      },
+      {
+       "method": "ResolveDebris_ForkModeInPlaceMarker_KillsDebrisMatchingDestroyedRec",
+       "line": 1002
+      },
+      {
+       "method": "ResolveDebris_ForkModePlaceholderPattern_ReturnsEmpty",
+       "line": 1032
+      },
+      {
+       "method": "BuildProtectedPids_EmptyStripResult_NullMarker_ReturnsEmpty",
+       "line": 1081
+      },
+      {
+       "method": "BuildProtectedPids_SelectedPidAndActiveRecPid_BothAdded",
+       "line": 1097
+      },
+      {
+       "method": "BuildProtectedPids_PreservedFlagPids_AddedAndLogged",
+       "line": 1128
+      },
+      {
+       "method": "BuildProtectedPids_NoPreservedFlags_NoFlagShieldLog",
+       "line": 1165
+      },
+      {
+       "method": "BuildProtectedPids_NullPreservedFlagPidsList_NoThrow_NoLog",
+       "line": 1191
+      },
+      {
+       "method": "BuildProtectedPids_ZeroFlagPid_Skipped",
+       "line": 1214
+      },
+      {
+       "method": "ResolveDebris_PreservedFlagPid_NotKilled_EvenWhenNameCollidesWithDestroyedRec",
+       "line": 1241
+      },
+      {
+       "method": "ResolveDebris_WithoutFlagProtection_NameCollidingFlagWouldDie_RegressionGuard",
+       "line": 1302
+      },
+      {
+       "method": "IsDebrisKillSurveyCandidate_DebrisVessel_ReturnsTrue",
+       "line": 1390
+      },
+      {
+       "method": "IsDebrisKillSurveyCandidate_EveryNonDebrisType_ReturnsFalse",
+       "line": 1403
+      },
+      {
+       "method": "IsDebrisKillSurveyCandidate_NullVessel_ReturnsFalse",
+       "line": 1452
+      },
+      {
+       "method": "IsDebrisKillSurveyCandidate_VesselTypeThrows_FailsClosed_ReturnsFalse",
+       "line": 1459
+      },
+      {
+       "method": "BuildLeftAlone_NonDebrisSkipped_DebrisKept_EvenWhenNamesCollide",
+       "line": 1476
+      },
+      {
+       "method": "BuildLeftAlone_FlagSurvivesKillResolverViaSurveyOnly_RegardlessOfProtectedPids",
+       "line": 1536
+      },
+      {
+       "method": "BuildLeftAlone_PreservedRealFleetSharingTheReFlownName_IsNeverKilled",
+       "line": 1598
+      },
+      {
+       "method": "BuildLeftAlone_RegressionGuard_WithoutSurveySkip_FlagWouldEnterKillSet_AbsentProtectedPids",
+       "line": 1689
+      },
+      {
+       "method": "BuildLeftAlone_NullInputs_AreDefensive",
+       "line": 1729
+      },
+      {
+       "method": "BuildLeftAlone_GhostMapPid_Excluded",
+       "line": 1752
+      },
+      {
+       "method": "BuildLeftAlone_StrippedAndSelectedPids_Excluded",
+       "line": 1788
+      },
+      {
+       "method": "BuildLeftAlone_ZeroPidAndEmptyName_Skipped",
+       "line": 1830
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

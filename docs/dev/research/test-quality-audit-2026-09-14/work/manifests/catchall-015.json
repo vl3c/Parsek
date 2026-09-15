@@ -1,0 +1,229 @@
+{
+ "batch_id": "catchall-015",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "CollapseSealMergeStateRegressionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SealedCrashSlot_StaysImmutableWhilePeerOpen_ThenReapsWhenLastSlotSealed",
+       "line": 150
+      },
+      {
+       "method": "NonFocusOrbitFork_StaysImmutableOnRecommit",
+       "line": 191
+      },
+      {
+       "method": "StashThenSeal_NotReStashable_AndHiddenFromUf",
+       "line": 258
+      },
+      {
+       "method": "MidFlightCommittedCrashTip_NotSkippedByGuard_PromotesToCpAndKeepsRp",
+       "line": 310
+      },
+      {
+       "method": "NonInPlaceOrbitFork_NotInCommittedTree_StaysImmutableOnRecommit",
+       "line": 345
+      },
+      {
+       "method": "FindCommittedRecordingByIdRaw_ResolvesTreeOnlyTip_NotInFlatList",
+       "line": 413
+      },
+      {
+       "method": "IsReapEligible_OpenSiblingTipInCommittedTreeOnly_NotReapEligible",
+       "line": 452
+      },
+      {
+       "method": "SpliceRefresh_AdoptsCommittedMergeState_NotStaleLoadedImmutable",
+       "line": 517
+      },
+      {
+       "method": "SpliceRefresh_PreservesNotCommittedLiveRecording_NotCommittedSource",
+       "line": 577
+      },
+      {
+       "method": "OptimizerSplitOfPromotedSlot_KeepsSlotOpenAndRpUnreaped",
+       "line": 642
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordedRelativeAnchorPoseResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SampleSelection_PicksBracketingPair_ForInRangeUT",
+       "line": 56
+      },
+      {
+       "method": "SampleSelection_ExactSampleUT_ReturnsThatSample",
+       "line": 81
+      },
+      {
+       "method": "Interpolation_PositionIsLinearAndMonotoneInT",
+       "line": 100
+      },
+      {
+       "method": "Interpolation_RotationSlerpsBetweenSamples_ComposedWithBodyRotation",
+       "line": 128
+      },
+      {
+       "method": "RelativeSection_ComposesAnchorLocalMetreOffsets_NeverAsLatLonAlt",
+       "line": 167
+      },
+      {
+       "method": "RelativeSection_AnchorRotationRotatesTheLocalOffset",
+       "line": 225
+      },
+      {
+       "method": "RelativeSection_InterpolatesOffsetsBetweenFrames",
+       "line": 254
+      },
+      {
+       "method": "OutOfRange_FarPastRecordedEnd_FailsWithOutOfRecordedRange",
+       "line": 290
+      },
+      {
+       "method": "OutOfRange_BeforeRecordedStart_FailsWithOutOfRecordedRange",
+       "line": 310
+      },
+      {
+       "method": "OutOfRange_WithinOnePhysicsTickPastEnd_ClampsToTerminalSample",
+       "line": 334
+      },
+      {
+       "method": "Guard_NullFocusRecording_FailsPrecondition",
+       "line": 363
+      },
+      {
+       "method": "Guard_NonRelativeSection_IsRejected",
+       "line": 382
+      },
+      {
+       "method": "Guard_MissingAnchorRecordingId_IsRejected",
+       "line": 407
+      },
+      {
+       "method": "Guard_FocusRecordingNotInAnyTree_FailsContextBuild",
+       "line": 419
+      },
+      {
+       "method": "Guard_UnknownAnchorRecordingId_IsReported",
+       "line": 436
+      },
+      {
+       "method": "BodyPoseSource_UnknownBody_YieldsUnresolvedAbsolutePosition",
+       "line": 451
+      },
+      {
+       "method": "TryFindFocusRecording_ReturnsTheRecordingItself_WhenTrajectoryIsARecording",
+       "line": 479
+      },
+      {
+       "method": "TryFindFocusRecording_ResolvesById_FromCommittedTree",
+       "line": 488
+      },
+      {
+       "method": "TryFindFocusRecording_ReturnsFalse_ForUnknownIdAndNullTrajectory",
+       "line": 501
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "UiComplexityModeCloseHandlerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CloseHandlerCoversEveryGatedLockOwner",
+       "line": 71
+      },
+      {
+       "method": "ApplyingBasicClosesEveryGatedWindowAndTheGroupPicker",
+       "line": 122
+      },
+      {
+       "method": "EnteringAdvancedClosesNothingAndBasicSparesTheKeptWindows",
+       "line": 160
+      },
+      {
+       "method": "ForceCloseDoesNotResetTheWindowState",
+       "line": 208
+      },
+      {
+       "method": "ModeApplyRequestsSettingsWindowHeightRemeasureInBothDirections",
+       "line": 252
+      },
+      {
+       "method": "NoOpLatchDoesNotRequestAHeightRemeasure",
+       "line": 301
+      },
+      {
+       "method": "AutoCloseLogsPerWindow",
+       "line": 339
+      },
+      {
+       "method": "AutoCloseIsSilentWhenNothingWasOpen",
+       "line": 386
+      },
+      {
+       "method": "ApplyWithNoLiveUiIsALoggedNoOp",
+       "line": 416
+      },
+      {
+       "method": "ShouldRefuseModeChangeOnlyBlocksBasicWhileGloopsRecords",
+       "line": 442
+      },
+      {
+       "method": "SeamRefusesBasicWhileGloopsRecordingAndWritesNothing",
+       "line": 457
+      },
+      {
+       "method": "SeamAllowsAdvancedWhileGloopsRecording",
+       "line": 479
+      },
+      {
+       "method": "ModeOptionIsDisabledOnlyForBasicWhileGloopsRecords",
+       "line": 499
+      },
+      {
+       "method": "RequeueDecisionFiresOnlyOnDriftAndQueuesThePersistedValue",
+       "line": 519
+      },
+      {
+       "method": "RequeueCorrectsADriftedLatchAndLogsTheTransition",
+       "line": 544
+      },
+      {
+       "method": "RequeueQueuesNothingWhenTheLatchAndTheSettingAgree",
+       "line": 561
+      },
+      {
+       "method": "RequeueIsANoOpWithNoSettingsObject",
+       "line": 573
+      },
+      {
+       "method": "InterfaceHintCarriesTheGloopsReasonOnlyWhileRecording",
+       "line": 587
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

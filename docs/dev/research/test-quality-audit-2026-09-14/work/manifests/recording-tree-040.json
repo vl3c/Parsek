@@ -1,0 +1,79 @@
+{
+ "batch_id": "recording-tree-040",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 15,
+ "files": [
+  {
+   "file": "SwitchSegmentBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CreateSwitchContinuationSegment_UnderTerminalLeaf_AttachesAndSetsActive",
+       "line": 86
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_StandaloneTreeNoParent_AddsAsRoot",
+       "line": 177
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_NonTerminalParent_RefusesWithFailureReason",
+       "line": 219
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_ParentNotInTree_RefusesWithFailureReason",
+       "line": 263
+      },
+      {
+       "method": "ResolveSwitchContinuationParent_UniqueTerminalLeaf_Found",
+       "line": 297
+      },
+      {
+       "method": "ResolveSwitchContinuationParent_AmbiguousMultipleLeaves_ReturnsAmbiguous",
+       "line": 336
+      },
+      {
+       "method": "ResolveSwitchContinuationParent_NoMatch_ReturnsStandalone",
+       "line": 366
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_AmbiguousResolver_CallerStartsStandalone_LogsAmbiguityReason",
+       "line": 389
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_DoesNotMutateOtherRecordings",
+       "line": 435
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_NewRecording_StampsFormatVersionAndGeneration",
+       "line": 489
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_NullTree_RefusesWithFailureReason",
+       "line": 521
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_MissingNewRecordingId_RefusesWithFailureReason",
+       "line": 548
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_MissingBoundaryFactory_RefusesWithFailureReason",
+       "line": 585
+      },
+      {
+       "method": "CreateSwitchContinuationSegment_MissingBranchPointIdWithParent_RefusesWithFailureReason",
+       "line": 624
+      },
+      {
+       "method": "ResolveSwitchContinuationParent_DanglingChildBranchPoint_LogsWarnAndSkips",
+       "line": 670
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,81 @@
+{
+ "batch_id": "supplement-001",
+ "cluster": "supplement",
+ "tier": "B",
+ "expected_methods": 7,
+ "files": [
+  {
+   "file": "ClawCoupleRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClawedAsteroidShip_Snapshot_HasCoupledPotatoRoidAndResolvableRoot",
+       "line": 204
+      },
+      {
+       "method": "MergedClawShip_RejectedFromDeferredBreakupScan_ByAsteroidPart",
+       "line": 171
+      },
+      {
+       "method": "RawAsteroid_RejectedFromDeferredBreakupScan_AsSpaceObject",
+       "line": 158
+      },
+      {
+       "method": "TryExtractPartName_PotatoRoid_SurvivesWithAndWithoutUidSuffix",
+       "line": 192
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionsWindowLoopGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TheGateScanAcceptsTheProductionGateShapes",
+       "line": 137
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteRecoveryLandingHarnessTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "UtMappedIdeal_CreditForCycle0_WouldLandAtRecordedRecoveryUT",
+       "line": 385
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandEvaExitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Standoff_NoOtherLoadedVessel_ReadsClear",
+       "line": 340
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "note": "methods present in the TRX but missed by inventory_scan (work/inventory-completeness.txt); reviewed under the same protocol"
+}

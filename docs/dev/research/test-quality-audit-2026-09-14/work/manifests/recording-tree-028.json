@@ -1,0 +1,187 @@
+{
+ "batch_id": "recording-tree-028",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "RecordingStoreTests.cs",
+   "ranges": [
+    {
+     "start": 673,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CrewReplacements_SaveRoundTrip_PreservesMapping",
+       "line": 673
+      },
+      {
+       "method": "ShouldProcessCrew_Available_ReturnsTrue",
+       "line": 702
+      },
+      {
+       "method": "ShouldProcessCrew_Assigned_ReturnsTrue",
+       "line": 709
+      },
+      {
+       "method": "ShouldProcessCrew_Dead_ReturnsFalse",
+       "line": 718
+      },
+      {
+       "method": "ShouldProcessCrew_Missing_ReturnsTrue",
+       "line": 725
+      },
+      {
+       "method": "ExtractCrewFromSnapshot_SinglePart_SingleCrew",
+       "line": 736
+      },
+      {
+       "method": "ExtractCrewFromSnapshot_MultiplePartsAndCrew",
+       "line": 749
+      },
+      {
+       "method": "ExtractCrewFromSnapshot_NoCrew_ReturnsEmpty",
+       "line": 767
+      },
+      {
+       "method": "ExtractCrewFromSnapshot_NullSnapshot_ReturnsEmpty",
+       "line": 778
+      },
+      {
+       "method": "ExtractCrewFromSnapshot_EmptyCrewValue_Skipped",
+       "line": 786
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_ReservedEva_ReturnsTrue",
+       "line": 802
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_NonEva_ReturnsFalse",
+       "line": 814
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_EvaNotReserved_ReturnsFalse",
+       "line": 827
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_NullCrewName_ReturnsFalse",
+       "line": 840
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_EmptyReplacements_ReturnsFalse",
+       "line": 852
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_SpawnedPidMatch_ReturnsFalse",
+       "line": 863
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_SpawnedPidNoMatch_ReturnsTrue",
+       "line": 877
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_NullSpawnedPids_ReturnsTrue",
+       "line": 891
+      },
+      {
+       "method": "ShouldRemoveEvaVessel_ZeroPid_SkipsPidCheck",
+       "line": 904
+      },
+      {
+       "method": "BuildSpawnedVesselPidSet_CollectsNonZeroPids",
+       "line": 920
+      },
+      {
+       "method": "BuildSpawnedVesselPidSet_NullRecordings_ReturnsEmpty",
+       "line": 938
+      },
+      {
+       "method": "LoadCrewReplacements_NullNode_LogsNoReplacementsMessage",
+       "line": 947
+      },
+      {
+       "method": "LoadCrewReplacements_WithEntries_LogsCount",
+       "line": 965
+      },
+      {
+       "method": "SaveCrewReplacements_Empty_WritesNoNode",
+       "line": 990
+      },
+      {
+       "method": "SaveCrewReplacements_WithData_RoundTrips",
+       "line": 999
+      },
+      {
+       "method": "CreateRecordingFromFlightData_TrimsLeadingStationaryPoints",
+       "line": 1083
+      },
+      {
+       "method": "CreateRecordingFromFlightData_RetimesPartEventsFromTrimmedWindow",
+       "line": 1095
+      },
+      {
+       "method": "CreateRecordingFromFlightData_RemovesOrbitSegmentsBeforeTrim",
+       "line": 1118
+      },
+      {
+       "method": "CreateRecordingFromFlightData_NoTrimWhenAlreadyMoving",
+       "line": 1136
+      },
+      {
+       "method": "CreateRecordingFromFlightData_MultipleCallsReturnIndependentRecordings",
+       "line": 1154
+      },
+      {
+       "method": "CommitRecordingDirect_LogsFlushDirtyFiles",
+       "line": 1172
+      },
+      {
+       "method": "RunOptimizationPass_SplitsTreeRecording",
+       "line": 1195
+      },
+      {
+       "method": "RunOptimizationPass_SplitUpdatesTreeBranchPoint",
+       "line": 1268
+      },
+      {
+       "method": "RunOptimizationPass_SplitLogsTreeId",
+       "line": 1344
+      },
+      {
+       "method": "RunOptimizationPass_LogsFlushDirtyFiles",
+       "line": 1407
+      },
+      {
+       "method": "RunOptimizationPass_NoRecordings_NoFlushLog",
+       "line": 1433
+      },
+      {
+       "method": "RunOptimizationPass_CleanRecordings_NoFlushLog",
+       "line": 1452
+      },
+      {
+       "method": "TryResolveTreeById_NullOrEmptyTreeId_ReturnsFalse",
+       "line": 1490
+      },
+      {
+       "method": "TryResolveTreeById_PendingSlotWinsOverCommitted",
+       "line": 1506
+      },
+      {
+       "method": "TryResolveTreeById_CommittedSlotWhenPendingMissing",
+       "line": 1543
+      },
+      {
+       "method": "TryResolveTreeById_MissingId_ReturnsFalseAndNoneSlot",
+       "line": 1567
+      },
+      {
+       "method": "TryResolveTreeById_BothCallersDelegateToSharedHelper_SourceTextGate",
+       "line": 1579
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

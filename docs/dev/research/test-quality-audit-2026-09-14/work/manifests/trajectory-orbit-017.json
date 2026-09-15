@@ -1,0 +1,292 @@
+{
+ "batch_id": "trajectory-orbit-017",
+ "cluster": "trajectory-orbit",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "TrajectoryWalkbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldTriggerWalkback_TimeoutReached_BlockerStationary_True",
+       "line": 81
+      },
+      {
+       "method": "ShouldTriggerWalkback_TimeoutNotReached_False",
+       "line": 95
+      },
+      {
+       "method": "ShouldTriggerWalkback_BlockerMoved_False",
+       "line": 109
+      },
+      {
+       "method": "Walkback_FindsValidPosition_3FramesBack",
+       "line": 127
+      },
+      {
+       "method": "Walkback_EntireTrajectoryOverlaps_ReturnsNegative",
+       "line": 157
+      },
+      {
+       "method": "Walkback_FirstPointClear_ReturnsLastIndex",
+       "line": 169
+      },
+      {
+       "method": "Walkback_EmptyTrajectory_ReturnsNegative",
+       "line": 190
+      },
+      {
+       "method": "Walkback_NullTrajectory_ReturnsNegative",
+       "line": 202
+      },
+      {
+       "method": "Walkback_SinglePoint_Clear_ReturnsZero",
+       "line": 213
+      },
+      {
+       "method": "Walkback_SinglePoint_Blocked_ReturnsNegative",
+       "line": 225
+      },
+      {
+       "method": "SimplePointToWorldPos_KnownPosition",
+       "line": 241
+      },
+      {
+       "method": "ShouldTriggerWalkback_LogsDecision",
+       "line": 267
+      },
+      {
+       "method": "Walkback_LogsPerPointCheck",
+       "line": 279
+      },
+      {
+       "method": "Walkback_EmptyTrajectory_LogsMessage",
+       "line": 295
+      },
+      {
+       "method": "Walkback_EntireOverlap_LogsWarning",
+       "line": 309
+      },
+      {
+       "method": "Walkback_FindsValid_LogsFoundMessage",
+       "line": 324
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReaimLoiterCompressorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OrbitalPeriod_EllipticalVsHyperbolic",
+       "line": 33
+      },
+      {
+       "method": "ComputeCuts_SingleLongLoiterSegment_CutsAllButOneRev",
+       "line": 42
+      },
+      {
+       "method": "ComputeCuts_ChunkedLoiterRun_CompressesByTotalDuration",
+       "line": 60
+      },
+      {
+       "method": "ComputeCuts_AStepBetweenSegments_SplitsIntoTwoRuns",
+       "line": 78
+      },
+      {
+       "method": "ComputeCuts_GradualDriftPastThreshold_SplitsRun_AnchoredToFirst",
+       "line": 96
+      },
+      {
+       "method": "ComputeCuts_TransferArc_NotALoiter",
+       "line": 114
+      },
+      {
+       "method": "ComputeCuts_HyperbolicAndPredicted_Skipped",
+       "line": 126
+      },
+      {
+       "method": "ComputeCuts_BodyChange_EndsRun",
+       "line": 137
+      },
+      {
+       "method": "ComputeCuts_GapToDifferentOrbit_EndsRun",
+       "line": 151
+      },
+      {
+       "method": "ComputeCuts_SameOrbitAcrossSamplingGaps_MergesToOneRun",
+       "line": 165
+      },
+      {
+       "method": "CompressUT_EmptyCuts_IsIdentity",
+       "line": 186
+      },
+      {
+       "method": "CompressUT_SingleCut_RemovesAfter_CollapsesInside_KeepsBefore",
+       "line": 193
+      },
+      {
+       "method": "CompressUT_MultipleCuts_Monotonic_RemovesCumulatively",
+       "line": 207
+      },
+      {
+       "method": "DecompressSpanUT_EmptyCuts_IsIdentity",
+       "line": 229
+      },
+      {
+       "method": "DecompressSpanUT_SingleCut_SkipsToCutEnd",
+       "line": 238
+      },
+      {
+       "method": "DecompressSpanUT_InvertsCompressSpanUT_OutsideCuts",
+       "line": 251
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "AnchorLifecycleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsAnchorLoaded_ZeroAnchorPid_AlwaysReturnsTrue",
+       "line": 34
+      },
+      {
+       "method": "IsAnchorLoaded_AnchorInLoadedSet_ReturnsTrue",
+       "line": 43
+      },
+      {
+       "method": "IsAnchorLoaded_AnchorNotInLoadedSet_ReturnsFalse",
+       "line": 52
+      },
+      {
+       "method": "IsAnchorLoaded_NullLoadedSet_ReturnsFalse",
+       "line": 61
+      },
+      {
+       "method": "IsAnchorLoaded_EmptyLoadedSet_AnchorNotFound_ReturnsFalse",
+       "line": 69
+      },
+      {
+       "method": "IsAnchorLoaded_ZeroAnchorPid_EmptySet_StillReturnsTrue",
+       "line": 77
+      },
+      {
+       "method": "IsAnchorLoaded_ZeroAnchorPid_NullSet_StillReturnsTrue",
+       "line": 86
+      },
+      {
+       "method": "LoadedSet_AddAndContains_TracksCorrectly",
+       "line": 98
+      },
+      {
+       "method": "AnchoredLoop_AnchorLoaded_ShouldSpawn_ReturnsTrue",
+       "line": 123
+      },
+      {
+       "method": "AnchoredLoop_AnchorNotLoaded_GhostSuppressed",
+       "line": 145
+      },
+      {
+       "method": "UnanchoredLoop_AlwaysAllowed_RegardlessOfLoadedSet",
+       "line": 162
+      },
+      {
+       "method": "AnchorLoaded_PhaseComputed_AtMidCycle",
+       "line": 182
+      },
+      {
+       "method": "AnchorReloaded_PhaseRecomputed_NotFromStart",
+       "line": 219
+      },
+      {
+       "method": "IsAnchorLoaded_LogsLoadedStatus_WhenAnchorPresent",
+       "line": 253
+      },
+      {
+       "method": "IsAnchorLoaded_LogsNotLoaded_WhenAnchorMissing",
+       "line": 263
+      },
+      {
+       "method": "IsAnchorLoaded_LogsNullSet_WhenNull",
+       "line": 273
+      },
+      {
+       "method": "IsAnchorLoaded_NoLog_ForUnanchoredLoop",
+       "line": 282
+      },
+      {
+       "method": "MultipleRecordings_SameAnchor_AllGatedTogether",
+       "line": 298
+      },
+      {
+       "method": "DifferentAnchors_IndependentGating",
+       "line": 332
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "OrbitReseedPureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeRecordedVelocityInputs_SubtractsBodyPositionAndFlipsPositionAndVelocity",
+       "line": 9
+      },
+      {
+       "method": "ComputeZupVelocityInputs_SubtractsBodyPositionAndPreservesVelocityFrame",
+       "line": 21
+      },
+      {
+       "method": "TryComputeHistoricalSurfaceInputs_AppliesInitialRotationAndRecordedPhase",
+       "line": 33
+      },
+      {
+       "method": "TryComputeHistoricalSurfaceInputs_InvalidRotationDeclines",
+       "line": 65
+      },
+      {
+       "method": "WithEpoch_SeedsPositionAtRecordedUTButEpochAtShiftedUT",
+       "line": 91
+      },
+      {
+       "method": "WithEpoch_NonFiniteRotationDeclines",
+       "line": 138
+      },
+      {
+       "method": "WithEpoch_NonFiniteEpochDeclines",
+       "line": 162
+      },
+      {
+       "method": "WithEpoch_DelegatesWithEqualEpochProducesByteIdenticalSeed",
+       "line": 176
+      },
+      {
+       "method": "RecordedVelocityInputs_StationAltitudeSpawn_SubtractsBodyOffsetAndFlipsFrame",
+       "line": 230
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

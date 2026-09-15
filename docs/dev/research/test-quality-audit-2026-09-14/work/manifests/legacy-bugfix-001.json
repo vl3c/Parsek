@@ -1,0 +1,239 @@
+{
+ "batch_id": "legacy-bugfix-001",
+ "cluster": "legacy-bugfix",
+ "tier": "A1",
+ "expected_methods": 55,
+ "files": [
+  {
+   "file": "BugFixTests.cs",
+   "ranges": [
+    {
+     "start": 38,
+     "end": 1253,
+     "methods": [
+      {
+       "method": "HasPendingTree_WhenTreeStashed_ReturnsTrue",
+       "line": 38
+      },
+      {
+       "method": "DiscardPendingTree_ClearsPendingState",
+       "line": 47
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithPoints_ReturnsNonNull",
+       "line": 60
+      },
+      {
+       "method": "DiscardPendingTree_ClearsAllPendingState",
+       "line": 78
+      },
+      {
+       "method": "SpawnCrossedChainTips_DoesNotMutateInputDict",
+       "line": 121
+      },
+      {
+       "method": "SpawnCrossedChainTips_ReturnsEmptyForNoCrossedTips",
+       "line": 151
+      },
+      {
+       "method": "SpawnCrossedChainTips_ReturnsEmptyForNullChains",
+       "line": 166
+      },
+      {
+       "method": "SpawnCrossedChainTips_ReturnsEmptyForEmptyChains",
+       "line": 175
+      },
+      {
+       "method": "ComputeLoopPhaseFromUT_LargeElapsed_NoOverflow",
+       "line": 212
+      },
+      {
+       "method": "ComputeLoopPhaseFromUT_IntMaxBoundary_HandledCorrectly",
+       "line": 235
+      },
+      {
+       "method": "GetActiveCycles_LargeElapsed_NoOverflow",
+       "line": 260
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_LargeElapsed_NoOverflow",
+       "line": 284
+      },
+      {
+       "method": "VesselName_DefaultIsNull",
+       "line": 308
+      },
+      {
+       "method": "VesselName_CanBeAssigned",
+       "line": 315
+      },
+      {
+       "method": "VesselName_FallbackChain_UsesStateFirst",
+       "line": 329
+      },
+      {
+       "method": "VesselName_FallbackChain_FallsToDefault",
+       "line": 337
+      },
+      {
+       "method": "ResolveCombinationExponent_StrongestCombinable_ReturnsItsExponent",
+       "line": 375
+      },
+      {
+       "method": "ResolveCombinationExponent_StrongestNonCombinable_UsesStrongestCombinable",
+       "line": 394
+      },
+      {
+       "method": "ResolveCombinationExponent_NoCombinable_ReturnsMinusOne",
+       "line": 416
+      },
+      {
+       "method": "ComputeCombinedPower_NonCombinableStrongest_UsesCorrectExponent",
+       "line": 435
+      },
+      {
+       "method": "DeepCopyTrackSections_FramesMutationDoesNotAffectOriginal",
+       "line": 473
+      },
+      {
+       "method": "DeepCopyTrackSections_NullLists_StayNull",
+       "line": 511
+      },
+      {
+       "method": "DeepCopyTrackSections_ScalarFieldsCopied",
+       "line": 535
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_TrackSectionsMutationDoesNotAffectSource",
+       "line": 567
+      },
+      {
+       "method": "IsRealStatusChange_DeadToDead_ReturnsFalse",
+       "line": 623
+      },
+      {
+       "method": "IsRealStatusChange_AvailableToAvailable_ReturnsFalse",
+       "line": 636
+      },
+      {
+       "method": "IsRealStatusChange_AssignedToAssigned_ReturnsFalse",
+       "line": 649
+      },
+      {
+       "method": "IsRealStatusChange_AvailableToAssigned_ReturnsTrue",
+       "line": 662
+      },
+      {
+       "method": "IsRealStatusChange_AssignedToDead_ReturnsTrue",
+       "line": 675
+      },
+      {
+       "method": "IsRealStatusChange_MissingToAvailable_ReturnsTrue",
+       "line": 688
+      },
+      {
+       "method": "IsDegraded_AllRecordingsZeroPoints_ReturnsTrue",
+       "line": 705
+      },
+      {
+       "method": "IsDegraded_SomeRecordingsHavePoints_ReturnsFalse",
+       "line": 716
+      },
+      {
+       "method": "IsDegraded_NoRecordings_ReturnsTrue",
+       "line": 734
+      },
+      {
+       "method": "ComputeEndUT_MultipleRecordings_ReturnsMax",
+       "line": 742
+      },
+      {
+       "method": "FreshTreeStash_SurvivesRevertGuard",
+       "line": 802
+      },
+      {
+       "method": "ShouldExitWatchForCutoff",
+       "line": 840
+      },
+      {
+       "method": "IsWithinWatchRange_WithinCutoff_True",
+       "line": 846
+      },
+      {
+       "method": "IsWithinWatchRange_WellWithinCutoff_True",
+       "line": 852
+      },
+      {
+       "method": "IsWithinWatchRange_BeyondCutoff_False",
+       "line": 858
+      },
+      {
+       "method": "IsWithinWatchRange_AtExactCutoff_False",
+       "line": 864
+      },
+      {
+       "method": "IsGhostWithinVisualRange_OrbitalGhostBeyondCutoff_False",
+       "line": 889
+      },
+      {
+       "method": "IsGhostWithinVisualRange_OrbitalGhostAtExactCutoff_False",
+       "line": 911
+      },
+      {
+       "method": "IsGhostWithinVisualRange_OrbitalGhostWithinCutoff_True",
+       "line": 933
+      },
+      {
+       "method": "ShouldExitWatchForCutoff_AppliesUniformly",
+       "line": 958
+      },
+      {
+       "method": "ChainContinuation_NextIndexExists_ReturnsIt",
+       "line": 1014
+      },
+      {
+       "method": "ChainContinuation_NextIndexNotActive_ReturnsMinusOne",
+       "line": 1028
+      },
+      {
+       "method": "ChainContinuation_SkipsBranchRecordings",
+       "line": 1042
+      },
+      {
+       "method": "ChainContinuation_DifferentChainId_Ignored",
+       "line": 1056
+      },
+      {
+       "method": "ResolveEffectiveWatchTargetIndex_SourceGhostStillActive_ReturnsSource",
+       "line": 1069
+      },
+      {
+       "method": "ResolveEffectiveWatchTargetIndex_ChainSingleHop_ReturnsActiveContinuation",
+       "line": 1084
+      },
+      {
+       "method": "ResolveEffectiveWatchTargetIndex_ChainMultiHopThroughInactiveIntermediate_ReturnsDeepActiveSegment",
+       "line": 1099
+      },
+      {
+       "method": "TreeBranch_SameVesselPid_Preferred",
+       "line": 1117
+      },
+      {
+       "method": "ResolveEffectiveWatchTargetIndex_TreeMultiHopThroughInactiveIntermediates_ReturnsDeepActiveDescendant",
+       "line": 1144
+      },
+      {
+       "method": "TreeBranch_DifferentPid_PrefersFirstActiveNonDebris",
+       "line": 1184
+      },
+      {
+       "method": "ResolveEffectiveWatchTargetIndex_NonBreakupInactiveFallbackChild_DoesNotDescendIntoActiveGrandchild",
+       "line": 1213
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

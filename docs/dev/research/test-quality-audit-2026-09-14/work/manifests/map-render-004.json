@@ -1,0 +1,323 @@
+{
+ "batch_id": "map-render-004",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 76,
+ "files": [
+  {
+   "file": "MapRenderTraceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EvaluateGate_Force_EmitsImportantWithForceReason",
+       "line": 54
+      },
+      {
+       "method": "EvaluateGate_Important_EmitsImportantWithImportantReason",
+       "line": 70
+      },
+      {
+       "method": "EvaluateGate_FirstSeen_EmitsInitialWindow",
+       "line": 86
+      },
+      {
+       "method": "EvaluateGate_WithinInitialWindow_EmitsInitialWindow",
+       "line": 102
+      },
+      {
+       "method": "EvaluateGate_WindowOpenAfterInitial_EmitsWindow",
+       "line": 118
+      },
+      {
+       "method": "EvaluateGate_NoWindowAfterInitial_Closed",
+       "line": 134
+      },
+      {
+       "method": "OpenDetailedWindow_NoOpWhenDisabled",
+       "line": 152
+      },
+      {
+       "method": "OpenDetailedWindow_OpensWhenForceEnabled",
+       "line": 162
+      },
+      {
+       "method": "EmitRaw_NoOpWhenDisabled",
+       "line": 172
+      },
+      {
+       "method": "DetailedWindow_OpenThenExpires",
+       "line": 191
+      },
+      {
+       "method": "DetailedWindow_KeyedByPid",
+       "line": 203
+      },
+      {
+       "method": "DetailedWindow_ExtendsToLatestUntil",
+       "line": 214
+      },
+      {
+       "method": "EmitRaw_Important_RoutesToInfoWithPhaseAndSurfaceTokens",
+       "line": 228
+      },
+      {
+       "method": "EmitRaw_NonImportant_RoutesToVerbose",
+       "line": 250
+      },
+      {
+       "method": "FormatTracePrefix_CarriesPhaseSurfaceAndPid",
+       "line": 271
+      },
+      {
+       "method": "FormatTracePrefix_CarriesRecId",
+       "line": 290
+      },
+      {
+       "method": "FormatTracePrefix_PolylineForwardArcSurfaceToken",
+       "line": 305
+      },
+      {
+       "method": "EmitStructural_NoOpWhenDisabled",
+       "line": 321
+      },
+      {
+       "method": "EmitStructural_GhostCreated_RoutesToInfoAndOpensWindow",
+       "line": 339
+      },
+      {
+       "method": "EmitStructural_GhostDestroyed_OpensShortWindow",
+       "line": 368
+      },
+      {
+       "method": "BuildLifecycleDetails_OmitsWorldPosWhenNull",
+       "line": 391
+      },
+      {
+       "method": "BuildLifecycleDetails_IncludesWorldPosWhenPresent",
+       "line": 404
+      },
+      {
+       "method": "BuildLifecycleDetails_NullVesselAndBody_RenderAsNoneToken",
+       "line": 416
+      },
+      {
+       "method": "BuildFirstPositionDetails_CarriesWorldPosAndOrbitFields",
+       "line": 427
+      },
+      {
+       "method": "EmitStructural_FirstPosition_RoutesToInfoWithOrbitFields",
+       "line": 444
+      },
+      {
+       "method": "EmitWindowSnapshot_NoOpWhenNoWindowOpen",
+       "line": 470
+      },
+      {
+       "method": "EmitWindowSnapshot_EmitsVerboseWhileWindowOpen",
+       "line": 487
+      },
+      {
+       "method": "EmitWindowSnapshot_NoOpAfterWindowExpires",
+       "line": 509
+      },
+      {
+       "method": "EmitWindowSnapshot_NoOpWhenDisabled",
+       "line": 526
+      },
+      {
+       "method": "GetStoredMapRenderTracing_DefaultsNull",
+       "line": 545
+      },
+      {
+       "method": "SetStoredMapRenderTracing_RoundTrips",
+       "line": 551
+      },
+      {
+       "method": "RecordMapRenderTracing_UpdatesInMemoryStore",
+       "line": 558
+      },
+      {
+       "method": "ResetForTesting_ClearsStoredMapRenderTracing",
+       "line": 566
+      },
+      {
+       "method": "ApplyTo_RestoresStoredMapRenderTracing",
+       "line": 574
+      },
+      {
+       "method": "IsEnabled_FollowsParsekSettingsCurrent",
+       "line": 585
+      },
+      {
+       "method": "ReconcileLineState_Consistent_ReturnsEmpty",
+       "line": 599
+      },
+      {
+       "method": "ReconcileLineState_LineToggledAfterDecision_ReportsMismatch",
+       "line": 608
+      },
+      {
+       "method": "ReconcileLineState_UnknownActualLine_SkipsLineCheck",
+       "line": 619
+      },
+      {
+       "method": "ReconcileLineState_DrawIconsChangedAfterDecision_ReportsMismatch",
+       "line": 630
+      },
+      {
+       "method": "ReconcileLineState_UnknownActualDrawIcons_SkipsIconCheck",
+       "line": 641
+      },
+      {
+       "method": "RecordLineIntent_Disabled_DoesNotStore",
+       "line": 650
+      },
+      {
+       "method": "RecordLineIntent_Enabled_StoresFreshSameFrameIntent",
+       "line": 658
+      },
+      {
+       "method": "TryGetFreshLineIntent_StaleFrame_ReturnsFalse",
+       "line": 673
+      },
+      {
+       "method": "TryGetFreshLineIntent_OneFrameLater_ReturnsFalse",
+       "line": 684
+      },
+      {
+       "method": "EmitMarkerDecisionOnChange_PerCycleKeysAtWarp_DictStaysBounded",
+       "line": 700
+      },
+      {
+       "method": "ReconcilePolylineOverlap_NotOwning_ReturnsEmpty",
+       "line": 724
+      },
+      {
+       "method": "ReconcilePolylineOverlap_OwningWithIconShown_Flags",
+       "line": 731
+      },
+      {
+       "method": "ReconcilePolylineOverlap_OwningWithIconNone_NoOverlap",
+       "line": 739
+      },
+      {
+       "method": "ReconcilePolylineOverlap_OwningWithLineActive_Flags",
+       "line": 746
+      },
+      {
+       "method": "ReconcilePolylineOverlap_OwningWithUnknownLine_SkipsLineFacet",
+       "line": 753
+      },
+      {
+       "method": "EmitMarker_Enabled_EmitsMarkerDrawWithSurface",
+       "line": 763
+      },
+      {
+       "method": "EmitMarker_Disabled_NoOp",
+       "line": 780
+      },
+      {
+       "method": "EmitFactoryParity_Enabled_EmitsAnomalyWithReasonAndDivergingField",
+       "line": 791
+      },
+      {
+       "method": "EmitFactoryParity_Disabled_NoOp",
+       "line": 808
+      },
+      {
+       "method": "EmitFactoryParity_OncePerEvent_SameSignatureSuppressed_ChangedSignatureReEmits",
+       "line": 816
+      },
+      {
+       "method": "EmitFactoryParity_MismatchLandsWithVerboseLoggingDisabled",
+       "line": 837
+      },
+      {
+       "method": "EmitMarker_Polyline_EmitsMarkerDrawWithPolylineSurface",
+       "line": 859
+      },
+      {
+       "method": "EmitMarker_Polyline_SameKeyWithinInterval_CollapsesToOneLine",
+       "line": 880
+      },
+      {
+       "method": "EmitMarker_Polyline_DifferentRecordings_TrackedIndependently",
+       "line": 904
+      },
+      {
+       "method": "EmitMarker_Polyline_AfterIntervalElapses_EmitsAgain",
+       "line": 920
+      },
+      {
+       "method": "MarkerOutcomeToken_MapsEveryBranch",
+       "line": 939
+      },
+      {
+       "method": "MarkerRideReasonToken_RodeLeg_CarriesIndex",
+       "line": 962
+      },
+      {
+       "method": "BuildMarkerDecisionSignature_DrawnNonProto_CarriesDisjunctsRideAndSource",
+       "line": 984
+      },
+      {
+       "method": "BuildMarkerDecisionSignature_SkipOutcome_OmitsRideAndSource",
+       "line": 1010
+      },
+      {
+       "method": "EmitMarkerDecisionOnChange_NoOpWhenDisabled",
+       "line": 1032
+      },
+      {
+       "method": "EmitMarkerDecisionOnChange_FirstSignatureEmits",
+       "line": 1043
+      },
+      {
+       "method": "EmitMarkerDecisionOnChange_RepeatSignatureSuppressed",
+       "line": 1060
+      },
+      {
+       "method": "EmitMarkerDecisionOnChange_ChangedSignatureReEmits",
+       "line": 1075
+      },
+      {
+       "method": "EmitMarkerDecisionOnChange_PerPidIndependent",
+       "line": 1091
+      },
+      {
+       "method": "EmitMarkerDecisionOnChange_ReEmitsAfterReset",
+       "line": 1106
+      },
+      {
+       "method": "EmitLineVisibilityOnChange_NoOpWhenDisabled",
+       "line": 1125
+      },
+      {
+       "method": "EmitLineVisibilityOnChange_FirstSignatureEmits_CarriesSurfaceReasonAndRecId",
+       "line": 1136
+      },
+      {
+       "method": "EmitLineVisibilityOnChange_RepeatSignatureSuppressed",
+       "line": 1155
+      },
+      {
+       "method": "EmitLineVisibilityOnChange_ChangedSignatureReEmits",
+       "line": 1169
+      },
+      {
+       "method": "EmitLineVisibilityOnChange_ReEmitsAfterReset",
+       "line": 1186
+      },
+      {
+       "method": "EmitLineVisibilityOnChange_PerCycleKeysAtWarp_DictStaysBounded",
+       "line": 1201
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,283 @@
+{
+ "batch_id": "logistics-route-006",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 66,
+ "files": [
+  {
+   "file": "Logistics/RouteOrchestratorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Tick_NoRoutes_NoOp_NoLogs",
+       "line": 184
+      },
+      {
+       "method": "Tick_RoutesNotDue_NoStatusChanges",
+       "line": 197
+      },
+      {
+       "method": "Tick_DueRoute_TransitionsToInTransit_AndAdvancesNextDispatchUT",
+       "line": 213
+      },
+      {
+       "method": "Tick_ProcessesRoutesInPriorityOrder",
+       "line": 234
+      },
+      {
+       "method": "Tick_InTransitArrival_SetsPendingDeliveryUT_StatusStaysInTransit",
+       "line": 266
+      },
+      {
+       "method": "Tick_PendingDeliveryDue_NullVessel_RoutesToEndpointLost",
+       "line": 302
+      },
+      {
+       "method": "Tick_WaitResources_SetsRetry_AndKeepsNextDispatchUT",
+       "line": 333
+      },
+      {
+       "method": "Tick_DestinationFull_DoesNotAdvanceNextDispatchUT",
+       "line": 358
+      },
+      {
+       "method": "Tick_PausedRoute_SummaryLogged_NoPerRouteTransitionLog",
+       "line": 378
+      },
+      {
+       "method": "Tick_MidIterationAdd_NewRoutePickedUpNextTick",
+       "line": 402
+      },
+      {
+       "method": "Tick_EndpointLost_EmitsAction_AndTransitions",
+       "line": 431
+      },
+      {
+       "method": "Tick_DispatchEmitsTwoLedgerActions_WithMatchingCycleId",
+       "line": 455
+      },
+      {
+       "method": "Tick_NonKscOrigin_CostManifestPopulated_FundsCostZero",
+       "line": 484
+      },
+      {
+       "method": "LegacyDispatchPath_NonKscOrigin_SkipsPhysicalDebit_Logs",
+       "line": 520
+      },
+      {
+       "method": "Tick_SandboxKscOrigin_EmitsZeroFundsCost",
+       "line": 554
+      },
+      {
+       "method": "Tick_ApplyExceptionDoesNotPropagate",
+       "line": 576
+      },
+      {
+       "method": "Tick_SourcesStale_SkipsDispatch",
+       "line": 617
+      },
+      {
+       "method": "Tick_WaitResources_LogsReasonToken",
+       "line": 637
+      },
+      {
+       "method": "ApplyWait_LegacyPath_RecordsHold",
+       "line": 662
+      },
+      {
+       "method": "ApplyEndpointLost_RecordsHold",
+       "line": 686
+      },
+      {
+       "method": "ApplyDispatch_ClearsHold",
+       "line": 707
+      },
+      {
+       "method": "TryActivate_ClearsHold",
+       "line": 728
+      },
+      {
+       "method": "HoldKindForOutcome_MapsAllWaitOutcomes",
+       "line": 748
+      },
+      {
+       "method": "TrySendOneCycleNow_NullRoute_ReturnsFalse",
+       "line": 784
+      },
+      {
+       "method": "TrySendOneCycleNow_ActiveRoute_ArmsOneShotAndPullsScheduleForward",
+       "line": 791
+      },
+      {
+       "method": "TrySendOneCycleNow_AlreadyDue_StillArmsPauseAfter",
+       "line": 803
+      },
+      {
+       "method": "TrySendOneCycleNow_InTransit_Refuses",
+       "line": 817
+      },
+      {
+       "method": "TrySendOneCycleNow_Paused_UnPausesAndArmsOneShot",
+       "line": 828
+      },
+      {
+       "method": "TrySendOneCycleNow_MissingSourceRecording_Refuses",
+       "line": 840
+      },
+      {
+       "method": "TrySendOneCycleNow_WaitingForResources_ArmsOneShot",
+       "line": 850
+      },
+      {
+       "method": "TryActivate_Null_ReturnsFalse",
+       "line": 871
+      },
+      {
+       "method": "TryActivate_PausedRoute_TransitionsToActive",
+       "line": 877
+      },
+      {
+       "method": "TryActivate_PausedRoute_FutureNextDispatch_NotPulledBackward",
+       "line": 892
+      },
+      {
+       "method": "TryActivate_NonPausedRoute_ReturnsFalseAndKeepsStatus",
+       "line": 905
+      },
+      {
+       "method": "TryPause_Null_ReturnsFalse",
+       "line": 917
+      },
+      {
+       "method": "TryPause_ActiveRoute_TransitionsToPaused",
+       "line": 923
+      },
+      {
+       "method": "TryPause_BlockedActiveRoute_TransitionsToPaused",
+       "line": 936
+      },
+      {
+       "method": "TryPause_InTransitRoute_ArmsPauseAfterCurrentCycle",
+       "line": 948
+      },
+      {
+       "method": "TryPause_AlreadyPaused_ReturnsFalse",
+       "line": 962
+      },
+      {
+       "method": "TryPause_ImmediatePause_EmitsRoutePausedMarker",
+       "line": 979
+      },
+      {
+       "method": "TryPause_UnresolvedUT_SkipsMarkerEmission",
+       "line": 999
+      },
+      {
+       "method": "TryPause_InTransitArm_DoesNotEmitMarkerYet",
+       "line": 1015
+      },
+      {
+       "method": "TryPause_InTransitDuringSendOnceCycle_ClearsSendOnceArm",
+       "line": 1027
+      },
+      {
+       "method": "TryActivate_EmitsRouteResumedMarker",
+       "line": 1048
+      },
+      {
+       "method": "TrySendOneCycleNow_SetsSendOnceArm_AndPauseClearsIt",
+       "line": 1064
+      },
+      {
+       "method": "TryActivate_ClearsSendOnceArm",
+       "line": 1083
+      },
+      {
+       "method": "Tick_SendOnceArmedRoute_StampsRouteSendOnceOnDispatchedRow",
+       "line": 1096
+      },
+      {
+       "method": "Tick_AutoCycleRoute_LeavesRouteSendOnceFalse",
+       "line": 1113
+      },
+      {
+       "method": "EmitRouteLifecycleMarker_UsesInjectedEmitterAndSequence",
+       "line": 1127
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_CompleteManifest_LogsLaunchManifestBasis",
+       "line": 1201
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_StartOnlyManifest_LogsStopSnapshotBasis",
+       "line": 1228
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_NoManifest_LogsStopSnapshotBasis",
+       "line": 1249
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_RootHasSnapshot_PricesRoot_NoFallback",
+       "line": 1416
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_SnapshotlessRoot_FallsBackToMemberParts_KeepsRootLaunchManifest",
+       "line": 1439
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_SnapshotlessRoot_IncompleteManifest_UsesMemberSnapshotResources",
+       "line": 1466
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_SnapshotlessRoot_SkipsDockMergedMember",
+       "line": 1495
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_NoMemberWithUsableSnapshot_ReturnsZero_LogsUncosted",
+       "line": 1518
+      },
+      {
+       "method": "IsCombinedVesselSourceMember_MatchesEachPositiveFact_NotThePreDockTransport",
+       "line": 1538
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_OnlyDockMergedMember_PricesTransportSubset",
+       "line": 1702
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_OnlyDockMergedMember_IncompleteManifest_UsesFilteredSnapshotResources",
+       "line": 1728
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_EmptyTransportPidSet_StaysUncosted",
+       "line": 1758
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_TransportPidsMatchNoPart_StaysUncosted",
+       "line": 1778
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_GhostSurfaceOnMergedMember_PricesTransportSubset",
+       "line": 1798
+      },
+      {
+       "method": "ComputeDispatchFundsCostForRoute_GhostSurfaceOnRoot_PricesRootDirectly",
+       "line": 1819
+      },
+      {
+       "method": "ResolveTransportSubsetWindow_PrefersRouteDockUT_ThenEarliest",
+       "line": 1873
+      },
+      {
+       "method": "ResolveCostingSnapshot_PrefersVessel_FallsBackToGhost",
+       "line": 1899
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

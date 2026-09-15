@@ -1,0 +1,258 @@
+{
+ "batch_id": "spawn-vessel-019",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "VesselLaunchIdentityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NormalizeGuid_NullOrBlank_ReturnsNull",
+       "line": 29
+      },
+      {
+       "method": "NormalizeGuid_DashedForm_NormalizedToN",
+       "line": 35
+      },
+      {
+       "method": "NormalizeGuid_UpperCase_NormalizedToLowerN",
+       "line": 41
+      },
+      {
+       "method": "NormalizeGuid_NonGuidJunk_ReturnsTrimmedOriginal",
+       "line": 47
+      },
+      {
+       "method": "GuidsConclusivelyDiffer_TwoKnownDifferent_True",
+       "line": 56
+      },
+      {
+       "method": "GuidsConclusivelyDiffer_SameValueDifferentForm_False",
+       "line": 62
+      },
+      {
+       "method": "GuidsConclusivelyDiffer_EitherUnknown_False",
+       "line": 73
+      },
+      {
+       "method": "LiveVesselIsRecordedLaunch_PidAndGuidMatch_True",
+       "line": 82
+      },
+      {
+       "method": "LiveVesselIsRecordedLaunch_PidMatchGuidMismatch_False",
+       "line": 88
+      },
+      {
+       "method": "LiveVesselIsRecordedLaunch_PidMatchRecordingGuidEmpty_FallsBackToPidMatch",
+       "line": 95
+      },
+      {
+       "method": "LiveVesselIsRecordedLaunch_PidMatchLiveGuidEmpty_FallsBackToPidMatch",
+       "line": 101
+      },
+      {
+       "method": "LiveVesselIsRecordedLaunch_PidMismatch_False",
+       "line": 107
+      },
+      {
+       "method": "LiveVesselIsRecordedLaunch_RecordingPidZero_False",
+       "line": 114
+      },
+      {
+       "method": "LiveVesselIsRecordedLaunch_LivePidZeroOrNullRec_False",
+       "line": 120
+      },
+      {
+       "method": "RecordingsShareLaunch_SamePidSameGuid_True",
+       "line": 129
+      },
+      {
+       "method": "RecordingsShareLaunch_SamePidDifferentGuid_False",
+       "line": 136
+      },
+      {
+       "method": "RecordingsShareLaunch_EitherGuidEmpty_FallsBackToPidMatch",
+       "line": 145
+      },
+      {
+       "method": "RecordingsShareLaunch_DifferentPid_False",
+       "line": 151
+      },
+      {
+       "method": "RecordingsShareLaunch_PidZeroOrNull_False",
+       "line": 157
+      },
+      {
+       "method": "LiveVesselIsRecordedSpawn_GenuineSpawn_PidMatch_IgnoresGuid_True",
+       "line": 176
+      },
+      {
+       "method": "LiveVesselIsRecordedSpawn_GenuineSpawn_PidMismatch_False",
+       "line": 188
+      },
+      {
+       "method": "LiveVesselIsRecordedSpawn_AdoptionStamp_GuidMatch_True",
+       "line": 195
+      },
+      {
+       "method": "LiveVesselIsRecordedSpawn_AdoptionStamp_GuidMismatch_False",
+       "line": 203
+      },
+      {
+       "method": "LiveVesselIsRecordedSpawn_AdoptionStamp_UnknownGuid_FallsBackToPid",
+       "line": 212
+      },
+      {
+       "method": "LiveVesselIsRecordedSpawn_SpawnPidZeroOrNullRecOrCandidateZero_False",
+       "line": 221
+      },
+      {
+       "method": "LiveVesselIsPositivelyRecordedLaunch_RequiresBothGuidsKnownAndEqual",
+       "line": 231
+      },
+      {
+       "method": "LiveVesselIsPositivelyRecordedLaunch_UnknownGuidDoesNotDegradeToPidOnly",
+       "line": 246
+      },
+      {
+       "method": "CandidateMatchesRecording_MatchSpawnOnly_IgnoresSourceVessel",
+       "line": 263
+      },
+      {
+       "method": "CandidateMatchesRecording_MatchSourceTrue_MatchesRecordedSource",
+       "line": 273
+      },
+      {
+       "method": "FindMatchingRecording_ReturnsFirstSameLaunchMatch_NullWhenNone",
+       "line": 282
+      },
+      {
+       "method": "TryReadVesselGuid_SnapshotWithPid_ReturnsNormalizedGuid",
+       "line": 302
+      },
+      {
+       "method": "TryReadVesselGuid_DashedPid_Normalized",
+       "line": 311
+      },
+      {
+       "method": "TryReadVesselGuid_NoPidValue_ReturnsNull",
+       "line": 319
+      },
+      {
+       "method": "TryReadVesselGuid_MalformedPid_ReturnsNull",
+       "line": 327
+      },
+      {
+       "method": "TryReadVesselGuid_NullSnapshot_ReturnsNull",
+       "line": 335
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SpawnIdentityRegenerationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CollectPartPersistentIds_ReturnsAllPartPids",
+       "line": 36
+      },
+      {
+       "method": "CollectPartPersistentIds_SkipsZeroPid",
+       "line": 48
+      },
+      {
+       "method": "CollectPartPersistentIds_SkipsInvalidPid",
+       "line": 59
+      },
+      {
+       "method": "CollectPartPersistentIds_NullNode_ReturnsEmpty",
+       "line": 70
+      },
+      {
+       "method": "CollectPartPersistentIds_NoParts_ReturnsEmpty",
+       "line": 77
+      },
+      {
+       "method": "RegeneratePartIdentities_SinglePart_AllFieldsChanged",
+       "line": 89
+      },
+      {
+       "method": "RegeneratePartIdentities_MultipleParts_EachGetsUniqueIds",
+       "line": 116
+      },
+      {
+       "method": "RegeneratePartIdentities_NoParts_EmptyDictionary",
+       "line": 149
+      },
+      {
+       "method": "RegeneratePartIdentities_NullNode_EmptyDictionary",
+       "line": 158
+      },
+      {
+       "method": "RegeneratePartIdentities_MissingPersistentId_StillAssigns",
+       "line": 166
+      },
+      {
+       "method": "RegeneratePartIdentities_DictionaryMapsCorrectly",
+       "line": 184
+      },
+      {
+       "method": "PatchRoboticsReferences_RemapsAxisPid",
+       "line": 208
+      },
+      {
+       "method": "PatchRoboticsReferences_RemapsActionPid",
+       "line": 224
+      },
+      {
+       "method": "PatchRoboticsReferences_RemapsSymPartsPid",
+       "line": 240
+      },
+      {
+       "method": "PatchRoboticsReferences_IgnoresNonRoboticsModules",
+       "line": 257
+      },
+      {
+       "method": "PatchRoboticsReferences_PidNotInMap_Unchanged",
+       "line": 275
+      },
+      {
+       "method": "PatchRoboticsReferences_NullGuards",
+       "line": 291
+      },
+      {
+       "method": "PatchRoboticsReferences_MalformedPid_Skipped",
+       "line": 299
+      },
+      {
+       "method": "PatchRoboticsReferences_LogsSummaryWhenPatched",
+       "line": 315
+      },
+      {
+       "method": "RegeneratePartIdentities_MultipleParts_LogNotEmpty",
+       "line": 333
+      },
+      {
+       "method": "ApplyPostSpawnStabilization_NullVessel_NoLog",
+       "line": 348
+      },
+      {
+       "method": "ApplyPostSpawnStabilization_OrbitalSituation_NoLog",
+       "line": 355
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

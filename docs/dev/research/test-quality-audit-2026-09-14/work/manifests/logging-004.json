@@ -1,0 +1,263 @@
+{
+ "batch_id": "logging-004",
+ "cluster": "logging",
+ "tier": "B",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "ParsekLogTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Info_UsesStructuredFormat",
+       "line": 16
+      },
+      {
+       "method": "Warn_UsesStructuredFormat",
+       "line": 28
+      },
+      {
+       "method": "InstallingASink_ClearsSuppressLogging_SoAPredecessorsDisposeCannotBlankTheCapture",
+       "line": 40
+      },
+      {
+       "method": "TestObserverForTesting_ReceivesStructuredFormat",
+       "line": 70
+      },
+      {
+       "method": "TestObserverForTesting_RunsAlongsideTestSink",
+       "line": 82
+      },
+      {
+       "method": "Info_NullInputs_UseSafeFallbacks",
+       "line": 98
+      },
+      {
+       "method": "Verbose_SuppressedWhenVerboseDisabled",
+       "line": 110
+      },
+      {
+       "method": "VerboseRateLimited_EmitsSuppressedCountAfterInterval",
+       "line": 125
+      },
+      {
+       "method": "VerboseRateLimited_MessageFactoryRunsOnlyOnEmission",
+       "line": 149
+      },
+      {
+       "method": "ResetRateLimitsForTesting_AllowsImmediateReemit",
+       "line": 178
+      },
+      {
+       "method": "ResetTestOverrides_ClearsSuppressLogging",
+       "line": 200
+      },
+      {
+       "method": "VerboseOnChange_FirstCallEmits",
+       "line": 212
+      },
+      {
+       "method": "VerboseOnChange_StableKey_SuppressesRepeats",
+       "line": 226
+      },
+      {
+       "method": "VerboseOnChange_KeyFlip_ReemitsWithSuppressedCount",
+       "line": 242
+      },
+      {
+       "method": "VerboseOnChange_DifferentIdentities_TrackedIndependently",
+       "line": 260
+      },
+      {
+       "method": "VerboseOnChange_SuppressedCountResetsAfterEmission",
+       "line": 278
+      },
+      {
+       "method": "VerboseOnChange_SuppressedWhenVerboseDisabled",
+       "line": 299
+      },
+      {
+       "method": "VerboseOnChange_NullStateKeyTreatedAsEmpty",
+       "line": 312
+      },
+      {
+       "method": "VerboseOnChange_EmptyIdentityFallsBackToVerbose",
+       "line": 328
+      },
+      {
+       "method": "ClearVerboseOnChangeIdentitiesWithPrefix_RemovesOnlyMatchingScope",
+       "line": 344
+      },
+      {
+       "method": "VerboseOnChange_MessageFactoryRunsOnlyOnChange",
+       "line": 367
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ObservabilityLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PlaybackBudgetWarning_AboveThreshold_EmitsWarn",
+       "line": 43
+      },
+      {
+       "method": "PlaybackBudgetWarning_AboveThreshold_IncludesGhostCountAndWarp",
+       "line": 55
+      },
+      {
+       "method": "PlaybackBudgetWarning_BelowThreshold_NoWarn",
+       "line": 68
+      },
+      {
+       "method": "PlaybackBudgetWarning_ExactlyAtThreshold_NoWarn",
+       "line": 78
+      },
+      {
+       "method": "RecordingBudgetWarning_AboveThreshold_EmitsWarn",
+       "line": 92
+      },
+      {
+       "method": "RecordingBudgetWarning_AboveThreshold_IncludesVesselName",
+       "line": 104
+      },
+      {
+       "method": "RecordingBudgetWarning_BelowThreshold_NoWarn",
+       "line": 116
+      },
+      {
+       "method": "RecordingBudgetWarning_NullVesselName_NoException",
+       "line": 126
+      },
+      {
+       "method": "SceneLoadSnapshot_EmitsVerbose_WithCounts",
+       "line": 139
+      },
+      {
+       "method": "SceneLoadSnapshot_NoRecordings_EmitsZeros",
+       "line": 165
+      },
+      {
+       "method": "SceneLoadSnapshot_IncludesGhostCount",
+       "line": 178
+      },
+      {
+       "method": "SceneLoadSnapshot_NullSceneName_ShowsQuestionMark",
+       "line": 192
+      },
+      {
+       "method": "FormatReport_AllSectionsPresent",
+       "line": 207
+      },
+      {
+       "method": "WarnRateLimited_RespectsInterval_SecondCallSuppressed",
+       "line": 274
+      },
+      {
+       "method": "InfoRateLimited_EmitsAtInfoAndRespectsIntervalIndependentlyOfWarn",
+       "line": 301
+      },
+      {
+       "method": "RecordingGrowthRate_FormatMatchesExpected",
+       "line": 340
+      },
+      {
+       "method": "PlaybackBudgetThreshold_Is8ms",
+       "line": 380
+      },
+      {
+       "method": "RecordingBudgetThreshold_Is4ms",
+       "line": 386
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DiagnosticLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LogSpawnContext_NullSnapshot_DoesNotThrow",
+       "line": 31
+      },
+      {
+       "method": "LogSpawnContext_EmptySnapshot_DoesNotThrow",
+       "line": 44
+      },
+      {
+       "method": "LogSpawnContext_SnapshotWithNoParts_DoesNotThrow",
+       "line": 59
+      },
+      {
+       "method": "LogSpawnContext_SinglePartWithCrew_DoesNotThrow",
+       "line": 81
+      },
+      {
+       "method": "LogSpawnContext_MultiPartWithCrew_DoesNotThrow",
+       "line": 99
+      },
+      {
+       "method": "LogSpawnContext_PartWithNoCrew_DoesNotThrow",
+       "line": 122
+      },
+      {
+       "method": "Orbit1_AscendPointsCoverGapToOrbitSegment",
+       "line": 145
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekKspLogParserTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ParseFile_ParsesStructuredEntriesFromNoisyFixture",
+       "line": 10
+      },
+      {
+       "method": "ParseFile_MarksMalformedParsekLines",
+       "line": 24
+      },
+      {
+       "method": "SelectLatestSession_UsesLastSessionStartMarker",
+       "line": 32
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DiagnosticFormattersTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "VectorAndQuaternionFormatters_UseInvariantCulture",
+       "line": 12
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

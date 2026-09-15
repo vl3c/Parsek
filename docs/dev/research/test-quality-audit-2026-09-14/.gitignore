@@ -1,0 +1,7 @@
+# Large generated inputs only; everything else under work/ is committed for traceability.
+work/baseline.trx
+work/coverage.cobertura.xml
+work/durations.csv
+work/batches.json
+work/test-inventory-seed.csv
+work/cursor.txt

@@ -1,0 +1,139 @@
+{
+ "batch_id": "logistics-route-008",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 30,
+ "files": [
+  {
+   "file": "Logistics/RouteLoopDeliveryFireTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Crossing_EmitsAllThreeRows_UnderOneCycleId",
+       "line": 208
+      },
+      {
+       "method": "OriginHasCargo_HarvestOrigin_EarlyTrueWithBreadcrumb",
+       "line": 253
+      },
+      {
+       "method": "Crossing_HarvestOrigin_NoPhysicalDebit_RowsStillEmitted",
+       "line": 278
+      },
+      {
+       "method": "Crossing_NeverEntersInTransitState",
+       "line": 329
+      },
+      {
+       "method": "Crossing_CareerKsc_DebitedRowCarriesFundsCost",
+       "line": 347
+      },
+      {
+       "method": "SameCycle_TwoTicks_FiresOnce",
+       "line": 369
+      },
+      {
+       "method": "PreDockTick_DoesNotFire_ThenFiresAtDockPhase",
+       "line": 390
+      },
+      {
+       "method": "WarpJump_FiresOnce_SnapsForward",
+       "line": 419
+      },
+      {
+       "method": "WarpJump_PastDock_FiresLandingCycleOnce",
+       "line": 444
+      },
+      {
+       "method": "ParkedTail_ColdStart_FiresOnce_ThenIdempotent",
+       "line": 468
+      },
+      {
+       "method": "NonGhostDrivingStatus_DoesNotFire",
+       "line": 497
+      },
+      {
+       "method": "FailedEligibility_EmitsNothing_BumpsSkipped_SnapsForward",
+       "line": 519
+      },
+      {
+       "method": "FailedEligibility_DoesNotReFireSameCycle",
+       "line": 543
+      },
+      {
+       "method": "SkipThenFire_YieldsUniqueCycleIds_NoDoubleCharge",
+       "line": 562
+      },
+      {
+       "method": "BlockedCrossing_RecordsHoldReason",
+       "line": 604
+      },
+      {
+       "method": "BlockedCrossing_FundsShort_RecordsShortfall",
+       "line": 626
+      },
+      {
+       "method": "FiredCrossing_ClearsHold",
+       "line": 653
+      },
+      {
+       "method": "ReplayBackstop_ClearsHold",
+       "line": 676
+      },
+      {
+       "method": "EndpointLostAtDelivery_HoldSurvivesEligibleCrossing",
+       "line": 715
+      },
+      {
+       "method": "ReplayedCycleId_EmitsNothing_NoDoubleCharge",
+       "line": 752
+      },
+      {
+       "method": "NoResolvableUnit_SkipsRoute_NoThrow",
+       "line": 795
+      },
+      {
+       "method": "Activate_LoopRoute_ResetsLastObservedToMinusOne",
+       "line": 816
+      },
+      {
+       "method": "Activate_NonLoopRoute_LeavesLastObservedUntouched",
+       "line": 832
+      },
+      {
+       "method": "DockUTOutsideSpan_DoesNotFire",
+       "line": 851
+      },
+      {
+       "method": "Crossing_NonKscOrigin_DebitedRowCarriesActualManifestAndOriginPid",
+       "line": 875
+      },
+      {
+       "method": "Crossing_NonKscOrigin_NoFundsCostOnDebitedRow",
+       "line": 920
+      },
+      {
+       "method": "Crossing_KscOrigin_DebitedRowByteIdenticalToV0Shape",
+       "line": 944
+      },
+      {
+       "method": "OriginDebit_ShortAtApply_RecordsRequestedManifest_Warns",
+       "line": 979
+      },
+      {
+       "method": "OriginDebit_ResolvedNullVessel_TreatedAsUnresolved",
+       "line": 1013
+      },
+      {
+       "method": "ReplayedCycleId_EmitsNoDebit",
+       "line": 1046
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

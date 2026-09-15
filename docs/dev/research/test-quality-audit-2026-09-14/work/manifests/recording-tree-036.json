@@ -1,0 +1,194 @@
+{
+ "batch_id": "recording-tree-036",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 41,
+ "files": [
+  {
+   "file": "RecoveryPickAmbiguityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Evaluate_TwoUnknownGuidSurvivorsOnAWeakTier_IsAmbiguous",
+       "line": 121
+      },
+      {
+       "method": "Evaluate_TheStageOneWin_LiveGuidCollapsesTheSetToOneSurvivor",
+       "line": 143
+      },
+      {
+       "method": "Evaluate_SeveralSurvivorsOfONELaunch_IsNotAmbiguous",
+       "line": 168
+      },
+      {
+       "method": "Evaluate_TwoDistinctKnownLaunchesOnAWeakTier_IsAmbiguous",
+       "line": 189
+      },
+      {
+       "method": "Evaluate_MixedKnownAndUnknownGuids_IsAmbiguous",
+       "line": 208
+      },
+      {
+       "method": "Evaluate_GlobalLatestIsWeakToo",
+       "line": 245
+      },
+      {
+       "method": "Evaluate_BracketingIsNeverAmbiguous_EvenWithDistinctKnownLaunches",
+       "line": 268
+      },
+      {
+       "method": "Evaluate_SingleSurvivorIsNeverAmbiguous_OnEveryTier",
+       "line": 291
+      },
+      {
+       "method": "Evaluate_DegenerateInputsAreNamedRatherThanAmbiguous",
+       "line": 312
+      },
+      {
+       "method": "Classify_UsesPositiveGuidCorroboration_NotRecordingsShareLaunch",
+       "line": 338
+      },
+      {
+       "method": "Classify_DistinctKnownLaunchesOutranksAnUnknownInTheSameSet",
+       "line": 358
+      },
+      {
+       "method": "FormatSurvivorIds_IsBounded",
+       "line": 390
+      },
+      {
+       "method": "Evaluate_ReadsThePostFilterSet_SoItCannotReinstateADroppedCandidate",
+       "line": 406
+      },
+      {
+       "method": "Picker_ReportsTheTierAndThePostFilterSurvivors",
+       "line": 431
+      },
+      {
+       "method": "Picker_BracketingTierIsReportedAsSuch",
+       "line": 453
+      },
+      {
+       "method": "Picker_NoCandidate_ReportsTierNoneAndAnEmptySurvivorSet",
+       "line": 464
+      },
+      {
+       "method": "XpLeg_TwoLaunchesSameNameWithNoRecordedGuids_RefusesTheWrite",
+       "line": 482
+      },
+      {
+       "method": "XpLeg_TheMirror_LiveGuidResolvesTheAmbiguityAndTheRowIsWritten",
+       "line": 509
+      },
+      {
+       "method": "XpLeg_ChainedSegmentsOfOneLaunch_StillWriteTheRow",
+       "line": 529
+      },
+      {
+       "method": "XpLeg_ChainedSegmentAndBgContinuation_AreCorroboratedAndTheRowIsWritten",
+       "line": 548
+      },
+      {
+       "method": "XpLeg_ARefusalIsNotSticky_ALaterResolvedRecoveryWrites",
+       "line": 601
+      },
+      {
+       "method": "XpLeg_FundsAndScienceLegsKeepTheStageOnePick_OnlyXpRefuses",
+       "line": 632
+      },
+      {
+       "method": "CommittedCareerFixture_RecoveryPickIsNotAmbiguous",
+       "line": 654
+      },
+      {
+       "method": "CommittedCareerFixture_XpRowIsStillWrittenThroughTheRealXpLeg",
+       "line": 713
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TreeDiscardPurgeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PurgeTree_RemovesAllRPsInTree_DeletesQuicksaveFiles",
+       "line": 178
+      },
+      {
+       "method": "PurgeTree_RemovesSupersedeRelationsWithEndpointInTree",
+       "line": 207
+      },
+      {
+       "method": "PurgeTree_RemovesRewindRetirementsWithEndpointInTree",
+       "line": 258
+      },
+      {
+       "method": "PurgeTree_RemovesTombstonesForInTreeActions",
+       "line": 314
+      },
+      {
+       "method": "DiscardPendingTree_WithCommittedOverlap_PurgesPendingOnlyTreeState",
+       "line": 356
+      },
+      {
+       "method": "DiscardPendingTree_CommittedParentPendingChild_PurgesPendingBranchRp",
+       "line": 503
+      },
+      {
+       "method": "DiscardPendingTree_RpWithPendingBranchPointButCommittedSlot_IsPreserved",
+       "line": 558
+      },
+      {
+       "method": "PurgeTree_ClearsReservationsForTreeKerbals",
+       "line": 616
+      },
+      {
+       "method": "PurgeTree_ClearsMarkerIfTreeScoped",
+       "line": 645
+      },
+      {
+       "method": "PurgeTree_MarkerScopedToOtherTree_NotCleared",
+       "line": 683
+      },
+      {
+       "method": "PurgeTree_MarkerNull_JournalScopedToOtherTree_NotCleared",
+       "line": 703
+      },
+      {
+       "method": "PurgeTree_OtherTreesUnaffected",
+       "line": 724
+      },
+      {
+       "method": "PurgeTree_EmptyTree_NoOp_LogsZero",
+       "line": 748
+      },
+      {
+       "method": "PurgeTree_FileDeleteFails_LogsWarn_ContinuesOtherRemovals",
+       "line": 769
+      },
+      {
+       "method": "PurgeTree_UnknownTreeId_NoOp_LogsVerbose",
+       "line": 810
+      },
+      {
+       "method": "PurgeTree_BumpsSupersedeAndTombstoneStateVersions_WhenChanged",
+       "line": 823
+      },
+      {
+       "method": "BumpSupersedeStateVersion_TriggersRouteRevalidationViaCentralSeam",
+       "line": 865
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
