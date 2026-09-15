@@ -1,0 +1,265 @@
+schema = 1
+id = "GUI-9-playback-toggle-map-scope"
+tier = "operator"
+# THE PER-RECORDING PLAYBACK TICK BOX MEANS "NO GHOST ANYWHERE" - the live proof.
+# GUI-P1-PLAYBACK-CHECKBOX-LEAVES-MAP-PRESENCE measured that the Recordings-tab checkbox
+# did about a third of what its tooltip promised: `PlaybackEnabled` was read by
+# `ParsekKSC` / `ParsekFlight` / `GhostPlaybackLogic*` / `RecordingOptimizer` and by
+# NOBODY in `GhostMapPresence*.cs`, `ParsekTrackingStation.cs` or the map renderers, so an
+# unticked recording kept its map icon, its orbit line, its Tracking Station row and its
+# trajectory polyline. The operator ruling of 2026-09-14 settled the contract - unticked
+# means no presence on any render surface, with the career effect deliberately untouched
+# (the Space Center terminal-vessel spawn still fires; that is Bug #433 and it stays) - and
+# this lane is the live half of it. Map and TS presence is exactly the surface a unit test
+# cannot see, which is why the todo entry said the fix "needs a live lane".
+#
+# WHY THIS HOST, and the recipe is INHERITED rather than invented.
+# `fixtures/saves/gloops-airshow` + `injectedRecordings = "part-showcase"` + a `TimeJump`
+# to UT 55 is the suite's ONLY proven active-ghost-at-the-pad recipe: 243 showcase
+# recordings all playing from UT 50, established by `LT-5-long-tail-playback-flight`
+# (green `2026-09-07_2037`) and re-flown by `GUI-6-census-flight-playback` (green
+# `2026-09-11_1556`, which measured 243 `[GhostMap] Marker DRAWN` lines in its own map-view
+# capture). That measured baseline is what makes this lane's central claim readable: the
+# SAME host, the SAME UT, the SAME map view, and the marker count has to fall to zero.
+#
+# WHY THE FLIGHT SCENE AND NOT THE TRACKING STATION. All three of the surfaces the ruling
+# names are reachable here. The flight map view renders the same `GhostMapPresence`
+# ProtoVessels (icon + stock orbit line, driven by `UpdateFlightMapGhostLifecycle`), the
+# same `GhostTrajectoryPolylineRenderer` Driver walk, and the same labelled-marker paths
+# (`ParsekUI.DrawMapMarkers`, both the pid-keyed walk and the recording-keyed ghostless
+# fallback). The one surface NOT drawn here is the stock Tracking Station list ROW - and a
+# row exists if and only if the ProtoVessel exists (Parsek builds no rows; it creates
+# protos and pokes `SpaceTracking.buildVesselsList`), so retiring the proto IS retiring the
+# row. A TRACKSTATION boot cannot host this lane anyway: that scene has no Parsek window,
+# so every `UiAction` in it answers `REJECTED ui-host-unavailable` (GUI-6's header records
+# the same wall), and the toggle has to be driven through `UiAction`.
+#
+# THE SEAM SURFACE IS NEW WITH THIS LANE. Nothing in the seam could flip
+# `Recording.PlaybackEnabled` before: `grep -rni playback Source/Parsek/TestCommands/`
+# returned only `StartLoopPlayback` and the `forceFaithfulLoopPlayback` setting knob, and
+# the only writers of the field were player clicks in `UI/RecordingsTableUI.cs`. So
+# `UiAction op=playback` is added with this lane - `state=<true|false>` required,
+# `recording=<id>` optional and meaning "this one only", absent meaning "every recording in
+# the effective set". It is two-phase (it changes drawn state, so the terminal waits for a
+# drawn frame and reads the flag back), and it writes only through
+# `RecordingStore.SetRecordingPlaybackEnabled`, the single writer the four bulk affordances
+# in the Recordings tab also route through.
+#
+# THE THREE `changed=` / `total=` NUMBERS ARE THE FINGERPRINT, and they are why this lane
+# needs no recording index in any assertion. `logContracts` are static regexes evaluated
+# over the whole log with no handle substitution (`hlib.evaluate_expectations` sees only
+# literals), so an assertion that names a runtime RecordingId is impossible. Instead the
+# sequence itself is pinned: hide ONE by id (`changed=1 total=243`), then hide EVERY
+# recording (`changed=242 total=243` - the one already off is a no-op, not a failure, and
+# that arithmetic only closes if the single-hide really took), then restore every one
+# (`changed=243 total=243`). Three exact numbers that no partial application can produce.
+# `total` is the size of the CONSIDERED set, so it reads 1 on the by-id step and 243 on the
+# bulk ones; the 243 is the EFFECTIVE recording set (`EffectiveState.ComputeERS()`, which the
+# seam uses because a seam file is not on the ERS allowlist) and it equals the corpus floor
+# below because this injected corpus carries no supersede rows. Note that a RecordingId
+# carries no prefix - it is 32 bare hex characters, unlike a RewindPoint's `rp_` - which run
+# `2026-09-14_2129` established the hard way.
+#
+# WHAT IS GATED, and the two halves are asymmetric on purpose.
+#   - THE HIDE half is gated by `Map marker summary: view=map ... drawn=0 ...
+#     playbackDisabled=<n>`. That line is the per-frame aggregate of `DrawMapMarkers`, and
+#     the `playbackDisabled` bucket is NEW with this change for a reason run
+#     `2026-09-14_2133` measured: the summary is suppressed entirely when the pass has no
+#     signal, and with every recording hidden there IS no other signal - so `drawn=0` was
+#     UNREACHABLE by construction and the lane red on a claim the product was already
+#     satisfying. The bucket counts the recordings the pass skipped because the player
+#     unticked them, which both restores the signal and makes the line say WHY it drew
+#     nothing. Against GUI-6's measured 243 `Marker DRAWN` lines on this exact host, UT and
+#     view, `drawn=0 playbackDisabled=243` is the whole claim in one line.
+#   - THE RESTORE half is gated by `changed=243 total=243` plus the two captures. It is NOT
+#     gated by a marker line, and the reason is structural rather than a hedge: a whole-log
+#     `required` cannot say WHEN, and a marker-drawn line is already true of the baseline
+#     capture taken before anything was hidden. The restored reading is the second picture
+#     and the `drawn=` count in the log after the restore step, both read by hand.
+#   - `surface=polyline` is the required line that proves THIS change's code ran rather
+#     than some other path happening to hide things. The polyline Driver walks every
+#     committed recording every frame in map view, so its gate is reached for all 243; the
+#     ProtoVessel gate (`surface=map-presence`) is expected too but is NOT required here,
+#     because in FLIGHT an already-drawn ghost's proto is retired through the engine's own
+#     ghost-destroyed handler and the source resolver need not be consulted again.
+#
+# FOUR CAPTURES, each with its `<label>.gui.json` dump beside it: the visible baseline, one
+# recording hidden by id, every recording hidden, and every recording restored.
+description = """
+Live proof of the GUI-P1 ruling: with the per-recording playback tick box unticked, a
+recording has no map icon, no orbit line, no Tracking Station row, no labelled marker and
+no trajectory polyline - and re-ticking it brings them all back. Drives the new
+`UiAction op=playback` seam op over the 243-recording showcase corpus in flight map view,
+gating the hide half on a zero-marker map pass and the sequence on the
+changed=1 / changed=242 / changed=243 fingerprint.
+"""
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "playback", "map", "GUI-9", "GUI-P1", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+# The 243 showcase recordings, all playing from UT 50. Inherited from LT-5 / GUI-6; it is
+# the anti-vacuity payload for every claim above, since a run with no corpus trivially
+# draws zero markers.
+injectedRecordings = "part-showcase"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # No `scene=`: the fixture's focusable activeVessel takes the default FLIGHT route.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # The `[GhostMap]` / `[UI]` marker families and the VerboseOnChange suppression lines are
+  # all verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # A recorder would write a tree into the produced save and move the corpus between the
+  # four captures of it.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The host recipe: the showcase recordings start at UT 50, so at 55 every ghost is
+  # spawned and five seconds into playback.
+  { cmd = "TimeJump",   args = { ut = "55" }, expect = "OK", budget = 120 },
+  { cmd = "UiAction",   args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  # `open window=main` first: a non-main open/rect settle refuses while the host's showUI
+  # is false.
+  { cmd = "UiAction",   args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "describe" }, expect = "OK" },
+
+  # --- 1. THE VISIBLE BASELINE. Everything ticked, which is the shipped default; this is
+  # the picture the other three are read against, and the frame in which the marker pass
+  # has a non-zero `drawn=`.
+  { cmd = "EnterMapView",      args = { }, expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "scope-map-visible-baseline" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "scope-map-visible-baseline" }, expect = "OK" },
+  { cmd = "ExitMapView",       args = { }, expect = "OK", budget = 120 },
+
+  # --- 2. ONE RECORDING HIDDEN BY ID. The per-recording form of the op, and the R10
+  # runtime-handle path: the id comes from the host, not from this file. `kind` is REQUIRED
+  # and case-sensitive on `ListHandles`.
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "recs", expect = "OK" },
+  { cmd = "UiAction",    args = { op = "playback", recording = "${recs.rec0}", state = "false" }, expect = "OK" },
+  { cmd = "EnterMapView",      args = { }, expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "scope-map-one-hidden" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "scope-map-one-hidden" }, expect = "OK" },
+  { cmd = "ExitMapView",       args = { }, expect = "OK", budget = 120 },
+
+  # --- 3. EVERY RECORDING HIDDEN. No `recording=` arg means the whole effective set - the
+  # select-all header affordance's own path through the single writer. `changed=242` is the
+  # arithmetic that proves step 2 took.
+  { cmd = "UiAction",    args = { op = "playback", state = "false" }, expect = "OK" },
+  { cmd = "EnterMapView",      args = { }, expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "scope-map-all-hidden" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "scope-map-all-hidden" }, expect = "OK" },
+  # THE INSTRUMENT CADENCE, and these six steps are load-bearing rather than padding.
+  # `Map marker summary` is `VerboseRateLimited` at 2.0 s, and run `2026-09-14_2129` held
+  # each map view for only about 0.76 s: the marker pass ran and drew NOTHING (zero
+  # `Marker DRAWN` lines between 00:30:06.6 and 00:30:07.4, against dense draws in every
+  # other map window), but no aggregate line landed inside the window to say so, and the
+  # lane red on its own central claim while the product was correct. A window longer than
+  # the 2.0 s interval must contain a permitted emission wherever the limiter's phase sits,
+  # so these hold the hidden view open for about three seconds. A second capture + dump
+  # pair rides along, which is also the picture a reviewer wants: an empty map that STAYED
+  # empty rather than one caught mid-retire.
+  { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "scope-map-all-hidden-held" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "scope-map-all-hidden-held" }, expect = "OK" },
+  { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  { cmd = "ExitMapView",       args = { }, expect = "OK", budget = 120 },
+
+  # --- 4. EVERY RECORDING RESTORED. The mirror direction: the same bulk form, back on.
+  { cmd = "UiAction",    args = { op = "playback", state = "true" }, expect = "OK" },
+  { cmd = "EnterMapView",      args = { }, expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "scope-map-restored" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "scope-map-restored" }, expect = "OK" },
+  # Held open past the same 2.0 s interval, for the same reason in the mirror direction:
+  # the non-zero `drawn=` reading has to land inside the RESTORED window to mean anything.
+  { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  { cmd = "ExitMapView",       args = { }, expect = "OK", budget = 120 },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-flight", "scene-map"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected showcase corpus, unchanged. It is the anti-vacuity floor: `drawn=0` over an
+# EMPTY corpus is the false reading this count exists to make impossible, and it is also
+# the denominator the `total=243` seam echoes are checked against.
+count = { min = 243, max = 243 }
+
+[expectations.logContracts]
+required = [
+  # --- the host recipe landed where the corpus is playing.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] timejump complete reachedUT=5[0-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  # --- the runtime handle really enumerated this host's committed family (R10).
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] listhandles kind=committed count=[1-9][0-9]* truncated=",
+  # --- THE FINGERPRINT: hide one, hide the rest, restore all. Three exact numbers no
+  # partial application can produce, and the only assertions in this lane that speak about
+  # a specific recording - by arithmetic rather than by id, since a static regex cannot
+  # carry a runtime handle.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction playback recording=[0-9a-f]{32} state=false changed=1 total=1",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction playback recording=all state=false changed=242 total=243",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction playback recording=all state=true changed=243 total=243",
+  # --- the single writer really ran, and named the recording it flipped.
+  "\\[Parsek\\]\\[INFO\\]\\[RecordingStore\\] Recording playback disabled: rec=[0-9a-f]{32} vessel=",
+  "\\[Parsek\\]\\[INFO\\]\\[RecordingStore\\] Recording playback enabled: rec=[0-9a-f]{32} vessel=",
+  # --- THIS CHANGE'S OWN CODE RAN. The polyline Driver walks every committed recording
+  # every frame in map view, so its arm of the gate is reached for all 243 and this line is
+  # the one that distinguishes "the suppression fired" from "something else hid them".
+  "\\[Parsek\\]\\[VERBOSE\\]\\[GhostMap\\] Map presence hidden by the playback tick box: surface=polyline rec=[0-9a-f]{32} vessel=.* reason=playback-disabled",
+  # --- the pre-existing engine-side skip, for the same recordings, by name. Present before
+  # this change; required here so a regression that removed the FLIGHT half would red too.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[Flight\\] Ghost playback skip state: .* reason=playback-disabled",
+  # --- THE CENTRAL CLAIM: the marker pass RAN in map view over the 243-recording corpus,
+  # drew nothing, and says why. The `playbackDisabled=` bucket is what makes this readable
+  # at all - the aggregate is suppressed when the pass has NO signal, and with everything
+  # hidden there is no other signal, so `drawn=0` alone was unreachable (measured by run
+  # `2026-09-14_2133`, which red here while the product was correct). The underlying fact
+  # was already measured directly by run `2026-09-14_2129`: ZERO `Marker DRAWN` lines inside
+  # the all-hidden map window against dense draws in all three other windows. This line is
+  # the GATED form of that reading, and the held window above is what puts it inside the
+  # hidden view rather than beside it.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Map marker summary: view=map .* drawn=0 .* playbackDisabled=[1-9][0-9]*",
+  # --- and markers DO draw on this host when nothing is hidden (the baseline and the
+  # restored frames), so `drawn=0` above is a suppression and not a dead map pass.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Map marker summary: view=map .* drawn=[1-9][0-9]* ",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=scope-map-visible-baseline .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=scope-map-one-hidden .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=scope-map-all-hidden .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=scope-map-all-hidden-held .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=scope-map-restored .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=scope-map-all-hidden",
+]
+forbidden = [
+  # Seam integrity: the new op must neither refuse nor fail to settle. `validate_spec`
+  # makes a malformed arg unreachable from a committed spec, so these catch a SEAM-side
+  # regression that made the parse or the read-back fail open.
+  "state-arg-missing",
+  "state-arg-invalid",
+  "recording-unknown",
+  "playback-not-applied",
+  "ui-action-not-settled",
+  # No marker assertion here: a whole-log `forbidden` cannot be scoped to the hidden
+  # window, and this lane deliberately restores every recording before it quits, so a
+  # `Marker DRAWN` forbidden would fire on the restored frames by design. The hide half is
+  # gated positively by `drawn=0` above instead.
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -258,7 +258,7 @@ namespace Parsek.Tests.Generators
 
             return new InventoryPayloadItem
             {
-                IdentityHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(storedPart),
+                IdentityHash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(storedPart),
                 PartName = partName,
                 VariantName = variantName,
                 Quantity = quantity,

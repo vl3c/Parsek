@@ -139,7 +139,7 @@ register is a floor, not a census.
   Failed 0 / Passed 23,420 / Skipped 1, wall 1m09s (`work/baseline.trx`); coverlet line 45.75%,
   branch 47.4%, method 60.68% (`work/coverage.cobertura.xml`). Coverage is a diagnostic here, never
   a target.
-- No mutation coverage of Medium or Low findings beyond the 27-finding sample; the remaining 246
+- No mutation coverage of Medium or Low findings beyond the 27-finding sample; the remaining 245
   Medium and 489 Low rows are `unverified`.
 - No T7 verification. Production observations are recorded below as leads only.
 
@@ -238,7 +238,7 @@ count, so none of these tests can red on the production regression it is named f
 | F-recording-tree-050-04 | `CommittedRecordingImmutabilityTests.cs:90` `ContinuationVesselDestroyed_PreservesVesselSnapshot` | `ParsekFlight` destroy handler (`ParsekFlight.cs:3311-3324`) | reintroduce `contRec.VesselSnapshot = null` | 12/12 green | FIXED (`testfix-t1t2`): `ParsekFlight.MarkContinuationVesselDestroyed` extracted; the cell calls it |
 | F-recording-tree-050-07 | `CommittedRecordingImmutabilityTests.cs:151` `EvaBoardingContinuationStop_PreservesVesselSnapshot` | `ChainSegmentManager.CommitChainSegment` EVA-boarding branch (`ChainSegmentManager.cs:822-834`) | reintroduce `rec.VesselSnapshot = null` | 12/12 green | FIXED (`testfix-t1t2`): `ChainSegmentManager.ApplyBoardingContinuationStop` extracted; the cell calls it |
 | F-spawn-vessel-004-01 | `IdentityLossClassifierTests.cs:379` `ActiveRootBackgrounded_FlushForwardsControllers_AllowingIdentityLossOverride` | `FlightRecorder.StartRecording` controllers backstop (`FlightRecorder.cs:6983`) | short-circuit the `AdoptControllersIfEmpty` backstop | 40/40 green | FIXED (`testfix-t1t2`): `FlightRecorder.ApplyStartRecordingTreeBackstop` extracted; the cell drives the backstop |
-| F-trajectory-orbit-015-01 | `RelativeRecordingTests.cs:185` `RecorderContract_LiveAnchorPositionMustMatchPlaybackAnchorPosition` | `FlightRecorder` anchor-pose producer (`FlightRecorder.cs:9334-9338`) | feed the anchor pose from `GetWorldPos3D` (CoM), i.e. the shipped drift bug | 6/6 green | FIXED (`testfix-t1t2`): new IL gate on the anchor-pose producer; the math cell renamed |
+| F-trajectory-orbit-015-01 | `RelativeRecordingTests.cs:185` `RecorderContract_LiveAnchorPositionMustMatchPlaybackAnchorPosition` | `FlightRecorder` anchor-pose producer (`TryResolveLiveAnchorPose`, `FlightRecorder.cs:9512-9515`; `:9334-9338` is the consumer that computes the offset from it) | feed the anchor pose from `GetWorldPos3D` (CoM), i.e. the shipped drift bug | 6/6 green | FIXED (`testfix-t1t2`): new IL gate on the anchor-pose producer; the math cell renamed |
 
 Read them together and the shape is one shape: the test performs the production work itself. Five
 replay a production branch inline (the dedup loop, the split tree mutations, the controllers
@@ -310,9 +310,6 @@ playback 52, other 74.
 | io-serialization | 4 | 0 | 2 | 2 | 0 | 0 | 4 | 0 | 0 |
 | supplement | 2 | 0 | 0 | 2 | 1 | 1 | 0 | 0 | 0 |
 
-24 rows carry short-form ids (`F-rewind-refly-010-05`, `F-ledger-career-038-02`, ...) left by one Phase 1 pass that omitted the
-cluster token; they are folded into `rewind-refly` and `ledger-career` above by test-file lookup.
-The ids stay as issued so the linted fragments and the CSV agree.
 
 ### Recurring patterns
 
@@ -347,7 +344,7 @@ Five shapes account for most of the register.
 5. **Byte-identical twins distinguished only by name or comment.** The Low T2 bulk (231 of 232 T2
    rows are Low). Examples: F-rewind-refly-010-03 / F-rewind-refly-010-04 (`RewindTimelineTests.cs:594` and :613 duplicate
    cells 200 lines above), F-catchall-018-02 (`ArrivalAlignHoldTests.cs:327`, the comment itself says
-   so), F-catchall-024-02 (`RevertDiscardTests.cs:377`, byte-for-byte the cell at :67).
+   so), F-catchall-024-02 (`RevertDiscardTests.cs:377`, near-identical to the cell at :67, differing only by one extra field assignment).
 
 Two smaller shapes worth naming because they are mechanical to fix:
 
@@ -486,7 +483,7 @@ wiring-gates 1, ui-settings 1.
 - C-map-render-012-01 needs a small production observability addition (four resolver guards return
   bare `false`) before any test can discriminate guard removal. That is a production change and
   belongs to a separate decision, not to a test PR.
-- The 9 in-game-only rows (they need a live `Vessel` / `Part` / `Transform`) are kept at priority 5
+- The 9 in-game-only rows (they need a live `Vessel` / `Part` / `Transform`) sit at priority 4 (5 rows) and 5 (4 rows)
   as the `InGameTests` backlog, not xUnit work.
 - `dupe_of_july_id` is filled in the July crosswalk, not in the CSV.
 
@@ -502,7 +499,7 @@ misnamed cells, organization debt - that cost reading time and suite wall, not s
 The real risk is small, sharp and concentrated. Seven High findings, all T1, all
 mutation-verified: in each, the test performs the production work itself, so the guard it is named
 for can be deleted and the suite stays green. Two of the seven guard bugs that ACTUALLY SHIPPED
-once - the relative-debris anchor drift (`FlightRecorder.cs:9334`) and the bug-95 snapshot nulling
+once - the relative-debris anchor drift (`FlightRecorder.cs:9512`) and the bug-95 snapshot nulling
 that kills respawn after revert (`ParsekFlight.cs:3311`) - which means the exact re-regression these
 cells exist to prevent would slip through today. That is the whole High set, and it is seven test
 fixes, not a rewrite.
@@ -550,7 +547,7 @@ the T1/T2 stream is already touching. 743 + 25 = 768 = the whole D2 register; no
 and no row appears twice.
 
 `testfix-t1t2` is large enough to need internal waves; run it as High first (7), then Medium T1
-(114), then Medium T3 (138), then the Low sweep (383) as capacity allows. The Low sweep is
+(114), then Medium T3 (138) plus the one Medium T2, then the Low sweep (483) as capacity allows. The Low sweep is
 opportunistic and may be cut without reopening the audit.
 
 Wave order across workstreams: (1) T1/T2 fixes, (2) T4 flakiness, (3) T5 coverage additions,
@@ -586,7 +583,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 
 ## July crosswalk
 
-`research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide: {'closed': 15, 'unknown': 19, 'open': 7, 'superseded': 1}. 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
+`research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
 
 Still open at the baseline (grep-verified, zero or self-only test references): E5 `ReFlyCanonicalization`, E11 career-spend-blocking patches (`TechResearchPatch` / `FacilityUpgradePatch`), E12 `RouteDispatchDecision` factory, E13 `ReaimOrbitSegmentConverter`, D3/E16 `MergeCrashRecoveryMatrixTests` (Facts only, no Theory matrix), C5 `WithSpawnedPid`. A2 (crew-death chain) is closed on the unit leg only; D5 (mutation adequacy) is superseded by this audit's Phase 2 protocol.
 
@@ -659,7 +656,7 @@ Still open at the baseline (grep-verified, zero or self-only test references): E
 | `findings.csv` | the flat merge of every finding record in `findings/` |
 | `mutations/` | 7 committed patches plus `mutations.csv` (the Phase 2 run log) |
 | `july-crosswalk.csv` | July register ID -> SUT/file mapping, built in Phase 4 |
-| `tools/` | `inventory_scan.py`, `smell_sweep.py`, `parse_results.py`, `lint_fragments.py`, `build_batches.py`, `redundancy.py`, `merge_fragments.py`, `make_workorders.py`, `agent-protocol.md` |
+| `tools/` | `inventory_scan.py`, `parse_results.py`, `lint_fragments.py`, `build_batches.py`, `merge_fragments.py`, `make_workorders.py`, `agent-protocol.md`. The plan's `smell_sweep.py` / `redundancy.py` (P0.5 hash-tier redundancy) were NOT built: redundancy was agent-confirmed per method under the rubric's twin rule instead, so no hash-only T2 exists and `work/redundancy-calibration.csv` does not exist |
 | `work/` | committed except the large generated inputs (see `research/test-quality-audit-2026-09-14/README.md`): `baseline.trx`, `coverage.cobertura.xml`, `durations.csv`, `metrics.md`, `supervisor-notes.md`, `inventory-completeness.txt`, the Phase 2/3/4 scratch |
 
 ### How to regenerate
@@ -673,14 +670,16 @@ python docs/dev/research/test-quality-audit-2026-09-14/tools/lint_fragments.py \
   --all --report docs/dev/research/test-quality-audit-2026-09-14/work/lint-report.txt
 
 python docs/dev/research/test-quality-audit-2026-09-14/tools/merge_fragments.py \
-  --inventory docs/dev/research/test-quality-audit-2026-09-14/work/test-inventory-seed.csv \
+  --inventory docs/dev/research/test-quality-audit-2026-09-14/test-inventory.csv \
+  --july-refs docs/dev/research/test-quality-audit-2026-09-14/work/phase4/july-refs.jsonl \
   --fragments docs/dev/research/test-quality-audit-2026-09-14/findings \
   --out docs/dev/research/test-quality-audit-2026-09-14
 ```
 
 `lint_fragments.py` also takes `--batch <id>` (repeatable) to lint one batch and `--suffix` for
-pilot runs. `merge_fragments.py` is the ONLY writer of `test-inventory.csv`, `issue-register.csv`
-and `coverage-proposals.csv`; never hand-edit those files - edit the fragment, re-lint, re-merge.
+pilot runs. `merge_fragments.py` is the ONLY writer of `test-inventory.csv`, `findings.csv`, `issue-register.csv`
+and `coverage-proposals.csv` (the committed `test-inventory.csv` is a valid input to itself; `--july-refs` restores the July
+cross-references, which live in `work/phase4/july-refs.jsonl`, not in the fragments); never hand-edit those files - edit the fragment, re-lint, re-merge.
 
 ### The seeded Medium sample (Phase 2, 27 ids)
 
@@ -695,9 +694,6 @@ F-recording-tree-042-04, F-rewind-refly-004-01.
 
 ### Known data caveats
 
-- 24 of the 768 findings carry short-form ids without a cluster token (`F-rewind-refly-010-05`, `F-ledger-career-038-02`, and
-  22 others); they were issued that way by one Phase 1 pass and are kept verbatim so the linted
-  fragments and the CSV agree. All 24 map to `rewind-refly` or `ledger-career` by test file.
 - F-legacy-bugfix-018-02 (Low T6, dead test-fixture code at
   `Bug618ReFlyMergeParentChainTipTests.cs:597`) is the one finding with no matching D1 row: it is
   filed against a code region, not a test method. 767 of 768 findings join `test-inventory.csv` on

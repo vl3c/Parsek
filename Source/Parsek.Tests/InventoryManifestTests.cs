@@ -70,7 +70,7 @@ namespace Parsek.Tests
         [Fact]
         public void ExtractInventoryManifest_NullInput_ReturnsNull()
         {
-            var result = VesselSpawner.ExtractInventoryManifest(null, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(null, out int totalSlots);
 
             Assert.Null(result);
             Assert.Equal(0, totalSlots);
@@ -85,7 +85,7 @@ namespace Parsek.Tests
             module.AddValue("name", "ModuleFuelTank");
             var vessel = MakeVessel(part);
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.Null(result);
             Assert.Equal(0, totalSlots);
@@ -98,7 +98,7 @@ namespace Parsek.Tests
                 MakePart(
                     MakeInventoryModule(9, MakeStoredPart("solarPanels5", 1))));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.NotNull(result);
             Assert.Single(result);
@@ -117,7 +117,7 @@ namespace Parsek.Tests
                         MakeStoredPart("solarPanels5", 1),
                         MakeStoredPart("batteryPack", 1))));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.NotNull(result);
             Assert.Equal(2, result.Count);
@@ -136,7 +136,7 @@ namespace Parsek.Tests
                 MakePart(
                     MakeInventoryModule(4, MakeStoredPart("solarPanels5", 1))));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.NotNull(result);
             Assert.Single(result);
@@ -152,7 +152,7 @@ namespace Parsek.Tests
                 MakePart(
                     MakeInventoryModule(9, MakeStoredPart("evaRepairKit", 3))));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.NotNull(result);
             Assert.Single(result);
@@ -168,7 +168,7 @@ namespace Parsek.Tests
                 MakePart(
                     MakeInventoryModule(9)));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.Null(result);
             Assert.Equal(0, totalSlots);
@@ -185,7 +185,7 @@ namespace Parsek.Tests
                 MakePart(
                     MakeInventoryModule(9, badItem)));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.Null(result);
         }
@@ -199,7 +199,7 @@ namespace Parsek.Tests
                 MakePart(
                     MakeInventoryModule(9, itemNoQty)));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.NotNull(result);
             Assert.Equal(1, result["solarPanels5"].count);
@@ -213,7 +213,7 @@ namespace Parsek.Tests
             var module2 = MakeInventoryModule(4, MakeStoredPart("batteryPack", 2));
             var vessel = MakeVessel(MakePart(module1, module2));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.NotNull(result);
             Assert.Equal(2, result.Count);
@@ -232,7 +232,7 @@ namespace Parsek.Tests
                 MakePart(
                     MakeInventoryModule(6, MakeStoredPart("batteryPack", 1))));
 
-            var result = VesselSpawner.ExtractInventoryManifest(vessel, out int totalSlots);
+            var result = VesselSnapshotOps.ExtractInventoryManifest(vessel, out int totalSlots);
 
             Assert.NotNull(result);
             Assert.Equal(15, totalSlots);

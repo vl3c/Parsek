@@ -2072,7 +2072,13 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # target through its production opener instead of raising a bare IsOpen; `picker`
     # opens a popup a ROW arms; `dialog` reports the live uGUI PopupDialog, which
     # DumpGuiTree structurally cannot see.
-    "pointer", "find", "expand", "target", "picker", "dialog")
+    "pointer", "find", "expand", "target", "picker", "dialog",
+    # GUI-P1: `playback` flips the per-recording ghost-playback tick box of the
+    # Recordings tab, through RecordingStore.SetRecordingPlaybackEnabled - the single
+    # writer every tick-box affordance routes through. It names NO window (the flag
+    # lives on the Recording, and the surfaces it gates are drawn by three hosts, none
+    # of which owns it), so it is absent from UIACTION_OPS_NEEDING_WINDOW below.
+    "playback")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
@@ -2092,9 +2098,21 @@ UIACTION_CTRL_VALUES: Tuple[str, ...] = (
     "window", "group", "scrollview", "layoutgroup", "label", "box", "button",
     "repeatbutton", "toggle", "textfield", "buttongrid", "slider", "control")
 
-# `op=expand`'s direction. Absent means true (expanding is what a census asks for).
+# `op=expand`'s direction (absent means true - expanding is what a census asks for) and
+# `op=playback`'s, where it is REQUIRED: that op is driven BOTH ways by design (off to
+# prove a hidden ghost stays hidden, on to prove it comes back), so a defaulted direction
+# would silently run the opposite half of a lane's check. ONE key with ONE closed
+# vocabulary across the two ops, which is why the invalid half shares the seam's
+# `state-arg-invalid` reason rather than spelling a per-op sibling.
 UIACTION_STATE_KEY = "state"
 UIACTION_STATE_VALUES: Tuple[str, ...] = ("true", "false")
+
+# `op=playback`'s OPTIONAL recording selector, and `op=picker window=missions`'s. OPEN
+# valued (a RecordingId is a save-specific generated token, plus the picker's own `first`
+# convenience), so it is deliberately NOT a VERB_SCOPED_CLOSED_ARGS row - that table
+# models closed vocabularies. ABSENT on `op=playback` means EVERY recording, which is the
+# select-all header toggle's own path and the only form a COMMITTED spec can write.
+UIACTION_RECORDING_KEY = "recording"
 
 # `op=pointer park=`. `false` is legal and means "an ordinary x/y move", so a generated
 # spec can carry the key unconditionally.
@@ -2464,10 +2482,34 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
         errors.append(
             "driver.steps[%d].args.%s: only op=expand reads it, but this step is op=%s "
             "-- the arg would be silently ignored" % (index, UIACTION_EXPAND_KEY, op))
-    if op != "expand" and UIACTION_STATE_KEY in step_args:
+    if op not in ("expand", "playback") and UIACTION_STATE_KEY in step_args:
         errors.append(
-            "driver.steps[%d].args.%s: only op=expand reads it, but this step is op=%s "
-            "-- the arg would be silently ignored" % (index, UIACTION_STATE_KEY, op))
+            "driver.steps[%d].args.%s: only op=expand and op=playback read it, but this "
+            "step is op=%s -- the arg would be silently ignored"
+            % (index, UIACTION_STATE_KEY, op))
+
+    if op == "playback":
+        # REQUIRED, unlike on op=expand where absent means `true`. This op is driven BOTH
+        # ways by design, so a defaulted direction would silently run the opposite half of
+        # the lane's check; the seam answers REJECTED state-arg-missing.
+        if step_args.get(UIACTION_STATE_KEY) is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=playback REQUIRES it (one of %s). There is "
+                "no default direction - the op is driven both ways - so the seam answers "
+                "REJECTED state-arg-missing"
+                % (index, UIACTION_STATE_KEY,
+                   " or ".join(repr(v) for v in UIACTION_STATE_VALUES)))
+        # `recording=` is OPTIONAL and open-valued. Absent means EVERY recording, which is
+        # the only form a committed spec can write (a RecordingId is save-specific), so
+        # there is nothing to check beyond its presence being legal.
+    elif op != "picker" and UIACTION_RECORDING_KEY in step_args:
+        # The two ops that read it are op=picker (window=missions, Manage Groups) and
+        # op=playback. Anywhere else the arg is sent and silently ignored, which is the
+        # failure this whole validator exists to catch pre-launch.
+        errors.append(
+            "driver.steps[%d].args.%s: only op=picker and op=playback read it, but this "
+            "step is op=%s -- the arg would be silently ignored"
+            % (index, UIACTION_RECORDING_KEY, op))
 
     if op == "target":
         window_name = str(window) if window is not None else None

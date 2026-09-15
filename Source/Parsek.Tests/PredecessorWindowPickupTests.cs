@@ -791,20 +791,20 @@ namespace Parsek.Tests
                 part.AddValue("name", "tank");
                 part.AddValue("uid", uid.ToString(CultureInfo.InvariantCulture));
             }
-            Assert.True(VesselSpawner.TryReadRootPartFlightId(vessel, out uint flightId));
+            Assert.True(VesselSnapshotOps.TryReadRootPartFlightId(vessel, out uint flightId));
             Assert.Equal(9002u, flightId);
 
             // Fail-closed on every unreadable shape rather than returning a neighbour's id.
             var noRoot = new ConfigNode("VESSEL");
             noRoot.AddNode("PART").AddValue("uid", "9001");
-            Assert.False(VesselSpawner.TryReadRootPartFlightId(noRoot, out _));
+            Assert.False(VesselSnapshotOps.TryReadRootPartFlightId(noRoot, out _));
 
             var outOfRange = new ConfigNode("VESSEL");
             outOfRange.AddValue("root", "7");
             outOfRange.AddNode("PART").AddValue("uid", "9001");
-            Assert.False(VesselSpawner.TryReadRootPartFlightId(outOfRange, out _));
+            Assert.False(VesselSnapshotOps.TryReadRootPartFlightId(outOfRange, out _));
 
-            Assert.False(VesselSpawner.TryReadRootPartFlightId(null, out _));
+            Assert.False(VesselSnapshotOps.TryReadRootPartFlightId(null, out _));
         }
 
         [Fact]

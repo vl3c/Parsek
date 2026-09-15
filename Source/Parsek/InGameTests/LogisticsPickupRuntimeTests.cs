@@ -460,7 +460,7 @@ namespace Parsek.InGameTests
                         // would (StoredPart.Save -> canonical hash).
                         var node = new ConfigNode("STOREDPART");
                         sp.Save(node);
-                        string hash = VesselSpawner.ComputeInventoryPayloadIdentityHash(node);
+                        string hash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(node);
                         if (string.IsNullOrEmpty(hash)) continue;
 
                         witnessed = new InventoryPayloadItem

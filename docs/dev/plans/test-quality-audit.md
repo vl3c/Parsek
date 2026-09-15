@@ -76,7 +76,7 @@ naming, duplication cost only.
 **Falsifiability format** (required for every non-`ok` finding): exact string
 `falsifiability: <SUT file:line>; <production change> -> red`. Three exemptions that must be named
 explicitly: `sut=test-infrastructure` (generator/codec tests), `sut=wiring-gate` (source-text gate,
-legitimate per `design-testing-unified.md` §2), `sut=multi-line integration` (name the line set).
+legitimate per `design-testing-unified.md` section 2), `sut=multi-line integration` (name the line set).
 
 **Source-text gate acceptance rule**: a source-scan test is `source-gate-ok` unless it is the SOLE
 coverage for behavior, or a behavioral test was feasible and skipped, or it regexes source text where
@@ -134,7 +134,7 @@ T7 production bug found - separate triage; verified ones filed todo; never fixed
   or coverlet.console; coverage never gates the audit.
 - P0.4 `inventory_scan.py` -> D1 seed; string/comment-aware body extraction, theory counting as
   `1 | inline:<n> | member:<provider> | rows:<n-after-TRX>`. `inline_data_total` sums Theory rows only.
-- P0.5 `smell_sweep.py`, `redundancy.py` -> candidate findings with confidence. Redundancy rules:
+- P0.5 (DEVIATION, recorded 2026-09-15: neither tool was built; redundancy was agent-confirmed per method under the rubric twin rule, no hash tier ran) `smell_sweep.py`, `redundancy.py` -> candidate findings with confidence. Redundancy rules:
   normalize = comments removed, whitespace collapsed, identifiers and string literals preserved,
   attributes excluded; exact tier = SHA1(normalized body), >=2 methods -> candidate; near tier =
   token-sequence similarity >=0.90 within cluster/size bucket, `needs-review`, capped 20 pairs per
@@ -201,7 +201,7 @@ T7 production bug found - separate triage; verified ones filed todo; never fixed
   T3/T5 findings, (c) the July crosswalk's open items. Each proposal cites the SUT guard `file:line`,
   the risk class and the mutant that would red the proposed test; cap 10 per cluster; rank by risk
   order (data loss > career/ledger > recording integrity > playback > UI/cosmetic), severity, effort.
-- `case_kind ∈ {negative, mirror-direction, roundtrip, boundary, serializer-key, state-transition}`;
+- `case_kind` in {negative, mirror-direction, roundtrip, boundary, serializer-key, state-transition}`;
   each proposal carries `dupe_of_july_id` or `no-july-equivalent`.
 - P3 exit: coverage-opportunities.md reviewed by supervisor; every claim spot-checked for feasibility.
 

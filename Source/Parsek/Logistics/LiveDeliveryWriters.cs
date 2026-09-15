@@ -334,7 +334,7 @@ namespace Parsek.Logistics
         /// ModuleInventoryPart.OnLoad line 3073). The constructor expects a
         /// PART-shaped node (i.e. the inner PART subnode of a STOREDPART),
         /// not the STOREDPART wrapper itself. Our payload is a STOREDPART
-        /// ConfigNode (see <see cref="VesselSpawner.BuildInventoryPayloadItem"/>),
+        /// ConfigNode (see <see cref="VesselSnapshotOps.BuildInventoryPayloadItem"/>),
         /// so we extract the inner PART node before constructing.
         /// </summary>
         private int WriteInventoryLoaded(InventoryPayloadItem item, InventorySlotAddress slot, int units)
@@ -519,7 +519,7 @@ namespace Parsek.Logistics
         /// it to the same constructor with <c>(node.GetNode("PART"), null, null)</c>;
         /// we replicate that exactly here. Returns <c>null</c> when the
         /// STOREDPART payload has no inner PART node (defensive — every
-        /// VesselSpawner-built payload includes one).
+        /// VesselSnapshotOps-built payload includes one).
         /// </summary>
         internal static ProtoPartSnapshot BuildProtoPartSnapshotForDelivery(
             ConfigNode storedPartNode, ProtoVessel hostProtoVessel)

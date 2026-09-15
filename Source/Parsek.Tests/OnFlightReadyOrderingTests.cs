@@ -128,7 +128,7 @@ namespace Parsek.Tests
         ///   * A regression marker if a phase tag is renamed — the string
         ///     literal assertions below will fail loudly.
         ///   * A smoke test that the five distinct phases land in the log
-        ///     in insertion order (which is <see cref="ParsekLog.RecState"/>'s
+        ///     in insertion order (which is <see cref="RecorderStateLog.RecState"/>'s
         ///     contract).
         /// </summary>
         [Fact]
@@ -165,17 +165,17 @@ namespace Parsek.Tests
                 loadedScene: GameScenes.FLIGHT);
 
             // Phase 1: OnFlightReady fires first thing
-            ParsekLog.RecState("OnFlightReady", preOnFlightReady);
+            RecorderStateLog.RecState("OnFlightReady", preOnFlightReady);
 
             // Phase 2: ResetFlightReadyState runs BEFORE the coroutine. In the
             // buggy pre-fix ordering, this fired AFTER Restore:after-start and
             // nulled the freshly-restored activeTree.
-            ParsekLog.RecState("ResetFlightReady:entry", preOnFlightReady);
+            RecorderStateLog.RecState("ResetFlightReady:entry", preOnFlightReady);
 
             // Phase 3-5: RestoreActiveTreeFromPending runs (synchronously when
             // ActiveVessel matches on first iteration) and rebuilds activeTree.
-            ParsekLog.RecState("Restore:start", preOnFlightReady);
-            ParsekLog.RecState("Restore:matched", preOnFlightReady);
+            RecorderStateLog.RecState("Restore:start", preOnFlightReady);
+            RecorderStateLog.RecState("Restore:matched", preOnFlightReady);
 
             // Restore:after-start sees the live tree back up.
             var postRestore = RecorderStateSnapshot.CaptureFromParts(
@@ -189,7 +189,7 @@ namespace Parsek.Tests
                 chain: new ChainSegmentManager(),
                 currentUT: 17000.0,
                 loadedScene: GameScenes.FLIGHT);
-            ParsekLog.RecState("Restore:after-start", postRestore);
+            RecorderStateLog.RecState("Restore:after-start", postRestore);
 
             var recStateLines = lines.FindAll(l => l.Contains("[RecState]"));
             Assert.Equal(5, recStateLines.Count);

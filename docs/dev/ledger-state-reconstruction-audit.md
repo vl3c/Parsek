@@ -283,7 +283,7 @@ samples, `HasInterestingChanges` gate), driven from `LedgerOrchestrator.cs:2386`
    Turns silent career corruption into a caught, logged, abortable event. *Highest
    leverage; most self-contained.*
 
-   **SHIPPED (warn-only default; abort opt-in via `RewindReadbackGuard.AbortRewindPatchOnDivergence`).**
+   **SHIPPED (warn-and-proceed; the abort option was retired 2026-09-14).**
    The §6 oracle premise was corrected during implementation: the loaded quicksave is the
    OLD at-RP economy, **not** the live-tip economy the recalc legitimately restores, so a
    straight "target vs quicksave" compare false-flags every healthy rewind, and the
@@ -297,6 +297,28 @@ samples, `HasInterestingChanges` gate), driven from `LedgerOrchestrator.cs:2386`
    effects, so the guard does not gate on `authoritativeReduction`. See
    `Source/Parsek/RewindReadbackGuard.cs`, `KspStatePatcher.ResolveRewindDivergence` /
    `RunRewindReadbackGuard`, and the arm/clear in `RewindInvoker.RunStripActivateMarker`.
+
+   The "optionally abort the patch" half of this recommendation is **retired** (operator
+   decision 2026-09-14, after a second-opinion review). Four reasons: (a) the abort is not
+   fail-closed, only deferred - the guard is cleared in `RewindInvoker.cs`'s `finally` while
+   the ReFly marker keeps `authoritativeReduction=true`, so the next unguarded recalc
+   (`ParsekScenario.cs`, `ParsekFlight.cs`) writes the identical target; (b) it would break a
+   DESIGNED rewind - Step 3b `RetireResurrectedVesselRecoveryRows` tombstones the recovery
+   rows of vessels the rewind resurrects, so after any post-RP spend the CORRECT target is
+   below both witnesses and the guard flags it (unit-pinned by
+   `RewindReadbackGuardTests.Resolve_Step3bResurrectedRecoveryRetirementAfterPostRpSpend_FlaggedByDesign`);
+   (c) the abort skips Science/TechTree/Funds/Reputation/Facilities/Milestones/Contracts
+   wholesale after the crew roster was already applied by
+   `LedgerOrchestrator`/`kerbalsModule.ApplyToRoster`; (d) it has never fired - 57 armed
+   rewinds across 665 collected logs, 0 `FLAGGED DIVERGENCE`, and all 8 career runs read
+   `delta=0`. The field `AbortRewindPatchOnDivergence` is deleted; the abort early-return in
+   `PatchAll` survives only under the test seam `RewindReadbackGuard.ForceAbortForTesting`.
+   The WARN now states the measured meaning rather than "possible silent career corruption",
+   and names the two legitimate causes (a Step-3b retirement after post-RP spending; an
+   earning channel the ledger does not model, e.g. strategy conversion or a mod grant). A
+   per-resource floor that EXEMPTS Step-3b retirements is the only gate shape left worth
+   designing, and it needs the two lanes filed in `docs/dev/todo-and-known-bugs.md` under
+   `REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE` first.
 2. **Logging gaps 1–3** (per-subject science, tech nodes, contracts): promote per-identity
    changes to a trace-gated line. HIGH risk, currently invisible.
 3. **In-game ground-truth harness:** from a career save at UT X, capture a quicksave

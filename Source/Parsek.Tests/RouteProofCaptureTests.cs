@@ -17,7 +17,7 @@ namespace Parsek.Tests
                 MakePart(200, "endpointTank", MakeResource("LiquidFuel", 5.0, 200.0)));
 
             Dictionary<string, ResourceAmount> scoped =
-                VesselSpawner.ExtractResourceManifest(vessel, new List<uint> { 100 });
+                VesselSnapshotOps.ExtractResourceManifest(vessel, new List<uint> { 100 });
 
             Assert.NotNull(scoped);
             Assert.Single(scoped);
@@ -93,7 +93,7 @@ namespace Parsek.Tests
                     MakeStoredPart("evaRepairKit", null, 2))));
 
             List<InventoryPayloadItem> payload =
-                VesselSpawner.ExtractInventoryPayloadItems(vessel, new List<uint> { 100 });
+                VesselSnapshotOps.ExtractInventoryPayloadItems(vessel, new List<uint> { 100 });
 
             Assert.NotNull(payload);
             Assert.Single(payload);
@@ -121,12 +121,12 @@ namespace Parsek.Tests
             second.AddValue("variantName", "white");
             second.AddValue("partName", "evaJetpack");
 
-            string firstHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(first);
-            string secondHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(second);
+            string firstHash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(first);
+            string secondHash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(second);
             Assert.Equal(firstHash, secondHash);
 
             second.SetValue("variantName", "orange", true);
-            Assert.NotEqual(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
+            Assert.NotEqual(firstHash, VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(second));
         }
 
         [Fact]
@@ -149,13 +149,13 @@ namespace Parsek.Tests
                 position: "1,2,3",
                 temperature: "250");
 
-            string firstHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(first);
-            Assert.Equal(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
+            string firstHash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(first);
+            Assert.Equal(firstHash, VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(second));
 
             // A resource that crosses a FILL BUCKET boundary is a different kind:
             // 5/5 is full, 4/5 is partial.
             second.GetNode("PART").GetNode("RESOURCE").SetValue("amount", "4", true);
-            Assert.NotEqual(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
+            Assert.NotEqual(firstHash, VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(second));
 
             // 2026-09-02 kind ruling: MODULE state is ignored entirely (bar the
             // variant selection). ModuleCargoPart.payloadMode packed-vs-deployed
@@ -172,7 +172,7 @@ namespace Parsek.Tests
                 persistentId: "100",
                 position: "0,0,0",
                 temperature: "-1");
-            Assert.Equal(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(third));
+            Assert.Equal(firstHash, VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(third));
         }
 
         [Fact]
@@ -186,7 +186,7 @@ namespace Parsek.Tests
                 MakePart(100, "cargoBay", MakeInventoryModule(first, second)));
 
             List<InventoryPayloadItem> payload =
-                VesselSpawner.ExtractInventoryPayloadItems(vessel, new List<uint> { 100 });
+                VesselSnapshotOps.ExtractInventoryPayloadItems(vessel, new List<uint> { 100 });
 
             Assert.NotNull(payload);
             Assert.Single(payload);

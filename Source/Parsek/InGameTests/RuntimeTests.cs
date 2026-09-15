@@ -15697,7 +15697,7 @@ namespace Parsek.InGameTests
             InGameAssert.IsNotNull(snapshot, "Failed to snapshot active vessel");
 
             // Extract resource manifest
-            var manifest = VesselSpawner.ExtractResourceManifest(snapshot);
+            var manifest = VesselSnapshotOps.ExtractResourceManifest(snapshot);
             InGameAssert.IsNotNull(manifest, "Resource manifest is null — vessel has no non-EC/IntakeAir resources?");
             InGameAssert.IsTrue(manifest.Count > 0, "Resource manifest is empty");
 

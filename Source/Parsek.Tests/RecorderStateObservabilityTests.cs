@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// <summary>
     /// Unit tests for the [RecState] structured observability dump:
     /// <see cref="RecorderStateSnapshot.CaptureFromParts"/>, the
-    /// <see cref="ParsekLog.RecState"/> emit/format helpers, and
+    /// <see cref="RecorderStateLog.RecState"/> emit/format helpers, and
     /// <see cref="Recording.DebugName"/>.
     ///
     /// All tests construct snapshots from explicit inputs (no Unity needed)
@@ -269,7 +269,7 @@ namespace Parsek.Tests
             Assert.Equal("rec[12345678|-|sa|-]", rec.DebugName);
         }
 
-        // ----- ParsekLog.RecState format -----
+        // ----- RecorderStateLog.RecState format -----
 
         [Fact]
         public void RecState_NoneSnapshot_EmitsCanonicalLine()
@@ -279,7 +279,7 @@ namespace Parsek.Tests
                 null, false, null,
                 17000.5, GameScenes.SPACECENTER);
 
-            ParsekLog.RecState("OnFlightReady", snap);
+            RecorderStateLog.RecState("OnFlightReady", snap);
 
             Assert.Single(logLines);
             string line = logLines[0];
@@ -325,7 +325,7 @@ namespace Parsek.Tests
                 null, false, null,
                 17050.0, GameScenes.FLIGHT);
 
-            ParsekLog.RecState("OnSave:pre", snap);
+            RecorderStateLog.RecState("OnSave:pre", snap);
 
             string line = logLines[0];
             Assert.Contains("mode=tree", line);
@@ -353,7 +353,7 @@ namespace Parsek.Tests
                 null, false, null,
                 17100.0, GameScenes.FLIGHT);
 
-            ParsekLog.RecState("OnLoad:limbo-dispatched", snap);
+            RecorderStateLog.RecState("OnLoad:limbo-dispatched", snap);
 
             string line = logLines[0];
             Assert.Contains("pend.tree=ptreeABC:Limbo", line);
@@ -369,7 +369,7 @@ namespace Parsek.Tests
                 split, true, null,
                 17200.0, GameScenes.FLIGHT);
 
-            ParsekLog.RecState("CreateSplitBranch:entry", snap);
+            RecorderStateLog.RecState("CreateSplitBranch:entry", snap);
 
             string line = logLines[0];
             Assert.Contains("pend.split=T/T", line);
@@ -391,7 +391,7 @@ namespace Parsek.Tests
                 null, false, chain,
                 17300.0, GameScenes.FLIGHT);
 
-            ParsekLog.RecState("OnVesselSwitchComplete:entry", snap);
+            RecorderStateLog.RecState("OnVesselSwitchComplete:entry", snap);
 
             string line = logLines[0];
             Assert.Contains("chain=chainXYZ|idx=5", line);
@@ -423,7 +423,7 @@ namespace Parsek.Tests
                 null, false, null,
                 17400.0, GameScenes.FLIGHT);
 
-            ParsekLog.RecState("LongName", snap);
+            RecorderStateLog.RecState("LongName", snap);
 
             string line = logLines[0];
             // Vessel name truncated to 32 X's + "..."
@@ -448,7 +448,7 @@ namespace Parsek.Tests
                     null, false, null,
                     17000.5, GameScenes.FLIGHT);
 
-                ParsekLog.RecState("LocaleTest", snap);
+                RecorderStateLog.RecState("LocaleTest", snap);
 
                 string line = logLines[0];
                 // Must use period decimal separator regardless of system locale
@@ -473,7 +473,7 @@ namespace Parsek.Tests
 
             const int N = 100;
             for (int i = 0; i < N; i++)
-                ParsekLog.RecState("seq", snap);
+                RecorderStateLog.RecState("seq", snap);
 
             Assert.Equal(N, logLines.Count);
 
@@ -499,10 +499,10 @@ namespace Parsek.Tests
             var rec2 = MakeSnapshotWithRecId("recBBBB2222");
             var rec1Back = MakeSnapshotWithRecId("recAAAA1111");
 
-            ParsekLog.RecState("p1", rec1);          // first emission, no prev
-            ParsekLog.RecState("p2", rec1Again);     // same rec, no prev
-            ParsekLog.RecState("p3", rec2);          // transition, prev = recAAAA1111
-            ParsekLog.RecState("p4", rec1Back);      // transition back, prev = recBBBB2222
+            RecorderStateLog.RecState("p1", rec1);          // first emission, no prev
+            RecorderStateLog.RecState("p2", rec1Again);     // same rec, no prev
+            RecorderStateLog.RecState("p3", rec2);          // transition, prev = recAAAA1111
+            RecorderStateLog.RecState("p4", rec1Back);      // transition back, prev = recBBBB2222
 
             Assert.Contains("rec.prev=-", logLines[0]);
             Assert.Contains("rec.prev=-", logLines[1]);
@@ -553,35 +553,35 @@ namespace Parsek.Tests
                 null, PendingTreeState.Finalized, null, null, false,
                 new ChainSegmentManager(),
                 17000.0, GameScenes.FLIGHT);
-            ParsekLog.RecState("start-tree", snap1);
+            RecorderStateLog.RecState("start-tree", snap1);
 
             // Phase 2: F5 quicksave taken
-            ParsekLog.RecState("OnSave:pre", snap1);
+            RecorderStateLog.RecState("OnSave:pre", snap1);
 
             // Phase 3: scene change -> StashTreeLimbo
             var snap2 = RecorderStateSnapshot.CaptureFromParts(
                 tree, null, null, PendingTreeState.Finalized, null, null, false,
                 new ChainSegmentManager(),
                 17051.0, GameScenes.FLIGHT);
-            ParsekLog.RecState("StashTreeLimbo:pre", snap2);
+            RecorderStateLog.RecState("StashTreeLimbo:pre", snap2);
 
             // Phase 4: F9 quickload -> OnLoad sees tree restored to pending-Limbo
             var snap3 = RecorderStateSnapshot.CaptureFromParts(
                 null, null, tree, PendingTreeState.Limbo, null, null, false, null,
                 17050.0, GameScenes.FLIGHT);
-            ParsekLog.RecState("TryRestoreActiveTreeNode:stashed", snap3);
-            ParsekLog.RecState("OnLoad:limbo-dispatched", snap3);
+            RecorderStateLog.RecState("TryRestoreActiveTreeNode:stashed", snap3);
+            RecorderStateLog.RecState("OnLoad:limbo-dispatched", snap3);
 
             // Phase 5: restore coroutine
-            ParsekLog.RecState("Restore:start", snap3);
-            ParsekLog.RecState("Restore:matched", snap3);
+            RecorderStateLog.RecState("Restore:start", snap3);
+            RecorderStateLog.RecState("Restore:matched", snap3);
 
             // Phase 6: post-restore -- back to live tree mode
             var snap4 = RecorderStateSnapshot.CaptureFromParts(
                 tree, new FlightRecorder { ActiveTree = tree }, null, PendingTreeState.Finalized,
                 null, null, false, new ChainSegmentManager(),
                 17050.5, GameScenes.FLIGHT);
-            ParsekLog.RecState("Restore:after-start", snap4);
+            RecorderStateLog.RecState("Restore:after-start", snap4);
 
             // Verify: all 8 phases logged in order with strictly increasing sequence numbers
             Assert.Equal(8, logLines.Count);

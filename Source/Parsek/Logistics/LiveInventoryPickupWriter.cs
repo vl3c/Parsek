@@ -17,8 +17,8 @@ namespace Parsek.Logistics
     /// <para><b>Loaded path:</b> walk <see cref="ModuleInventoryPart.storedParts"/>
     /// in ascending slot index; for each occupied slot, reconstruct the
     /// STOREDPART-shaped ConfigNode (<see cref="StoredPart.Save"/> produces the
-    /// exact shape <see cref="VesselSpawner.BuildInventoryPayloadItem"/> reads),
-    /// compute <see cref="VesselSpawner.ComputeInventoryPayloadIdentityHash"/>,
+    /// exact shape <see cref="VesselSnapshotOps.BuildInventoryPayloadItem"/> reads),
+    /// compute <see cref="VesselSnapshotOps.ComputeInventoryPayloadIdentityHash"/>,
     /// and match. The match is REMOVED via stock
     /// <see cref="ModuleInventoryPart.ClearPartAtSlot"/> (the inverse of the
     /// delivery store).</para>
@@ -153,7 +153,7 @@ namespace Parsek.Logistics
                         ConfigNode copy = node.CreateCopy();
                         copy.name = "STOREDPART";
                         if (!string.Equals(
-                                VesselSpawner.ComputeInventoryPayloadIdentityHash(copy),
+                                VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(copy),
                                 identityHash, StringComparison.Ordinal))
                             continue;
                         int qty = 1;
@@ -403,7 +403,7 @@ namespace Parsek.Logistics
         /// <summary>
         /// KIND key for a LIVE <see cref="StoredPart"/>: serialize it via stock
         /// <see cref="StoredPart.Save"/> into a STOREDPART-named node (the shape
-        /// <see cref="VesselSpawner.BuildInventoryPayloadItem"/> reads and the
+        /// <see cref="VesselSnapshotOps.BuildInventoryPayloadItem"/> reads and the
         /// recorded payload key was derived from) and derive the key. Only part
         /// name, variant and per-resource fill buckets count, so the live shape
         /// and the recorded shape agree by construction rather than through a
@@ -415,7 +415,7 @@ namespace Parsek.Logistics
                 return null;
             var node = new ConfigNode("STOREDPART");
             storedPart.Save(node);
-            return VesselSpawner.ComputeInventoryPayloadIdentityHash(node);
+            return VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(node);
         }
 
         /// <summary>
@@ -530,7 +530,7 @@ namespace Parsek.Logistics
 
                 ConfigNode copy = node.CreateCopy();
                 copy.name = "STOREDPART";
-                string hash = VesselSpawner.ComputeInventoryPayloadIdentityHash(copy);
+                string hash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(copy);
                 if (!string.Equals(hash, identityHash, StringComparison.Ordinal))
                     continue;
 

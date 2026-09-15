@@ -1375,7 +1375,7 @@ namespace Parsek
             if (newAllEnabled != allEnabled)
             {
                 for (int i = 0; i < committed.Count; i++)
-                    committed[i].PlaybackEnabled = newAllEnabled;
+                    RecordingStore.SetRecordingPlaybackEnabled(committed[i], newAllEnabled);
                 ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
             }
             // "#" sortable — inline (no outer box because the parent BeginHorizontal
@@ -1999,12 +1999,14 @@ namespace Parsek
             // Enable checkbox (always at column 0)
             bool enabled = GUILayout.Toggle(rec.PlaybackEnabled,
                 new GUIContent("",
-                    "Play this recording back as a ghost. Unticked, the flight stays recorded but no ghost appears."),
+                    "Play this recording back as a ghost. Unticked, the flight stays recorded but no ghost appears anywhere - world, map or Tracking Station."),
                 GUILayout.Width(ColW_Enable));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowToggle");
             if (enabled != rec.PlaybackEnabled)
             {
-                rec.PlaybackEnabled = enabled;
+                // GUI-P1: the sole writer, shared with the select-all / group / chain-block
+                // toggles below so all four hide and restore identically.
+                RecordingStore.SetRecordingPlaybackEnabled(rec, enabled);
                 ParsekLog.Info("UI", $"Recording '{rec.VesselName}' playback {(enabled ? "enabled" : "disabled")}" +
                     (!string.IsNullOrEmpty(rec.SegmentPhase) ? $" (segment: {RecordingStore.GetSegmentPhaseLabel(rec)})" : ""));
             }
@@ -2606,7 +2608,7 @@ namespace Parsek
             if (newEnabled != allEnabled)
             {
                 foreach (int idx in descendants)
-                    committed[idx].PlaybackEnabled = newEnabled;
+                    RecordingStore.SetRecordingPlaybackEnabled(committed[idx], newEnabled);
                 ParsekLog.Info("UI", $"Set playback enabled for group '{groupName}': enabled={newEnabled}");
             }
 
@@ -3275,7 +3277,7 @@ namespace Parsek
             if (newEnabled != allEnabled)
             {
                 foreach (int idx in descendants)
-                    committed[idx].PlaybackEnabled = newEnabled;
+                    RecordingStore.SetRecordingPlaybackEnabled(committed[idx], newEnabled);
                 ParsekLog.Info("UI",
                     $"Virtual group '{groupName}' playback enabled={newEnabled} ({memberCount} recordings)");
             }
@@ -4350,7 +4352,7 @@ namespace Parsek
             if (blockNewEnabled != blockAllEnabled)
             {
                 for (int m = 0; m < members.Count; m++)
-                    committed[members[m]].PlaybackEnabled = blockNewEnabled;
+                    RecordingStore.SetRecordingPlaybackEnabled(committed[members[m]], blockNewEnabled);
                 ParsekLog.Info("UI", $"{logKind} '{logId}' playback set to {blockNewEnabled} ({members.Count} recordings)");
             }
 

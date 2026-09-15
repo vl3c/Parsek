@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
 index b5e79c0fa..ce4a4f3b3 100644
 --- a/Source/Parsek/ParsekFlight.cs
 +++ b/Source/Parsek/ParsekFlight.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections;
- using System.Collections.Generic;
- using System.Globalization;
 @@ -3314,6 +3314,7 @@ namespace Parsek
                  if (chainManager.TryGetContinuationRecording(out var contRec))
                  {

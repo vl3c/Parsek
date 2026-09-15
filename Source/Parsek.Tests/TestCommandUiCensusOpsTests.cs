@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Parsek.Logistics;
@@ -122,7 +122,11 @@ namespace Parsek.Tests
             Assert.True(TestCommandUiAction.SettleChecksHostShowUi(UiActionOp.Rect));
             foreach (UiActionOp op in new[] { UiActionOp.Pointer, UiActionOp.Find,
                                               UiActionOp.Expand, UiActionOp.Target,
-                                              UiActionOp.Picker, UiActionOp.Dialog })
+                                              UiActionOp.Picker, UiActionOp.Dialog,
+                                              // playback reads a field on the Recording,
+                                              // which no window host owns - a hidden
+                                              // surface cannot fake it.
+                                              UiActionOp.Playback })
             {
                 Assert.False(TestCommandUiAction.SettleChecksHostShowUi(op));
             }

@@ -614,6 +614,31 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > is reachable for INSPECTION through `UiAction op=dialog`, which is what a census needs of
 > it. Risk 8 in `design-autotest-seam-verbs-c1.md` is the entry this closes.
 >
+> Update (GUI-P1, the playback tick box, 2026-09-14): ONE further `UiAction` OP and **NO
+> new verb and no new arg KEY, so neither table moves: 36 implemented / 5 reserved**.
+> `UiAction` goes from twelve ops to thirteen with
+> `op=playback state=<true|false> [recording=<id>]`.
+>
+> It exists because the GUI-P1 ruling gave the per-recording playback tick box of the
+> Recordings tab a MUCH wider meaning - "no ghost appears ANYWHERE": the flight ghost, the
+> map icon, the orbit line, the Tracking Station row, the TS non-proto atmospheric marker
+> and the map trajectory polyline. Five of those six are surfaces a unit test cannot see,
+> so the only proof available is a lane that unticks the box and then looks - and nothing
+> in the seam could tick it. The box is a plain `GUILayout.Toggle` whose handler calls
+> exactly one method, so this op calls the same one: `RecordingStore.
+> SetRecordingPlaybackEnabled`, THE single writer of `Recording.PlaybackEnabled` that all
+> four affordances (per-row, select-all header, the two group / chain-block headers) route
+> through. The `UiAction` argument, unchanged - no synthesised input, no new surface, and
+> no second writer of the field.
+>
+> `state=` is REQUIRED here, unlike on `op=expand` where an absent one means `true`: this
+> op is driven BOTH ways by design (off to prove a hidden ghost stays hidden, on to prove
+> it comes back), so a defaulted direction would silently run the opposite half of a
+> lane's check. `recording=` is OPTIONAL and its absence is the affordance that buys the
+> lane: it flips EVERY recording, the select-all header's own path, which is the only form
+> a COMMITTED spec can write because a RecordingId is save-specific - the
+> `op=expand key=all` rule exactly. Full contract below (`#### UiAction`).
+
 > Update (the GUI census, half two, 2026-09-11): ONE further ADDITIVE verb,
 > `DumpGuiTree label=<name>`, the same shape again - never in the reserved list, so the
 > implemented table moves alone: **36 implemented / 5 reserved**.
@@ -1662,7 +1687,8 @@ and a harness cell reads that set out of the source to keep the two from driftin
 
 #### UiAction (additive; drive the Parsek windows for a capture)
 
-`UiAction op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog>
+`UiAction
+op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback>
 [window=] [tab=] [mode=] [x= y= w= h=] [park=] [text=] [ctrl=] [index=] [key=] [state=]
 [mission=] [route=] [group=] [recording=]`. Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
 the `ListHandles` one: the Parsek UI is hosted in SPACECENTER as well as FLIGHT, so a KSC
@@ -1680,19 +1706,19 @@ the button handler's whole body IS the field write. The seam writes the same fie
 READS THEM BACK.
 
 **EVERY OP THAT CHANGES DRAWN STATE IS TWO-PHASE** (`TestCommandUiAction.OpIsTwoPhase`):
-`open`, `rect`, and the five census ops `pointer` / `find` / `expand` / `target` /
-`picker`. `close`, `tab` and `complexity` are single-phase for the reasons below, and
-`describe` / `dialog` are single-phase because they write nothing at all.
+`open`, `rect`, the five census ops `pointer` / `find` / `expand` / `target` / `picker`,
+and `playback`. `close`, `tab` and `complexity` are single-phase for the reasons below,
+and `describe` / `dialog` are single-phase because they write nothing at all.
 
 WHAT THE SETTLE CHECKS is NOT uniform, and the asymmetry is deliberate
 (`TestCommandUiAction.SettleChecksHostShowUi`). The host-visibility gate
 (`window-host-hidden`) applies to `open` and `rect` ALONE, because those two read back a
 FIELD: a frame that never reached the window compares the written value with itself. The
-five later ops do not have that hole - `find` reads a captured TREE, in which an undrawn
+six later ops do not have that hole - `find` reads a captured TREE, in which an undrawn
 window is simply absent (`find-window-not-drawn`); `pointer` reads
-`Input.mousePosition`, which no window draws; and `expand` / `target` / `picker` read a
+`Input.mousePosition`, which no window draws; `expand` / `target` / `picker` read a
 collection or an open flag whose only other writer is a player click the seam never
-synthesises. Applying the gate to them would refuse correct work: a `pointer park` issued
+synthesises; and `playback` reads a field on the `Recording`, which no window owns. Applying the gate to them would refuse correct work: a `pointer park` issued
 with the Parsek surface deliberately hidden is exactly the hover-free capture a census
 wants.
 
@@ -1992,6 +2018,42 @@ a save-specific recording id and the popup looks the same over any row. The thir
 exclusion, `TestRunnerShortcut`, is unchanged: it is a separate MonoBehaviour with no
 accessor.
 
+**`op=playback` flips the per-recording playback tick box.** `state=<true|false>` is
+REQUIRED (there is no default direction: the op is driven both ways, so guessing one would
+silently run the opposite half of a lane's check), and `recording=<id>` is OPTIONAL - its
+absence flips EVERY recording, which is the select-all header toggle's own path and the
+only form a COMMITTED spec can write, since a RecordingId is save-specific. It names NO
+window, so it is absent from `OpNeedsWindow` / `hlib.UIACTION_OPS_NEEDING_WINDOW` and a
+`window=` beside it is a pre-launch spec error: the flag lives on the `Recording`, and the
+six surfaces it gates are drawn by three different hosts, none of which owns it.
+
+The write goes through `RecordingStore.SetRecordingPlaybackEnabled`, THE single writer of
+`Recording.PlaybackEnabled` - never a field assignment, which would bypass the writer's log
+line and its `RecordingPlaybackEnabledChanged` raise (the raise is what pulls the Tracking
+Station's quarter-second lifecycle tick forward to the same frame, so the icon, the orbit
+line and the TS row come back together rather than up to 250 ms apart). The writer no-ops
+on an unchanged value, so an ALREADY-CORRECT recording is a no-op and not a failure:
+`changed=0 total=7` is the honest report of a save already in the requested state, and the
+read-back counts AGREEING against CONSIDERED rather than against `changed`.
+
+The considered set is `EffectiveState.ComputeERS()`, not the raw committed list the
+select-all header walks. The header can read the raw list because `RecordingsTableUI` is
+on the ERS allowlist; a seam file is not, and the routing rule is the point rather than the
+paperwork - a superseded recording is not something a lane can see, photograph or assert
+on, so flipping its box would be a write no read-back could witness. `ComputeERS` returns
+the same `Recording` REFERENCES, so the flip reaches the real objects.
+
+TWO-PHASE, for the `op=expand` reason rather than the `op=open` one: the flag gates DRAWN
+state, so a same-`Update` read-back would compare the field with the value just written to
+it. It is NOT host-gated (`SettleChecksHostShowUi` is `open` / `rect` alone), because the
+value read back lives on the `Recording` rather than on a window host - a hidden Parsek
+surface cannot fake it, and driving the box with that surface closed is a legitimate thing
+for a lane to do. The settle re-resolves BY ID, so a recording that went away between the
+write and the drawn frame reads as `playback-not-applied` instead of being counted correct.
+Phase 1 logs `uiaction playback initiated recording=<id|all> state=<bool> (awaiting one
+drawn frame)`; phase 2 logs and pays out
+`op=playback recording=<id|all> state=<bool> changed=<n> total=<n>`.
+
 **`op=dialog` is the read-only half a PNG cannot carry.** Every Parsek modal is a stock
 `PopupDialog`, which is uGUI, and `GuiTreeRecorder` patches `GUI.DoWindow` - the IMGUI
 funnel - so a dialog is structurally invisible to `DumpGuiTree` and visible only in an
@@ -2067,7 +2129,13 @@ everything). `op=target`:
 `target-not-found` (message lists the missions or routes that exist);
 `ERROR target-not-opened`. `op=picker`: `REJECTED picker-unsupported-window` /
 `picker-arg-missing` / `picker-arg-conflict` / `picker-target-not-found`;
-`ERROR picker-not-opened`. `op=dialog` has none: it writes nothing and reports
+`ERROR picker-not-opened`. `op=playback`: `REJECTED state-arg-missing` (REQUIRED, no
+default direction) / `state-arg-invalid` (REUSED from `op=expand` - `state=` is one arg key
+with one closed vocabulary, so a per-op sibling would be a second thing to learn about the
+same refusal) / `recording-unknown` (a named id in no effective recording; the message
+carries how many DO exist, so `known=0` on an empty save reads differently from `known=7`
+on a typo - and it is a REJECTED rather than a cheerful `changed=0`, which is the one
+answer a lane cannot act on); `ERROR playback-not-applied`. `op=dialog` has none: it writes nothing and reports
 `open=false` with `-` sentinels when no Parsek popup stands, because a lane that asserts
 "no dialog is up" needs a key to assert on. `AnswerMergeDialog` gains
 `REJECTED dialog-arg-invalid` (message carries the valid set).
@@ -2438,7 +2506,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `StopRecording` | FLIGHT; else Defer | `ParsekFlight.StopRecording()` (idempotent: OK with `idle=true` if no recorder) | `stopped` bool |
 | `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
-| `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `ParsekLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
+| `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `RecorderStateLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
 | `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
