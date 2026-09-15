@@ -2669,7 +2669,7 @@ the dump - which is why the census lanes still pin only `patched=`, and leave `w
 `nodes` / `hits` for a reader: those are properties of whatever the frame contained, and a
 reviewer compares them across dumps.
 
-## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
+## ~~REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row~~ [FIXED 2026-09-15 - the inside-seed stamp generalized off the KerbalDeath row to every reputation-affecting row. The review edge (a death already RECORDED in a pending uncommitted tree at capture) is NOT closed and is re-filed as its own entry below.]
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch
 `tombstone-rep-penalty`); pre-existing, not introduced there.
@@ -2710,13 +2710,178 @@ Reachable only when the very first seed capture coincides with a second pending 
 carrying a death; the code comment at the live-pool branch of
 `EnsureInitialReputationSeed` names it. Same fix shape as below.
 
-Fix shape: generalize the inside-seed flag to every reputation row produced before
-the seed exists (same production-order rule, same commit-of-capture clause) or, better,
-capture the seed NET of the rows known at capture time so a tombstone can refund a
-pre-seed death. Either
-moves CL-2's armed ledger totals only if that lane's seed is captured after an award
-it also converts, so re-read its oracle before changing the walk. A row written before the flag existed carries no `insideRepSeed` key, reads back false and applies as before.
+THE FIX AS SHIPPED (2026-09-15). The inside-seed flag is generalized, and the seed
+VALUE is deliberately untouched - "seed net of the rows known at capture" was rejected
+because CL-2-pod-impact-ledger's armed ledger oracle pins that value.
+`ReputationSeedMembership.cs` now owns `ReputationSeedOrigin`, the two origin arms
+(moved verbatim out of `KerbalDeathRepPenalty`) and one new predicate,
+`IsReputationAffectingRow`, which is exactly `ReputationModule.ProcessAction`'s
+reputation-moving switch arms (`ReputationModule.cs:84-118`) minus `ReputationInitial`.
+`LedgerOrchestrator.StampReputationRowsAgainstSeed` stamps every such row a commit
+produces, at a new step 3e right after the death producer (`LedgerOrchestrator.cs`,
+`OnRecordingCommitted`), using the origin established at 3c-post - production order, no
+UT read anywhere in the method. `ReputationModule.ProcessAction` reads the stamp once,
+before its switch, and zeroes only `EffectiveRep` - the funds and science legs of a
+milestone or contract row are untouched.
+`RestampInsideSeedRowsAgainstCareerStartSeed` flips every reputation-affecting row back
+out, not only KerbalDeath ones. `insideRepSeed` moved from `SerializeRepPenalty` to the
+common `GAME_ACTION` header (same key, same node, so rows written by the 2026-09-10
+build read back byte-identically); a row written before the flag existed carries no key,
+reads false and applies as before.
 
+THE LIVE-WRITE DOORS: TWO CORRECTIONS, BOTH FROM REVIEW, BOTH ABOUT THE SAME PRE-AWARD
+WINDOW. `OnKscSpending` and `OnStrategyCurrencyConversion` write rows outside a commit,
+and a milestone row reaches them BEFORE stock has paid the award. Decompiled
+`ProgressNode.Complete()` raises `OnProgressComplete` before every subclass calls
+`AwardProgressStandard` (CelestialBodyOrbit, CelestialBodyReturn, CelestialBodyLanding),
+so `GameStateRecorder.OnProgressComplete` emits `BuildMilestoneDetail(0, 0, 0)`
+(Handlers.cs:709-712) and the AwardProgressPatch postfix enriches the row in place
+afterwards (`EnrichPendingMilestoneRewards`, :905-921). `Reputation.AddReputation` has
+the same shape, raising `OnCurrencyModified` (Reputation.cs:76) before assigning `rep`
+(:109-117).
+
+FIRST CORRECTION: the doors STAMP, they never SEED. An earlier cut ensured the seed
+inside the handler; a first-capture read there is the PRE-award pool.
+`StampLiveWriteRowAgainstSeed` is read-only with respect to the seed and stamps by the
+commit path's rule - no seed yet means `NotYetCaptured`, an existing seed means
+`PreExisting` and stamps nothing - so the seed's creation point stays where it always
+was and "the seed VALUE is untouched" holds at the doors too.
+
+SECOND CORRECTION: that was not enough, because the door's own TAIL RECALC is inside the
+same window. `RecalculateAndPatchForLiveTimelineEvent` -> `RecalculateAndPatch` ->
+`RecalculateAndPatchCore` -> `SeedInitialResourceBalances` runs synchronously inside
+`OnProgressComplete`, and the refusal branch does NOT catch it: `ActionTouchesReputationBudget`
+reads `MilestoneRepAwarded != 0f` and the row carries rep=0 at that instant. On a
+mid-career first seed with `Reputation.Instance` non-null, the ensure took the live-pool
+branch on the PRE-award figure, the row stayed stamped inside, got enriched, was zeroed
+by the walk, and the reconstruction was left short by the award - persisted
+`insideRepSeed=True` and never flipped. Two guards close it:
+
+1. `OnKscSpending` defers its tail recalc ONE FRAME for a `MilestoneAchievement` row
+   only (`ShouldDeferKscRecalcOneFrame`), through the repo's one-frame defer host
+   `WarpToTimeConsumer.RunNextFrame` - the same host and the same fallback the strategy
+   door already used. Every other row on that door still recalculates inline. With no
+   frame host the recalc runs inline rather than being lost; if the defer never fires
+   (scene exit) the row still stands in the ledger and the next natural recalc picks it
+   up, with the seed simply staying uncaptured until then - an uncaptured seed patches
+   nothing, which is the safe direction.
+2. `EnsureInitialReputationSeed` refuses a LIVE-POOL read outright while any milestone
+   row still carries all-zero rewards (`CountUnenrichedMilestoneRows`), returning
+   `NotYetCaptured` with a Verbose line naming the reason. It sits ahead of the
+   Instance-null / pool-~0 deferrals so it names itself when it fires, and it only ever
+   refuses the live-pool branch - the career-start branches have already returned. That
+   covers a synchronous recalc arriving from any other producer inside the window, and
+   the no-frame-host fallback. All THREE reward fields must be zero, so a milestone that
+   pays funds but no reputation is not mistaken for a pending one.
+
+`OnStrategyCurrencyConversion` needed neither: its recalc was already deferred one frame
+for its own reason (the query has not finished applying its legs).
+
+KNOWN LIMITATION OF GUARD 2, recorded rather than filtered. `KSPAchievements.
+CelestialBodySubtree` calls `Complete()` and never `AwardProgress`, so it emits a
+milestone row whose rewards stay all-zero FOREVER, and
+`GameStateRecorder.OnProgressComplete` does not filter it out. To guard 2 such a row is
+indistinguishable from one that is still a frame away from its reward, so it reads as
+permanently pending. The consequence is bounded and is a seed VALUE difference, never a
+stuck state: on a save whose first-ever seed has not formed when a whole subtree
+completes, the live-pool read is deferred until the next reputation-carrying row arrives,
+and that row then reaches the REFUSAL branch (career start 0) instead of the live pool -
+so the career reconstructs from 0 plus its rows rather than from the live figure. Nothing
+hangs, nothing double-counts, and the career-start branches are untouched. NO FILTER IS
+ADDED: distinguishing a subtree row would mean teaching the guard which
+`KSPAchievements` types never award, a list that KSP owns and can change, to buy a seed
+value on a save shape that has never been seen - zero all-zero milestone rows exist
+across the 457 committed fixture and save files. If a real save ever shows it, the fix is
+at the RECORDER (do not emit a row for a node that awards nothing), not here.
+
+ONE PREDICATE WAS DELIBERATELY NOT WIDENED: the `InsideReputationSeed` skip inside
+`LedgerHasReputationTimelineActions` stays scoped to KerbalDeath rows. That predicate
+does not decide whether a row applies - it decides WHICH BRANCH creates the seed, so
+widening it would change the seed VALUE (and the reconstruction) on every mid-career
+save in one unflown step. Keeping it narrow is also what keeps CL-2 identical: see the
+pin answer below.
+
+CL-2's PINS DO NOT MOVE, and the answer is "its seed is never captured from the live
+pool at all". Its commit is the scene-exit auto-commit, which runs while
+`Reputation.Instance` is null, so 3c-post reads `NotYetCaptured` (measured,
+`2026-09-09_2316_CL-2-pod-impact-ledger`: `EnsureInitialReputationSeed: deferring the
+reputation seed - Reputation.Instance null`). Step 3e therefore stamps the two
+`Progression` milestone rows inside alongside the death row; the step-6 recalc still
+reaches the refusal branch (`SeedInitialReputation: refusing to treat current reputation
+as initial ...`) because that branch's skip was left narrow, seeds career start 0, and
+the generalized re-stamp flips all three rows back out. The walk lands on the same
+-7.999828 it landed on before, against the same stock-produced pool, so
+`[expectations.ledger]`'s three `stock-reputation-award` entries
+(CL-2-pod-impact-ledger.toml, the manifest entries at `seq = 2` :585, `seq = 0` :627
+and `seq = 1` :636) and its funds entry (`seq = 3` :665) are unmoved.
+Nothing in that spec pins a Parsek seed log line: the `insideRepSeed` and `re-stamped`
+strings appear only in comments (:522, :527), and `[expectations.logContracts]`'s two
+stock lines (:373-374) are KSP's own.
+
+FLOWN 2026-09-15 against head d021c2605, four armed lanes, all PASS:
+
+- `CL-4-refly-crew-standin` `2026-09-15_1722` - THE DEFECT'S OWN LANE.
+  `PatchReputation: 1.00 -> 2.00` is ABSENT, the milestone row (`rec_dee983a2...`) is
+  logged inside the seed, and `Seeded initial reputation: amount=0.999999464` is the
+  same live-pool figure `_1815` captured. The award is counted once.
+- `CL-2-pod-impact-ledger` `_1723` - the armed ledger oracle.
+  `3 row(s) stamped insideRepSeed=True ... repSeedOrigin=NotYetCaptured`, then
+  `4 reputation row(s) ... re-stamped outside`, `hardDivergences=0`, produced save
+  `rep = -7.99982834` exact. The pin prediction above is confirmed live.
+- `L5-career-contract-complete` `_1727` - the GUARDED DRAWDOWN pin is present and no
+  reputation seed line appears, so the contract door is undisturbed.
+- `L1-dismiss-kerbal-career` `_1735` - the zero-delta cross-check holds.
+
+WHAT THE FLIGHTS DID NOT WITNESS, stated plainly. The `unenriched milestone` deferral
+line and every `StampLiveWriteRowAgainstSeed` line are COUNT 0 on all four hosts: none of
+these lanes trips a KSC-scope progress milestone on a save that has no seed yet. The
+milestone deferral (`ShouldDeferKscRecalcOneFrame`) and the pre-award seed guard
+(`CountUnenrichedMilestoneRows`) are therefore HEADLESS-PROVEN ONLY - mutation-killed
+unit cells, and a test seam standing in for a MonoBehaviour defer host that cannot exist
+headless. The live witness is still owed, and the lane shape that would buy it is
+specific: a career save whose ledger carries NO `ReputationInitial` row yet, driven to
+trip a stock progress milestone from KSC scope (no live recorder, so
+`ShouldForwardDirectLedgerEvent` routes it to `OnKscSpending`), with the two lines above
+and the seed's own branch read off the collected log.
+
+RESIDUE, re-filed as its own entry: the review edge where a reputation row is already
+RECORDED in a pending uncommitted tree when the live-pool seed is captured. See
+REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER below.
+
+
+## REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER: a live-pool seed snapshot includes a reputation movement whose recording has not been committed yet, and that row is produced later against a `PreExisting` seed and applied
+
+Filed 2026-09-15, split out of
+REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS when that entry's fix
+shipped. Found in review 2026-09-10; the code comment at the live-pool branch of
+`LedgerOrchestrator.EnsureInitialReputationSeed` names it in place.
+
+The live pool is a snapshot of every stock change to date, INCLUDING flights that are
+already recorded but whose tree has not been committed. A death inside such a tree is
+inside the seeded value, yet its row - a `ReputationPenalty(KerbalDeath)`, a milestone,
+a contract outcome, any reputation-affecting type - is produced by a LATER commit that
+reads `ReputationSeedOrigin.PreExisting`, so it is stamped outside the seed and applied
+a second time. The id keeps DEATH in it because that is the shape review found it in;
+the defect is the general one. The generalized stamp does not reach it: the stamp is a
+statement about the commit that produced the row, and this row's commit genuinely
+postdates the seed. Production order is still the right discriminator; what is missing
+is the fact that the ROW's underlying event predates the capture.
+
+REACHABILITY: it needs the very FIRST seed capture in a career to coincide with a
+second pending tree that carries a death, so it is not reachable from the normal
+one-tree-at-a-time flow. Not observed in any collected flight.
+
+WHY IT WAS NOT BUILT WITH THE 2026-09-15 fix: the bounded shape considered was one
+serialized field on the `ReputationInitial` row plus one predicate. It does not fit.
+Deciding this needs the seed row to carry WHICH recordings were already recorded but
+uncommitted at capture - a list, not a flag - and building it means the orchestrator
+correlating the live pool against `RecordingStore`'s pending trees, which is an ERS/ELS
+routing question on top of a new serialized shape. Filed rather than grown.
+
+FIX SHAPE IF IT EVER EARNS THE WORK: stamp the seed row with the set of
+already-recorded-but-uncommitted recording ids at capture, and have the producer read
+that set instead of only the origin. The alternative - capturing the seed NET of known
+rows - stays rejected: CL-2-pod-impact-ledger's armed ledger oracle pins the seed value.
 
 ## ~~RF11-REWINDPOINT-QUICKSAVE-CARRIES-A-PRUNED-REWIND-SAVE-HINT: the harvest clears the rewind-to-launch hint in `persistent.sfs` and not inside the RewindPoint quicksave, so a re-fly reads it back and the analyzer FAILs~~ [FOUND 2026-09-09 by RF-11's reading runs 1 and 2. A FIXTURE / HARVEST-POLICY gap, not a product defect. FIXED 2026-09-09 in the same change]
 

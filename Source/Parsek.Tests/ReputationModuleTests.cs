@@ -675,7 +675,8 @@ namespace Parsek.Tests
             Assert.Equal(90f, module.GetRunningRep());
             Assert.Contains(logLines, l =>
                 l.Contains("[Reputation]") &&
-                l.Contains("KerbalDeath rep penalty is inside the reputation seed") &&
+                l.Contains("Reputation row is inside the reputation seed") &&
+                l.Contains("type=ReputationPenalty") &&
                 l.Contains("recording=rec_pod") &&
                 l.Contains("not re-applied"));
         }
@@ -725,11 +726,14 @@ namespace Parsek.Tests
             Assert.Equal(90f - 9.999828f, module.GetRunningRep(), 1e-4f);
         }
 
-        // The skip is source-scoped: the same hazard on other row types is a separate,
-        // pre-existing defect and must not be silently changed here. A stamped
-        // non-KerbalDeath row is therefore still applied.
+        // THE GENERALIZATION, and this cell used to assert the opposite. The skip was
+        // scoped to ReputationPenaltySource.KerbalDeath while the same hazard on every
+        // other reputation row was filed as a separate defect
+        // (REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS). It is now the
+        // row TYPE that decides, not the penalty source, so a stamped non-KerbalDeath
+        // penalty is skipped too.
         [Fact]
-        public void ProcessAction_RepPenalty_NonKerbalDeathStampedInsideSeed_StillApplies()
+        public void ProcessAction_RepPenalty_NonKerbalDeathStampedInsideSeed_IsAlsoSkipped()
         {
             module.ProcessAction(MakeSeed(90f));
 
@@ -737,8 +741,179 @@ namespace Parsek.Tests
             action.InsideReputationSeed = true;
             module.ProcessAction(action);
 
-            Assert.True(action.EffectiveRep < 0f);
-            Assert.True(module.GetRunningRep() < 90f);
+            Assert.Equal(0f, action.EffectiveRep);
+            Assert.Equal(90f, module.GetRunningRep());
+        }
+
+        // ================================================================
+        // The generalized inside-seed skip, one cell per reputation-moving row type
+        // ================================================================
+
+        // THE MEASURED SHAPE, replayed headless: 2026-09-09_1815_CL-4-refly-crew-standin.
+        // A +1 Progression milestone moved the live pool to 0.999999464, the seed was
+        // read at that value, and the walk applied the milestone row again -
+        // "PatchReputation: 1.00 -> 2.00 (target=2.00)" wrote the doubled figure straight
+        // into the career. The stamp is what keeps the walk at the live figure.
+        [Fact]
+        public void ProcessAction_Milestone_InsideLivePoolSeed_DoesNotDoubleTheAward()
+        {
+            module.ProcessAction(MakeSeed(0.999999464f));
+
+            var milestone = new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 12.5,
+                RecordingId = "rec_refly",
+                MilestoneId = "Progression",
+                MilestoneRepAwarded = 1f,
+                Effective = true,
+                InsideReputationSeed = true
+            };
+            module.ProcessAction(milestone);
+
+            Assert.Equal(0f, milestone.EffectiveRep);
+            Assert.Equal(0.999999464f, module.GetRunningRep(), 1e-6f);
+            Assert.True(module.GetRunningRep() < 1.5f,
+                "the walk must not rebuild 2.0 from a seed that already contains the +1");
+        }
+
+        // The control for the cell above: the SAME row without the stamp is what produced
+        // the measured 2.00, so the stamp - not some other change - is what fixed it.
+        [Fact]
+        public void ProcessAction_Milestone_WithoutStamp_StillDoublesTheAward()
+        {
+            module.ProcessAction(MakeSeed(0.999999464f));
+
+            var milestone = new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 12.5,
+                MilestoneId = "Progression",
+                MilestoneRepAwarded = 1f,
+                Effective = true
+            };
+            module.ProcessAction(milestone);
+
+            Assert.Equal(2.0f, module.GetRunningRep(), 1e-3f);
+        }
+
+        // A contract completion reputation leg is inside a live-pool seed for the same
+        // reason a milestone leg is. Only the REPUTATION leg is suppressed: EffectiveRep
+        // goes to zero and the funds / science fields are untouched for their own modules.
+        [Fact]
+        public void ProcessAction_ContractComplete_InsideSeed_SuppressesOnlyTheRepLeg()
+        {
+            module.ProcessAction(MakeSeed(40f));
+
+            var action = new GameAction
+            {
+                Type = GameActionType.ContractComplete,
+                UT = 300.0,
+                ContractId = "c1",
+                TransformedRepReward = 12f,
+                FundsReward = 50000f,
+                ScienceReward = 25f,
+                Effective = true,
+                InsideReputationSeed = true
+            };
+            module.ProcessAction(action);
+
+            Assert.Equal(0f, action.EffectiveRep);
+            Assert.Equal(40f, module.GetRunningRep());
+            Assert.Equal(50000f, action.FundsReward);
+            Assert.Equal(25f, action.ScienceReward);
+        }
+
+        // Contract penalties and strategy setup costs are reputation movements too.
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        [InlineData(GameActionType.StrategyActivate)]
+        [InlineData(GameActionType.ReputationEarning)]
+        public void ProcessAction_EveryRepMovingType_InsideSeed_IsSkipped(GameActionType type)
+        {
+            module.ProcessAction(MakeSeed(40f));
+
+            var action = new GameAction
+            {
+                Type = type,
+                UT = 300.0,
+                RepPenalty = 5f,
+                SetupReputationCost = 5f,
+                NominalRep = 5f,
+                RepSource = ReputationSource.Other,
+                Effective = true,
+                InsideReputationSeed = true
+            };
+            module.ProcessAction(action);
+
+            Assert.Equal(0f, action.EffectiveRep);
+            Assert.Equal(40f, module.GetRunningRep());
+        }
+
+        // KILLS: dropping the `action.EffectiveRep = 0f` assignment from the skip. Every
+        // other skip cell builds a fresh row whose EffectiveRep is already 0, so the
+        // mutant survives them all. A RE-WALK does not: the previous walk left a nonzero
+        // EffectiveRep on the row, and PostWalkActionReconciler and the earnings
+        // reconciliation both read that field, so a stale value is a reported delta
+        // nothing applied.
+        [Fact]
+        public void ProcessAction_InsideSeedRow_ClearsAStaleEffectiveRepFromAnEarlierWalk()
+        {
+            module.ProcessAction(MakeSeed(90f));
+
+            var milestone = new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 12.5,
+                MilestoneId = "Progression",
+                MilestoneRepAwarded = 1f,
+                Effective = true,
+                InsideReputationSeed = true,
+                EffectiveRep = 0.9999f // what the walk before the stamp left behind
+            };
+            module.ProcessAction(milestone);
+
+            Assert.Equal(0f, milestone.EffectiveRep);
+            Assert.Equal(90f, module.GetRunningRep());
+        }
+
+        // THE MIRROR DIRECTION, stated for the generalized rule: production order, never
+        // UT. A milestone produced on a re-fly AFTER the seed exists carries a game UT
+        // EARLIER than the seed capture UT (the rewind moved the clock back) and is not
+        // stamped, so it applies. Nothing in the module reads UT to decide this.
+        [Fact]
+        public void ProcessAction_Milestone_ProducedAfterTheSeedAtAnEarlierUT_IsApplied()
+        {
+            module.ProcessAction(MakeSeed(50f));
+
+            var milestone = new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 13.8, // earlier than the flight the seed was captured during
+                MilestoneId = "Progression",
+                MilestoneRepAwarded = 1f,
+                Effective = true,
+                InsideReputationSeed = false
+            };
+            module.ProcessAction(milestone);
+
+            Assert.True(milestone.EffectiveRep > 0f);
+            Assert.True(module.GetRunningRep() > 50f);
+        }
+
+        // The seed row itself can never be suppressed by the flag: a ReputationInitial
+        // carrying it (which nothing writes) still seeds the walk, because zeroing the
+        // baseline would wipe the career reputation entirely.
+        [Fact]
+        public void ProcessAction_ReputationInitial_IsNeverSkippedByTheFlag()
+        {
+            var seed = MakeSeed(90f);
+            seed.InsideReputationSeed = true;
+            module.ProcessAction(seed);
+
+            Assert.True(module.HasSeed);
+            Assert.Equal(90f, module.GetRunningRep());
         }
 
         // Regression guard: a non-Strategy penalty at the same high rep DOES curve, so the

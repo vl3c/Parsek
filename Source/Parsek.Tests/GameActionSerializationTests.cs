@@ -431,6 +431,50 @@ namespace Parsek.Tests
             Assert.False(GameAction.DeserializeFrom(node).InsideReputationSeed);
         }
 
+        // THE KEY IS TYPE-AGNOSTIC since the flag was generalized off ReputationPenalty.
+        // A milestone stamped inside the seed must round-trip, or a reload re-applies an
+        // award the seed already contains - the very defect the stamp exists to stop.
+        [Fact]
+        public void Milestone_InsideRepSeed_RoundTrips()
+        {
+            var original = new GameAction
+            {
+                UT = 12.5,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = "rec_refly",
+                MilestoneId = "Progression",
+                MilestoneRepAwarded = 1f,
+                InsideReputationSeed = true
+            };
+
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+            var node = parent.GetNode("GAME_ACTION");
+
+            Assert.Equal("True", node.GetValue("insideRepSeed"));
+            var loaded = GameAction.DeserializeFrom(node);
+            Assert.Equal(GameActionType.MilestoneAchievement, loaded.Type);
+            Assert.True(loaded.InsideReputationSeed);
+        }
+
+        // A row that moves no reputation never carries the key, so the sparse shape stays
+        // sparse for the overwhelming majority of the ledger.
+        [Fact]
+        public void NonReputationRow_WritesNoInsideRepSeedKey()
+        {
+            var original = new GameAction
+            {
+                UT = 12.5,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 800f
+            };
+
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+
+            Assert.Null(parent.GetNode("GAME_ACTION").GetValue("insideRepSeed"));
+        }
+
         [Fact]
         public void RepPenalty_WithoutInsideRepSeedKey_ReadsBackFalse()
         {

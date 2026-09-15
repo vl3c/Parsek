@@ -542,29 +542,42 @@ namespace Parsek
         public ReputationPenaltySource RepPenaltySource;
 
         /// <summary>
-        /// True when this <see cref="ReputationPenaltySource.KerbalDeath"/> row's
-        /// magnitude is ALREADY contained in the career's
+        /// True when this row's reputation movement is ALREADY contained in the career's
         /// <see cref="GameActionType.ReputationInitial"/> seed value, so
-        /// <c>ReputationModule.ProcessRepPenalty</c> must not subtract it a second time.
+        /// <c>ReputationModule.ProcessAction</c> must not apply it a second time.
+        ///
+        /// <para>
+        /// NOT a ReputationPenalty field. It is meaningful on every type
+        /// <see cref="ReputationSeedMembership.IsReputationAffectingRow"/> answers true
+        /// for - milestones, contract outcomes, strategy setup costs and both reputation
+        /// row types - because the seed is one absolute figure that contains whatever the
+        /// live pool had taken by the time it was read, whatever produced it. Only the
+        /// REPUTATION leg is suppressed: the funds and science modules never read it.
+        /// </para>
         ///
         /// <para>
         /// Decided ONCE, by the producer, in PRODUCTION order rather than in game UT
-        /// (<c>KerbalDeathRepPenalty.IsInsideReputationSeed</c>): a rewind moves the game
-        /// clock backwards, so "the death's UT precedes the seed's capture UT" orders
+        /// (<c>ReputationSeedMembership.IsInsideReputationSeed</c>): a rewind moves the
+        /// game clock backwards, so "the row's UT precedes the seed's capture UT" orders
         /// nothing across a re-fly. What the producer knows instead is whether the live
         /// pool the seed was, or will be, read from had already taken this hit.
         /// </para>
         ///
         /// <para>
-        /// Meaningless on every other <see cref="ReputationPenaltySource"/>; only the
-        /// KerbalDeath arm reads it. Written only when true and absent means false, so a
-        /// save from before the field existed reads as "apply", which is the old
-        /// behaviour. Additive value on an existing node: it renames no key and changes
-        /// no layout, so it is not a schema SHAPE change (.claude/CLAUDE.md, "Recording
-        /// schema") - no generation bump.
+        /// Written only when true and absent means false, so a save from before the field
+        /// existed reads as "apply", which is the old behaviour. Additive value on an
+        /// existing node: it renames no key and changes no layout, so it is not a schema
+        /// SHAPE change (.claude/CLAUDE.md, "Recording schema") - no generation bump.
         /// </para>
         /// </summary>
         public bool InsideReputationSeed;
+
+        /// <summary>
+        /// ConfigNode key for <see cref="InsideReputationSeed"/>. Written only when true;
+        /// an absent key reads false, which is the pre-field shape and the apply-as-before
+        /// behaviour.
+        /// </summary>
+        internal const string InsideReputationSeedKey = "insideRepSeed";
 
         // ---- Milestone fields ----
 
@@ -972,6 +985,17 @@ namespace Parsek
             if (Sequence != 0)
                 node.AddValue("seq", Sequence.ToString(IC));
 
+            // TYPE-AGNOSTIC ON PURPOSE. The flag applies to every reputation-affecting row
+            // (ReputationSeedMembership.IsReputationAffectingRow), not to one source of one
+            // type, so it is written and read in the common header rather than in seven
+            // type-specific serializers. The KEY AND THE NODE ARE UNCHANGED: the
+            // type-specific serializers write into this same GAME_ACTION node, so a row
+            // saved by the 2026-09-10 build that wrote it from SerializeRepPenalty reads
+            // back here byte-identically. Sparse on purpose: absent means false, which is
+            // what a pre-field save carries and what every row outside the seed is.
+            if (InsideReputationSeed)
+                node.AddValue(InsideReputationSeedKey, InsideReputationSeed.ToString());
+
             switch (Type)
             {
                 case GameActionType.ScienceEarning:
@@ -1123,6 +1147,11 @@ namespace Parsek
                 a.ActionId = ComputeLegacyActionId(a.UT, a.Type, a.RecordingId, a.Sequence);
                 Ledger.BumpLegacyActionIdMigrationCounterForTesting();
             }
+
+            // See SerializeInto: read in the common header, same key, same node.
+            string insideSeedStr = node.GetValue(InsideReputationSeedKey);
+            if (insideSeedStr != null)
+                bool.TryParse(insideSeedStr, out a.InsideReputationSeed);
 
             switch (a.Type)
             {
@@ -1526,19 +1555,12 @@ namespace Parsek
         {
             n.AddValue("nominalPenalty", NominalPenalty.ToString("R", IC));
             n.AddValue("repPenaltySource", ((int)RepPenaltySource).ToString(IC));
-            // Sparse on purpose: absent means false, which is what a pre-field save
-            // carries and what every non-KerbalDeath source is.
-            if (InsideReputationSeed)
-                n.AddValue("insideRepSeed", InsideReputationSeed.ToString());
         }
 
         private static void DeserializeRepPenalty(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "nominalPenalty", out a.NominalPenalty);
             TryParseEnum(n, "repPenaltySource", out a.RepPenaltySource);
-            string insideSeedStr = n.GetValue("insideRepSeed");
-            if (insideSeedStr != null)
-                bool.TryParse(insideSeedStr, out a.InsideReputationSeed);
         }
 
         private void SerializeKerbalAssignment(ConfigNode n)
