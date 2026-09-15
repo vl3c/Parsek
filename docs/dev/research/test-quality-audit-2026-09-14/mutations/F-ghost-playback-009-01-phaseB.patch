@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index 7ecae1403..0e46352b7 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -4081,8 +4081,7 @@ namespace Parsek
+         internal static bool ShouldRemoveStateVectorOrbitInRefreshPass(
+             Recording rec, double effUT, double altitude, double speed, string bodyName)
+         {
+-            if (IsInRelativeFrame(rec, effUT))
+-                return false;
++            // MUTANT: the Relative-frame exemption is deleted.
+             return ShouldRemoveStateVectorOrbit(altitude, speed, GetAtmosphereDepth(bodyName));
+         }
+ 
