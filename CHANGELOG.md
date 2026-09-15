@@ -171,7 +171,8 @@ _(unreleased — entries accumulate here per commit)_
   pieces of production code were lifted out so they can be called without a running
   game (the revert classification and the pending-tree dispatch on load, the
   cleanup-list clear after a rewind strip and the gate it silences, and the rewind's
-  own baseline setup), each still called from its original site, behaviour unchanged.
+  own baseline setup), each still called from its original site, behaviour unchanged
+  apart from one log line whose em dash became a plain hyphen.
   Each repair was re-checked by breaking the production line on purpose and confirming
   the cell goes red. One cell whose arithmetic was true for every input was removed;
   the ledger cutoff tests own that contract, and its one unique assertion survives as

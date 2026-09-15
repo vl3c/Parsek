@@ -10,5 +10,4 @@ index 00b958c1d..718b8d823 100644
 +                    && false)
                  {
                      // Pre-existing BP re-spliced into the loaded tree by
-                     // SpliceMissingCommittedRecordingsIntoLoadedTree â€”
-warning: in the working copy of 'Source/Parsek/SupersedeCommit.cs', LF will be replaced by CRLF the next time Git touches it
+                     // SpliceMissingCommittedRecordingsIntoLoadedTree —
