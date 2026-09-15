@@ -10,6 +10,33 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: both in-game test runner windows are now photographed in their
+  real states, and the one reachable only by Ctrl+Shift+T is reachable by the census for
+  the first time.** Two windows carry the title `Parsek - Test Runner`: the one Settings
+  opens and a separate global one the Ctrl+Shift+T shortcut owns in every scene. The
+  census had a single picture of the first (idle, which for that window means all 113
+  categories expanded) and none at all of the second, whose open flag was a private field
+  on its own MonoBehaviour. Three automation-only seam additions close that. The global
+  window becomes a twelfth window-table row, reached through its own singleton and exempt
+  from the hidden-host read-back refusal because its draw is outside the Parsek toolbar
+  surface's visibility gate. The expand op learns both windows' category folds, which
+  makes the COLLAPSED category list photographable for the first time - both windows open
+  with every fold already open, so that state existed in no capture. And a new op runs one
+  in-game test category through the runner a WINDOW owns, which is the only way a results
+  capture can be honest: each runner window builds its own test runner with its own
+  discovery, so the existing batch verb drives a third runner and leaves both windows'
+  tables reading "not run" under a label claiming results. The new lane flies seven
+  captures with a control-tree dump each over a committed career at the Space Center
+  (PASS on its first run): four states of the Settings-launched window (idle, everything
+  collapsed, one category expanded, and real results after a real one-test batch - the
+  summary line moved to `1 passed` and the category header to `1/1`) and three of the
+  global one. The dumps also measured what separates the twins: exactly three controls at
+  every state, the search bar one has and the other does not. Player-facing behaviour is
+  unchanged - the ops live behind the automation command seam, and the production edits
+  are accessors plus one window-id literal named once instead of twice. One honest
+  asymmetry found and filed rather than changed: only the global window's footer tells
+  the player that the results file auto-updates, though both windows export it.
+
 - **Developer tooling: the GUI census now produces a page that BEHAVES like
   Parsek's GUI.** `harness/tools/gui_mirror.py` turns the census artifacts into one
   self-contained HTML file in which every window is laid out from the captured

@@ -106,9 +106,9 @@ namespace Parsek.Tests
             foreach (string token in new[] { "open", "close", "tab", "complexity", "rect",
                                             "describe", "pointer", "find", "expand",
                                             "target", "picker", "dialog",
-                                            "playback", "raise", "dismiss" })
+                                            "playback", "raise", "dismiss", "run" })
                 Assert.Contains(token, listed.Split(','));
-            Assert.Equal(15, listed.Split(',').Length);
+            Assert.Equal(16, listed.Split(',').Length);
         }
 
         [Theory]
@@ -141,9 +141,13 @@ namespace Parsek.Tests
             // step AND in a capture label, so a rename or a re-order is a wire change and
             // must red here. The order is the main window's own button order so a describe
             // payload reads down the same list a reviewer sees on screen.
+            // `testrunnerglobal` is LAST and outside the button order on purpose: it is
+            // the global Ctrl+Shift+T runner, the one window the main window has no button
+            // for at all.
             Assert.Equal(
                 new[] { "main", "missions", "timeline", "kerbals", "career", "logistics",
-                        "structure", "settings", "spawncontrol", "gloops", "testrunner" },
+                        "structure", "settings", "spawncontrol", "gloops", "testrunner",
+                        "testrunnerglobal" },
                 TestCommandUiAction.Windows.Select(w => w.Name).ToArray());
         }
 
@@ -595,9 +599,20 @@ namespace Parsek.Tests
             // the write reading itself back - and for `rect` it PASSES the tolerance check,
             // because an unresolved rect still holds exactly the commanded value, which is
             // how a census ends up photographing a scene with no Parsek window in it.
+            // EVERY sub-window except `testrunnerglobal`, and that exemption is not a
+            // hole: the global Ctrl+Shift+T runner is drawn from TestRunnerShortcut's own
+            // OnGUI, so neither host's showUI is in its draw path and a settled read-back
+            // over it really does describe a frame that drew it
+            // (WindowDrawsOutsideHostShowUi; TestCommandUiCensusOpsTests owns the pair of
+            // cells that pin the exemption in both directions).
             foreach (UiWindowSpec spec in TestCommandUiAction.Windows.Skip(1))
+            {
+                if (spec.Name == TestCommandUiAction.TestRunnerGlobalWindow) continue;
                 Assert.True(TestCommandUiAction.SettleRefusedForHiddenHost(
                     spec.Name, hostShowUi: false), spec.Name);
+            }
+            Assert.False(TestCommandUiAction.SettleRefusedForHiddenHost(
+                TestCommandUiAction.TestRunnerGlobalWindow, hostShowUi: false));
         }
 
         [Fact]

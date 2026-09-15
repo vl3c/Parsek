@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Parsek.InGameTests;
 using UnityEngine;
 
 namespace Parsek.TestCommands
@@ -114,6 +115,10 @@ namespace Parsek.TestCommands
             internal bool Clamped;
             internal float MinW;
             internal float MinH;
+
+            // run
+            internal string RunCategory;
+            internal int RunTests;
 
             // pointer
             internal float PointerX;
@@ -324,6 +329,9 @@ namespace Parsek.TestCommands
                 case UiActionOp.Picker:
                     UiActionPickerOp(cmd, ui, spec);
                     return;
+                case UiActionOp.Run:
+                    UiActionRunOp(cmd, ui, spec);
+                    return;
                 default:
                     UiActionRectOp(cmd, handle, spec);
                     return;
@@ -528,6 +536,15 @@ namespace Parsek.TestCommands
             if (uiActionPending.Op == UiActionOp.Pointer)
             {
                 TryCompleteUiActionPointer(now);
+                return;
+            }
+
+            // `run` likewise. Its completion signal is a BATCH ENDING, which takes as
+            // many frames as the tests take, so counting one drawn frame would report a
+            // result while the runner was still writing one. See TryCompleteUiActionRun.
+            if (uiActionPending.Op == UiActionOp.Run)
+            {
+                TryCompleteUiActionRun(now);
                 return;
             }
 
@@ -937,6 +954,24 @@ namespace Parsek.TestCommands
                                   minW: TestRunnerUI.MinWindowWidth,
                                   minH: TestRunnerUI.MinWindowHeight,
                                   windowId: () => TestRunnerUI.WindowIdKey.GetHashCode());
+                }
+                case TestCommandUiAction.TestRunnerGlobalWindow:
+                {
+                    // The SECOND row that does not reach ParsekUI (the main window is the
+                    // other): this window belongs to the Ctrl+Shift+T MonoBehaviour, which
+                    // publishes a singleton. Null-safe rather than throwing - the addon is
+                    // Instantly+DontDestroyOnLoad like this one, so a null Instance means
+                    // the process has no shortcut object at all, and then an `open` reads
+                    // back false and terminates `window-not-toggled`, which is the honest
+                    // report. Minimums come from that class's own constants, the row rule.
+                    TestRunnerShortcut w = TestRunnerShortcut.Instance;
+                    return Handle(() => w != null && w.IsOpenForTesting,
+                                  v => { if (w != null) w.IsOpenForTesting = v; },
+                                  () => w != null ? w.WindowRectForTesting : default(Rect),
+                                  r => { if (w != null) w.WindowRectForTesting = r; },
+                                  minW: TestRunnerShortcut.MinWindowWidth,
+                                  minH: TestRunnerShortcut.MinWindowHeight,
+                                  windowId: () => TestRunnerShortcut.WindowIdKey.GetHashCode());
                 }
                 default:
                     throw new ArgumentOutOfRangeException(nameof(window), window);

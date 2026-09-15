@@ -2293,6 +2293,33 @@ and section 6.2 originally named `ShowWipeRecordingsConfirmation` alongside them
 that one entry point would raise a modal with no scene transition and no lock interaction
 at all, which makes it the obvious first dialog to photograph.
 
+## GUI-CENSUS-ONLY-THE-GLOBAL-RUNNER-TELLS-THE-PLAYER-RESULTS-ARE-AUTO-EXPORTED: the two identically titled Test Runner windows carry different footer text, and the one a player reaches from Settings is the one missing the hint [Filed 2026-09-15 off the GUI-12 dumps. Not a defect and not a fix to apply blindly: it is a WORDING gap on an existing surface]
+
+MEASURED off `2026-09-15_2057_GUI-12-census-testrunners` (the two `-collapsed-advanced`
+dumps, read as text rather than as pixels). The GLOBAL Ctrl+Shift+T window draws TWO
+footer labels under its Close button - `Results file auto-updates after each run.
+Multi-scene runs accumulate.` and `Ctrl+Shift+T to toggle from any scene`
+(`InGameTests/TestRunnerShortcut.cs`) - while the SETTINGS-launched window draws ONE,
+`Ctrl+Shift+T opens a separate runner window, in any scene` (`UI/TestRunnerUI.cs`).
+
+BOTH WINDOWS AUTO-EXPORT: the export is in `InGameTestRunner.ExportResultsFile`, called on
+every batch completion whichever runner owns the batch, which is exactly why neither window
+has a manual export button. So the window a player reaches through Settings > Diagnostics
+is the one that never says where the results went, and the window reached by a shortcut a
+player has to know about already is the one that does.
+
+WHY IT IS FILED RATHER THAN FIXED. The remedy is one line of text in an EXISTING footer,
+which the no-new-surfaces rule permits, but it is a player-facing wording change on a
+diagnostics window and belongs to whoever next touches that window's text rather than to a
+census lane. The census's own job here is done: the asymmetry now has a picture and a dump
+on both sides (`cek-testrunner-collapsed-advanced`, `cek-testrunnerglobal-collapsed-advanced`).
+
+THE OTHER MEASURED DIFFERENCE IS BY DESIGN and is NOT filed: the Settings-launched window
+has a search / filter bar and the global one does not, which is exactly 3 GUI-tree nodes
+(`Search:` label, text field, 24 px `x` button) and accounts for the whole node-count delta
+between the two windows at every state (4217 vs 4214 idle, 473 vs 470 collapsed, 479 vs 476
+with one category expanded). `design-gui-inventory.md` section 3.11 owns that table.
+
 ## GUI-MIRROR-THREE-STATES-LEAVE-A-FOLD-CLICK-AMBIGUOUS: in the GUI mirror a fold control can only be resolved where the census photographed exactly two states of that tab, so the Logistics folds flash instead of toggling
 
 FILED 2026-09-15 with the mirror (`harness/tools/gui_mirror.py`,

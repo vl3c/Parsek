@@ -181,8 +181,8 @@ allowedAnomalies = []
 # This lane's OWN seam records only, the GUI-1 discipline.
 required = [
   # --- describe echoes, in step order ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,kerbals",
   # --- the expansions. `state=` carries the direction, which is what makes the captures
   # either side of them a diff rather than two pictures of the same thing.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
