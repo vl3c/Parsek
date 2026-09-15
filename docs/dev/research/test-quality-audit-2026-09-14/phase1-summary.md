@@ -11,6 +11,8 @@ two rows missing the `->` token), and spot-checked 100% of High findings (`work/
 
 ## Totals
 
+(Counts as returned by Phase 1; Phase 2 later downgraded F-recording-tree-003-02 from Medium to Low, so the committed registers read Medium 272 / Low 489.)
+
 - Method rows: 20225 (= TRX executed-method count); ok 18922 (93.6%).
 - Verdicts: {'ok': 18922, 'duplicate': 348, 'vacuous': 258, 'source-gate-ok': 240, 'weak': 216, 'misleading': 181, 'source-gate-misplaced': 24, 'fixture-limited': 18, 'organization': 11, 'brittle': 7}
 - Findings: 768 - by severity {'Medium': 273, 'Low': 488, 'High': 7}; by category {'T1': 185, 'T3': 321, 'T6': 5, 'T4': 25, 'T2': 232}. No Critical.

@@ -2,7 +2,7 @@
 
 **Purpose.** The single explainer for Parsek's entire testing and validation stack: what the three systems are, how each works, how they compose into one pipeline, and what to build next. Written for a solo developer who cannot recruit long-career playtesters — the design goal of everything here is **maximum validated behavior per human-minute**.
 
-**Relationship to other authorities.** This document explains and directs; it does not track status. `docs/dev/autotest-status.md` remains the single status authority, `docs/dev/autotest-roadmap.md` (R1–R14) remains the committed build order for the harness track, and `docs/dev/test-coverage-audit-2026-07-29.md` (the companion audit) holds the measured current state and the ranked gap register this document's program is derived from. Where this document proposes work beyond R1–R14, it is additive and sequenced *around* that roadmap, not a replacement for it.
+**Relationship to other authorities.** This document explains and directs; it does not track status. `docs/dev/autotest-status.md` remains the single status authority, `docs/dev/autotest-roadmap.md` (R1–R14) remains the committed build order for the harness track, and `docs/dev/test-coverage-audit-2026-07-29.md` (the companion audit) holds the measured current state and the ranked gap register this document's program is derived from, and `docs/dev/test-quality-audit-2026-09-14.md` holds the xUnit-internal quality register (per-method verdicts, issue register, coverage backlog) that the Phase B test-fix workstreams derive from. Where this document proposes work beyond R1–R14, it is additive and sequenced *around* that roadmap, not a replacement for it.
 
 ---
 
@@ -215,4 +215,4 @@ Exit condition: a nightly produces a contact sheet whose every frame carries a m
 
 ---
 
-*Companion: `test-coverage-audit-2026-07-29.md` (measured state, ranked gaps). Status: `autotest-status.md`. Harness build order: `autotest-roadmap.md`.*
+*Companion: `test-coverage-audit-2026-07-29.md` (measured state, ranked gaps) and `test-quality-audit-2026-09-14.md` (xUnit-internal quality register). Status: `autotest-status.md`. Harness build order: `autotest-roadmap.md`.*
