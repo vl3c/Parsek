@@ -1210,6 +1210,105 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     one on the `recording-tree` half (the other two recording-tree method additions are renames), each carrying the mirror or positive direction the
     original cell could not reach.
 
+- `testfix-t3-d`, slice 5 (2026-09-16): the FIFTH slice of Medium T3 rows
+  (`work/phase-b-slice-medium-t3-05.txt`, 20 ids: 12 `ghost-playback`, 7 `catchall`,
+  1 `analyzer`). 17 strengthened, 2 renamed and strengthened, 1 deleted, 0 deferred, 0
+  premise-wrong. Each row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  that `git apply --check`s against a clean tree.
+  - Given the production term the name claims (8): F-catchall-010-02 is the DELETION - its
+    second rollout emission sat 200 s outside the 60 s duplicate window, so the window
+    check alone kept the write and the cell was a copy of
+    `OnVesselRolloutSpending_OutsideDuplicateWindow_BothKept` with an inert adoption; the
+    twin `OnVesselRolloutSpending_AdoptedRowDoesNotBlockRelaunchWrite` (relaunch INSIDE the
+    window) is the only cell that reds when both adopted-row exclusions are deleted, across
+    all four classes that reach the rollout path. Note which exclusion decides: adoption
+    NULLS the row's `DedupKey`, so the `IsNullOrEmpty(a.DedupKey)` skip is load-bearing and
+    the `RecordingId` skip alone is equivalent.
+    F-analyzer-003-01 (renamed
+    `CorePurity_AllRules_NullSaveDirectory_DoNotThrow_AndProbeNoSaveFiles`: the model now
+    carries `RewindSaveFileName` with a NULL `SaveDirectory` and the report must be EMPTY,
+    since `Record.Exception == null` is also satisfied by a rule that reads a real file and
+    succeeds. The name says no SAVE files because `Inv10CodecRoundtrip` round-trips through
+    a temp file by design);
+    F-catchall-018-01 (renamed
+    `AlignedLoop_NeverHasSecondary_AndRegionBStillFlipsThePrimaryToNextInstance`: the sweep
+    read only `HasSecondary`, which the region-B cycle bump leaves untouched, so the cell
+    now probes inside the borrow window and pins `CycleIndex == N+1` and the fresh-launch
+    `LoopUT`. Cycle 3's advance is 0 on that fixture, so the window loop stops at N=1);
+    F-catchall-044-01 (the repro's own 2.42 m clearance and 285.52 m floor as literals - the
+    old expectation was `283.1 + clearance`, computed from the very call under test. The ramp
+    itself stays with `Bug156Tests.ComputeTerrainClearance_*`);
+    F-catchall-046-01 (the landing-only control's rotation assertions moved out of
+    `if (unit.ArrivalHoldSeconds > 0.0)` and the hold is asserted unconditionally - the one
+    regression the control exists to catch used to skip them);
+    F-ghost-playback-008-01 (all seven `TerminalFilter_` / `DebrisFilter_` cells now call
+    `ShouldCreateTrackingStationGhost` and assert the `(shouldCreate, skipReason)` pair. The
+    mutant has to open BOTH `IsTerminalStateEligibleForMapPresence` and
+    `IsTerminalStateEligibleForTerminalOrbitMapPresence`: Destroyed and Landed are refused by
+    the first, SubOrbital only by the second, so either alone leaves the reason string
+    unchanged);
+    F-ghost-playback-011-02 (the ready arm plus the three remaining deferral inputs - only
+    the false arm was pinned and nothing else calls `CanRestoreMapFocus`);
+    F-ghost-playback-015-02 (the trace cursors and completed-event set are seeded, asserted
+    present, and asserted gone after `Reset()`);
+    F-ghost-playback-018-02 (the debris mirror: `IPlaybackTrajectory.LoopPlayback` is
+    `!IsDebris && LoopPlayback`, and no cell cast a debris recording to the interface).
+  - Re-aimed at a production caller through a behaviour-identical extraction (5 rows, 4
+    helpers): F-catchall-040-01 (`ParsekFlight.NeedsPostSwitchModuleCacheRefresh` - two of
+    the Theory's five parameters never reached production because the cell recomputed the
+    invalidation itself);
+    F-ghost-playback-009-01 (`GhostMapPresence.ShouldRemoveStateVectorOrbitInRefreshPass` -
+    the cell was a two-fact tripwire whose facts were never joined; the atmosphere lookup
+    stays confined to the non-Relative arm, so the call site is byte-identical);
+    F-ghost-playback-013-01 (`GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees` - the
+    cell was handed the post-negation value, so the caller-side minus never ran AND the
+    `-10` it passed was the opposite sign of a real heading rate; the mirror direction is
+    asserted so dropping both negations cannot pass);
+    F-ghost-playback-016-01 and -016-02
+    (`GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap` - no xUnit `AudioGhostInfo`
+    can carry a Unity `AudioSource`, so the null-source early return fired first and both
+    `enforceCount` assertions were satisfied without the cap flag ever being read. That
+    early return did nothing but skip the cap, so folding it into the gate is
+    byte-identical. -016-01 is renamed to the paused-tracking claim with its inert override
+    injection dropped; -016-02 is renamed to the power batch driving the post-batch
+    selection, with the seam-routing assertion kept and labelled as one).
+    `GhostPlaybackEngine.CountFxForObservability` / `CountModulesAndParticleSystems` were
+    widened private -> internal for F-ghost-playback-003-01, whose cell asserted twelve
+    zeros that the headless `HasLoadedGhostVisuals` gate produces on its own; it is renamed
+    to that gate, and two new cells drive the counting arithmetic, accumulation across
+    ghosts, and the null / empty maps.
+  - Moved to a source gate because no runtime cell can see the claim (3):
+    F-catchall-024-01 (`ComputeForwardStopUT` is pure and takes its list as a parameter, so
+    no argument of it can witness WHICH list the renderer supplies; renamed to the geometry
+    claim, and a gate over the method hosting the `ComputeForwardWindow` call asserts
+    `windowSegs` is assembled only from the coalesced effective scratch lists fed by
+    `ResolveEffectiveMapOrbitSegments`);
+    F-catchall-039-03 (renamed `AutoCommit_EndState_TreeCommittedAndResourceIndexAdvanced`;
+    the commit-then-mark ORDER is a gate over `CommitPendingTreeAsApplied`'s body, because
+    `MarkTreeAsApplied` advances the indexes on the tree OBJECT the caller passes and the
+    end state is identical under the swap);
+    F-ghost-playback-025-01 (renamed
+    `ExitWatchModeBeforeTimelineGhostCleanup_WhenWatching_DetachesThenExitsSkippingCameraRestore`;
+    the ordering half compared the helper's log against a destroy line the TEST wrote right
+    after the call, so the real call-site order is now a gate over
+    `DestroyAllTimelineGhosts`).
+  - F-ghost-playback-007-01 is renamed
+    `SeamBridge_AngleBandRouting_MeetsConicChordAndMergeSlice`, with every measured playtest
+    geometry routed through `ClassifySeamBridgeByAngle`. Its messages had called the 4.59 deg
+    near-meet a SKIP, which production does not do - (0.5 deg, 5 deg] routes to `Chord`. The
+    mutant is aimed at `SeamBridgeAngleRad` rather than the classifier, because
+    `ClassifySeamBridgeByAngle_FourBands` already pins all four bands and all three
+    boundaries from raw radians; what this cell uniquely owns is the geometry-to-band
+    pipeline.
+  - F-ghost-playback-004-01 closes the slice: the launch-alignment sweep's in-span bound sat
+    inside `if (resolved)`, so a resolver that stopped resolving ran the body zero times. It
+    now counts swept and resolved steps and requires every step to resolve. The mutant is
+    deliberately PARTIAL (inert only past the third cycle): a resolver inert everywhere also
+    reds the two sibling cells that assert `resolved` at currentUT 2100 and 3000, so only the
+    swept-count assertion can see a regression confined to later cycles.
+
+
 - `testfix-t1t2`, eighth PR (2026-09-16): the THIRD slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-03.txt`, 20 ids, all `ledger-career`). Each fixed row
   has a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv`
