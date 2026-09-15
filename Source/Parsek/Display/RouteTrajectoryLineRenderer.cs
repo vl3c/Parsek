@@ -34,11 +34,13 @@ namespace Parsek.Display
     /// draw) and the LEG SPANS whose mesh it currently has on screen
     /// (<see cref="GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan"/>, which also covers
     /// the forward RUN legs of chain members - the population a route member run expands into).
-    /// Ownership stands a whole group down (<see cref="ShouldSkipGroupAsGhostDrawn"/> - it carries no
-    /// span); the paint arm stands down ONE LEG at a time
-    /// (<see cref="ShouldSkipLegAsGhostPainted"/>), so a member the ghost paints only partly still
-    /// draws its unpainted legs. The leg the animated ghost is on is drawn once (by the ghost) and
-    /// the rest of the route path is drawn statically here.
+    /// BOTH arms stand down ONE LEG at a time: the ownership arm asks
+    /// <see cref="ShouldSkipGroupAsGhostDrawn"/> whether the ghost owns the member's phase at all and
+    /// then <see cref="ShouldSkipLegAsGhostOwned"/> whether the owning draw's published span reaches
+    /// this leg, the paint arm asks <see cref="ShouldSkipLegAsGhostPainted"/> - so a member the ghost
+    /// is only partly drawing or painting still draws the rest of its legs. The leg the animated
+    /// ghost is on is drawn once (by the ghost) and the rest of the route path is drawn statically
+    /// here.
     /// </para>
     ///
     /// <para>
@@ -684,13 +686,16 @@ namespace Parsek.Display
         /// double-draw); an empty id cannot be arbitrated and draws, as it did before the expansion
         /// existed.
         ///
-        /// <para>THE OWNERSHIP ARM IS THE COARSE ONE AND IT STAYS GROUP-LEVEL, deliberately.
-        /// <c>drewNonOrbitalLegRecordings</c> remains the SOLE ownership source (Appendix A), it is
-        /// published only on the ghost's CURRENT-element draw, and it carries NO UT span - it answers
-        /// "is the polyline the owner of this recording's non-orbital PHASE" - so there is nothing to
-        /// arbitrate per leg with. This is also the shipped M6 v1 behaviour H59's armed census pinned
-        /// (<c>skippedOwned=1</c> on a one-leg member). The PAINT arm, which does carry spans, is per
-        /// leg: <see cref="ShouldSkipLegAsGhostPainted"/>.</para>
+        /// <para>THIS IS THE MEMBER-LEVEL PRECONDITION OF THE OWNERSHIP ARM, NOT THE WHOLE ARM.
+        /// <c>drewNonOrbitalLegRecordings</c> remains the SOLE ownership source (Appendix A) and this
+        /// still asks it the only question it answers - "is the polyline the owner of this recording's
+        /// non-orbital PHASE" - which is also the cheap early-out that keeps the per-leg span lookup off
+        /// the hot path for every member the ghost is not on. The per-LEG half is
+        /// <see cref="ShouldSkipLegAsGhostOwned"/>: the owning draw now publishes its recorded span at
+        /// the same feeder, so a member the ghost is FLYING keeps the legs that draw does not cover
+        /// (ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER). On a ONE-LEG member the two granularities
+        /// agree and the arm still reads <c>skippedOwned=1</c> - the shipped M6 v1 behaviour H59's armed
+        /// census pinned. The PAINT arm is <see cref="ShouldSkipLegAsGhostPainted"/>.</para>
         /// </summary>
         internal static bool ShouldSkipGroupAsGhostDrawn(
             RouteMemberLegs group, Func<string, bool> ghostDrawsRecording)
@@ -737,9 +742,37 @@ namespace Parsek.Display
             return ghostPaintsSpan(memberRecordingId, legStartUT, legEndUT);
         }
 
+        /// <summary>
+        /// PURE per-LEG no-double-draw arbitration on the OWNERSHIP arm: stand this ONE leg down when
+        /// the ghost polyline's OWNING draw covers the leg's own recorded span. Same shape and same
+        /// overlap rule as <see cref="ShouldSkipLegAsGhostPainted"/> - the shared predicate is
+        /// <c>GhostTrajectoryPolylineRenderer.LegSpansOverlap</c>, applied inside the live probe.
+        ///
+        /// <para>WHY IT IS NOT GROUP-LEVEL ANY MORE: the ownership publish carried no span, so a member
+        /// the ghost was FLYING had ALL of its legs stood down - including the ones the ghost's mesh
+        /// never reached - which is the same hole the paint arm closed, on the other population
+        /// (ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER). The owning draw now publishes the leg span
+        /// it covers at the one existing feeder, so the arm can ask the per-leg question. What did NOT
+        /// change: the ownership SET is still the sole ownership source and still answers the whole
+        /// phase question for <c>GhostMapPresence</c>.</para>
+        ///
+        /// <para>Gated behind <see cref="ShouldSkipGroupAsGhostDrawn"/> at the call site: a member the
+        /// ghost does not own at all never reaches the span lookup.</para>
+        /// </summary>
+        internal static bool ShouldSkipLegAsGhostOwned(
+            string memberRecordingId, double legStartUT, double legEndUT,
+            Func<string, double, double, bool> ghostOwnsSpan)
+        {
+            if (ghostOwnsSpan == null) return false;
+            if (string.IsNullOrEmpty(memberRecordingId)) return false;
+            return ghostOwnsSpan(memberRecordingId, legStartUT, legEndUT);
+        }
+
         // Cached delegates (allocated once) so the arbitration never allocates a closure on the map
         // onPreCull hot path.
         private static readonly Func<string, bool> ghostOwnsProbe = GhostOwnsRecording;
+        private static readonly Func<string, double, double, bool> ghostOwnsSpanProbe =
+            GhostOwnsRecordingSpan;
         private static readonly Func<string, double, double, bool> ghostPaintsSpanProbe =
             GhostPaintsRecordingSpan;
 
@@ -749,6 +782,15 @@ namespace Parsek.Display
         /// </summary>
         private static bool GhostOwnsRecording(string recordingId)
             => GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recordingId);
+
+        /// <summary>
+        /// The live half of <see cref="ShouldSkipLegAsGhostOwned"/>: the ghost polyline owns this
+        /// recording's phase AND the owning draw's published span overlaps the leg's span.
+        /// </summary>
+        private static bool GhostOwnsRecordingSpan(
+            string recordingId, double legStartUT, double legEndUT)
+            => GhostTrajectoryPolylineRenderer.IsOwningNonOrbitalLegSpan(
+                recordingId, legStartUT, legEndUT);
 
         /// <summary>
         /// The live half of <see cref="ShouldSkipLegAsGhostPainted"/>: the ghost polyline has a VISIBLE
@@ -807,25 +849,41 @@ namespace Parsek.Display
                         RouteMemberLegs group = set.groups[g];
                         if (group.legs == null || group.legs.Length == 0) continue;
 
-                        // No-double-draw, OWNERSHIP arm: per GROUP recording id, because ownership
-                        // carries no UT span (ShouldSkipGroupAsGhostDrawn / ghostOwnsProbe). Counted in
-                        // LEGS, like the paint arm below, so skippedOwned means one thing.
-                        if (ShouldSkipGroupAsGhostDrawn(group, ghostOwnsProbe))
-                        {
-                            skippedOwned += group.legs.Length;
-                            ownedLegs += group.legs.Length;
-                            // M-A7: the deferral is a RATIFIED skip (the ghost has this member's leg
-                            // this frame); aggregated per (route, member) by the recorder.
-                            Parsek.MapRender.RenderCompositionRecorder.NoteRouteLegDeferred(
-                                route.Id, group.memberRecordingId);
-                            continue;
-                        }
+                        // No-double-draw, OWNERSHIP arm, member-level PRECONDITION: does the ghost own
+                        // this recording's non-orbital phase at all this frame
+                        // (ShouldSkipGroupAsGhostDrawn / ghostOwnsProbe)? The per-LEG half runs inside
+                        // the leg loop below against the owning draw's published span, so a member the
+                        // ghost is FLYING keeps the legs that draw does not cover. Both arms count in
+                        // LEGS, so skippedOwned means one thing.
+                        bool memberOwned = ShouldSkipGroupAsGhostDrawn(group, ghostOwnsProbe);
 
                         LegPolyline[] legs = group.legs; // array ref shared with the cached set
                         string keyBase = "route:" + route.Id + ":" + group.memberRecordingId;
+                        bool notedOwnedDefer = false;
                         bool notedPaintDefer = false;
                         for (int i = 0; i < legs.Length; i++)
                         {
+                            // No-double-draw, OWNERSHIP arm, per LEG: the owning draw's span overlaps
+                            // this leg's own recorded span.
+                            if (memberOwned && ShouldSkipLegAsGhostOwned(
+                                    group.memberRecordingId, legs[i].startUT, legs[i].endUT,
+                                    ghostOwnsSpanProbe))
+                            {
+                                skippedOwned++;
+                                ownedLegs++;
+                                // M-A7: the deferral is a RATIFIED skip (the ghost has this member's
+                                // leg this frame); ONE record per (route, member) per frame, because
+                                // the manifest census counts members deferred, not legs - the same
+                                // rule the paint arm below follows.
+                                if (!notedOwnedDefer)
+                                {
+                                    notedOwnedDefer = true;
+                                    Parsek.MapRender.RenderCompositionRecorder.NoteRouteLegDeferred(
+                                        route.Id, group.memberRecordingId);
+                                }
+                                continue;
+                            }
+
                             // No-double-draw, PAINT arm: per LEG, because the ghost's visible mesh
                             // covers spans, not members. A member the ghost paints only partly keeps
                             // drawing the legs it does not cover (re-review F1).

@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair): 35 verbs. The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair): 38 verbs. The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -230,6 +230,46 @@ namespace Parsek.TestCommands
             //   the other structure, they are driven as a PAIR under one label, and a
             //   census reader needs to know which artefact a step produced.
             "DumpGuiTree",
+            // The Gloops pair. ADDITIVE (36 -> 38 implemented, reserved unchanged at 5):
+            // the reserved envelope never carried a ghost-only-recorder verb, so neither
+            // is a promotion. They exist because the Gloops recorder is the ONLY producer
+            // in Parsek for two coverage cells, and nothing unattended could reach it -
+            // its three buttons live in one window whose open flag is only ever written by
+            // a player click.
+            //   D1 `manual-gloops` is the MANUAL, career-invisible recorder lifecycle,
+            //     which is emphatically not what StartRecording drives: that one owns the
+            //     auto-record tree that commits into the career, while this one runs a
+            //     PARALLEL FlightRecorder whose take is committed IsGhostOnly with looping
+            //     off. Two mechanisms, two verbs - folding them into one would make the
+            //     wire token ambiguous about which recorder a spec exercised, the argument
+            //     that kept InvokeRewindToLaunch separate from InvokeRewind.
+            //   D1 `sub-2-point-drop` is a finalized recording with fewer than two
+            //     trajectory points, which RecordingStore.CreateRecordingFromFlightData
+            //     refuses to build. The Gloops stop is the only seam VERB whose SUBJECT is
+            //     that drop - deliberately not "the only producer", re-derived from the full
+            //     caller set rather than assumed (todo
+            //     D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): in always-tree mode a tree
+            //     commit never passes through that factory at all (it appends through
+            //     TryAppendCapturedToTree, which KEEPS a 1-point recording), the remaining
+            //     split-edge callers are abnormal aborts no seam verb can provoke on demand,
+            //     and the dock/undock chain-segment path IS live and reaches the same
+            //     factory (ParsekFlight.HandleDockUndockCommitRestart ->
+            //     ChainSegmentManager.CommitDockUndockSegment -> CommitSegmentCore), with no
+            //     always-tree guard on that chain - it just logs its own "segment too short"
+            //     rather than the Gloops Warn a lane gates.
+            // BOTH SINGLE-PHASE, and neither is a borderline call: the recorder attaches
+            // to the physics-frame patch INSIDE FlightRecorder.StartRecording, and the
+            // stop half stops / builds / commits / nulls inside one synchronous call, so
+            // each read-back is a final answer rather than a value written a frame ago
+            // (the SimulateStockSwitchClick / map-view row). What a later frame changes is
+            // the POINT COUNT, which is a property of the flight between the two verbs and
+            // therefore the spec's business, not a completion criterion.
+            // NO Discard / Preview sibling: the gap is the lifecycle and the drop, both of
+            // which live on start/stop, and a verb per button would be a wider surface
+            // than the gap. No Gloops product code is touched by either - they call the
+            // same two internal ParsekFlight members the window's primary button calls.
+            "GloopsStart",
+            "GloopsStop",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.

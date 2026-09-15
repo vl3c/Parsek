@@ -105,14 +105,11 @@ namespace Parsek.Tests
         }
 
         // xUnit runs from Source/Parsek.Tests/bin/Debug/net472/, so five `..` segments
-        // reach the repo root and a sixth reaches the umbrella folder that holds the
-        // sibling worktrees.
+        // reach the repo root.
         private static readonly string[] FixtureCandidates =
         {
             Path.Combine("..", "..", "..", "..", "..",
                 "harness", "fixtures", "saves", "refly-a-recorded"),
-            Path.Combine("..", "..", "..", "..", "..", "..",
-                "Parsek-refly-lanes", "harness", "fixtures", "saves", "refly-a-recorded"),
         };
 
         private static string ResolveFixtureDir()
