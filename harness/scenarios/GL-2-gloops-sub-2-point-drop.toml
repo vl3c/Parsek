@@ -1,0 +1,143 @@
+schema = 1
+id = "GL-2-gloops-sub-2-point-drop"
+tier = "operator"
+# The SUB-2-POINT DROP, made the subject of a lane instead of an accident tolerated by
+# two others. RecordingStore.CreateRecordingFromFlightData refuses to build a Recording
+# from fewer than two trajectory points; ParsekFlight.CommitGloopsRecorderData then
+# warns `StopGloopsRecording: not enough points (< 2)`, nulls the recorder and tells the
+# player the take was too short. That refusal is D1 `sub-2-point-drop`, and until the
+# GloopsStart / GloopsStop pair landed NO SEAM VERB HAD IT AS A SUBJECT.
+#
+# WHY GLOOPS AND NOT ONE OF THE RECORDER LANES, re-derived from the FULL caller set rather
+# than assumed (todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): in always-tree mode a
+# tree commit NEVER passes through CreateRecordingFromFlightData - it appends through
+# TryAppendCapturedToTree, which KEEPS a 1-point recording - so no StartRecording lane can
+# produce this drop however short its take.
+# THE FACTORY HAS THREE OTHER CALLER GROUPS AND ONE OF THEM IS LIVE, which is why this
+# lane claims to be the only seam VERB whose SUBJECT is the drop rather than the only
+# producer of it: the Gloops commit (this lane), a set of abnormal split-edge aborts no
+# seam verb can provoke on demand, and the DOCK/UNDOCK CHAIN-SEGMENT PATH -
+# ParsekFlight.HandleDockUndockCommitRestart (all four branches: dock initiator, dock
+# target, undock stay, undock switch) -> ChainSegmentManager.CommitDockUndockSegment ->
+# CommitSegmentCore -> the factory, with no always-tree guard anywhere on that chain. A
+# docking lane could therefore hit the same refusal incidentally; it would log
+# CommitSegmentCore's own Verbose "segment too short", NOT the Warn this lane gates, so
+# the two are distinguishable in a log and this lane's tokens stay specific to Gloops.
+# TWO STALE COMMENTS ARE CORRECTED IN THE SAME CHANGE: S0.5 and S0.6 each attributed a
+# possible count to "the stationary-pod sub-2-point-drop", wording that predates
+# always-tree mode and describes a path their own commits no longer take.
+#
+# WHY THIS IS DETERMINISTIC RATHER THAN A RACE, which is the whole difference from those
+# two. Points are sampled on the physics frame, and a motionless PRELAUNCH pod crosses
+# no velocity or heading threshold, so the ONLY thing that produces a sample is the
+# density preset's MAX interval. This lane pins samplingDensity=0 - Low, an 8.0 s max
+# interval (ParsekSettings.GetMaxSampleInterval) - and then puts the stop step
+# IMMEDIATELY after the start, one channel round trip later, which run.py's 0.25 s poll
+# bounds well under a second. One sample lands, the second never comes due, the commit
+# refuses. S0.5 / S0.6 left the same outcome to the 3.0 s Medium default and a shorter
+# gap, which is why they could only TOLERATE it.
+#
+# THE READING RUN FLEW 2026-09-15 (`2026-09-15_1621_GL-2-gloops-sub-2-point-drop`, PASS
+# attempt 1, 63 s, mismatches=0, recordings=0) AND ANSWERED BOTH OPEN QUESTIONS.
+# (1) THE VALIDATOR ROW IS CLEAN: `verify logValidate status=PASS recRulesSuppressed=True
+# killedRunMode=False`. The designed refusal Warn does NOT read as an unexpected one, so
+# nothing about this lane needs a suppression and none is added - which is the outcome the
+# cannot-mask guarantee wanted, since suppressing a WRN is refused by ParseSuppressionList
+# anyway.
+# (2) THE TAKE LANDED ON EXACTLY ONE POINT, so the drop line is pinned WHOLE below with
+# its `points=1` literal rather than left as a prefix. The log's own bytes:
+#   [Parsek][INFO][Flight] Gloops recording started: vessel=mk1-capsule, pid=2871960053, ghostSnap=True
+#   [Parsek][INFO][TestCommands] gloopsstart started=true vessel=mk1-capsule
+#   [Parsek][WARN][Flight] StopGloopsRecording: not enough points (< 2)
+#   [Parsek][INFO][TestCommands] gloopsstop committed=false points=1 dropped=too-short
+# The refusal Warn and the drop line are 1.0 ms apart, the production refusal preceding the
+# verb's honest report of it - the two-witness shape the block below was written for.
+description = "Gloops start/stop with no dwell at Low sampling density: a genuine sub-2-point take, and the production < 2 commit refusal gated."
+instanceProfile = "stock-minimal"
+tags = ["recording", "gloops", "ghost-only", "drop", "D1"]
+
+[fixture]
+# The gloops-airshow SANDBOX save (see GL-1): one pure-stock mk1 pod on the KSC pad,
+# PRELAUNCH, body=Kerbin, active and unpacked the moment LoadGame settles - which is
+# what makes "motionless" a property of the fixture rather than a hope.
+# injectedRecordings="none": the store starts EMPTY, so the drop assertion below is
+# `nothing was added`, with nothing to subtract it from.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Step notes:
+#   autoRecordOnLaunch=false pins the AUTO recorder off. Load-bearing here in a way it
+#     is not in GL-1: an auto-record tree committing on its own would put a row in the
+#     store and break the `count stays 0` half of the assertion, which would read as a
+#     failed drop rather than as the unrelated recorder it is.
+#   samplingDensity=0 is Low (8.0 s max sample interval). The determinism knob - see the
+#     header. The MIRROR of GL-1, which pins High for the opposite reason.
+#   GloopsStart -> GloopsStop are ADJACENT on purpose. No dwell, no inert probes between
+#     them: every step inserted there is another chance for the 8 s interval to come due
+#     and turn the subject into GL-1's.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "samplingDensity", value = "0" },        expect = "OK" },
+  { cmd = "GloopsStart",                                                             expect = "OK" },
+  { cmd = "GloopsStop",                                                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST. `sub-2-point-drop` is the subject. `manual-gloops` is claimed ALONGSIDE it and
+# is not double-counting: the lane really does drive the manual ghost-only recorder's
+# start and stop, which is that cell's whole content - the two values sit on different
+# axes (WHICH recorder ran vs WHAT its commit decided), exactly as the registry's own
+# note on commit-in-foreign-soi / commit-scene-exit describes.
+# The run is SANDBOX / FLIGHT / Kerbin (D14). No D16 token: the point of the lane is
+# that NO sidecar is written.
+D1  = ["manual-gloops", "sub-2-point-drop"]
+D14 = ["sandbox", "scene-flight", "kerbin"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see GL-1).
+allowedAnomalies = []
+
+[expectations.recordings]
+# EXACTLY zero, both bounds. The store started empty, the auto recorder is off, and the
+# only take this lane produced was refused - so any row at all means either the drop did
+# not happen or something else recorded, and both deserve to red.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# THE GATE, and it is the production line rather than the seam's report of it:
+# ParsekFlight.CommitGloopsRecorderData's own Warn. It is written by the ParsekFlight
+# CALLER after the factory returns null, so it covers BOTH of the factory's refusals -
+# the raw < 2 test and the post-trim one - which matters on a pad pod whose points are
+# all stationary. The seam terminal `gloopsstop committed=false` is required beside it as
+# the independent witness: one says the product refused, the other says the verb reported
+# that refusal honestly, and a regression that committed a one-point take breaks both.
+# `dropped=too-short` is a LOG token, not only a payload key: logContracts are regexes
+# over KSP.log and the response file is not scanned, so the applier prints it on the drop
+# branch of its own Info line. Gating a payload-only key would have been vacuous.
+# PINNED WHOLE 2026-09-15 off the reading run named in the header: the start line carries
+# the fixture pod's baked pid (deterministic, not run-local) and the drop line carries
+# `points=1`, the measured count, so `committed=false points=1 dropped=too-short` is now
+# one literal token rather than two loose prefixes.
+required  = [
+  "Gloops recording started: vessel=mk1-capsule, pid=2871960053, ghostSnap=True",
+  "gloopsstart started=true vessel=mk1-capsule",
+  "StopGloopsRecording: not enough points \\(< 2\\)",
+  "gloopsstop committed=false points=1 dropped=too-short",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 600 >= 300 LoadGame (the only deferred step, under the
+# 540 deferred cap) + four fast single-phase verbs + KSP boot + margin.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

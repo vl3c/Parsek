@@ -119,6 +119,38 @@ namespace Parsek.Display
         private static readonly HashSet<string> drewNonOrbitalLegRecordings =
             new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>The recorded UT span the OWNING draw covers this frame: the union of the PRIMARY
+        /// head's drawn legs. The unit of <see cref="drewNonOrbitalLegSpans"/>.</summary>
+        internal struct OwnedLegSpan
+        {
+            public double startUT;
+            public double endUT;
+        }
+
+        /// <summary>
+        /// The OWNING leg's recorded UT span, published at the SAME site and on the SAME frame
+        /// lifecycle as <see cref="drewNonOrbitalLegRecordings"/> (one feeder, the per-recording
+        /// <c>if (anyDrawn)</c> block; cleared with it at the top of every <c>LateUpdate</c> and in
+        /// <see cref="Clear"/>). It does NOT widen the ownership question and it is NOT a second
+        /// ownership source: membership of the id set is still the whole answer to "is the polyline the
+        /// owner of this recording's non-orbital PHASE", which is what <c>GhostMapPresence</c> asks to
+        /// hide a proto orbit line and what <see cref="IsRenderingNonOrbitalLeg"/> returns, unchanged.
+        ///
+        /// <para>WHAT IT IS FOR: the route overview line's OWNERSHIP arm used to stand a member's WHOLE
+        /// recorded path down because it had no span to arbitrate with, so a multi-leg member whose one
+        /// leg the ghost was flying lost every other leg too - a hole in the overview exactly where it
+        /// is the only producer (ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER). With the span the arm
+        /// stands a leg down only when the owned span overlaps that leg's own recorded span, through
+        /// the same <see cref="LegSpansOverlap"/> rule the PAINT arm uses.</para>
+        ///
+        /// <para>THE UNION OF THE PRIMARY'S DRAWN LEGS, not a single leg: the leg windows are disjoint
+        /// so in practice this is one leg, and taking the union keeps the span honest if a head ever
+        /// lands inside two. The boundary-overlap SECONDARY head's legs are excluded, exactly as they
+        /// are excluded from the ownership publish itself (the primary owns the publish).</para>
+        /// </summary>
+        private static readonly Dictionary<string, OwnedLegSpan> drewNonOrbitalLegSpans =
+            new Dictionary<string, OwnedLegSpan>(StringComparer.Ordinal);
+
         /// <summary>One VISIBLE ghost leg mesh: which leg of the cached set it is, and the recorded UT
         /// span its points cover. The unit of <see cref="paintedLegSpans"/>.</summary>
         internal struct PaintedLegSpan
@@ -521,6 +553,60 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE per-LEG ownership dispatch: this recording is OWNED by the polyline this frame
+        /// (<paramref name="owned"/> - the same membership bit
+        /// <see cref="ResolveNonOrbitalLegOwnership"/> answers, unchanged), AND the owning draw's
+        /// published span overlaps the leg being arbitrated.
+        ///
+        /// <para>FAIL-CLOSED when the span is missing (<paramref name="haveSpan"/> false): the leg
+        /// stands down, i.e. the shipped whole-member v1 behaviour. Ownership and span are published
+        /// together at one feeder so this cannot happen in play, and if it ever did, the safe direction
+        /// is the one that cannot put a second identical line over a live ghost mesh.</para>
+        ///
+        /// <para>The overlap itself is <see cref="LegSpansOverlap"/> - the SAME predicate the PAINT arm
+        /// uses, so the two arms cannot drift apart on endpoint handling. Unit-testable without
+        /// Unity.</para>
+        /// </summary>
+        internal static bool ResolveOwnedLegOverlap(
+            bool owned, bool haveSpan,
+            double ownedStartUT, double ownedEndUT, double legStartUT, double legEndUT)
+        {
+            if (!owned) return false;
+            if (!haveSpan) return true;
+            return LegSpansOverlap(ownedStartUT, ownedEndUT, legStartUT, legEndUT);
+        }
+
+        /// <summary>
+        /// True when the polyline OWNS this recording's non-orbital phase this frame AND the owning
+        /// draw's recorded span overlaps [<paramref name="legStartUT"/>, <paramref name="legEndUT"/>].
+        /// Read by <see cref="RouteTrajectoryLineRenderer"/>'s OWNERSHIP arm so a member the ghost is
+        /// FLYING keeps the legs the ghost's draw does not cover. Ownership itself
+        /// (<see cref="IsRenderingNonOrbitalLeg"/>, the proto orbit-line hide) is untouched by this.
+        /// </summary>
+        internal static bool IsOwningNonOrbitalLegSpan(
+            string recordingId, double legStartUT, double legEndUT)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            bool owned = drewNonOrbitalLegRecordings.Contains(recordingId);
+            OwnedLegSpan span = default(OwnedLegSpan);
+            bool haveSpan = owned && drewNonOrbitalLegSpans.TryGetValue(recordingId, out span);
+            if (owned && !haveSpan)
+            {
+                // Guard skip: owned without a span is a broken publish contract (the feeder writes
+                // both). Designed refusal, so Info rather than Warn; keyed per recording so a genuine
+                // break prints at once and a repeat does not flood the map onPreCull pass.
+                ParsekLog.InfoRateLimited(Tag, "polyline-owned-span-missing." + recordingId,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Polyline owned-span missing: rec={0} leg=[{1:F1},{2:F1}] "
+                        + "standing the leg down whole (v1 behaviour)",
+                        recordingId, legStartUT, legEndUT),
+                    2.0);
+            }
+            return ResolveOwnedLegOverlap(
+                owned, haveSpan, span.startUT, span.endUT, legStartUT, legEndUT);
+        }
+
+        /// <summary>
         /// PURE span overlap for the per-leg paint arbitration: do a VISIBLE ghost mesh's recorded span
         /// [<paramref name="aStart"/>, <paramref name="aEnd"/>] and a route leg's recorded span
         /// [<paramref name="bStart"/>, <paramref name="bEnd"/>] share any interior? STRICT on both ends
@@ -843,6 +929,36 @@ namespace Parsek.Display
             if (string.IsNullOrEmpty(recordingId)) return;
             if (inDrewSet) drewNonOrbitalLegRecordings.Add(recordingId);
             else drewNonOrbitalLegRecordings.Remove(recordingId);
+            // Ownership without a span is not a state the feeder can produce; drop any span the
+            // span-carrying overload left, so this overload models "owned, span unknown" (the
+            // fail-closed branch of ResolveOwnedLegOverlap) rather than a stale span.
+            drewNonOrbitalLegSpans.Remove(recordingId);
+        }
+
+        /// <summary>
+        /// Test-only seam mirroring the REAL feeder: publishes ownership AND the owning leg's recorded
+        /// span in one call, exactly as the per-recording <c>if (anyDrawn)</c> block does. Use this
+        /// wherever the arbitration's per-leg behaviour is under test; the span-less overload above
+        /// models only the broken-publish fail-closed path. Cleared by <see cref="Clear"/>.
+        /// </summary>
+        internal static void SetOwnershipPublishForTesting(
+            string recordingId, bool inDrewSet, double ownedStartUT, double ownedEndUT)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            if (inDrewSet)
+            {
+                drewNonOrbitalLegRecordings.Add(recordingId);
+                drewNonOrbitalLegSpans[recordingId] = new OwnedLegSpan
+                {
+                    startUT = ownedStartUT,
+                    endUT = ownedEndUT
+                };
+            }
+            else
+            {
+                drewNonOrbitalLegRecordings.Remove(recordingId);
+                drewNonOrbitalLegSpans.Remove(recordingId);
+            }
         }
 
         /// <summary>
@@ -1549,6 +1665,7 @@ namespace Parsek.Display
             // cross-save flush / test reset never leaves a stale ownership behind. It is re-cleared
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
             drewNonOrbitalLegRecordings.Clear();
+            drewNonOrbitalLegSpans.Clear();
             // The PAINTED-MESH set the route line's per-leg no-double-draw arbitration reads is
             // membership, not a per-frame stamp, so this reset is LOAD-BEARING rather than
             // belt-and-suspenders: the lines this save's meshes belong to are about to be destroyed, and
@@ -4437,6 +4554,8 @@ namespace Parsek.Display
                 // the actual-draw set repopulates only on an actual draw this frame,
                 // so a stale ownership can never leak a hidden proto into the next phase.
                 drewNonOrbitalLegRecordings.Clear();
+                // The owning leg's span shares the id set's lifecycle exactly: one feeder, one clear.
+                drewNonOrbitalLegSpans.Clear();
 
                 // Phase 8e S0 (PURELY ADDITIVE diagnostics): clear this frame's coverage-closure sets on
                 // the SAME pre-early-return lifecycle as the ownership sets, so they reflect only the
@@ -4698,6 +4817,11 @@ namespace Parsek.Display
                     // enqueued twice in one frame (it would be a no-op redraw anyway, but the guard keeps the
                     // secondary's head strictly the disjoint in-SOI leg the primary - far downstream - is not on).
                     int primaryDrawnLegIndex = -1;
+                    // Recorded UT span of the legs the PRIMARY head draws this frame (union), published
+                    // alongside the ownership id in the single if (anyDrawn) feeder below so the route
+                    // line's ownership arm can arbitrate per leg instead of per whole member.
+                    double ownedSpanStartUT = 0.0, ownedSpanEndUT = 0.0;
+                    int ownedSpanLegs = 0;
                     // PRIMARY leg loop runs only when the primary head is in-window (primaryRenders). When the
                     // primary is hidden but a boundary-overlap secondary is live, this is skipped (the primary has
                     // no in-window non-orbital leg - it is the downstream through-line at an orbital phase) and only
@@ -4820,6 +4944,20 @@ namespace Parsek.Display
                         });
                         anyDrawn = true;
                         primaryDrawnLegIndex = li;
+                        // Ownership SPAN accumulator (union of the primary's drawn legs), consumed by
+                        // the single ownership publish below. Only the primary extends it: the
+                        // boundary-overlap secondary's legs are excluded from the ownership publish.
+                        if (ownedSpanLegs == 0)
+                        {
+                            ownedSpanStartUT = leg.startUT;
+                            ownedSpanEndUT = leg.endUT;
+                        }
+                        else
+                        {
+                            if (leg.startUT < ownedSpanStartUT) ownedSpanStartUT = leg.startUT;
+                            if (leg.endUT > ownedSpanEndUT) ownedSpanEndUT = leg.endUT;
+                        }
+                        ownedSpanLegs++;
                     }
                     }
 
@@ -5019,6 +5157,20 @@ namespace Parsek.Display
                         // set since S3b deleted the legacy publish; published gate-independently on the
                         // per-recording if (anyDrawn) condition, so gate-off reads correct membership.
                         drewNonOrbitalLegRecordings.Add(rec.RecordingId);
+                        // ... and, at the SAME feeder and on the same frame lifecycle, the recorded UT
+                        // span that draw covers. NOT a second ownership source: the id set above is
+                        // still the whole ownership answer (GhostMapPresence reads it unchanged); this
+                        // only lets the route line's ownership arm keep the legs the draw does not
+                        // cover. ownedSpanLegs is always >= 1 here (anyDrawn is set in the same block
+                        // that extends the span), so ownership never publishes without its span.
+                        if (ownedSpanLegs > 0)
+                        {
+                            drewNonOrbitalLegSpans[rec.RecordingId] = new OwnedLegSpan
+                            {
+                                startUT = ownedSpanStartUT,
+                                endUT = ownedSpanEndUT
+                            };
+                        }
 
                         // Phase 8e S0 Instrument 1 (PURELY ADDITIVE): record this recording into the
                         // coverage-closure DRAWN set (will-draw == actual-draw here), and - when it has
