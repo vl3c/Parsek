@@ -570,6 +570,19 @@ C-rewind-refly-006-01, C-rewind-refly-016-02, C-ledger-career-004-02, C-ledger-c
 C-ledger-career-018-01, C-ledger-career-027-01, C-ledger-career-034-01, C-catchall-021-01,
 C-ledger-career-036-01. Their `status` in the CSV is now `done`.
 
+**Phase B status, sixth PR (2026-09-15).** Twelve more priority-2 `recording` rows, all
+`direct` and all `S`: ten are new coverage and two are `already-covered` under the
+cross-class rule (C-legacy-bugfix-002-01 reds
+`TreeCommitTests.CommitTree_AddsRecordingsToCommittedList` and ten further CommitTree
+cells; C-mission-groups-014-01 reds `GroupTreeDataTests.DuplicateGroupMembership_NoDuplicateIndices`,
+and the row's own proposed distinct-group assertion could not red because a full index
+permutation visits every recording either way), so no duplicate cell was written for
+either and none of the twelve is obsolete. The ten landed cells are mutation-proved with
+no production change: C-legacy-bugfix-011-01, C-legacy-bugfix-015-01,
+C-logistics-route-002-01, C-recorder-events-003-01, C-recorder-events-004-01,
+C-recorder-events-021-01, C-recording-tree-001-01, C-recording-tree-001-02,
+C-recording-tree-008-01, C-recording-tree-009-01. Their `status` in the CSV is now `done`.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.

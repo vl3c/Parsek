@@ -174,6 +174,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyBackgroundRelativeFrameContract_GhostCandidateWithCurrentCandidate_IsRecorded()
+        {
+            // The trailing source dispatch: an unrecognized label with a current
+            // candidate falls through to the AnchorCandidateSource, and only a Live
+            // source may label the frame live. Every other cell here either uses a
+            // recognized label or hasCurrentAnchorCandidate:false, so the Ghost arm
+            // is otherwise unreached and the ternary can be inverted suite-green.
+            string ghostContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
+                "ghost-candidate",
+                AnchorCandidateSource.Ghost,
+                hasCurrentAnchorCandidate: true,
+                activeReFlyParentMatch: false,
+                hasPreReFlyAnchorSnapshot: false);
+
+            Assert.Equal("recorded", ghostContract);
+
+            // Mirror direction: the same shape with a Live source labels live.
+            string liveContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
+                "ghost-candidate",
+                AnchorCandidateSource.Live,
+                hasCurrentAnchorCandidate: true,
+                activeReFlyParentMatch: false,
+                hasPreReFlyAnchorSnapshot: false);
+
+            Assert.Equal("live", liveContract);
+        }
+
+        [Fact]
         public void IsActiveReFlyParentMatch_RequiresActiveIdAndParentMatch()
         {
             Assert.True(BackgroundRecorder.IsActiveReFlyParentMatch("active-refly", "active-refly"));

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/RecordingOptimizer.cs b/Source/Parsek/RecordingOptimizer.cs
+index 3bec5cc89..f1c272432 100644
+--- a/Source/Parsek/RecordingOptimizer.cs
++++ b/Source/Parsek/RecordingOptimizer.cs
+@@ -174,7 +174,8 @@ namespace Parsek
+             double splitUT = rec.TrackSections[sectionIndex].startUT;
+             double firstHalfDuration = splitUT - rec.StartUT;
+             double secondHalfDuration = rec.EndUT - splitUT;
+-            if (firstHalfDuration < 5.0 || secondHalfDuration < 5.0) return false;
++            // MUTANT: the firstHalfDuration clause of the 5s floor dropped
++            if (secondHalfDuration < 5.0) return false;
+ 
+             return true;
+         }

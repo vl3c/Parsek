@@ -199,6 +199,27 @@ namespace Parsek.Tests
             Assert.Equal(TrackSectionSource.Checkpoint, result[2].source);
         }
 
+        [Fact]
+        public void ResolveOverlaps_ZeroDurationSection_Dropped()
+        {
+            // The endUT <= startUT skip: a degenerate section must never reach merged
+            // output (a zero-length section has no frames to render and corrupts the
+            // overlap walk). No other cell here feeds one - the classifier fixtures
+            // widen explicitly because of this guard.
+            var sections = new List<TrackSection>
+            {
+                MakeSection(100, 100, TrackSectionSource.Active),
+                MakeSection(100, 200, TrackSectionSource.Background)
+            };
+
+            var result = SessionMerger.ResolveOverlaps(sections);
+
+            TrackSection only = Assert.Single(result);
+            Assert.Equal(TrackSectionSource.Background, only.source);
+            Assert.Equal(100, only.startUT);
+            Assert.Equal(200, only.endUT);
+        }
+
         #endregion
 
         #region ResolveOverlaps — Active beats Background
@@ -884,6 +905,26 @@ namespace Parsek.Tests
             var result = SessionMerger.MergePartEvents(evA, evB);
 
             Assert.Equal(2, result.Count);
+        }
+
+        [Fact]
+        public void MergePartEvents_SameUtSamePartSameTypeDifferentModuleIndex_BothKept()
+        {
+            // The moduleIndex component of the dedup key: one part carries up to 256
+            // engine modules (key = pid<<8 | moduleIndex), so two modules igniting at
+            // the same UT on the same part are distinct events. The other dedup cells
+            // vary only ut, pid and eventType.
+            var a = MakePartEvent(100.0, 42, PartEventType.EngineIgnited);
+            a.moduleIndex = 0;
+            var b = MakePartEvent(100.0, 42, PartEventType.EngineIgnited);
+            b.moduleIndex = 1;
+
+            var result = SessionMerger.MergePartEvents(
+                new List<PartEvent> { a }, new List<PartEvent> { b });
+
+            Assert.Equal(2, result.Count);
+            Assert.Contains(result, e => e.moduleIndex == 0);
+            Assert.Contains(result, e => e.moduleIndex == 1);
         }
 
         #endregion

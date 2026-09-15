@@ -203,6 +203,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CanAutoMerge_EvaAtmoToSurface_DifferentVesselPids_ReturnsFalse()
+        {
+            // The VesselPersistentId-mismatch arm of the EVA identity check: two
+            // DIFFERENT vessels' EVA recordings across the atmo/surface boundary must
+            // not merge. The other EVA fixtures here use equal pids or leave the pid
+            // at 0, where the mismatch conjunct is undiscriminated.
+            var a = MakeChainSegment("chain1", 0, phase: "atmo", body: "Kerbin", startUT: 17000, endUT: 17030);
+            var b = MakeChainSegment("chain1", 1, phase: "surface", body: "Kerbin", startUT: 17029.5, endUT: 17060);
+            a.EvaCrewName = "Bill Kerman";
+            b.EvaCrewName = "Bill Kerman";
+            a.ParentRecordingId = "parent-1";
+            b.ParentRecordingId = "parent-1";
+            a.VesselPersistentId = 1001;
+            b.VesselPersistentId = 1002;
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
         public void CanAutoMerge_GappedEvaAtmoToSurface_ReturnsFalse()
         {
             var a = MakeChainSegment("chain1", 0, phase: "atmo", body: "Kerbin", startUT: 17000, endUT: 17030);
@@ -780,6 +799,18 @@ namespace Parsek.Tests
         {
             // Second half only 3s
             var rec = MakeRecordingWithSections(17000, 17057, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoPropulsive);
+            Assert.False(RecordingOptimizer.CanAutoSplit(rec, 1));
+        }
+
+        [Fact]
+        public void CanAutoSplit_FirstHalfTooShort_ReturnsFalse()
+        {
+            // First half only 3s. CanAutoSplit holds its OWN copy of the 5 s floor
+            // (CanAutoSplitIgnoringGhostTriggers has a second, independent copy), and
+            // CanAutoSplit_HalfTooShort only shrinks the SECOND half, so the
+            // firstHalfDuration arm is otherwise unguarded here.
+            var rec = MakeRecordingWithSections(17000, 17003, 17060,
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoPropulsive);
             Assert.False(RecordingOptimizer.CanAutoSplit(rec, 1));
         }

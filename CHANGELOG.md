@@ -10,6 +10,41 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Developer tooling: the GUI census now produces a page that BEHAVES like
+  Parsek's GUI.** `harness/tools/gui_mirror.py` turns the census artifacts into one
+  self-contained HTML file in which every window is laid out from the captured
+  IMGUI control rects, so column widths, insets and row strides are the game's to
+  the pixel; the colours AND the tab-bar label positions are measured out of the
+  PNGs, because the control-tree dump records a style NAME and not a colour (the
+  blue clickable rows, the dimmed ones and the status tints exist only in the
+  pixels) and a selection grid reports neither where its items sit nor how their
+  text is aligned (the Kerbals
+  bar centres its two labels, the Career bar left-aligns its four); and the tabs,
+  launchers, folds and pickers are clickable, switching to the capture of that
+  state. Nothing about a window is written into the generator - not a label, not a
+  tooltip, not a column width - so the page cannot drift from the game: there is
+  nothing to update when a window changes, only a census to re-fly (a unit cell
+  renders a synthetic capture and then asserts the generator's own source does not
+  contain the strings the page showed). A click with no capture behind it flashes
+  the control and says `no capture for this state yet` rather than inventing a
+  screen; each rail header folds its own window's captures away and Compare shows
+  the window selected there; KSP's rich-text subset is translated on a whitelist
+  rather than shown as tags or handed the run of the page; the captured frame can be put beside the rendering, or under it as thin
+  per-control outlines, so a layout check never stacks text on text; and the left rail lists every state that has a capture next to every
+  state the command seam knows and nothing photographed. Which window, tab,
+  complexity mode and scene each capture IS comes from that run's KSP.log rather
+  than from the label, which is also the only record of a stock modal's title and
+  buttons, since a `PopupDialog` is invisible to the tree dump. Passing several
+  runs of one lane at once adds a Compare view: the earliest capture of a
+  (fixture, window, tab, state, mode, scene) key beside the latest, drawn by the
+  same renderer, with the CHANGELOG entries and struck `GUI-*` todo entries that
+  name that window quoted beside them and the node, row and header-to-cell numbers
+  MEASURED off the two dumps. Over the present 192 captures that pairs 15 keys -
+  the Recordings-tab and Structure and Career alignment fixes, the Kerbals rebuild,
+  Spawn Control, and the flight main window. The page is not committed (it is about
+  15 MB of inlined PNG); the generator, its tests and
+  `docs/dev/design-gui-mirror.md` are.
+
 - **Automated testing: the GUI census can finally photograph a modal, and six of the
   21 Parsek dialogs now have a picture.** The census had a read-only dialog report
   (`UiAction op=dialog`) and no way to put a modal on screen: all six wave-2 lanes
@@ -284,6 +319,31 @@ _(unreleased — entries accumulate here per commit)_
   code changed; no log text changed; nothing a player sees changes. Each cell was
   re-checked by breaking the named production line on purpose and confirming it goes
   red.
+- **Tests: twelve more priority-2 recording coverage gaps from the unit-test quality
+  audit are closed.** Ten rows were new coverage and two turned out to be guarded
+  already, so ten new cells landed with no production change and none is obsolete. On the
+  recorder: a servo whose module reports no moving flag while its position keeps advancing
+  is proved to still record its motion, which is the whole inferred-motion half of the
+  robotic poll and had no cell at all; a background vessel's relative-frame anchor label is
+  proved to follow the anchor's own source in both directions, so the one dispatch no cell
+  reached cannot be inverted green; and the pending joint-break flag is proved to be a
+  one-shot - armed, consumed once, then silent - since a consume that never clears repeats
+  an undock branch on the next frame. On recording structure: two EVA recordings of
+  DIFFERENT vessels are proved not to merge across the atmosphere/surface boundary; the
+  five-second floor is proved to guard the FIRST half of an auto-split as well as the
+  second (the two split predicates hold independent copies of that floor, so the covered
+  one protected nothing); a zero-length track section is proved to be dropped rather than
+  merged into output; and two engine modules on the same part firing at the same instant
+  are proved to stay two events instead of collapsing to one. Elsewhere: the time-jump
+  event's stored details are parsed back and compared value by value, so a transposed
+  latitude and longitude no longer passes a key-token check; a grappled origin window is
+  proved to stay a stop rather than being lifted as a supply-route origin; and the
+  terrain-height validity gate - which had zero tests and feeds four recorder call sites -
+  is pinned for NaN, negative and zero. The two already-guarded rows are the tree commit
+  dropping its child recordings (eleven existing cells red on it) and the recordings-table
+  group tree keying by display row (the duplicate-index cell reds on it), so no duplicate
+  cell was written for either. Every cell was proved by breaking the production line on
+  purpose and confirming it goes red alone. Nothing a player sees changes.
 
 - **Tests: the seven worst tests in the suite now test what their names say.** The test
   quality audit read every one of the ~23,400 unit tests and found seven that could not

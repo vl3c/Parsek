@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/EnvironmentDetector.cs b/Source/Parsek/EnvironmentDetector.cs
+index f06737ab1..f67e2e319 100644
+--- a/Source/Parsek/EnvironmentDetector.cs
++++ b/Source/Parsek/EnvironmentDetector.cs
+@@ -133,7 +133,8 @@ namespace Parsek
+         }
+ 
+         internal static bool IsHeightFromTerrainValid(double heightFromTerrain)
+-            => !double.IsNaN(heightFromTerrain) && heightFromTerrain >= 0.0;
++            // MUTANT: the heightFromTerrain >= 0.0 conjunct removed
++            => !double.IsNaN(heightFromTerrain);
+     }
+ 
+     /// <summary>

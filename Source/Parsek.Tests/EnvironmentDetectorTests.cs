@@ -1069,6 +1069,19 @@ namespace Parsek.Tests
             Assert.False(FlightRecorder.ResolveAnchorOnSurface(exoPropulsive, situation: 4)); // PRELAUNCH raw
         }
 
+        [Fact]
+        public void IsHeightFromTerrainValid_NaNOrNegative_ReturnsFalse()
+        {
+            // The one-line validity gate feeding the isEva near-surface branch from four
+            // recorder call sites. NaN is what KSP reports when no terrain resolves, and a
+            // negative height is a below-terrain artifact; both must read invalid, while a
+            // zero height (standing exactly on the terrain) must stay valid.
+            Assert.False(EnvironmentDetector.IsHeightFromTerrainValid(double.NaN));
+            Assert.False(EnvironmentDetector.IsHeightFromTerrainValid(-1.0));
+            Assert.True(EnvironmentDetector.IsHeightFromTerrainValid(0.0));
+            Assert.True(EnvironmentDetector.IsHeightFromTerrainValid(12.5));
+        }
+
         #endregion
     }
 }
