@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index b5bd40797..6d24b3351 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -3347,6 +3347,7 @@ namespace Parsek
+         {
+             if (contRec == null) return;
+             contRec.VesselDestroyed = true;
++            contRec.VesselSnapshot = null; // MUTATION-T1 phaseB: reintroduce bug #95 snapshot null
+         }
+ 
+         /// <summary>

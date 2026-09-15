@@ -124,7 +124,12 @@ namespace Parsek
                     $"rec={rec.RecordingId ?? "<no-id>"} rp={rp.RewindPointId ?? "<no-rp>"}");
             }
 
-            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec);
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: the seal above applies to the
+            // slot's effective tip, which now hops VesselSwitchContinuation branch
+            // points, so the terminal this line reports must be read over the same
+            // recording or the log names a terminal the seal was not taken on.
+            Recording tip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(
+                rec, null);
             string terminal = tip?.TerminalStateValue.HasValue == true
                 ? tip.TerminalStateValue.Value.ToString()
                 : "<none>";
@@ -187,6 +192,35 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Builds the player-facing seal confirmation text. Pure over the recording
+        /// graph so the terminal it names can be asserted headless.
+        /// REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: PLAYER-FACING. TrySeal flips the
+        /// slot's EFFECTIVE TIP, which hops VesselSwitchContinuation branch points,
+        /// so the terminal is read over the same walk. Reading the origin's own
+        /// terminal here would show "Unknown" (or a stale pre-switch terminal) in the
+        /// one dialog that asks the player to approve a permanent, undoable action.
+        /// </summary>
+        internal static string BuildConfirmationBody(Recording rec)
+        {
+            if (rec == null) return null;
+
+            string vesselName = string.IsNullOrEmpty(rec.VesselName)
+                ? rec.RecordingId ?? "<unnamed>"
+                : rec.VesselName;
+            Recording tip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(
+                rec, null);
+            string terminal = tip?.TerminalStateValue.HasValue == true
+                ? tip.TerminalStateValue.Value.ToString()
+                : "Unknown";
+            string ut = rec.EndUT.ToString("F1", CultureInfo.InvariantCulture);
+
+            return
+                $"Seal \"{vesselName}\" ({terminal} at UT {ut})?\n\n" +
+                "This cannot be undone. After sealing, this entry is permanently merged to the timeline in its current state.\n\n" +
+                "If you might want to re-fly this later, click Cancel.";
+        }
+
         internal static void ShowConfirmation(Recording rec)
         {
             if (rec == null)
@@ -195,17 +229,7 @@ namespace Parsek
                 return;
             }
 
-            string vesselName = string.IsNullOrEmpty(rec.VesselName) ? rec.RecordingId ?? "<unnamed>" : rec.VesselName;
-            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec);
-            string terminal = tip?.TerminalStateValue.HasValue == true
-                ? tip.TerminalStateValue.Value.ToString()
-                : "Unknown";
-            string ut = rec.EndUT.ToString("F1", CultureInfo.InvariantCulture);
-
-            string body =
-                $"Seal \"{vesselName}\" ({terminal} at UT {ut})?\n\n" +
-                "This cannot be undone. After sealing, this entry is permanently merged to the timeline in its current state.\n\n" +
-                "If you might want to re-fly this later, click Cancel.";
+            string body = BuildConfirmationBody(rec);
 
             var captured = rec;
 

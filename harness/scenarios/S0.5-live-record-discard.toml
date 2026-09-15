@@ -71,10 +71,11 @@ D14 = ["sandbox", "scene-flight", "kerbin"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# ROBUST to the stationary-pod sub-2-point-drop: whether the short recording
-# survives finalization or is dropped, DiscardTree tears the active tree down, so
-# the committed store returns to the injection baseline of zero either way. This
-# is the no-injection count the harness design note describes.
+# ROBUST either way: the always-tree commit path KEEPS a 1-point recording (MC-3
+# measured it), and discard zeroes the store regardless. Whether the short recording
+# survives finalization or not, DiscardTree tears the active tree down, so the
+# committed store returns to the injection baseline of zero. This is the
+# no-injection count the harness design note describes.
 # NOTE: count.max==0 does NOT suppress the REC rules here - suppression keys on
 # spec_expects_live_recording (True via StartRecording), not on the count.
 count = { min = 0, max = 0 }

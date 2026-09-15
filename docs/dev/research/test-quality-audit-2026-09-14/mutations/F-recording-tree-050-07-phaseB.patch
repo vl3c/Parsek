@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ChainSegmentManager.cs b/Source/Parsek/ChainSegmentManager.cs
+index 32f814e0b..9765ca0a7 100644
+--- a/Source/Parsek/ChainSegmentManager.cs
++++ b/Source/Parsek/ChainSegmentManager.cs
+@@ -343,6 +343,7 @@ namespace Parsek
+         {
+             if (boardingRec == null) return;
+             BakeContinuationData(boardingRec);
++            boardingRec.VesselSnapshot = null; // MUTATION-T1 phaseB: reintroduce bug #95 snapshot null
+         }
+ 
+         /// <summary>

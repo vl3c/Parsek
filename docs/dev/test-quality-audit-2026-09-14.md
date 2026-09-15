@@ -6,6 +6,7 @@ Scope: `Source/Parsek.Tests` xUnit unit tests only. `InGameTests` and the harnes
 cross-referenced only where they change a verdict on a unit test.
 
 Status: Phase A complete; Phase B go-ahead given by the operator on 2026-09-15 (first wave: the 7 High in `testfix-t1t2`, the six mechanical gate repairs in `testfix-t4-flaky`).
+Phase B progress: the 7 High are FIXED on `testfix-t1t2` (2026-09-15) - see the "Phase B" column of the High table; every fix carries a re-run mutation proof under `research/.../mutations/` (`<id>-phaseB.patch`, `mutations.csv`).
 
 Plan: `docs/dev/plans/test-quality-audit.md`. Raw and derived evidence:
 `docs/dev/research/test-quality-audit-2026-09-14/`.
@@ -25,8 +26,8 @@ existing ~23.4k executed cases sound, and where is added coverage worth it".
 - Where a finding here re-finds a July register item, the JULY ID stays primary and this audit adds
   new evidence; the mapping lives in `research/test-quality-audit-2026-09-14/july-crosswalk.csv` and
   in the "July crosswalk" section below.
-- No production code and no test code was edited in Phase A. Nothing in this document has been
-  fixed.
+- No production code and no test code was edited in Phase A. Nothing in this document had been
+  fixed when it was written; Phase B fixes are recorded per row, not by rewriting the findings.
 
 ## Method
 
@@ -229,15 +230,15 @@ by mutation: the mutation the finding names left the whole filtered class green 
 count, so none of these tests can red on the production regression it is named for. Patches:
 `mutations/<id>.patch`; run rows: `mutations/mutations.csv`.
 
-| Finding | Test | SUT the name claims | Mutation applied | Result |
-|---|---|---|---|---|
-| F-recorder-events-003-01 | `PartEventTests.cs:2493` `RemoveDuplicateCrew_RemovesDuplicate_LogsWarning` | `VesselSpawner.RemoveDuplicateCrewFromSnapshot` (`VesselSpawner.cs:3265-3297`) | stub the method body to an immediate return | 164/164 green |
-| F-recorder-events-013-01 | `BackgroundSplitTests.cs:1033` `Bug285_ParentDead_NoContinuation_TreeHasOnlyChildren` (+3 sibling cells) | `BackgroundRecorder.HandleBackgroundVesselSplit` (`BackgroundRecorder.cs:602-760`) | make the bug-285 parent continuation unconditional | 58/58 green |
-| F-recorder-events-024-01 | `BackgroundPartEventAuditTests.cs:94` `PollPartEvents_CoversAllPolledEventTypes_MatchingFlightRecorder` | `BackgroundRecorder.PollPartEvents` (`BackgroundRecorder.PartEventPolling.cs:91-109`) | comment out all 19 `Check*State` calls | 17/17 green |
-| F-recording-tree-050-04 | `CommittedRecordingImmutabilityTests.cs:90` `ContinuationVesselDestroyed_PreservesVesselSnapshot` | `ParsekFlight` destroy handler (`ParsekFlight.cs:3311-3324`) | reintroduce `contRec.VesselSnapshot = null` | 12/12 green |
-| F-recording-tree-050-07 | `CommittedRecordingImmutabilityTests.cs:151` `EvaBoardingContinuationStop_PreservesVesselSnapshot` | `ChainSegmentManager.CommitChainSegment` EVA-boarding branch (`ChainSegmentManager.cs:822-834`) | reintroduce `rec.VesselSnapshot = null` | 12/12 green |
-| F-spawn-vessel-004-01 | `IdentityLossClassifierTests.cs:379` `ActiveRootBackgrounded_FlushForwardsControllers_AllowingIdentityLossOverride` | `FlightRecorder.StartRecording` controllers backstop (`FlightRecorder.cs:6983`) | short-circuit the `AdoptControllersIfEmpty` backstop | 40/40 green |
-| F-trajectory-orbit-015-01 | `RelativeRecordingTests.cs:185` `RecorderContract_LiveAnchorPositionMustMatchPlaybackAnchorPosition` | `FlightRecorder` anchor-pose producer (`TryResolveLiveAnchorPose`, `FlightRecorder.cs:9512-9515`; `:9334-9338` is the consumer that computes the offset from it) | feed the anchor pose from `GetWorldPos3D` (CoM), i.e. the shipped drift bug | 6/6 green |
+| Finding | Test | SUT the name claims | Mutation applied | Result | Phase B |
+|---|---|---|---|---|---|
+| F-recorder-events-003-01 | `PartEventTests.cs:2493` `RemoveDuplicateCrew_RemovesDuplicate_LogsWarning` | `VesselSpawner.RemoveDuplicateCrewFromSnapshot` (`VesselSpawner.cs:3265-3297`) | stub the method body to an immediate return | 164/164 green | FIXED (`testfix-t1t2`): `VesselSpawner.RemoveDuplicateCrewFromSnapshotCore` extracted; both cells call it |
+| F-recorder-events-013-01 | `BackgroundSplitTests.cs:1033` `Bug285_ParentDead_NoContinuation_TreeHasOnlyChildren` (+3 sibling cells) | `BackgroundRecorder.HandleBackgroundVesselSplit` (`BackgroundRecorder.cs:602-760`) | make the bug-285 parent continuation unconditional | 58/58 green | FIXED (`testfix-t1t2`): `BackgroundRecorder.TryBuildAndAttachParentContinuation` extracted; all four cells call it |
+| F-recorder-events-024-01 | `BackgroundPartEventAuditTests.cs:94` `PollPartEvents_CoversAllPolledEventTypes_MatchingFlightRecorder` | `BackgroundRecorder.PollPartEvents` (`BackgroundRecorder.PartEventPolling.cs:91-109`) | comment out all 19 `Check*State` calls | 17/17 green | FIXED (`testfix-t1t2`): IL call-set equality vs `FlightRecorder.PollPartStates` (`ILCallSet`) |
+| F-recording-tree-050-04 | `CommittedRecordingImmutabilityTests.cs:90` `ContinuationVesselDestroyed_PreservesVesselSnapshot` | `ParsekFlight` destroy handler (`ParsekFlight.cs:3311-3324`) | reintroduce `contRec.VesselSnapshot = null` | 12/12 green | FIXED (`testfix-t1t2`): `ParsekFlight.MarkContinuationVesselDestroyed` extracted and BOTH mirrored destroy branches (chain continuation and undock continuation) route through it; one cell calls it, a second IL-gates both call sites against an inline flag write |
+| F-recording-tree-050-07 | `CommittedRecordingImmutabilityTests.cs:151` `EvaBoardingContinuationStop_PreservesVesselSnapshot` | `ChainSegmentManager.CommitChainSegment` EVA-boarding branch (`ChainSegmentManager.cs:822-834`) | reintroduce `rec.VesselSnapshot = null` | 12/12 green | FIXED (`testfix-t1t2`): `ChainSegmentManager.ApplyBoardingContinuationStop` extracted; the cell calls it |
+| F-spawn-vessel-004-01 | `IdentityLossClassifierTests.cs:379` `ActiveRootBackgrounded_FlushForwardsControllers_AllowingIdentityLossOverride` | `FlightRecorder.StartRecording` controllers backstop (`FlightRecorder.cs:6983`) | short-circuit the `AdoptControllersIfEmpty` backstop | 40/40 green | FIXED (`testfix-t1t2`): `FlightRecorder.ApplyStartRecordingTreeBackstop` extracted; the cell drives the backstop |
+| F-trajectory-orbit-015-01 | `RelativeRecordingTests.cs:185` `RecorderContract_LiveAnchorPositionMustMatchPlaybackAnchorPosition` | `FlightRecorder` anchor-pose producer (`TryResolveLiveAnchorPose`, `FlightRecorder.cs:9512-9515`; `:9334-9338` is the consumer that computes the offset from it) | feed the anchor pose from `GetWorldPos3D` (CoM), i.e. the shipped drift bug | 6/6 green | FIXED (`testfix-t1t2`): new IL gate on the anchor-pose producer, covering the CoM FIELD reads (`Vessel.CoM`/`CoMD`, ldfld) as well as `GetWorldPos3D`; the math cell renamed |
 
 Read them together and the shape is one shape: the test performs the production work itself. Five
 replay a production branch inline (the dedup loop, the split tree mutations, the controllers

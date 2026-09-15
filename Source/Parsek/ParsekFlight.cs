@@ -3313,10 +3313,7 @@ namespace Parsek
             {
                 if (chainManager.TryGetContinuationRecording(out var contRec))
                 {
-                    contRec.VesselDestroyed = true;
-                    // Bug #95: Do NOT null VesselSnapshot on committed recordings.
-                    // VesselDestroyed already gates spawn via ShouldSpawnAtRecordingEnd.
-                    // Nulling the snapshot permanently prevents re-spawn after revert.
+                    MarkContinuationVesselDestroyed(contRec);
                     Log($"Continuation vessel destroyed (pid={chainManager.ContinuationVesselPid}), " +
                         $"VesselDestroyed=true, VesselSnapshot preserved={contRec.VesselSnapshot != null}");
                 }
@@ -3328,11 +3325,30 @@ namespace Parsek
             {
                 if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
                 {
-                    undockRec.VesselDestroyed = true;
+                    MarkContinuationVesselDestroyed(undockRec);
                     Log($"Undock continuation vessel destroyed (pid={chainManager.UndockContinuationPid})");
                 }
                 chainManager.StopUndockContinuation("vessel destroyed");
             }
+        }
+
+        /// <summary>
+        /// Pure write the destroy handler applies to a committed continuation recording
+        /// whose tracked vessel just died. Both mirrored branches of OnVesselWillDestroy
+        /// (chain continuation and undock continuation) route through it, so the preserve
+        /// below is one contract rather than one contract plus one inline write.
+        /// <para>
+        /// Bug #95: Do NOT null VesselSnapshot on committed recordings. VesselDestroyed
+        /// already gates spawn via ShouldSpawnAtRecordingEnd, and after a revert the flag
+        /// is reset while the snapshot is what re-spawn needs; nulling it permanently
+        /// prevents that re-spawn. Extracted so the preserve is a callable contract
+        /// instead of a comment inside a handler no unit test can reach.
+        /// </para>
+        /// </summary>
+        internal static void MarkContinuationVesselDestroyed(Recording contRec)
+        {
+            if (contRec == null) return;
+            contRec.VesselDestroyed = true;
         }
 
         /// <summary>
