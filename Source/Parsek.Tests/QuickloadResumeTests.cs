@@ -375,12 +375,22 @@ namespace Parsek.Tests
         [Fact]
         public void CommitPendingTree_ResetsStateToFinalized()
         {
+            // A real Limbo -> commit -> Finalized round trip. The old body reset
+            // the store first, so only the null-pending guard ran and the state
+            // reset this cell names was never executed. CommitTree is
+            // headless-safe under xUnit (see
+            // TreeCommitTests.CommitPendingTree_CommitsAndClears).
             var tree = MakeTree("tree_a", "Mun", 2);
-            // CommitTree needs file writes which fail outside Unity, so this test
-            // only verifies the guard path (no pending tree → no-op)
-            RecordingStore.ResetForTesting();
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+
             RecordingStore.CommitPendingTree();
+
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Null(RecordingStore.PendingTree);
+            Assert.Single(RecordingStore.CommittedTrees);
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
         }
 
         [Fact]
@@ -2218,176 +2228,52 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // isRevert logic: removal of || isFlightToFlight clause
+        // isRevert: the #434 event-based OnLoad revert decision.
+        //
+        // These cells used to mirror a pre-#434 shape of OnLoad (epoch
+        // regression / recording-count regression / orphaned-limbo
+        // flight-to-flight) in a test-local ComputeIsRevert that no
+        // production statement called. Production now computes
+        //     !isVesselSwitch && revertKind != RevertKind.None
+        // in ParsekScenario.ComputeIsRevertOnLoad, called from OnLoad, and
+        // the cells below drive that helper. The old truth table's extra
+        // clauses do not exist any more; hasOrphanedLimboTree survives only
+        // as a Verbose diagnostic and is still covered by the
+        // HasOrphanedLimboTree_* cells further down.
         // ============================================================
 
         [Fact]
-        public void IsRevert_EpochDecreased_IsTrue()
+        public void IsRevert_RevertToLaunchKind_IsTrue()
         {
-            // Pure logic test of the isRevert condition after fix (no FLIGHT→FLIGHT clause)
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: false,
-                savedEpoch: 5,
-                liveEpoch: 6,
-                totalSavedRecCount: 10,
-                memoryRecordingsCount: 10);
-            Assert.True(isRevert);
+            Assert.True(ParsekScenario.ComputeIsRevertOnLoad(
+                isVesselSwitch: false, revertKind: RevertKind.Launch));
         }
 
         [Fact]
-        public void IsRevert_CountDecreased_IsTrue()
+        public void IsRevert_RevertToPrelaunchKind_IsTrue()
         {
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: false,
-                savedEpoch: 5,
-                liveEpoch: 5,
-                totalSavedRecCount: 8,
-                memoryRecordingsCount: 10);
-            Assert.True(isRevert);
+            Assert.True(ParsekScenario.ComputeIsRevertOnLoad(
+                isVesselSwitch: false, revertKind: RevertKind.Prelaunch));
         }
 
         [Fact]
-        public void IsRevert_QuickloadSameEpochSameCount_IsFalse()
+        public void IsRevert_NoRevertEventArmed_IsFalse()
         {
-            // Quickload: both epoch and count match the memory state (since quicksave
-            // captured both at the current moment).
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: false,
-                savedEpoch: 5,
-                liveEpoch: 5,
-                totalSavedRecCount: 10,
-                memoryRecordingsCount: 10);
-            Assert.False(isRevert);
+            // Plain quickload (F5/F9): RevertDetector.Consume handed back None.
+            Assert.False(ParsekScenario.ComputeIsRevertOnLoad(
+                isVesselSwitch: false, revertKind: RevertKind.None));
         }
 
         [Fact]
-        public void IsRevert_OrphanedLimboTree_FlightToFlight_IsTrue_Bug300()
+        public void IsRevert_VesselSwitch_IsFalseEvenWithRevertKindArmed()
         {
-            // Bug #300: first-ever flight, no prior commits. Epoch and count both
-            // zero on both sides. The orphaned Limbo tree (stashed from memory but
-            // NOT found in the save file) is the revert signal.
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: false,
-                savedEpoch: 0,
-                liveEpoch: 0,
-                totalSavedRecCount: 0,
-                memoryRecordingsCount: 0,
-                isFlightToFlight: true,
-                hasOrphanedLimboTree: true);
-            Assert.True(isRevert);
-        }
-
-        [Fact]
-        public void IsRevert_OrphanedLimboTree_NotFlightToFlight_IsFalse_Bug300()
-        {
-            // Safety: orphaned Limbo tree should only trigger revert detection in
-            // FLIGHT→FLIGHT transitions, not on e.g. SPACECENTER→FLIGHT.
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: false,
-                savedEpoch: 0,
-                liveEpoch: 0,
-                totalSavedRecCount: 0,
-                memoryRecordingsCount: 0,
-                isFlightToFlight: false,
-                hasOrphanedLimboTree: true);
-            Assert.False(isRevert);
-        }
-
-        [Fact]
-        public void IsRevert_LimboTreeRestoredFromSave_IsFalse_Bug300()
-        {
-            // Quickload (F5/F9): the save file contained the active tree, so
-            // TryRestoreActiveTreeNode returned true → hasOrphanedLimboTree=false.
-            // Should NOT be detected as a revert.
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: false,
-                savedEpoch: 0,
-                liveEpoch: 0,
-                totalSavedRecCount: 0,
-                memoryRecordingsCount: 0,
-                isFlightToFlight: true,
-                hasOrphanedLimboTree: false);
-            Assert.False(isRevert);
-        }
-
-        [Fact]
-        public void IsRevert_OrphanedLimboTree_VesselSwitch_IsFalse_Bug300()
-        {
-            // Vessel switch suppresses revert even with an orphaned Limbo tree.
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: true,
-                savedEpoch: 0,
-                liveEpoch: 0,
-                totalSavedRecCount: 0,
-                memoryRecordingsCount: 0,
-                isFlightToFlight: true,
-                hasOrphanedLimboTree: true);
-            Assert.False(isRevert);
-        }
-
-        [Fact]
-        public void IsRevert_VesselSwitch_IsFalseEvenIfEpochRegresses()
-        {
-            // Vessel switch flag suppresses isRevert regardless of other indicators
-            // (defensive — in practice vessel switches preserve epoch/count anyway)
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: true,
-                savedEpoch: 4,
-                liveEpoch: 6,
-                totalSavedRecCount: 5,
-                memoryRecordingsCount: 10);
-            Assert.False(isRevert);
-        }
-
-        /// <summary>
-        /// Mirrors the isRevert computation in ParsekScenario.OnLoad after bug #300.
-        /// Kept here as a pure function so it can be unit-tested without needing a
-        /// full ParsekScenario instance.
-        /// </summary>
-        private static bool ComputeIsRevert(
-            bool isVesselSwitch, uint savedEpoch, uint liveEpoch,
-            int totalSavedRecCount, int memoryRecordingsCount,
-            bool isFlightToFlight = false, bool hasOrphanedLimboTree = false)
-        {
-            return !isVesselSwitch
-                && (savedEpoch < liveEpoch
-                    || totalSavedRecCount < memoryRecordingsCount
-                    || (isFlightToFlight && hasOrphanedLimboTree));
-        }
-
-        /// <summary>
-        /// Disposition the OnLoad Limbo-dispatch can take. Mirrors the four branches
-        /// in ParsekScenario.cs after the bug #266 fix:
-        /// <list type="bullet">
-        ///   <item><c>Finalize</c> — real revert (terminal state set, merge dialog).</item>
-        ///   <item><c>VesselSwitchRestore</c> — pre-transitioned tree (#266) reinstalled
-        ///   via the new restore coroutine.</item>
-        ///   <item><c>QuickloadRestore</c> — quickload / cold-start, name-match resume.</item>
-        ///   <item><c>SafetyNetFinalize</c> — Limbo state but the OnLoad classifier still
-        ///   says vessel switch (the stash didn't pre-transition because a guard bailed,
-        ///   e.g. pendingTreeDockMerge). Falls back to pre-#266 finalize.</item>
-        /// </list>
-        /// </summary>
-        internal enum LimboDispatchOutcome
-        {
-            Finalize = 0,
-            VesselSwitchRestore = 1,
-            QuickloadRestore = 2,
-            SafetyNetFinalize = 3,
-        }
-
-        /// <summary>
-        /// Mirrors the Limbo-dispatch decision in ParsekScenario.OnLoad after the
-        /// bug #266 fix. Pure function — keeps the four-way decision tree unit-testable.
-        /// </summary>
-        internal static LimboDispatchOutcome ComputeLimboDispatch(
-            bool isRevert, bool isVesselSwitch, PendingTreeState pendState)
-        {
-            if (isRevert) return LimboDispatchOutcome.Finalize;
-            if (pendState == PendingTreeState.LimboVesselSwitch)
-                return LimboDispatchOutcome.VesselSwitchRestore;
-            if (isVesselSwitch) return LimboDispatchOutcome.SafetyNetFinalize;
-            return LimboDispatchOutcome.QuickloadRestore;
+            // The vessel-switch classification suppresses revert handling even
+            // when a revert event was armed, so a stale event cannot leak into a
+            // load this OnLoad classifies as a switch.
+            Assert.False(ParsekScenario.ComputeIsRevertOnLoad(
+                isVesselSwitch: true, revertKind: RevertKind.Launch));
+            Assert.False(ParsekScenario.ComputeIsRevertOnLoad(
+                isVesselSwitch: true, revertKind: RevertKind.Prelaunch));
         }
 
         [Fact]
@@ -2453,44 +2339,15 @@ namespace Parsek.Tests
             Assert.False(hasOrphanedLimboTree);
         }
 
-        [Fact]
-        public void LimboDispatch_OrphanedLimboTree_RoutesToFinalize_Bug300()
-        {
-            // End-to-end dispatch: orphaned Limbo tree (revert) → isRevert=true → Finalize
-            bool isRevert = ComputeIsRevert(
-                isVesselSwitch: false,
-                savedEpoch: 0,
-                liveEpoch: 0,
-                totalSavedRecCount: 0,
-                memoryRecordingsCount: 0,
-                isFlightToFlight: true,
-                hasOrphanedLimboTree: true);
-            Assert.True(isRevert);
-
-            var outcome = ComputeLimboDispatch(isRevert, isVesselSwitch: false,
-                PendingTreeState.Limbo);
-            Assert.Equal(LimboDispatchOutcome.Finalize, outcome);
-        }
-
-        [Fact]
-        public void LimboDispatch_Revert_Finalizes()
-        {
-            // Real revert wipes the in-progress mission regardless of state.
-            Assert.Equal(LimboDispatchOutcome.Finalize,
-                ComputeLimboDispatch(isRevert: true, isVesselSwitch: false,
-                    pendState: PendingTreeState.Limbo));
-        }
-
-        [Fact]
-        public void LimboDispatch_Revert_OverridesLimboVesselSwitch()
-        {
-            // Even if the stash pre-transitioned for a vessel switch, a real revert
-            // (epoch/count regression) takes priority. The pre-#266 behavior is
-            // preserved for the revert path.
-            Assert.Equal(LimboDispatchOutcome.Finalize,
-                ComputeLimboDispatch(isRevert: true, isVesselSwitch: true,
-                    pendState: PendingTreeState.LimboVesselSwitch));
-        }
+        // ============================================================
+        // Limbo dispatch: the OnLoad pending-Limbo decision.
+        //
+        // These cells used to call a test-local ComputeLimboDispatch that
+        // carried a Finalize/revert branch the production dispatch does not
+        // have: on a revert the branch above OnLoad's Limbo block has already
+        // discarded the pending tree, so the block never runs. They now drive
+        // ParsekScenario.ClassifyLimboDispatch, which OnLoad itself calls.
+        // ============================================================
 
         [Fact]
         public void LimboDispatch_VesselSwitch_PreTransitioned_Restores_Bug266()
@@ -2498,10 +2355,10 @@ namespace Parsek.Tests
             // Bug #266: tree was pre-transitioned at stash time
             // (StashActiveTreeForVesselSwitch). OnLoad routes to the vessel-switch
             // restore coroutine instead of finalizing. The mission is preserved
-            // across the FLIGHT→FLIGHT scene reload.
-            Assert.Equal(LimboDispatchOutcome.VesselSwitchRestore,
-                ComputeLimboDispatch(isRevert: false, isVesselSwitch: true,
-                    pendState: PendingTreeState.LimboVesselSwitch));
+            // across the FLIGHT->FLIGHT scene reload.
+            Assert.Equal(ParsekScenario.LimboDispatchOutcome.VesselSwitchRestore,
+                ParsekScenario.ClassifyLimboDispatch(
+                    isVesselSwitch: true, pendState: PendingTreeState.LimboVesselSwitch));
         }
 
         [Fact]
@@ -2510,11 +2367,11 @@ namespace Parsek.Tests
             // Safety net: vessel-switch detected at OnLoad time, but the stash did
             // NOT pre-transition (the in-flight pre-transition guard bailed because
             // pendingTreeDockMerge / pendingSplit was active). Fall back to pre-#266
-            // finalize behavior — better to lose the tree than to leak a half-
+            // finalize behavior - better to lose the tree than to leak a half-
             // transitioned state into the restore path.
-            Assert.Equal(LimboDispatchOutcome.SafetyNetFinalize,
-                ComputeLimboDispatch(isRevert: false, isVesselSwitch: true,
-                    pendState: PendingTreeState.Limbo));
+            Assert.Equal(ParsekScenario.LimboDispatchOutcome.SafetyNetFinalize,
+                ParsekScenario.ClassifyLimboDispatch(
+                    isVesselSwitch: true, pendState: PendingTreeState.Limbo));
         }
 
         [Fact]
@@ -2522,9 +2379,9 @@ namespace Parsek.Tests
         {
             // Quickload / cold-start resume: tree should be restored-and-resumed,
             // not finalized.
-            Assert.Equal(LimboDispatchOutcome.QuickloadRestore,
-                ComputeLimboDispatch(isRevert: false, isVesselSwitch: false,
-                    pendState: PendingTreeState.Limbo));
+            Assert.Equal(ParsekScenario.LimboDispatchOutcome.QuickloadRestore,
+                ParsekScenario.ClassifyLimboDispatch(
+                    isVesselSwitch: false, pendState: PendingTreeState.Limbo));
         }
 
         [Fact]
@@ -2534,9 +2391,21 @@ namespace Parsek.Tests
             // in outsider state, then quit, then resumed). vesselSwitchPending is
             // false because no live switch happened in this session, but the saved
             // state still needs the vessel-switch restore.
-            Assert.Equal(LimboDispatchOutcome.VesselSwitchRestore,
-                ComputeLimboDispatch(isRevert: false, isVesselSwitch: false,
-                    pendState: PendingTreeState.LimboVesselSwitch));
+            Assert.Equal(ParsekScenario.LimboDispatchOutcome.VesselSwitchRestore,
+                ParsekScenario.ClassifyLimboDispatch(
+                    isVesselSwitch: false, pendState: PendingTreeState.LimboVesselSwitch));
+        }
+
+        [Fact]
+        public void LimboDispatch_PreTransitionedBeatsTheSwitchFlag_OrderIsLoadBearing()
+        {
+            // Ordering guard: LimboVesselSwitch must be tested BEFORE the
+            // isVesselSwitch flag. Both are true in the ordinary #266 switch, and
+            // testing the flag first would route a pre-transitioned tree into the
+            // safety-net finalize and lose the mission.
+            Assert.NotEqual(ParsekScenario.LimboDispatchOutcome.SafetyNetFinalize,
+                ParsekScenario.ClassifyLimboDispatch(
+                    isVesselSwitch: true, pendState: PendingTreeState.LimboVesselSwitch));
         }
 
         // ============================================================

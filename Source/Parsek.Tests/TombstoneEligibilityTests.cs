@@ -259,10 +259,13 @@ namespace Parsek.Tests
         [Fact]
         public void RepPenalty_DifferentRecording_NotPaired()
         {
-            // Bundling requires same RecordingId.
+            // Bundling requires same RecordingId. The production caller hands
+            // this method the WHOLE ledger (SupersedeCommit.cs), not a
+            // pre-filtered slice, so the death row is in the list and the
+            // RecordingId equality check is the only thing that can reject it.
             var death = Kerbal("rec_1", KerbalEndState.Dead, ut: 100.0);
             var rep = Rep("rec_2", ReputationPenaltySource.KerbalDeath, ut: 100.0);
-            var slice = new List<GameAction> { rep }; // slice is the same-recording slice; death isn't in rec_2's slice.
+            var slice = new List<GameAction> { death, rep };
 
             GameAction paired;
             Assert.False(TombstoneEligibility.TryPairBundledRepPenalty(rep, slice, out paired));
@@ -389,13 +392,25 @@ namespace Parsek.Tests
         public void RepPenalty_PairedWithDeathAtExactUTBoundary_Eligible()
         {
             var death = Kerbal("rec_1", KerbalEndState.Dead, ut: 100.0);
-            // Exactly 1s away — inclusive boundary is paired.
-            var rep = Rep("rec_1", ReputationPenaltySource.KerbalDeath, ut: 101.0);
+            // ReputationPenaltySource.Other, NOT KerbalDeath: a KerbalDeath row
+            // pairs on the source arm and never evaluates the UT window, so the
+            // boundary this cell names would not be exercised. Other is the only
+            // source that reaches the timing comparison, and this is its one
+            // positive case.
+            // Exactly BundledRepUtWindow (1 s) away - inclusive boundary pairs.
+            var rep = Rep("rec_1", ReputationPenaltySource.Other, ut: 101.0);
             var slice = new List<GameAction> { death, rep };
 
             GameAction paired;
             Assert.True(TombstoneEligibility.TryPairBundledRepPenalty(rep, slice, out paired));
             Assert.Same(death, paired);
+
+            // Just outside the window: same source, same shape, not paired.
+            var repOutside = Rep("rec_1", ReputationPenaltySource.Other, ut: 101.0001);
+            GameAction pairedOutside;
+            Assert.False(TombstoneEligibility.TryPairBundledRepPenalty(
+                repOutside, new List<GameAction> { death, repOutside }, out pairedOutside));
+            Assert.Null(pairedOutside);
         }
 
         [Fact]

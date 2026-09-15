@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RewindInvoker.cs b/Source/Parsek/RewindInvoker.cs
+index ad7f0e20d..b2daa1881 100644
+--- a/Source/Parsek/RewindInvoker.cs
++++ b/Source/Parsek/RewindInvoker.cs
+@@ -1799,7 +1799,6 @@ namespace Parsek
+             {
+                 ChildSlot slot = rp.ChildSlots[s];
+                 if (slot == null || !slot.Disabled) continue;
+-                if (slot.SlotIndex == selectedSlotIndex) continue;
+                 if (string.IsNullOrEmpty(slot.OriginChildRecordingId)) continue;
+ 
+                 string effectiveId = slot.EffectiveRecordingId(supersedes);
+warning: in the working copy of 'Source/Parsek/RewindInvoker.cs', LF will be replaced by CRLF the next time Git touches it

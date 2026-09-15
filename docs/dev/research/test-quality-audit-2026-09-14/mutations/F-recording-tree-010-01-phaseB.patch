@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..6b26644a3 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -2794,7 +2794,6 @@ namespace Parsek
+ 
+             CommitTree(pendingTree);
+             pendingTree = null;
+-            pendingTreeState = PendingTreeState.Finalized;
+             pendingTreeSerializedForSave = false;
+         }
+ 
+warning: in the working copy of 'Source/Parsek/RecordingStore.cs', LF will be replaced by CRLF the next time Git touches it

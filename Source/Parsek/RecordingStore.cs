@@ -4915,6 +4915,36 @@ namespace Parsek
         internal static HashSet<uint> PendingRevertPreExistingPids { get; set; }
 
         /// <summary>
+        /// Bug #134: after the rewind strip has already removed orphaned spawned
+        /// protoVessels from the loaded flight state, the pending one-shot cleanup
+        /// data must be dropped so <c>ParsekFlight.OnFlightReady</c> does not re-run
+        /// with the overbroad all-recording name set and destroy freshly-spawned past
+        /// vessels. The revert path's alreadyHasCleanupData guard then sees null and
+        /// collects fresh data if it needs any.
+        /// Called from <c>ParsekScenario.HandleRewindOnLoad</c> right after the strip.
+        /// </summary>
+        internal static void ClearPendingCleanupAfterRewindStrip()
+        {
+            PendingCleanupPids = null;
+            PendingCleanupNames = null;
+            PendingRevertPreExistingPids = null;
+            ParsekLog.Info("Rewind",
+                "OnLoad: cleared PendingCleanupPids/Names after strip - " +
+                "prevents OnFlightReady from destroying freshly-spawned past vessels");
+        }
+
+        /// <summary>
+        /// The armed-cleanup trigger <c>ParsekFlight.OnFlightReady</c> tests before
+        /// running its belt-and-suspenders orphaned-vessel recovery. Kept next to
+        /// <see cref="ClearPendingCleanupAfterRewindStrip"/> so the clear and the gate
+        /// it silences read the same two fields.
+        /// </summary>
+        internal static bool ShouldRunPendingCleanupOnFlightReady()
+        {
+            return PendingCleanupPids != null || PendingCleanupNames != null;
+        }
+
+        /// <summary>
         /// Flat list of every committed recording (standalone + tree members), for the
         /// launch-identity-aware vessel-strip / cleanup predicate (BUG-H). Mirrors
         /// <see cref="CollectSpawnedVesselInfo"/>'s iteration. This is a raw read of the committed

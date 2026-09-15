@@ -622,6 +622,29 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `CommittedProvisional`, so only the supersede walk reaches an Immutable endpoint);
     F-rewind-refly-014-02 (`RecordingStore.BeginRewindForOwner` made `internal` - visibility only -
     and the cell drives it instead of re-issuing `RewindContext.BeginRewind` inline).
+  - Fixed (second half): F-rewind-refly-016-01 (the death row is now IN the list handed to
+    `TryPairBundledRepPenalty`, as the production caller does, so the `RecordingId` equality check is
+    the discriminator); F-rewind-refly-016-02 (`ReputationPenaltySource.Other` at exactly
+    `BundledRepUtWindow`, plus a just-outside sibling, so the inclusive boundary is actually
+    evaluated - a `KerbalDeath` source short-circuits on the source arm and never reaches it);
+    F-rewind-refly-018-01 (the selected slot's recording and live vessel now agree on a conclusive
+    launch guid, so the source arm WOULD name the pid and only the `SlotIndex` skip stops it);
+    F-rewind-refly-020-01 / -020-02 (the bug #134 clear and the `OnFlightReady` cleanup gate are
+    extracted as `RecordingStore.ClearPendingCleanupAfterRewindStrip` /
+    `ShouldRunPendingCleanupOnFlightReady` - behavior-identical, called from
+    `ParsekScenario.HandleRewindOnLoad` and `ParsekFlight.OnFlightReady` - and both cells drive them
+    instead of re-implementing the clear and the gate expression in the test body; the log-format
+    cell in the same class now asserts the line the production clear emits);
+    F-recording-tree-010-01 (a real `Limbo` -> `CommitPendingTree` -> `Finalized` round trip, where
+    the old body reset the store first so only the null-pending guard ran);
+    F-recording-tree-011-01 and -011-02 (the two test-local mirrors `ComputeIsRevert` /
+    `ComputeLimboDispatch` are deleted; production grew `ParsekScenario.ComputeIsRevertOnLoad` and
+    `ParsekScenario.ClassifyLimboDispatch` + `LimboDispatchOutcome`, both called from `OnLoad`, and
+    the cells drive those. The truth tables shrink to the decisions that exist: the pre-#434
+    epoch / count / orphaned-limbo clauses are gone from the revert decision, and the dispatch has
+    no revert outcome because the branch above `OnLoad`'s Limbo block has already discarded the
+    pending tree. `hasOrphanedLimboTree` keeps its own coverage in the `HasOrphanedLimboTree_*`
+    cells, which drive the real `TryRestoreActiveTreeNode`).
   - Deleted: F-rewind-refly-014-04, whose `currentFunds + (baseline - currentFunds)` is `baseline`
     for every input. Twin: `RewindUtCutoffTests.FundsSpending_CutoffFiltersLaterSpending`, which
     pins that a spend after the cutoff is not deducted - the same contract, on the ledger recalc
