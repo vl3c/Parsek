@@ -319,6 +319,14 @@ DEPLOYED-hash-pinned build `4763698...` (GUI-5 `_1615` 88 s, GUI-11 `_1616` 58 s
 `_1617` 66 s, GUI-6 `_1618` 79 s; the first pair `_1557` / `_1559` is the round that found
 the two defects the second commit fixes).
 
+**Then the review pass re-flew two of them on the deployed build
+`6c100d9029cfd7a9860650c236a5929522f672207f4746da6b5feb42ec81e957`** - GUI-11
+`2026-09-15_1744` and GUI-6 `2026-09-15_1746` - because three of the findings it acted on
+were READINGS OF THOSE CAPTURES rather than of the code: the Flights tab drawing a row per
+segment, a stand-in row carrying an expand arrow, and the minimum width. The rows below are
+the AFTER-REVIEW readings; the pre-review ones are named where they differ, because the diff
+is the evidence.
+
 | Label | Lane, run | Reads |
 |---|---|---|
 | `cek-kerbals-roster-advanced` BEFORE | GUI-5, `2026-09-11_1553` | ONE row on a career with four stock kerbals: `> Jebediah Kerman [Pilot] - deceased  (1)` (the reserved form on the wave-2 re-read) |
@@ -326,13 +334,16 @@ the two defects the second commit fixes).
 | `cek-kerbals-roster-advanced` AFTER | GUI-5, `2026-09-15_1615` | `Debwig Kerman [Pilot] / Stand-in for Jebediah Kerman / - / -` and `Jebediah Kerman [Pilot] / Reserved until recovery / Y1, D01, 00:05 / Jumping Flea - Still aboard`, with `Available, no recorded flights (3)` closed under them |
 | `cek-kerbals-roster-expanded-advanced` NEW | GUI-5, `2026-09-15_1615` | the same with every fold open: both rows' chain line `(branch) Debwig Kerman (active)`, and Bill / Bob / Valentina listed dimmed as `Available / - / -` |
 | `cek-kerbals-outcomes-advanced` AFTER | GUI-5, `2026-09-15_1615` | `Jebediah Kerman [Pilot] - 2 flights: 1 recovered, 1 aboard` over `Y1, D01, 00:05 | Jumping Flea | Recovered | -` and the `Still aboard` twin |
-| `bdk-kerbals-roster-collapsed-advanced` | GUI-11, `2026-09-15_1616` | the crewed corpus: Bill / Bob / Valentina each `Reserved until recovery`, `Y1, D01, 02:29`, `Kerbal X #2 - Still aboard`; Jane / Sizon / Kathdan each `Stand-in for <owner>`; `Available, no recorded flights (1)` |
-| `bdk-kerbals-roster-expanded-advanced` | GUI-11, `2026-09-15_1616` | all six chains drawn plus Jebediah Kerman listed as the one plain `Available` row |
-| `bdk-kerbals-roster-standin-chain-advanced` | GUI-11, `2026-09-15_1616` | ONE expansion, on the STAND-IN's own row: `(open) Jane Kerman [Engineer]` over `(branch) Jane Kerman (active)` |
-| `bdk-kerbals-flights-unfolded-advanced` | GUI-11, `2026-09-15_1616` | three groups, 15 rows, e.g. `Y1, D01, 00:03 | Kerbal X | Still aboard | -` and `Y1, D01, 02:29 | Kerbal X #2 | Outcome unknown | -` |
-| `bdk-kerbals-flights-folded-advanced` | GUI-11, `2026-09-15_1616` | the three headers alone: `Bill Kerman [Engineer] - 5 flights: 4 aboard, 1 unknown` and its two twins |
+| `bdk-kerbals-roster-collapsed-advanced` | GUI-11, `2026-09-15_1744` | the crewed corpus: Bill / Bob / Valentina each `Reserved until recovery`, `Y1, D01, 02:29`, `Kerbal X #2 - Still aboard`; Jane / Sizon / Kathdan each `Stand-in for <owner>` with `- / -`; `Available, no recorded flights (1)`. The three stand-in rows draw the two-space LEAF prefix, not an arrow - S1 in the picture |
+| `bdk-kerbals-roster-expanded-advanced` | GUI-11, `2026-09-15_1744` | THREE chains drawn, one per owner (`(branch) Jane Kerman (active)` / `Sizon` / `Kathdan`), plus Jebediah Kerman listed as the one plain `Available` row. The pre-review reading was SIX, because each chain also hung off its stand-in's row |
+| `bdk-kerbals-roster-owner-chain-advanced` | GUI-11, `2026-09-15_1744` | ONE expansion, on the OWNER's row: `(open) Bill Kerman [Engineer]` over `    (branch) Jane Kerman (active)`, with Bob / Valentina still closed. It replaces `bdk-kerbals-roster-standin-chain-advanced`, whose whole subject - a chain hanging off the stand-in - is the thing S1 removed |
+| `bdk-kerbals-flights-unfolded-advanced` | GUI-11, `2026-09-15_1744` | three groups, SIX rows - two per kerbal: `Y1, D01, 00:00 \| Kerbal X \| Still aboard \| -` and `Y1, D01, 00:06 \| Kerbal X #2 \| Still aboard \| -`. The pre-review reading was FIFTEEN (five per kerbal), four of them at the identical `Y1, D01, 02:29` with the identical `Kerbal X #2`, one of them `Outcome unknown` - a two-point mid-mission segment. That reading is S2 |
+| `bdk-kerbals-flights-folded-advanced` | GUI-11, `2026-09-15_1744` | the three headers alone: `Bill Kerman [Engineer] - 2 missions: 2 aboard`, `Bob Kerman [Scientist] - ...`, `Valentina Kerman [Pilot] - ...`. Pre-review: `5 flights: 4 aboard, 1 unknown` |
 | `fs-kerbals-roster-fresh-advanced` | GUI-8, `2026-09-15_1617` | a fresh science save: the column header row plus ONE fold row, `Available, no recorded flights (4)` - where the pre-rebuild window claimed `No reserved crew, stand-ins, or retired kerbals.` on a roster of four |
 | `fs-kerbals-outcomes-empty-advanced` | GUI-8, `2026-09-15_1617` | `No recorded flights with crew yet.` |
+| `play-kerbals-roster-precrew-advanced` NEW | GUI-6, `2026-09-15_1749` | the FLIGHT scene before a crew change: `Jebediah Kerman [Pilot] / Assigned (mk1-capsule) / - / -` over `Available, no recorded flights (3)`, and `op=rect` answering `min=700,150` - the R3 arithmetic, read off the seam rather than off the source |
+| `play-kerbals-roster-postcrew-advanced` NEW | GUI-6, `2026-09-15_1749` | THE SAME TAB after one real `EvaExit`, and the same cell now reads `Assigned (Jebediah Kerman)` - the EVA kerbal is his own vessel. No ledger write happened between the two captures, so this pair is the live-crew refresh: five of the eight subscribed events fired on the EVA and two dropped a live cache (`onKerbalStatusChange`, then `onVesselChange`). Without the subscription the second capture would be a picture of the first one's view model |
+| `play-kerbals-flights-postcrew-advanced` NEW | GUI-6, `2026-09-15_1749` | the Flights tab in FLIGHT on a corpus with no crewed recordings: `No recorded flights with crew yet.` |
 | `play-kerbals-roster-flight-advanced` | GUI-6, `2026-09-15_1618` | the FLIGHT scene, and the first picture of the live-crew column: `Jebediah Kerman [Pilot] / Assigned (mk1-capsule) / - / -` over `Available, no recorded flights (3)` - on a host with 243 injected ghost recordings, so it also shows the `IsGhostMapVessel` guard holding (no ghost crew reads as an assignment) |
 
 Header-vs-cell delta measured off the dumps: **0 px on both tabs**, in both scenes. Roster

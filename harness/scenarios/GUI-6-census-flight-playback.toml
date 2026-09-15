@@ -319,11 +319,19 @@ D14 = ["sandbox", "scene-flight", "scene-map"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The injected showcase corpus, unchanged, and the anti-vacuity floor for every claim in
+# The injected showcase corpus, and the anti-vacuity floor for every claim in
 # this header: a run with no corpus has no ghosts, and a main-window capture labelled
 # `play-main-ghosts-advanced` over an empty scene is the exact false reading the two-phase
 # settle exists to prevent elsewhere. LT-5 and S1.9 pin the same 243.
-count = { min = 243, max = 243 }
+#
+# THE FLOOR IS STILL EXACTLY 243. The ceiling is 244 because the live-crew block appended to
+# this lane on 2026-09-15 creates ONE recording of its own: `EvaExit` splits an EVA branch,
+# and always-tree mode gives it a recording whether or not a recorder was running
+# (`autoRecordOnLaunch` is false above and the 244th appeared anyway - MEASURED on run
+# `2026-09-15_1746`, which red on this very row at `recordings.count 244 > max 243`). The
+# ceiling is the one number that had to move and it moved by exactly one; the min is
+# untouched, so a run that photographed an empty scene still reds here.
+count = { min = 243, max = 244 }
 
 [expectations.logContracts]
 # This lane's OWN seam records, plus the two host facts that make the captures mean what
