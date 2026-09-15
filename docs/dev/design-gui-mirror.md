@@ -175,6 +175,16 @@ which the mirror reproduces with a CSS translate. The page-level echo line under
 the stage is kept as well, because it is readable when the window's own strip is
 scrolled off the top of a tall capture.
 
+### The rail folds
+
+Each window header in the left rail is a disclosure toggle: it folds that window's
+capture list away and selects nothing, keeps its count badge, and flips a caret.
+Everything starts folded except the window being shown, a capture selected from
+anywhere else (a launcher, a tab, the Compare view) unfolds its own window on the
+way in, and the folded set is remembered in `localStorage` as a per-viewer
+convenience - every access guarded, because a private window or cleared site data
+can make the accessor throw and the rail has to come up anyway.
+
 ## 6. The three photo modes
 
 The photograph is there to check the rendering, and the first version checked it

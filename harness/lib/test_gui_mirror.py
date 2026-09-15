@@ -659,6 +659,78 @@ class EndToEndRenderTests(unittest.TestCase):
         self.assertNotIn('src="', self.html.replace('src="data:', 'src="DATA'))
 
 
+class RailDisclosureTests(unittest.TestCase):
+    """The rail's window headers are a real disclosure widget, not a list of
+    shortcuts.
+
+    Nothing here renders the rail - it is built in the page at runtime - so what
+    is pinned is that the page SHIPS the wiring: the header carries the toggle
+    role and the expanded state, the capture list carries the collapsible
+    attribute and the hidden flag, a header click stops before selecting anything,
+    and every localStorage access is guarded. A rail that quietly lost its
+    aria-expanded, or a `localStorage` read that throws in a private window and
+    takes the whole rail down with it, would otherwise only show up in front of
+    the operator.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        model = gmi.build_model([make_shots(self.root)], make_scenarios(self.root),
+                                with_photos=False)
+        self.html = gmi.render_html(model)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_the_header_carries_the_toggle_role_and_its_expanded_state(self):
+        self.assertIn("setAttribute('role', 'button')", self.html)
+        self.assertIn("setAttribute('aria-expanded'", self.html)
+        self.assertIn("setAttribute('aria-controls', listId)", self.html)
+        self.assertIn("setAttribute('tabindex', '0')", self.html)
+
+    def test_the_capture_list_is_the_collapsible_element(self):
+        self.assertIn("list.dataset.collapsible = '1'", self.html)
+        self.assertIn("list.hidden = !open", self.html)
+        self.assertIn("list.id = listId", self.html)
+
+    def test_a_header_click_toggles_and_selects_nothing(self):
+        # `stopPropagation` plus a handler that only writes S.collapsed: a header
+        # that also selected would make the rail unusable as a fold.
+        self.assertIn("if (ev) ev.stopPropagation();", self.html)
+        self.assertIn("S.collapsed[w.token] = open;", self.html)
+        self.assertIn("row.onclick = toggle;", self.html)
+
+    def test_selecting_a_capture_unfolds_its_own_window(self):
+        self.assertIn("S.collapsed[cap.window] = false;", self.html)
+
+    def test_the_keyboard_opens_it_too(self):
+        self.assertIn("row.onkeydown", self.html)
+        self.assertIn("ev.key === 'Enter'", self.html)
+
+    def test_the_count_badge_stays_on_the_header(self):
+        self.assertIn("el('span', 'n', String(w.captureCount))", self.html)
+
+    def test_a_caret_marks_the_state(self):
+        self.assertIn("'caret' + (open ? ' open' : '')", self.html)
+        self.assertIn(".caret.open{transform:rotate(90deg)}", self.html)
+
+    def test_every_localstorage_access_is_guarded(self):
+        # Two accessors, two try/catch blocks, and a load that answers null rather
+        # than throwing - the page must come up in a private window.
+        for i, fn in enumerate(("function loadCollapsed(){", "function saveCollapsed(){")):
+            self.assertIn(fn, self.html)
+            body = self.html[self.html.index(fn):]
+            body = body[:body.index("\n}")]
+            self.assertIn("try {", body, "%s has no try block" % fn)
+            self.assertIn("catch (e)", body, "%s has no catch" % fn)
+
+    def test_everything_starts_folded_but_the_shown_window(self):
+        self.assertIn("M.windows.forEach(function(w){ S.collapsed[w.token] = true; });",
+                      self.html)
+        # ...and the stored set wins over that default when there is one
+        self.assertIn("var stored = loadCollapsed();", self.html)
+
+
 class SizeBudgetTests(unittest.TestCase):
     """A self-contained page that does not fit its budget is not deliverable, so
     the budget is a gate and not a hope."""

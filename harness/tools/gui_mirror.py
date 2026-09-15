@@ -1446,6 +1446,11 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 #rail .w:hover{background:#262626}
 #rail .w.sel{background:#2f4257}
 #rail .w b{font-weight:600}
+#rail .w{user-select:none}
+#rail .w .caret{display:inline-block;width:9px;color:var(--dim);
+  transition:transform .12s ease;flex:0 0 auto}
+#rail .w .caret.open{transform:rotate(90deg)}
+#rail .w:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
 #rail .w .n{color:var(--dim);font-size:11px;margin-left:auto}
 #rail .s{padding:2px 10px 2px 22px;cursor:pointer;font-size:12px;color:#bfbfbf;
   display:flex;gap:6px}
@@ -1575,8 +1580,31 @@ M.captures.forEach(function(c){ byId[c.id] = c; });
 var S = {
   view: 'mirror',
   window: null, tab: null, state: null, mode: null,
-  fixture: null, photo: 'off', boxes: true, foreign: false, capture: null
+  fixture: null, photo: 'off', boxes: true, foreign: false, capture: null,
+  collapsed: {}
 };
+/* Which windows are folded shut in the rail. A per-viewer convenience, so it
+   lives in localStorage and every access is guarded: a private window, cleared
+   site data or a preview can make the accessor throw or answer empty, and the
+   rail has to come up either way. */
+var RAIL_KEY = 'parsek-gui-mirror.rail-collapsed';
+function loadCollapsed(){
+  try {
+    var raw = window.localStorage.getItem(RAIL_KEY);
+    if (!raw) return null;
+    var arr = JSON.parse(raw);
+    if (!arr || !arr.length && arr.length !== 0) return null;
+    var out = {};
+    arr.forEach(function(t){ out[t] = 1; });
+    return out;
+  } catch (e) { return null; }
+}
+function saveCollapsed(){
+  try {
+    window.localStorage.setItem(RAIL_KEY,
+      JSON.stringify(Object.keys(S.collapsed).filter(function(t){ return S.collapsed[t]; })));
+  } catch (e) { /* per-viewer convenience only; nothing depends on it */ }
+}
 /* off -> the rendering alone (the default: it is the thing being checked)
    overlay -> the photograph alone, with the rendering as outlines over it
    side -> the rendering and the photograph next to each other, same scale */
@@ -1908,6 +1936,7 @@ function go(win, tab, state, mode){
 }
 
 function select(cap, exact){
+  S.collapsed[cap.window] = false;   /* show what was just selected */
   S.capture = cap.id; S.window = cap.window; S.tab = cap.tab;
   S.state = cap.state; if (cap.mode) S.mode = cap.mode;
   var stage = document.getElementById('stage');
@@ -1933,35 +1962,63 @@ function select(cap, exact){
 }
 
 /* ---- left rail: every window and state with a capture, and the gaps ---- */
+/* Each window header is a disclosure toggle, not a shortcut: clicking it folds
+   that window's captures away and selects nothing. Everything starts folded
+   except the window being shown, and a capture selected from anywhere else - a
+   launcher, a tab, the Compare view - unfolds its own window on the way in. */
 function buildRail(){
   var rail = document.getElementById('rail');
   rail.innerHTML = '';
   rail.appendChild(el('h2', null, 'Windows (' + M.captures.length + ' captures)'));
   M.windows.filter(function(w){ return w.captureCount > 0; }).forEach(function(w){
-    var row = el('div', 'w' + (w.token === S.window && S.view==='mirror' ? ' sel' : ''));
+    var open = !S.collapsed[w.token];
+    var listId = 'rail-' + w.token;
+    var row = el('div', 'w' + (w.token === S.window && S.view === 'mirror' ? ' sel' : ''));
+    row.setAttribute('role', 'button');
+    row.setAttribute('tabindex', '0');
+    row.setAttribute('aria-expanded', open ? 'true' : 'false');
+    row.setAttribute('aria-controls', listId);
+    row.title = (open ? 'Hide' : 'Show') + ' the ' + w.captureCount +
+                ' captures of ' + w.token;
+    row.appendChild(el('span', 'caret' + (open ? ' open' : ''), '\u25b8'));
     row.appendChild(el('b', null, w.token));
     row.appendChild(el('span', 'n', String(w.captureCount)));
-    row.onclick = function(){ S.view='mirror'; showView(); go(w.token, null, null, S.mode); };
+    function toggle(ev){
+      if (ev) ev.stopPropagation();
+      S.collapsed[w.token] = open;   /* was open -> now collapsed */
+      saveCollapsed();
+      buildRail();
+    }
+    row.onclick = toggle;
+    row.onkeydown = function(ev){
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(ev); }
+    };
     rail.appendChild(row);
-    if (w.token !== S.window) return;
+
+    var list = el('div', 'wlist');
+    list.id = listId;
+    list.dataset.collapsible = '1';
+    list.hidden = !open;
     var seen = {};
     capsFor(w.token).forEach(function(c){
-      var k = [c.tab||'-', c.state||'-', c.mode||'-'].join(' / ');
-      if (seen[k]) return; seen[k] = 1;
-      var s = el('div', 's' + (c.id === S.capture ? ' sel' : ''));
-      s.appendChild(el('span', null, k));
-      s.appendChild(el('span', 'n', c.fixture));
-      s.onclick = function(){ select(c, c.fixture === S.fixture); };
-      rail.appendChild(s);
+      var k = [c.tab || '-', c.state || '-', c.mode || '-'].join(' / ');
+      if (seen[k]) return;
+      seen[k] = 1;
+      var sr = el('div', 's' + (c.id === S.capture ? ' sel' : ''));
+      sr.appendChild(el('span', null, k));
+      sr.appendChild(el('span', 'n', c.fixture));
+      sr.onclick = function(){ select(c, c.fixture === S.fixture); };
+      list.appendChild(sr);
     });
     M.missing.filter(function(m){ return m.window === w.token; }).forEach(function(m){
-      var s = el('div','s gap');
-      s.textContent = (m.tab||'-') + ' / ' + (m.mode||'-') + '  (no capture)';
-      s.title = m.why;
-      s.onclick = function(){ status('no capture for this state yet: ' + m.window +
+      var sr = el('div', 's gap');
+      sr.textContent = (m.tab || '-') + ' / ' + (m.mode || '-') + '  (no capture)';
+      sr.title = m.why;
+      sr.onclick = function(){ status('no capture for this state yet: ' + m.window +
         ' / tab ' + m.tab + ' / ' + m.mode + ' -- ' + m.why, true); };
-      rail.appendChild(s);
+      list.appendChild(sr);
     });
+    rail.appendChild(list);
   });
   var zero = M.windows.filter(function(w){ return !w.captureCount; });
   if (zero.length){
@@ -2248,6 +2305,12 @@ function boot(){
   document.getElementById('btnCompare').onclick = function(){ S.view='compare'; showView(); };
 
   var first = capsFor('main')[0] || M.captures[0];
+  var stored = loadCollapsed();
+  if (stored){
+    S.collapsed = stored;
+  } else {
+    M.windows.forEach(function(w){ S.collapsed[w.token] = true; });
+  }
   showView();
   select(first, first.fixture === S.fixture);
 }
