@@ -386,17 +386,74 @@ register is accurate in what it says and incomplete in what it covers.
 ## T7 - production-bug triage register
 
 Production observations recorded by reviewers as NOT test defects. Phase 2 verified TEST findings
-only; every row here is **unverified** and none has been filed in
-`docs/dev/todo-and-known-bugs.md`. Verification, severity assignment and todo filing happen in
-Phase B's `testfix-t7-prodbugs` workstream, never in this document, and nothing here is fixed inside
-this audit.
+only; every row entered Phase B **unverified**. Verification, severity assignment and todo filing
+happen in Phase B's `testfix-t7-prodbugs` workstream, never in this document, and nothing here is
+fixed inside this audit. Phase B verdicts are in the Status column and the reasoning is under the
+table: T7-1, T7-2 and T7-3 are `not-a-bug`; T7-4 is `verified` as a documentation-only defect and is
+filed as `TQ-1-mapview-refused-doc-says-rejected` in `docs/dev/todo-and-known-bugs.md`.
 
 | # | Observation | Evidence at `4aedb0a1a` | Status | Source |
 |---|---|---|---|---|
-| T7-1 | `FlightRecorder.ResolveEffectiveMinSampleInterval(bool highFidelityActive, float configuredMin)` ignores its `highFidelityActive` argument and returns `configuredMin` unchanged. Whether high fidelity is meant to tighten the foreground floor here, or is folded in upstream by design, is an open question. | `Source/Parsek/FlightRecorder.cs:990-993` | unverified | reviewer note, `recorder-events` cluster |
-| T7-2 | `BackgroundRecorder.ResolveBackgroundAttitudeMinSampleInterval` explicitly discards the same flag (`_ = highFidelityActive;`) and returns `Math.Min(effectiveMotionMinSampleInterval, foregroundAttitudeMin)`. The in-source comment says the caller already folded fidelity into the motion interval; if that premise ever stops holding, background attitude cadence silently ignores fidelity. Paired with T7-1 this is the same question in the mirror direction. | `Source/Parsek/BackgroundRecorder.cs:4869-4885` (discard at :4877, `Math.Min` at :4884) | unverified | F-recorder-events-028-01 (Low T3, test-side); C-recorder-events-028-01 (D3 keep, contract pin) |
-| T7-3 | `TrajectoryMath.ShouldRecordPoint` zero-delta question: with `minInterval = 0` and `elapsed <= 0`, the min floor at `TrajectoryMath.cs:59-61` does not fire and the speed gate returns TRUE, so a duplicate-UT sample is admitted. With any production `minInterval > 0` the floor already blocks it, so this may be unreachable in shipped configuration. | `Source/Parsek/TrajectoryMath.cs:42-62` | unverified | C-recorder-events-011-01, refiled from the D3 backlog (`status = invalid` there, explicitly "refile as a T7 question") |
-| T7-4 | Documentation-vs-behavior mismatch on the map-view command seam: the XML doc on `MapViewToggleOutcome.Refused` says the outcome is "REJECTED with the per-direction reason", but `RefusalVerdict` returns `"ERROR"` for `Refused` (and `"REJECTED"` only for `Unavailable`). Harness `expect` strings are written against the verdict split, so the doc is the thing that is wrong - but which of the two is authoritative is an operator call. | `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24` (doc) vs `:171-177` (`RefusalVerdict`) | unverified | reviewer note, `harness-seam` cluster |
+| T7-1 | `FlightRecorder.ResolveEffectiveMinSampleInterval(bool highFidelityActive, float configuredMin)` ignores its `highFidelityActive` argument and returns `configuredMin` unchanged. Whether high fidelity is meant to tighten the foreground floor here, or is folded in upstream by design, is an open question. | `Source/Parsek/FlightRecorder.cs:990-993` | not-a-bug | reviewer note, `recorder-events` cluster |
+| T7-2 | `BackgroundRecorder.ResolveBackgroundAttitudeMinSampleInterval` explicitly discards the same flag (`_ = highFidelityActive;`) and returns `Math.Min(effectiveMotionMinSampleInterval, foregroundAttitudeMin)`. The in-source comment says the caller already folded fidelity into the motion interval; if that premise ever stops holding, background attitude cadence silently ignores fidelity. Paired with T7-1 this is the same question in the mirror direction. | `Source/Parsek/BackgroundRecorder.cs:4869-4885` (discard at :4877, `Math.Min` at :4884) | not-a-bug | F-recorder-events-028-01 (Low T3, test-side); C-recorder-events-028-01 (D3 keep, contract pin) |
+| T7-3 | `TrajectoryMath.ShouldRecordPoint` zero-delta question: with `minInterval = 0` and `elapsed <= 0`, the min floor at `TrajectoryMath.cs:59-61` does not fire and the speed gate returns TRUE, so a duplicate-UT sample is admitted. With any production `minInterval > 0` the floor already blocks it, so this may be unreachable in shipped configuration. | `Source/Parsek/TrajectoryMath.cs:42-62` | not-a-bug | C-recorder-events-011-01, refiled from the D3 backlog (`status = invalid` there, explicitly "refile as a T7 question") |
+| T7-4 | Documentation-vs-behavior mismatch on the map-view command seam: the XML doc on `MapViewToggleOutcome.Refused` says the outcome is "REJECTED with the per-direction reason", but `RefusalVerdict` returns `"ERROR"` for `Refused` (and `"REJECTED"` only for `Unavailable`). Harness `expect` strings are written against the verdict split, so the doc is the thing that is wrong - but which of the two is authoritative is an operator call. | `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24` (doc) vs `:171-177` (`RefusalVerdict`) | verified | reviewer note, `harness-seam` cluster |
+
+Phase B verdicts (`testfix-t7-prodbugs`, verified against the tree at `e866d44b`, line numbers
+re-grepped there):
+
+- **T7-1 not-a-bug.** High fidelity is folded into the MAX resolver, never the MIN floor:
+  `FlightRecorder.ResolveEffectiveMaxSampleInterval` (`Source/Parsek/FlightRecorder.cs:1015-1023`)
+  returns `Math.Min(configuredMax, Math.Max(0f, configuredMin))` when the flag is set, so a
+  high-fidelity window collapses the backstop onto the player's configured minimum and samples at
+  exactly that density. Tightening the MIN there would sample BELOW the density preset the player
+  chose, which is the one thing the floor exists to prevent. The intent is pinned by name in
+  `AdaptiveSamplingTests.HighFidelityWindow_UsesConfiguredMinIntervalBackstop`
+  (`Source/Parsek.Tests/AdaptiveSamplingTests.cs:431-455`). Full production caller set of the
+  two-arg helper is three sites - the five-arg overload's tail (`FlightRecorder.cs:1012`; the overload is
+  also called from `BackgroundRecorder.cs:2157`, but that call is gated on a debris tier and never
+  reaches the tail, so the tail is reached only from `FlightRecorder.cs:9088`), `BackgroundRecorder.cs:2164`, and
+  `BackgroundRecorder.cs:4916` - and none of them wants a sub-preset floor. The identity body is a
+  named seam, not a dropped branch.
+- **T7-2 not-a-bug, and the mirror premise holds at the single caller.** The only production caller
+  is `BackgroundRecorder.cs:2183`, and the value it passes as `effectiveMotionMinSampleInterval` is
+  computed at `:2156-2165` by a branch on the same flag: high fidelity substitutes the configured
+  foreground minimum for the coarser proximity interval, exactly as the comment at `:2145-2148`
+  says. So fidelity IS folded in by the caller and a second fold would be a double count. Walked in
+  both directions: on the debris-tier path the motion floor is `ProximitySamplingCadence.ResolveSampleInterval`,
+  which floors at `MinimumSampleIntervalSeconds = 0.02f` and clamps to `configuredMin`, so the `Math.Min`
+  at `:4919` resolves to the foreground floor there. On the non-fidelity, non-debris branch the raw
+  `proximityInterval` is passed (`:2165`, `ProximityRateSelector.DockingInterval = 0.2`, no clamp against
+  `configuredMin`), so at the Low preset (`configuredMin = 0.5`) the attitude floor is the proximity
+  floor 0.2, not the foreground floor. That is the designed non-fidelity cadence, not a fidelity
+  question: the flag is honoured on the branch that carries it, and the discard is a no-op on the other. If the caller's branch is ever removed the discard becomes
+  a defect, so the contract pin (C-recorder-events-028-01) stays worth having.
+- **T7-3 not-a-bug: `minInterval = 0` is unreachable in any shipped configuration.** It is a
+  documented opt-out (`TrajectoryMath.cs:40`, "Set minInterval = 0 to disable the floor") exercised
+  only by tests. Every production feed is positive: `ParsekSettings.GetMinSampleInterval` returns
+  0.5 / 0.2 / 0.05 for Low / Medium / High (`Source/Parsek/ParsekSettings.cs:216-219`) and
+  `SamplingDensityLevel` (`:202-207`) clamps any out-of-range serialized `samplingDensity` to
+  Medium, so no corrupted save reaches a fourth value; the three production `ShouldRecordPoint`
+  call sites (`FlightRecorder.cs:9100`, `BackgroundRecorder.cs:2179`,
+  `ChainSegmentManager.cs:409`) all derive their floor from that table, through
+  `ProximitySamplingCadence` / `ProximityRateSelector` / `ContinuationMinInterval`
+  (`ChainSegmentManager.cs:261-262`), and none of those paths can produce 0. With any positive
+  floor a duplicate-UT or backwards-UT sample fails `elapsed < minInterval` and is rejected, so the
+  admitted-duplicate reading has no shipped reachability.
+- **T7-4 verified as a DOCUMENTATION defect (doc-only; the wire contract is correct).** The
+  `RefusalVerdict` split at `TestCommandMapViewVerbs.cs:171-177` is deliberate and reasoned in its
+  own doc block (`:163-170`: REJECTED for gates evaluated before the stock call, ERROR once stock
+  was called and declined), is the seam-wide convention (`harness/lib/hlib.py:1080-1090`,
+  `SEAM_VERDICT_OUTCOME_TERMINAL = "ERROR"`, mirrored by `EnterWatchMode`'s post-call
+  `watch-not-entered`), and is pinned by
+  `TestCommandMapViewVerbsTests.RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled`
+  (`Source/Parsek.Tests/TestCommandMapViewVerbsTests.cs:155-167`). The enum member doc at
+  `:21-24` contradicts it with the word REJECTED. No committed spec currently pins the refusal
+  branch - every `EnterMapView` / `ExitMapView` step in `harness/scenarios/*.toml` is
+  `expect = "OK"` (all eleven specs with an uncommented step for either verb: B32, GUI-6, GUI-9, H59, RF-7M, RF-8, V26M, V27M, V3C, V6M, W1;
+  grep for a non-OK expect within three lines of either verb returns nothing) - so the consequence is authorship, not a red
+  lane: a spec author reading the enum doc writes `expect = "REJECTED"` for a stock-declined toggle
+  and the lane mismatches against the ERROR the seam actually emits. Filed as TQ-1.
 
 Deliberately NOT a T7: the `RouteRenderUnionWiringTests` slicing overrun. It is a TEST defect, not a
 production one - `ExtractDriveMissionLoopUnitsBody` takes a fixed decl + 4000-char slice of raw
@@ -457,6 +514,12 @@ cheap.
 | 18 | C-catchall-049-01 | data-loss | `ChainSegmentManager.cs:429` | state-transition | seam | 2 | delete `rec.MarkFilesDirty()` after the continuation point append |
 | 19 | C-io-serialization-004-01 | data-loss | `FileIOUtils.cs:302` | negative | seam | 2 | delete the destination-preserving fallback in the `File.Replace` catch |
 | 20 | C-recording-tree-039-01 | data-loss | `RecordingStore.OrphanCleanup.cs:56` | integration | seam | 2 | delete the `RewindSaveFileName` limb at :56-57 |
+
+**Phase B status (2026-09-15).** The five priority-1 data-loss rows have landed as xUnit cells
+on `testfix-t5-coverage`, each mutation-proved in that worktree with the mutant the CSV names (C-legacy-bugfix-024-01 in the shared save body both entry points route through, not the public wrapper; the wrapper stays guarded by the source-text pin)
+(patches under `research/test-quality-audit-2026-09-14/mutations/<cand_id>-phaseB.patch`):
+C-legacy-bugfix-023-01, C-legacy-bugfix-024-01, C-recording-tree-034-01, C-rewind-refly-011-01,
+C-rewind-refly-020-01. Their `status` in the CSV is now `done`.
 
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the

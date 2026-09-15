@@ -84,6 +84,74 @@ namespace Parsek.TestCommands
         [DllImport("user32.dll")]
         private static extern bool ClientToScreen(IntPtr hWnd, ref Win32Point point);
 
+        // ----- focus= -----
+        //
+        // THE DOCUMENTED RULE, and why two rungs. SetForegroundWindow succeeds only for a
+        // process that already owns the foreground, was started by it, received the last
+        // input event, or has AllowSetForegroundWindow granted to it; otherwise Windows
+        // refuses and merely flashes the taskbar button. The game window belongs to THIS
+        // process, so the common case (the operator just launched the harness run and the
+        // game has focus) is already-foreground and needs no call at all. For the case that
+        // matters - another window took focus mid-run - the least invasive documented
+        // workaround is AttachThreadInput: attach this thread's input queue to the
+        // foreground window's thread, call SetForegroundWindow, detach. It is preferred over
+        // SwitchToThisWindow (undocumented, and it restores / animates the window) and over
+        // AllowSetForegroundWindow (which must be called by the CURRENT foreground process,
+        // not by us).
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd,
+                                                            IntPtr processId);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo,
+                                                     bool fAttach);
+
+        // ----- nudge= -----
+        //
+        // SendInput with MOUSEEVENTF_MOVE and no ABSOLUTE flag is a RELATIVE move, which is
+        // what makes it an EVENT rather than a warp: the OS synthesises the same input a
+        // mouse would, so the window's message queue receives a real WM_MOUSEMOVE.
+        // SetCursorPos does not - it writes the cursor position and Unity's per-frame sample
+        // follows it, while the event stream (which is what an IMGUI hover is computed
+        // during) sees nothing. The (+1,0) / (-1,0) pair cancels out, so the cursor ends
+        // where the move put it and the read-back still compares against the commanded
+        // point.
+
+        private const uint InputMouse = 0;
+        private const uint MouseEventMove = 0x0001;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Win32MouseInput
+        {
+            internal int Dx;
+            internal int Dy;
+            internal uint MouseData;
+            internal uint Flags;
+            internal uint Time;
+            internal IntPtr ExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Win32Input
+        {
+            internal uint Type;
+            internal Win32MouseInput Mouse;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint SendInput(uint numberOfInputs, Win32Input[] inputs,
+                                             int sizeOfInputStructure);
+
         /// <summary>The stock game window title, used as the second lookup. Not a guess:
         /// KSP 1.12.5 titles its player window with the product name, and this literal is
         /// the fallback for a host whose <c>Application.productName</c> has been changed by
@@ -98,12 +166,16 @@ namespace Parsek.TestCommands
                     ArgOrNull(cmd, TestCommandUiPointer.XArg),
                     ArgOrNull(cmd, TestCommandUiPointer.YArg),
                     ArgOrNull(cmd, TestCommandUiPointer.ParkArg),
+                    ArgOrNull(cmd, TestCommandUiPointer.FocusArg),
+                    ArgOrNull(cmd, TestCommandUiPointer.NudgeArg),
                     out UiPointerRequest request, out string reject))
             {
                 ParsekLog.Warn(Tag, $"uiaction rejected reason={reject} "
                     + $"x={ArgOrNull(cmd, TestCommandUiPointer.XArg) ?? string.Empty} "
                     + $"y={ArgOrNull(cmd, TestCommandUiPointer.YArg) ?? string.Empty} "
-                    + $"park={ArgOrNull(cmd, TestCommandUiPointer.ParkArg) ?? string.Empty}");
+                    + $"park={ArgOrNull(cmd, TestCommandUiPointer.ParkArg) ?? string.Empty} "
+                    + $"focus={ArgOrNull(cmd, TestCommandUiPointer.FocusArg) ?? string.Empty} "
+                    + $"nudge={ArgOrNull(cmd, TestCommandUiPointer.NudgeArg) ?? string.Empty}");
                 SetExecResult("REJECTED", null, reject);
                 return;
             }
@@ -138,8 +210,10 @@ namespace Parsek.TestCommands
 
             int screenX, screenY;
             string via;
+            IntPtr gameWindow;
             if (!TryResolveDesktopPoint((int)request.X, (int)request.Y,
-                                        out screenX, out screenY, out via))
+                                        out screenX, out screenY, out via,
+                                        out gameWindow))
             {
                 ParsekLog.Error(Tag, "uiaction error reason="
                     + TestCommandUiPointer.WindowUnresolvedReason
@@ -156,9 +230,23 @@ namespace Parsek.TestCommands
             // recoverable from KSP.log alone.
             ParsekLog.Info(Tag, $"uiaction pointer moving the OS cursor to client "
                 + $"{Fmt(request.X)},{Fmt(request.Y)} (desktop {Int(screenX)},{Int(screenY)}"
-                + $" via={via}); park={Bool(request.Park)}. This is machine-wide: an "
+                + $" via={via}); park={Bool(request.Park)} focus={Bool(request.Focus)} "
+                + $"nudge={Bool(request.Nudge)}. This is machine-wide: an "
                 + "operator using the mouse during the run will see it jump, and his own "
-                + "next move invalidates any hover this step set up");
+                + "next move invalidates any hover this step set up"
+                + (request.Focus
+                    ? "; focus=true additionally STEALS the foreground from whatever he is "
+                      + "doing"
+                    : string.Empty)
+                + (request.Nudge
+                    ? "; nudge=true synthesises a mouse move at the system level"
+                    : string.Empty));
+
+            // BEFORE the move, by contract: the point of focus=true is that the window owns
+            // the input queue WHEN the move lands, so a foreground taken afterwards would
+            // prove nothing about the event that carried the cursor.
+            UiPointerFocusOutcome focusOutcome =
+                request.Focus ? TryTakeForeground(gameWindow) : UiPointerFocusOutcome.NotRequested;
 
             bool issued;
             try
@@ -189,6 +277,20 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // AFTER the move, and only then: a relative nudge is measured from wherever the
+            // cursor now is, so sending it first would land it one pixel off the control.
+            bool nudgeApplied = request.Nudge && TrySendRelativeNudge();
+
+            // The probe fires on the next strip Repaint, which is the pass a hover would
+            // have painted in. Armed for EVERY move (not only under the flags) because the
+            // measurement it takes - what Event.current.mousePosition reads inside a Parsek
+            // OnGUI beside Input.mousePosition - is the discriminator for
+            // GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT, and it is Verbose.
+            TooltipEchoStripLatch.ArmMousePositionProbe();
+
+            bool foregroundIsGame = gameWindow != IntPtr.Zero
+                                    && ReadForegroundWindowSafely() == gameWindow;
+
             uiActionPending = new UiActionPending
             {
                 Op = UiActionOp.Pointer,
@@ -200,6 +302,10 @@ namespace Parsek.TestCommands
                 PointerScreenX = screenX,
                 PointerScreenY = screenY,
                 PointerVia = via,
+                PointerFocus = request.Focus,
+                PointerNudge = nudgeApplied,
+                PointerFocusOutcome = focusOutcome,
+                PointerForegroundIsGame = foregroundIsGame,
             };
             SetExecResult(PendingVerdict, null, null);
         }
@@ -266,13 +372,37 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // KEY ORDER IS LOAD-BEARING up to `via=`: the wave-2 census lanes' log contracts
+            // pin `uiaction pointer at=<x>,<y> park=<b> via=` and stop there, so the five
+            // flag keys are APPENDED after it and every one of those regexes still matches.
+            // `tooltip=` is the reading the whole flag pair exists to produce: the hover-echo
+            // strip's text as of the settled frame, `-` when the strip is empty - which is
+            // what four census captures photographed with no way to say so in the log.
+            // RE-ARM, after the read-back agreed. The arm at execute time fires on the
+            // first strip Repaint after the move was ISSUED, which run 2026-09-15_1520
+            // measured landing one frame early: its `input=` read the PREVIOUS position
+            // while the cursor was still in flight. A second probe, armed once the cursor
+            // is confirmed on the control, is the apples-to-apples reading - and the arm is
+            // idempotent, so the pair costs one extra Verbose line.
+            TooltipEchoStripLatch.ArmMousePositionProbe();
+
+            string tooltip = TooltipEchoStripLatch.LastText;
             ParsekLog.Info(Tag, $"uiaction pointer at={Fmt(mouse.x)},{Fmt(observedGuiY)} "
                 + $"park={Bool(pending.PointerPark)} via={pending.PointerVia} "
-                + $"frames={Int(framesElapsed)}");
+                + $"frames={Int(framesElapsed)} focus={Bool(pending.PointerFocus)} "
+                + $"nudge={Bool(pending.PointerNudge)} "
+                + "fgOutcome="
+                + TestCommandUiPointer.FocusOutcomeToken(pending.PointerFocusOutcome)
+                + $" fg={Bool(pending.PointerForegroundIsGame)} "
+                + $"tooltip={TooltipEchoStripLatch.FormatForLog(tooltip)} "
+                + $"tooltipFrame={Int(TooltipEchoStripLatch.LastFrame)}");
             EmitExecutedTerminal(id, seq, verb, "OK",
                 TestCommandUiPointer.BuildPayload(
                     mouse.x, observedGuiY, pending.PointerPark,
-                    pending.PointerScreenX, pending.PointerScreenY, pending.PointerVia),
+                    pending.PointerScreenX, pending.PointerScreenY, pending.PointerVia,
+                    pending.PointerFocus, pending.PointerNudge,
+                    pending.PointerFocusOutcome, pending.PointerForegroundIsGame,
+                    tooltip, TooltipEchoStripLatch.LastFrame),
                 null, dequeueHead: true);
         }
 
@@ -290,11 +420,12 @@ namespace Parsek.TestCommands
         /// </summary>
         private static bool TryResolveDesktopPoint(int clientX, int clientY,
                                                    out int screenX, out int screenY,
-                                                   out string via)
+                                                   out string via, out IntPtr gameWindow)
         {
             screenX = clientX;
             screenY = clientY;
             via = "assumed-origin";
+            gameWindow = IntPtr.Zero;
 
             IntPtr hwnd = IntPtr.Zero;
             string source = null;
@@ -356,8 +487,183 @@ namespace Parsek.TestCommands
             screenX = point.X;
             screenY = point.Y;
             via = source;
+            gameWindow = hwnd;
             return true;
         }
+
+        /// <summary>
+        /// <c>GetForegroundWindow</c> with the bind / UIPI failure contained. Zero when it
+        /// cannot be asked, which the callers treat as "not the game" - the conservative
+        /// direction: an unknown foreground must never be reported as a confirmed one.
+        /// </summary>
+        private static IntPtr ReadForegroundWindowSafely()
+        {
+            try
+            {
+                return GetForegroundWindow();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"uiaction pointer GetForegroundWindow threw "
+                    + $"{ex.GetType().Name}: {ex.Message}; reporting fg=false");
+                return IntPtr.Zero;
+            }
+        }
+
+        /// <summary>
+        /// Brings the resolved game window to the foreground, reporting WHICH rung answered
+        /// (<see cref="UiPointerFocusOutcome"/>). Never an ERROR: a refused foreground is a
+        /// measurement, and the move plus the read-back remain the op's verdict.
+        ///
+        /// <para>Rung 0 is "already foreground", which costs no call and is the expected
+        /// reading on an operator desktop that just launched the game - and it is the answer
+        /// that makes a still-unpainted hover NOT a foreground problem. Rung 1 is a plain
+        /// <c>SetForegroundWindow</c>. Rung 2 is the documented <c>AttachThreadInput</c>
+        /// workaround, used only when rung 1 was refused: Windows permits
+        /// <c>SetForegroundWindow</c> from a process that does not own the foreground only
+        /// under conditions we may not meet mid-run, and attaching this thread's input queue
+        /// to the current foreground thread supplies one of them. The attach is detached in
+        /// a <c>finally</c>, because leaving two input queues attached would couple the
+        /// game's input to another process's for the rest of the session.</para>
+        /// </summary>
+        private static UiPointerFocusOutcome TryTakeForeground(IntPtr gameWindow)
+        {
+            if (gameWindow == IntPtr.Zero)
+            {
+                ParsekLog.Warn(Tag, "uiaction pointer focus=true but no game window handle "
+                    + "was resolved (the assumed-origin fallback rung), so the foreground "
+                    + "could not be asked for; the move still goes ahead");
+                return TestCommandUiPointer.ClassifyFocus(true, false, false, false, false);
+            }
+
+            try
+            {
+                IntPtr before = ReadForegroundWindowSafely();
+                if (before == gameWindow)
+                {
+                    ParsekLog.Info(Tag, "uiaction pointer focus=true was a no-op: the game "
+                        + "window is ALREADY the foreground window, so an unpainted hover "
+                        + "after this move is not a foreground problem");
+                    return TestCommandUiPointer.ClassifyFocus(true, true, true, false, false);
+                }
+
+                SetForegroundWindow(gameWindow);
+                bool directTookIt = ReadForegroundWindowSafely() == gameWindow;
+                if (directTookIt)
+                {
+                    ParsekLog.Info(Tag, "uiaction pointer focus=true took the foreground "
+                        + "with a plain SetForegroundWindow");
+                    return TestCommandUiPointer.ClassifyFocus(true, true, false, true, false);
+                }
+
+                // Rung 2: attach this thread's input queue to the foreground window's
+                // thread, which supplies one of the documented conditions under which
+                // SetForegroundWindow is permitted, then detach unconditionally.
+                bool attachTookIt = false;
+                uint ourThread = GetCurrentThreadId();
+                uint foregroundThread =
+                    GetWindowThreadProcessId(before, IntPtr.Zero);
+                bool attached = false;
+                try
+                {
+                    if (foregroundThread != 0 && foregroundThread != ourThread)
+                        attached = AttachThreadInput(ourThread, foregroundThread, true);
+                    SetForegroundWindow(gameWindow);
+                    attachTookIt = ReadForegroundWindowSafely() == gameWindow;
+                }
+                finally
+                {
+                    if (attached)
+                        AttachThreadInput(ourThread, foregroundThread, false);
+                }
+
+                if (attachTookIt)
+                {
+                    ParsekLog.Info(Tag, "uiaction pointer focus=true took the foreground "
+                        + "through the AttachThreadInput path (a plain SetForegroundWindow "
+                        + "was refused)");
+                    return TestCommandUiPointer.ClassifyFocus(true, true, false, false, true);
+                }
+
+                ParsekLog.Warn(Tag, "uiaction pointer focus=true did NOT take the "
+                    + "foreground: both SetForegroundWindow and the AttachThreadInput "
+                    + "retry were refused, so the window still does not own the input "
+                    + "queue. The move goes ahead and the read-back is still the verdict");
+                return TestCommandUiPointer.ClassifyFocus(true, true, false, false, false);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"uiaction pointer focus=true threw "
+                    + $"{ex.GetType().Name}: {ex.Message}; reporting a refused foreground "
+                    + "and continuing with the move");
+                return TestCommandUiPointer.ClassifyFocus(true, true, false, false, false);
+            }
+        }
+
+        /// <summary>
+        /// Sends ONE relative <c>(+1,0)</c> then <c>(-1,0)</c> mouse move through
+        /// <c>SendInput</c>, so the window receives a real <c>WM_MOUSEMOVE</c> pair rather
+        /// than only a new cursor position. Returns whether the OS accepted both.
+        ///
+        /// <para>The pair cancels, so the cursor ends where the preceding
+        /// <c>SetCursorPos</c> put it. Both events go in ONE <c>SendInput</c> call, which is
+        /// the documented way to keep another process's input from being interleaved
+        /// between them - an interleaved move would leave the cursor one pixel off the
+        /// control the step resolved.</para>
+        /// </summary>
+        private static bool TrySendRelativeNudge()
+        {
+            try
+            {
+                var inputs = new[]
+                {
+                    NewRelativeMove(1, 0),
+                    NewRelativeMove(-1, 0),
+                };
+                uint sent = SendInput((uint)inputs.Length, inputs,
+                                      Marshal.SizeOf(typeof(Win32Input)));
+                if (sent == inputs.Length)
+                {
+                    ParsekLog.Info(Tag, "uiaction pointer nudge=true sent a relative "
+                        + "(+1,0)/(-1,0) SendInput pair, so the window received a real "
+                        + "WM_MOUSEMOVE at the landed position");
+                    return true;
+                }
+                int lastError = Marshal.GetLastWin32Error();
+                ParsekLog.Warn(Tag, $"uiaction pointer nudge=true: SendInput accepted "
+                    + $"{sent} of {inputs.Length} events, lastError={Int(lastError)}, so no "
+                    + "mouse event reached the window; reporting nudge=false. The error code "
+                    + "is reported rather than guessed at: this file exists to measure, and "
+                    + "a UIPI block, a foreground input block and an unsupported call are "
+                    + "different findings");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"uiaction pointer nudge=true: SendInput threw "
+                    + $"{ex.GetType().Name}: {ex.Message}; reporting nudge=false");
+                return false;
+            }
+        }
+
+        private static Win32Input NewRelativeMove(int dx, int dy)
+            => new Win32Input
+            {
+                Type = InputMouse,
+                Mouse = new Win32MouseInput
+                {
+                    Dx = dx,
+                    Dy = dy,
+                    MouseData = 0,
+                    // No MOUSEEVENTF_ABSOLUTE: without it the OS treats dx/dy as a RELATIVE
+                    // move, which is the whole point - an absolute SendInput would be
+                    // another warp, in normalised 0..65535 coordinates, and would produce
+                    // the same non-event SetCursorPos already produces.
+                    Flags = MouseEventMove,
+                    Time = 0,
+                    ExtraInfo = IntPtr.Zero,
+                },
+            };
 
         private static string Fmt(float v)
             => v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);

@@ -795,6 +795,56 @@ namespace Parsek.Tests
                 && l.Contains("fileDeleteFail=1"));
         }
 
+        /// <summary>
+        /// Coverage cell C-rewind-refly-011-01. Every other cell in this class stubs
+        /// <c>DeleteQuicksaveForTesting</c>, so the real file-system limb of
+        /// TryDeleteQuicksaveFile - resolve, existence check, File.Delete - has never
+        /// been driven. Dropping the delete leaks a quicksave per reaped RP; deleting
+        /// a mis-resolved path destroys an unrelated save file. This cell drives the
+        /// real limb against a temp directory with a sibling file as the blast-radius
+        /// witness.
+        /// </summary>
+        [Fact]
+        public void TryDeleteQuicksaveFile_ExistingResolvedFile_DeletesIt()
+        {
+            string tempDir = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "parsek-rp-reap-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                // The fixture installs a recording stub; the real limb only runs when
+                // the hook is absent.
+                RewindPointReaper.DeleteQuicksaveForTesting = null;
+                RewindPointReaper.ResolveQuicksaveAbsolutePathForTesting =
+                    id => System.IO.Path.Combine(tempDir, id + ".sfs");
+
+                string target = System.IO.Path.Combine(tempDir, "rp_1.sfs");
+                string sibling = System.IO.Path.Combine(tempDir, "rp_2.sfs");
+                System.IO.File.WriteAllText(target, "target quicksave");
+                System.IO.File.WriteAllText(sibling, "sibling quicksave");
+
+                var rp = Rp("rp_1", "bp_1", sessionProvisional: false, Slot(0, "rec_a"));
+
+                Assert.True(RewindPointReaper.TryDeleteQuicksaveFile(rp));
+
+                Assert.False(System.IO.File.Exists(target));
+                Assert.True(System.IO.File.Exists(sibling));
+                Assert.Equal("sibling quicksave", System.IO.File.ReadAllText(sibling));
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Rewind]")
+                    && l.Contains("Deleted rewind quicksave")
+                    && l.Contains("rp=rp_1"));
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(tempDir, true); }
+                catch { }
+            }
+        }
+
         // ---------- Idempotence + count ------------------------------------
 
         [Fact]

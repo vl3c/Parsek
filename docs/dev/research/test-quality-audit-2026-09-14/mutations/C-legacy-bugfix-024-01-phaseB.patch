@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingSidecarStore.cs b/Source/Parsek/RecordingSidecarStore.cs
+index f59f16a43..5383a6bd3 100644
+--- a/Source/Parsek/RecordingSidecarStore.cs
++++ b/Source/Parsek/RecordingSidecarStore.cs
+@@ -1170,6 +1170,10 @@ namespace Parsek
+                     changes.Add(SidecarFileCommitBatch.StageWrite(path => WriteSnapshotSidecar(path, rec.VesselSnapshot), vesselPath));
+                     wroteVesselSnapshot = true;
+                 }
++                else if (!string.IsNullOrEmpty(vesselPath) && File.Exists(vesselPath))
++                {
++                    File.Delete(vesselPath);
++                }
+ 
+                 if (ghostSnapshotMode == GhostSnapshotMode.Separate && rec.GhostVisualSnapshot != null)
+                 {
