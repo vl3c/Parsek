@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/SupersedeCommit.cs b/Source/Parsek/SupersedeCommit.cs
 index 00b958c1d..0d6d6ab5c 100644
 --- a/Source/Parsek/SupersedeCommit.cs
 +++ b/Source/Parsek/SupersedeCommit.cs
-@@ -1,4 +1,4 @@
--﻿using System;
-+using System;
- using System.Collections.Generic;
- using System.Globalization;
- using Parsek.Logistics;
 @@ -1151,8 +1151,7 @@ namespace Parsek
                  $"markerTarget={marker.SupersedeTargetId ?? "<none>"} " +
                  $"rp={marker.RewindPointId ?? "<none>"} reason={slotRejectReason ?? "slot-index-invalid"}; " +

@@ -1188,7 +1188,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     disabling `BuildSparsePointListPlan` used to leave it green).
   - Slice total: 20 of 20 addressed - 18 strengthened, 2 renamed and strengthened, 0
     deferred, 0 deleted. Three sibling cells were added on the `rewind-refly` half and
-    two on the `recording-tree` half, each carrying the mirror or positive direction the
+    one on the `recording-tree` half (the other two recording-tree method additions are renames), each carrying the mirror or positive direction the
     original cell could not reach.
 
 ## July crosswalk

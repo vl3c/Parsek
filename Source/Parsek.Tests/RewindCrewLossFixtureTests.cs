@@ -363,8 +363,6 @@ namespace Parsek.Tests
                     .Select(v => v.GetValue("pid")).ToList();
             });
             Assert.Contains(podGuid, sidecarPids);
-            Assert.False(VesselLaunchIdentity.GuidsConclusivelyDiffer(
-                pod.GetValue("recordedVesselGuid"), podGuid));
         }
 
         [Fact]

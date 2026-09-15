@@ -294,7 +294,8 @@ _(unreleased — entries accumulate here per commit)_
   its last line. The fixtures are now armed so the named term is the sole
   discriminator, with three new sibling cells carrying the mirror direction (an
   Orbiting in-place continuation, a non-debris recording of the same chain shape, and
-  a different-pid child resolvable only through the passed tree context), and the two
+  a different-pid child resolvable only through the passed tree context, which shares
+  its instrument with an existing breakup-debris cell), and the two
   fixture cells read the injected recording and the RP quicksave sidecar rather than
   re-deriving what the fixture wrote. No production code changed; no log text changed;
   nothing a player sees changes. Each cell was re-checked by breaking the named

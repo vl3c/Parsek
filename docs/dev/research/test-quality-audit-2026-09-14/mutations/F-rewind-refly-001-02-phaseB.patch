@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/SupersedeCommit.cs b/Source/Parsek/SupersedeCommit.cs
 index 00b958c1d..71ddd4f06 100644
 --- a/Source/Parsek/SupersedeCommit.cs
 +++ b/Source/Parsek/SupersedeCommit.cs
-@@ -1,4 +1,4 @@
--﻿using System;
-+using System;
- using System.Collections.Generic;
- using System.Globalization;
- using Parsek.Logistics;
 @@ -1421,7 +1421,7 @@ namespace Parsek
              // gate would auto-seal a stashed slot the player never
              // mutated. Conservatively skip the gate when the baseline is
