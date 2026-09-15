@@ -495,6 +495,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SafeWritePersistent_SaveThrowsOnMainMenu_HardBlocksTransition()
+        {
+            // Drive the REAL body (not the whole-method seam) with the save step
+            // throwing, so the catch runs. MAINMENU is the one destination with no
+            // later save before unload, so the only correct answer is to refuse the
+            // transition; the whole-method seam cells never enter the try.
+            SceneExitInterceptor.PersistentSaveStepForTesting =
+                _ => throw new IOException("save volume is full");
+
+            bool result = SceneExitInterceptor.SafeWritePersistent(GameScenes.MAINMENU);
+
+            Assert.False(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SceneExit]")
+                && l.Contains("SafeWritePersistent threw IOException: save volume is full")
+                && l.Contains("dest=MAINMENU")
+                && l.Contains("hard-blocking transition"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("persistent.sfs written"));
+        }
+
+        [Fact]
+        public void SafeWritePersistent_SaveThrowsOnSpaceCenter_ContinuesTransition()
+        {
+            // Mirror: every other destination still has a save cycle ahead of it, so
+            // the same throw is a Warn and the transition proceeds.
+            SceneExitInterceptor.PersistentSaveStepForTesting =
+                _ => throw new IOException("save volume is full");
+
+            bool result = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
+
+            Assert.True(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SceneExit]")
+                && l.Contains("SafeWritePersistent threw IOException: save volume is full")
+                && l.Contains("dest=SPACECENTER")
+                && l.Contains("continuing transition"));
+        }
+
+        [Fact]
         public void SafeWritePersistent_TestSeam_FailureOnKsc_ReturnsFalseFromSeam()
         {
             // The test seam is authoritative: whatever it returns, that's
