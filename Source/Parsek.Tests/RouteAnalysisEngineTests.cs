@@ -3165,6 +3165,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsSupportedMidTreeDockedOrigin_GrappleOriginWindow_False()
+        {
+            // Claw-producer composition: a grapple window reaching index 0 is
+            // cargo-bearing and stays a STOP - it is never lifted as a mid-tree
+            // origin (design-logistics-claw-producer.md 4.1). Every other window
+            // fixture in this file is a DockingPort window, so the TransferKind
+            // guard is otherwise undiscriminated.
+            RouteConnectionWindow originWindow = BuildDeliveryWindowAt("origin", 100.0, 160.0);
+            originWindow.TransferKind = RouteConnectionKind.Grapple;
+            var windows = new List<RouteConnectionWindow>
+            {
+                originWindow,
+                BuildDeliveryWindowAt("delivery", 300.0, 360.0)
+            };
+
+            Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(windows, hasTree: true));
+        }
+
+        [Fact]
         public void IsSupportedMidTreeDockedOrigin_FewerThanTwoWindows_False()
         {
             Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(null, hasTree: true));

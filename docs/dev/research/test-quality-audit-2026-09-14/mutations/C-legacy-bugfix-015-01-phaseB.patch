@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/TimeJumpManager.cs b/Source/Parsek/TimeJumpManager.cs
+index 4ec974f38..a5ee1ef07 100644
+--- a/Source/Parsek/TimeJumpManager.cs
++++ b/Source/Parsek/TimeJumpManager.cs
+@@ -412,7 +412,8 @@ namespace Parsek
+         {
+             string details = string.Format(ic,
+                 "preUT={0:R};postUT={1:R};lat={2:R};lon={3:R};alt={4:R};vx={5:R};vy={6:R};vz={7:R}",
+-                preJumpUT, postJumpUT, lat, lon, alt, velX, velY, velZ);
++                // MUTANT: lat and lon transposed in the details format arguments
++                preJumpUT, postJumpUT, lon, lat, alt, velX, velY, velZ);
+ 
+             var evt = new SegmentEvent
+             {

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index 1862354df..bc87d5620 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -296,7 +296,7 @@ namespace Parsek
+         {
+             bool was = HasPendingJointBreakCheck;
+             jointBreakUT = PendingJointBreakUT;
+-            HasPendingJointBreakCheck = false;
++            // MUTANT: HasPendingJointBreakCheck = false; removed (the consume never clears)
+             PendingJointBreakUT = double.NaN;
+             return was;
+         }

@@ -236,5 +236,55 @@ namespace Parsek.Tests
                 l.Contains("pid=2057942744"));
             Assert.DoesNotContain(logLines, l => l.Contains("already has a Decoupled PartEvent"));
         }
+
+        /// <summary>
+        /// The pending joint-break flag is a one-shot: the consume reports whether a
+        /// check was pending AND clears it, so a second consume reports nothing. A
+        /// consume that never clears repeats the undock/joint-break branch on the next
+        /// frame. The production arming site (OnPartJointBreak) needs a live PartJoint,
+        /// so the armed state is set through the auto-property backing fields here.
+        /// </summary>
+        [Fact]
+        public void FlightRecorder_JointBreakSignal_SetsPendingThenConsumeClearsIt()
+        {
+            var rec = new FlightRecorder();
+
+            Assert.False(rec.HasPendingJointBreakCheck);
+            Assert.True(double.IsNaN(rec.PendingJointBreakUT));
+
+            double jointBreakUT;
+            Assert.False(rec.ConsumePendingJointBreakCheck(out jointBreakUT));
+
+            ArmPendingJointBreak(rec, 4211.75);
+            Assert.True(rec.HasPendingJointBreakCheck);
+            Assert.Equal(4211.75, rec.PendingJointBreakUT);
+
+            Assert.True(rec.ConsumePendingJointBreakCheck(out jointBreakUT));
+            Assert.Equal(4211.75, jointBreakUT);
+            Assert.False(rec.HasPendingJointBreakCheck);
+            Assert.True(double.IsNaN(rec.PendingJointBreakUT));
+
+            // One-shot: the second consume must report no pending check.
+            Assert.False(rec.ConsumePendingJointBreakCheck(out jointBreakUT));
+        }
+
+        // Mirrors what FlightRecorder.OnPartJointBreak writes; that site takes a live
+        // PartJoint, which is not constructible headlessly.
+        private static void ArmPendingJointBreak(FlightRecorder rec, double ut)
+        {
+            SetAutoPropertyField(rec, "HasPendingJointBreakCheck", true);
+            SetAutoPropertyField(rec, "PendingJointBreakUT", ut);
+        }
+
+        private static void SetAutoPropertyField(object target, string propertyName, object value)
+        {
+            var field = target.GetType().GetField(
+                "<" + propertyName + ">k__BackingField",
+                System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.NonPublic
+                    | System.Reflection.BindingFlags.Public);
+            Assert.NotNull(field);
+            field.SetValue(target, value);
+        }
     }
 }

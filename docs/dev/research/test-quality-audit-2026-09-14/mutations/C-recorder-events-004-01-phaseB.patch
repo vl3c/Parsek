@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..8b73d45e8 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -6775,7 +6775,8 @@ namespace Parsek
+                     : "recorded";
+             }
+ 
+-            return source == AnchorCandidateSource.Live ? "live" : "recorded";
++            // MUTANT: the trailing source dispatch inverted to Ghost-live else recorded
++            return source == AnchorCandidateSource.Ghost ? "live" : "recorded";
+         }
+ 
+         internal static bool IsActiveReFlyParentMatch(
