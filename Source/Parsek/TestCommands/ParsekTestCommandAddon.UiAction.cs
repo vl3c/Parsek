@@ -216,8 +216,12 @@ namespace Parsek.TestCommands
                 // Routed through the PURE predicate rather than a switch over the same
                 // set, so this dispatch and the harness's own per-op arg validation
                 // (hlib.UIACTION_OPS_NEEDING_WINDOW) cannot disagree about which ops name
-                // a window. The three branches are exhaustive over the five parseable ops
-                // plus describe; UiActionOp.None is unreachable (TryParseOp returned).
+                // a window. The branches below are exhaustive over every parseable op, with
+                // `describe` as the fall-through tail; UiActionOp.None is unreachable
+                // (TryParseOp returned). COUNT DELIBERATELY UNSTATED: an earlier version of
+                // this comment said "three branches over the five parseable ops" and was
+                // wrong by the time two more ops landed, which is exactly the drift a
+                // hand-kept number invites here.
                 if (TestCommandUiAction.OpNeedsWindow(op))
                 {
                     UiActionWindowOp(cmd, ui, scene, op);

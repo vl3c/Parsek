@@ -38,7 +38,8 @@ namespace Parsek.TestCommands
         /// Reported from the table rather than read back, because the live title is a
         /// private field the report op already reaches with reflection - one reader is
         /// enough, and a table entry that drifts from the source is caught by
-        /// <c>UiRaisableDialogSourceGateTests</c>.</summary>
+        /// <c>TestCommandUiRaiseDismissTests.EveryRowsNameAndButtons_AppearInTheFileThatSpawnsIt</c>
+        /// (plus the title, which that cell also reads out of the spawning file).</summary>
         internal string Title;
 
         /// <summary>Button labels in layout order, as the spawn site writes them.</summary>
@@ -128,12 +129,15 @@ namespace Parsek.TestCommands
         /// Optional on <c>op=dismiss</c>: press this button instead of dismissing the popup
         /// outright.
         ///
-        /// <para>The value is the button's LABEL, verbatim, and every pressable label is
-        /// space-free by construction (<c>OK</c> on the two informational popups,
-        /// <c>Cancel</c> on every confirm) - which matters, because the command wire is
-        /// space-separated <c>key=value</c> pairs and <c>TestCommandProtocol</c> encodes
-        /// only <c>%</c> and <c>=</c>. A future dialog whose safe button carries a space
-        /// needs the encoder widened, not a second spelling here.</para>
+        /// <para>The value is the button's LABEL, verbatim. Every pressable label happens
+        /// to be a single word today (<c>OK</c> on the two informational popups,
+        /// <c>Cancel</c> on every confirm), and an earlier draft of this comment claimed
+        /// that was LOAD-BEARING - that the wire could not carry a space. It can:
+        /// <c>TestCommandProtocol</c> percent-encodes the space, <c>%</c> and <c>=</c> alike
+        /// (and every control char), and <c>run.py</c>'s encoder matches it byte for byte.
+        /// So a future row whose safe button reads "No, cancel" needs no encoder work; the
+        /// set is closed only because it is small and fixed, which is what lets the harness
+        /// refuse a typo'd <c>press=</c> before a KSP boot.</para>
         /// </summary>
         internal const string PressArg = "press";
 

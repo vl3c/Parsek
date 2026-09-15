@@ -15176,15 +15176,29 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         used = re.findall(r"Name = ([A-Za-z0-9_]+Dialog),", code)
         self.assertEqual(("seal",), tuple(consts[name] for name in used))
 
-    def test_every_pressable_label_is_space_free(self):
-        """The command wire is space-separated key=value pairs and TestCommandProtocol
-        encodes only % and =, so a `press=No, cancel` would split the command. Every
-        pressable label is space-free by construction today (OK / Cancel); this cell is
-        what makes that a checked property rather than a coincidence."""
+    def test_the_pressable_set_mirrors_the_c_sharp_permitted_labels(self):
+        """The closed `press=` set must be exactly the labels some table row PERMITS. An
+        earlier version of this cell pinned "space-free" instead, on the premise that the
+        wire could not carry a space - it can (the encoder percent-encodes space, % and =
+        alike on both sides), so that pin would have blocked a legitimate future row and
+        sent its author to widen an encoder that already handles it."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandUiDialogRaise.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            code = "\n".join(
+                line for line in fh.read().splitlines()
+                if not line.strip().startswith("//")
+                and not line.strip().startswith("///"))
+        # An AnyButton row permits every button it declares; a SafeButtonOnly row permits
+        # only its SafeButton. Both are simple assignments in the table.
+        permitted = set(re.findall(r'SafeButton = "([^"]+)"', code))
+        for buttons in re.findall(r"Buttons = new\[\] \{ ([^}]+) \}", code):
+            labels = re.findall(r'"([^"]+)"', buttons)
+            if len(labels) == 1:
+                permitted.add(labels[0])
+        self.assertEqual(set(hlib.UIACTION_PRESS_VALUES), permitted)
         for label in hlib.UIACTION_PRESS_VALUES:
-            self.assertNotIn(" ", label)
-            self.assertNotIn("=", label)
-            self.assertNotIn("%", label)
+            self.assertTrue(label.strip(), label)
 
     def test_the_window_table_parse_is_not_vacuous(self):
         """Anti-vacuity for the parse above, and specifically for the comment-stripping

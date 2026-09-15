@@ -166,8 +166,9 @@ steps = [
 
   # --- 6. Confirm: Rewind is REJECTED on this host, and the refusal is the reading. The
   # spawn site silently returns when the rewind OWNER does not resolve, and this fixture
-  # carries no rewindSaveFileName on any of its 13 recordings - so the applier refuses by
+  # carries no rewindSaveFileName on any of its recordings - so the applier refuses by
   # name rather than calling into the guard and then reporting a modal that is not there.
+  # (`detail=no-rewind-owner-among=21` on this host, which is the staged corpus size.)
   { cmd = "UiAction", args = { op = "raise", popup = "rewind" }, expect = "REJECTED" },
 
   # --- 7. Confirm: Seal Unfinished Flight, taken LAST because it is the one spawn site in
@@ -235,6 +236,7 @@ required = [
   # plain dismissals, each confirmed gone after a drawn frame.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss popup=actionblocked press=OK via=button",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=savefailed press=- open=false",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss popup=wiperecordings press=- via=dismisspopup",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=wiperecordings press=- open=false",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=wipemilestones press=- open=false",

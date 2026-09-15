@@ -33,11 +33,18 @@ namespace Parsek.TestCommands
     /// </para>
     ///
     /// <para>
-    /// THE INPUT LOCK, checked in the mirror direction. Exactly one spawn site in the table
-    /// takes a <c>ControlTypes.All</c> lock that only its own button callbacks release
-    /// (<c>UnfinishedFlightSealHandler</c>), so a dismiss WITHOUT a press has to release it
-    /// or every later step in the lane runs behind a lock nothing will ever lift. The other
-    /// six take no lock, and the two <c>MergeDialog</c> ones that do are not in the table.
+    /// THE INPUT LOCK, and it is released on EVERY exit rather than on the happy one.
+    /// Exactly one spawn site in the table takes a <c>ControlTypes.All</c> lock that only
+    /// its own button callbacks release (<c>UnfinishedFlightSealHandler</c>), so any path
+    /// that leaves the dialog without pressing a button has to lift it or every later step
+    /// in the lane runs behind a lock nothing will ever lift. There are FOUR such paths and
+    /// the first cut covered one: the plain dismiss, the raise's own settle ERROR
+    /// (<c>dialog-not-raised</c> - the lock is set and no dialog exists to clear it), and a
+    /// dismiss REJECTED <c>dialog-not-open</c> (reachable whenever the popup went down some
+    /// other way, Esc included, since that path runs no button callback). The fourth, the
+    /// <c>dialog-not-dismissed</c> settle ERROR, needs nothing: the release already ran at
+    /// execute time. Ordering the row last in a lane is spec discipline, not a guard, so
+    /// <see cref="ReleaseRaisedDialogInputLock"/> is called from all three.
     /// <see cref="UiRaisableDialog.OwnsInputLock"/> carries the fact per row rather than a
     /// blanket "clear every Parsek lock", which would reach locks this op did not set.
     /// </para>
@@ -244,6 +251,9 @@ namespace Parsek.TestCommands
             string standingName = popup != null ? ReadDialogName(popup) : null;
             if (!TestCommandUiDialogRaise.RaiseConfirmed(spec, standingName))
             {
+                // The spawn site took its input lock and then returned without a dialog,
+                // so nothing will ever run the button callback that lifts it.
+                ReleaseRaisedDialogInputLock(spec, "raise settled with no dialog standing");
                 List<PopupDialog> any = FindParsekPopups();
                 ParsekLog.Error(Tag, "uiaction error reason="
                     + TestCommandUiDialogRaise.NotRaisedReason
@@ -312,6 +322,10 @@ namespace Parsek.TestCommands
             {
                 // REJECTED rather than a cheerful OK: a lane whose raise failed would
                 // otherwise photograph an empty screen under a dialog label and read green.
+                // The popup went down some other way (Esc dismisses a PopupDialog without
+                // running any button callback), so the lock its spawn took is still set.
+                ReleaseRaisedDialogInputLock(
+                    spec, "dismiss found no standing dialog to take down");
                 ParsekLog.Warn(Tag, "uiaction rejected reason="
                     + TestCommandUiDialogRaise.NotOpenReason
                     + $" popup={spec.Name} name={spec.PopupName}");
@@ -339,13 +353,7 @@ namespace Parsek.TestCommands
                 // The ONE row whose spawn site takes a ControlTypes.All lock that only its
                 // own button callbacks release. Dismissing without pressing leaves it set,
                 // and every later step in the lane would run behind it.
-                if (spec.OwnsInputLock)
-                {
-                    UnfinishedFlightSealHandler.ClearLock();
-                    ParsekLog.Info(Tag, $"uiaction dismiss popup={spec.Name} "
-                        + "released the dialog's own ControlTypes.All input lock, which "
-                        + "only its button callbacks would otherwise have cleared");
-                }
+                ReleaseRaisedDialogInputLock(spec, "dismissed without pressing a button");
                 ParsekLog.Info(Tag, $"uiaction dismiss popup={spec.Name} "
                     + "press=- via=dismisspopup");
             }
@@ -394,6 +402,20 @@ namespace Parsek.TestCommands
             }
             error = TestCommandUiDialogRaise.PressUnknownReason;
             return false;
+        }
+
+        /// <summary>
+        /// Lifts the <c>ControlTypes.All</c> lock the ONE lock-owning row's spawn site takes,
+        /// naming why. A no-op for every other row, so this is never a blanket "clear every
+        /// Parsek lock" - it releases exactly the lock this op caused to be set.
+        /// </summary>
+        private static void ReleaseRaisedDialogInputLock(UiRaisableDialog spec, string why)
+        {
+            if (!spec.OwnsInputLock) return;
+            UnfinishedFlightSealHandler.ClearLock();
+            ParsekLog.Info(Tag, $"uiaction dismiss popup={spec.Name} "
+                + "released the dialog's own ControlTypes.All input lock, which only its "
+                + $"button callbacks would otherwise have cleared ({why})");
         }
 
         // ----- op=dismiss settle -----

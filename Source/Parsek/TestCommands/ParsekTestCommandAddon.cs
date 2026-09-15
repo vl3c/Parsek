@@ -803,7 +803,9 @@ namespace Parsek.TestCommands
                 TryCompleteDumpGuiTree(now);
                 return;
             }
-            // GUI census: the settle poll for the SEVEN two-phase UiAction ops
+            // GUI census: the settle poll for the two-phase UiAction ops (the set is
+        // TestCommandUiAction.OpIsTwoPhase, named there rather than counted here - an
+        // earlier version of this comment carried a count that went stale twice)
             // (TestCommandUiAction.OpIsTwoPhase is the authority: open, rect, pointer,
             // find, expand, target, picker). Same bounded-completion contract, but the
             // SIGNAL is not the same for all of them, which is why TryCompleteUiAction

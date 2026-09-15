@@ -216,19 +216,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EveryPressableLabel_IsSpaceFree_BecauseTheWireIsSpaceSeparated()
+        public void EveryPressableLabel_IsOneSomeTableRowActuallyPermits()
         {
-            // TestCommandProtocol encodes only % and =, so a space inside a value would
-            // split the command. Every pressable label is space-free by construction today
-            // (OK / Cancel); this cell is what makes that a checked property rather than a
-            // coincidence, and it is the thing that would have to change before a dialog
-            // whose safe button reads "No, cancel" could be added.
-            foreach (string label in TestCommandUiDialogRaise.ValidPressButtons.Split(','))
+            // AN EARLIER VERSION OF THIS CELL PINNED "space-free", on the premise that the
+            // wire could not carry a space. It can: TestCommandProtocol percent-encodes the
+            // space, % and = alike (and every control char), and run.py's encoder matches it
+            // byte for byte - so that cell would have blocked a legitimate future row whose
+            // safe button reads "No, cancel" and sent its author to widen an encoder that
+            // already handles it. What IS worth pinning is that the closed set the harness
+            // mirrors is exactly the set the table permits: a value in it that no row allows
+            // would validate pre-launch and then be REJECTED after a whole KSP boot.
+            string[] listed = TestCommandUiDialogRaise.ValidPressButtons.Split(',');
+            Assert.NotEmpty(listed);
+            foreach (string label in listed)
             {
                 Assert.False(string.IsNullOrEmpty(label));
-                Assert.DoesNotContain(" ", label);
-                Assert.DoesNotContain("=", label);
-                Assert.DoesNotContain("%", label);
+                bool permittedSomewhere = false;
+                foreach (UiRaisableDialog spec in TestCommandUiDialogRaise.Dialogs)
+                {
+                    if (spec.Buttons == null) continue;
+                    for (int i = 0; i < spec.Buttons.Length; i++)
+                    {
+                        if (!string.Equals(spec.Buttons[i], label, StringComparison.Ordinal))
+                            continue;
+                        if (TestCommandUiDialogRaise.IsPressAllowed(spec, label))
+                            permittedSomewhere = true;
+                    }
+                }
+                Assert.True(permittedSomewhere,
+                    "press=" + label + " is in the closed set but no table row permits it");
             }
         }
 
@@ -331,6 +347,17 @@ namespace Parsek.Tests
         /// point is to catch a renamed dialog or a re-worded button, and both change the
         /// literal. A file that no longer contains the name fails loudly here instead of in
         /// a flight.</para>
+        ///
+        /// <para>WHAT THE LABEL HALF CATCHES, stated because it is weaker than it looks: a
+        /// whole-file search for <c>"OK"</c> or <c>"Cancel"</c> passes against files that
+        /// spawn several dialogs, so only the DISTINCTIVE labels (<c>Wipe All</c>,
+        /// <c>Fast-Forward</c>, <c>Seal Permanently</c>) are genuinely pinned by it. The
+        /// TITLE is what makes each row's check specific, which is why it is asserted here
+        /// as well: every title in the table is a unique literal in the file that spawns
+        /// that dialog, so a re-worded title cannot pass. The remaining hole - a
+        /// same-file dialog's button standing in for this one's - is closed by the LANE,
+        /// whose `raise ok` contracts pin name, title and the ordered button list
+        /// together.</para>
         /// </summary>
         [Theory]
         [InlineData("actionblocked", "CommittedActionDialog.cs")]
@@ -352,6 +379,10 @@ namespace Parsek.Tests
             Assert.True(src.Contains("\"" + spec.PopupName + "\""),
                 relPath + " no longer contains the literal \"" + spec.PopupName
                 + "\" that op=raise popup=" + token + " confirms against");
+            Assert.True(src.Contains("\"" + spec.Title + "\""),
+                relPath + " no longer contains the title literal \"" + spec.Title
+                + "\" the " + token + " row transcribes, which is what the lane's raise "
+                + "contract pins");
             for (int i = 0; i < spec.Buttons.Length; i++)
             {
                 Assert.True(src.Contains("\"" + spec.Buttons[i] + "\""),

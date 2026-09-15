@@ -75,13 +75,28 @@ namespace Parsek
 
         private static string lastText = string.Empty;
         private static int lastFrame;
+
+        /// <summary>The frame of the last observation of ANY text, empty included. Separate
+        /// from <see cref="lastFrame"/> (the last NON-EMPTY one) because the same-frame rule
+        /// above needs to know whether this call and the latched value belong to one
+        /// frame.</summary>
+        private static int lastSeenFrame = -1;
         private static bool capReported;
         private static bool probeArmed;
 
         /// <summary>The strip text as of the last Repaint that drew a strip, or the empty
         /// string when no strip has drawn (or the last one was empty). Read by
         /// <c>UiAction op=pointer</c>'s settle so the response and the log line carry what
-        /// the capture beside them actually shows.</summary>
+        /// the capture beside them actually shows.
+        ///
+            /// Eleven windows can draw a strip in the
+        /// same frame and only the HOVERED one's is non-empty, so a plain last-writer-wins
+        /// latch reported whichever window happened to draw last - turning a real hover into
+        /// the empty string whenever any window drew after it. An empty text therefore does
+        /// not overwrite a non-empty one observed in the SAME frame; across frames it does,
+        /// because there the strip genuinely went blank and a stale hover is the worse lie.
+    /// <see cref="LastFrame"/> is what a reader checks either way.</para>
+    /// </summary>
         internal static string LastText
         {
             get { return lastText ?? string.Empty; }
@@ -164,8 +179,17 @@ namespace Parsek
                                 && !LoggedTexts.Contains(incoming)
                                 && LoggedTexts.Count >= MaxLoggedTexts;
 
-            lastText = incoming;
-            if (!string.IsNullOrEmpty(incoming)) lastFrame = frame;
+            // The same-frame rule (see LastText): an empty strip does not clobber a
+            // non-empty one another window published in this same frame.
+            bool sameFrame = frame == lastSeenFrame;
+            lastSeenFrame = frame;
+            bool clobberWithinFrame = string.IsNullOrEmpty(incoming) && sameFrame
+                                      && !string.IsNullOrEmpty(lastText);
+            if (!clobberWithinFrame)
+            {
+                lastText = incoming;
+                if (!string.IsNullOrEmpty(incoming)) lastFrame = frame;
+            }
 
             if (log)
             {
@@ -233,6 +257,7 @@ namespace Parsek
             LoggedTexts.Clear();
             lastText = string.Empty;
             lastFrame = 0;
+            lastSeenFrame = -1;
             capReported = false;
             probeArmed = false;
         }

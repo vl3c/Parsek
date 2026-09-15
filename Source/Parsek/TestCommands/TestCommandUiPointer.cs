@@ -440,10 +440,15 @@ namespace Parsek.TestCommands
         /// <param name="foregroundIsGame"><c>GetForegroundWindow()</c> equals the resolved
         /// game window after the call. False when no handle was resolved.</param>
         /// <param name="tooltip">The strip text, or null / empty for none.</param>
+        /// <param name="tooltipFrame">The frame that text was observed in, so a reader can
+        /// tell a live hover from a value a strip left behind minutes ago. Nothing resets
+        /// the latch on a scene change, which is exactly why the frame is on the
+        /// wire.</param>
         internal static List<KeyValuePair<string, string>> BuildPayload(
             float observedX, float observedGuiY, bool park, int screenX, int screenY,
             string via, bool focusRequested, bool nudgeApplied,
-            UiPointerFocusOutcome focus, bool foregroundIsGame, string tooltip)
+            UiPointerFocusOutcome focus, bool foregroundIsGame, string tooltip,
+            int tooltipFrame = 0)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return new List<KeyValuePair<string, string>>
@@ -464,6 +469,8 @@ namespace Parsek.TestCommands
                     "tooltip", string.IsNullOrEmpty(tooltip)
                         ? TooltipEchoStripLatch.EmptyTextToken
                         : TooltipEchoStripLatch.FormatForLog(tooltip)),
+                new KeyValuePair<string, string>(
+                    "tooltipFrame", tooltipFrame.ToString(ic)),
             };
         }
 

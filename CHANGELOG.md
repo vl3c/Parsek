@@ -34,7 +34,12 @@ _(unreleased — entries accumulate here per commit)_
   that need a live vessel, rewind point, route or session marker are filed with the
   reason rather than faked. Player-facing behaviour is unchanged: the ops exist only
   behind the automation command seam, and the one production edit is a method
-  visibility widened from private to internal.
+  visibility widened from private to internal. A review pass closed one real hole
+  before the change landed: the single dialog whose spawn takes a global input lock
+  had that lock released on only one of the three paths that can leave the dialog
+  without pressing a button, so a raise whose spawn guard returned, or a dismiss that
+  found the popup already gone, would have left every later automation step running
+  behind a lock nothing would lift.
 
 - **Automated testing: `UiAction op=pointer` can now take the game window's
   foreground and synthesise a real mouse-move event, and the answer reports what each

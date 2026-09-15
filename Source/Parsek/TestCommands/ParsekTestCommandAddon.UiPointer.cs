@@ -394,14 +394,15 @@ namespace Parsek.TestCommands
                 + "fgOutcome="
                 + TestCommandUiPointer.FocusOutcomeToken(pending.PointerFocusOutcome)
                 + $" fg={Bool(pending.PointerForegroundIsGame)} "
-                + $"tooltip={TooltipEchoStripLatch.FormatForLog(tooltip)}");
+                + $"tooltip={TooltipEchoStripLatch.FormatForLog(tooltip)} "
+                + $"tooltipFrame={Int(TooltipEchoStripLatch.LastFrame)}");
             EmitExecutedTerminal(id, seq, verb, "OK",
                 TestCommandUiPointer.BuildPayload(
                     mouse.x, observedGuiY, pending.PointerPark,
                     pending.PointerScreenX, pending.PointerScreenY, pending.PointerVia,
                     pending.PointerFocus, pending.PointerNudge,
                     pending.PointerFocusOutcome, pending.PointerForegroundIsGame,
-                    tooltip),
+                    tooltip, TooltipEchoStripLatch.LastFrame),
                 null, dequeueHead: true);
         }
 
@@ -628,9 +629,13 @@ namespace Parsek.TestCommands
                         + "WM_MOUSEMOVE at the landed position");
                     return true;
                 }
+                int lastError = Marshal.GetLastWin32Error();
                 ParsekLog.Warn(Tag, $"uiaction pointer nudge=true: SendInput accepted "
-                    + $"{sent} of {inputs.Length} events (UIPI or an input block), so no "
-                    + "mouse event reached the window; reporting nudge=false");
+                    + $"{sent} of {inputs.Length} events, lastError={Int(lastError)}, so no "
+                    + "mouse event reached the window; reporting nudge=false. The error code "
+                    + "is reported rather than guessed at: this file exists to measure, and "
+                    + "a UIPI block, a foreground input block and an unsupported call are "
+                    + "different findings");
                 return false;
             }
             catch (Exception ex)

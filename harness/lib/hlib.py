@@ -2220,10 +2220,11 @@ UIACTION_POPUP_VALUES: Tuple[str, ...] = (
 # photographing. The seam refuses every mutating confirm (`press-not-allowed`), which is
 # why this closed set is exactly the two harmless labels.
 #
-# Both are SPACE-FREE, and that is load-bearing: the command wire is space-separated
-# key=value pairs and TestCommandProtocol encodes only % and =, so a label with a space
-# would split the command. A future dialog whose safe button reads "No, cancel" needs the
-# encoder widened, not a value added here.
+# Both happen to be single words, and that is NOT load-bearing - an earlier version of this
+# comment said it was. The wire percent-encodes the space, % and = alike (TestCommandProtocol
+# on the C# side, the identical byte test in run.py's encoder), so a future row whose safe
+# button reads "No, cancel" needs no encoder work. The set is closed only because it is small
+# and fixed, which is what lets a typo'd press= fail pre-launch instead of after a KSP boot.
 UIACTION_PRESS_KEY = "press"
 UIACTION_PRESS_VALUES: Tuple[str, ...] = ("OK", "Cancel")
 
