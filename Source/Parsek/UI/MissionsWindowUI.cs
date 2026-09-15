@@ -2040,18 +2040,8 @@ namespace Parsek
                     GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
                 if (toggled != shownChecked)
                 {
-                    int changed = 0;
-                    foreach (string key in chapter.IntervalKeys)
-                    {
-                        if (toggled)
-                        {
-                            if (mission.ExcludedIntervalKeys.Remove(key)) changed++;
-                        }
-                        else if (mission.ExcludedIntervalKeys.Add(key))
-                        {
-                            changed++;
-                        }
-                    }
+                    int changed = MissionChapters.ApplyChapterToggle(
+                        chapter.IntervalKeys, mission.ExcludedIntervalKeys, toggled);
                     // Same reason as the per-interval checkbox: this edit is authored against
                     // CURRENT key numbering, so a gen-0 mission that became editable
                     // mid-session must not be extended across its @dock sub-siblings by the

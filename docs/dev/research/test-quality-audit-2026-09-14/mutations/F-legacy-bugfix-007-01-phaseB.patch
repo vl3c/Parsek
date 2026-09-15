@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index bf1e687b9..405b9f337 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -5474,12 +5474,7 @@ namespace Parsek
+             currentTrackSection.endUT = ut;
+ 
+             // Compute approximate sample rate
+-            if (currentTrackSection.frames != null && currentTrackSection.frames.Count > 1)
+-            {
+-                double duration = currentTrackSection.endUT - currentTrackSection.startUT;
+-                if (duration > 0)
+-                    currentTrackSection.sampleRateHz = (float)(currentTrackSection.frames.Count / duration);
+-            }
++            // MUTANT: sampleRateHz computation deleted
+ 
+             int frameCount = currentTrackSection.frames?.Count ?? 0;
+             int checkpointCount = currentTrackSection.checkpoints?.Count ?? 0;

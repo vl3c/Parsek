@@ -1175,15 +1175,16 @@ namespace Parsek
                         // deorbit-transition conics finish - too late). descCaptureShift is the
                         // build-time captureShift (= descentCaptureShift above), so the shift sign/magnitude
                         // matches conicEnd exactly.
-                        descentParkingConicEndUT = descentRun.EndUT + descCaptureShift;
+                        descentParkingConicEndUT = ComputeDescentParkingConicEndUT(
+                            descentRun.EndUT, descCaptureShift, conicEndRecorded,
+                            out bool parkingConicEndFrameMismatch);
                         // Frame-mismatch guard (the invariant behind two failed loiter fixes): the
                         // parking-conic end and conicEnd are BOTH in the shifted frame, and the parking
                         // conic must end BEFORE the deorbit-arc end (parkingConicEnd < conicEnd). If a
                         // future edit drops the captureShift from parkingConicEnd it lands in the unshifted
                         // ~2570 frame and EXCEEDS the shifted conicEnd, which this catches. Warn-only; it
                         // can only fire on a genuine frame regression (would have caught commit 0ba10f594).
-                        if (!double.IsNaN(descentParkingConicEndUT) && !double.IsNaN(conicEndRecorded)
-                            && descentParkingConicEndUT >= conicEndRecorded)
+                        if (parkingConicEndFrameMismatch)
                         {
                             ParsekLog.Warn("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
                                 "MissionLoopUnit: mission='{0}' parking-conic-end FRAME MISMATCH: "
@@ -1478,6 +1479,26 @@ namespace Parsek
         /// regression where the icon left the parking conic across most of the loiter and killed the parking
         /// line while no deorbit leg had drawn yet. Pure; xUnit-testable without Unity.
         /// </summary>
+        /// <summary>
+        /// The SHIFTED parking-conic end (Layer A of the loiter-gap render fix):
+        /// <paramref name="descentRunEndUT"/> is the loiter run's last sample in the RAW recorded
+        /// frame, and the map-presence segment lookup runs against the re-aimed (captureShift-
+        /// shifted) effective segments, so the clamp boundary must carry the same shift. Also
+        /// reports the frame-mismatch invariant: the parking conic must end BEFORE the deorbit-arc
+        /// end, both in the shifted frame, so a future edit that drops the shift lands in the
+        /// unshifted frame and EXCEEDS <paramref name="conicEndRecorded"/> (commit 0ba10f594).
+        /// Pure, and called by the builder, so both halves are pinned on the code the game runs.
+        /// </summary>
+        internal static double ComputeDescentParkingConicEndUT(
+            double descentRunEndUT, double captureShift, double conicEndRecorded,
+            out bool frameMismatch)
+        {
+            double parkingConicEndUT = descentRunEndUT + captureShift;
+            frameMismatch = !double.IsNaN(parkingConicEndUT) && !double.IsNaN(conicEndRecorded)
+                && parkingConicEndUT >= conicEndRecorded;
+            return parkingConicEndUT;
+        }
+
         internal static double SelectDeorbitTailLegStartUT(
             IReadOnlyList<Parsek.Display.GhostTrajectoryPolylineRenderer.LegPolyline> legs,
             string targetBody, double seamUT, double epsSeconds)

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/InGameTests/InGameTestRunner.cs b/Source/Parsek/InGameTests/InGameTestRunner.cs
+index 234e66d24..b3a62fff2 100644
+--- a/Source/Parsek/InGameTests/InGameTestRunner.cs
++++ b/Source/Parsek/InGameTests/InGameTestRunner.cs
+@@ -1105,8 +1105,7 @@ namespace Parsek.InGameTests
+             t.Status = TestStatus.NotRun;
+             t.ErrorMessage = null;
+             t.DurationMs = 0;
+-            if (clearSceneHistory)
+-                t.ResultsByScene.Clear();
++            t.ResultsByScene.Clear(); // MUTANT: history cleared on every reset
+         }
+ 
+         /// <summary>

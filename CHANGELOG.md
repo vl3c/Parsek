@@ -276,12 +276,24 @@ _(unreleased — entries accumulate here per commit)_
   wiring the call actually derives, including the EVA kerbal-by-pid branch in both
   directions. A Re-Fly reconcile cell asserted a false that every exit of the method
   returns; it now pins the ABSENCE of the fall-through log lines. Two production changes,
-  both behaviour-identical: the recorder's growth-rate update (with its zero-elapsed
-  division guard) is extracted as `FlightRecorder.ComputeGrowthRate`, called verbatim by
-  both commit paths, so the NaN guard can be driven; and
+  Five production changes, all behaviour-identical and all called by the original site:
+  the recorder's growth-rate update (with its zero-elapsed division guard) is extracted as
+  `FlightRecorder.ComputeGrowthRate`, called verbatim by both commit paths, so the NaN
+  guard can be driven; the in-game runner's per-test reset is
+  `InGameTestRunner.ResetLiveStatus`, whose scene-history flag is the whole difference
+  between the implicit pre-run reset and the explicit wipe; the Missions chapter checkbox
+  writes through `MissionChapters.ApplyChapterToggle`; the re-aim builder's shifted
+  parking-conic end and its frame-mismatch guard are
+  `MissionLoopUnitBuilder.ComputeDescentParkingConicEndUT`; and
   `ShadowRenderDriver.WarnSpineAssemblerFallback` is widened from private to internal so
   the one-shot per-pid warn set is written by its real writer instead of being asserted
-  empty. No log text changed. Each fixed cell was re-checked by breaking the named
+  empty. Two command-seam culture cells, which swapped the OS culture over fields that are
+  all integers (identical in every culture), now also pin the format provider the payload
+  builder passes by reading the production method body with comments blanked out. One cell
+  that simulated the relative-anchor retire branch in its own body became a source gate
+  over the three real call sites. One cell is left deferred with its reason: the loop-anchor
+  resolver reaches FlightGlobals with no injected lookup seam, so headless xUnit can only
+  observe every possible outcome. No log text changed. Each fixed cell was re-checked by breaking the named
   production line on purpose and confirming it goes red. Nothing a player sees changes.
 - **Tests: a fourth slice of twenty recorder-event, ghost-playback, spawn, logistics and
   map-render cells from the audit's T1 (vacuous) register now reaches the production line

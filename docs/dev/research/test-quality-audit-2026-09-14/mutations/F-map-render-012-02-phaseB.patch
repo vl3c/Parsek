@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Rendering/ProductionAnchorWorldFrameResolver.cs b/Source/Parsek/Rendering/ProductionAnchorWorldFrameResolver.cs
+index 85d4d8052..8784a6c02 100644
+--- a/Source/Parsek/Rendering/ProductionAnchorWorldFrameResolver.cs
++++ b/Source/Parsek/Rendering/ProductionAnchorWorldFrameResolver.cs
+@@ -39,7 +39,7 @@ namespace Parsek.Rendering
+             if (relIdx < 0 || relIdx >= rec.TrackSections.Count) return false;
+ 
+             TrackSection relSection = rec.TrackSections[relIdx];
+-            if (relSection.referenceFrame != ReferenceFrame.Relative) return false;
++            // MUTANT: adjacent-frame Relative guard deleted
+ 
+             RelativeAnchorResolveFailure chainFailure = default;
+             bool boundaryHasExactBodyFixedPrimary = TryFindExactBoundaryFrameSample(

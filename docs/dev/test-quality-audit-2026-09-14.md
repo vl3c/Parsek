@@ -863,7 +863,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 - `testfix-t1t2`, sixth PR (2026-09-15): the fifth slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-05.txt`, 20 ids: 5 trajectory-orbit, 4 map-render,
   3 harness-seam, 2 mission-groups, 2 wiring-gates, 2 legacy-bugfix, 1 analyzer,
-  1 logging). Each fixed row has a proof row in
+  1 logging). 19 fixed, 1 deferred, 0 deleted. Each fixed row has a proof row in
   `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
   that `git apply --check`s against a clean tree.
   - Fixed, assertion re-pointed at the branch the name claims: F-map-render-009-02 (the
@@ -898,6 +898,55 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     cell drives the set's REAL and only writer: the per-pid one-shot dedupe, a second
     pid, the scene-switch clear, and a re-warn after it. Asserting an empty count made
     both the dedupe and the clear unfalsifiable). No log text changed.
+
+  - Fixed through a production change (second half), all behaviour-identical and all
+    called by the original site: F-harness-seam-002-01
+    (`InGameTestRunner.ResetLiveStatus(test, clearSceneHistory)` extracted from
+    `ResetResults` / `ResetCategory` / `ClearAllSceneHistory` - the flag IS the
+    difference between the implicit pre-run reset and the explicit wipe - and both
+    reset cells drive it instead of replaying three assignments inline);
+    F-mission-groups-011-01 (`MissionChapters.ApplyChapterToggle(chapterKeys,
+    excludedKeys, include)` extracted from the chapter checkbox handler, returning the
+    changed count the handler logs; the cell no longer performs the
+    UnionWith / ExceptWith itself and now also pins the re-exclude no-op);
+    F-trajectory-orbit-002-01 (`MissionLoopUnitBuilder.ComputeDescentParkingConicEndUT`
+    carries BOTH the `descentRun.EndUT + captureShift` shift and the frame-mismatch
+    invariant that fires when the shift is dropped; the old cell asserted
+    `ParkingConicEnd == RECORDED_PARKING_END + CapShift` where the right-hand side is
+    DEFINED as the left, an identity the 0ba10f594 bug left green).
+  - Fixed by moving from a self-performed simulation to a source wiring gate:
+    F-trajectory-orbit-013-01, renamed
+    `RetireBranch_ProductionCallSites_SetTheFlagAndDedupeTheWarn_SourceGate`. The old body
+    added to its own dedupe set, called `ParsekLog.Warn` itself and assigned
+    `anchorRetiredThisFrame` itself, so none of the three failure modes it names could red
+    it. The pure decisions keep their own cells; the WIRING lives inside `ParsekFlight`
+    positioning methods that need a live `GameObject`, so the gate reads comment-stripped
+    source and asserts all three `RelativeAnchorResolution.DedupeKey` sites set the flag
+    BEFORE the warn is considered and route the warn through `loggedAnchorNotFound.Add`
+    ahead of `FormatRetiredMessage`.
+  - Fixed, culture cells given teeth: F-harness-seam-014-02 and F-harness-seam-017-01.
+    Every payload value is an int or a long, and integer default formatting is identical
+    in every .NET culture, so the de-DE swap exercised nothing and both cells would pass
+    against a `CurrentCulture` site. Each now also reads the production `BuildPayload`
+    body through the new `TestCommandSourceGate` (comments blanked via
+    `SourceScanText.StripCSharpComments`, body taken by brace matching, not a character
+    window) and pins the provider: `CultureInfo ic = CultureInfo.InvariantCulture;`
+    present, `CultureInfo.CurrentCulture` absent, no bare `.ToString()`. The culture swap
+    is kept as the behavioural half. `harness/lib` re-run green afterwards.
+  - Fixed, frames actually seeded: F-legacy-bugfix-007-01. The section is filled through
+    `CurrentTrackSectionForTesting.frames` (TrackSection is a struct but `frames` is a
+    shared List reference, so no production change was needed), so the
+    `frames.Count > 1` branch runs: 11 frames over 10 s is 1.1 Hz, with the single-frame
+    shape kept as the guarded-default control. The old body closed an EMPTY section and
+    asserted the struct default.
+  - Deferred: F-map-render-012-01, renamed
+    `Loop_AnchorPidPositive_DoesNotThrowUnhandled_NoBehaviourWitnessed`. Past the pid != 0
+    guard `TryResolveLoopAnchorWorldPos` calls `TryFindVesselByPid` -> `FlightGlobals` and
+    there is no injected vessel-lookup seam, so headless xUnit can only observe "false, or
+    one of three Unity exceptions" - every possible outcome. The body now says so and
+    names the in-game categories as the detector; making it falsifiable needs an injected
+    lookup seam, a production change beyond this row. Its sibling F-map-render-012-02 is
+    fixed (above) and is the family's discriminator template.
 
 - `testfix-t1t2`, fifth PR (2026-09-15): the fourth slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-04.txt`, 20 ids: 6 recorder-events, 6 ghost-playback,
