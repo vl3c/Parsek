@@ -39,6 +39,25 @@ again, regenerate and read the KNOTS greedy cuts and the upward-edge count; the 
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 
+## TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`]
+
+**What is true.** `RefusalVerdict` (`TestCommandMapViewVerbs.cs:171-177`) returns `"REJECTED"` only
+for `Unavailable` (the pre-call `MapView.fetch == null` gate) and `"ERROR"` for `Refused` (stock was
+called and declined). That split is the seam-wide convention - `harness/lib/hlib.py:1080-1090`
+(`SEAM_VERDICT_OUTCOME_TERMINAL = "ERROR"`), mirrored by `EnterWatchMode`'s post-call
+`watch-not-entered` - and it is pinned by
+`TestCommandMapViewVerbsTests.RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled`. The XML doc on the
+`Refused` enum member still says "REJECTED with the per-direction reason", which is the stale half.
+No lane is red today: every committed `EnterMapView` / `ExitMapView` step is `expect = "OK"` (all eleven
+specs with an uncommented step for either verb: B32, GUI-6, GUI-9, H59, RF-7M, RF-8, V26M, V27M, V3C, V6M, W1), so nothing
+exercises the refusal branch. The cost is authorship - a spec
+author who reads the enum doc writes `expect = "REJECTED"` for a stock-declined toggle and the lane
+mismatches against the ERROR the seam emits.
+
+**Fix.** Documentation only: change the last sentence of the `MapViewToggleOutcome.Refused` doc to
+say ERROR with the per-direction reason (and, optionally, point at `RefusalVerdict` for the
+REJECTED/ERROR rule). Do not touch `RefusalVerdict` - the behavior is the contract.
+
 ## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
 
 **What is true.**
@@ -406,6 +425,14 @@ against the Recordings tab's x=14 width 1311), so its header owes the bare 16 px
 20. Its data columns are 1 px off today; the shared 20 would walk them 4 px the other way.
 Pinned by `TableRowInsetAlignmentTests.TheRecordingsTabGutterRoutesThroughTheSharedDerivation`,
 which asserts the Missions tab is NOT routed through it.
+
+**LOOKED AT AGAIN 2026-09-15 (the GUI-10 / hover-flags PR) AND DELIBERATELY LEFT.** The
+brief was to take the fix if it were a one-liner in `MissionsWindowUI` and otherwise leave it,
+and it is not one in either half: the Missions-tab half is the `padding.right` change this
+entry's own fix section already prefers, which moves every row draw in that tab by 4 px and
+cannot be checked without re-running a census dump; and the merged-cell half is the
+multi-row-shape change described below. Both belong in a change whose own flight re-diffs the
+GUI-4 `bd-missions-*` dumps, not in a PR whose flights are pointed at dialogs and hover.
 
 **Fix (proposed, not applied).** Wrap the body rows' leading toggle + index pair in a
 container of the header's merged width, and open every row with
@@ -2008,7 +2035,91 @@ still carries an id. Exactly one selector is accepted; both together is a REJECT
 than a precedence, because the two open different lists and guessing would photograph the
 wrong one under the caller's label.
 
-## GUI-CENSUS-NO-SEAM-PATH-RAISES-A-PARSEK-DIALOG: `op=dialog` shipped as the read-only half, and nothing in the seam can put a modal on screen and leave it standing, so all 21 dialogs are unphotographable
+## ~~GUI-CENSUS-NO-SEAM-PATH-RAISES-A-PARSEK-DIALOG: `op=dialog` shipped as the read-only half, and nothing in the seam can put a modal on screen and leave it standing, so all 21 dialogs are unphotographable~~ [CLOSED 2026-09-15 by the different door this entry's FIX section asked for. `UiAction op=raise popup=<name>` calls ONE dialog's own production spawn site and STOPS; `op=dismiss popup=<name> [press=<button>]` takes it down. SIX of the 21 modals now have a picture, flown by the new lane `GUI-10-census-dialogs`, run `2026-09-15_1538`, PASS on attempt 1, 67 s, 8 PNG + 8 dumps]
+
+**WHAT CLOSED IT, and it is NOT either of the two prerequisites this entry named.** Both of
+those were about `AnswerMergeDialog` - a surface-only mode, and a path not needing a live
+Re-Fly marker - and neither was built. The wedge guards on all three verbs are untouched and
+should stay that way. What shipped instead is a THIRD route that none of them blocks: the
+spawn sites themselves are ordinary methods, so a raise op calls one and returns, leaving the
+modal standing for `op=dialog` to report and `CaptureScreenshot` to photograph. The closed set
+is in `TestCommandUiDialogRaise.cs`; the appliers are
+`ParsekTestCommandAddon.UiRaiseDismiss.cs`.
+
+**THE SIX WITH A PICTURE** (each raised, reported standing, photographed, dumped, dismissed):
+`actionblocked` (`ParsekResourceBlock`, "Action Blocked"), `savefailed`
+(`ParsekSceneExitSaveFailed`, "Save failed"), `wiperecordings`
+(`ParsekWipeRecordingsConfirm`), `wipemilestones` (`ParsekWipeMilestonesConfirm`),
+`fastforward` (`ParsekFastForwardConfirm`) and `seal` (`ParsekUFSealDialog`). Every
+`op=dialog` step beside them read `open=true count=1` with that name, title and button list,
+which is the machine-readable half the PNG could not carry - a `PopupDialog` is uGUI and
+cannot appear in a `.gui.json` at all.
+
+**NOTHING WAS CONFIRMED.** Four of the six carry a mutating confirm (`Wipe All` clears every
+committed recording, `Seal Permanently` is permanent, `Fast-Forward` warps), so dismissal
+defaults to `PopupDialog.DismissPopup` and the seam REFUSES `press=` on any of them
+(`press-not-allowed`). One button was pressed in the whole flight, the harmless `OK`. Two
+independent proofs it stayed harmless: `recordings.count 21` held, and none of
+`All recordings wiped` / `All milestones wiped` / `Sealed slot=` appears (all three are
+`forbidden`). The `seal` row is the one spawn site that takes a `ControlTypes.All` lock only
+its own callbacks release, and the dismiss path clears it explicitly.
+
+**THE SEVENTH RAISABLE ROW ANSWERED A TYPED REFUSAL rather than a picture**, which is the
+right answer: `REJECTED dialog-target-unavailable popup=rewind detail=no-rewind-owner-among=21`.
+`ShowRewindConfirmation` silently returns when `RecordingStore.GetRewindRecording` is null and
+no recording in `bdock-recorded` carries a `rewindSaveFileName`, so the applier resolves the
+owner BEFORE calling the spawn site instead of calling into a guard and then reporting a modal
+that is not there. A host with a rewind point would photograph it. The one-modal-at-a-time
+guard also fired live (`dialog-already-open popup=wiperecordings open=ParsekSceneExitSaveFailed
+count=1`).
+
+**FOURTEEN STAY FILED, each with the state a pure in-process call cannot supply** - see
+GUI-CENSUS-FOURTEEN-DIALOGS-NEED-LIVE-STATE-TO-RAISE below, which carries the list and is the
+successor to this entry.
+
+**Two earlier runs, both instrument rather than product.** `2026-09-15_1524` PARSEK-FAIL on
+ONE mismatch, `recordings.count 21 > max 13`: the count had been derived from the committed
+fixture directory and the STAGED save carries 21, so staging is not a copy. `2026-09-15_1526`
+INVALID(instance-locked), the machine lock working as designed while a sibling worktree flew
+LT-2 - which also re-provisioned the automation DLL underneath, and is why the deployed hash
+is re-pinned per flight (`ffa524672a4c...` before, between and after both of the day's
+flights).
+
+## GUI-CENSUS-FOURTEEN-DIALOGS-NEED-LIVE-STATE-TO-RAISE: the 14 modals `op=raise` deliberately does not reach, each named with what it would need [Filed 2026-09-15 as the successor to the entry above, which is closed. Not a defect and not a backlog item to clear blindly: a dialog raised over synthetic state photographs a screen the game cannot be in]
+
+The raise table admits a dialog only when its spawn is reachable by a pure in-process call
+with data the host already carries. What the other fourteen need, read off their spawn sites
+rather than guessed:
+
+  * **the tree merge dialog** (`ParsekMerge`, `MergeDialog.ShowTreeDialog`) - a
+    `RecordingTree`, and BOTH its buttons act on it (`MergeCommit` / `MergeDiscard`), so a
+    synthetic tree's commit would write invented history into the fixture the lane is
+    photographing. The 3-button Re-Fly variant additionally needs a live
+    `ActiveReFlySessionMarker`.
+  * **the pre-switch decision dialog** (`ParsekPreSwitch`,
+    `MergeDialog.ShowPreSwitchDecisionDialog`) - a non-null live `Vessel`, so FLIGHT only, and
+    it RE-SPAWNS ITSELF on any non-button teardown by design, so a dismiss-without-press
+    cannot close it at all.
+  * **the ghost icon context menu** (`ParsekGhostIconMenu`) - spawned INSIDE a Harmony Prefix
+    (`Patches/GhostVesselLoadPatch.cs`) over a live ghost ProtoVessel in map view. There is no
+    method to call.
+  * **the Tracking Station ghost popup** (`ParsekTrackingStationGhostMenu`) - its host exists
+    only in `GameScenes.TRACKSTATION`, which runs no `ParsekUI`, so every `UiAction` there
+    answers `REJECTED ui-host-unavailable`.
+  * **Re-Fly invoke** (`ParsekRewindInvoke`) - a `RewindPoint` with a valid child slot.
+  * **Re-Fly revert** (`ParsekReFlyRevert`) - a `ReFlySessionMarker`.
+  * **Disband Group**, **Confirm: Delete Route**, **Confirm: Delete Dormant Route** and
+    **Create Supply Route?** - a group closure, a live `Route`, a dormant `Route` and a
+    `RouteCandidate` with non-null `Analysis` AND `Tree` respectively, all reached through
+    private methods on a live window instance.
+  * the remainder are the warp confirmations and the mission warp-to-launch confirm, whose
+    spawn doors are private and whose inputs are derivable but whose confirm handlers move UT.
+
+Fix, if one is ever wanted: a lane on a host that CARRIES the state (a save with a rewind
+point buys `rewind` and `ParsekRewindInvoke`; a logistics host buys the three route confirms),
+not more raise rows. Two of the fourteen are structurally out of reach whatever the host -
+the ghost icon menu has no callable spawn, and the Tracking Station has no `UiAction` at all.
+
 
 FILED 2026-09-11 while authoring the wave-2 census lanes (branch `gui-census-lanes`).
 Derived from the three verbs' own sources, not from a failed run - a run was not needed,
@@ -2175,7 +2286,79 @@ today) and would refuse the legitimate case of arranging state now and photograp
 after a later mode switch. Recorded beside `SettleChecksHostShowUi` and in
 `design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)"; no behaviour change.
 
-## GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window [Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it]
+## GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window [Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it. STILL OPEN 2026-09-15, and now with a CAUSE and both pre-registered candidates RETIRED - see the update at the head of this entry]
+
+**UPDATE 2026-09-15: BOTH CANDIDATE FIXES WERE BUILT, FLOWN AND REFUTED, and the flight
+measured the cause instead.** Run `2026-09-15_1539` (GUI-7, PASS attempt 1, 63 s, deployed
+DLL sha256 `ffa524672a4c...`) flew both hover moves with `focus=true nudge=true`:
+
+  * candidate (a), foreground, WAS APPLIED and reported which rung took it -
+    `fgOutcome=attached` on the first move (a plain `SetForegroundWindow` was refused and the
+    documented `AttachThreadInput` retry took it) and `fgOutcome=already` on the second, with
+    `fg=true` afterwards on both. So the window owned the input queue either way.
+  * candidate (b), a real mouse EVENT, WAS APPLIED too: the relative `SendInput`
+    `(+1,0)/(-1,0)` pair was accepted on both moves
+    (`nudge=true sent a relative (+1,0)/(-1,0) SendInput pair`).
+  * and the hover STILL did not paint. Both answers read `tooltip=-`, which is the hover-echo
+    strip's own text as of the settled frame (`TooltipEchoStripLatch.LastText`).
+
+**THE CAUSE, measured rather than reasoned.** A one-shot Verbose probe now reports, from
+INSIDE a Parsek `OnGUI` Repaint, what IMGUI's own mouse position reads beside
+`Input.mousePosition` in the same pass (`TooltipEchoStripLatch.SampleMousePositionProbe`,
+armed by every `op=pointer` and re-armed once the read-back lands). On every probe of the
+flight:
+
+```
+eventLocal=-8.0,-8.0  eventScreen=0.0,0.0  input=133.0,558.0  inputGuiY=162.0  screenH=720
+eventLocal=-8.0,-8.0  eventScreen=0.0,0.0  input=133.0,523.0  inputGuiY=197.0  screenH=720
+```
+
+`Input.mousePosition` tracks the commanded point exactly (133,161 and 133,196 within the
+op's 1 px), and `Event.current.mousePosition` NEVER MOVES: it reads window-local -8,-8 for a
+window at 8,8, i.e. screen origin, which is outside every control in the game. So the two
+pipelines genuinely disagree, and a hover is decided by the one that does not follow the
+cursor. That is a POSITIVE statement of the cause and it retires the position-vs-event
+hypothesis's remedy as well as its diagnosis: injecting a real `WM_MOUSEMOVE` does not move
+the value IMGUI computes its hit test from.
+
+**MECHANICALLY CONFIRMED on this run's own artefacts, two independent ways.** The `roots`
+tree of both hover dumps hashes IDENTICAL to `b1-main-idle-advanced.gui.json` (canonicalised
+sha256, first 16 hex `dbf76cbc604a04a1` for all three), exactly as on 2026-09-11; and a
+per-pixel comparison of the main window region (8,8)-(258,708) against the idle capture
+differs ONLY at y >= 445 - 2443 and 1703 pixels of 175000, all of it the live flight status
+block BELOW both hovered rects. The hovered buttons themselves (`rect=18,150,230,21` for
+`Real Spawn Control (0)`, `rect=18,185,230,21` for `Timeline`) and the tooltip strip are
+pixel-identical, so there is no button highlight and no strip text.
+
+**RE-CONFIRMED ON THE POST-REVIEW BUILD.** Run `2026-09-15_1627` (PASS attempt 1, 68 s,
+deployed DLL sha256 `625cfd52985e...`) reproduces every reading above after the review pass
+added the re-armed second probe and `tooltipFrame=`: `eventScreen=0.0,0.0` on every probe
+while the landed pair reads `input=134.0,558.0` -> `inputGuiY=162.0` against a commanded
+`134,161`, both answers `tooltip=- tooltipFrame=0`. The frame is ZERO because no non-empty
+strip text was ever observed in the session, which is the same statement the empty
+`tooltip=` makes, from the other side.
+
+**WHAT STAYS.** Both flags stay in AS MEASURED, and GUI-7 keeps flying them: the answer
+reports what each did, so the next candidate is compared against this reading rather than
+against a guess, and a reader of a future red hover lane can tell "the mechanism did not
+apply" from "it applied and IMGUI still did not believe it". The two hover labels stay as
+they are with their run ids citing them. The lane's `required` contracts pin the applied
+flags and the probe line, NOT a non-empty strip - pinning a reading the product does not
+produce would red the lane forever on a claim nothing in it can satisfy.
+
+**WHAT IS LEFT TO TRY, and neither is cheap.** (c) find what Unity fills
+`Event.current.mousePosition` from in a KSP player build and whether anything managed can
+move it - the value is per-`Event`, so a synthesised `EventType.MouseMove` pushed into the
+GUI queue is the shape, and that is the thing `TestCommandUiPointer`'s header rejected on the
+grounds that it proves nothing about the hit test a player's cursor drives (that objection is
+weaker now: the player's cursor demonstrably does not drive this value either in an
+unattended run). (d) accept that the four hover surfaces are unphotographable by the seam and
+cover them with an in-game test that drives a probe window's own layout, which is what
+`DisabledHoverEchoImguiTest` and `LogisticsTooltipEchoImguiTest` already do headlessly for
+the mechanism - what no test gives is a PICTURE for a reviewer. Filed as (c) / (d) rather
+than chosen.
+
+
 
 MEASURED on three lanes and four captures, all on the 2026-09-11 reading runs, all PASS.
 The addressing half works and the painting half does not.

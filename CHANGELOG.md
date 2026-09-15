@@ -10,6 +10,56 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI census can finally photograph a modal, and six of the
+  21 Parsek dialogs now have a picture.** The census had a read-only dialog report
+  (`UiAction op=dialog`) and no way to put a modal on screen: all six wave-2 lanes
+  answered `open=false count=0` with it, because the three verbs that come close each
+  refuse by design (a driven exit into an outstanding merge decision would wedge
+  behind an input lock, and the merge answer raises and presses inside one pass). Two
+  new automation-only ops open a different door. `UiAction op=raise popup=<name>`
+  calls ONE dialog's own production spawn site and stops, leaving the modal standing
+  to be reported and photographed; `op=dismiss popup=<name> [press=<button>]` takes it
+  down. The raisable set is a closed table of seven - the Action Blocked and
+  Save-failed popups, both Settings wipe confirmations, the Rewind and Fast-Forward
+  confirmations and the unfinished-flight Seal confirmation - chosen because each
+  spawn is reachable by a pure in-process call with data the host already carries;
+  nothing is raised over synthetic state. Dismissal defaults to taking the modal down
+  WITHOUT pressing, and the seam refuses `press=` on every confirm that mutates the
+  save, so a capture lane cannot wipe the fixture it is photographing. A raise while
+  another modal stands is refused, and the one dialog whose spawn takes a global input
+  lock has that lock released by the dismiss path. New lane `GUI-10-census-dialogs`
+  flies the sequence over six modals at the Space Center (PASS on its first green run,
+  8 PNGs and 8 control-tree dumps); the seventh answers a typed refusal on that host
+  because no recording there has a rewind save to rewind to, and the fourteen dialogs
+  that need a live vessel, rewind point, route or session marker are filed with the
+  reason rather than faked. Player-facing behaviour is unchanged: the ops exist only
+  behind the automation command seam, and the one production edit is a method
+  visibility widened from private to internal. A review pass closed one real hole
+  before the change landed: the single dialog whose spawn takes a global input lock
+  had that lock released on only one of the three paths that can leave the dialog
+  without pressing a button, so a raise whose spawn guard returned, or a dismiss that
+  found the popup already gone, would have left every later automation step running
+  behind a lock nothing would lift.
+
+- **Automated testing: `UiAction op=pointer` can now take the game window's
+  foreground and synthesise a real mouse-move event, and the answer reports what each
+  did.** Two opt-in args, `focus=true` and `nudge=true`, both defaulting to false so
+  every existing lane behaves identically. `focus` brings the game window forward
+  through a three-rung ladder (already foreground, then a plain request, then the
+  documented thread-input-attach retry, detached again immediately) and reports which
+  rung answered; `nudge` sends one relative mouse move and its exact inverse, so the
+  window receives a genuine mouse-move message rather than only a warped cursor
+  position, and the pair cancels so the cursor stays on the control. Five keys join
+  the response after the existing ones, so older log contracts still match. BOTH WERE
+  FLOWN AND BOTH REFUTED the hover they were built for: the window took the foreground
+  and accepted the synthetic move, and IMGUI still painted no hover. A new one-shot
+  diagnostic measured why - inside a Parsek draw pass the mouse position IMGUI
+  computes its hit test from stays pinned at the screen origin, while the position
+  Unity polls tracks the real cursor exactly. The flags stay in as measured so the
+  next candidate is compared against a reading rather than a guess; the whole
+  measurement is in `docs/dev/todo-and-known-bugs.md` under
+  `GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT`, which stays open.
+
 - **Developer tooling: the source tree now has a module dependency map with four
   ways to look at it, and a boundary check that reports without failing anything.**
   Parsek is a single assembly of roughly 750 files, and until now nothing showed how
@@ -77,6 +127,48 @@ _(unreleased — entries accumulate here per commit)_
   new atlas section. No player-visible behavior changes.
 
 ### Changed
+
+- **The hover-echo strip now says what it is showing, once per distinct text.** The
+  bottom "hovered control help text" strip that eleven windows draw logs one line when
+  its text changes, capped at 200 distinct texts per session with a single line saying
+  so when the cap is spent. It exists because a census capture of a hover had no
+  machine-readable half at all: establishing that four such captures had photographed
+  an unhovered window took a by-hand comparison of control-tree hashes and image
+  pixels, and the strip's text is now on one line in the log instead. Nothing is drawn
+  differently, no new surface appears, and the automation seam's pointer op reports the
+  same value on its own answer.
+
+- **Tests: the seven worst tests in the suite now test what their names say.** The test
+  quality audit read every one of the ~23,400 unit tests and found seven that could not
+  fail: each did the work the production code does inside the test body and then checked
+  its own arithmetic, so the regression the test exists to catch - crew dedup on a spawn
+  snapshot, the parent-continuation rule when a background vessel breaks up, the
+  background part-event poll staying in step with the flight one, the two places a
+  committed recording's snapshot must survive a post-commit mutation, the recorder
+  forwarding the flight's controller identity onto its tree, and the relative-anchor pose
+  that once shipped a ten-metre debris drift - would have slipped through green. All
+  seven now call the real production code: five through a small piece of that code lifted
+  out so it can be called without a running game (behaviour unchanged, the original call
+  sites call the extracted piece; where the same write had two mirrored branches, both
+  now route through it), two by reading the compiled code's own list of calls,
+  which sees a deleted call where a name-existence check cannot. Each was re-checked by
+  breaking the production line on purpose and confirming the test goes red. Nothing a
+  player sees changes.
+- **Tests: the five priority-1 data-loss coverage gaps from the unit-test quality audit now
+  have cells.** Each guards a path where a wrong answer destroys recorded flights and where
+  the suite stayed green with the guard removed. The orphan-file sweep's second pending
+  source - the save's pending tree held aside while an active-tree restore owns the Limbo
+  slot - is now proved to count as known, so its live sidecars cannot be quarantined
+  mid-restore; the same slot is proved to block `ResetForTesting` in play mode, the one arm
+  of that four-arm guard that had no cell. The sidecar saver is driven with a null in-memory
+  vessel snapshot against a real file on disk, so any destructive rewrite of a `_vessel.craft`
+  reds, not only the one source literal a text pin watched. The rewind-point reaper's real
+  file-delete limb runs for the first time (every other cell stubbed it) against a temp
+  directory with a sibling file as the blast-radius witness. And the future-vessel strip loop
+  is driven over consecutive strippable entries, which is what a forward walk with `RemoveAt`
+  silently skips. Each cell carries a mutation proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No production change, no
+  player-visible change.
 
 - **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
   Four source-text wiring gates were scanning raw file text, so a call left behind only as a
