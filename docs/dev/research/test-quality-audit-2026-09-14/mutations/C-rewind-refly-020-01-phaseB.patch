@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index f864a9cfe..b06227c7f 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -6737,7 +6737,7 @@ namespace Parsek
+                 return 0;
+ 
+             int stripped = 0;
+-            for (int i = protoVessels.Count - 1; i >= 0; i--)
++            for (int i = 0; i < protoVessels.Count; i++)
+             {
+                 var pv = protoVessels[i];
+                 if (!ShouldStripFuturePrelaunch(pv.situation, pv.persistentId, quicksavePids))
