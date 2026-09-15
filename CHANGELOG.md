@@ -10,6 +10,41 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Developer tooling: the GUI census now produces a page that BEHAVES like
+  Parsek's GUI.** `harness/tools/gui_mirror.py` turns the census artifacts into one
+  self-contained HTML file in which every window is laid out from the captured
+  IMGUI control rects, so column widths, insets and row strides are the game's to
+  the pixel; the colours AND the tab-bar label positions are measured out of the
+  PNGs, because the control-tree dump records a style NAME and not a colour (the
+  blue clickable rows, the dimmed ones and the status tints exist only in the
+  pixels) and a selection grid reports neither where its items sit nor how their
+  text is aligned (the Kerbals
+  bar centres its two labels, the Career bar left-aligns its four); and the tabs,
+  launchers, folds and pickers are clickable, switching to the capture of that
+  state. Nothing about a window is written into the generator - not a label, not a
+  tooltip, not a column width - so the page cannot drift from the game: there is
+  nothing to update when a window changes, only a census to re-fly (a unit cell
+  renders a synthetic capture and then asserts the generator's own source does not
+  contain the strings the page showed). A click with no capture behind it flashes
+  the control and says `no capture for this state yet` rather than inventing a
+  screen; each rail header folds its own window's captures away and Compare shows
+  the window selected there; KSP's rich-text subset is translated on a whitelist
+  rather than shown as tags or handed the run of the page; the captured frame can be put beside the rendering, or under it as thin
+  per-control outlines, so a layout check never stacks text on text; and the left rail lists every state that has a capture next to every
+  state the command seam knows and nothing photographed. Which window, tab,
+  complexity mode and scene each capture IS comes from that run's KSP.log rather
+  than from the label, which is also the only record of a stock modal's title and
+  buttons, since a `PopupDialog` is invisible to the tree dump. Passing several
+  runs of one lane at once adds a Compare view: the earliest capture of a
+  (fixture, window, tab, state, mode, scene) key beside the latest, drawn by the
+  same renderer, with the CHANGELOG entries and struck `GUI-*` todo entries that
+  name that window quoted beside them and the node, row and header-to-cell numbers
+  MEASURED off the two dumps. Over the present 192 captures that pairs 15 keys -
+  the Recordings-tab and Structure and Career alignment fixes, the Kerbals rebuild,
+  Spawn Control, and the flight main window. The page is not committed (it is about
+  15 MB of inlined PNG); the generator, its tests and
+  `docs/dev/design-gui-mirror.md` are.
+
 - **Automated testing: the GUI census can finally photograph a modal, and six of the
   21 Parsek dialogs now have a picture.** The census had a read-only dialog report
   (`UiAction op=dialog`) and no way to put a modal on screen: all six wave-2 lanes
