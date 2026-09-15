@@ -2179,33 +2179,66 @@ namespace Parsek
             // Live-pool read: any death that already lowered the pool is inside the
             // value being seeded.
             //
-            // KNOWN LIMITATION, filed rather than fixed. The live pool is a snapshot of
-            // EVERY stock change to date, including deaths from flights that are already
-            // RECORDED but whose recording has not been committed yet. Those deaths are
-            // inside this value, yet their rows are produced later, by a commit that
-            // reads PreExisting - stamped outside the seed and applied a second time.
-            // It needs the very first seed capture in a career to coincide with a second
-            // pending tree that carries a death, so it is not reachable from the normal
-            // one-tree-at-a-time flow; closing it means correlating the pool against
-            // uncommitted trees, which is a bigger change than the state deserves.
+            // KNOWN LIMITATION, filed rather than fixed
+            // (REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER). The
+            // live pool is a snapshot of EVERY stock change to date, including any
+            // reputation movement - a death, a milestone, a contract outcome - from a
+            // flight that is already RECORDED but whose tree has not been committed yet.
+            // Those movements are inside this value, yet their rows are produced later, by
+            // a commit that reads PreExisting - stamped outside the seed and applied a
+            // second time. It needs the very first seed capture in a career to coincide
+            // with a second pending tree that carries such a row, so it is not reachable
+            // from the normal one-tree-at-a-time flow; closing it means correlating the
+            // pool against uncommitted trees, which is a bigger change than the state
+            // deserves.
             Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
             origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
             return true;
         }
 
         /// <summary>
-        /// The KSC live-write door's half of the inside-seed stamp: ensure the reputation
-        /// seed exists BEFORE <paramref name="action"/> reaches the ledger, then stamp the
-        /// row against where that seed came from. A no-op for every row
+        /// The live-write doors' half of the inside-seed stamp. READ-ONLY with respect to
+        /// the seed: it never creates one, so the seed's creation point is exactly where
+        /// it was before this stamp existed (the door's own tail recalc).
+        ///
+        /// <para>
+        /// WHY IT MUST NOT SEED, and this is an event-ordering fact rather than a
+        /// preference. Two of the four sources that reach these doors fire their
+        /// GameEvent BEFORE the pool moves: decompiled <c>ProgressNode.Complete()</c>
+        /// raises <c>OnProgressComplete</c> before every subclass calls
+        /// <c>AwardProgressStandard</c>, and <c>Reputation.AddReputation</c> raises
+        /// <c>OnCurrencyModified</c> before assigning <c>rep</c>. A first-capture seed
+        /// read from inside the handler would therefore be the PRE-award pool; the row
+        /// would be stamped inside a value that does not contain it, the walk would zero
+        /// it, and the reconstruction would come out SHORT by the award - silently, since
+        /// the stamp logs Info. Contract outcomes and StrategyActivate are ordered the
+        /// other way round, but the door has no way to tell them apart from the action.
+        /// </para>
+        ///
+        /// <para>
+        /// The rule applied instead is the commit path's: a row produced while no seed
+        /// exists is stamped from <see cref="ReputationSeedOrigin.NotYetCaptured"/> - the
+        /// seed will be read off a later live pool that HAS taken the award by then. A
+        /// seed that already exists is <see cref="ReputationSeedOrigin.PreExisting"/> and
+        /// stamps nothing. When the later capture turns out to be a career-start branch,
+        /// <see cref="RestampInsideSeedRowsAgainstCareerStartSeed"/> flips the row back
+        /// out at the seed's own creation site.
+        /// </para>
+        ///
+        /// <para>
+        /// A no-op for every row
         /// <see cref="ReputationSeedMembership.IsReputationAffectingRow"/> answers false
         /// for, so the tech / facility / hire doors are untouched.
+        /// </para>
         /// </summary>
-        private static void EnsureReputationSeedAndStampKscRow(GameAction action, string context)
+        private static void StampLiveWriteRowAgainstSeed(GameAction action, string context)
         {
             if (action == null) return;
             if (!ReputationSeedMembership.IsReputationAffectingRow(action.Type)) return;
 
-            ReputationSeedOrigin origin = EnsureReputationSeedForCommit();
+            ReputationSeedOrigin origin = LedgerHasSeed(GameActionType.ReputationInitial)
+                ? ReputationSeedOrigin.PreExisting
+                : ReputationSeedOrigin.NotYetCaptured;
             StampReputationRowsAgainstSeed(new List<GameAction> { action }, origin, context);
         }
 
@@ -3873,16 +3906,27 @@ namespace Parsek
             kscSequenceCounter++;
             action.Sequence = kscSequenceCounter;
 
-            // THE SEED, BEFORE THE ROW, and only for a reputation-changing one. Same
-            // ordering argument as OnRecordingCommitted's step 3c-post: the recalc at the
-            // bottom of this method would otherwise be the first ensure, by which time
-            // this row is already in the ledger - so the seed's refusal branch would see
-            // its own fresh row through LedgerHasReputationTimelineActions and decline the
-            // live pool because of it, and the row could not be told whether the pool it
-            // will be seeded from had already taken this award. Stock applies a KSC award
-            // the moment it happens, so a live-pool seed read after it contains it.
-            // Non-reputation KSC rows (tech, facility, hire) take neither call.
-            EnsureReputationSeedAndStampKscRow(action, "ksc " + action.Type);
+            // THE DOOR STAMPS, IT DOES NOT SEED. Reviewed 2026-09-15 and corrected: an
+            // earlier cut ensured the seed here, before the row reached the ledger. That
+            // is unsafe for two of the four sources this door carries, because the live
+            // pool is not yet the post-award pool when the event fires. Decompiled
+            // ProgressNode.Complete() raises OnProgressComplete BEFORE every subclass
+            // calls AwardProgressStandard (CelestialBodyOrbit, CelestialBodyReturn,
+            // CelestialBodyLanding), and Reputation.AddReputation raises
+            // OnCurrencyModified before it assigns `rep` - so a first-capture seed read
+            // here would be the PRE-award pool, the row would be stamped inside a value
+            // that does not contain it, and the walk would come out short by the award.
+            // Contract rows and StrategyActivate are ordered the other way, but the door
+            // cannot tell them apart from the action alone.
+            //
+            // So the seed is created where it always was: the tail recalc below. This call
+            // only reads whether a seed EXISTS yet and stamps the row under the same rule
+            // the commit path uses - no seed means NotYetCaptured, i.e. "a later live pool
+            // will already have taken this award". If that later capture is a career-start
+            // branch instead, RestampInsideSeedRowsAgainstCareerStartSeed flips the row
+            // back out at the seed's own creation site. Non-reputation KSC rows (tech,
+            // facility, hire) are not stamped at all.
+            StampLiveWriteRowAgainstSeed(action, "ksc " + action.Type);
 
             Ledger.AddAction(action);
 
@@ -3993,7 +4037,9 @@ namespace Parsek
 
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
-                EnsureReputationSeedAndStampKscRow(action, "strategy conversion " + action.Type);
+                // Same contract as the OnKscSpending door: stamp only, never seed. See
+                // StampLiveWriteRowAgainstSeed for the event-ordering reason.
+                StampLiveWriteRowAgainstSeed(action, "strategy conversion " + action.Type);
                 Ledger.AddAction(action);
                 written++;
 

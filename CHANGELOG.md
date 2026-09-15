@@ -705,8 +705,13 @@ _(unreleased — entries accumulate here per commit)_
   rewinding a flight moves the clock backwards - so a re-flown mission whose clock
   reads earlier than the first reading still counts normally. When the starting
   reputation later turns out to come from the career's own beginning instead of the
-  live pool, everything marked is unmarked again and counted as usual. Saves written
-  before this change carry no mark and behave exactly as they did.
+  live pool, everything marked is unmarked again and counted as usual. Awards that
+  happen at the Space Center rather than in flight are marked the same way, but the
+  moment the starting reputation is read is deliberately left exactly where it was:
+  the game announces a progress milestone before it pays it out, so reading the
+  reputation while the announcement is still being handled would read the figure from
+  just before the award and lose it. Saves written before this change carry no mark
+  and behave exactly as they did.
 
 - **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
   where the edit was quietly thrown away.** That screen used to show a "Parsek" section

@@ -2420,20 +2420,39 @@ because CL-2-pod-impact-ledger's armed ledger oracle pins that value.
 `ReputationSeedMembership.cs` now owns `ReputationSeedOrigin`, the two origin arms
 (moved verbatim out of `KerbalDeathRepPenalty`) and one new predicate,
 `IsReputationAffectingRow`, which is exactly `ReputationModule.ProcessAction`'s
-reputation-moving switch arms (`ReputationModule.cs:61-95`) minus `ReputationInitial`.
+reputation-moving switch arms (`ReputationModule.cs:84-118`) minus `ReputationInitial`.
 `LedgerOrchestrator.StampReputationRowsAgainstSeed` stamps every such row a commit
 produces, at a new step 3e right after the death producer (`LedgerOrchestrator.cs`,
 `OnRecordingCommitted`), using the origin established at 3c-post - production order, no
-UT read anywhere in the method. The two KSC live-write doors (`OnKscSpending`,
-`OnStrategyCurrencyConversion`) ensure the seed BEFORE their row reaches the ledger and
-stamp it the same way, and take neither call for a non-reputation row.
-`ReputationModule.ProcessAction` reads the stamp once, before its switch, and zeroes
-only `EffectiveRep` - the funds and science legs of a milestone or contract row are
-untouched. `RestampInsideSeedRowsAgainstCareerStartSeed` flips every reputation-
-affecting row back out, not only KerbalDeath ones. `insideRepSeed` moved from
-`SerializeRepPenalty` to the common `GAME_ACTION` header (same key, same node, so rows
-written by the 2026-09-10 build read back byte-identically); a row written before the
-flag existed carries no key, reads false and applies as before.
+UT read anywhere in the method. `ReputationModule.ProcessAction` reads the stamp once,
+before its switch, and zeroes only `EffectiveRep` - the funds and science legs of a
+milestone or contract row are untouched.
+`RestampInsideSeedRowsAgainstCareerStartSeed` flips every reputation-affecting row back
+out, not only KerbalDeath ones. `insideRepSeed` moved from `SerializeRepPenalty` to the
+common `GAME_ACTION` header (same key, same node, so rows written by the 2026-09-10
+build read back byte-identically); a row written before the flag existed carries no key,
+reads false and applies as before.
+
+THE TWO LIVE-WRITE DOORS STAMP BUT NEVER SEED, and the first cut of this fix got that
+wrong. `OnKscSpending` and `OnStrategyCurrencyConversion` originally ensured the seed
+before their row reached the ledger, by analogy with step 3c-post. That is unsafe for
+two of the four sources those doors carry, because the GameEvent fires BEFORE the pool
+moves: decompiled `ProgressNode.Complete()` raises `OnProgressComplete` before every
+subclass calls `AwardProgressStandard` (CelestialBodyOrbit, CelestialBodyReturn,
+CelestialBodyLanding), and `Reputation.AddReputation` raises `OnCurrencyModified`
+(Reputation.cs:76) before assigning `rep` (:109-117). A first-capture seed read inside
+such a handler would be the PRE-award pool; the row would be stamped inside a value that
+does not contain it, `EnrichPendingMilestoneRewards` would fill the award in place, the
+walk would zero it and the reconstruction would come out SHORT by the award - silently,
+because the stamp logs Info where the refusal branch used to WARN. Contract outcomes and
+`StrategyActivate` are ordered the other way round, but the door cannot tell them apart
+from the action alone. So `StampLiveWriteRowAgainstSeed` is READ-ONLY with respect to
+the seed: the seed's creation point is exactly where it was before this change (the
+door's own tail recalc), and the row is stamped by the commit path's rule - no seed yet
+means `NotYetCaptured`, a seed that already exists means `PreExisting` and stamps
+nothing. A later career-start capture flips the row back out through the existing
+re-stamp. This is what keeps "the seed VALUE is untouched" true at the doors as well as
+on the commit path.
 
 ONE PREDICATE WAS DELIBERATELY NOT WIDENED: the `InsideReputationSeed` skip inside
 `LedgerHasReputationTimelineActions` stays scoped to KerbalDeath rows. That predicate
@@ -2453,17 +2472,18 @@ as initial ...`) because that branch's skip was left narrow, seeds career start 
 the generalized re-stamp flips all three rows back out. The walk lands on the same
 -7.999828 it landed on before, against the same stock-produced pool, so
 `[expectations.ledger]`'s three `stock-reputation-award` entries
-(CL-2-pod-impact-ledger.toml:580, :622, :631) and its funds entry (:638) are unmoved.
+(CL-2-pod-impact-ledger.toml, the manifest entries at `seq = 2` :585, `seq = 0` :627
+and `seq = 1` :636) and its funds entry (`seq = 3` :665) are unmoved.
 Nothing in that spec pins a Parsek seed log line: the `insideRepSeed` and `re-stamped`
 strings appear only in comments (:522, :527), and `[expectations.logContracts]`'s two
 stock lines (:373-374) are KSP's own.
 
-RESIDUE, re-filed as its own entry: the review edge where a death is already RECORDED
-in a pending uncommitted tree when the live-pool seed is captured. See
+RESIDUE, re-filed as its own entry: the review edge where a reputation row is already
+RECORDED in a pending uncommitted tree when the live-pool seed is captured. See
 REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER below.
 
 
-## REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER: a live-pool seed snapshot includes a death whose recording has not been committed yet, and that row is produced later against a `PreExisting` seed and applied
+## REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER: a live-pool seed snapshot includes a reputation movement whose recording has not been committed yet, and that row is produced later against a `PreExisting` seed and applied
 
 Filed 2026-09-15, split out of
 REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS when that entry's fix
@@ -2472,9 +2492,11 @@ shipped. Found in review 2026-09-10; the code comment at the live-pool branch of
 
 The live pool is a snapshot of every stock change to date, INCLUDING flights that are
 already recorded but whose tree has not been committed. A death inside such a tree is
-inside the seeded value, yet its `ReputationPenalty(KerbalDeath)` row is produced by a
-LATER commit that reads `ReputationSeedOrigin.PreExisting` - stamped outside the seed
-and applied a second time. The generalized stamp does not reach it: the stamp is a
+inside the seeded value, yet its row - a `ReputationPenalty(KerbalDeath)`, a milestone,
+a contract outcome, any reputation-affecting type - is produced by a LATER commit that
+reads `ReputationSeedOrigin.PreExisting`, so it is stamped outside the seed and applied
+a second time. The id keeps DEATH in it because that is the shape review found it in;
+the defect is the general one. The generalized stamp does not reach it: the stamp is a
 statement about the commit that produced the row, and this row's commit genuinely
 postdates the seed. Production order is still the right discriminator; what is missing
 is the fact that the ROW's underlying event predates the capture.

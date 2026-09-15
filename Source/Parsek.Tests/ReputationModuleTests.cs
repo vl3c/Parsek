@@ -851,6 +851,33 @@ namespace Parsek.Tests
             Assert.Equal(40f, module.GetRunningRep());
         }
 
+        // KILLS: dropping the `action.EffectiveRep = 0f` assignment from the skip. Every
+        // other skip cell builds a fresh row whose EffectiveRep is already 0, so the
+        // mutant survives them all. A RE-WALK does not: the previous walk left a nonzero
+        // EffectiveRep on the row, and PostWalkActionReconciler and the earnings
+        // reconciliation both read that field, so a stale value is a reported delta
+        // nothing applied.
+        [Fact]
+        public void ProcessAction_InsideSeedRow_ClearsAStaleEffectiveRepFromAnEarlierWalk()
+        {
+            module.ProcessAction(MakeSeed(90f));
+
+            var milestone = new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 12.5,
+                MilestoneId = "Progression",
+                MilestoneRepAwarded = 1f,
+                Effective = true,
+                InsideReputationSeed = true,
+                EffectiveRep = 0.9999f // what the walk before the stamp left behind
+            };
+            module.ProcessAction(milestone);
+
+            Assert.Equal(0f, milestone.EffectiveRep);
+            Assert.Equal(90f, module.GetRunningRep());
+        }
+
         // THE MIRROR DIRECTION, stated for the generalized rule: production order, never
         // UT. A milestone produced on a re-fly AFTER the seed exists carries a game UT
         // EARLIER than the seed capture UT (the rewind moved the clock back) and is not
