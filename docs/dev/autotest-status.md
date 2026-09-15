@@ -162,7 +162,8 @@ modal that is not there. Both are deliberately OUT of `UIACTION_OPS_NEEDING_WIND
 stands whether or not any Parsek surface is being drawn. `VERB_SCOPED_CLOSED_ARGS` goes 12 ->
 16 rows - `popup` and `press` here, plus `focus` and `nudge` from the same wave's `op=pointer`
 flags - all four counted off the live table, which is at 16 rows. First consumer
-`GUI-10-census-dialogs`, LIVE-PROVEN `2026-09-15_1538`.
+`GUI-10-census-dialogs`, LIVE-PROVEN `2026-09-15_1538` and re-flown PASS attempt 1 as
+`2026-09-15_1626` on the post-review build.
 
 SAME WAVE, THE POINTER HALF, AND IT IS A MEASURED REFUTATION RATHER THAN A FIX: `op=pointer`
 gained two OPT-IN flags, both defaulting false so every lane written before them is

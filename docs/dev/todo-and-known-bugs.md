@@ -2252,6 +2252,14 @@ block BELOW both hovered rects. The hovered buttons themselves (`rect=18,150,230
 `Real Spawn Control (0)`, `rect=18,185,230,21` for `Timeline`) and the tooltip strip are
 pixel-identical, so there is no button highlight and no strip text.
 
+**RE-CONFIRMED ON THE POST-REVIEW BUILD.** Run `2026-09-15_1627` (PASS attempt 1, 68 s,
+deployed DLL sha256 `625cfd52985e...`) reproduces every reading above after the review pass
+added the re-armed second probe and `tooltipFrame=`: `eventScreen=0.0,0.0` on every probe
+while the landed pair reads `input=134.0,558.0` -> `inputGuiY=162.0` against a commanded
+`134,161`, both answers `tooltip=- tooltipFrame=0`. The frame is ZERO because no non-empty
+strip text was ever observed in the session, which is the same statement the empty
+`tooltip=` makes, from the other side.
+
 **WHAT STAYS.** Both flags stay in AS MEASURED, and GUI-7 keeps flying them: the answer
 reports what each did, so the next candidate is compared against this reading rather than
 against a guess, and a reader of a future red hover lane can tell "the mechanism did not
