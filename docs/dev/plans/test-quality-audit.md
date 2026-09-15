@@ -1,7 +1,7 @@
 # Plan: Parsek unit-test quality audit
 
 Baseline: `origin/main` at `4aedb0a1a018bd3420081778cffc1337bb6a58aa` (pinned; every finding cites this SHA).
-Status: Phase 1 CLOSED 2026-09-15 (427 linted fragments, D1 complete at 20,225 rows, 768 findings, 252 coverage candidates; `docs/dev/research/test-quality-audit-2026-09-14/phase1-summary.md`). Phase 2 CLOSED 2026-09-15 (7/7 High verified by mutation, 27-sample Medium: 26 verified / 1 downgraded / 0 refuted; `phase2-summary.md`, `mutations/`). Phase 3 (coverage-opportunity analysis) next.
+Status: Phase 1 CLOSED 2026-09-15 (427 linted fragments, D1 complete at 20,225 rows, 768 findings, 252 coverage candidates; `docs/dev/research/test-quality-audit-2026-09-14/phase1-summary.md`). Phase 2 CLOSED 2026-09-15 (7/7 High verified by mutation, 27-sample Medium: 26 verified / 1 downgraded / 0 refuted; `phase2-summary.md`, `mutations/`). Phase 3 CLOSED 2026-09-15 (245 proposals kept of 252, each with a named mutant; `coverage-opportunities.md` / `.csv`). Phase 4 (synthesis + operator gate) next.
 Phase A is read-only on production and test code; mutations run only in a detached scratch worktree
 (never in this worktree, never committed).
 Phase 0 results so far: full suite PASS, Failed 0 / Passed 23,420 / Skipped 1, wall 1m09s (TRX
