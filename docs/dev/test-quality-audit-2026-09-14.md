@@ -1300,6 +1300,57 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `OverlapPerInstanceTests`, `WatchEntryAcceptanceWiringGateTests`,
     `RuntimePolicyTests`), plus `GrepAuditTests` each time. No gate needed re-anchoring.
 
+- `testfix-t3-c` (2026-09-16): the FOURTH slice of Medium T3 rows
+  (`work/phase-b-slice-medium-t3-04.txt`, 20 ids: 12 `logistics-route`,
+  7 `recorder-events`, 1 `ledger-career`). First commit covers the 8 non-logistics
+  ids: 8 strengthened, 3 of those also renamed, 0 deleted, 0 deferred. No production
+  change. Each has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - F-recorder-events-012-01 and -012-02, both renamed `..._AllInputPairs`: the two
+    warp / watch-protection predicates take the same two booleans, so one asserted
+    pair - and a FALSE-returning pair at that - could not tell the conjunction from a
+    constant. Both are theories over all four pairs now; the arm that had no assertion
+    anywhere in `Source/Parsek.Tests` or `Source/Parsek/InGameTests` is (true, false).
+  - F-recorder-events-023-01, renamed
+    `ShouldTriggerExplosion_AllGuardsPass_WarpGateDecidesFxSuppression`: the old name
+    promised a suppression LOG assertion neither helper can make. Rows at 10x and
+    10.01x were added so the strict `>` and the `FxSuppress` constant decide rather
+    than the rate range, which is what made the old cell a duplicate of
+    `ShouldSuppressVisualFx_Above10x_Suppresses`.
+  - F-recorder-events-023-04: `rec.VesselDestroyed = true` is set UNCONDITIONALLY ahead
+    of the already-Destroyed early return and is what `SwitchSegmentNoOpClassifier`
+    reads, so the already-Destroyed cell now asserts it and the two not-destroyed cells
+    assert its absence.
+  - F-recorder-events-011-02, renamed `ZeroTimeDelta_IdenticalVelocity_NoRecord`: there
+    is no zero-delta guard in `ShouldRecordPoint`, and with identical velocities no gate
+    could fire whatever the elapsed handling did. Two siblings pin what production
+    actually does - a velocity change at the SAME UT DOES record a duplicate-UT sample
+    (the mutant is inserting the guard the old name implied), and the negative-elapsed
+    mirror is refused by the min-interval floor, not by a backward-time guard. The
+    register's optional production change (add a non-positive-elapsed guard) was NOT
+    taken: it is a behaviour change, not a test fix.
+  - F-recorder-events-015-01: the `_RecordingTree` half decoded through
+    `ParsekScenario.LoadRecordingMetadataForTests`, the same call as its own
+    `_ParsekScenario` twin. It now saves a real `RECORDING_TREE` and reads it back
+    through `RecordingTree.Load` -> `RecordingTreeRecordCodec`. A missing key alone
+    still cannot discriminate (the field defaults null either way), so the node also
+    carries a recording WITH the key and the codec's assignment is the deciding term.
+  - F-recorder-events-019-02, renamed
+    `ResolveMapPresenceGhostSource_CrossBodyLoopMember_PredicateComputedFlag_StillRejects`:
+    the cell hand-passed `acceptTerminalOrbitForLoopSynthesis:false`, which made it the
+    same branch as the non-loop cell beside it and left the cross-body guard its name
+    claimed unwitnessed. The flag is now COMPUTED as `GhostMapPresence.cs:7067` computes
+    it (loop member AND `IsTerminalOrbitSynthesisSafeForLoopMember`), with a same-body
+    control that must reach `EndpointTail`. The register's first option - drive the real
+    caller - is not reachable headlessly: both call sites sit inside the TS lifecycle and
+    the flight pending-create pass, which need live KSP.
+  - F-ledger-career-038-01: the cell built a local `KerbalsModule` the static call never
+    saw, so only the `?? false` fallback ran and `IsManaged` was never invoked. It now
+    injects a module through `LedgerOrchestrator.SetKerbalsForTesting` that manages a
+    DIFFERENT kerbal, and the null-module fallback is kept as its own cell
+    (`ShouldSuppress_NoKerbalsModule_ReturnsFalse`).
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

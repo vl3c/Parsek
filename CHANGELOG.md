@@ -303,6 +303,36 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: eight recorder, playback and crew cells from the audit's T3 (weak or
+  misleading) register now let the term they name decide the verdict.** No production
+  change; six cells strengthened, three of them renamed to what they actually prove.
+  The two warp / watch-protection predicates take the same two booleans, so a
+  single-pair cell could not tell the conjunction from a constant: both are now
+  theories over all four pairs, which pins the load-bearing arm (a watch-protected
+  NON-orbit-tail recording stays full fidelity and keeps the warp-zone hide exemption).
+  `ShouldTriggerExplosion_PassesButWarpSuppresses_LogsSuppression` promised a log
+  assertion neither helper could make - renamed
+  `ShouldTriggerExplosion_AllGuardsPass_WarpGateDecidesFxSuppression` and given rows at
+  and just above the 10x threshold, so the strict comparison and the constant decide.
+  The already-Destroyed fallback cell now also asserts `VesselDestroyed`, the field set
+  ahead of the early return and read by the no-op switch-segment classifier, with the
+  two not-destroyed cells asserting its absence. `ZeroTimeDelta_NoRecord` credited the
+  sampler with a guard that does not exist (both velocities were identical, so no gate
+  could fire either way): it is renamed to the identical-velocity case and joined by two
+  siblings pinning the real behaviour - a velocity change at the SAME UT does record a
+  duplicate-UT sample, and the negative-elapsed mirror is refused by the min-interval
+  floor rather than by any backward-time guard. The tree-side missing-loop-anchor-body
+  cell decoded through the `ParsekScenario` test helper its own twin already drove, so
+  it now loads a real `RECORDING_TREE` through `RecordingTree.Load` and carries a second
+  recording WITH the key, making the codec's assignment the deciding term. The
+  cross-body terminal-orbit cell hand-passed the loop-synthesis flag as false, which made
+  it the same branch as the non-loop cell beside it; it now COMPUTES the flag through
+  `IsTerminalOrbitSynthesisSafeForLoopMember` the way the map-presence caller does, with
+  a same-body control proving the composition is not constant-false. And the unmanaged
+  crew cell injected no `KerbalsModule` at all, so only the null fallback ran and
+  `IsManaged` was never called: it now injects a real module that manages a different
+  kerbal, with the null-module fallback kept as its own cell.
+
 - **Tests: twelve more priority-2 recording-tree and rewind coverage gaps from the
   unit-test quality audit are closed.** Eleven rows were new coverage, one was guarded
   already, and none is obsolete, so eleven new cells landed with no production change. On

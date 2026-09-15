@@ -328,6 +328,9 @@ namespace Parsek.Tests
 
             Assert.False(result);
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            // "No change" covers the terminal only: VesselDestroyed is still set,
+            // ahead of the early return, because SwitchSegmentNoOpClassifier reads it.
+            Assert.True(rec.VesselDestroyed);
         }
 
         [Fact]
@@ -375,6 +378,7 @@ namespace Parsek.Tests
 
             Assert.False(result);
             Assert.Null(rec.TerminalStateValue);
+            Assert.False(rec.VesselDestroyed);
         }
 
         [Fact]
@@ -387,6 +391,7 @@ namespace Parsek.Tests
 
             Assert.False(result);
             Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.False(rec.VesselDestroyed);
         }
 
         // --- RecordingBuilder.WithTerminalState serialization ---
@@ -483,11 +488,20 @@ namespace Parsek.Tests
 
         // --- Warp suppression tests ---
 
+        // Renamed: neither helper logs, so the old "_LogsSuppression" name promised an
+        // assertion the cell never made. What the pair can prove is that every explosion
+        // guard passes and the warp gate decides on its own, so both arms of that gate
+        // are pinned here - the boundary rows (at and just above FxSuppress = 10x) make
+        // the strict `>` and the constant the deciding terms rather than the rate range.
         [Theory]
         [InlineData(50f, true)]
         [InlineData(100f, true)]
         [InlineData(1000f, true)]
-        public void ShouldTriggerExplosion_PassesButWarpSuppresses_LogsSuppression(float warpRate, bool expectedSuppressed)
+        [InlineData(10.01f, true)]
+        [InlineData(10f, false)]
+        [InlineData(5f, false)]
+        [InlineData(1f, false)]
+        public void ShouldTriggerExplosion_AllGuardsPass_WarpGateDecidesFxSuppression(float warpRate, bool expectedSuppressed)
         {
             // ShouldTriggerExplosion returns true (all guards pass)
             bool wouldFire = GhostPlaybackLogic.ShouldTriggerExplosion(

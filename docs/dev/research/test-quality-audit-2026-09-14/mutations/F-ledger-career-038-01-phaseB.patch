@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/KerbalsModule.cs b/Source/Parsek/KerbalsModule.cs
+index c8f01dde7..7da0b5436 100644
+--- a/Source/Parsek/KerbalsModule.cs
++++ b/Source/Parsek/KerbalsModule.cs
+@@ -1142,7 +1142,7 @@ namespace Parsek
+         internal bool IsManaged(string kerbalName)
+         {
+             if (string.IsNullOrEmpty(kerbalName)) return false;
+-            if (reservations.ContainsKey(kerbalName)) return true;
++            return true;
+             if (retiredKerbals.Contains(kerbalName)) return true;
+ 
+             // Check if they're a stand-in in any chain

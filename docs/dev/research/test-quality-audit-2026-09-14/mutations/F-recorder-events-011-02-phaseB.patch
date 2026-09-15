@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/TrajectoryMath.cs b/Source/Parsek/TrajectoryMath.cs
+index d9a03a750..78c6aa6f2 100644
+--- a/Source/Parsek/TrajectoryMath.cs
++++ b/Source/Parsek/TrajectoryMath.cs
+@@ -50,6 +50,7 @@ namespace Parsek
+                 return true;
+ 
+             double elapsed = currentUT - lastRecordedUT;
++            if (elapsed <= 0) return false;
+ 
+             // Max interval backstop — always record after this long.
+             // Checked BEFORE the min floor so a degenerate config (minInterval > maxInterval)

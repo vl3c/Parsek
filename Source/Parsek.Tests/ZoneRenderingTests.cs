@@ -233,20 +233,34 @@ namespace Parsek.Tests
                 isWatchedGhost: false, ghostDistanceMeters: 100000, cutoffKm: 300));
         }
 
-        [Fact]
-        public void ShouldForceWatchProtectedFullFidelity_OrbitTail_ReturnsFalse()
+        // Both predicates take the same two booleans, so a single-pair cell cannot tell
+        // the conjunction apart from a constant. All four pairs are pinned here; the
+        // load-bearing arm is (true, false) - a watch-protected NON-orbit-tail recording
+        // must stay full fidelity and must still take the warp-zone hide exemption (#316).
+        [Theory]
+        [InlineData(true, true, false)]
+        [InlineData(true, false, true)]
+        [InlineData(false, true, false)]
+        [InlineData(false, false, false)]
+        public void ShouldForceWatchProtectedFullFidelity_AllInputPairs(
+            bool isWatchProtectedRecording, bool isOrbitTailPlayback, bool expected)
         {
-            Assert.False(GhostPlaybackLogic.ShouldForceWatchProtectedFullFidelity(
-                isWatchProtectedRecording: true,
-                isOrbitTailPlayback: true));
+            Assert.Equal(expected, GhostPlaybackLogic.ShouldForceWatchProtectedFullFidelity(
+                isWatchProtectedRecording: isWatchProtectedRecording,
+                isOrbitTailPlayback: isOrbitTailPlayback));
         }
 
-        [Fact]
-        public void ShouldAllowWarpZoneHideExemption_WatchProtectedOrbitTail_ReturnsFalse()
+        [Theory]
+        [InlineData(true, true, false)]
+        [InlineData(true, false, true)]
+        [InlineData(false, true, true)]
+        [InlineData(false, false, true)]
+        public void ShouldAllowWarpZoneHideExemption_AllInputPairs(
+            bool isWatchProtectedRecording, bool isOrbitTailPlayback, bool expected)
         {
-            Assert.False(GhostPlaybackLogic.ShouldAllowWarpZoneHideExemption(
-                isWatchProtectedRecording: true,
-                isOrbitTailPlayback: true));
+            Assert.Equal(expected, GhostPlaybackLogic.ShouldAllowWarpZoneHideExemption(
+                isWatchProtectedRecording: isWatchProtectedRecording,
+                isOrbitTailPlayback: isOrbitTailPlayback));
         }
 
         [Theory]
