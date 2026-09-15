@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Logistics/RoutePickupSourceGate.cs b/Source/Parsek/Logistics/RoutePickupSourceGate.cs
+index e531190cf..58aac1880 100644
+--- a/Source/Parsek/Logistics/RoutePickupSourceGate.cs
++++ b/Source/Parsek/Logistics/RoutePickupSourceGate.cs
+@@ -595,7 +595,7 @@ namespace Parsek.Logistics
+         /// </summary>
+         internal static double NettedAvailable(double rawStored, double reservedByOthers)
+         {
+-            double available = rawStored - reservedByOthers;
++            double available = rawStored;
+             return available > 0.0 ? available : 0.0;
+         }
+ 

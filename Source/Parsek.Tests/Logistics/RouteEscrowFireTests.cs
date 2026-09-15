@@ -43,6 +43,9 @@ namespace Parsek.Tests.Logistics
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
+            // The crashed-disposition cell commits a tree; clear it on both ends so the
+            // Sequential collection cannot inherit it.
+            RecordingStore.ClearCommittedTreesInternal();
             RouteOrchestrator.LoopUnitResolverForTesting = null;
             RouteOrchestrator.DeliveryApplierForTesting = null;
             RouteOrchestrator.DeliveryRowEmitterForTesting = null;
@@ -60,6 +63,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.PickupDebitApplierForTesting = null;
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
+            RecordingStore.ClearCommittedTreesInternal();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -396,6 +400,7 @@ namespace Parsek.Tests.Logistics
         public void PartialCycle_UnfiredWindowReservationLive_CompetingRouteSeesIt()
         {
             var route = Build2SourceRoute();
+            route.Name = "Ore Run";
             RouteStore.AddRoute(route);
             InstallUnitResolver(BuildUnit());
             InstallPickupSeam();
@@ -408,12 +413,47 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(200.0, RouteStore.GetReservedForTesting(route.Id, 200u, "Ore"));
 
             // A competing route gating depot B sees its available reduced by route's 200
-            // reservation (the production B1 net wrap). Depot B holds 250 Ore live; the
-            // competitor sees 250 - 200 = 50.
-            double otherReserved = RouteStore.OtherRoutesReservedFor("route-competitor", 200u, "Ore");
+            // reservation. The net is taken through the PRODUCTION wrap
+            // (RoutePickupSourceGate.NettedAvailable - the one expression
+            // LiveRouteRuntimeEnvironment's netted reader calls), not by test-side
+            // arithmetic: the old `250.0 - otherReserved` was a tautology that stayed green
+            // if the net stopped subtracting at all. Depot B holds 250 Ore live.
+            const uint DepotB = 200u;
+            const string Competitor = "route-competitor";
+            double otherReserved = RouteStore.OtherRoutesReservedFor(Competitor, DepotB, "Ore");
             Assert.Equal(200.0, otherReserved);
-            double competitorAvailable = 250.0 - otherReserved;
-            Assert.Equal(50.0, competitorAvailable);
+            Assert.Equal(50.0, RoutePickupSourceGate.NettedAvailable(250.0, otherReserved));
+
+            // And the gate the competitor would actually run HOLDS on that netted view,
+            // with the escrow-caused token naming THIS route as the holder - assembled the
+            // way the live env assembles it (netted reader over RouteStore, raw reader over
+            // the depot's physical 250, reserving-route lookup through RouteStore).
+            var group = new RoutePickupSourceGate.PickupSourceGroup
+            {
+                ResolvedPid = DepotB,
+                VesselName = "Depot B",
+                EarliestDockUT = 1300.0,
+                SummedResourceManifest = new Dictionary<string, double> { { "Ore", 200.0 } },
+                SummedInventoryManifest = new List<InventoryPayloadItem>(),
+                StoredResourceReader = name => RoutePickupSourceGate.NettedAvailable(
+                    250.0, RouteStore.OtherRoutesReservedFor(Competitor, DepotB, name)),
+                RawStoredResourceReader = name => 250.0,
+                StoredInventoryReader = hash => 0,
+                ReservingRouteNameLookup = name =>
+                    RouteStore.TryGetReservingRoute(DepotB, name, Competitor,
+                        out string reservingRouteId, out _)
+                    && RouteStore.TryGetRoute(reservingRouteId, out Route reservingRoute)
+                        ? reservingRoute.Name
+                        : null,
+            };
+
+            RoutePickupSourceGate.GateResult gate = RoutePickupSourceGate.Evaluate(
+                new List<RoutePickupSourceGate.PickupSourceGroup> { group });
+
+            Assert.False(gate.Covered);
+            Assert.True(gate.EscrowShort);
+            Assert.Equal("Ore Run", gate.ReservingRouteName);
+            Assert.Equal("source-reserved:200:Depot B:Ore:Ore Run", gate.ShortHoldToken);
         }
 
         // ==================================================================
@@ -465,11 +505,33 @@ namespace Parsek.Tests.Logistics
             // The route shape carries no disposition field on the firing path; a
             // "crashed" transport is just the recording's outcome. The debit fires at
             // the window phase unconditionally (it is not gated on any disposition).
+            //
+            // The named variable used to be absent entirely - the body was the first tick
+            // of Shuttle_DebitsRefineryAtItsWindow_EscrowEmptyAfterCycle with a different
+            // name - so nothing here said "crashed" and a disposition gate added later
+            // could not red this cell. The route's own backing recording now CARRIES the
+            // crashed disposition (Destroyed terminal + VesselDestroyed), which is what any
+            // such gate would read, so this cell becomes the one that reds when the firing
+            // path starts consulting it.
+            var crashed = new Recording
+            {
+                RecordingId = "rec-dock-station",
+                TreeId = "tree-1",
+                VesselName = "transport",
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselDestroyed = true,
+            };
+            var tree = new RecordingTree { Id = "tree-1", RootRecordingId = "rec-dock-station" };
+            tree.Recordings[crashed.RecordingId] = crashed;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
             var route = BuildShuttleRoute();
             RouteStore.AddRoute(route);
             InstallUnitResolver(BuildUnit());
             var seam = InstallPickupSeam();
             var env = new EligibleEnv();
+
+            Assert.Equal(TerminalState.Destroyed, crashed.TerminalStateValue);
 
             RouteOrchestrator.Tick(1150.0, env); // refinery window
 

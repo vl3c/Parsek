@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/Logistics/RouteBuilder.cs b/Source/Parsek/Logistics/RouteBuilder.cs
+index e5dcd6f83..264c846d8 100644
+--- a/Source/Parsek/Logistics/RouteBuilder.cs
++++ b/Source/Parsek/Logistics/RouteBuilder.cs
+@@ -630,7 +630,6 @@ namespace Parsek.Logistics
+                         // before the key existed and on every evidence-free stamp, which
+                         // leaves those routes on the ungated behaviour they always had.
+                         LaunchGuid = originProof.StartDockedOriginVesselGuid,
+-                        RootPartUId = originProof.StartDockedOriginRootPartUId,
+                         BodyName = originProof.StartDockedOriginBodyName,
+                         Latitude = originProof.StartDockedOriginLatitude,
+                         Longitude = originProof.StartDockedOriginLongitude,

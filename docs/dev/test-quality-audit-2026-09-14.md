@@ -1302,9 +1302,10 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 
 - `testfix-t3-c` (2026-09-16): the FOURTH slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-04.txt`, 20 ids: 12 `logistics-route`,
-  7 `recorder-events`, 1 `ledger-career`). First commit covers the 8 non-logistics
-  ids: 8 strengthened, 3 of those also renamed, 0 deleted, 0 deferred. No production
-  change. Each has a proof row in
+  7 `recorder-events`, 1 `ledger-career`). Slice total: 20 strengthened (8 of those
+  also renamed), 0 deleted, 0 deferred, no production change. The first commit covers
+  the 8 non-logistics ids: 8 strengthened, 3 of those also renamed. Each has a proof
+  row in
   `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
   `*-phaseB.patch` that `git apply --check`s against a clean tree.
   - F-recorder-events-012-01 and -012-02, both renamed `..._AllInputPairs`: the two
@@ -1350,6 +1351,78 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     injects a module through `LedgerOrchestrator.SetKerbalsForTesting` that manages a
     DIFFERENT kerbal, and the null-module fallback is kept as its own cell
     (`ShouldSuppress_NoKerbalsModule_ReturnsFalse`).
+  - Second commit, the 12 `logistics-route` ids: 12 strengthened, 5 of those also
+    renamed, 0 deleted, 0 deferred, still no production change.
+    F-logistics-route-003-01 (the name says FRESH guid but 32-characters-and-non-empty
+    is satisfied by one constant `DefaultIdFactory` return; the cell builds twice from
+    the same analysis and pins distinctness).
+    F-logistics-route-019-01, renamed `FormatRejectMessage_AllEnumValuesProduceDedicatedText`
+    (the switch DEFAULT returns non-empty text, so a status with no branch passed the
+    old sweep; each status must now produce copy that is not the fallback, with a
+    control on an out-of-range status proving the default is still reachable).
+    F-logistics-route-032-02 (`Latitude` / `Longitude` / `Altitude` pinned to the
+    fixture values - the name said LOCATION and swapping the two assignments, which
+    feed the M2 Phase 5 harvest-origin endpoint, left every other assertion green).
+    F-logistics-route-020-02, renamed
+    `SumRecoveredCredits_HonoursThePassedScopeSet_NotRouteMembers` plus a new
+    `RecoveryInTreeButNotRouteMembers_StillCounted_ThroughResolvedScope`
+    (`SumRecoveredCredits` takes the scope set as a PARAMETER, so the G1 rescoping
+    regression cannot be introduced at that level; the new cell composes
+    `ResolveTreeRecordingIds` over a committed tree with the sum, which is where the
+    regression lives - the mutant reds it and leaves the retitled cell green).
+    F-logistics-route-038-01 (the cell round-tripped a HAND-BUILT endpoint through
+    `RouteNodeCodec` while its name and FAILS-IF comment claimed the BUILDER stamps the
+    root id; it now drives `RouteBuilder.BuildRoute` over a bound docked-origin proof
+    and asserts `Route.Origin.RootPartUId` before the codec half).
+  - The four that needed a real drive:
+    F-logistics-route-007-01, renamed
+    `Delivery_ProbeAndWriter_StoreInjectedLoadedGate_AndTheWriterDispatchesOnIt`
+    (no probe or writer METHOD was called, so the divergence the comment describes - a
+    writer re-evaluating `vessel.loaded` per call - was uncovered; `WriteResource` is now
+    driven on both writers and the `path=` token read off the delivery Info line. The
+    PROBE stays construction-pinned and the cell says why: every probe entry point
+    returns before its branch when `vessel == null`).
+    F-logistics-route-008-02 (the installed fake applier itself clears `PendingDeliveryUT`
+    and transitions back to Active, so two of the three post-tick reads could not see a
+    production path that armed them first; the cell now captures all three INSIDE the
+    applier, ahead of its bookkeeping, and keeps the post-tick reads).
+    F-logistics-route-011-01, renamed
+    `EmitPendingRecoveryCreditCall_WithCareerKscPendingMarker_EmitsOwedCreditOnce` plus a
+    new `EndpointLostAtDelivery_WiringFlushesTheOwedRecoveryCredit` (the old cell called
+    the shared helper directly and its comment conceded the wiring was "verified by
+    reading"; the new one reaches `RouteOrchestrator.cs:4246` through a tick against an
+    env whose delivery-time endpoint re-resolution fails. Note what the drive showed: TWO
+    credits land on that tick - cycle-0's ordinary deferral flush and cycle-1's, armed by
+    that same crossing and payable only by the endpoint-lost tail, since the route goes
+    quiet immediately after. The cycle-1 row is the one the mutant removes).
+    F-logistics-route-013-02 (the headline "competing route sees it" was test-side
+    arithmetic, `250.0 - otherReserved`; the net is now taken through the production
+    `RoutePickupSourceGate.NettedAvailable` - the one expression
+    `LiveRouteRuntimeEnvironment`'s netted reader calls - and the competitor's gate is
+    actually evaluated, asserting the exact `source-reserved:200:Depot B:Ore:Ore Run`
+    hold token assembled the way the live env assembles it).
+  - F-logistics-route-013-01 was NOT deleted into its twin. The register offered that
+    (the body duplicated the first tick of
+    `Shuttle_DebitsRefineryAtItsWindow_EscrowEmptyAfterCycle`) or "give it real content";
+    the second is worth more, because 19.2.5 is a standing prohibition rather than a
+    one-off. The route's backing recording now CARRIES the crashed disposition
+    (`TerminalState.Destroyed` + `VesselDestroyed`) in a committed tree, so a
+    disposition gate added later reds THIS cell and leaves the shuttle twin green - which
+    the mutant demonstrates. The class now clears `RecordingStore` committed trees on
+    both ends so the Sequential collection cannot inherit the fixture.
+  - Two renamed because the claim in the old name needs Unity and no seam can carry it
+    headlessly: F-logistics-route-016-01
+    (`PaintMembership_IsClearedOnlyByAHideOrAFlush` - the frame-survival claim was two
+    identical reads with nothing between them; no headless seam advances the draw pass's
+    frame, and the staleness half is already pinned by
+    `ResolveLegPaintFromMesh_IsMembershipAndTheDeadRendererGuard`. The cell gains an
+    unrelated-recording paint in the middle, so membership is shown to be per recording
+    and per leg rather than rebuilt wholesale) and F-logistics-route-033-02
+    (`UnloadedStoredPartNode_IsAFreshCopyCarryingTheOverriddenSlotAndUnits` - the APPEND
+    the old name claimed is done by the test's own `ConfigNode.AddNode`;
+    `WriteInventoryUnloaded` is private and needs a live `ProtoVessel`, so the append
+    stays in-game coverage. The cell now also pins that the built node is a COPY and the
+    recorded payload keeps its origin slot).
 
 ## July crosswalk
 
