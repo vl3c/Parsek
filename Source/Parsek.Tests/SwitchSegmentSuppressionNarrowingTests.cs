@@ -275,6 +275,48 @@ namespace Parsek.Tests
                 && l.Contains("rec_segment_owned"));
         }
 
+        // Fails if: the marker-owned bypass stops running BEFORE the same-id
+        // cutoff / pending-only checks. The sibling cell above stamps a
+        // segment that was added to committed storage AFTER the attempt was
+        // armed, so its id is in neither the attempt id set nor the cutoff
+        // map and the fallback returns false on its own - the bypass is
+        // unwitnessed there. Here the stamped segment is inside the armed
+        // tree, so the cutoff map carries it (cutoff = its EndUT 200) and an
+        // event at ut=250 is post-cutoff: only the bypass keeps it
+        // persistable. Reordering the bypass below the cutoff check loses
+        // every post-cutoff event of a live switch segment across save.
+        [Fact]
+        public void ShouldSuppressEventPersistence_MarkerOwnedIdAlsoInAttemptSet_NotSuppressed()
+        {
+            MakeScenarioWithSession(out SwitchSegmentSession session);
+
+            var parent = MakeRecording("rec_parent", "tree_attempt");
+            var segment = MakeRecording(
+                "rec_segment_in_tree", "tree_attempt",
+                switchSegmentSessionId: ToSessionString(session.SessionId));
+            var attemptTree = MakeTreeWithRecordings("tree_attempt", parent, segment);
+            RecordingStore.AddCommittedTreeForTesting(attemptTree);
+            AddCommitted(parent);
+            AddCommitted(segment);
+
+            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+
+            // The precondition the sibling cell lacks: the marker-owned id is
+            // also an attempt id, so the fallback would suppress it.
+            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(
+                "rec_segment_in_tree"));
+
+            var evt = MakeEvent(ut: 250.0, recordingId: "rec_segment_in_tree");
+
+            Assert.False(
+                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]")
+                && l.Contains("not-suppressed")
+                && l.Contains("reason=marker-owned-switch-segment")
+                && l.Contains("rec_segment_in_tree"));
+        }
+
         // Fails if: the post-cutoff same-id committed-tree restore-attempt
         // tail suppression is broken when no marker owns the id. This is
         // the existing #866 contract — narrowing must not relax it.

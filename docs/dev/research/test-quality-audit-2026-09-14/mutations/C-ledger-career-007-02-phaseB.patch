@@ -1,0 +1,19 @@
+diff --git a/Source/Parsek/GameStateEvent.cs b/Source/Parsek/GameStateEvent.cs
+index 2b05d516f..58a5fd76e 100644
+--- a/Source/Parsek/GameStateEvent.cs
++++ b/Source/Parsek/GameStateEvent.cs
+@@ -232,12 +232,8 @@ namespace Parsek
+                 if (string.IsNullOrEmpty(parts))
+                     continue;
+ 
+-                string[] unlockedParts = parts.Split(',');
+-                for (int j = 0; j < unlockedParts.Length; j++)
+-                {
+-                    if (string.Equals(unlockedParts[j].Trim(), partName, StringComparison.Ordinal))
+-                        return true;
+-                }
++                // MUTANT: per-part membership compare dropped
++                return true;
+             }
+ 
+             return false;

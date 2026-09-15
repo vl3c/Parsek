@@ -1489,6 +1489,72 @@ namespace Parsek.Tests
             Assert.Equal(0.0, pending, 3);
         }
 
+        // Fails if: the debit helper stops filtering on the reason key, on
+        // the event UT window, or on the action UT window. The two cells
+        // above feed only in-window right-key rows, so dropping any of the
+        // three filters keeps them green while the holdback swallows an
+        // unrelated science debit (or an already-committed one) and the
+        // affordability check refuses a tech the player can pay for.
+        [Fact]
+        public void ComputePendingRecentKscTechResearchScienceDebit_IgnoresWrongReasonAndOutsideWindow()
+        {
+            var events = new List<GameStateEvent>
+            {
+                // In window, right key: the only observed debit that counts (30).
+                new GameStateEvent
+                {
+                    ut = 1000.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 60.0,
+                    valueAfter = 30.0
+                },
+                // In window, wrong reason key: a contract reward reversal is not
+                // a tech-unlock debit.
+                new GameStateEvent
+                {
+                    ut = 1000.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = "ContractReward",
+                    valueBefore = 50.0,
+                    valueAfter = 0.0
+                },
+                // Right key but 100 s before now: long outside the pairing window.
+                new GameStateEvent
+                {
+                    ut = 900.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 200.0,
+                    valueAfter = 100.0
+                }
+            };
+            var actions = new List<GameAction>
+            {
+                // In window, untagged: offsets 5 of the observed 30.
+                new GameAction
+                {
+                    UT = 1000.0,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 5f
+                },
+                // Outside the window: must not offset anything.
+                new GameAction
+                {
+                    UT = 900.0,
+                    Type = GameActionType.ScienceSpending,
+                    Cost = 20f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscTechResearchScienceDebit(
+                events,
+                actions,
+                nowUt: 1000.0);
+
+            Assert.Equal(25.0, pending, 3);
+        }
+
         [Fact]
         public void ComputePendingRecentKscScienceCredit_UnmatchedCreditReturnsGap()
         {
@@ -2239,6 +2305,29 @@ namespace Parsek.Tests
 
             Assert.True(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
             Assert.Equal(1, CountLogs("[LedgerOrchestrator]",
+                "admitted via ghost-visual-only crew source"));
+        }
+
+        // Fails if: the EvaCrewName conjunct of the first admission arm goes
+        // away. Every other Eva fixture in the tree also carries a
+        // GhostVisualSnapshot plus a Destroyed/Recovered terminal, so the
+        // ghost-visual arm admits for them and the Eva conjunct is never
+        // load-bearing. A bare EVA recording (no snapshots, no chain, no
+        // terminal stamp) is admitted by that conjunct alone; without it the
+        // kerbal's end state stays Unknown and its ledger rows never resolve.
+        [Fact]
+        public void NeedsCrewEndStatePopulation_EvaOnlyNoGhostVisual_Admits()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-eva-only",
+                VesselName = "Bill Kerman",
+                EvaCrewName = "Bill Kerman"
+            };
+
+            Assert.True(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
+            // Not the ghost-visual arm: there is no GhostVisualSnapshot here.
+            Assert.Equal(0, CountLogs("[LedgerOrchestrator]",
                 "admitted via ghost-visual-only crew source"));
         }
 

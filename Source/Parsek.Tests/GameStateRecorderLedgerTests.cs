@@ -892,6 +892,49 @@ namespace Parsek.Tests
                 l.Contains("no paired FundsChanged(VesselRecovery) event"));
         }
 
+        // Fails if: the non-positive paired-delta guard goes away. No cell in
+        // the tree builds a FundsChanged(VesselRecovery) whose valueAfter is
+        // at or below valueBefore, so without this one a zero/negative
+        // recovery writes a negative FundsEarning(Recovery) credit into the
+        // career ledger. The guard must also CONSUME the event (return true
+        // and record the dedup key) so the queued request does not sit
+        // waiting and re-pair against the same event later.
+        [Fact]
+        public void OnVesselRecoveryFunds_PairedEventNonPositiveDelta_WritesNoRowAndConsumesEvent()
+        {
+            int before = Ledger.Actions.Count;
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                8000.0,
+                "Worthless Probe",
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship);
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            var evt = new GameStateEvent
+            {
+                ut = 8000.05,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 1000.0,
+                valueAfter = 900.0
+            };
+            GameStateStore.AddEvent(ref evt);
+
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            Assert.Equal(before, Ledger.Actions.Count);
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+            // Request consumed, not left queued for a later re-pair.
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            // The consumed dedup key keeps a replay of the same event inert.
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+            Assert.Equal(before, Ledger.Actions.Count);
+        }
+
         [Fact]
         public void OnRecoveryFundsEventRecorded_DeferredPair_RecalculatesAtMatchedEventUt()
         {

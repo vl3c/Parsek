@@ -532,6 +532,18 @@ C-rewind-refly-004-02, C-rewind-refly-015-01, C-rewind-refly-019-01. C-recorder-
 in `BackgroundPartEventAuditTests.PollPartEvents_CoversAllPolledEventTypes_MatchingFlightRecorder`,
 which is the proposed cell, so no duplicate was written.
 
+**Phase B status, third PR (2026-09-15).** Twelve priority-2 data-loss / career rows landed as
+xUnit cells on the same branch: eleven are new coverage; C-ghost-playback-023-01 is already covered
+(its mutant reds `DiscardFateTests.FlushThenDiscard_EventsAndMilestonePurged` and two siblings, found
+by the review's cross-class re-run, so the duplicate cell was dropped). Each landed cell is
+mutation-proved with the mutant the CSV names, with no production change. Method note for the
+remaining coverage rows: a class-scoped RED proves the new cell guards the line, not that the row
+was uncovered; an `already-covered` verdict needs the mutant run against every test class that
+reaches the same method. C-recording-tree-047-02, C-ghost-playback-023-01, C-ledger-career-001-01,
+C-ledger-career-003-01, C-ledger-career-004-01, C-ledger-career-006-01, C-ledger-career-007-01,
+C-ledger-career-007-02, C-ledger-career-008-01, C-ledger-career-009-01, C-ledger-career-009-02,
+C-ledger-career-011-01. Their `status` in the CSV is now `done`.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.

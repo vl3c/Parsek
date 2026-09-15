@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameActions/KscActionExpectationClassifier.cs b/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
+index 406e1509f..fb85023ff 100644
+--- a/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
++++ b/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
+@@ -143,7 +143,8 @@ namespace Parsek
+                         FundsLeg = CreateExpectationLeg(
+                             GameStateEventType.FundsChanged,
+                             "StructureConstruction",
+-                            -action.FacilityCost)
++                            // MUTANT: wrong (always zero) field
++                            -action.FundsSpent)
+                     };
+ 
+                 case GameActionType.FacilityRepair:

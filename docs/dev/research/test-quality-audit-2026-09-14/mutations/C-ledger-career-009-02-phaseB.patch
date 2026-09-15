@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameActions/Ledger.cs b/Source/Parsek/GameActions/Ledger.cs
+index f8687564a..f563bb963 100644
+--- a/Source/Parsek/GameActions/Ledger.cs
++++ b/Source/Parsek/GameActions/Ledger.cs
+@@ -925,8 +925,7 @@ namespace Parsek
+             }
+ 
+             actions = surviving;
+-            if (before != actions.Count)
+-                BumpStateVersion();
++            // MUTANT: prune-path state-version bump removed
+ 
+             ParsekLog.Info("Ledger",
+                 $"Reconcile complete: before={before}, kept={kept}, " +

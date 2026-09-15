@@ -1,0 +1,12 @@
+C-recording-tree-047-02	data-loss	Source/Parsek/RecordingStore.cs:2495	direct	ShouldSuppressEventPersistence_MarkerOwnedIdAlsoInAttemptSet_NotSuppressed
+C-ghost-playback-023-01	career	Source/Parsek/GameStateStore.cs:513	direct	PurgeEventsForRecordings_RemovesGloopsTaggedEventHeldInAMilestone
+C-ledger-career-001-01	career	Source/Parsek/GameActions/KscActionExpectationClassifier.cs:139	direct	ClassifyAction_CostBearingUntransformedArms_KeysAndDeltas
+C-ledger-career-003-01	career	Source/Parsek/GameActions/LedgerOrchestrator.cs:5775	direct	ComputePendingRecentKscTechResearchScienceDebit_IgnoresWrongReasonAndOutsideWindow
+C-ledger-career-004-01	career	Source/Parsek/GameActions/LedgerOrchestrator.cs:1721	direct	NeedsCrewEndStatePopulation_EvaOnlyNoGhostVisual_Admits
+C-ledger-career-006-01	career	Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs:591	direct	OnVesselRecoveryFunds_PairedEventNonPositiveDelta_WritesNoRowAndConsumesEvent
+C-ledger-career-007-01	career	Source/Parsek/GameStateEvent.cs:205	direct	NormalizeLegacyPartPurchaseCostsForLoad_DeltaMismatch_SkipsMigration
+C-ledger-career-007-02	career	Source/Parsek/GameStateEvent.cs:238	direct	NormalizeLegacyPartPurchaseCostsForLoad_PartNotInUnlockList_SkipsMigration
+C-ledger-career-008-01	career	Source/Parsek/GameStateStore.cs:819	direct	CommitScienceActions_InvalidActions_Skipped
+C-ledger-career-009-01	career	Source/Parsek/GameActions/Ledger.cs:683	direct	LoadFromFile_WrongSchemaGeneration_IsRejected
+C-ledger-career-009-02	career	Source/Parsek/GameActions/Ledger.cs:929	direct	Reconcile_PrunedRows_InvalidateTheElsCache
+C-ledger-career-011-01	career	Source/Parsek/GameActions/GameStateEventConverter.cs:619	direct	ConvertEvent_FacilityUpgraded_NegativeValueAfter_ClampsToLevel1

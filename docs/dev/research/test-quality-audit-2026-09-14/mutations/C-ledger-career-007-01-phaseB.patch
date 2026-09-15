@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GameStateEvent.cs b/Source/Parsek/GameStateEvent.cs
+index 2b05d516f..e5a87957b 100644
+--- a/Source/Parsek/GameStateEvent.cs
++++ b/Source/Parsek/GameStateEvent.cs
+@@ -202,9 +202,7 @@ namespace Parsek
+             if (Math.Abs(cost - entryCost) > LegacyPartPurchaseCompatAmountTolerance)
+                 return false;
+ 
+-            double observedDelta = evt.valueBefore - evt.valueAfter;
+-            if (Math.Abs(observedDelta - entryCost) > LegacyPartPurchaseCompatFundsTolerance)
+-                return false;
++            // MUTANT: observed-delta vs entryCost check removed
+ 
+             return true;
+         }
