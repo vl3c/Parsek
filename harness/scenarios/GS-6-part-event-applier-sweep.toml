@@ -200,7 +200,7 @@ id = "GS-6-part-event-applier-sweep"
 # that have never once been measured - Gear*, Converter*, FairingJettisoned,
 # LightOn/Off on real lamps, and EngineIgnited on the EFFECTS-node Ant.
 tier = "nightly"  # PROMOTED 2026-09-08 by operator decision (was "operator", the calibration discipline; the three-run discipline is discharged, see the status row)
-description = "Part-event applier sweep: a scripted part-event timeline (RCS, deployable antenna, engine throttle) fired during a recorded Kerbal X flight, committed, Rewound-to-Launch and WATCHED, with the applier's per-family [GhostPartEvents] apply lines gated per family against the replay."
+description = "Part-event applier sweep: a scripted part-event timeline (RCS, deployable antenna, engine throttle) fired during a recorded Kerbal X flight, committed, Rewound-to-Launch and WATCHED, with the applier's per-family [GhostPartEvents] apply lines gated per family against the replay. Since 2026-09-15 it also pins the colour-changer surface (both light directions applying, and the defect-state reason no-family-state FORBIDDEN) and the recorder-side pose-animation gate lines, both pinned off run 2026-09-15_1604."
 instanceProfile = "stock-minimal"
 tags = ["GS6", "part-events", "ghost-render", "applier", "rewind-to-launch", "watch-mode", "ghost-lifecycle"]
 
@@ -396,9 +396,40 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "\\[GhostPartEvents\\] apply family=LightOff surface=light rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=RoboticMotionStarted surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=RoboticMotionStopped surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
-             "Part event: EngineIgnited 'microEngine.v2' pid=[0-9]+"]
+             "Part event: EngineIgnited 'microEngine.v2' pid=[0-9]+",
+             # PINNED 2026-09-15 off run `2026-09-15_1604` (PASS attempt 1, 534 s), the first
+             # flight of the GS6-GHOST-HAS-NO-COLORCHANGER-STATE fix. BEFORE it both directions
+             # read `applied=0 skipped=5 reason=no-family-state`: the ghost carried no
+             # colour-changer dictionary at all, because the builder read the config-only
+             # `shaderProperty` out of the persisted snapshot node, which never carries it.
+             # `_1604` measured `applied=2 skipped=3 reason=no-info-for-part` - the two
+             # Pattern-A parts (mk1-3pod 57152010, dockingPort2 2530776075) APPLY, and the
+             # three ModuleLight parts correctly have no entry on THIS surface. Pins
+             # `applied=[1-9]` like every other applier token here; the exact split is a craft
+             # property, not a contract.
+             "\\[GhostPartEvents\\] apply family=LightOn surface=colorchanger rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=LightOff surface=colorchanger rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             # The recorder-side half of the same round: GS6-DEPLOYABLE-NO-RESOLVED-VISUAL took
+             # option (a), so the four OX-STAT `solarPanels5` no longer emit a
+             # DeployableExtended nobody can render. These two lines ARE that gate firing, and
+             # pinning them is what makes a silent regression (the gate deleted, the dead events
+             # back) RED rather than invisible: no applier token could catch it, because the
+             # OX-STAT line would simply reappear beside the ones that already pass. Measured 4
+             # and 4 on `_1604`; the count is left open because it is the craft's panel census.
+             "\\[Recorder\\] Deployable seeding skipped [1-9][0-9]* pose-animation-less module\\(s\\) \\(deployable-no-pose-animation gate\\)",
+             "\\[Recorder\\] Deployable poll skipped [1-9][0-9]* pose-animation-less module\\(s\\) \\(deployable-no-pose-animation gate\\)"]
 # The suite-wide ERROR pattern; it also covers the seam verbs' own failure terminals.
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+# The second token is the GS6-GHOST-HAS-NO-COLORCHANGER-STATE regression guard, pinned
+# 2026-09-15 off run `2026-09-15_1604`: `no-family-state` is the STRONGEST reason class on
+# this surface ("the ghost has no colour-changer dictionary at all"), which is exactly the
+# defect state and is unreachable once the builder reads the prefab config. It matched the
+# pre-fix line and matches nothing in the flown log. Deliberately scoped to
+# `surface=colorchanger`: the converter-loop surface still reports `no-family-state`
+# TRUTHFULLY (the craft's FuelCell has no ModuleAnimationGroup to loop - see
+# GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD), so an unscoped token would red
+# on a correct reading.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "surface=colorchanger[^\\r\\n]*reason=no-family-state"]
 
 # REPORT-ONLY (gating=false), and that is the DISCIPLINE rather than a doubt about the
 # number. The window is inherited from GS-4, which measured spawned=8 / destroyLines=8 /

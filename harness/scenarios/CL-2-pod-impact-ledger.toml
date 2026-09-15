@@ -523,12 +523,18 @@ captureCrossCheck = "gate"
   # deferral, and the step-6 recalc then seeds career start (0) through the
   # pre-existing refusal branch (`SeedInitialReputation: refusing to treat current
   # reputation as initial ...`, the two milestone rows) and RE-STAMPS the row outside
-  # (`1 KerbalDeath rep penalty row(s) were stamped inside a seed that was then read
+  # (`... rep penalty row(s) were stamped inside a seed that was then read
   # from career start; re-stamped outside so the walk applies them`). The walk then
   # reads `RepPenalty (KerbalDeath, pre-curved) ... runningRep=-8.00` against a live
   # -7.99983: the ledger now MODELS the hit instead of clamping around it, and the
   # produced pool this oracle reads is stock's, unchanged (`ledgerOracle`
-  # hardDivergences=0 on that run). The kind stays the generic
+  # hardDivergences=0 on that run). SINCE 2026-09-15 the stamp is no longer
+  # KerbalDeath-only - step 3e stamps this lane's two `Progression` milestone rows
+  # inside the same deferred seed, and the same re-stamp flips ALL THREE back out, so
+  # that line reads "3 reputation row(s)" and the walk lands on the same -7.999828.
+  # The refusal branch still fires because its own inside-seed skip was deliberately
+  # left scoped to KerbalDeath rows
+  # (`LedgerOrchestrator.LedgerHasReputationTimelineActions`). The kind stays the generic
   # `stock-reputation-award` because the measured line is stock's:
   # the oracle has no `kerbal-death` kind, deliberately - a real stock award line
   # names its `TransactionReasons` key and nothing else, so the capture cannot

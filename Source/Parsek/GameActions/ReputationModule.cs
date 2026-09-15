@@ -58,6 +58,29 @@ namespace Parsek
         /// <inheritdoc/>
         public void ProcessAction(GameAction action)
         {
+            // THE SEED SKIP, and it is a ROW-SET question rather than a per-type one. The
+            // ReputationInitial seed is a single absolute figure; when it was read off the
+            // LIVE pool that pool had already taken every reputation movement the commit
+            // that captured it was filing, so applying those rows subtracts or adds the
+            // same amount twice. The MODULE does not decide which rows those are: the
+            // producer does, once, in production order
+            // (ReputationSeedMembership.IsInsideReputationSeed) and stamps the answer on
+            // the row. Deciding it here from UTs cannot work, because a rewind moves the
+            // game clock backwards and the seed row is stamped UT=0.0 either way.
+            //
+            // Scoped to the REPUTATION leg by construction: a milestone or contract row
+            // also carries funds and science, and those modules never read this flag.
+            if (ReputationSeedMembership.ShouldSkipAsInsideSeed(
+                    action.Type, action.InsideReputationSeed))
+            {
+                action.EffectiveRep = 0f;
+                ParsekLog.Verbose(Tag,
+                    $"Reputation row is inside the reputation seed " +
+                    $"(type={action.Type}, recording={action.RecordingId ?? "null"}, " +
+                    $"ut={action.UT.ToString("R", IC)}) - not re-applied");
+                return;
+            }
+
             switch (action.Type)
             {
                 case GameActionType.ReputationEarning:
@@ -115,30 +138,6 @@ namespace Parsek
 
         private void ProcessRepPenalty(GameAction action)
         {
-            // THE SEED HAZARD, and it applies to KerbalDeath rows alone. The
-            // ReputationInitial seed is a single absolute figure, and when it was read
-            // off the LIVE pool that pool had already taken the death's hit - applying
-            // the row too subtracts the penalty twice. The MODULE does not decide that:
-            // the producer does, once, in production order
-            // (KerbalDeathRepPenalty.IsInsideReputationSeed), and stamps the answer on
-            // the row. Deciding it here from UTs cannot work, because a rewind moves the
-            // game clock backwards and the seed row is stamped UT=0.0 either way.
-            //
-            // Scoped to this source on purpose: the same hazard exists for milestone
-            // rows and is a separate, pre-existing defect (a live +1 applied twice,
-            // observed on CL-4's run 2026-09-09_1815). Widening the skip to other types
-            // here would change reconstruction for every save in one undiscussed step.
-            if (action.RepPenaltySource == ReputationPenaltySource.KerbalDeath
-                && action.InsideReputationSeed)
-            {
-                action.EffectiveRep = 0f;
-                ParsekLog.Verbose(Tag,
-                    $"KerbalDeath rep penalty is inside the reputation seed " +
-                    $"(recording={action.RecordingId ?? "null"}, " +
-                    $"ut={action.UT.ToString("R", IC)}) - not re-applied");
-                return;
-            }
-
             // Strategy currency-exchange losses (Bail-Out Grant CurrencyExchanger input,
             // TransactionReasons.StrategyInput) are captured straight from the
             // ReputationChanged event, so NominalPenalty already holds the ACTUAL
