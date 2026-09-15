@@ -895,6 +895,56 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A reputation award earned during a flight is no longer counted twice on a career
+  Parsek first meets mid-game.** Parsek has to guess a starting reputation for a save
+  that was already under way when it was installed, and it does that by reading the
+  live reputation the first time it commits a flight. That reading already contains
+  whatever the flight just earned - a progress milestone, a contract reward, the
+  reputation hit of a crew loss - and the flight's own record of the same award was
+  then added on top of it. On a measured case a single +1 "Progression" milestone came
+  out as +2 and was written back into the career that way. Awards earned before that
+  first reading are now marked as already counted, so the rebuilt reputation matches
+  what the game itself is showing. Only the crew-death hit was handled this way
+  before; milestones, contract completions, contract failures and cancellations,
+  strategy setup costs and every other reputation change now are too. The marking
+  follows the order the rows were produced in, never the mission clock, because
+  rewinding a flight moves the clock backwards - so a re-flown mission whose clock
+  reads earlier than the first reading still counts normally. When the starting
+  reputation later turns out to come from the career's own beginning instead of the
+  live pool, everything marked is unmarked again and counted as usual. Awards that
+  happen at the Space Center rather than in flight are marked the same way.
+
+  A progress milestone needed particular care, because KSP announces one before it
+  pays it out: the reward arrives a moment after Parsek hears about the milestone, so
+  anything that reads the reputation in between reads the figure from just before the
+  award and loses it. Parsek now waits one frame before rebuilding the career after a
+  milestone, and refuses to take a starting reputation from the live game at all while
+  a milestone it has heard about is still waiting for its reward. If the wait never
+  happens - the scene is left first, say - nothing is lost: the milestone is already
+  recorded and the next rebuild picks it up, and until then Parsek simply has no
+  starting reputation and changes nothing. Saves written before this change carry no
+  mark and behave exactly as they did.
+
+- **Ghost cabin lights work again on replayed flights: a pod's or docking port's lit
+  interior now lights up on the ghost the way it did on the flight.** A part whose light
+  is a colour change rather than a lamp - the Mk1-3 pod's cabin lights, a Clamp-O-Tron's
+  ring - is described entirely in the part's own config file, and none of that
+  description is written into a saved game. Parsek was reading only the saved copy, so a
+  ghost built from a recording never learned the part had a light at all, and every
+  recorded light switch was quietly dropped on replay. The ghost builder now reads those
+  fields from the part's config alongside the saved state, which is where they live.
+  Lamps (an actual light source, like the illuminator) were never affected.
+
+- **Permanently-fixed solar panels no longer fill recordings with panel-deployed events
+  that can never show anything.** An OX-STAT flat panel has no deploy animation: it is
+  always out, and there is nothing to animate on replay. Parsek recorded a "deployed"
+  event for each one at the start of every recording anyway - four per typical craft, on
+  every flight. Both the recorder and the ghost builder now decide "this panel has no
+  pose to show" with the same single rule, so the events stop being written and no replay
+  changes visually. Panels that really do fold record and replay exactly as before, and a
+  fixed panel that BREAKS is still recorded and still disappears on the ghost. Recordings
+  already on disk are unaffected.
+
 - **A flight you continued by clicking Switch-To now answers as ONE flight everywhere,
   so its Unfinished Flight row cannot be shown and then quietly closed.** Parsek asked
   two questions about such a flight and answered them over two different recordings:

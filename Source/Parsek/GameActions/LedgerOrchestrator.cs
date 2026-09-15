@@ -372,6 +372,17 @@ namespace Parsek
                 recordingId, startUT, endUT, repSeedOrigin);
             actions.AddRange(deathRepActions);
 
+            // 3e. THE INSIDE-SEED STAMP, for every OTHER reputation-changing row this
+            // commit is about to file. Steps 1-3d produced them from the recording's
+            // captured events, so they are under exactly the production-order rule the
+            // death row is: whatever the seed was, or will be, read from had already
+            // taken their hit too. Measured on 2026-09-09_1815_CL-4-refly-crew-standin -
+            // a +1 'Progression' milestone raised the live pool to 0.999999464, the seed
+            // was taken at that value, the walk applied the milestone row again, and
+            // PatchReputation wrote 1.00 -> 2.00 into the career. The death row stamps
+            // itself in 3d with the same answer, so this pass finds it already stamped.
+            StampReputationRowsAgainstSeed(actions, repSeedOrigin, "recording=" + recordingId);
+
             // 4. Deduplicate: remove actions already in the ledger from KSC real-time writes.
             // KSC events (tech, facility, hire, milestone) written via OnKscSpending may overlap
             // with the recording's time range. Compare by type + UT + key to avoid double-adding.
@@ -1617,7 +1628,7 @@ namespace Parsek
                     $"(ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)})");
             }
 
-            bool insideSeed = KerbalDeathRepPenalty.IsInsideReputationSeed(repSeedOrigin);
+            bool insideSeed = ReputationSeedMembership.IsInsideReputationSeed(repSeedOrigin);
 
             result.Add(new GameAction
             {
@@ -2140,6 +2151,38 @@ namespace Parsek
                 return true;
             }
 
+            // BELT AND BRACES, ahead of the live-pool read and ahead of the deferral
+            // reasons below so it names itself when it fires. A milestone row that still
+            // carries all-zero rewards has not been enriched yet
+            // (GameStateRecorder.OnProgressComplete emits BuildMilestoneDetail(0, 0, 0)
+            // and the AwardProgressPatch postfix fills it in afterwards), which means
+            // stock has not applied that award to its pools either. Reading the live pool
+            // now would seed the PRE-award figure, and every row stamped inside it would
+            // be zeroed by the walk once enriched - the reconstruction short by the award,
+            // persisted, and never flipped back.
+            //
+            // The milestone door defers its own recalc one frame so this should not be
+            // reachable from there (ShouldDeferKscRecalcOneFrame); this guard covers a
+            // SYNCHRONOUS recalc arriving from any other producer inside the same window,
+            // and the no-frame-host fallback.
+            //
+            // It only ever refuses the LIVE-POOL branch: the career-start branches above
+            // have already returned, so the answer here is "defer", never "seed something
+            // else". A mode whose milestones legitimately award nothing therefore just
+            // keeps deferring a seed that would patch nothing anyway, and the first real
+            // reputation row still reaches the refusal branch above.
+            int unenrichedMilestones = CountUnenrichedMilestoneRows();
+            if (unenrichedMilestones > 0)
+            {
+                origin = ReputationSeedOrigin.NotYetCaptured;
+                ParsekLog.Verbose(Tag,
+                    "EnsureInitialReputationSeed: deferring the reputation seed - " +
+                    unenrichedMilestones.ToString(CultureInfo.InvariantCulture) +
+                    " milestone row(s) still carry zero rewards, so stock has not applied " +
+                    "the award yet and the live pool is the PRE-award figure");
+                return false;
+            }
+
             bool noReputationInstance = global::Reputation.Instance == null;
             if (noReputationInstance
                 || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
@@ -2168,24 +2211,165 @@ namespace Parsek
             // Live-pool read: any death that already lowered the pool is inside the
             // value being seeded.
             //
-            // KNOWN LIMITATION, filed rather than fixed. The live pool is a snapshot of
-            // EVERY stock change to date, including deaths from flights that are already
-            // RECORDED but whose recording has not been committed yet. Those deaths are
-            // inside this value, yet their rows are produced later, by a commit that
-            // reads PreExisting - stamped outside the seed and applied a second time.
-            // It needs the very first seed capture in a career to coincide with a second
-            // pending tree that carries a death, so it is not reachable from the normal
-            // one-tree-at-a-time flow; closing it means correlating the pool against
-            // uncommitted trees, which is a bigger change than the state deserves.
+            // KNOWN LIMITATION, filed rather than fixed
+            // (REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER). The
+            // live pool is a snapshot of EVERY stock change to date, including any
+            // reputation movement - a death, a milestone, a contract outcome - from a
+            // flight that is already RECORDED but whose tree has not been committed yet.
+            // Those movements are inside this value, yet their rows are produced later, by
+            // a commit that reads PreExisting - stamped outside the seed and applied a
+            // second time. It needs the very first seed capture in a career to coincide
+            // with a second pending tree that carries such a row, so it is not reachable
+            // from the normal one-tree-at-a-time flow; closing it means correlating the
+            // pool against uncommitted trees, which is a bigger change than the state
+            // deserves.
             Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
             origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
             return true;
         }
 
         /// <summary>
-        /// Flips every KerbalDeath <see cref="GameActionType.ReputationPenalty"/> row that
-        /// is stamped INSIDE the reputation seed back to OUTSIDE, because the seed this
-        /// call just created carries a career-start value that cannot contain those deaths.
+        /// The live-write doors' half of the inside-seed stamp. READ-ONLY with respect to
+        /// the seed: it never creates one, so the seed's creation point is exactly where
+        /// it was before this stamp existed (the door's own tail recalc).
+        ///
+        /// <para>
+        /// WHY IT MUST NOT SEED, and this is an event-ordering fact rather than a
+        /// preference. Two of the four sources that reach these doors fire their
+        /// GameEvent BEFORE the pool moves: decompiled <c>ProgressNode.Complete()</c>
+        /// raises <c>OnProgressComplete</c> before every subclass calls
+        /// <c>AwardProgressStandard</c>, and <c>Reputation.AddReputation</c> raises
+        /// <c>OnCurrencyModified</c> before assigning <c>rep</c>. A first-capture seed
+        /// read from inside the handler would therefore be the PRE-award pool; the row
+        /// would be stamped inside a value that does not contain it, the walk would zero
+        /// it, and the reconstruction would come out SHORT by the award - silently, since
+        /// the stamp logs Info. Contract outcomes and StrategyActivate are ordered the
+        /// other way round, but the door has no way to tell them apart from the action.
+        /// </para>
+        ///
+        /// <para>
+        /// The rule applied instead is the commit path's: a row produced while no seed
+        /// exists is stamped from <see cref="ReputationSeedOrigin.NotYetCaptured"/> - the
+        /// seed will be read off a later live pool that HAS taken the award by then. A
+        /// seed that already exists is <see cref="ReputationSeedOrigin.PreExisting"/> and
+        /// stamps nothing. When the later capture turns out to be a career-start branch,
+        /// <see cref="RestampInsideSeedRowsAgainstCareerStartSeed"/> flips the row back
+        /// out at the seed's own creation site.
+        /// </para>
+        ///
+        /// <para>
+        /// A no-op for every row
+        /// <see cref="ReputationSeedMembership.IsReputationAffectingRow"/> answers false
+        /// for, so the tech / facility / hire doors are untouched.
+        /// </para>
+        /// </summary>
+        private static void StampLiveWriteRowAgainstSeed(GameAction action, string context)
+        {
+            if (action == null) return;
+            if (!ReputationSeedMembership.IsReputationAffectingRow(action.Type)) return;
+
+            ReputationSeedOrigin origin = LedgerHasSeed(GameActionType.ReputationInitial)
+                ? ReputationSeedOrigin.PreExisting
+                : ReputationSeedOrigin.NotYetCaptured;
+            StampReputationRowsAgainstSeed(new List<GameAction> { action }, origin, context);
+        }
+
+        /// <summary>
+        /// Stamps <see cref="GameAction.InsideReputationSeed"/> on every reputation-changing
+        /// row in <paramref name="actions"/> that is inside the seed described by
+        /// <paramref name="repSeedOrigin"/>. Returns how many rows it changed.
+        ///
+        /// <para>
+        /// PRODUCTION ORDER, NOT UT, and that is the whole contract. The rows handed here
+        /// are the ones the calling producer is about to file; the origin says whether the
+        /// pool the seed came from had already taken their hit. Nothing in this method
+        /// reads <see cref="GameAction.UT"/>, deliberately: a re-fly from a RewindPoint
+        /// files rows whose game UT is EARLIER than the seed's capture UT and which must
+        /// still apply, and the mirror case reads the other way round.
+        /// </para>
+        ///
+        /// <para>
+        /// Idempotent and additive-only: a row already stamped inside is left alone and
+        /// never counted, and no row is ever flipped OUT here - that is
+        /// <see cref="RestampInsideSeedRowsAgainstCareerStartSeed"/>'s job, at the seed's
+        /// own creation site. The rows are not in the ledger yet on the commit path, so no
+        /// StateVersion bump is owed; the KSC doors stamp before their own
+        /// <c>Ledger.AddAction</c> for the same reason.
+        /// </para>
+        /// </summary>
+        internal static int StampReputationRowsAgainstSeed(
+            IList<GameAction> actions, ReputationSeedOrigin repSeedOrigin, string context)
+        {
+            if (actions == null || actions.Count == 0)
+                return 0;
+            if (!ReputationSeedMembership.IsInsideReputationSeed(repSeedOrigin))
+                return 0;
+
+            int stamped = 0, alreadyStamped = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (!ReputationSeedMembership.IsReputationAffectingRow(action.Type)) continue;
+                if (action.InsideReputationSeed) { alreadyStamped++; continue; }
+
+                action.InsideReputationSeed = true;
+                stamped++;
+            }
+
+            if (stamped == 0 && alreadyStamped == 0)
+                return 0;
+
+            ParsekLog.Info(Tag,
+                $"Reputation seed stamp: {stamped.ToString(CultureInfo.InvariantCulture)} row(s) " +
+                $"stamped insideRepSeed=True " +
+                $"({alreadyStamped.ToString(CultureInfo.InvariantCulture)} already stamped) " +
+                $"for {context ?? "(none)"} - repSeedOrigin={repSeedOrigin}");
+            return stamped;
+        }
+
+        /// <summary>
+        /// How many <see cref="GameActionType.MilestoneAchievement"/> rows in the ledger
+        /// still carry all-zero rewards, i.e. have not been enriched by the
+        /// AwardProgressPatch postfix yet.
+        ///
+        /// <para>
+        /// ALL THREE fields, not just reputation. A row awaiting enrichment is the exact
+        /// shape <c>BuildMilestoneDetail(0, 0, 0)</c> produces, and requiring all three to
+        /// be zero is what keeps a genuine rep-free-but-funds-paying milestone from
+        /// reading as pending forever. A milestone that really awards nothing at all is
+        /// indistinguishable from a pending one and is treated as pending; the only cost
+        /// is a seed that keeps deferring, in a mode where that seed would patch nothing.
+        /// </para>
+        /// </summary>
+        internal static int CountUnenrichedMilestoneRows()
+        {
+            var actions = Ledger.Actions;
+            int pending = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (action.Type != GameActionType.MilestoneAchievement) continue;
+                if (action.MilestoneRepAwarded != 0f) continue;
+                if (action.MilestoneFundsAwarded != 0f) continue;
+                if (action.MilestoneScienceAwarded != 0f) continue;
+                pending++;
+            }
+
+            return pending;
+        }
+
+        /// <summary>True when any milestone row is still awaiting enrichment.</summary>
+        internal static bool HasUnenrichedMilestoneRow()
+        {
+            return CountUnenrichedMilestoneRows() > 0;
+        }
+
+        /// <summary>
+        /// Flips every reputation-affecting row that is stamped INSIDE the reputation seed
+        /// back to OUTSIDE, because the seed this call just created carries a career-start
+        /// value that cannot contain any of them.
         ///
         /// <para>
         /// The stamp a producer writes is an assumption about how the seed WILL be
@@ -2216,7 +2400,7 @@ namespace Parsek
         /// </summary>
         internal static void RestampInsideSeedRowsAgainstCareerStartSeed(ReputationSeedOrigin origin)
         {
-            if (!KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(origin))
+            if (!ReputationSeedMembership.CareerStartSeedInvalidatesInsideStamps(origin))
                 return;
 
             var actions = Ledger.Actions;
@@ -2225,8 +2409,7 @@ namespace Parsek
             {
                 var action = actions[i];
                 if (action == null) continue;
-                if (action.Type != GameActionType.ReputationPenalty) continue;
-                if (action.RepPenaltySource != ReputationPenaltySource.KerbalDeath) continue;
+                if (!ReputationSeedMembership.IsReputationAffectingRow(action.Type)) continue;
                 if (!action.InsideReputationSeed) continue;
 
                 action.InsideReputationSeed = false;
@@ -2245,7 +2428,7 @@ namespace Parsek
                 : "the career-start baseline";
             ParsekLog.Info(Tag,
                 $"SeedInitialReputation: {restamped.ToString(CultureInfo.InvariantCulture)} " +
-                $"KerbalDeath rep penalty row(s) were stamped inside a seed that was then " +
+                $"reputation row(s) were stamped inside a seed that was then " +
                 $"read from {seedSource}; re-stamped outside so the walk applies them");
         }
 
@@ -2321,7 +2504,22 @@ namespace Parsek
                 // own KerbalDeath row talk the seed out of the live pool it belongs to,
                 // seeding career start with a WARN on a save that was only waiting for a
                 // non-zero pool.
-                if (action != null && action.InsideReputationSeed)
+                //
+                // DELIBERATELY STILL SCOPED TO KerbalDeath, even though the stamp itself
+                // was generalized to every reputation-affecting row in 2026-09-15. This
+                // predicate does not decide whether a row is applied - it decides WHICH
+                // BRANCH creates the seed. Skipping stamped milestone / contract rows here
+                // too would talk the refusal branch out of firing on a save whose ledger
+                // really does carry reputation history, changing the seed VALUE (and with
+                // it the reconstruction) for every such save in one step nothing has
+                // flown. Measured consequence of keeping it narrow: CL-2-pod-impact-ledger
+                // takes the same refusal branch it took on 2026-09-09_2316, seeds career
+                // start, and RestampInsideSeedRowsAgainstCareerStartSeed flips every
+                // stamped row back out - so its armed ledger totals are untouched.
+                if (action != null
+                    && action.InsideReputationSeed
+                    && action.Type == GameActionType.ReputationPenalty
+                    && action.RepPenaltySource == ReputationPenaltySource.KerbalDeath)
                     continue;
 
                 if (ActionTouchesReputationBudget(action))
@@ -3778,6 +3976,28 @@ namespace Parsek
             kscSequenceCounter++;
             action.Sequence = kscSequenceCounter;
 
+            // THE DOOR STAMPS, IT DOES NOT SEED. Reviewed 2026-09-15 and corrected: an
+            // earlier cut ensured the seed here, before the row reached the ledger. That
+            // is unsafe for two of the four sources this door carries, because the live
+            // pool is not yet the post-award pool when the event fires. Decompiled
+            // ProgressNode.Complete() raises OnProgressComplete BEFORE every subclass
+            // calls AwardProgressStandard (CelestialBodyOrbit, CelestialBodyReturn,
+            // CelestialBodyLanding), and Reputation.AddReputation raises
+            // OnCurrencyModified before it assigns `rep` - so a first-capture seed read
+            // here would be the PRE-award pool, the row would be stamped inside a value
+            // that does not contain it, and the walk would come out short by the award.
+            // Contract rows and StrategyActivate are ordered the other way, but the door
+            // cannot tell them apart from the action alone.
+            //
+            // So the seed is created where it always was: the tail recalc below. This call
+            // only reads whether a seed EXISTS yet and stamps the row under the same rule
+            // the commit path uses - no seed means NotYetCaptured, i.e. "a later live pool
+            // will already have taken this award". If that later capture is a career-start
+            // branch instead, RestampInsideSeedRowsAgainstCareerStartSeed flips the row
+            // back out at the seed's own creation site. Non-reputation KSC rows (tech,
+            // facility, hire) are not stamped at all.
+            StampLiveWriteRowAgainstSeed(action, "ksc " + action.Type);
+
             Ledger.AddAction(action);
 
             ParsekLog.Info(Tag,
@@ -3794,8 +4014,81 @@ namespace Parsek
             // transformed rewards.
             ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
 
-            RecalculateAndPatchForLiveTimelineEvent(evt.ut, "ksc-spending");
+            // THE MILESTONE ROW'S RECALC IS DEFERRED ONE FRAME. Everything else on this
+            // door recalculates inline, exactly as before.
+            //
+            // Decompiled ordering: ProgressNode.Complete() raises OnProgressComplete
+            // BEFORE every subclass calls AwardProgressStandard (CelestialBodyOrbit,
+            // CelestialBodyReturn, CelestialBodyLanding), so this whole handler runs while
+            // the reward is still unapplied. GameStateRecorder.OnProgressComplete
+            // therefore emits the event with BuildMilestoneDetail(0, 0, 0) and the
+            // AwardProgressPatch postfix fills the real amounts in place afterwards
+            // (EnrichPendingMilestoneRewards). An INLINE recalc here runs inside that
+            // window: the seed's own ensure would read Reputation.Instance BEFORE the
+            // award landed, take the live-pool branch on the PRE-award figure, and the
+            // enriched row - stamped inside that figure - would be zeroed by the walk for
+            // good. Deferring one frame puts the read after both the award and the
+            // enrichment.
+            //
+            // Same host and same fallback as the strategy door: if no frame host exists
+            // the recalc runs inline rather than being lost, and if the defer never fires
+            // (scene exit) the row still stands in the ledger and the next natural recalc
+            // picks it up. The seed simply stays uncaptured until then, which is the safe
+            // direction - an uncaptured seed patches nothing.
+            var deferHost = DeferOneFrameForTesting
+                ?? (WarpToTimeConsumer.Instance != null
+                    ? (Action<Action>)WarpToTimeConsumer.RunNextFrame
+                    : null);
+            if (ShouldDeferKscRecalcOneFrame(action.Type, deferHost != null))
+            {
+                double deferredUt = evt.ut;
+                ParsekLog.Verbose(Tag,
+                    $"OnKscSpending: deferring the recalc one frame for {action.Type} - " +
+                    "the reward is applied after this handler returns");
+                deferHost(() => RecalculateAndPatchForLiveTimelineEvent(deferredUt, "ksc-spending"));
+            }
+            else
+            {
+                RecalculateAndPatchForLiveTimelineEvent(evt.ut, "ksc-spending");
+            }
         }
+
+        /// <summary>
+        /// Test-only one-frame defer host. Non-null replaces
+        /// <c>WarpToTimeConsumer.RunNextFrame</c> in <see cref="OnKscSpending"/> so a test
+        /// can prove the recalc really is postponed rather than asserting about the
+        /// predicate alone - the real host is a MonoBehaviour singleton and cannot exist
+        /// headless, which would otherwise leave the deferral's CALL SITE unpinned.
+        /// Cleared by <c>ResetForTesting</c>.
+        /// </summary>
+        internal static Action<Action> DeferOneFrameForTesting;
+
+        /// <summary>
+        /// Pure: true when <see cref="OnKscSpending"/> must postpone its tail recalc to the
+        /// next frame instead of running it inline.
+        ///
+        /// <para>
+        /// Exactly one row type qualifies, and it qualifies because of a decompiled
+        /// ordering rather than a preference. <c>ProgressNode.Complete()</c> raises
+        /// <c>OnProgressComplete</c> before the subclass calls
+        /// <c>AwardProgressStandard</c>, so a milestone row reaches the ledger carrying
+        /// zero rewards and is enriched in place moments later; a recalc inside that
+        /// window reads pools that have not taken the award. Contract outcomes and
+        /// StrategyActivate carry their real amounts at the door and are unaffected, as
+        /// are the tech / facility / hire rows that move no reputation at all.
+        /// </para>
+        ///
+        /// <para>
+        /// With no frame host the answer is false: running the recalc inline is worse than
+        /// correct but losing it entirely is worse still, and the seed guard
+        /// (<see cref="HasUnenrichedMilestoneRow"/>) is the belt that covers that braces.
+        /// </para>
+        /// </summary>
+        internal static bool ShouldDeferKscRecalcOneFrame(GameActionType type, bool hasFrameHost)
+        {
+            return type == GameActionType.MilestoneAchievement && hasFrameHost;
+        }
+
 
         /// <summary>
         /// The QUERY-FAMILY strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
@@ -3887,6 +4180,9 @@ namespace Parsek
 
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
+                // Same contract as the OnKscSpending door: stamp only, never seed. See
+                // StampLiveWriteRowAgainstSeed for the event-ordering reason.
+                StampLiveWriteRowAgainstSeed(action, "strategy conversion " + action.Type);
                 Ledger.AddAction(action);
                 written++;
 
@@ -6568,6 +6864,7 @@ namespace Parsek
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
             OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
+            DeferOneFrameForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 
