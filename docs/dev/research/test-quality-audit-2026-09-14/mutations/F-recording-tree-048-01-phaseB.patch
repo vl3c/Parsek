@@ -1,14 +1,8 @@
 diff --git a/Source/Parsek/CrewReservationManager.cs b/Source/Parsek/CrewReservationManager.cs
-index 3e212fbd1..27ca8ac48 100644
+index ebdbb2f1b..8afd2520b 100644
 --- a/Source/Parsek/CrewReservationManager.cs
 +++ b/Source/Parsek/CrewReservationManager.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections.Generic;
- 
- namespace Parsek
-@@ -1113,7 +1113,6 @@ namespace Parsek
+@@ -1136,7 +1136,6 @@ namespace Parsek
          /// </summary>
          internal static bool IsLiveReFlyCrew(ProtoCrewMember kerbal, ReFlySessionMarker marker)
          {

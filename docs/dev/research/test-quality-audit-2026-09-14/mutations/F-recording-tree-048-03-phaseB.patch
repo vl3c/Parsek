@@ -1,14 +1,8 @@
 diff --git a/Source/Parsek/CrewReservationManager.cs b/Source/Parsek/CrewReservationManager.cs
-index 3e212fbd1..13279eb3a 100644
+index ebdbb2f1b..28d237a59 100644
 --- a/Source/Parsek/CrewReservationManager.cs
 +++ b/Source/Parsek/CrewReservationManager.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections.Generic;
- 
- namespace Parsek
-@@ -1151,7 +1151,7 @@ namespace Parsek
+@@ -1174,7 +1174,7 @@ namespace Parsek
          /// </summary>
          internal static bool ActiveVesselMatchesReFlyRecording(Vessel activeVessel, ReFlySessionMarker marker)
          {
