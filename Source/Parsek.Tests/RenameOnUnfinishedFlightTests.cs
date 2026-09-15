@@ -253,14 +253,20 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
+            // Comments blanked before the needle checks (StripCSharpComments is
+            // length-preserving, so indexes taken from the raw text address the same
+            // characters). Without it both needles read the large comment block inside
+            // this window: the classifier call surviving only in a comment would pass,
+            // and a comment mentioning the depth check would trip the negative.
+            string preparedUiSrc = SourceScanText.StripCSharpComments(uiSrc);
             int hideAnchor = uiSrc.IndexOf("// Hide checkbox", StringComparison.Ordinal);
             Assert.True(hideAnchor >= 0, "Hide checkbox anchor should exist in RecordingsTableUI.cs");
-            int endAnchor = uiSrc.IndexOf("GUILayout.EndHorizontal();", hideAnchor + 1, StringComparison.Ordinal);
+            int endAnchor = preparedUiSrc.IndexOf("GUILayout.EndHorizontal();", hideAnchor + 1, StringComparison.Ordinal);
             Assert.True(endAnchor > hideAnchor, "Expected closing EndHorizontal after Hide checkbox block");
             // Capture enough of the branch to include both if-branches.
-            int branchEnd = uiSrc.IndexOf("rec.Hidden = hidden;", endAnchor, StringComparison.Ordinal);
+            int branchEnd = preparedUiSrc.IndexOf("rec.Hidden = hidden;", endAnchor, StringComparison.Ordinal);
             Assert.True(branchEnd > hideAnchor, "Expected hide flip branch in source");
-            string hideBlock = uiSrc.Substring(hideAnchor, branchEnd - hideAnchor);
+            string hideBlock = preparedUiSrc.Substring(hideAnchor, branchEnd - hideAnchor);
 
             Assert.DoesNotContain("unfinishedFlightRowDepth > 0", hideBlock);
             Assert.Contains("EffectiveState.IsUnfinishedFlight(rec)", hideBlock);

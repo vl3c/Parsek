@@ -286,12 +286,16 @@ namespace Parsek.Tests
             DiagnosticsState.recordingBudget = new FrameBudget { ghostsProcessed = 5 };
             DiagnosticsState.hasCachedSnapshot = true;
 
+            int gcGen0BeforeReset = GC.CollectionCount(0);
             DiagnosticsState.ResetSessionCounters();
+            int gcGen0AfterReset = GC.CollectionCount(0);
 
             // Health counters are zeroed (except gcGen0Baseline)
             Assert.Equal(0, DiagnosticsState.health.waypointCacheHits);
             Assert.Equal(0, DiagnosticsState.health.spawnFailures);
-            Assert.Equal(GC.CollectionCount(0), DiagnosticsState.health.gcGen0Baseline);
+            // Bracketed, not equal to a post-hoc read: the live counter can advance in between
+            // (the pattern HealthCountersTests.Reset_ZerosAllFields already uses).
+            Assert.InRange(DiagnosticsState.health.gcGen0Baseline, gcGen0BeforeReset, gcGen0AfterReset);
 
             // Rolling buffer is empty
             Assert.True(DiagnosticsState.playbackFrameHistory.IsEmpty);

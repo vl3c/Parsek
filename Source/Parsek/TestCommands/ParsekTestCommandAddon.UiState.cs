@@ -238,6 +238,28 @@ namespace Parsek.TestCommands
                 });
                 return sets;
             }
+            if (window == TestCommandUiAction.KerbalsWindow)
+            {
+                KerbalsWindowUI kw = ui.GetKerbalsUI();
+                sets.Add(new UiExpandSet
+                {
+                    Prefix = TestCommandUiState.RosterKeyPrefix,
+                    Enumerate = kw.EnumerateRosterExpandKeysForTesting,
+                    Set = kw.SetRosterExpandedForTesting,
+                    Count = () => kw.ExpandedRosterCountForTesting,
+                });
+                sets.Add(new UiExpandSet
+                {
+                    Prefix = TestCommandUiState.FlightsKeyPrefix,
+                    Enumerate = kw.EnumerateFlightExpandKeysForTesting,
+                    // INVERTED on the production side (foldedKerbals holds what is
+                    // FOLDED); the window's setter does the flip, the wire speaks
+                    // "expanded" like every other row here.
+                    Set = kw.SetFlightExpandedForTesting,
+                    Count = () => kw.ExpandedFlightCountForTesting,
+                });
+                return sets;
+            }
             if (window == TestCommandUiAction.LogisticsWindow)
             {
                 LogisticsWindowUI lw = ui.GetLogisticsUI();

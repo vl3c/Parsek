@@ -248,6 +248,89 @@ namespace Parsek.Tests
             Assert.True(rec.FilesDirty);
         }
 
+        // --- the opt-out caller takes the drop on its committed path -----------
+
+        /// <summary>
+        /// Two sections joined at midUT, each with its own annotations. Splitting AT the
+        /// boundary is the aligned branch (no interpolated boundary point, so no Unity Slerp).
+        /// </summary>
+        private static Recording TwoSectionSplittableRecording(string id)
+        {
+            var rec = new Recording { RecordingId = id };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 200, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 300, bodyName = "Kerbin" });
+            rec.TrackSections.Add(PhysicalSection(100, 200));
+            rec.TrackSections.Add(PhysicalSection(200, 300));
+            return rec;
+        }
+
+        private static void ArmAnnotations(string id, int sectionIndex, double knotUT)
+        {
+            SectionAnnotationStore.PutSmoothingSpline(id, sectionIndex, Spline(knotUT));
+            SectionAnnotationStore.PutAnchorCandidates(id, sectionIndex, new[]
+            {
+                new AnchorCandidate(knotUT + 1, AnchorSource.OrbitalCheckpoint, AnchorSide.Start)
+            });
+            SectionAnnotationStore.PutOutlierFlags(id, sectionIndex, new OutlierFlags
+            {
+                SectionIndex = sectionIndex,
+                SampleCount = 2,
+                RejectedCount = 1,
+                PackedBitmap = new byte[] { 0x01 }
+            });
+        }
+
+        // Behavioural twin of EnsureInvalidationOptOutGateTests: SplitAtUT passes
+        // invalidateSectionAnnotations: false to the step-3 Ensure so a GUARDED return can
+        // restore its pre-Ensure sections with their annotations intact - and therefore has to
+        // take the drop itself once the cut commits, because the cut renumbers (and truncates)
+        // the head's sections. The file-scope source grep that used to stand alone here could
+        // not tell the committed arm from a dead branch: relocating the call kept it green.
+        [Fact]
+        public void SplitAtUT_CommittedSplit_DropsTheHeadsSectionAnnotations()
+        {
+            const string id = "split-drops-annotations";
+            Recording rec = TwoSectionSplittableRecording(id);
+            ArmAnnotations(id, 0, 100);
+            ArmAnnotations(id, 1, 200);
+            Assert.Equal(2, SectionAnnotationStore.GetSplineCountForRecording(id));
+
+            Recording tip = RecordingOptimizer.SplitAtUT(rec, 200.0);
+
+            Assert.NotNull(tip);
+            Assert.NotEqual(id, tip.RecordingId);
+            // The head's ordinals moved, so nothing keyed on them may survive.
+            Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording(id));
+            Assert.Equal(0, SectionAnnotationStore.GetAnchorCandidateSectionCountForRecording(id));
+            Assert.Equal(0, SectionAnnotationStore.GetOutlierFlagsCountForRecording(id));
+            Assert.Contains(logLines,
+                l => l.Contains("[Pipeline-Smoothing]")
+                    && l.Contains("Section annotations invalidated (section-index-shift)")
+                    && l.Contains("recordingId=" + id)
+                    && l.Contains("context=RecordingOptimizer.SplitAtUT"));
+        }
+
+        // The mirror direction, and the reason the opt-out exists: a split that refuses must
+        // leave the annotations alone. A drop moved back into the step-3 Ensure would strand
+        // this recording on the coarser lerp fallback although nothing about it changed.
+        [Fact]
+        public void SplitAtUT_GuardedReturn_KeepsTheSectionAnnotations()
+        {
+            const string id = "split-refused-keeps-annotations";
+            Recording rec = TwoSectionSplittableRecording(id);
+            ArmAnnotations(id, 0, 100);
+            ArmAnnotations(id, 1, 200);
+
+            // Entirely pre-split: the recording ends before the cut, so SplitAtUT refuses.
+            Recording tip = RecordingOptimizer.SplitAtUT(rec, 9000.0);
+
+            Assert.Null(tip);
+            Assert.Equal(2, SectionAnnotationStore.GetSplineCountForRecording(id));
+            Assert.Equal(2, SectionAnnotationStore.GetAnchorCandidateSectionCountForRecording(id));
+            Assert.Equal(2, SectionAnnotationStore.GetOutlierFlagsCountForRecording(id));
+        }
+
         // --- bug 2: annotations must not survive an ordinal shift --------------
 
         // Repro (fails on origin/main): the spline / outlier flags / anchor
@@ -691,17 +774,12 @@ namespace Parsek.Tests
                 + "sectionIndex) desync this gate exists to keep closed.");
         }
 
-        [Fact]
-        public void TheOptOutCaller_TakesTheDropOnItsCommittedPath()
-        {
-            // The opt-out DEFERS the drop; it must not delete it. SplitAtUT's committed
-            // arm invalidates explicitly after SplitAtSection lands, because the cut
-            // itself renumbers the head's sections.
-            string src = StripLineComments(ReadParsekSource("RecordingOptimizer.cs"));
-            Assert.Contains(OptOutToken, src);
-            Assert.Contains(
-                "OrbitSegmentCheckpointBridge.InvalidateSectionAnnotationsForOrdinalShift(", src);
-        }
+        // The companion contract - the opt-out DEFERS the drop and must not delete it - is
+        // pinned behaviourally by EnsurePassIntegrityTests.
+        // SplitAtUT_CommittedSplit_DropsTheHeadsSectionAnnotations (committed arm drops) and
+        // SplitAtUT_GuardedReturn_KeepsTheSectionAnnotations (refused arm keeps). The
+        // file-scope substring pin that used to live here could not show the call sat on the
+        // committed arm at all: moving it to a guarded return or a dead branch kept it green.
 
         private static string ParsekSourceRoot()
         {

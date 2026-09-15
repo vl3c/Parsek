@@ -510,6 +510,50 @@ namespace Parsek.Tests
                 source);
         }
 
+        // Behavioural twin of the source pin above: the cap actually BREAKS the walk, the
+        // Warn actually fires, and the caller is handed the PARTIAL list. The pin alone left
+        // the contract its own name claims unpinned - removing the cap check while keeping the
+        // two Warn literals stayed green.
+        //
+        // The fixture is a corrupted branch-point graph no healthy production path produces:
+        // one BP whose ChildRecordingIds repeats the same child id far past the cap, so the
+        // BFS queue holds more entries than the cap allows while the collected SET stays at
+        // two ids.
+        [Fact]
+        public void CollectSubtree_PastTheIterationCap_BreaksWithWarn_AndPartialList()
+        {
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+
+            string loopBpId = "bp_cap";
+            segment.ChildBranchPointId = loopBpId;
+            var child = MakeRecording("rec_cap_child", tree.Id, parentBranchPointId: loopBpId);
+            tree.AddOrReplaceRecording(child);
+
+            var loopBp = MakeBranchPoint(loopBpId, segment.RecordingId, child.RecordingId);
+            int repeats = RecordingStore.SwitchSegmentRecordingTreeWalkMaxIterations + 64;
+            for (int i = 1; i < repeats; i++)
+                loopBp.ChildRecordingIds.Add(child.RecordingId);
+            tree.BranchPoints.Add(loopBp);
+
+            HashSet<string> collected =
+                RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+
+            // Partial, and it is the caller's whole scope: only what was reached before the break.
+            Assert.Equal(
+                new HashSet<string> { segment.RecordingId, child.RecordingId },
+                collected);
+
+            // The break left a traceable line naming the cap and how far it got.
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]")
+                && l.Contains("iteration cap reached, breaking walk")
+                && l.Contains("cap=" + RecordingStore.SwitchSegmentRecordingTreeWalkMaxIterations
+                    .ToString(CultureInfo.InvariantCulture))
+                && l.Contains("collectedSoFar=")
+                && l.Contains("treeId=" + tree.Id));
+        }
+
         // Bug 2 follow-up (post-#876 playtest 2026-05-17): the
         // marker-only filter has been replaced with a topology sweep.
         // The descendant test now asserts that a descendant recording
@@ -919,26 +963,45 @@ namespace Parsek.Tests
 
         // Fails if: MergeDialog.MergeCommit does not clear an active
         // SwitchSegmentSession after a successful commit. Plan test #5.
-        // (We source-text-gate the seam since driving MergeCommit needs
-        // a full pending tree fixture; the seam test asserts the wiring.)
+        //
+        // Driven through the real MergeCommit rather than source-text-gated: the premise of the
+        // old gate ("driving MergeCommit needs a full pending tree fixture") is false -
+        // MergeDialogResourcesAppliedTests and Bug618ReFlyMergeParentChainTipTests both drive it
+        // headlessly - and the gate could not see a regression that made the
+        // ActiveSwitchSegmentSession guard never true while leaving both clear calls in place.
         [Fact]
         public void Merge_AfterSwitchSegment_ClearsMarker_OnCommitSuccess()
         {
-            string projectRoot = Path.GetFullPath(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.Commit.cs");
-            string source = File.ReadAllText(path);
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
 
-            // MergeCommit clears the session marker after the commit.
-            Assert.Contains(
-                "switchSegmentScenario.ClearSwitchSegmentSession(\"scoped-merge-success\")",
-                source);
-            // And clears any active committed-tree restore attempt.
-            Assert.Contains(
-                "ClearCommittedTreeRestoreAttempt(\n                        \"scoped-merge-success switch-segment\")",
-                source.Replace("\r\n", "\n"));
+            RecordingStore.StashPendingTree(tree);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test committed-tree restore");
+            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.NotNull(scenario.ActiveSwitchSegmentSession);
+
+            var decisions = new Dictionary<string, bool>
+            {
+                { parent.RecordingId, false },
+                { segment.RecordingId, false },
+            };
+
+            // refreshQuicksaveAfterCommit: false - the quicksave refresh is a KSP save call,
+            // not part of this contract.
+            MergeDialog.MergeCommit(
+                tree, decisions, spawnCount: 0, refreshQuicksaveAfterCommit: false);
+
+            // The commit itself succeeded (the marker clear is gated on it).
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == tree.Id);
+
+            // Both markers are gone, and the clear names the merge as the reason.
+            Assert.Null(scenario.ActiveSwitchSegmentSession);
+            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]")
+                && l.Contains("cleared:")
+                && l.Contains("reason=scoped-merge-success"));
         }
 
         // Fails if: pending-tree merge path does not clear the marker

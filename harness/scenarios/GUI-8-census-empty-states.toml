@@ -81,7 +81,14 @@ tier = "operator"
 #   - Timeline Overview with nothing but `Starting science: 100.0` and the
 #     `-- Y1, D01, 00:00 (now)` marker (77);
 #   - Kerbals `No reserved crew, stand-ins, or retired kerbals.` and `No committed crew
-#     history yet.` (43 each) - the deliberate pair;
+#     history yet.` (43 each) - the deliberate pair. SUPERSEDED 2026-09-15 by the
+#     column-table rebuild and RE-FLOWN (`2026-09-15_1617`, PASS attempt 1, 66 s): the
+#     roster tab now reads the column header row plus ONE fold row,
+#     `Available, no recorded flights (4)` - the four default kerbals are accounted for
+#     where the old line claimed there was nothing - and the outcomes tab reads the new
+#     `No recorded flights with crew yet.`. The step comment below predicted "FOUR rows"
+#     and is now true, though they sit behind the fold; an `op=expand key=all` capture
+#     that lists them is owed (todo KERBALS-WINDOW-RESIDUE-2026-09-15);
 #   - all four Career tabs under `Science mode - contracts and strategies unavailable`:
 #     `Contracts are unavailable in Science mode.`, `Strategies are unavailable in Science
 #     mode.`, the nine-row Facilities table (all `L1`, the one tab that is NOT empty in

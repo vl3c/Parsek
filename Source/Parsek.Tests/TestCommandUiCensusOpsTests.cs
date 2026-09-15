@@ -633,19 +633,22 @@ namespace Parsek.Tests
         // ================================================================ op=expand
 
         [Fact]
-        public void Expand_OnlyTwoWindowsKeepDriveableExpansionState()
+        public void Expand_OnlyThreeWindowsKeepDriveableExpansionState()
         {
-            Assert.NotNull(TestCommandUiState.ExpandPrefixesFor(
-                TestCommandUiAction.MissionsWindow));
-            Assert.NotNull(TestCommandUiState.ExpandPrefixesFor(
-                TestCommandUiAction.LogisticsWindow));
+            // Kerbals joined the set with the 2026-09-15 column-table rebuild: its Roster
+            // tab keeps a per-row replacement-chain expansion plus one fold row over the
+            // plain-kerbal bucket, and its Flights tab a per-kerbal fold.
+            var expandable = new[]
+            {
+                TestCommandUiAction.MissionsWindow,
+                TestCommandUiAction.LogisticsWindow,
+                TestCommandUiAction.KerbalsWindow,
+            };
+            foreach (string window in expandable)
+                Assert.NotNull(TestCommandUiState.ExpandPrefixesFor(window));
             foreach (UiWindowSpec spec in TestCommandUiAction.Windows)
             {
-                if (spec.Name == TestCommandUiAction.MissionsWindow
-                    || spec.Name == TestCommandUiAction.LogisticsWindow)
-                {
-                    continue;
-                }
+                if (System.Array.IndexOf(expandable, spec.Name) >= 0) continue;
                 Assert.Null(TestCommandUiState.ExpandPrefixesFor(spec.Name));
             }
         }

@@ -176,6 +176,7 @@ namespace Parsek
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
+            kerbalsUI.SubscribeLiveCrewEvents();
         }
 
         public ParsekUI(UIMode mode)
@@ -196,6 +197,7 @@ namespace Parsek
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
+            kerbalsUI.SubscribeLiveCrewEvents();
         }
 
         private void OnTimelineDataChanged()
@@ -2991,6 +2993,10 @@ namespace Parsek
                 activeInstance = null;
 
             LedgerOrchestrator.OnTimelineDataChanged -= OnTimelineDataChanged;
+            // The Kerbals tab reads LIVE crew state as well as the ledger, so it carries
+            // its own stock-event subscriptions alongside the ledger hook above; they are
+            // added in both constructors and dropped here, together.
+            kerbalsUI.UnsubscribeLiveCrewEvents();
             recordingsTableUI.ReleaseInputLock();
             timelineUI.ReleaseInputLock();
             kerbalsUI.ReleaseInputLock();

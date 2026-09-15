@@ -606,7 +606,9 @@ namespace Parsek.Tests
             DiagnosticsState.health.ghostDestroysThisSession = 20;
             DiagnosticsState.health.gcGen0Baseline = 999;
 
+            int gcGen0BeforeReset = GC.CollectionCount(0);
             DiagnosticsState.health.Reset();
+            int gcGen0AfterReset = GC.CollectionCount(0);
 
             Assert.Equal(0, DiagnosticsState.health.waypointCacheHits);
             Assert.Equal(0, DiagnosticsState.health.waypointCacheMisses);
@@ -615,8 +617,10 @@ namespace Parsek.Tests
             Assert.Equal(0, DiagnosticsState.health.spawnRetries);
             Assert.Equal(0, DiagnosticsState.health.ghostBuildsThisSession);
             Assert.Equal(0, DiagnosticsState.health.ghostDestroysThisSession);
-            // gcGen0Baseline should be current GC count, not zero or the old value
-            Assert.Equal(GC.CollectionCount(0), DiagnosticsState.health.gcGen0Baseline);
+            // gcGen0Baseline should be the GC count Reset() read, not zero or the old value.
+            // Bracketed rather than equal to a post-hoc read: a gen0 collection between Reset and
+            // this assertion advances GC.CollectionCount(0) and would fail an equality spuriously.
+            Assert.InRange(DiagnosticsState.health.gcGen0Baseline, gcGen0BeforeReset, gcGen0AfterReset);
             Assert.NotEqual(999, DiagnosticsState.health.gcGen0Baseline);
         }
 

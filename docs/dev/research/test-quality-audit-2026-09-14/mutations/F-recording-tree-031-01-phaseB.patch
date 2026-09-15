@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..e2f7d01c7 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -3439,7 +3439,7 @@ namespace Parsek
+             int safety = 0;
+             while (queue.Count > 0)
+             {
+-                if (++safety > SwitchSegmentRecordingTreeWalkMaxIterations)
++                if (false && ++safety > SwitchSegmentRecordingTreeWalkMaxIterations)
+                 {
+                     // Cycle or pathological fanout — log Warn so the partial
+                     // collection that the caller is about to act on is at

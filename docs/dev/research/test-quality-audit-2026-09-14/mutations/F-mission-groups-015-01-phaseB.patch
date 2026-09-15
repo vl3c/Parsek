@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/UI/MissionsWindowUI.cs b/Source/Parsek/UI/MissionsWindowUI.cs
+index 77710895c..45543b6c4 100644
+--- a/Source/Parsek/UI/MissionsWindowUI.cs
++++ b/Source/Parsek/UI/MissionsWindowUI.cs
+@@ -1786,7 +1786,7 @@ namespace Parsek
+                 {
+                     if (toggled) mission.ExcludedIntervalKeys.Remove(node.HeadLegId);
+                     else mission.ExcludedIntervalKeys.Add(node.HeadLegId);
+-                    StampSelectionEdit(mission);
++                    // StampSelectionEdit(mission);
+                     ParsekLog.Info("Mission",
+                         $"Mission '{mission.Name}' interval '{node.HeadLegId}' included={toggled}");
+                 }

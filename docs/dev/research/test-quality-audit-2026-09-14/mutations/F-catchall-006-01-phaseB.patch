@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RewindInvoker.cs b/Source/Parsek/RewindInvoker.cs
+index ad7f0e20d..a20c0370f 100644
+--- a/Source/Parsek/RewindInvoker.cs
++++ b/Source/Parsek/RewindInvoker.cs
+@@ -2190,7 +2190,7 @@ namespace Parsek
+                     // gates that need "before the rewind moment" semantics
+                     // (see ReFlySessionMarker.RewindPointUT XML doc) have an
+                     // exact reference UT rather than the drifted InvokedUT.
+-                    RewindPointUT = rp.UT,
++                    RewindPointUT = SafeNow(),
+                     InvokedRealTime = DateTime.UtcNow.ToString("o"),
+                     PreSessionBranchPointIds = SnapshotTreeBranchPointIds(treeIdForMarker),
+                     InPlaceContinuation = inPlaceContinuation,

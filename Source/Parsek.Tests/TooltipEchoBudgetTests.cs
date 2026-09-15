@@ -96,8 +96,19 @@ namespace Parsek.Tests
             yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 10, TooltipEchoBox.DoubleLine };
             // Gloops Flight Recorder: first-open DefaultWindowWidth = 280.
             yield return new object[] { "UI/GloopsRecorderUI.cs", 280f, 3, TooltipEchoBox.DoubleLine };
-            // Kerbals: DefaultWindowWidth = 410 (half of Career's 820, side by side).
-            yield return new object[] { "UI/KerbalsWindowUI.cs", 410f, 5, TooltipEchoBox.DoubleLine };
+            // Kerbals: DefaultWindowWidth = 760 as of the 2026-09-15 column-table rebuild
+            // (it was 410, half of Career's 820, while both tabs were indented outlines).
+            // The Roster tab's three fixed columns are 190 + 220 + 130 = 540 px plus 200
+            // for the expanding "Last flight" column, which 410 cannot hold; the 130 on the
+            // date columns is what the first flight measured a compact date needs
+            // ("Y1, D01, 02:29" clipped at 80). Budget at the new width:
+            // 2 * (760 - 30) / 7 = 208 chars, up from 2 * 380 / 7 = 108. The raise loosens
+            // nothing in practice - every literal in the file is still under the OLD 108 -
+            // it only stops the gate budgeting a width the window no longer opens at.
+            // Floor 5 unchanged: the file carries 9 literal tooltips (two tab labels, three
+            // column headers, the plain-bucket fold, the chain expand, the Flights fold,
+            // the row cross-link), so a removal still reds this row.
+            yield return new object[] { "UI/KerbalsWindowUI.cs", 760f, 5, TooltipEchoBox.DoubleLine };
             // Career State: DefaultWindowWidth = 820. Single-line strip: longest help
             // text is 76 chars against a 112-char one-line budget.
             yield return new object[] { "UI/CareerStateWindowUI.cs", 820f, 14, TooltipEchoBox.SingleLine };
@@ -297,7 +308,10 @@ namespace Parsek.Tests
         {
             const string RelPath = "UI/RecordingsTableUI.cs";
             int budget = BudgetChars(1355f, TooltipEchoBox.SingleLine);
-            string src = ReadParsekSource(RelPath);
+            // Comments blanked (length-preserving, literals untouched, so both the decoded
+            // tooltip text and the reported line numbers stay exact): a commented-out
+            // DrawSortableHeader call must not count toward the anti-vacuity floor below.
+            string src = SourceScanText.StripCSharpComments(ReadParsekSource(RelPath));
 
             const string Needle = "DrawSortableHeader(";
             int found = 0;
@@ -388,6 +402,26 @@ namespace Parsek.Tests
                     relPath, stripLines, constructed[0]));
         }
 
+        // catches: the Kerbals row budgeting a width the window no longer opens at. The
+        // strip-height column is already cross-checked against the window constructor
+        // above; this does the same for the WIDTH column of the one row whose window
+        // exposes its first-open width as a constant. The dangerous direction is a window
+        // widening while the row stays narrow, which keeps the suite green while the gate
+        // budgets less than the strip really holds - the reverse of a useful gate.
+        [Fact]
+        public void TheKerbalsRowWidthIsTheWindowsOwnFirstOpenWidth()
+        {
+            float rowWidth = float.NaN;
+            foreach (object[] row in StripWindows())
+            {
+                if ((string)row[0] != "UI/KerbalsWindowUI.cs") continue;
+                rowWidth = (float)row[1];
+            }
+            Assert.False(float.IsNaN(rowWidth),
+                "the Kerbals row is gone from StripWindows - restore it or delete this cell");
+            Assert.Equal(KerbalsWindowUI.DefaultWindowWidth, rowWidth);
+        }
+
         // ------------------------------------------------------------------
         // Scanner
         // ------------------------------------------------------------------
@@ -406,6 +440,12 @@ namespace Parsek.Tests
         /// </summary>
         internal static List<LiteralTooltip> ExtractLiteralGuiContentTooltips(string src)
         {
+            // Comments blanked first. StripCSharpComments is length-preserving and leaves string
+            // literals whole, so the decoded tooltips and the line numbers reported below are
+            // unchanged - but a commented-out `new GUIContent(label, tooltip)` no longer counts
+            // toward the caller's anti-vacuity floor, which on the margin-0 rows was the
+            // fail-GREEN direction the floor exists to prevent.
+            src = SourceScanText.StripCSharpComments(src);
             var result = new List<LiteralTooltip>();
             const string Needle = "new GUIContent(";
             int i = 0;
@@ -742,7 +782,10 @@ namespace Parsek.Tests
             return line;
         }
 
-        private static string ReadParsekSource(string relPath)
+        /// <summary>Reads a file under <c>Source/Parsek/</c>. Internal because a source
+        /// gate in another class reuses it rather than carrying a second copy of the
+        /// five-segment walk to the repo root.</summary>
+        internal static string ReadParsekSource(string relPath)
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));

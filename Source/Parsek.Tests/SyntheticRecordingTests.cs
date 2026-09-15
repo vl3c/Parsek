@@ -3472,6 +3472,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
+            bool priorGameStateSuppress = GameStateStore.SuppressLogging;
             GameStateStore.SuppressLogging = true;
             try
             {
@@ -3546,6 +3547,9 @@ namespace Parsek.Tests
             finally
             {
                 RecordingStore.SuppressLogging = false;
+                // The flag is static and this class is [Collection("Sequential")]: leaving it raised
+                // suppresses GameStateStore logging for every later cell in the collection.
+                GameStateStore.SuppressLogging = priorGameStateSuppress;
             }
         }
 
@@ -3554,6 +3558,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
+            bool priorGameStateSuppress = GameStateStore.SuppressLogging;
             GameStateStore.SuppressLogging = true;
             string tempDir = Path.Combine(Path.GetTempPath(), "parsek_test_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
@@ -3614,6 +3619,7 @@ namespace Parsek.Tests
             finally
             {
                 RecordingStore.SuppressLogging = false;
+                GameStateStore.SuppressLogging = priorGameStateSuppress;
                 Directory.Delete(tempDir, true);
             }
         }

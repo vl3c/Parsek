@@ -2207,10 +2207,14 @@ UIACTION_NUDGE_VALUES: Tuple[str, ...] = ("true", "false")
 # from this map keeps no expansion state the seam can drive, and `op=expand` against it
 # is the `expand-unsupported-window` REJECTED - so the absence is meaningful here too.
 # The `missions` row covers BOTH tabs of that one window: group folders and chain blocks
-# on the Recordings tab, vessel / leg / digest rows on the Missions tab.
+# on the Recordings tab, vessel / leg / digest rows on the Missions tab. The `kerbals`
+# row takes one prefix per TAB instead: `roster` drives a Roster row's replacement-chain
+# view plus that tab's plain-kerbal fold row (key `(available)`), `flights` drives a
+# Flights group's fold.
 UIACTION_EXPAND_PREFIXES: Dict[str, Tuple[str, ...]] = {
     "missions": ("group", "chain", "vessel", "leg", "digest"),
     "logistics": ("row",),
+    "kerbals": ("roster", "flights"),
 }
 
 # The two bulk key tokens. `all` is the affordance a census actually needs ("open every

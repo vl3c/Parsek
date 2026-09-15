@@ -63,20 +63,42 @@ namespace Parsek.Tests
         {
             // A Failed build removes the just-registered state; notifying before the check would
             // enqueue map presence for a ghost that never existed (old behavior: no GhostCreated,
-            // no map presence). Each call site must therefore appear AFTER a Failed-status
-            // comparison within its site block. Heuristic: within the 900 chars BEFORE each call,
-            // a GhostVisualLoadStatus.Failed comparison must occur.
-            string src = StripComments(ReadParsekSource(EnginePath));
-            var calls = Regex.Matches(src, @"QueueOrEmitGhostSpawnPending\(");
+            // no map presence). Each call site must therefore sit after ITS OWN Failed-status
+            // comparison.
+            //
+            // Per-site, not a character window: the scope is the call's ENCLOSING METHOD BODY
+            // (brace-matched off comment-stripped, literal-masked source, so reformatting and
+            // braces inside literals are irrelevant), and the Failed comparison that covers a
+            // call is the NEAREST one preceding it with no other notify call in between. A
+            // neighbouring site's check therefore cannot stand in: hoisting one call above its
+            // own check leaves the sibling's notify between that sibling's check and this call.
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource(EnginePath));
+            var calls = Regex.Matches(prepared, @"QueueOrEmitGhostSpawnPending\(");
             int checkedSites = 0;
             foreach (Match m in calls)
             {
                 // Skip the method definition itself.
-                string before = src.Substring(Math.Max(0, m.Index - 60), Math.Min(60, m.Index));
+                string before = prepared.Substring(Math.Max(0, m.Index - 60), Math.Min(60, m.Index));
                 if (before.Contains("private void"))
                     continue;
-                string window = src.Substring(Math.Max(0, m.Index - 900), Math.Min(900, m.Index));
-                Assert.Contains("GhostVisualLoadStatus.Failed", window);
+
+                int bodyStart = SourceScanText.EnclosingMethodBodyStart(prepared, m.Index);
+                Assert.True(bodyStart >= 0,
+                    "Could not resolve the enclosing method body for a QueueOrEmitGhostSpawnPending site.");
+
+                int failedIdx = prepared.LastIndexOf(
+                    "GhostVisualLoadStatus.Failed", m.Index, m.Index - bodyStart, StringComparison.Ordinal);
+                Assert.True(failedIdx >= 0,
+                    "A QueueOrEmitGhostSpawnPending site has no GhostVisualLoadStatus.Failed check " +
+                    "before it in its own method: a failed build would enqueue map presence for a " +
+                    "ghost that never existed.");
+
+                int interveningCall = prepared.IndexOf(
+                    "QueueOrEmitGhostSpawnPending(", failedIdx, m.Index - failedIdx, StringComparison.Ordinal);
+                Assert.True(interveningCall < 0,
+                    "A QueueOrEmitGhostSpawnPending site is covered only by a SIBLING site's Failed " +
+                    "check (another notify sits between that check and this call): the notify has " +
+                    "been hoisted above its own status check.");
                 checkedSites++;
             }
             Assert.Equal(4, checkedSites);

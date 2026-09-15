@@ -268,50 +268,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AtomicMarkerWrite_CapturesRewindPointUTFromRp_PinnedBySourceInspection()
+        public void AtomicMarkerWrite_CapturesRewindPointUTFromRp()
         {
             // The render-only companion-debris carve-out in
-            // GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris
-            // requires an EXACT rewind-point UT — InvokedUT is the post-load
-            // SafeNow() which may sit a sub-second-to-multi-second Δ above
-            // rp.UT (especially when AtomicMarkerWrite is deferred to
-            // onFlightReady on async scene loads). A regression that lets
-            // the marker drop the rp.UT capture and fall back to InvokedUT
-            // for the cutoff would silently re-open the post-RP leak
-            // window. Pin via source inspection — directly unit-testing
-            // AtomicMarkerWrite needs scenario / RecordingStore staging
-            // beyond this file's seam. Anchor the search on the method
-            // signature first so a refactor that renames the local `marker`
-            // or wraps construction in a helper still flags here rather
-            // than silently losing the assertion.
-            string srcRoot = System.IO.Path.GetFullPath(
-                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "Parsek"));
-            string invokerSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
+            // GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris requires an EXACT
+            // rewind-point UT: InvokedUT is the post-load SafeNow() and may sit a
+            // sub-second-to-multi-second delta above rp.UT (especially when AtomicMarkerWrite is
+            // deferred to onFlightReady on async scene loads). A regression that dropped the rp.UT
+            // capture and fell back to InvokedUT for the cutoff would silently re-open the post-RP
+            // leak window.
+            //
+            // Driven through the real AtomicMarkerWrite (the same seam the cells above and below
+            // use) rather than pinned by source text: substituting an InvokedUT-derived value
+            // while keeping the literal "RewindPointUT = rp.UT" spelling used to stay green.
+            var scenario = MakeScenario();
+            var (rp, slot) = MakeRpAndSlot();
+            Assert.Equal(42.0, rp.UT);
 
-            int methodStart = invokerSrc.IndexOf(
-                "internal static void AtomicMarkerWrite(",
-                StringComparison.Ordinal);
-            Assert.True(methodStart >= 0,
-                "AtomicMarkerWrite method must exist");
+            RewindInvoker.AtomicMarkerWrite(rp, slot, MakeStripResult(), "sess_rp_ut");
 
-            // Walk to the next sibling-level `internal static void ` so we
-            // bound the search to AtomicMarkerWrite's body. `IndexOf` from
-            // the next char so we don't re-match the same signature.
-            int nextMethod = invokerSrc.IndexOf(
-                "\n        internal static void ",
-                methodStart + 1,
-                StringComparison.Ordinal);
-            int methodBodyEnd = nextMethod > methodStart
-                ? nextMethod
-                : invokerSrc.Length;
-            string methodBody = invokerSrc.Substring(
-                methodStart, methodBodyEnd - methodStart);
-
-            // The capture must come from rp.UT, not from a recomputed
-            // SafeNow() / Planetarium.GetUniversalTime() / InvokedUT alias.
-            Assert.Contains("RewindPointUT = rp.UT", methodBody);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(rp.UT, scenario.ActiveReFlySessionMarker.RewindPointUT);
+            // And it is a CAPTURE of the rewind point, not a second read of the live clock:
+            // SafeNow() headless is not 42.0, so InvokedUT must differ.
+            Assert.NotEqual(rp.UT, scenario.ActiveReFlySessionMarker.InvokedUT);
         }
 
         [Fact]

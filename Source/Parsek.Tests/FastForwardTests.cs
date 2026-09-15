@@ -14,6 +14,12 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
+            // CanFastForward_AlreadyRewinding_ReturnsFalse raises the static
+            // RewindContext.IsRewinding, which the rest of this Sequential collection would
+            // otherwise inherit. Today RecordingStore.ResetForTesting() happens to reset
+            // RewindContext too, so the leak is closed only as a side effect of a DIFFERENT
+            // type's reset; this states the dependency directly instead.
+            RewindContext.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -24,6 +30,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             RecordingStore.ResetForTesting();
+            RewindContext.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }

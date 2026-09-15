@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/MapRender/ShadowRenderDriver.cs b/Source/Parsek/MapRender/ShadowRenderDriver.cs
+index c40ada530..31153bfbe 100644
+--- a/Source/Parsek/MapRender/ShadowRenderDriver.cs
++++ b/Source/Parsek/MapRender/ShadowRenderDriver.cs
+@@ -321,6 +321,7 @@ namespace Parsek.MapRender
+                         "spine deferred: live clock not ready (liveUT={0:R} <= 0 / non-finite); rendering nothing this frame",
+                         currentUT),
+                     5.0);
++                PruneStaleState(pids);
+                 // PruneStaleState is intentionally NOT called: a transient UT=0 frame must not drop the
+                 // cached chains / prior intents the next ready frame resumes from. The defer is a hold.
+                 return;
