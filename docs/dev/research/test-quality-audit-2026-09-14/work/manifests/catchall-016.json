@@ -1,0 +1,182 @@
+{
+ "batch_id": "catchall-016",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 38,
+ "files": [
+  {
+   "file": "OptimizerTransferCohesionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "E1_DresMain_TheKerbinToSunHandoffIsKeptCohesive",
+       "line": 175
+      },
+      {
+       "method": "E1_DresMain_SunToDresCrossingIsAlreadySuppressed",
+       "line": 212
+      },
+      {
+       "method": "E1_DresMain_OnlyTheAscentSplitIsAcceptedNow",
+       "line": 239
+      },
+      {
+       "method": "E1_EveMain_HasNoBodySplitAtAll",
+       "line": 286
+      },
+      {
+       "method": "E2_UnsplitDresChain_ClassifiesSupportedWithDresAsTheTarget",
+       "line": 351
+      },
+      {
+       "method": "E2_TheSplitHalvesAreWhatDecline_NotTheChain",
+       "line": 385
+      },
+      {
+       "method": "E3_CheckpointFramedExoBodyChange_IsNowKeptCohesive",
+       "line": 436
+      },
+      {
+       "method": "E3_MixedFraming_StillSplits",
+       "line": 457
+      },
+      {
+       "method": "E3_PhysicsFramedExoBodyChange_SplitsAndMustKeepSplitting",
+       "line": 478
+      },
+      {
+       "method": "E3_BallisticCheckpointBodyChange_IsSuppressedTodayAndStaysSuppressed",
+       "line": 500
+      },
+      {
+       "method": "E4_FixtureInventory_NoBodySplitSurvivesAnywhere",
+       "line": 522
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "OptimizationPassInvalidationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Split_BumpsStateVersion_SoTheErsCacheRebuilds",
+       "line": 143
+      },
+      {
+       "method": "Merge_BumpsStateVersion_SoTheErsCacheRebuilds",
+       "line": 165
+      },
+      {
+       "method": "Merge_BumpsStateVersion_AtEachRemoval_NotOnlyAtTheEnd",
+       "line": 183
+      },
+      {
+       "method": "NoStructuralChange_DoesNotBumpStateVersion",
+       "line": 199
+      },
+      {
+       "method": "Merge_RaisesRemovingOnTheUnshiftedList_ThenRemovedWithTheMergeTarget",
+       "line": 215
+      },
+      {
+       "method": "Split_RaisesInserted_AtTheMidListSecondHalfIndex",
+       "line": 262
+      },
+      {
+       "method": "InsertCommittedAfter_RaisesInserted_AtTheInsertIndex",
+       "line": 298
+      },
+      {
+       "method": "RemoveRecordingAt_RaisesRemovingThenRemoved_WithNoMergeTarget",
+       "line": 314
+      },
+      {
+       "method": "ThrowingSubscriber_IsLoggedAsError_AndThePassStillCompletes",
+       "line": 336
+      },
+      {
+       "method": "ResetForTesting_ClearsSubscribers",
+       "line": 353
+      },
+      {
+       "method": "IndexShift_DictAfterDelete_DropsTheRemovedKey_AndShiftsAbove",
+       "line": 371
+      },
+      {
+       "method": "IndexShift_DictAfterInsert_AdjacentKeysDoNotOverwriteEachOther",
+       "line": 379
+      },
+      {
+       "method": "IndexShift_SetMirrors",
+       "line": 388
+      },
+      {
+       "method": "Engine_ReindexAfterInsert_ShiftsKeysAtOrAboveTheInsert",
+       "line": 398
+      },
+      {
+       "method": "Engine_InsertThenDeleteAtTheSameIndex_RoundTrips",
+       "line": 428
+      },
+      {
+       "method": "Engine_ReindexAfterDelete_DropsTheRemovedSlot",
+       "line": 450
+      },
+      {
+       "method": "MapPresence_FlightDicts_ShiftWithTheCommittedList",
+       "line": 467
+      },
+      {
+       "method": "ComputeWatchIndexAfterInsert_BelowTheInsert_IsUnchanged",
+       "line": 516
+      },
+      {
+       "method": "ComputeWatchIndexAfterInsert_AtOrAboveTheInsert_ShiftsUp",
+       "line": 525
+      },
+      {
+       "method": "ComputeWatchIndexAfterInsert_IdMismatch_ScansForTheId",
+       "line": 534
+      },
+      {
+       "method": "ComputeWatchIndexAfterInsert_IdGone_ReturnsExit",
+       "line": 542
+      },
+      {
+       "method": "ComputeWatchIndexAfterDelete_StillExitsOnTheWatchedIndex_AndShiftsAbove",
+       "line": 549
+      },
+      {
+       "method": "ResolveCommittedIndexThroughAbsorption_FollowsTheMergeChain",
+       "line": 557
+      },
+      {
+       "method": "ResolveCommittedIndexThroughAbsorption_IsCycleSafe",
+       "line": 572
+      },
+      {
+       "method": "ChainSegmentManager_Removed_RetargetsAnAbsorbedContinuation_ToTheMergeTarget",
+       "line": 580
+      },
+      {
+       "method": "ChainSegmentManager_Removed_StopsAContinuationWhoseRecordingWasDeleted",
+       "line": 611
+      },
+      {
+       "method": "ChainSegmentManager_Inserted_RebindsBothContinuationsById",
+       "line": 632
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

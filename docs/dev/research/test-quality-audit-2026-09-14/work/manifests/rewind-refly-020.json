@@ -1,0 +1,273 @@
+{
+ "batch_id": "rewind-refly-020",
+ "cluster": "rewind-refly",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "MergeJournalRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PhaseEnumEntries_MatchPhasesStringConstants_ByNameAndOrder",
+       "line": 11
+      },
+      {
+       "method": "MergeJournal_BeginPhase_RoundTrips",
+       "line": 54
+      },
+      {
+       "method": "MergeJournal_MissingPhase_DefaultsToBegin",
+       "line": 81
+      },
+      {
+       "method": "MergeJournal_BeginConstantValue_MatchesDesignDoc",
+       "line": 95
+      },
+      {
+       "method": "MergeJournal_MissingStartedRealTime_LoadsAsNull",
+       "line": 104
+      },
+      {
+       "method": "MergeJournal_SaveInto_DoesNotPersistRecoveredSubtreeIds",
+       "line": 126
+      },
+      {
+       "method": "MergeJournal_LoadFrom_LeavesRecoveredSubtreeIdsNull",
+       "line": 167
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindCleanupClearTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RewindStrip_ClearsPendingCleanup_PidsAndNames",
+       "line": 37
+      },
+      {
+       "method": "RewindStrip_AfterClear_OnFlightReadySkipsCleanup",
+       "line": 53
+      },
+      {
+       "method": "RevertPath_CollectsFreshData_WhenPendingIsNull",
+       "line": 79
+      },
+      {
+       "method": "RewindStrip_LogMessageFormat_ContainsExpectedText",
+       "line": 110
+      },
+      {
+       "method": "FullRewindThenRevert_RevertGetsOwnData",
+       "line": 131
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReFlyProvisionalBindingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RestoreGiveUp_NoMarker_DoesNotRaise",
+       "line": 59
+      },
+      {
+       "method": "RestoreGiveUp_PlaceholderModeMarker_DoesNotRaise",
+       "line": 67
+      },
+      {
+       "method": "RestoreGiveUp_OnMarkerOwnTree_RaisesWithMarkerTreeReason",
+       "line": 82
+      },
+      {
+       "method": "RestoreGiveUp_OnADifferentTree_RaisesWithOtherTreeReason",
+       "line": 98
+      },
+      {
+       "method": "RestoreGiveUp_UnknownAttemptedTree_RaisesAsOtherTree",
+       "line": 108
+      },
+      {
+       "method": "SidecarRewrite_SessionProvisionalWithNoTrajectory_Raises",
+       "line": 122
+      },
+      {
+       "method": "SidecarRewrite_ADifferentRecording_DoesNotRaise",
+       "line": 134
+      },
+      {
+       "method": "SidecarRewrite_OtherReasons_DoNotRaise",
+       "line": 155
+      },
+      {
+       "method": "SidecarRewrite_NoMarker_DoesNotRaise",
+       "line": 165
+      },
+      {
+       "method": "SidecarRewrite_NullRecordingId_DoesNotRaise",
+       "line": 175
+      },
+      {
+       "method": "BothDetectionPoints_FireIndependentlyOnTheSameSession",
+       "line": 190
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindPointRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RewindPoint_FullyPopulated_RoundTripsExactly",
+       "line": 15
+      },
+      {
+       "method": "RewindPoint_SessionProvisionalAndCorrupted_RoundTripsFlags",
+       "line": 118
+      },
+      {
+       "method": "RewindPoint_EmptyMapsAndSlots_RoundTripToEmptyCollections",
+       "line": 141
+      },
+      {
+       "method": "RewindPoint_LegacyMissingStableLeafFields_LoadsDefaults",
+       "line": 164
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindForkSegmentPhaseTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CopyInheritedIdentityForFork_DoesNotInheritSegmentPhase",
+       "line": 46
+      },
+      {
+       "method": "TagForkInitialSegmentPhase_NullProvisional_IsNoOp",
+       "line": 71
+      },
+      {
+       "method": "TagForkInitialSegmentPhase_NullLiveVessel_LogsVerbose_LeavesFieldsEmpty",
+       "line": 80
+      },
+      {
+       "method": "TagForkInitialSegmentPhase_NullProvisional_NoLog",
+       "line": 104
+      },
+      {
+       "method": "CopyInheritedIdentityForFork_DoesNotClobberPreSetPhaseFields",
+       "line": 116
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindForkSnapshotRefreshTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryRefreshForkSnapshotsFromLiveVessel_NullProvisional_ReturnsFalse",
+       "line": 44
+      },
+      {
+       "method": "TryRefreshForkSnapshotsFromLiveVessel_NullLiveVessel_KeepsInheritedSnapshots",
+       "line": 53
+      },
+      {
+       "method": "CountSnapshotParts_Null_ReturnsZero",
+       "line": 83
+      },
+      {
+       "method": "CountSnapshotParts_NoPartChildren_ReturnsZero",
+       "line": 89
+      },
+      {
+       "method": "CountSnapshotParts_MultiplePartChildren_ReturnsCount",
+       "line": 102
+      },
+      {
+       "method": "CountSnapshotParts_DiagnosticUsage_IndicatesStaleVsRefreshedDelta",
+       "line": 117
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindPrelaunchStripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldStripFuturePrelaunch_UnknownPrelaunch_ReturnsTrue",
+       "line": 39
+      },
+      {
+       "method": "ShouldStripFuturePrelaunch_WhitelistedPrelaunch_ReturnsFalse",
+       "line": 51
+      },
+      {
+       "method": "ShouldStripFuturePrelaunch_NonPrelaunch_AlsoStripped",
+       "line": 63
+      },
+      {
+       "method": "ShouldStripFuturePrelaunch_NullQuicksavePids_ReturnsFalse",
+       "line": 79
+      },
+      {
+       "method": "ShouldStripFuturePrelaunch_EmptyWhitelist_StripsPrelaunch",
+       "line": 89
+      },
+      {
+       "method": "StripFuturePrelaunchVessels_NullInputs_ReturnsZero",
+       "line": 101
+      },
+      {
+       "method": "RewindQuicksaveVesselPids_ClearedInResetForTesting",
+       "line": 116
+      },
+      {
+       "method": "RewindQuicksaveVesselPids_SetAndRetrieve",
+       "line": 127
+      },
+      {
+       "method": "RewindQuicksaveVesselPids_NullAfterSetToNull",
+       "line": 141
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

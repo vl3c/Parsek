@@ -1,0 +1,283 @@
+{
+ "batch_id": "ledger-career-003",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 66,
+ "files": [
+  {
+   "file": "LedgerOrchestratorTests.cs",
+   "ranges": [
+    {
+     "start": 74,
+     "end": 1762,
+     "methods": [
+      {
+       "method": "Initialize_RegistersAllModules",
+       "line": 74
+      },
+      {
+       "method": "Initialize_IsIdempotent",
+       "line": 93
+      },
+      {
+       "method": "ResetForTesting_ClearsState",
+       "line": 113
+      },
+      {
+       "method": "ResetForTesting_AllowsReinitialization",
+       "line": 131
+      },
+      {
+       "method": "OnRecordingCommitted_AddsActionsToLedger",
+       "line": 146
+      },
+      {
+       "method": "OnRecordingCommitted_LogsSummary",
+       "line": 171
+      },
+      {
+       "method": "RecalculateAndPatch_RunsWithoutError",
+       "line": 198
+      },
+      {
+       "method": "RecalculateAndPatch_RepeatedNoopSummaries_EmitOnce",
+       "line": 210
+      },
+      {
+       "method": "RecalculateAndPatch_WithActions_ProcessesCorrectly",
+       "line": 223
+      },
+      {
+       "method": "RegularEntry_OnTimelineDataChangedReentry_DoesNotCorrupt",
+       "line": 252
+      },
+      {
+       "method": "RecalculateAndPatch_InitializesIfNotYetDone",
+       "line": 306
+      },
+      {
+       "method": "RecalculateAndPatch_WithoutUncommittedTree_DoesNotDeferPatch",
+       "line": 317
+      },
+      {
+       "method": "RecalculateAndPatch_WithPendingTree_DefersKspStatePatch",
+       "line": 330
+      },
+      {
+       "method": "RecalculateAndPatch_WithLiveRecorder_DefersKspStatePatch",
+       "line": 360
+      },
+      {
+       "method": "RecalculateAndPatch_WithActiveOutsiderTree_DefersKspStatePatch",
+       "line": 377
+      },
+      {
+       "method": "RecalculateAndPatch_WithUtCutoff_DoesNotDeferPatchForPendingTree",
+       "line": 394
+      },
+      {
+       "method": "RecalculateAndPatchForPostRewindFlightLoad_WithPendingTree_StillDefersKspStatePatch",
+       "line": 414
+      },
+      {
+       "method": "HasActionsAfterUT_WhenLaterActionExists_ReturnsTrue",
+       "line": 438
+      },
+      {
+       "method": "HasActionsAfterUT_WhenAllActionsAreAtOrBeforeThreshold_ReturnsFalse",
+       "line": 457
+      },
+      {
+       "method": "RecalculateAndPatch_IsIdempotent",
+       "line": 480
+      },
+      {
+       "method": "CreateVesselCostActions_WithBuildCost_ProducesFundsSpendingAction",
+       "line": 508
+      },
+      {
+       "method": "CreateVesselCostActions_WithRecovery_ProducesFundsEarningAction",
+       "line": 536
+      },
+      {
+       "method": "CreateVesselCostActions_PairedRecoveryEventPreferredOverPointDelta",
+       "line": 574
+      },
+      {
+       "method": "CreateVesselCostActions_StampedPairedRecoveryEventMustMatchRecordingIdentity",
+       "line": 613
+      },
+      {
+       "method": "CreateVesselCostActions_NoResourceDelta_ProducesNoActions",
+       "line": 664
+      },
+      {
+       "method": "CreateVesselCostActions_RecordingNotFound_ReturnsEmpty",
+       "line": 684
+      },
+      {
+       "method": "CreateVesselCostActions_EmptyPoints_ReturnsEmpty",
+       "line": 696
+      },
+      {
+       "method": "CreateVesselCostActions_NotRecovered_NoRecoveryAction",
+       "line": 716
+      },
+      {
+       "method": "CreateVesselCostActions_RecoveredSinglePoint_NoRecoveryAction",
+       "line": 740
+      },
+      {
+       "method": "CreateVesselCostActions_RecoveredSinglePoint_WithPairedEvent_ProducesRecoveryAction",
+       "line": 765
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_RecordingNotFound_ReturnsEmpty",
+       "line": 804
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_NullId_ReturnsEmpty",
+       "line": 816
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_NoCrew_ReturnsEmpty",
+       "line": 824
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_WithCrew_ProducesActions",
+       "line": 843
+      },
+      {
+       "method": "CreateKerbalDeathRepPenaltyActions_DeadCrewWithCapturedEvent_EmitsOneRow",
+       "line": 929
+      },
+      {
+       "method": "CreateKerbalDeathRepPenaltyActions_LivePoolSeedThisCommit_StampsInsideSeed",
+       "line": 962
+      },
+      {
+       "method": "CreateKerbalDeathRepPenaltyActions_SeedNotYetCaptured_StampsInsideSeed",
+       "line": 984
+      },
+      {
+       "method": "CreateKerbalDeathRepPenaltyActions_CareerBaselineSeedThisCommit_StampsOutsideSeed",
+       "line": 1001
+      },
+      {
+       "method": "CreateKerbalDeathRepPenaltyActions_NoCapturedEvent_EmitsNothingAndSaysWhy",
+       "line": 1018
+      },
+      {
+       "method": "CreateKerbalDeathRepPenaltyActions_SurvivingCrew_EmitsNothingAndStaysQuiet",
+       "line": 1039
+      },
+      {
+       "method": "CreateKerbalDeathRepPenaltyActions_UnknownRecording_ReturnsEmpty",
+       "line": 1057
+      },
+      {
+       "method": "KerbalDeathRepPenalty_HasItsOwnDedupKey",
+       "line": 1068
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_NoCrewEndStates_DefaultsToUnknown",
+       "line": 1109
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_GhostOnlyChainSegment_UsesFiniteHandoffEndState",
+       "line": 1136
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_GhostOnlyStableChainTip_DoesNotForceRecovered",
+       "line": 1168
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_FallsBackToVesselSnapshot",
+       "line": 1199
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_ReverseMapsStandInNames",
+       "line": 1226
+      },
+      {
+       "method": "GetContractSlots_Level1_Returns2",
+       "line": 1265
+      },
+      {
+       "method": "GetContractSlots_Level2_Returns7",
+       "line": 1271
+      },
+      {
+       "method": "GetContractSlots_Level3_Returns999",
+       "line": 1277
+      },
+      {
+       "method": "GetStrategySlots_Level1_Returns1",
+       "line": 1283
+      },
+      {
+       "method": "GetStrategySlots_Level2_Returns3",
+       "line": 1289
+      },
+      {
+       "method": "GetStrategySlots_Level3_Returns5",
+       "line": 1295
+      },
+      {
+       "method": "RecalculateAndPatch_UpdatesContractSlotsFromFacilityUpgradeInSameWalk",
+       "line": 1301
+      },
+      {
+       "method": "RecalculateAndPatch_UpdatesStrategySlotsFromFacilityUpgradeInSameWalk",
+       "line": 1334
+      },
+      {
+       "method": "RecalculateAndPatch_FacilityUpgrade_PatcherReceivesZeroBasedKspLevel",
+       "line": 1369
+      },
+      {
+       "method": "RecalculateAndPatch_DefaultSlotLimits_MatchLevel1",
+       "line": 1399
+      },
+      {
+       "method": "ComputePendingRecentKscTechResearchScienceDebit_UnmatchedBurstReturnsGap",
+       "line": 1416
+      },
+      {
+       "method": "ComputePendingRecentKscTechResearchScienceDebit_WhenLedgerCaughtUpReturnsZero",
+       "line": 1455
+      },
+      {
+       "method": "ComputePendingRecentKscScienceCredit_UnmatchedCreditReturnsGap",
+       "line": 1493
+      },
+      {
+       "method": "ComputePendingRecentKscScienceCredit_WhenLedgerCaughtUpReturnsZero",
+       "line": 1536
+      },
+      {
+       "method": "ComputePendingRecentKscScienceCredit_CountsTransmissionIgnoresWrongReasonAndOutsideWindow",
+       "line": 1576
+      },
+      {
+       "method": "ComputePendingRecentKscScienceCredit_GrossesUpAConverterTake",
+       "line": 1640
+      },
+      {
+       "method": "ComputePendingRecentKscScienceCredit_SubtractsAConverterScienceYield",
+       "line": 1666
+      },
+      {
+       "method": "ComputePendingRecentKscScienceCredit_GrossUpNetsToZeroOnceTheEarningLands",
+       "line": 1690
+      },
+      {
+       "method": "ComputePendingRecentKscScienceCredit_IgnoresExchangerSourcedDebits",
+       "line": 1722
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

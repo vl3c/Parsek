@@ -1,0 +1,259 @@
+{
+ "batch_id": "recorder-events-003",
+ "cluster": "recorder-events",
+ "tier": "A1",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "PartEventTests.cs",
+   "ranges": [
+    {
+     "start": 1748,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RCSActivated_SerializationRoundtrip",
+       "line": 1748
+      },
+      {
+       "method": "RCSStopped_SerializationRoundtrip",
+       "line": 1778
+      },
+      {
+       "method": "RCSThrottle_SerializationRoundtrip",
+       "line": 1804
+      },
+      {
+       "method": "IsRoboticModuleName_KnownModules_ReturnTrue",
+       "line": 1844
+      },
+      {
+       "method": "RoboticTransition_StartMoving_EmitsStartedEvent",
+       "line": 1858
+      },
+      {
+       "method": "RoboticTransition_Below4HzCap_NoSampleEvent",
+       "line": 1878
+      },
+      {
+       "method": "RoboticTransition_At4HzCap_EmitsPositionSample",
+       "line": 1899
+      },
+      {
+       "method": "RoboticTransition_DeadbandSuppressesNoise",
+       "line": 1929
+      },
+      {
+       "method": "RoboticTransition_StopMoving_EmitsStoppedEvent",
+       "line": 1950
+      },
+      {
+       "method": "RoboticsPositionSample_SerializationRoundtrip",
+       "line": 1973
+      },
+      {
+       "method": "AnimateHeatTransition_ColdToHot_EmitsHotEvent",
+       "line": 2002
+      },
+      {
+       "method": "AnimateHeatTransition_HotToCold_EmitsColdEvent",
+       "line": 2019
+      },
+      {
+       "method": "AnimateHeatTransition_ColdToMedium",
+       "line": 2036
+      },
+      {
+       "method": "AnimateHeatTransition_MediumToHot",
+       "line": 2052
+      },
+      {
+       "method": "AnimateHeatTransition_HotToMedium",
+       "line": 2068
+      },
+      {
+       "method": "AnimateHeatTransition_MediumToCold",
+       "line": 2084
+      },
+      {
+       "method": "AnimateHeatTransition_ColdToHotDirect",
+       "line": 2100
+      },
+      {
+       "method": "AnimateHeatTransition_HotToColdDirect",
+       "line": 2116
+      },
+      {
+       "method": "AnimateHeatTransition_InHysteresisGap_NoEvent",
+       "line": 2132
+      },
+      {
+       "method": "AnimateHeatTransition_StaysMedium_NoEvent",
+       "line": 2147
+      },
+      {
+       "method": "AnimateHeatTransition_MediumInHysteresisGap_StaysMedium",
+       "line": 2161
+      },
+      {
+       "method": "AnimateHeatTransition_HotInMediumHotHysteresis_StaysHot",
+       "line": 2177
+      },
+      {
+       "method": "AnimateHeatTransition_HotFallsBelowHysteresis_BecomesMedium",
+       "line": 2193
+      },
+      {
+       "method": "AnimateHeatEvent_SerializationRoundtrip",
+       "line": 2209
+      },
+      {
+       "method": "ThermalAnimationMedium_SerializationRoundtrip",
+       "line": 2238
+      },
+      {
+       "method": "UnknownPartEventType_SkippedDuringDeserialization",
+       "line": 2267
+      },
+      {
+       "method": "EngineEvent_SerializationRoundtrip_ValueAndModuleIndex",
+       "line": 2311
+      },
+      {
+       "method": "EngineEvent_BackwardCompat_MissingValueAndMidx_DefaultsToZero",
+       "line": 2341
+      },
+      {
+       "method": "EngineThrottle_SerializationRoundtrip",
+       "line": 2362
+      },
+      {
+       "method": "IsHeatAnimationName_MatchesExpected",
+       "line": 2417
+      },
+      {
+       "method": "TryGetAnimateThrottleAnimation_NullPrefab_ReturnsFalse",
+       "line": 2423
+      },
+      {
+       "method": "TryGetAnimateRcsAnimation_NullPrefab_ReturnsFalse",
+       "line": 2433
+      },
+      {
+       "method": "RemoveDuplicateCrew_RemovesDuplicate_LogsWarning",
+       "line": 2493
+      },
+      {
+       "method": "RemoveDuplicateCrew_NoDuplicates_NoCrewRemoved",
+       "line": 2538
+      },
+      {
+       "method": "RemoveDuplicateCrew_MultiPart_RemovesAcrossParts",
+       "line": 2557
+      },
+      {
+       "method": "FindDuplicateCrew_EmptyCrewName_Ignored",
+       "line": 2589
+      },
+      {
+       "method": "DescribeCrewDedupOutcome_PartialRemoval_ReportsRemainingSeats",
+       "line": 2612
+      },
+      {
+       "method": "DescribeCrewDedupOutcome_AllSeatsVacated_CallsOutTheEmptyMaterialization",
+       "line": 2622
+      },
+      {
+       "method": "DescribeCrewDedupOutcome_NothingRemoved_IsNotAnEmptySeatCallout",
+       "line": 2634
+      },
+      {
+       "method": "DescribeCrewDedupOutcome_RemovedExceedingCount_ClampsRemainingAtZero",
+       "line": 2645
+      },
+      {
+       "method": "IsStructuralJointBreak_SameJoint_ReturnsTrue",
+       "line": 2658
+      },
+      {
+       "method": "IsStructuralJointBreak_DifferentJoint_ReturnsFalse",
+       "line": 2668
+      },
+      {
+       "method": "IsStructuralJointBreak_NullAttachJoint_ReturnsTrue",
+       "line": 2678
+      },
+      {
+       "method": "CheckJettisonTransition_AlreadySeeded_NoEvent",
+       "line": 2692
+      },
+      {
+       "method": "CheckJettisonTransition_NotSeeded_EmitsEvent",
+       "line": 2705
+      },
+      {
+       "method": "CheckEngineTransition_AlreadySeeded_NoIgnitedEvent",
+       "line": 2717
+      },
+      {
+       "method": "CheckEngineTransition_NotSeeded_EmitsIgnitedEvent",
+       "line": 2732
+      },
+      {
+       "method": "CheckEngineTransition_NotSeededZeroThrottle_SkipsIgnitedEvent",
+       "line": 2747
+      },
+      {
+       "method": "CheckEngineTransition_ZeroThrottleSkip_AllowsLaterPositiveIgnition",
+       "line": 2763
+      },
+      {
+       "method": "CheckLightTransition_AlreadySeeded_NoEvent",
+       "line": 2783
+      },
+      {
+       "method": "CheckLightTransition_NotSeeded_EmitsLightOnEvent",
+       "line": 2793
+      },
+      {
+       "method": "CheckDeployableTransition_AlreadySeeded_NoEvent",
+       "line": 2804
+      },
+      {
+       "method": "CheckDeployableTransition_NotSeeded_EmitsExtendedEvent",
+       "line": 2814
+      },
+      {
+       "method": "CheckGearTransition_AlreadySeeded_NoEvent",
+       "line": 2825
+      },
+      {
+       "method": "CheckCargoBayTransition_AlreadySeeded_NoEvent",
+       "line": 2835
+      },
+      {
+       "method": "CheckParachuteTransition_AlreadySeeded_NoEvent",
+       "line": 2845
+      },
+      {
+       "method": "CheckParachuteTransition_NotSeeded_EmitsDeployedEvent",
+       "line": 2856
+      },
+      {
+       "method": "CheckRcsTransition_AlreadySeeded_NoEvent",
+       "line": 2867
+      },
+      {
+       "method": "CheckLadderTransition_AlreadySeeded_NoEvent",
+       "line": 2880
+      },
+      {
+       "method": "CheckAnimationGroupTransition_AlreadySeeded_NoEvent",
+       "line": 2891
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

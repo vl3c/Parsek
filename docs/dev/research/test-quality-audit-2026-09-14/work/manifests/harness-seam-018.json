@@ -1,0 +1,229 @@
+{
+ "batch_id": "harness-seam-018",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "TestCommandTimeJumpTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsForwardJump_ForwardTrue_BackwardOrZeroFalse",
+       "line": 23
+      },
+      {
+       "method": "ResolveTargetUt_AbsoluteUt_ResolvesExactly",
+       "line": 33
+      },
+      {
+       "method": "ResolveTargetUt_PositiveDelta_AddsToNow",
+       "line": 41
+      },
+      {
+       "method": "ResolveTargetUt_BothPresent_MissingJumpTarget",
+       "line": 49
+      },
+      {
+       "method": "ResolveTargetUt_NeitherPresent_MissingJumpTarget",
+       "line": 56
+      },
+      {
+       "method": "ResolveTargetUt_LocaleCommaDelta_Errors",
+       "line": 63
+      },
+      {
+       "method": "ResolveTargetUt_UnparseableUt_Errors",
+       "line": 71
+      },
+      {
+       "method": "ResolveTargetUt_NegativeDelta_ResolvesButNotForward",
+       "line": 78
+      },
+      {
+       "method": "ResolveTargetUt_AbsurdlyLargeUt_OutOfRange",
+       "line": 90
+      },
+      {
+       "method": "ResolveTargetUt_DeltaOverflowsToInfinity_OutOfRange",
+       "line": 99
+      },
+      {
+       "method": "ResolveTargetUt_NaNTarget_OutOfRange",
+       "line": 108
+      },
+      {
+       "method": "ResolveTargetUt_JustInsideBound_Resolves",
+       "line": 115
+      },
+      {
+       "method": "DecideJumpCompletion_ReachedAndSettled_CompleteOk",
+       "line": 129
+      },
+      {
+       "method": "DecideJumpCompletion_ReachedNotSettled_StillWaiting",
+       "line": 136
+      },
+      {
+       "method": "DecideJumpCompletion_NotReachedWithinBudget_StillWaiting",
+       "line": 143
+      },
+      {
+       "method": "DecideJumpCompletion_ExactlyOnTargetMinusTolerance_Inclusive_CompleteOk",
+       "line": 150
+      },
+      {
+       "method": "DecideJumpCompletion_ClockOvershotTarget_StaysReached_CompleteOk",
+       "line": 160
+      },
+      {
+       "method": "DecideJumpCompletion_JustBelowTargetMinusTolerance_NotReached_StillWaiting",
+       "line": 170
+      },
+      {
+       "method": "DecideJumpCompletion_BudgetExpiredNotReached_JumpTimeout",
+       "line": 178
+      },
+      {
+       "method": "DecideJumpCompletion_ReachedButSettlePendingPastBudget_JumpTimeout",
+       "line": 185
+      },
+      {
+       "method": "DecideJumpCompletion_ClockAdvancesPastTargetAcrossPolls_CompleteOk",
+       "line": 211
+      },
+      {
+       "method": "DecideJumpCompletion_ClockNeverReachesTarget_JumpTimeout",
+       "line": 231
+      },
+      {
+       "method": "CompletePayload_CarriesUtTargetDelta_InvariantCulture",
+       "line": 252
+      },
+      {
+       "method": "CompletePayload_FractionalDelta_NoLocaleComma",
+       "line": 262
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Harness/ResolverHarnessTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Scenario1_AbsoluteSingle_HashMatchesBaseline",
+       "line": 109
+      },
+      {
+       "method": "Scenario2_RelativeFixedAnchor_HashMatchesBaseline",
+       "line": 116
+      },
+      {
+       "method": "Scenario6_ReFlyWalkBack_HashMatchesBaseline",
+       "line": 123
+      },
+      {
+       "method": "Scenario9_LoopAnchorRejection_HashMatchesBaseline",
+       "line": 130
+      },
+      {
+       "method": "Scenario4_FocusedDebrisWrongAnchor_HashMatchesBaseline",
+       "line": 144
+      },
+      {
+       "method": "Scenario5_BackgroundDebrisWrongAnchor_HashMatchesBaseline",
+       "line": 151
+      },
+      {
+       "method": "Scenario7_ReFlyDebrisWrongAnchor_HashMatchesBaseline",
+       "line": 158
+      },
+      {
+       "method": "Scenario10_SameChainContinuation_HashMatchesBaseline",
+       "line": 165
+      },
+      {
+       "method": "Scenario3_AbsoluteRelativeSectionTransition_HashMatchesBaseline",
+       "line": 181
+      },
+      {
+       "method": "Scenario8_OnRailsBackgroundVessel_HashMatchesBaseline",
+       "line": 188
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandMissionConfigTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Loop_arg_is_strict_true_false",
+       "line": 25
+      },
+      {
+       "method": "Interval_arg_is_optional_and_positive",
+       "line": 42
+      },
+      {
+       "method": "Interval_applies_only_on_an_enable",
+       "line": 55
+      },
+      {
+       "method": "Compressed_span_mirrors_the_clock_rule",
+       "line": 91
+      },
+      {
+       "method": "Compressed_span_of_the_v24w_unit_is_the_number_the_clock_logged",
+       "line": 99
+      },
+      {
+       "method": "Compressed_span_of_a_non_finite_span_is_non_finite",
+       "line": 119
+      },
+      {
+       "method": "Cuts_serialize_as_span_start_relative_start_colon_length",
+       "line": 130
+      },
+      {
+       "method": "One_cut_round_trips_the_v24w_shape",
+       "line": 138
+      },
+      {
+       "method": "An_empty_or_null_cut_list_serializes_empty",
+       "line": 151
+      },
+      {
+       "method": "One_unrepresentable_cut_poisons_the_whole_list",
+       "line": 158
+      },
+      {
+       "method": "An_over_cap_cut_list_serializes_empty_rather_than_truncated",
+       "line": 172
+      },
+      {
+       "method": "The_wire_separators_are_not_protocol_reserved",
+       "line": 189
+      },
+      {
+       "method": "Serialized_cuts_reproduce_the_clocks_own_compression",
+       "line": 199
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,215 @@
+{
+ "batch_id": "recorder-events-007",
+ "cluster": "recorder-events",
+ "tier": "A1",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "RuntimePolicyTests.cs",
+   "ranges": [
+    {
+     "start": 33,
+     "end": 657,
+     "methods": [
+      {
+       "method": "ShouldRefreshSnapshot_RespectsIntervalAndForce",
+       "line": 33
+      },
+      {
+       "method": "DecideOnVesselSwitch_SamePid_NoSwitch",
+       "line": 41
+      },
+      {
+       "method": "DecideOnVesselSwitch_DifferentPidEva_StartedAsVessel_TransitionsToBackground",
+       "line": 49
+      },
+      {
+       "method": "DecideOnVesselSwitch_DifferentPidEva_StartedAsEva_Continues",
+       "line": 57
+      },
+      {
+       "method": "DecideOnVesselSwitch_DifferentPidNonEva_TransitionsToBackground",
+       "line": 65
+      },
+      {
+       "method": "IsAnyWarpActive_CoversRailsAndPhysicsModes",
+       "line": 76
+      },
+      {
+       "method": "ShouldSuppressVisualFx_ThresholdAt10x",
+       "line": 91
+      },
+      {
+       "method": "ShouldSuppressGhosts_ThresholdAt50x",
+       "line": 104
+      },
+      {
+       "method": "ShouldPauseTimelineResourceReplay_ReflectsRecordingState",
+       "line": 112
+      },
+      {
+       "method": "ShouldLoopPlayback_RespectsRecordingFlag",
+       "line": 121
+      },
+      {
+       "method": "ComputeTargetResourceIndex_FindsHighestPassedPoint",
+       "line": 129
+      },
+      {
+       "method": "ComputeTargetResourceIndex_NoAdvanceWhenBeforeNextPoint",
+       "line": 137
+      },
+      {
+       "method": "ComputePendingWatchHoldSeconds_ExtendsHoldForFutureContinuationAt1x",
+       "line": 149
+      },
+      {
+       "method": "ComputePendingWatchHoldSeconds_UsesWarpRateForEstimatedRealTime",
+       "line": 158
+      },
+      {
+       "method": "ComputePendingWatchHoldSeconds_NoFutureGap_LeavesBaseHold",
+       "line": 167
+      },
+      {
+       "method": "ComputePendingWatchHoldWindow_PendingContinuationUsesSharedRealtimeBase",
+       "line": 176
+      },
+      {
+       "method": "ComputePendingWatchHoldWindow_PendingContinuationCapsInitialDeadlineAtMax",
+       "line": 192
+      },
+      {
+       "method": "ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor",
+       "line": 208
+      },
+      {
+       "method": "ComputeScaledRcsSpeed_ShowcaseEnforcesVisibilityFloor",
+       "line": 217
+      },
+      {
+       "method": "ComputeScaledRcsRates_NonShowcaseDoesNotApplyFloors",
+       "line": 226
+      },
+      {
+       "method": "ComputeRotorDeltaDegrees_UsesRpmAndDeltaTime",
+       "line": 243
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_RespectsPlaybackAndPauseWindows",
+       "line": 261
+      },
+      {
+       "method": "SelectRelocatedAltitude_PrefersTerrainThenSnapshot",
+       "line": 282
+      },
+      {
+       "method": "GetActiveCycles_PeriodGreaterThanDuration_SingleCycle",
+       "line": 299
+      },
+      {
+       "method": "GetActiveCycles_PeriodGreaterThanDuration_SecondCycle",
+       "line": 312
+      },
+      {
+       "method": "GetActiveCycles_PeriodEqualsDuration_BackToBack",
+       "line": 325
+      },
+      {
+       "method": "GetActiveCycles_PeriodEqualsDuration_SecondCycle",
+       "line": 338
+      },
+      {
+       "method": "GetActiveCycles_PeriodShorterThanDuration_TwoOverlapping",
+       "line": 352
+      },
+      {
+       "method": "GetActiveCycles_PeriodShorterThanDuration_ThreeOverlapping",
+       "line": 367
+      },
+      {
+       "method": "GetActiveCycles_PeriodShorterThanDuration_MaxCyclesCap",
+       "line": 381
+      },
+      {
+       "method": "GetActiveCycles_BeforeStart_ReturnsZero",
+       "line": 393
+      },
+      {
+       "method": "GetActiveCycles_VeryLargePeriod",
+       "line": 404
+      },
+      {
+       "method": "GetActiveCycles_BelowMinCycleDuration_ClampsToFive",
+       "line": 418
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_PeriodShorterThanDuration_Overlap",
+       "line": 431
+      },
+      {
+       "method": "GetActiveCycles_ShortPeriod_ManyOverlaps_Capped",
+       "line": 448
+      },
+      {
+       "method": "GetActiveCycles_ShortPeriod_NoCap",
+       "line": 463
+      },
+      {
+       "method": "GetActiveCycles_ShortPeriod_OlderCyclesExpire",
+       "line": 477
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_ZeroInterval_ClampsToMinAndRestarts",
+       "line": 492
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_PeriodGreaterThanDuration_InPause",
+       "line": 506
+      },
+      {
+       "method": "GetActiveCycles_ZeroDuration_ReturnsZero",
+       "line": 519
+      },
+      {
+       "method": "IsTreeRecording_WithTreeId_ReturnsTrue",
+       "line": 533
+      },
+      {
+       "method": "IsTreeRecording_WithNullTreeId_ReturnsFalse",
+       "line": 540
+      },
+      {
+       "method": "IsChainRecording_WithChainId_ReturnsTrue",
+       "line": 547
+      },
+      {
+       "method": "IsChainRecording_WithNullOrEmptyChainId_ReturnsFalse",
+       "line": 556
+      },
+      {
+       "method": "ShouldSuppressBoundarySplit_WithActiveTree_ReturnsTrue",
+       "line": 572
+      },
+      {
+       "method": "ShouldSuppressBoundarySplit_WithNullTree_ReturnsFalse",
+       "line": 579
+      },
+      {
+       "method": "ClassifyVesselDestruction_TreeDeferred",
+       "line": 589
+      },
+      {
+       "method": "ClassifyVesselDestruction_NoTree_ReturnsNone",
+       "line": 602
+      },
+      {
+       "method": "ClassifyVesselDestruction_TreeAllLeavesCheck",
+       "line": 617
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

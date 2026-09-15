@@ -1,0 +1,187 @@
+{
+ "batch_id": "ledger-career-026",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "RecalculationEngineTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SortActions_UTAscending",
+       "line": 144
+      },
+      {
+       "method": "SortActions_EarningsBeforeSpendings",
+       "line": 165
+      },
+      {
+       "method": "SortActions_FundsEarningBeforeFundsSpending",
+       "line": 188
+      },
+      {
+       "method": "SortActions_MilestoneBeforeFacilityUpgrade",
+       "line": 211
+      },
+      {
+       "method": "SortActions_SequenceBreaksTies",
+       "line": 238
+      },
+      {
+       "method": "SortActions_EmptyList_NoException",
+       "line": 267
+      },
+      {
+       "method": "SortActions_NullList_ReturnsEmpty",
+       "line": 276
+      },
+      {
+       "method": "SortActions_SingleAction_NoChange",
+       "line": 285
+      },
+      {
+       "method": "SortActions_StableSort_PreservesInsertionOrder",
+       "line": 295
+      },
+      {
+       "method": "SortActions_DoesNotModifyInput",
+       "line": 321
+      },
+      {
+       "method": "SortActions_FullThreeLevelSort",
+       "line": 342
+      },
+      {
+       "method": "IsEarningType_AllEarnings",
+       "line": 383
+      },
+      {
+       "method": "IsEarningType_SpendingsReturnFalse",
+       "line": 395
+      },
+      {
+       "method": "IsSpendingType_AllSpendings",
+       "line": 413
+      },
+      {
+       "method": "IsSpendingType_EarningsReturnFalse",
+       "line": 426
+      },
+      {
+       "method": "NeutralTypes_NeitherEarningNorSpending",
+       "line": 442
+      },
+      {
+       "method": "PrePassNoInjection_SkipsSecondSort",
+       "line": 453
+      },
+      {
+       "method": "PrePassWithInjection_DoesSecondSort",
+       "line": 474
+      },
+      {
+       "method": "CutoffWalk_AllocationsBounded",
+       "line": 506
+      },
+      {
+       "method": "Recalculate_CallsResetOnAllModules",
+       "line": 543
+      },
+      {
+       "method": "Recalculate_DispatchesToFirstTierModule",
+       "line": 564
+      },
+      {
+       "method": "Recalculate_DispatchesToSecondTierModule",
+       "line": 584
+      },
+      {
+       "method": "Recalculate_DispatchesToStrategyModule",
+       "line": 602
+      },
+      {
+       "method": "Recalculate_DispatchesToFacilitiesModule",
+       "line": 619
+      },
+      {
+       "method": "Recalculate_DispatchesInSortedOrder",
+       "line": 636
+      },
+      {
+       "method": "Recalculate_AllTiersReceiveEveryAction",
+       "line": 656
+      },
+      {
+       "method": "Recalculate_ContractCompleteBeforeDeadline_PaysRewards",
+       "line": 684
+      },
+      {
+       "method": "Recalculate_ContractCompleteAfterDeadline_FailsDeadlineAndSkipsRewards",
+       "line": 718
+      },
+      {
+       "method": "Recalculate_ContractCompleteAtDeadline_FailsDeadlineAndSkipsRewards",
+       "line": 758
+      },
+      {
+       "method": "Recalculate_ExplicitFailOrCancelAfterDeadline_StillAppliesOnlyExplicitPenalty",
+       "line": 800
+      },
+      {
+       "method": "Recalculate_CompleteAfterExplicitFailOrCancel_DoesNotPayRewards",
+       "line": 829
+      },
+      {
+       "method": "Recalculate_CompleteSameUtAsExplicitFailOrCancel_DoesNotPayRewards",
+       "line": 870
+      },
+      {
+       "method": "Recalculate_MultipleFirstTierModules",
+       "line": 908
+      },
+      {
+       "method": "Recalculate_EmptyActions_NoException",
+       "line": 933
+      },
+      {
+       "method": "Recalculate_NullActions_LogsWarning",
+       "line": 946
+      },
+      {
+       "method": "Recalculate_NoModulesRegistered_NoException",
+       "line": 955
+      },
+      {
+       "method": "Recalculate_LogsSummary",
+       "line": 974
+      },
+      {
+       "method": "Recalculate_RepeatedNoopSummary_LogsOnceUntilStateChanges",
+       "line": 994
+      },
+      {
+       "method": "RegisterModule_LogsRegistration",
+       "line": 1016
+      },
+      {
+       "method": "RegisterModule_NullModule_LogsWarning",
+       "line": 1028
+      },
+      {
+       "method": "ClearModules_LogsRemovalCount",
+       "line": 1037
+      },
+      {
+       "method": "SortActions_SeedTypesAreTreatedAsEarnings",
+       "line": 1057
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

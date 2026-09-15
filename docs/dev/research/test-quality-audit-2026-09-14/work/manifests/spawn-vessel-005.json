@@ -1,0 +1,171 @@
+{
+ "batch_id": "spawn-vessel-005",
+ "cluster": "spawn-vessel",
+ "tier": "A",
+ "expected_methods": 38,
+ "files": [
+  {
+   "file": "DeferredSpawnTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldFlush_PendingAndWarpInactive_ReturnsTrue",
+       "line": 39
+      },
+      {
+       "method": "ShouldFlush_PendingAndWarpActive_ReturnsFalse",
+       "line": 45
+      },
+      {
+       "method": "ShouldFlush_EmptyAndWarpInactive_ReturnsFalse",
+       "line": 51
+      },
+      {
+       "method": "ShouldFlush_EmptyAndWarpActive_ReturnsFalse",
+       "line": 57
+      },
+      {
+       "method": "ShouldSkip_AlreadySpawned_ReturnsTrue",
+       "line": 67
+      },
+      {
+       "method": "ShouldSkip_NoSnapshot_ReturnsTrue",
+       "line": 73
+      },
+      {
+       "method": "ShouldSkip_SpawnedAndNoSnapshot_ReturnsTrue",
+       "line": 79
+      },
+      {
+       "method": "ShouldSkip_NotSpawnedWithSnapshot_ReturnsFalse",
+       "line": 85
+      },
+      {
+       "method": "ShouldRestoreWatch_MatchingIdWithPid_ReturnsTrue",
+       "line": 95
+      },
+      {
+       "method": "ShouldRestoreWatch_MatchingIdZeroPid_ReturnsFalse",
+       "line": 101
+      },
+      {
+       "method": "ShouldRestoreWatch_DifferentId_ReturnsFalse",
+       "line": 107
+      },
+      {
+       "method": "ShouldRestoreWatch_NullPendingId_ReturnsFalse",
+       "line": 113
+      },
+      {
+       "method": "ShouldRestoreWatch_BothNull_ReturnsFalse",
+       "line": 119
+      },
+      {
+       "method": "ShouldRestoreWatch_BothNullWithPid_ReturnsFalse",
+       "line": 126
+      },
+      {
+       "method": "SpawnFlagVesselsUpToUT_SkipsExistingFlags_AndStopsAtFutureBoundary",
+       "line": 133
+      },
+      {
+       "method": "FlushDeferredSpawns_SpawnsEligibleFlagEvents_ForSpawnedRecording",
+       "line": 165
+      },
+      {
+       "method": "FlushDeferredSpawns_FailedFlagReplay_StaysQueuedUntilRetrySucceeds",
+       "line": 215
+      },
+      {
+       "method": "FlushDeferredSpawns_SpawnsQueuedSplashedSurvivorAfterWarpEnds",
+       "line": 272
+      },
+      {
+       "method": "FlushDeferredSpawns_TerminalSafetyDeferred_KeepsPendingWithoutSpawn",
+       "line": 311
+      },
+      {
+       "method": "RetryHeldGhostSpawns_TerminalSafetyDeferredBeforeNextUt_DoesNotRetryOrDestroy",
+       "line": 346
+      },
+      {
+       "method": "ShouldRetainMapPresenceForTerminalRealSpawn_PendingOrDeferred_ReturnsTrue",
+       "line": 392
+      },
+      {
+       "method": "FlushDeferredSpawns_PurgesSupersededRelationQueues",
+       "line": 423
+      },
+      {
+       "method": "FlushDeferredSpawns_PurgesRewindRetiredQueues",
+       "line": 484
+      },
+      {
+       "method": "RetryHeldGhostSpawns_ReleasesSupersededRelationWithoutRetry",
+       "line": 547
+      },
+      {
+       "method": "RetryHeldGhostSpawns_ReleasesRewindRetiredWithoutRetry",
+       "line": 605
+      },
+      {
+       "method": "HandleAllGhostsDestroying_ClearsPendingFlagReplayQueue",
+       "line": 672
+      },
+      {
+       "method": "ShouldCheckForSpawnDeath_SpawnedWithPid_ReturnsTrue",
+       "line": 696
+      },
+      {
+       "method": "ShouldCheckForSpawnDeath_NotSpawned_ReturnsFalse",
+       "line": 702
+      },
+      {
+       "method": "ShouldCheckForSpawnDeath_ZeroPid_ReturnsFalse",
+       "line": 708
+      },
+      {
+       "method": "ShouldCheckForSpawnDeath_Abandoned_ReturnsFalse",
+       "line": 714
+      },
+      {
+       "method": "ShouldCheckForSpawnDeath_NotSpawnedZeroPidAbandoned_ReturnsFalse",
+       "line": 720
+      },
+      {
+       "method": "RunSpawnDeathChecks_SkippedWhileReFlySessionMarkerActive",
+       "line": 739
+      },
+      {
+       "method": "RunSpawnDeathChecks_RunsWhenNoReFlySession",
+       "line": 797
+      },
+      {
+       "method": "RunSpawnDeathChecks_TerminalOrbitDeath_MarksCannotSpawnAndDoesNotArmRetryLoop",
+       "line": 840
+      },
+      {
+       "method": "RunSpawnDeathChecks_NonTerminalDeathAtLimit_UsesExistingAbandonPath",
+       "line": 891
+      },
+      {
+       "method": "RunSpawnDeathChecks_SkipsSupersededRelationRecording",
+       "line": 932
+      },
+      {
+       "method": "RunSpawnDeathChecks_SkippedWhileRewindContextIsRewinding",
+       "line": 1004
+      },
+      {
+       "method": "RunSpawnDeathChecks_RunsAfterRewindContextCleared",
+       "line": 1064
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

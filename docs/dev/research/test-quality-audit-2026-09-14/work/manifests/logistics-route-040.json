@@ -1,0 +1,361 @@
+{
+ "batch_id": "logistics-route-040",
+ "cluster": "logistics-route",
+ "tier": "C",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "Logistics/RouteEntityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DefaultFields",
+       "line": 13
+      },
+      {
+       "method": "RecordHold_SetsFieldsAndLogsOnChange",
+       "line": 72
+      },
+      {
+       "method": "RecordHold_SameKindAndDetail_LogsOnce",
+       "line": 96
+      },
+      {
+       "method": "ClearHold_ResetsAndLogsOnlyWhenSet",
+       "line": 124
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/ResourceTransferabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsRoutable_DefinedModResource_True",
+       "line": 43
+      },
+      {
+       "method": "IsRoutable_ElectricCharge_False",
+       "line": 57
+      },
+      {
+       "method": "IsRoutable_IntakeAir_False",
+       "line": 68
+      },
+      {
+       "method": "IsRoutable_UndefinedName_FalseWithReason",
+       "line": 81
+      },
+      {
+       "method": "IsRoutable_EmptyName_False",
+       "line": 95
+      },
+      {
+       "method": "IsRoutable_NullLibrary_DefaultsDefined_LogsOnce",
+       "line": 112
+      },
+      {
+       "method": "IsAlwaysIgnored_OnlyEcAndIntakeAir",
+       "line": 131
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteRenderUnionWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Seam_BuildsRouteMissionsViaSharedSelector",
+       "line": 68
+      },
+      {
+       "method": "Seam_UnionsRouteMissionsOntoMissionStoreList",
+       "line": 83
+      },
+      {
+       "method": "Seam_PassesUnionedListToBuildSignatureAndBuild",
+       "line": 97
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsCreateChoiceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldBuild_CreatePaused_True",
+       "line": 25
+      },
+      {
+       "method": "ShouldBuild_CreateAndActivate_True",
+       "line": 31
+      },
+      {
+       "method": "ShouldBuild_Cancel_False",
+       "line": 37
+      },
+      {
+       "method": "ShouldActivate_CreateAndActivate_True",
+       "line": 45
+      },
+      {
+       "method": "ShouldActivate_CreatePaused_False",
+       "line": 51
+      },
+      {
+       "method": "ShouldActivate_Cancel_False",
+       "line": 58
+      },
+      {
+       "method": "ActivatePath_OnFreshlyBuiltPausedRoute_TransitionsToActive",
+       "line": 68
+      },
+      {
+       "method": "PausedPath_DoesNotActivate_RouteStaysPaused",
+       "line": 84
+      },
+      {
+       "method": "ShouldToastManualLoopCleared_OnlyPositiveCount",
+       "line": 105
+      },
+      {
+       "method": "FormatManualLoopTurnedOffToast_NamesTreeAndExplainsOwnership",
+       "line": 112
+      },
+      {
+       "method": "FormatRouteOwnsTreeNote_NamesTreeAndStatesLoopingDisabled",
+       "line": 122
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteSourceRefTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Equality_AllFieldsContribute",
+       "line": 41
+      },
+      {
+       "method": "RouteSourceRef_HasNoUndockUtField",
+       "line": 78
+      },
+      {
+       "method": "UndockDrift_ChangesRouteProofHash",
+       "line": 96
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteTickOrderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CompareRoutesForTick_PriorityWins",
+       "line": 31
+      },
+      {
+       "method": "CompareRoutesForTick_TiesFallToNextDispatchUT",
+       "line": 45
+      },
+      {
+       "method": "CompareRoutesForTick_FinalTieIsOrdinalRouteId",
+       "line": 58
+      },
+      {
+       "method": "CompareRoutesForTick_NullSafe",
+       "line": 71
+      },
+      {
+       "method": "CompareRoutesForTick_NaNNextDispatchUT_TotalOrder",
+       "line": 90
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RoutePriorityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClampPriority_FloorsAtZero",
+       "line": 43
+      },
+      {
+       "method": "Step_MinusAtFloor_StaysZero",
+       "line": 54
+      },
+      {
+       "method": "Step_PlusAndMinus_AdjustByOne",
+       "line": 60
+      },
+      {
+       "method": "Apply_RaisesPriority_SetsField_AndLogs",
+       "line": 73
+      },
+      {
+       "method": "Apply_Negative_ClampsToZero",
+       "line": 88
+      },
+      {
+       "method": "Apply_SameValue_NoOp_ReturnsFalse",
+       "line": 103
+      },
+      {
+       "method": "Apply_NegativeOntoZero_NoOp_ReturnsFalse",
+       "line": 118
+      },
+      {
+       "method": "Apply_NullRoute_ReturnsFalse",
+       "line": 129
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RecordingDisplayInfoResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Resolve_CommittedRecording_ReturnsNameTreeAndOrder",
+       "line": 43
+      },
+      {
+       "method": "Resolve_EmptyVesselName_UntitledFallback",
+       "line": 67
+      },
+      {
+       "method": "Resolve_UnknownId_ReturnsFalse",
+       "line": 88
+      },
+      {
+       "method": "Resolve_NullOrEmptyId_ReturnsFalse",
+       "line": 104
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteWindowIntervalTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "WindowInterval_EqualsDialogSpan_ForSameCandidate",
+       "line": 67
+      },
+      {
+       "method": "WindowInterval_IsNotThirtySecondPlaceholder",
+       "line": 84
+      },
+      {
+       "method": "WindowInterval_NullCandidate_ReturnsHelperFloor",
+       "line": 98
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteReplayBranchAbsentTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DiscardedReplayBranchTypes_AreAbsentFromProductionAssembly",
+       "line": 52
+      },
+      {
+       "method": "MissionLoopFoundation_RenderTypesArePresent",
+       "line": 82
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsLinkPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildLinkCandidates_ExcludesSelf",
+       "line": 26
+      },
+      {
+       "method": "BuildLinkCandidates_ExcludesAlreadyLinkedRoutes",
+       "line": 39
+      },
+      {
+       "method": "BuildLinkCandidates_SkipsNullAndEmptyIdRoutes",
+       "line": 57
+      },
+      {
+       "method": "BuildLinkCandidates_PreservesInputOrder",
+       "line": 68
+      },
+      {
+       "method": "BuildLinkCandidates_UsesIdWhenNameEmpty",
+       "line": 80
+      },
+      {
+       "method": "BuildLinkCandidates_NullRoutesOrEmptySource_ReturnsEmpty",
+       "line": 92
+      },
+      {
+       "method": "FormatLinkedNote_NamesPartner",
+       "line": 100
+      },
+      {
+       "method": "FormatLinkedNote_NullOrEmpty_RendersUnnamed",
+       "line": 110
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

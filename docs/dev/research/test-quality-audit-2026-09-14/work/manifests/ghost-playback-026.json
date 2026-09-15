@@ -1,0 +1,189 @@
+{
+ "batch_id": "ghost-playback-026",
+ "cluster": "ghost-playback",
+ "tier": "C",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "GhostVesselLoadPatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LogBlockedOffRails_RepeatedCallsSamePid_EmitOnceForStableName",
+       "line": 34
+      },
+      {
+       "method": "LogBlockedOffRails_DistinctPids_EachEmitsOnceAndStaysSilent",
+       "line": 67
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostTrajectoryPolylineMapModeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldDraw3DMapLine_MapView3DLinesOn_DrawsIn3D",
+       "line": 24
+      },
+      {
+       "method": "ShouldDraw3DMapLine_MapView3DLinesOff_DrawsIn2D",
+       "line": 33
+      },
+      {
+       "method": "ShouldDraw3DMapLine_MapViewAbsent_DefaultsTo3D",
+       "line": 43
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostChainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ChainLink_ToString_IncludesAllFields",
+       "line": 8
+      },
+      {
+       "method": "GhostChain_Constructor_InitializesEmptyLinks",
+       "line": 28
+      },
+      {
+       "method": "GhostChain_ToString_IncludesAllFields",
+       "line": 37
+      },
+      {
+       "method": "GhostChain_IsTerminated_DefaultsFalse",
+       "line": 60
+      },
+      {
+       "method": "GhostChain_LinksCanBeAdded_AndRetrieved",
+       "line": 68
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostFxFingerprintTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatEntry_RoundsAndUsesInvariantCulture",
+       "line": 15
+      },
+      {
+       "method": "FormatEntry_NullNamesBecomePlaceholders",
+       "line": 31
+      },
+      {
+       "method": "CanonicalObjectName_StripsAllInstanceSuffixes",
+       "line": 46
+      },
+      {
+       "method": "BuildFingerprint_SortsEntriesAndHandlesEmpty",
+       "line": 52
+      },
+      {
+       "method": "BuildFingerprint_OrderIndependent",
+       "line": 62
+      },
+      {
+       "method": "DescribeCurves_FormatsKeyCounts",
+       "line": 72
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostFxEmissionProbeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryComputeMeanVelocity_AveragesWorldVelocities",
+       "line": 14
+      },
+      {
+       "method": "TryComputeMeanVelocity_EmptyOrCancelling_ReturnsFalse",
+       "line": 30
+      },
+      {
+       "method": "BuildProbeLogLine_CarriesTheDiagnosisFields",
+       "line": 40
+      },
+      {
+       "method": "BuildKey_DistinguishesPartModuleAndFx",
+       "line": 58
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostRecordingIdRebindTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Rebind_ReplacesTheStaleCreateTimeId",
+       "line": 25
+      },
+      {
+       "method": "Rebind_NoOpsOnNullEmptyAndZeroPid",
+       "line": 38
+      },
+      {
+       "method": "Rebind_SameIdIsIdempotent",
+       "line": 53
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostRecordingAnchorPolicyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldRecordGhostAnchorCandidates_NoReFlyMarker_ReturnsFalse",
+       "line": 8
+      },
+      {
+       "method": "ShouldRecordGhostAnchorCandidates_MarkerWithoutActiveRecording_ReturnsFalse",
+       "line": 17
+      },
+      {
+       "method": "ShouldRecordGhostAnchorCandidates_ActiveReFlyMarker_ReturnsTrue",
+       "line": 25
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,187 @@
+{
+ "batch_id": "ledger-career-019",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "LedgerGroundTruthDiffTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Diff_HealthyMatch_EmptyReport",
+       "line": 78
+      },
+      {
+       "method": "Diff_FundsBeyondTolerance_HardFail",
+       "line": 91
+      },
+      {
+       "method": "Diff_WithinTolerance_NoDivergence",
+       "line": 107
+      },
+      {
+       "method": "Diff_SeededPoolUpliftWithoutAuthoritative_ReportOnly",
+       "line": 129
+      },
+      {
+       "method": "Diff_SeededPoolDownward_StaysHard",
+       "line": 157
+      },
+      {
+       "method": "Diff_SeededPoolUpliftWithAuthoritative_StaysHard",
+       "line": 186
+      },
+      {
+       "method": "Diff_SeededPoolUplift_StrictPromotesToHard",
+       "line": 215
+      },
+      {
+       "method": "StrictSeam_RunTestsArgDrivesTheStaticAndThenTheHardSet",
+       "line": 244
+      },
+      {
+       "method": "StrictSeam_UnarmedBatchStillGreensOnAReportOnlyDivergence",
+       "line": 280
+      },
+      {
+       "method": "Diff_PhantomSubject_PhantomInRecon",
+       "line": 308
+      },
+      {
+       "method": "Diff_SharedSubjectMismatch_ReportOnly",
+       "line": 331
+      },
+      {
+       "method": "Diff_StrictMode_PromotesReportOnly",
+       "line": 350
+      },
+      {
+       "method": "Diff_FacilityFractionToInt_UsesMaxLevel",
+       "line": 371
+      },
+      {
+       "method": "Diff_RecoveryCreditWithPresentVessel_Consistency",
+       "line": 402
+      },
+      {
+       "method": "Diff_RecoveryCreditPidOnly_ReportNotHard",
+       "line": 434
+      },
+      {
+       "method": "Diff_RecoveryCreditAbsentVessel_Consistent",
+       "line": 470
+      },
+      {
+       "method": "Diff_MissingFacet_Skipped",
+       "line": 491
+      },
+      {
+       "method": "Diff_ContractPhantom_ReportOnly",
+       "line": 512
+      },
+      {
+       "method": "Diff_ContractActiveMissingInRecon_ReportOnly",
+       "line": 539
+      },
+      {
+       "method": "Diff_ContractActiveButNonActiveInSave_ValueMismatch",
+       "line": 562
+      },
+      {
+       "method": "Diff_ContractStrictMode_PromotesReportOnly",
+       "line": 592
+      },
+      {
+       "method": "Diff_MilestonePhantom_ReportOnly",
+       "line": 621
+      },
+      {
+       "method": "Diff_MilestoneMissingInRecon_ReportOnly",
+       "line": 655
+      },
+      {
+       "method": "Diff_MilestoneMissing_IsFormAgnosticLikeThePhantomDirection",
+       "line": 678
+      },
+      {
+       "method": "Diff_MilestoneMissing_TopLevelIdIsNotSilencedByANestedNamesake",
+       "line": 706
+      },
+      {
+       "method": "Diff_MilestoneMissing_StillFiresWhenNoFormIsCredited",
+       "line": 736
+      },
+      {
+       "method": "Diff_MilestoneStrictMode_PromotesReportOnly",
+       "line": 757
+      },
+      {
+       "method": "Diff_RosterWithoutReconSurface_IsUncomparedNotDiffed",
+       "line": 808
+      },
+      {
+       "method": "Diff_LedgerCreatedKerbalAbsentFromSaveRoster_PhantomReportOnly",
+       "line": 828
+      },
+      {
+       "method": "Diff_PermanentlyGoneKerbalRespawnedToAvailable_IsNotADivergence",
+       "line": 849
+      },
+      {
+       "method": "Diff_PermanentlyGoneKerbalInAnUnexplainableState_ConsistencyReportOnly",
+       "line": 873
+      },
+      {
+       "method": "Diff_EmptyButExportedRoster_StillComparesAndRaisesPhantoms",
+       "line": 897
+      },
+      {
+       "method": "Diff_EmptyButExportedTechTree_StillComparesAndRaisesPhantoms",
+       "line": 922
+      },
+      {
+       "method": "Diff_PermanentlyGoneKerbalDeadOrAbsent_NoDivergence",
+       "line": 944
+      },
+      {
+       "method": "Diff_SaveKerbalsTheLedgerNeverMentions_AreNotDivergences",
+       "line": 965
+      },
+      {
+       "method": "Diff_TechNodeClaimedByReconButNotUnlockedInSave_PhantomReportOnly",
+       "line": 984
+      },
+      {
+       "method": "Diff_TechNodeUnlockedInSaveButNotClaimed_IsCountedNotEmitted",
+       "line": 1006
+      },
+      {
+       "method": "Diff_TechWithoutReconSurface_IsUncompared",
+       "line": 1029
+      },
+      {
+       "method": "Diff_PartPurchases_SaveSideCensusOnly",
+       "line": 1048
+      },
+      {
+       "method": "Diff_Strategies_SaveSideCensusOnly",
+       "line": 1072
+      },
+      {
+       "method": "Diff_NewFacets_NeverPromoteToAlwaysHard",
+       "line": 1100
+      },
+      {
+       "method": "Format_StableAndComplete",
+       "line": 1130
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

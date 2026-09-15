@@ -1,0 +1,218 @@
+{
+ "batch_id": "mission-groups-011",
+ "cluster": "mission-groups",
+ "tier": "A",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "MissionCompositionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatComposition_OmitsZeros_UsesXn",
+       "line": 75
+      },
+      {
+       "method": "SingleUncrewedController_IsLeaf",
+       "line": 88
+      },
+      {
+       "method": "CrewedTerminal_IsMultiAtom_ExpandsToAtoms",
+       "line": 98
+      },
+      {
+       "method": "CrewCount_FallsBackToCrewNames_WhenNoStartCrew",
+       "line": 111
+      },
+      {
+       "method": "StaleVessel_PeelsAnchoredProbe_SynthesizesContinuingRemainder",
+       "line": 119
+      },
+      {
+       "method": "KerbalX_ProbeDecouples_ThenLaterEva_SurvivorStartsAtDecoupleSpansEva",
+       "line": 146
+      },
+      {
+       "method": "CrewedTerminal_WithNames_ExpandsToNamedCrewLeaves",
+       "line": 198
+      },
+      {
+       "method": "EnvSplit_SameComposition_CollapsesToOneInterval",
+       "line": 217
+      },
+      {
+       "method": "Decouple_BranchesIntoContinuingPlusPeeledProbe",
+       "line": 232
+      },
+      {
+       "method": "Eva_KeepsOneInterval_LabelIsSurvivingCrew_KerbalHangsOff",
+       "line": 259
+      },
+      {
+       "method": "EmptyStructure_YieldsNoRoots",
+       "line": 284
+      },
+      {
+       "method": "IntervalSelection_AllIncluded_FullWindowPerVessel",
+       "line": 311
+      },
+      {
+       "method": "IntervalSelection_ExcludeLaunchInterval_StartTrimsPodToDecouple",
+       "line": 322
+      },
+      {
+       "method": "IntervalSelection_ExcludeAllPodIntervals_DropsPod_KeepsBranchesIndependently",
+       "line": 333
+      },
+      {
+       "method": "IntervalSelection_OnlyProbe_RendersJustTheBooster",
+       "line": 343
+      },
+      {
+       "method": "IntervalSelection_NullRoots_ReturnsEmpty",
+       "line": 354
+      },
+      {
+       "method": "Dock_EmitsIntervalEdgeAtMergeUT_ContinuingLineSplits",
+       "line": 390
+      },
+      {
+       "method": "Dock_DockedIntervalLabel_UsesMergedLegComposition",
+       "line": 418
+      },
+      {
+       "method": "Undock_AfterDock_SubtractsDepartingFromRebasedBase",
+       "line": 429
+      },
+      {
+       "method": "Undock_AfterDock_RemovesDepartingCrewFromRoster",
+       "line": 451
+      },
+      {
+       "method": "Board_ReboardedKerbal_RejoinsRosterAfterBoardEdge",
+       "line": 468
+      },
+      {
+       "method": "MergeEdge_CoincidentWithStructuralPeelUT_NoSubInterval",
+       "line": 503
+      },
+      {
+       "method": "DockEdges_NeverRenumberStructuralSegKeys",
+       "line": 540
+      },
+      {
+       "method": "IntervalSelection_DockTree_EmptyExclusions_WindowsEqualUnsplit",
+       "line": 584
+      },
+      {
+       "method": "IntervalSelection_ExcludePreDockInterval_StartTrimsToDockUT",
+       "line": 598
+      },
+      {
+       "method": "MergedLeg_EmptyComposition_AdditiveFallbackLogged",
+       "line": 643
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionChaptersTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CollectRoots_DerivesTheSwitchContinuationChapter",
+       "line": 165
+      },
+      {
+       "method": "CollectRoots_DerivesTheForeignDockDepartureChapter",
+       "line": 179
+      },
+      {
+       "method": "CollectRoots_ForeignPartnerTitle_CarriesTheOtherMissionName",
+       "line": 192
+      },
+      {
+       "method": "CollectRoots_UnstampedDock_MintsNoDepartureChapter",
+       "line": 206
+      },
+      {
+       "method": "CollectRoots_DebrisDepartingChild_MintsNoChapter",
+       "line": 221
+      },
+      {
+       "method": "CollectRoots_ContinuingUndockChild_IsNeverAChapter",
+       "line": 233
+      },
+      {
+       "method": "CollectRoots_DualQualification_KeepsOneRootAndSwitchWins",
+       "line": 245
+      },
+      {
+       "method": "CollectRoots_OrderedByRootStartUT",
+       "line": 270
+      },
+      {
+       "method": "CollectRoots_NullGraph_StillDerivesSwitchChapters",
+       "line": 281
+      },
+      {
+       "method": "CollectRoots_LogsTheDerivationSummary",
+       "line": 293
+      },
+      {
+       "method": "ExpandChapter_ForeignDeparture_CollectsTheWholeDownstreamKeySet",
+       "line": 309
+      },
+      {
+       "method": "ExpandChapter_SwitchContinuation_TakesOnlyIntervalsAtOrAfterTheSwitch",
+       "line": 328
+      },
+      {
+       "method": "ExpandChapter_NeverReachesAnotherVesselsLine",
+       "line": 346
+      },
+      {
+       "method": "ExpandChapter_ThroughATwoParentMerge_LeavesThePartnersPreDockFlightAlone",
+       "line": 368
+      },
+      {
+       "method": "ExpandChapter_UnresolvableRoot_ReturnsEmptyNotNull",
+       "line": 412
+      },
+      {
+       "method": "ExpandChapter_IsStableAcrossAnOptimizerSplitInsideTheChapter",
+       "line": 427
+      },
+      {
+       "method": "ResolveAnchorKey_IsTheChaptersEarliestInterval",
+       "line": 472
+      },
+      {
+       "method": "ClassifyChapterState_ReachesAllThreeStates",
+       "line": 496
+      },
+      {
+       "method": "ChapterToggle_WritesExplicitKeysAndLeavesEverythingElseAlone",
+       "line": 520
+      },
+      {
+       "method": "WarnPredicate_RaisesOnlyOnAPartiallyExcludedChapter",
+       "line": 551
+      },
+      {
+       "method": "ReconcileSelections_WarnsAboutNewTopologyInsideAnExcludedChapter_AndWritesNothing",
+       "line": 571
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

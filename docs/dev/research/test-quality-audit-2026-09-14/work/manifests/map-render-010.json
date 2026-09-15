@@ -1,0 +1,187 @@
+{
+ "batch_id": "map-render-010",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "TrackingStationSpawnTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldSpawnAtTrackingStationEnd_OrbitingEligible_ReturnsTrue",
+       "line": 79
+      },
+      {
+       "method": "ShouldSpawnAtTrackingStationEnd_BeforeEndUT_ReturnsFalse",
+       "line": 90
+      },
+      {
+       "method": "ShouldSpawnAtTrackingStationEnd_RewindPending_ReturnsFalse",
+       "line": 101
+      },
+      {
+       "method": "ShouldSpawnAtTrackingStationEnd_IntermediateChainSegment_ReturnsFalse",
+       "line": 113
+      },
+      {
+       "method": "ShouldSpawnAtTrackingStationEnd_PidClaimedByGhostChain_ReturnsFalse",
+       "line": 133
+      },
+      {
+       "method": "ShouldSpawnAtTrackingStationEnd_SupersededByRelation_ReturnsFalse",
+       "line": 157
+      },
+      {
+       "method": "ShouldSpawnAtTrackingStationEnd_RewindRetired_ReturnsFalse",
+       "line": 173
+      },
+      {
+       "method": "ShouldSkipTrackingStationDuplicateSpawn_ExistingRealVessel_ReturnsTrue",
+       "line": 202
+      },
+      {
+       "method": "ShouldSkipTrackingStationDuplicateSpawn_WithoutExistingRealVessel_ReturnsFalse",
+       "line": 214
+      },
+      {
+       "method": "RealVesselExistsForRecording_GuidMatch_True",
+       "line": 228
+      },
+      {
+       "method": "RealVesselExistsForRecording_GuidMismatch_False_Relaunch",
+       "line": 239
+      },
+      {
+       "method": "RealVesselExistsForRecording_GuidUnknown_FallsBackToPid",
+       "line": 252
+      },
+      {
+       "method": "RealVesselExistsForRecording_NoRealVessel_False",
+       "line": 263
+      },
+      {
+       "method": "TryRunTrackingStationSpawnHandoffs_MatchingSceneEntryPidMarksRecordingMaterialized",
+       "line": 273
+      },
+      {
+       "method": "TryRunTrackingStationSpawnHandoffs_HistoricalRecordingWithNoLiveVessel_DoesNotSpawn",
+       "line": 289
+      },
+      {
+       "method": "TryRunTrackingStationSpawnHandoffForIndex_OnlyTouchesSelectedRecording",
+       "line": 308
+      },
+      {
+       "method": "TryRunTrackingStationSpawnHandoffForIndex_SupersededRelation_DoesNotMaterialize",
+       "line": 327
+      },
+      {
+       "method": "TryRunTrackingStationSpawnHandoffForRecordingId_WhenRawIndexIsStale_UsesCurrentIndex",
+       "line": 357
+      },
+      {
+       "method": "ShouldTransferTrackingStationNavigationTarget_MatchingGhostPid_ReturnsTrue",
+       "line": 377
+      },
+      {
+       "method": "ShouldTransferTrackingStationNavigationTarget_DifferentOrMissingTarget_ReturnsFalse",
+       "line": 387
+      },
+      {
+       "method": "ShouldTransferTrackingStationMapFocus_RequiresLiveGhostFocus",
+       "line": 398
+      },
+      {
+       "method": "IsTrackingStationMapFocusSceneActive_TrackingStationSceneCountsWithoutFlightMapView",
+       "line": 420
+      },
+      {
+       "method": "TryProbeMapObjectName_ReturnsName",
+       "line": 434
+      },
+      {
+       "method": "TryProbeMapObjectName_WhenGetterThrows_ReturnsFalse",
+       "line": 447
+      },
+      {
+       "method": "TryProbeMapObjectName_NullGetter_ReturnsFalse",
+       "line": 460
+      },
+      {
+       "method": "TrySetReadyMapObjectTarget_ReturnsNameAndRunsSetter",
+       "line": 473
+      },
+      {
+       "method": "TrySetReadyMapObjectTarget_WhenGetterThrows_DoesNotRunSetter",
+       "line": 490
+      },
+      {
+       "method": "TrySetReadyMapObjectTarget_WhenSetterThrows_ReturnsFalse",
+       "line": 507
+      },
+      {
+       "method": "TrySetReadyMapObjectTarget_NullSetter_ReturnsFalse",
+       "line": 521
+      },
+      {
+       "method": "ShouldAttemptMaterializedFocusRetry_NoPendingPid_ReturnsFalse",
+       "line": 535
+      },
+      {
+       "method": "ShouldAttemptMaterializedFocusRetry_BeforeNextAttempt_ReturnsFalse",
+       "line": 549
+      },
+      {
+       "method": "ShouldAttemptMaterializedFocusRetry_WhenDue_ReturnsTrue",
+       "line": 563
+      },
+      {
+       "method": "ShouldAttemptMaterializedFocusRetry_AfterDeadline_Expires",
+       "line": 577
+      },
+      {
+       "method": "ShouldAbortMaterializedFocusRetryForUserSelection_OnlyCancelsAfterUserNavigatesAway",
+       "line": 602
+      },
+      {
+       "method": "GetCommittedRecordingByRawIndex_ValidAndOutOfRangeIndices",
+       "line": 638
+      },
+      {
+       "method": "RecordingGhostIdentityLookup_CapturesStableRecordingId",
+       "line": 649
+      },
+      {
+       "method": "ShouldPreserveIdentityForTrackingStationSpawn_ActiveTipWithoutRealVessel_ReturnsTrue",
+       "line": 669
+      },
+      {
+       "method": "ShouldPreserveIdentityForTrackingStationSpawn_RealVesselExists_ReturnsFalse",
+       "line": 691
+      },
+      {
+       "method": "ShouldPreserveIdentityForTrackingStationSpawn_TerminatedChain_ReturnsFalse",
+       "line": 713
+      },
+      {
+       "method": "CreateGhostVesselsFromCommittedRecordings_RealVesselAlreadyMaterialized_SkipsGhostCreation",
+       "line": 735
+      },
+      {
+       "method": "TrySelectTrackingStationFocusFrames_OrdinaryParentAnchoredDebris_UsesBodyFixedPrimary",
+       "line": 753
+      },
+      {
+       "method": "TrySelectTrackingStationFocusFrames_LoopAnchoredDebrisChain_UsesBodyFixedPrimary",
+       "line": 769
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

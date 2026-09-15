@@ -1,0 +1,237 @@
+{
+ "batch_id": "logistics-route-027",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "Logistics/RouteRewindDormantTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_SplitsAtCutoff_InclusiveKeep",
+       "line": 129
+      },
+      {
+       "method": "Classify_CarriesEarlierDormantsAndDedupes",
+       "line": 145
+      },
+      {
+       "method": "ResetCycleState_ClearsFutureStateKeepsPast",
+       "line": 167
+      },
+      {
+       "method": "ResetCycleState_PreservesPreCutoffPendingState",
+       "line": 209
+      },
+      {
+       "method": "IsTreeOccupied_IntersectionSemantics_EmptyIdsNeverMatch",
+       "line": 236
+      },
+      {
+       "method": "IsDormantRouteDue_InclusiveAtCreatedUT",
+       "line": 251
+      },
+      {
+       "method": "ResetToFresh_PreservesDefinitionResetsRuntime",
+       "line": 266
+      },
+      {
+       "method": "Materialize_DueRoute_MaterializesPaused_NotDueStaysDormant",
+       "line": 312
+      },
+      {
+       "method": "Materialize_OccupiedTree_DropsDormantTwin",
+       "line": 330
+      },
+      {
+       "method": "Materialize_CoMaterializingPartners_RelinkViaLinkRoutes",
+       "line": 346
+      },
+      {
+       "method": "Materialize_PartnerGone_HintSevered",
+       "line": 364
+      },
+      {
+       "method": "Materialize_MissingSources_SurfaceAsMissingSourceRecording",
+       "line": 376
+      },
+      {
+       "method": "Materialize_EmptyDormantList_IsSilentNoOp",
+       "line": 390
+      },
+      {
+       "method": "Tick_DormantOnlyStore_StillMaterializes",
+       "line": 420
+      },
+      {
+       "method": "SaveLoad_DormantRoutesRoundTrip_SparseWhenEmpty",
+       "line": 440
+      },
+      {
+       "method": "SaveLoad_AllDormantSave_LoadsWithoutRoutesNode",
+       "line": 464
+      },
+      {
+       "method": "Load_SaveWithoutDormantNode_ClearsInMemoryDormantList",
+       "line": 485
+      },
+      {
+       "method": "Load_DormantCollidingWithCommitted_DroppedCommittedWins",
+       "line": 498
+      },
+      {
+       "method": "BundleRestore_WithCutoff_DormantsPostCutoffAndReconcilesKept",
+       "line": 520
+      },
+      {
+       "method": "BundleRestore_RouteBlindOverload_LeavesRouteListsUntouched",
+       "line": 549
+      },
+      {
+       "method": "BundleRestore_ThenMaterialize_EndToEnd",
+       "line": 565
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteLoadTimeSidecarEpochTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FixtureRouteMember_ReadDoesNotDirtyTheSidecar",
+       "line": 195
+      },
+      {
+       "method": "FixtureRouteMember_BinaryReadPathDoesNotDirtyTheSidecar",
+       "line": 223
+      },
+      {
+       "method": "FixtureRouteMember_StillHealsTheFlatListInMemory",
+       "line": 281
+      },
+      {
+       "method": "FixtureRouteMember_CapturedEpochAgreesWithTheSidecarAtRest",
+       "line": 303
+      },
+      {
+       "method": "FixtureRouteMember_SurvivesALoadCycleWithoutFlippingSourceChanged",
+       "line": 416
+      },
+      {
+       "method": "MemberSidecarGenuinelyRewritten_StillFlipsSourceChanged",
+       "line": 447
+      },
+      {
+       "method": "HealCalledWithoutTheReadPathOptOut_StillMarksFilesDirty",
+       "line": 477
+      },
+      {
+       "method": "PayloadFreeSectionAndFlatHeal_DoNotMoveTheRouteProofHash",
+       "line": 502
+      },
+      {
+       "method": "FixtureRouteMember_ProofHashIsStableAcrossTheRead",
+       "line": 552
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsFlowPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CollectRows_OneWalk_DeliverySummaryByteIdenticalToLegacyScan",
+       "line": 29
+      },
+      {
+       "method": "CollectRows_NullElsOrRouteId_IsNoOp",
+       "line": 94
+      },
+      {
+       "method": "FormatPerCycleFlow_SingleStopDeliveryOnly_FullFill",
+       "line": 119
+      },
+      {
+       "method": "FormatPerCycleFlow_PickupOnly_ResolvedSourceName",
+       "line": 138
+      },
+      {
+       "method": "FormatPerCycleFlow_InventoryOnlyPickup_CountsItems",
+       "line": 157
+      },
+      {
+       "method": "FormatPerCycleFlow_MixedCycle_KscFundsDebit_SegmentsInLedgerOrder",
+       "line": 175
+      },
+      {
+       "method": "FormatPerCycleFlow_PhysicalDebit_NamesOriginVessel",
+       "line": 209
+      },
+      {
+       "method": "FormatPerCycleFlow_MultiStopCycle_AggregatesUnderOneLine",
+       "line": 227
+      },
+      {
+       "method": "FormatPerCycleFlow_DeliveryShortfall_FlagsAndAnnotates",
+       "line": 251
+      },
+      {
+       "method": "FormatPerCycleFlow_DebitShortfall_MarksOriginShort",
+       "line": 270
+      },
+      {
+       "method": "FormatPerCycleFlow_InventoryOnlyPickupShortfall_FlagsAndAnnotates",
+       "line": 291
+      },
+      {
+       "method": "FormatPerCycleFlow_FullyBlockedInventoryPickup_RendersZeroOfN",
+       "line": 315
+      },
+      {
+       "method": "FormatPerCycleFlow_InventoryDebitShortfall_MarksOriginShort",
+       "line": 338
+      },
+      {
+       "method": "FormatPerCycleFlow_QuantityLevelInventoryShortfall_EqualCounts_StillFlags",
+       "line": 358
+      },
+      {
+       "method": "CollectRows_CarriesRequestedInventoryCount",
+       "line": 383
+      },
+      {
+       "method": "FormatPerCycleFlow_LastNBounding_NewestFirst",
+       "line": 406
+      },
+      {
+       "method": "FormatPerCycleFlow_VanishedEndpoint_PidFallbackNeverBlank",
+       "line": 430
+      },
+      {
+       "method": "FormatPerCycleFlow_LegacyStopIndex_FallsBackToStopZeroName",
+       "line": 448
+      },
+      {
+       "method": "FormatPerCycleFlow_NoCycleScopedRows_ReturnsEmpty",
+       "line": 465
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

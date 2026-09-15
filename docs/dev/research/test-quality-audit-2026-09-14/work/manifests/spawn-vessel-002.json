@@ -1,0 +1,271 @@
+{
+ "batch_id": "spawn-vessel-002",
+ "cluster": "spawn-vessel",
+ "tier": "A1",
+ "expected_methods": 63,
+ "files": [
+  {
+   "file": "SpawnSafetyNetTests.cs",
+   "ranges": [
+    {
+     "start": 1173,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AbandonSpawnForInvalidMaterialization_MarksGhostOnlyAndRetrySafe",
+       "line": 1173
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects",
+       "line": 1198
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair",
+       "line": 1235
+      },
+      {
+       "method": "BuildValidatedRespawnSnapshot_SurfaceTerminalWithSameBodyStaleOrbit_UsesSnapshotSurfaceRepair",
+       "line": 1303
+      },
+      {
+       "method": "TryGetSnapshotReferenceBodyName_UsesResolverOverride",
+       "line": 1354
+      },
+      {
+       "method": "TryResolveBodyByName_UsesResolverOverride",
+       "line": 1369
+      },
+      {
+       "method": "ResolveBodyIndex_UsesResolverOverride",
+       "line": 1380
+      },
+      {
+       "method": "CorrectUnsafeSnapshotSituation_LandedSnapshot_ReturnsFalse",
+       "line": 1392
+      },
+      {
+       "method": "CorrectUnsafeSnapshotSituation_NullSnapshot_ReturnsFalse",
+       "line": 1404
+      },
+      {
+       "method": "CorrectUnsafeSnapshotSituation_NullTerminal_ReturnsFalse",
+       "line": 1412
+      },
+      {
+       "method": "CorrectUnsafeSnapshotSituation_Logs_Correction",
+       "line": 1424
+      },
+      {
+       "method": "CorrectUnsafeSnapshotSituation_NoLogWhenNotCorrected",
+       "line": 1441
+      },
+      {
+       "method": "ShouldUseRecordedTerminalOrbitSpawnState_OrbitingRecording_ReturnsTrue",
+       "line": 1456
+      },
+      {
+       "method": "ShouldUseRecordedTerminalOrbitSpawnState_EvaOrMissingOrbitData_ReturnsFalse",
+       "line": 1469
+      },
+      {
+       "method": "ComputeRecordedTerminalOrbitMeanAnomalyAtUT_ShiftsToSpawnUT",
+       "line": 1485
+      },
+      {
+       "method": "ComputeRecordedTerminalOrbitMeanAnomalyAtUT_InvalidInputs_UsesRecordedValue",
+       "line": 1507
+      },
+      {
+       "method": "TerminalOrbitSpawnSafety_SafePropagatedOrbit_SpawnsNow",
+       "line": 1523
+      },
+      {
+       "method": "TerminalOrbitSpawnSafety_CurrentInsideAtmosphere_Defers",
+       "line": 1538
+      },
+      {
+       "method": "TerminalOrbitSpawnSafety_UnsafePeriapsis_CannotSpawnSafely",
+       "line": 1552
+      },
+      {
+       "method": "TerminalOrbitSpawnSafety_AirlessLowOrbit_DoesNotApplyAtmosphereMargin",
+       "line": 1567
+      },
+      {
+       "method": "TryGetPreferredRecordedOrbitSeedForSpawn_PrefersLastOrbitSegment",
+       "line": 1581
+      },
+      {
+       "method": "TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersTerminalOrbitMatchingEndpointBody",
+       "line": 1643
+      },
+      {
+       "method": "TryGetEndpointAlignedRecordedOrbitSeedForSpawn_PrefersLastMatchingSegmentWhenEndpointUsesOrbitSegments",
+       "line": 1692
+      },
+      {
+       "method": "TryGetEndpointAlignedRecordedOrbitSeedForSpawn_UsesLastSegmentMatchingEndpointBody",
+       "line": 1741
+      },
+      {
+       "method": "TryGetEndpointAlignedRecordedOrbitSeedForSpawn_ReturnsFalseWhenNoOrbitSeedMatchesEndpointBody",
+       "line": 1797
+      },
+      {
+       "method": "TryGetEndpointAlignedRecordedOrbitSeedForSpawn_SurfaceTerminalDoesNotReuseStaleTerminalOrbit",
+       "line": 1835
+      },
+      {
+       "method": "NormalizeOrbitalSpawnMetadata_RewritesPackedAscentFields",
+       "line": 1887
+      },
+      {
+       "method": "NormalizeOrbitalSpawnMetadata_RewritesPartAtmosphereFields",
+       "line": 1914
+      },
+      {
+       "method": "NormalizeOrbitalSpawnMetadata_CreatesMissingFields",
+       "line": 1930
+      },
+      {
+       "method": "OverrideSnapshotPosition_UpdatesLatLonAlt",
+       "line": 1956
+      },
+      {
+       "method": "OverrideSnapshotPosition_CreatesValuesWhenMissing",
+       "line": 1971
+      },
+      {
+       "method": "OverrideSnapshotPosition_NullSnapshot_NoThrow",
+       "line": 1983
+      },
+      {
+       "method": "OverrideSnapshotPosition_LogsOverride",
+       "line": 1990
+      },
+      {
+       "method": "ResolveSpawnPosition_EvaVessel_UsesTrajectoryEndpoint",
+       "line": 2004
+      },
+      {
+       "method": "ResolveSpawnPosition_NonEvaVessel_UsesSnapshotPosition",
+       "line": 2026
+      },
+      {
+       "method": "ResolveSpawnPosition_BreakupContinuousSplashed_ClampsAltitudeToZero",
+       "line": 2048
+      },
+      {
+       "method": "ResolveSpawnPosition_BreakupContinuousSplashed_NegativeAlt_FloorsToZero",
+       "line": 2070
+      },
+      {
+       "method": "ResolveSpawnPosition_NonBreakupSplashed_ClampsAltitudeToZero",
+       "line": 2091
+      },
+      {
+       "method": "ResolveSpawnPosition_NonBreakupSplashed_NegativeSnapshotAltitude_FloorsToSeaLevel",
+       "line": 2117
+      },
+      {
+       "method": "ResolveSpawnPosition_EvaLanded_FallsThroughToSplashedClamp",
+       "line": 2147
+      },
+      {
+       "method": "ResolveSpawnPosition_EvaSplashed_NegativeEndpointAltitude_FloorsToSeaLevel",
+       "line": 2168
+      },
+      {
+       "method": "ClampAltitudeForLanded_HighAboveTerrain_Preserved_Airfield",
+       "line": 2212
+      },
+      {
+       "method": "ClampAltitudeForLanded_BelowTerrain_PushedUp",
+       "line": 2225
+      },
+      {
+       "method": "ClampAltitudeForLanded_LowClearanceAboveTerrain_PushedToSafetyFloor_Bug282",
+       "line": 2237
+      },
+      {
+       "method": "ClampAltitudeForLanded_AtSafetyFloor_Preserved",
+       "line": 2252
+      },
+      {
+       "method": "ClampAltitudeForLanded_JustBelowSafetyFloor_PushedUp",
+       "line": 2263
+      },
+      {
+       "method": "UndergroundSafetyFloorMeters_IsPinned",
+       "line": 2274
+      },
+      {
+       "method": "StripEvaLadderState_ClearsLadderState",
+       "line": 2286
+      },
+      {
+       "method": "StripEvaLadderState_IgnoresNonLadderState",
+       "line": 2305
+      },
+      {
+       "method": "StripEvaLadderState_HandlesKerbalEVAFlight",
+       "line": 2320
+      },
+      {
+       "method": "StripEvaLadderState_NullSnapshot_NoThrow",
+       "line": 2334
+      },
+      {
+       "method": "StripEvaLadderState_NoModules_NoThrow",
+       "line": 2340
+      },
+      {
+       "method": "StripEvaLadderState_LogsWhenStripped",
+       "line": 2349
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_FlyingLanded_ReturnsLanded",
+       "line": 2368
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_FlyingSplashed_ReturnsSplashed",
+       "line": 2375
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_FlyingOrbiting_ReturnsOrbiting",
+       "line": 2382
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_FlyingDocked_ReturnsOrbiting",
+       "line": 2390
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_FlyingSubOrbital_ReturnsFlyingUnchanged",
+       "line": 2398
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_LandedLandedInput_ReturnsUnchanged",
+       "line": 2407
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_OrbitingHighSpeedLandedTerminal_ReturnsOrbitingUnchanged",
+       "line": 2416
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_FlyingNullTerminal_ReturnsFlyingUnchanged",
+       "line": 2425
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_FlyingDestroyed_ReturnsFlyingUnchanged",
+       "line": 2432
+      },
+      {
+       "method": "OverrideSituationFromTerminalState_WalkingKerbalRepro_ProducesLanded",
+       "line": 2440
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

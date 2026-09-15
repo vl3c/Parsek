@@ -1,0 +1,284 @@
+{
+ "batch_id": "harness-seam-021",
+ "cluster": "harness-seam",
+ "tier": "C",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "TestCommandDeleteRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Index_arg_is_required_and_a_nonnegative_integer",
+       "line": 40
+      },
+      {
+       "method": "Route_mirrors_the_tables_scene_branch",
+       "line": 56
+      },
+      {
+       "method": "Route_tokens_are_distinct",
+       "line": 63
+      },
+      {
+       "method": "Read_back_is_by_reference_not_by_index_or_id",
+       "line": 75
+      },
+      {
+       "method": "Complete_payload_carries_the_handle_the_route_and_both_counts",
+       "line": 91
+      },
+      {
+       "method": "Dispatch_AtSpaceCenterWithGameLoaded_Executes",
+       "line": 111
+      },
+      {
+       "method": "Dispatch_InFlightWithRecorderLive_StillExecutes",
+       "line": 119
+      },
+      {
+       "method": "Dispatch_GameNotLoaded_Defers",
+       "line": 129
+      },
+      {
+       "method": "Dispatch_LoadInFlight_Rejects",
+       "line": 139
+      },
+      {
+       "method": "Dispatch_MergeJournalInFlight_Rejects",
+       "line": 149
+      },
+      {
+       "method": "Dispatch_LoadFirst_WhenBothGuardsFire",
+       "line": 159
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestRunnerPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsEligibleForScene_AnyScene_ReturnsTrue",
+       "line": 18
+      },
+      {
+       "method": "IsEligibleForScene_SpecificMismatch_ReturnsFalse",
+       "line": 29
+      },
+      {
+       "method": "BuildRunSummary_FormatsRunningStateAndCounts",
+       "line": 40
+      },
+      {
+       "method": "BuildCategoryButtonLabel_IncludesArrowAndFailedCount",
+       "line": 53
+      },
+      {
+       "method": "BuildTestLabel_PrefersShortMethodNameAndFormatsIsolatedDuration",
+       "line": 71
+      },
+      {
+       "method": "IsManualOnly_SingleTest_ReturnsTrue",
+       "line": 91
+      },
+      {
+       "method": "IsManualOnly_IsolatedTest_ReturnsFalse",
+       "line": 104
+      },
+      {
+       "method": "IsManualOnly_BatchSafeTest_ReturnsFalse",
+       "line": 117
+      },
+      {
+       "method": "IsManualOnly_NullTest_ReturnsFalse",
+       "line": 128
+      },
+      {
+       "method": "BuildBatchModeNotice_FiltersOutIneligibleTests",
+       "line": 134
+      },
+      {
+       "method": "BuildBatchModeNotice_WhenBothKindsAreEligible_ShowsCombinedNotice",
+       "line": 163
+      },
+      {
+       "method": "BuildTestTooltip_IncludesDescriptionBatchNoteSceneAndFailure",
+       "line": 190
+      },
+      {
+       "method": "BuildTestTooltip_DoesNotRepeatBatchNoteAsFailure",
+       "line": 210
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandC2DispatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EvaExit_OutsideFlight_Defers_NotInFlight",
+       "line": 54
+      },
+      {
+       "method": "EvaExit_LoadInFlight_Rejects",
+       "line": 60
+      },
+      {
+       "method": "EvaExit_SplitPending_Defers",
+       "line": 68
+      },
+      {
+       "method": "EvaExit_FlightEvaNotReady_Defers",
+       "line": 76
+      },
+      {
+       "method": "EvaExit_LoadInFlightBeatsSplitPending",
+       "line": 84
+      },
+      {
+       "method": "EvaExit_Ready_Executes",
+       "line": 96
+      },
+      {
+       "method": "EvaExit_ReadyWithRawKerbalArg_Executes",
+       "line": 103
+      },
+      {
+       "method": "PlantFlag_OutsideFlight_Defers_NotInFlight",
+       "line": 114
+      },
+      {
+       "method": "PlantFlag_ActiveNotEva_Defers_NotEva",
+       "line": 120
+      },
+      {
+       "method": "PlantFlag_OnEva_Executes",
+       "line": 129
+      },
+      {
+       "method": "EvaBoard_OutsideFlight_Defers_NotInFlight",
+       "line": 138
+      },
+      {
+       "method": "EvaBoard_ActiveNotEva_Defers_NotEva",
+       "line": 144
+      },
+      {
+       "method": "EvaBoard_OnEva_Executes",
+       "line": 151
+      },
+      {
+       "method": "EvaBoard_OnEvaWithTargetPid_Executes",
+       "line": 158
+      },
+      {
+       "method": "EvaVerbs_DuringSceneTransition_Defer_NotSafePoint",
+       "line": 170
+      },
+      {
+       "method": "EvaVerbs_BatchRunning_Defer_BatchRunning",
+       "line": 181
+      },
+      {
+       "method": "EvaVerbs_ClaimedJournal_Interrupted",
+       "line": 192
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandParserTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Valid_Line_PopulatesEnvelopeAndArgs",
+       "line": 16
+      },
+      {
+       "method": "Valid_Line_DecodesPercentEncodedArg",
+       "line": 28
+      },
+      {
+       "method": "Args_AnyOrder_AfterIdAndCmd",
+       "line": 36
+      },
+      {
+       "method": "UnknownKeys_AreKeptNotRejected",
+       "line": 45
+      },
+      {
+       "method": "BlankLine_IsIgnored",
+       "line": 58
+      },
+      {
+       "method": "CommentLine_IsIgnored",
+       "line": 66
+      },
+      {
+       "method": "MissingId_FirstTokenNotId_ReturnsMissingId",
+       "line": 74
+      },
+      {
+       "method": "MissingCmd_SecondTokenNotCmd_ReturnsMissingCmdUnderRealId",
+       "line": 85
+      },
+      {
+       "method": "BareToken_NoEquals_IsMalformed",
+       "line": 94
+      },
+      {
+       "method": "ValueWithRawSpace_SplitsIntoBareToken_IsMalformed",
+       "line": 103
+      },
+      {
+       "method": "GarbageFirstToken_NoUsableId_FallsBackToLineNumber",
+       "line": 112
+      },
+      {
+       "method": "TrailingNewline_IsStripped",
+       "line": 122
+      },
+      {
+       "method": "LeadingUtf8Bom_IsStripped_FirstCommandParses",
+       "line": 130
+      },
+      {
+       "method": "EncodedSpaceId_IsRejected_MalformedId",
+       "line": 143
+      },
+      {
+       "method": "NewlineId_IsRejected_MalformedId",
+       "line": 153
+      },
+      {
+       "method": "EncodingUnsafeVerb_IsRejected_MalformedVerb",
+       "line": 162
+      },
+      {
+       "method": "AcceptedId_RoundTripsThroughJournalFormatters_ByteStable",
+       "line": 174
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

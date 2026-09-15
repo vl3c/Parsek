@@ -1,0 +1,241 @@
+{
+ "batch_id": "map-render-019",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "KscSpawnTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryAdoptExistingSourceVesselForSpawn_SourceExists_UsesSourcePid",
+       "line": 74
+      },
+      {
+       "method": "TryAdoptExistingSourceVesselForSpawn_SourceMissing_DoesNotMutate",
+       "line": 90
+      },
+      {
+       "method": "TryAdoptExistingSourceVesselForSpawn_AlreadySpawned_DoesNotOverwrite",
+       "line": 106
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_EligibleRecording_ReturnsTrue",
+       "line": 127
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_EligibleRecording_NoChain_ReturnsTrue",
+       "line": 138
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_NoSnapshot_ReturnsFalse",
+       "line": 154
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_AlreadySpawned_ReturnsFalse",
+       "line": 166
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_VesselDestroyed_ReturnsFalse",
+       "line": 178
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_DestroyedWithoutSnapshot_ReturnsDestroyedReason",
+       "line": 190
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_BranchGtZero_ReturnsFalse",
+       "line": 203
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_TerminalDestroyed_ReturnsFalse",
+       "line": 215
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_TerminalRecovered_ReturnsFalse",
+       "line": 227
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_Debris_ReturnsFalse",
+       "line": 239
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_NonLeafTree_ReturnsFalse",
+       "line": 251
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_AlreadySpawnedPid_ReturnsFalse",
+       "line": 263
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_SnapshotSituationFlying_ReturnsFalse",
+       "line": 275
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_StandaloneLoopPlayback_AllowsFirstSpawn",
+       "line": 287
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_StandaloneLoopPlayback_AlreadySpawned_ReturnsFalse",
+       "line": 304
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_ChainLooping_ReturnsFalse",
+       "line": 323
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_ChainFullyDisabled_StillSpawnsAtTip",
+       "line": 348
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_ChainNotLoopingNotDisabled_ReturnsTrue",
+       "line": 375
+      },
+      {
+       "method": "ShouldShowInKSC_DisabledPlayback_ReturnsFalse",
+       "line": 406
+      },
+      {
+       "method": "ShouldShowInKSC_TooFewPoints_ReturnsFalse",
+       "line": 415
+      },
+      {
+       "method": "ShouldShowInKSC_NotKerbin_ReturnsFalse",
+       "line": 427
+      },
+      {
+       "method": "ShouldShowInKSC_EligibleRecording_ReturnsTrue",
+       "line": 436
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_IntermediateChainSegment_ReturnsFalse",
+       "line": 444
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_ChainTip_ReturnsTrue",
+       "line": 465
+      },
+      {
+       "method": "KscSpawn_OrbitingTerminal_DeferredToFlightScene",
+       "line": 487
+      },
+      {
+       "method": "KscSpawn_DockedTerminal_DeferredToFlightScene",
+       "line": 499
+      },
+      {
+       "method": "KscSpawn_LandedTerminal_StillAllowed",
+       "line": 511
+      },
+      {
+       "method": "KscSpawn_SplashedTerminal_StillAllowed",
+       "line": 522
+      },
+      {
+       "method": "KscSpawn_NullTerminal_StillAllowed",
+       "line": 534
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/AnchorCorrectionLifecycleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Clear_EmptiesAnchorMap",
+       "line": 57
+      },
+      {
+       "method": "Clear_LogsReasonAndPriorSessionId",
+       "line": 73
+      },
+      {
+       "method": "RebuildFromMarker_NullMarker_ClearsAnyPriorAnchors",
+       "line": 92
+      },
+      {
+       "method": "Marker_NullAssignmentSites_AllPairWithClearCall",
+       "line": 119
+      },
+      {
+       "method": "SessionEndingMarkerClears_RouteThroughTheOneHelper",
+       "line": 222
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/MapPresenceSeamTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ParsekFlight_DrivesMapPresence_ThroughScene_NotPolicyDirectly",
+       "line": 45
+      },
+      {
+       "method": "MapViewScene_DriveMapPresence_DelegatesToGhostMapPresenceLifecycle",
+       "line": 76
+      },
+      {
+       "method": "GhostMapPresence_Declares_UpdateFlightMapGhostLifecycle",
+       "line": 94
+      },
+      {
+       "method": "ParsekPlaybackPolicy_NoLongerOwns_MapPresenceBodyOrDicts",
+       "line": 103
+      },
+      {
+       "method": "UpdateFlightMapGhostLifecycle_DoesNotGateOnDirectorDrive",
+       "line": 126
+      },
+      {
+       "method": "GhostMapPresence_Declares_GhostCreatedAndDestroyedMapPresence_8d2",
+       "line": 160
+      },
+      {
+       "method": "ParsekPlaybackPolicy_HandleGhostCreated_DelegatesPresence_KeepsCameraConcern_8d2",
+       "line": 171
+      },
+      {
+       "method": "ParsekPlaybackPolicy_HandleGhostDestroyed_DelegatesPresence_KeepsHeldGhosts_8d2",
+       "line": 191
+      },
+      {
+       "method": "IGhostMapScene_Declares_DriveMapPresence",
+       "line": 207
+      },
+      {
+       "method": "TrackingStationScene_DriveMapPresence_DelegatesToLifecycle",
+       "line": 214
+      },
+      {
+       "method": "UpdateFlightMapGhostLifecycle_DecomposedIntoNamedPasses_8d3",
+       "line": 226
+      },
+      {
+       "method": "IsMapCreateAcceptedSource_AcceptsEverythingExceptNone",
+       "line": 277
+      },
+      {
+       "method": "IsSegmentBearingGhostSource_OnlySegmentTerminalOrbitAndEndpointTail",
+       "line": 290
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

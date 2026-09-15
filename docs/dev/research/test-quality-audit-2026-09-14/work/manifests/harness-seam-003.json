@@ -1,0 +1,223 @@
+{
+ "batch_id": "harness-seam-003",
+ "cluster": "harness-seam",
+ "tier": "A",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "TestCommandUiActionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MissingOp_IsItsOwnReject",
+       "line": 31
+      },
+      {
+       "method": "EveryOpToken_Parses_AndRoundTrips",
+       "line": 56
+      },
+      {
+       "method": "OpEnumValuesAreStable",
+       "line": 65
+      },
+      {
+       "method": "UnknownOp_IsRejected",
+       "line": 90
+      },
+      {
+       "method": "ValidOpNames_ListsEveryOp_ForTheRejectMessage",
+       "line": 97
+      },
+      {
+       "method": "OpNeedsWindow_MatchesTheOpsThatNameOne",
+       "line": 120
+      },
+      {
+       "method": "TheTableIsExactlyTheDriveableWindows_InMainWindowOrder",
+       "line": 128
+      },
+      {
+       "method": "EveryWindowNameIsUniqueAndLowerCase",
+       "line": 141
+      },
+      {
+       "method": "ValidWindowNames_ListsEveryWindow_ForTheRejectMessage",
+       "line": 150
+      },
+      {
+       "method": "MissingWindow_AndUnknownWindow_AreDistinctRejects",
+       "line": 159
+      },
+      {
+       "method": "KnownWindow_Resolves",
+       "line": 168
+      },
+      {
+       "method": "ExactlySpawnControlAndGloopsAreFlightOnly",
+       "line": 179
+      },
+      {
+       "method": "OnlyFlightAndSpaceCenterHostAnyWindow",
+       "line": 196
+      },
+      {
+       "method": "TheTabbedWindowsAndTheirVocabulariesArePinned",
+       "line": 219
+      },
+      {
+       "method": "TheUntabbedWindowsDeclareNoTabs",
+       "line": 232
+      },
+      {
+       "method": "TabOnAnUntabbedWindow_IsItsOwnReject",
+       "line": 245
+      },
+      {
+       "method": "TabResolution_YieldsTheLiveFieldIndex",
+       "line": 261
+      },
+      {
+       "method": "MissingTabArg_OnATabbedWindow_IsTabArgMissing",
+       "line": 272
+      },
+      {
+       "method": "UnknownTab_IsRejected_AndTheMessageListCarriesTheWindowsOwnTabs",
+       "line": 280
+      },
+      {
+       "method": "TabTokenAt_OutOfRange_IsAbsentRatherThanGuessed",
+       "line": 290
+      },
+      {
+       "method": "ModeTokens_Parse_AndRoundTrip",
+       "line": 304
+      },
+      {
+       "method": "ModeTokens_MatchTheProductionEnumSpelling",
+       "line": 313
+      },
+      {
+       "method": "UnknownMode_IsRejected",
+       "line": 328
+      },
+      {
+       "method": "MissingMode_IsItsOwnReject",
+       "line": 335
+      },
+      {
+       "method": "AllFourRectArgsAreRequired",
+       "line": 344
+      },
+      {
+       "method": "AValidRectParses_Invariantly",
+       "line": 357
+      },
+      {
+       "method": "RectParse_IsCultureInvariant_InBothDirections",
+       "line": 369
+      },
+      {
+       "method": "NegativeOriginsAreAllowed_ButBounded",
+       "line": 387
+      },
+      {
+       "method": "OutOfRangeOrUnparseableRect_IsRejected",
+       "line": 408
+      },
+      {
+       "method": "RectReadBack_TreatsBothSizeAxesAsFloors",
+       "line": 447
+      },
+      {
+       "method": "RectReadBack_RejectsAMovedPosition",
+       "line": 458
+      },
+      {
+       "method": "HostControlledSize_ChecksPositionOnly",
+       "line": 476
+      },
+      {
+       "method": "OpIsTwoPhase_IsEveryOpThatChangesDrawnState",
+       "line": 509
+      },
+      {
+       "method": "FirstSettlePoll_BeforeAFrameIsDrawn_IsNeverSettled",
+       "line": 538
+      },
+      {
+       "method": "SettlePoll_TimesOutOnlyBeforeAFrame_AndSettledWinsOverTheBudget",
+       "line": 550
+      },
+      {
+       "method": "SettleIsRefused_ForASubWindow_WhileTheHostSurfaceIsHidden",
+       "line": 568
+      },
+      {
+       "method": "SettleIsAllowed_ForEveryWindow_OnceTheHostSurfaceIsShown",
+       "line": 583
+      },
+      {
+       "method": "SettleIsNeverRefused_ForMainItself",
+       "line": 595
+      },
+      {
+       "method": "SettleIsRefused_ForAnUnrecognisedToken_WithTheHostHidden",
+       "line": 610
+      },
+      {
+       "method": "ComplexityAlreadySatisfied_RequiresBothTheLatchAndTheSetting",
+       "line": 626
+      },
+      {
+       "method": "OpenWindowList_IsTableOrdered_AndDashWhenNoneIsOpen",
+       "line": 650
+      },
+      {
+       "method": "TogglePayload_AlwaysCarriesAlready_BothWays",
+       "line": 671
+      },
+      {
+       "method": "TabPayload_CarriesBothTheTokenAndTheIndex",
+       "line": 690
+      },
+      {
+       "method": "ComplexityPayload_EchoesTheMode",
+       "line": 700
+      },
+      {
+       "method": "RectPayload_ReportsTheReadBackNotTheRequest",
+       "line": 708
+      },
+      {
+       "method": "DescribePayload_CarriesEveryWindow_WithAllSixKeys",
+       "line": 722
+      },
+      {
+       "method": "DescribePayload_UsesADashSentinelForAbsentValues",
+       "line": 755
+      },
+      {
+       "method": "DescribePayload_ReportsAKnownRectAndASelectedTab",
+       "line": 774
+      },
+      {
+       "method": "DescribePayload_OnAnEmptyRowList_IsStillAWellFormedHeader",
+       "line": 793
+      },
+      {
+       "method": "SceneTokens_CoverEveryDispatchScene",
+       "line": 802
+      },
+      {
+       "method": "EveryReasonTokenIsDistinct",
+       "line": 818
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

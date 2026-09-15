@@ -1,0 +1,211 @@
+{
+ "batch_id": "harness-seam-005",
+ "cluster": "harness-seam",
+ "tier": "A",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "TestCommandLogisticsVerbsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveTarget_NoArgs_RejectsTargetArgMissing",
+       "line": 22
+      },
+      {
+       "method": "ResolveTarget_EmptyArgs_RejectsTargetArgMissing",
+       "line": 31
+      },
+      {
+       "method": "ResolveTarget_TreeOnly_SelectsTreeMode",
+       "line": 39
+      },
+      {
+       "method": "ResolveTarget_RpAndSlot_SelectsSlotMode",
+       "line": 48
+      },
+      {
+       "method": "ResolveTarget_RpWithBadSlot_RejectsUnknownSlot",
+       "line": 66
+      },
+      {
+       "method": "ResolveTarget_BothSpellings_RpWins",
+       "line": 76
+      },
+      {
+       "method": "RecordingIdsNeedingSeal_NullTree_IsEmpty",
+       "line": 87
+      },
+      {
+       "method": "RecordingIdsNeedingSeal_AllImmutable_IsEmpty",
+       "line": 94
+      },
+      {
+       "method": "RecordingIdsNeedingSeal_ReportsEveryOpenMember",
+       "line": 102
+      },
+      {
+       "method": "RecordingIdsNeedingSeal_SkipsNullSlots",
+       "line": 122
+      },
+      {
+       "method": "ClassifyTreeSealVerdict_SplitsOnRemaining",
+       "line": 132
+      },
+      {
+       "method": "ResolveIncompleteReason_NamesTheNoRefusalCase",
+       "line": 144
+      },
+      {
+       "method": "IsAlreadySealed_OnlyWhenNothingSealedAndNothingLeft",
+       "line": 158
+      },
+      {
+       "method": "IsKnownAction_AcceptsTheV1Vocabulary",
+       "line": 196
+      },
+      {
+       "method": "IsKnownAction_RefusesEverythingElse",
+       "line": 211
+      },
+      {
+       "method": "IsRouteOperation_IsTheThreeNonCreateActions",
+       "line": 217
+      },
+      {
+       "method": "TryParseIntervalArg_AbsentIsTheDefaultSentinel",
+       "line": 230
+      },
+      {
+       "method": "TryParseIntervalArg_AcceptsInvariantCultureDouble",
+       "line": 238
+      },
+      {
+       "method": "TryParseIntervalArg_RefusesNonPositiveOrNonFinite",
+       "line": 252
+      },
+      {
+       "method": "ResolveName_EmptyMeansBuilderNamesIt",
+       "line": 259
+      },
+      {
+       "method": "ResolveRoute_MissingSelector_RejectsRouteArgMissing",
+       "line": 269
+      },
+      {
+       "method": "ResolveRoute_NoRoutes_RejectsUnknownRoute",
+       "line": 277
+      },
+      {
+       "method": "ResolveRoute_ExactId_Matches",
+       "line": 285
+      },
+      {
+       "method": "ResolveRoute_UniqueIdPrefix_Matches",
+       "line": 298
+      },
+      {
+       "method": "ResolveRoute_IdPrefixIsCaseInsensitive",
+       "line": 308
+      },
+      {
+       "method": "ResolveRoute_AmbiguousPrefix_RejectsRouteAmbiguous",
+       "line": 317
+      },
+      {
+       "method": "ResolveRoute_ExactIdBeatsAnAmbiguousPrefix",
+       "line": 329
+      },
+      {
+       "method": "ResolveRoute_UniqueName_Matches",
+       "line": 339
+      },
+      {
+       "method": "ResolveRoute_DuplicateName_RejectsRouteAmbiguous",
+       "line": 351
+      },
+      {
+       "method": "ResolveRoute_NoMatch_RejectsUnknownRoute",
+       "line": 360
+      },
+      {
+       "method": "ClassifyCreateRefusal_EligibleCandidate_IsNone",
+       "line": 371
+      },
+      {
+       "method": "ClassifyCreateRefusal_NamesTheFirstClosedGate",
+       "line": 384
+      },
+      {
+       "method": "RefusalToken_MapsEveryRefusal",
+       "line": 399
+      },
+      {
+       "method": "RefusalMsg_IneligibleCarriesTheAnalysisStatus",
+       "line": 418
+      },
+      {
+       "method": "CompoundMsgs_CarryTheirDetailAndNeverGoEmpty",
+       "line": 435
+      },
+      {
+       "method": "UnsealedTree_IsNotACandidate_AndSealingMakesItOne",
+       "line": 507
+      },
+      {
+       "method": "CreateGate_UnsealedTree_ClassifiesTreeNotSealed",
+       "line": 535
+      },
+      {
+       "method": "CreateGate_IneligibleTree_CarriesTheAnalysisStatus",
+       "line": 556
+      },
+      {
+       "method": "CreatePausedFromCandidate_StoresAPausedRouteThroughTheProductionFunnel",
+       "line": 583
+      },
+      {
+       "method": "CreatePausedFromCandidate_NullName_LetsTheBuilderName",
+       "line": 625
+      },
+      {
+       "method": "CreatePausedFromCandidate_NullCandidate_RejectsWithoutStoring",
+       "line": 643
+      },
+      {
+       "method": "CreatedRoute_MakesItsTreeAlreadyPromoted",
+       "line": 659
+      },
+      {
+       "method": "Activate_OnAPausedRoute_Applies",
+       "line": 680
+      },
+      {
+       "method": "Activate_OnAnActiveRoute_IsRefused",
+       "line": 691
+      },
+      {
+       "method": "Pause_OnAnActiveRoute_Applies_AndIsRefusedWhenAlreadyPaused",
+       "line": 702
+      },
+      {
+       "method": "SendOnce_OnAPausedRoute_ArmsOneCycle",
+       "line": 716
+      },
+      {
+       "method": "SendOnce_OnAnInTransitRoute_IsRefused",
+       "line": 729
+      },
+      {
+       "method": "ResolveRoute_AgainstTheLiveStore_RejectsAnUnknownSelector",
+       "line": 740
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

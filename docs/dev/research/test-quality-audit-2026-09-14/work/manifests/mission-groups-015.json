@@ -1,0 +1,313 @@
+{
+ "batch_id": "mission-groups-015",
+ "cluster": "mission-groups",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "GroupWatchCursorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullDescendants_ReturnsEmpty",
+       "line": 43
+      },
+      {
+       "method": "EmptyDescendants_ReturnsEmpty",
+       "line": 53
+      },
+      {
+       "method": "AllIneligible_ReturnsEmpty",
+       "line": 62
+      },
+      {
+       "method": "NullRecordingId_Skipped",
+       "line": 77
+      },
+      {
+       "method": "SingleEligibleNotWatched_ReturnsIt",
+       "line": 94
+      },
+      {
+       "method": "SingleEligibleIsWatched_ReturnsToggleOff",
+       "line": 108
+      },
+      {
+       "method": "TwoEligibleCursorNull_ReturnsFirstByStartUT",
+       "line": 122
+      },
+      {
+       "method": "CursorOnFirst_ReturnsSecond",
+       "line": 139
+      },
+      {
+       "method": "CursorOnSecond_WrapsToFirst",
+       "line": 156
+      },
+      {
+       "method": "StaleCursor_ReturnsFirstEligible",
+       "line": 172
+      },
+      {
+       "method": "CursorMatchesWatched_AdvancePastWatched",
+       "line": 189
+      },
+      {
+       "method": "StartUtTieBrokenByRecordingIdOrdinal",
+       "line": 214
+      },
+      {
+       "method": "OutOfRangeDescendantSkipped",
+       "line": 229
+      },
+      {
+       "method": "StaleDescendant_NoCrash",
+       "line": 244
+      },
+      {
+       "method": "ThreeEntryFullCycle",
+       "line": 259
+      },
+      {
+       "method": "NullCurrentlyWatched_FirstPress_ReturnsFirst",
+       "line": 295
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionGroupLinkTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RenameRootGroup_RenamesMainMission_AndCascadesSubgroups",
+       "line": 80
+      },
+      {
+       "method": "Rename_ToExistingGroupName_RejectsAndLeavesEverythingUnchanged",
+       "line": 112
+      },
+      {
+       "method": "Rename_OnlyTouchesMainMission_NotClones",
+       "line": 131
+      },
+      {
+       "method": "Rename_LeavesUserRenamedSubgroupAlone",
+       "line": 149
+      },
+      {
+       "method": "EnsureDefaults_SeedsNameFromRootGroup_WhenPresent",
+       "line": 169
+      },
+      {
+       "method": "Rename_NoRootGroup_RenamesMainMissionOnly",
+       "line": 186
+      },
+      {
+       "method": "Rename_CaseOnly_FlipsCase_NotTreatedAsNoOp",
+       "line": 203
+      },
+      {
+       "method": "Rename_ToCurrentRootName_SyncsMainMission",
+       "line": 217
+      },
+      {
+       "method": "FindTreeByRootGroup_MatchesRootOnly",
+       "line": 232
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionSameTreeDockClaimTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecoveredClaim_Derives_FromTheAbsorbedSide",
+       "line": 56
+      },
+      {
+       "method": "CrossTreeFindLinks_StillSkipsOwnTree",
+       "line": 76
+      },
+      {
+       "method": "TwoParentMerge_Skipped",
+       "line": 89
+      },
+      {
+       "method": "ZeroTargetPid_Skipped",
+       "line": 101
+      },
+      {
+       "method": "ParentRecording_NeverClaimed",
+       "line": 112
+      },
+      {
+       "method": "PartnerSurvivedAsMergedVessel_ClaimsPreDockLine_NotTheStack",
+       "line": 126
+      },
+      {
+       "method": "PartnerSurvived_GuidGate_RejectsForeignLaunchWithSamePid",
+       "line": 144
+      },
+      {
+       "method": "PartnerAbsorbed_UnknownGuid_PidOnlyFallback",
+       "line": 164
+      },
+      {
+       "method": "DebrisCandidate_NeverClaimed",
+       "line": 176
+      },
+      {
+       "method": "BoardClaim_Recovered",
+       "line": 187
+      },
+      {
+       "method": "MultipleClaims_OrderedByDockUTThenBranchPointId",
+       "line": 200
+      },
+      {
+       "method": "DerivedClaim_EmitsSummaryLine_AndSuppressionSilences",
+       "line": 223
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GroupPickerPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NormalizeRecordingSelection_RemovesInvalidAndDuplicates_PreservesFirstOrder",
+       "line": 12
+      },
+      {
+       "method": "GetCommonGroups_ReturnsIntersectionAcrossSelection",
+       "line": 22
+      },
+      {
+       "method": "BuildExpandedGroups_IncludesParentsKnownEmptyAndExistingRecordingGroups",
+       "line": 49
+      },
+      {
+       "method": "BuildTreeModel_SortsRootsChildrenAndMarksSelectedGroupDescendantsInvalid",
+       "line": 63
+      },
+      {
+       "method": "ApplySelectionToggle_SingleSelect_ReplacesExistingSelection",
+       "line": 83
+      },
+      {
+       "method": "ApplySelectionToggle_MultiSelect_UncheckedItemIsRemoved",
+       "line": 95
+      },
+      {
+       "method": "TryCreateGroupName_TrimmedUniqueName_IsAccepted",
+       "line": 107
+      },
+      {
+       "method": "TryCreateGroupName_ExistingOrInvalidName_IsRejected",
+       "line": 124
+      },
+      {
+       "method": "ComputeMembershipDelta_ReturnsAddedAndRemovedSets",
+       "line": 137
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionSelectionGenerationStampWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IntervalToggle_StampsSelectionSchemaGeneration",
+       "line": 27
+      },
+      {
+       "method": "ChapterToggle_StampsSelectionSchemaGeneration",
+       "line": 61
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionCrossTreeDockUiWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LinkToggle_MutatesIncludedForeignDockLinkIds",
+       "line": 24
+      },
+      {
+       "method": "LinkToggle_ClearsConflictingLoops_WhenIncludedOnLoopingMission",
+       "line": 39
+      },
+      {
+       "method": "LoopToggle_PassesCommittedTreesForSpannedSetClearing",
+       "line": 66
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionsWindowSortTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Index_OrdersByTreeIndex_Ascending",
+       "line": 22
+      },
+      {
+       "method": "Index_SameIndex_TiebreaksByOriginalPosition",
+       "line": 29
+      },
+      {
+       "method": "Name_OrdersAlphabetically_CaseInsensitive_ThenIndex",
+       "line": 37
+      },
+      {
+       "method": "StartTime_OrdersByStartUT_ThenIndex",
+       "line": 45
+      },
+      {
+       "method": "Descending_NegatesTheComparison",
+       "line": 53
+      },
+      {
+       "method": "EqualRows_CompareEqual",
+       "line": 61
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

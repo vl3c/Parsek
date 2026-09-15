@@ -1,0 +1,287 @@
+{
+ "batch_id": "recording-tree-051",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "ChainEvalOnLoadTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SingleChain_ProducesCorrectVesselPid",
+       "line": 116
+      },
+      {
+       "method": "MultipleChains_AllDetected",
+       "line": 146
+      },
+      {
+       "method": "ChainWithSpawnUTInPast_SkippedForGhosting",
+       "line": 181
+      },
+      {
+       "method": "ChainWithSpawnUTInFuture_MarkedForGhosting",
+       "line": 209
+      },
+      {
+       "method": "MixedChains_OnlyFutureOnesGhosted",
+       "line": 237
+      },
+      {
+       "method": "ChainsFound_LogsChainBuilt",
+       "line": 279
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CommittedActionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetCommittedTechIds_EmptyWhenNoMilestones",
+       "line": 30
+      },
+      {
+       "method": "GetCommittedTechIds_ReturnsUnreplayedTech",
+       "line": 37
+      },
+      {
+       "method": "GetCommittedTechIds_ExcludesReplayedTech",
+       "line": 62
+      },
+      {
+       "method": "GetCommittedTechIds_ExcludesUncommittedMilestones",
+       "line": 85
+      },
+      {
+       "method": "GetCommittedTechIds_MultipleMilestones",
+       "line": 108
+      },
+      {
+       "method": "GetCommittedTechIds_PartialReplay_OnlyUnreplayedReturned",
+       "line": 151
+      },
+      {
+       "method": "GetCommittedFacilityUpgrades_EmptyWhenNoMilestones",
+       "line": 183
+      },
+      {
+       "method": "GetCommittedFacilityUpgrades_ReturnsUnreplayedUpgrades",
+       "line": 190
+      },
+      {
+       "method": "GetCommittedFacilityUpgrades_ExcludesReplayed",
+       "line": 213
+      },
+      {
+       "method": "FindCommittedEvent_ReturnsMatch",
+       "line": 239
+      },
+      {
+       "method": "FindCommittedEvent_ReturnsNull_WhenNotFound",
+       "line": 266
+      },
+      {
+       "method": "FindCommittedEvent_SkipsReplayedEvents",
+       "line": 274
+      },
+      {
+       "method": "FindCommittedEvent_SkipsUncommittedMilestones",
+       "line": 298
+      },
+      {
+       "method": "FindCommittedEvent_FacilityUpgrade",
+       "line": 322
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TreeDestructionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AllLeavesDestroyed_ReturnsTrue",
+       "line": 67
+      },
+      {
+       "method": "OneLeafNullTerminal_ReturnsFalse",
+       "line": 79
+      },
+      {
+       "method": "MixedTerminal_DestroyedAndRecovered_ReturnsTrue",
+       "line": 91
+      },
+      {
+       "method": "ActiveRecordingAlive_ReturnsFalse",
+       "line": 103
+      },
+      {
+       "method": "ActiveRecordingDestroyed_ReturnsTrue",
+       "line": 116
+      },
+      {
+       "method": "ActiveRecordingDestroyed_NullTerminalState_ReturnsTrue",
+       "line": 129
+      },
+      {
+       "method": "NonLeafWithoutTerminal_Ignored_ReturnsTrue",
+       "line": 149
+      },
+      {
+       "method": "EmptyRecordings_ReturnsTrue",
+       "line": 162
+      },
+      {
+       "method": "LeafWithOrbiting_ReturnsFalse",
+       "line": 172
+      },
+      {
+       "method": "LeafWithLanded_ReturnsFalse",
+       "line": 184
+      },
+      {
+       "method": "AllNonSpawnableTerminals_ReturnsTrue",
+       "line": 195
+      },
+      {
+       "method": "LeafWithSubOrbital_ReturnsFalse",
+       "line": 210
+      },
+      {
+       "method": "LeafWithSplashed_ReturnsFalse",
+       "line": 221
+      },
+      {
+       "method": "LoggingTest_SummarizesLeavesOnce",
+       "line": 232
+      },
+      {
+       "method": "ActiveRecording_NoTerminalState_NotDestroyed_ReturnsFalse",
+       "line": 257
+      },
+      {
+       "method": "ActiveCrashBlockers_DebrisLeafWithNullTerminal_ReturnsTrue",
+       "line": 275
+      },
+      {
+       "method": "ActiveCrashBlockers_NonDebrisLeafWithNullTerminal_ReturnsFalse",
+       "line": 294
+      },
+      {
+       "method": "ActiveCrashBlockers_DebrisLeafWithSpawnableTerminal_ReturnsTrue",
+       "line": 306
+      },
+      {
+       "method": "ActiveCrashBlockers_NonDebrisLeafWithSpawnableTerminal_ReturnsFalse",
+       "line": 325
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ChainSpawnSuppressionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IntermediateLink_SpawnSuppressed",
+       "line": 74
+      },
+      {
+       "method": "ChainTip_SpawnAllowed",
+       "line": 93
+      },
+      {
+       "method": "StandaloneRecording_NoChainsPresent_SpawnAllowed",
+       "line": 110
+      },
+      {
+       "method": "StandaloneRecording_ChainsExistButRecordingNotInAny_SpawnAllowed",
+       "line": 127
+      },
+      {
+       "method": "NullChains_SpawnAllowed",
+       "line": 144
+      },
+      {
+       "method": "TerminatedChain_TipSuppressed",
+       "line": 159
+      },
+      {
+       "method": "TerminatedChain_NonTipRecording_NotAffected",
+       "line": 181
+      },
+      {
+       "method": "LoopedRecordingAtChainTip_SpawnAllowed",
+       "line": 200
+      },
+      {
+       "method": "PidBasedIntermediate_SpawnSuppressed",
+       "line": 220
+      },
+      {
+       "method": "ExistingSpawnLogicUnchanged",
+       "line": 240
+      },
+      {
+       "method": "TerminalSpawnSuperseded_SpawnSuppressed",
+       "line": 259
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LegacyPartPurchaseLoadCompatibilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryRecoverBrokenLedgerOnLoad_UnambiguousSavedFundsCharge_RewritesLegacyEventAndAction",
+       "line": 34
+      },
+      {
+       "method": "RepairLegacyPartPurchaseActionsOnLoad_WithUnambiguousSavedFundsCharge_RewritesPersistedFundsSpent",
+       "line": 74
+      },
+      {
+       "method": "TryRecoverBrokenLedgerOnLoad_LegacyBypassShapeWithoutFundsEvent_RewritesToZeroCost",
+       "line": 113
+      },
+      {
+       "method": "RepairLegacyPartPurchaseActionsOnLoad_LegacyBypassShapeWithoutFundsEvent_RewritesPersistedFundsSpentToZero",
+       "line": 146
+      },
+      {
+       "method": "RepairLegacyPartPurchaseActionsOnLoad_WithoutMatchingEvent_PreservesStoredCharge",
+       "line": 178
+      },
+      {
+       "method": "TryRecoverBrokenLedgerOnLoad_AmbiguousCoalescedFundsWindow_PreservesLegacyStoredCosts",
+       "line": 197
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

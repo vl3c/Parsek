@@ -1,6 +1,6 @@
 # Coverage opportunities (D3) - Phase 3 output, 2026-09-15
 
-Baseline `4aedb0a1a`. Source: the 249 Phase 1 coverage candidates after Phase 3 triage (SUT guard confirmed at the pinned SHA, headless feasibility classified, existing coverage grepped, one mutant named per proposal). Full table: `coverage-opportunities.csv`; per-partition detail: `work/phase3/ranked-*.md` (gitignored, regenerable from the CSV).
+Baseline `4aedb0a1a`. Source: the 249 Phase 1 coverage candidates after Phase 3 triage (SUT guard confirmed at the pinned SHA, headless feasibility classified, existing coverage grepped, one mutant named per proposal). Full table: `coverage-opportunities.csv`; per-partition detail: `work/phase3/ranked-*.md` (committed).
 
 - Kept 245; already-covered 1; invalid 3; merged 3 duplicates folded.
 - Feasibility of kept: {'seam': 36, 'direct': 193, 'in-game': 9, 'generator': 7}. Priority (1 = highest): {1: 16, 2: 86, 3: 97, 4: 38, 5: 8}. Risk: {'career': 54, 'data-loss': 12, 'recording': 100, 'playback': 53, 'ui': 26}.

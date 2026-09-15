@@ -1,0 +1,269 @@
+{
+ "batch_id": "catchall-040",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "PostSwitchAutoRecordTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldArmPostSwitchAutoRecord_RequiresIdleEnabledRealVessel",
+       "line": 15
+      },
+      {
+       "method": "EvaluatePostSwitchAutoRecordArmDecision_ReturnsExpectedAction",
+       "line": 42
+      },
+      {
+       "method": "EvaluatePostSwitchAutoRecordSuppression_StableFrame_ReturnsNone",
+       "line": 57
+      },
+      {
+       "method": "EvaluatePostSwitchAutoRecordSuppression_ReturnsExpectedReason",
+       "line": 84
+      },
+      {
+       "method": "ShouldEvaluatePostSwitchManifestDiff_UsesThrottleAndInvalidationSignals",
+       "line": 117
+      },
+      {
+       "method": "HasMeaningfulLandedMotionChange_UsesDistanceAndSpeedThresholds",
+       "line": 138
+      },
+      {
+       "method": "HasMeaningfulAttitudeChange_BelowThreshold_IgnoresNoise",
+       "line": 151
+      },
+      {
+       "method": "HasMeaningfulAttitudeChange_AboveThreshold_AcceptsDeliberateRotation",
+       "line": 164
+      },
+      {
+       "method": "HasMeaningfulAttitudeChange_NoBaseline_IgnoresRotation",
+       "line": 177
+      },
+      {
+       "method": "HasMeaningfulAttitudeChange_WrongVessel_IgnoresRotation",
+       "line": 190
+      },
+      {
+       "method": "HasMeaningfulOrbitChange_DetectsElementChangesWithoutSituationChange",
+       "line": 203
+      },
+      {
+       "method": "HasMeaningfulOrbitChange_IgnoresTinyNoise",
+       "line": 223
+      },
+      {
+       "method": "ManifestDeltaHelpers_ClassifyCrewResourceAndInventoryChanges",
+       "line": 244
+      },
+      {
+       "method": "HasMeaningfulResourceDelta_IgnoresNearZeroNoise",
+       "line": 259
+      },
+      {
+       "method": "HasMeaningfulPartStateTokenChange_DetectsDigestDifferences",
+       "line": 267
+      },
+      {
+       "method": "HasMeaningfulPartStateChange_NonCosmeticTrigger_ReturnsTrue",
+       "line": 276
+      },
+      {
+       "method": "HasMeaningfulPartStateChange_CosmeticOnly_ReturnsFalse",
+       "line": 285
+      },
+      {
+       "method": "EvaluatePostSwitchAutoRecordTrigger_UsesExpectedPriority",
+       "line": 303
+      },
+      {
+       "method": "EvaluatePostSwitchAutoRecordStartDecision_TrackedBackgroundMember_Promotes",
+       "line": 328
+      },
+      {
+       "method": "EvaluatePostSwitchAutoRecordStartDecision_Outsider_StartsFresh",
+       "line": 344
+      },
+      {
+       "method": "EvaluatePostSwitchAutoRecordStartDecision_SuppressedFrame_ReturnsNone",
+       "line": 360
+      },
+      {
+       "method": "EvaluatePostSwitchAutoRecordStartDecision_VesselMismatch_ReturnsNone",
+       "line": 374
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReferenceFrameTrackingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PhysicsPeriod_TrackSection_HasAbsoluteReferenceFrame",
+       "line": 43
+      },
+      {
+       "method": "PhysicsPeriod_TrackSection_HasNonNullFramesList",
+       "line": 53
+      },
+      {
+       "method": "PhysicsPeriod_TrackSection_HasEmptyCheckpointsList",
+       "line": 62
+      },
+      {
+       "method": "OnRailsTransition_ClosesAbsoluteSection_OpensOrbitalCheckpointSection",
+       "line": 76
+      },
+      {
+       "method": "OnRailsTransition_OrbitalCheckpointSection_PreservesEnvironment",
+       "line": 100
+      },
+      {
+       "method": "OnRailsTransition_SectionsAreContiguous",
+       "line": 111
+      },
+      {
+       "method": "OffRailsTransition_ClosesOrbitalCheckpoint_OpensAbsolute",
+       "line": 127
+      },
+      {
+       "method": "OffRailsTransition_NewAbsoluteSection_HasFramesNotCheckpoints",
+       "line": 151
+      },
+      {
+       "method": "FullCycle_Physics_OnRails_Physics_ProducesThreeSections",
+       "line": 169
+      },
+      {
+       "method": "FullCycle_AllSections_AreContiguous",
+       "line": 190
+      },
+      {
+       "method": "AddOrbitSegmentToCurrentTrackSection_OrbitalCheckpoint_AddsToCheckpoints",
+       "line": 210
+      },
+      {
+       "method": "AddOrbitSegmentToCurrentTrackSection_MultipleSegments_AllAdded",
+       "line": 234
+      },
+      {
+       "method": "AddOrbitSegmentToCurrentTrackSection_Absolute_DoesNotAdd",
+       "line": 255
+      },
+      {
+       "method": "AddOrbitSegmentToCurrentTrackSection_NoActiveSection_DoesNotThrow",
+       "line": 274
+      },
+      {
+       "method": "ReferenceFrameTransition_OnRails_LogsTransition",
+       "line": 295
+      },
+      {
+       "method": "ReferenceFrameTransition_OffRails_LogsTransition",
+       "line": 313
+      },
+      {
+       "method": "ReferenceFrameTransition_CloseLog_IncludesReferenceFrame",
+       "line": 331
+      },
+      {
+       "method": "ReferenceFrameTransition_CloseLog_IncludesCheckpointCount",
+       "line": 345
+      },
+      {
+       "method": "AddOrbitSegmentToCurrentTrackSection_OrbitalCheckpoint_LogsAddition",
+       "line": 363
+      },
+      {
+       "method": "AddOrbitSegmentToCurrentTrackSection_Absolute_DoesNotLog",
+       "line": 378
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SegmentEventSerializationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RoundTrip_ThreeEvents_AllFieldsPreserved",
+       "line": 35
+      },
+      {
+       "method": "RoundTrip_NullDetails_SerializesWithoutDetailsKey",
+       "line": 66
+      },
+      {
+       "method": "RoundTrip_EmptyDetails_SerializesWithoutDetailsKey",
+       "line": 91
+      },
+      {
+       "method": "RoundTrip_AllEventTypes_PreservedExactly",
+       "line": 114
+      },
+      {
+       "method": "EmptyList_NoSegmentEventNodes",
+       "line": 142
+      },
+      {
+       "method": "BackwardCompat_OldPrecWithoutSegmentEventNodes_EmptyList",
+       "line": 159
+      },
+      {
+       "method": "UnknownType_SkippedGracefully",
+       "line": 183
+      },
+      {
+       "method": "MissingUT_SkippedGracefully",
+       "line": 214
+      },
+      {
+       "method": "MixedValidAndInvalid_OnlyValidDeserialized",
+       "line": 245
+      },
+      {
+       "method": "OrderingPreserved_SerializeDeserialize",
+       "line": 284
+      },
+      {
+       "method": "UnknownType_LogsWarningWithBadValue",
+       "line": 311
+      },
+      {
+       "method": "InvariantCulture_HighPrecisionUT_SurvivesRoundTrip",
+       "line": 344
+      },
+      {
+       "method": "InvariantCulture_NegativeUT_SurvivesRoundTrip",
+       "line": 365
+      },
+      {
+       "method": "DeserializeTrajectoryFrom_IncludesSegmentEvents",
+       "line": 389
+      },
+      {
+       "method": "SerializeTrajectoryInto_IncludesSegmentEvents",
+       "line": 419
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

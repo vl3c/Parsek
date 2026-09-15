@@ -659,7 +659,7 @@ Still open at the baseline (grep-verified, zero or self-only test references): E
 | `mutations/` | 7 committed patches plus `mutations.csv` (the Phase 2 run log) |
 | `july-crosswalk.csv` | July register ID -> SUT/file mapping, built in Phase 4 |
 | `tools/` | `inventory_scan.py`, `smell_sweep.py`, `parse_results.py`, `lint_fragments.py`, `build_batches.py`, `redundancy.py`, `merge_fragments.py`, `make_workorders.py`, `agent-protocol.md` |
-| `work/` | gitignored: `baseline.trx`, `coverage.cobertura.xml`, `durations.csv`, `metrics.md`, `supervisor-notes.md`, `inventory-completeness.txt`, the Phase 2/3/4 scratch |
+| `work/` | committed except the large generated inputs (see `research/test-quality-audit-2026-09-14/README.md`): `baseline.trx`, `coverage.cobertura.xml`, `durations.csv`, `metrics.md`, `supervisor-notes.md`, `inventory-completeness.txt`, the Phase 2/3/4 scratch |
 
 ### How to regenerate
 

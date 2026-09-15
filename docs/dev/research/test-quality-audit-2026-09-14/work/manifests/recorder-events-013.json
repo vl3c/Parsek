@@ -1,0 +1,251 @@
+{
+ "batch_id": "recorder-events-013",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "BackgroundSplitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildBackgroundSplitBranchData_CreatesCorrectBranchPoint",
+       "line": 74
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_CreatesChildRecordingsForEachNewVessel",
+       "line": 98
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_ChildRecordingIdsMatchBranchPoint",
+       "line": 130
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_SingleDebrisChild_IsMarkedAsDebris",
+       "line": 147
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_ControlledChild_IsNotDebris",
+       "line": 163
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_MultipleChildren_AllGetUniqueRecordingIds",
+       "line": 179
+      },
+      {
+       "method": "SplitLaunchGuid_ParentContinuation_CarriesTheContinuedSegmentsLaunchGuid",
+       "line": 218
+      },
+      {
+       "method": "SplitLaunchGuid_ParentContinuation_PrefersTheLiveVessel_WhenTheTwoDiverge",
+       "line": 259
+      },
+      {
+       "method": "SplitLaunchGuid_Child_CarriesItsOwnLiveGuid_NeverTheParents",
+       "line": 275
+      },
+      {
+       "method": "ShouldStopDebrisRecording_VesselNotExists_ReturnsDestroyed",
+       "line": 316
+      },
+      {
+       "method": "ShouldStopDebrisRecording_TTLExpired_ReturnsTtlExpired",
+       "line": 324
+      },
+      {
+       "method": "ShouldStopDebrisRecording_TTLExactlyAtExpiry_ReturnsTtlExpired",
+       "line": 332
+      },
+      {
+       "method": "ShouldStopDebrisRecording_VesselNotLoaded_ReturnsOutOfBubble",
+       "line": 340
+      },
+      {
+       "method": "ShouldStopDebrisRecording_VesselAlive_BeforeTTL_ReturnsNull",
+       "line": 348
+      },
+      {
+       "method": "ShouldStopDebrisRecording_NoTTL_VesselAlive_ReturnsNull",
+       "line": 356
+      },
+      {
+       "method": "ShouldStopDebrisRecording_DestroyedTakesPriorityOverTTL",
+       "line": 364
+      },
+      {
+       "method": "DebrisTTLSeconds_Is60",
+       "line": 377
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_TreeStructure_ParentClosedChildCreated",
+       "line": 392
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_DebrisChild_TTLWouldBeSet",
+       "line": 443
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_ControlledChild_NoTTLNeeded",
+       "line": 461
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_SplitCause_IsDecouple",
+       "line": 481
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_BranchUT_MatchesInput",
+       "line": 496
+      },
+      {
+       "method": "DebrisTTL_NotSetByDefault",
+       "line": 515
+      },
+      {
+       "method": "DebrisTTL_InjectAndRetrieve",
+       "line": 524
+      },
+      {
+       "method": "DebrisTTLCount_TracksEntries",
+       "line": 534
+      },
+      {
+       "method": "ShouldStopDebrisRecording_NaN_TTL_VesselNotLoaded_ReturnsOutOfBubble",
+       "line": 553
+      },
+      {
+       "method": "ShouldStopDebrisRecording_NaN_TTL_VesselDestroyed_ReturnsDestroyed",
+       "line": 562
+      },
+      {
+       "method": "ShouldStopDebrisRecording_VeryLargeTTL_VesselAlive_ReturnsNull",
+       "line": 570
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_ParentRecordingId_IsLinkedCorrectly",
+       "line": 582
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_MixedControlAndDebris_CorrectFlags",
+       "line": 598
+      },
+      {
+       "method": "PendingSplitCheckCount_InitiallyZero",
+       "line": 621
+      },
+      {
+       "method": "ProcessPendingSplitChecks_NoPending_DoesNotThrow",
+       "line": 633
+      },
+      {
+       "method": "CheckDebrisTTL_NoEntries_DoesNotThrow",
+       "line": 650
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_UsesJointBreakType",
+       "line": 668
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_Undock_PreservesBranchType",
+       "line": 683
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_ChildrenHaveCorrectStartUT",
+       "line": 702
+      },
+      {
+       "method": "Recording_DefaultGeneration_IsZero",
+       "line": 723
+      },
+      {
+       "method": "MaxRecordingGeneration_IsOne",
+       "line": 730
+      },
+      {
+       "method": "ShouldSkipForCascadeCap_Gen0_ReturnsFalse",
+       "line": 738
+      },
+      {
+       "method": "ShouldSkipForCascadeCap_Gen1_ReturnsTrue",
+       "line": 745
+      },
+      {
+       "method": "ShouldSkipForCascadeCap_Gen2_ReturnsTrue",
+       "line": 752
+      },
+      {
+       "method": "ShouldSkipForCascadeCap_LargeGen_ReturnsTrue",
+       "line": 759
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_PropagatesGeneration_Gen0Parent_ChildrenAreGen1",
+       "line": 766
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_PropagatesGeneration_Gen1Parent_ChildrenAreGen2",
+       "line": 783
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_Gen2Parent_ChildrenAreGen3_NotCapped",
+       "line": 798
+      },
+      {
+       "method": "BuildBackgroundSplitBranchData_DefaultParentGeneration_IsZero",
+       "line": 816
+      },
+      {
+       "method": "BuildSplitBranchData_PropagatesGeneration_BgChildPlusOne_ActiveChildSame",
+       "line": 833
+      },
+      {
+       "method": "BuildSplitBranchData_Gen1Parent_ActiveStaysGen1_BgChildBecomesGen2",
+       "line": 847
+      },
+      {
+       "method": "Recording_ApplyPersistenceArtifactsFrom_CopiesGeneration",
+       "line": 861
+      },
+      {
+       "method": "CreateBreakupChildRecording_PropagatesGeneration_Gen0Parent_ChildIsGen1",
+       "line": 872
+      },
+      {
+       "method": "CreateBreakupChildRecording_PropagatesGeneration_Gen1Parent_ChildIsGen2",
+       "line": 887
+      },
+      {
+       "method": "CreateBreakupChildRecording_DefaultParentGeneration_ChildIsGen1",
+       "line": 903
+      },
+      {
+       "method": "RecordingTree_SaveLoadRoundTrip_PreservesGeneration",
+       "line": 917
+      },
+      {
+       "method": "RecordingTree_SaveRecordingInto_OmitsGenerationWhenZero",
+       "line": 940
+      },
+      {
+       "method": "RecordingTree_LoadRecordingFrom_LegacyNodeWithoutGeneration_DefaultsToZero",
+       "line": 959
+      },
+      {
+       "method": "Bug285_ParentAlive_ContinuationCreated_TreeHasExtraRecording",
+       "line": 982
+      },
+      {
+       "method": "Bug285_ParentDead_NoContinuation_TreeHasOnlyChildren",
+       "line": 1033
+      },
+      {
+       "method": "Bug285_ParentDead_NoContinuation_NoChildHasParentPid",
+       "line": 1071
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

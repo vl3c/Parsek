@@ -1,0 +1,336 @@
+{
+ "batch_id": "recording-tree-052",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "RecordingEndpointPersistenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SaveLoadRecordingMetadata_EndpointDecisionRoundTrips",
+       "line": 42
+      },
+      {
+       "method": "RecordingTreeSaveLoad_EndpointDecisionRoundTrips",
+       "line": 62
+      },
+      {
+       "method": "ExactBoundaryCapture_PersistedOrbitPhaseOverridesPointFallback",
+       "line": 91
+      },
+      {
+       "method": "ExactBoundaryEscape_PersistedPointPhaseRejectsOrbitFallback",
+       "line": 105
+      },
+      {
+       "method": "LoadRecordingFiles_LegacyRecording_BackfillsEndpointDecisionFromTerminalOrbitAlignedSegment",
+       "line": 118
+      },
+      {
+       "method": "LoadRecordingFiles_PersistedEndpointDecision_RemainsAuthoritative",
+       "line": 170
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordingsTableUIStashRewindTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SeparateColumns_StashableLegacyOwner_ShowsRewindAndStashSeal",
+       "line": 37
+      },
+      {
+       "method": "SeparateColumns_StashableTreeBranchNonOwner_ShowsOnlyStashSeal",
+       "line": 50
+      },
+      {
+       "method": "SeparateColumns_NotStashableLegacyOwner_ShowsOnlyRewind",
+       "line": 78
+      },
+      {
+       "method": "SeparateColumns_FutureRecording_StillUsesForwardColumn",
+       "line": 90
+      },
+      {
+       "method": "SeparateColumns_UnfinishedFlightRow_ShowsFlySealOnly",
+       "line": 103
+      },
+      {
+       "method": "TimelineRewindButton_TreeBranchNonOwner_IsSuppressedLikeTheTable",
+       "line": 130
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordingVisualClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_SurfacePlaceholderWithoutTrail_ReturnsStaticPlaceholder",
+       "line": 10
+      },
+      {
+       "method": "Classify_SurfacePlaceholderWithOneSeedPoint_ReturnsStaticPlaceholder",
+       "line": 22
+      },
+      {
+       "method": "Classify_SurfaceRecordingWithTwoPoints_ReturnsNormal",
+       "line": 33
+      },
+      {
+       "method": "Classify_SurfacePlaceholderWithOrbitPayload_ReturnsNormal",
+       "line": 45
+      },
+      {
+       "method": "Classify_SurfacePlaceholderWithAnimatedSectionPayload_ReturnsNormal",
+       "line": 56
+      },
+      {
+       "method": "Classify_SurfacePlaceholderWithSingleSectionFrame_ReturnsStaticPlaceholder",
+       "line": 78
+      },
+      {
+       "method": "Classify_AllSurfaceStationaryLeafWithoutEvents_ReturnsStationaryTail",
+       "line": 99
+      },
+      {
+       "method": "Classify_AllSurfaceStationaryLeafWithInertPartEvent_ReturnsStationaryTail",
+       "line": 109
+      },
+      {
+       "method": "Classify_AllSurfaceStationaryLeafWithNonInertPartEvent_ReturnsNormal",
+       "line": 125
+      },
+      {
+       "method": "Classify_AllSurfaceStationaryLeafWithSegmentEvent_ReturnsNormal",
+       "line": 140
+      },
+      {
+       "method": "Classify_SurfaceTailWithNonBoringSection_ReturnsNormal",
+       "line": 155
+      },
+      {
+       "method": "Classify_SurfaceTailWithOrbitPayload_ReturnsNormal",
+       "line": 171
+      },
+      {
+       "method": "Classify_AllExoBallisticLeaf_ReturnsNormal",
+       "line": 182
+      },
+      {
+       "method": "Classify_MidChainSurfaceStationaryRecording_ReturnsNormal",
+       "line": 200
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CommittedListNotificationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RemoveCommittedInternal_RaisesRemovingThenRemoved_AndBumps",
+       "line": 65
+      },
+      {
+       "method": "RemoveCommittedInternal_AbsentOrNull_RaisesNothing",
+       "line": 79
+      },
+      {
+       "method": "RemoveCommittedById_RaisesAtTheMatchedIndex",
+       "line": 92
+      },
+      {
+       "method": "RemoveCommittedTreeById_RaisesForEachOfTheTreesRecordings",
+       "line": 103
+      },
+      {
+       "method": "ClearCommittedInternal_RaisesPerItemTopDown_SoEverySlotTearsDown",
+       "line": 127
+      },
+      {
+       "method": "IndexOfRecordingId_FindsOrdinalMatch_ElseMinusOne",
+       "line": 149
+      },
+      {
+       "method": "KscIndexKeyedState_ShiftsOnInsertAndDelete_AndClearsRebuiltTables",
+       "line": 160
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecordingsTableApiTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SchedulesTheScrollForTheTargetRecording",
+       "line": 73
+      },
+      {
+       "method": "SchedulesNothingForARecordingOutsideTheEffectiveSet",
+       "line": 89
+      },
+      {
+       "method": "UnarchivesAnArchivedTarget",
+       "line": 105
+      },
+      {
+       "method": "LeavesTheGlobalArchiveFilterAlone",
+       "line": 123
+      },
+      {
+       "method": "ExpandsTheTargetsGroupAndEveryAncestor",
+       "line": 140
+      },
+      {
+       "method": "UnhidesTheTargetsHiddenGroupWhenTheFilterIsOn",
+       "line": 157
+      },
+      {
+       "method": "LeavesHiddenGroupsAloneWhenTheFilterIsOff",
+       "line": 173
+      },
+      {
+       "method": "HandlesATargetWithNoGroups",
+       "line": 187
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ChainGhostSkipTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GhostedVessel_SkipBypassed",
+       "line": 36
+      },
+      {
+       "method": "NonGhostedExternalVessel_RealVesselExists_SkipPreserved",
+       "line": 54
+      },
+      {
+       "method": "NonGhostedExternalVessel_RealVesselMissing_NotSkipped",
+       "line": 68
+      },
+      {
+       "method": "ZeroPid_NoEffect",
+       "line": 82
+      },
+      {
+       "method": "NullTreeId_NoEffect",
+       "line": 95
+      },
+      {
+       "method": "ActiveRecording_NeverSkipped",
+       "line": 108
+      },
+      {
+       "method": "GhostedOverrideNull_FallsToRealVesselCheck",
+       "line": 121
+      },
+      {
+       "method": "ExternalVesselGhost_LiveVesselIsADifferentLaunchOfTheSameCraft_NotSkipped",
+       "line": 143
+      },
+      {
+       "method": "ExternalVesselGhost_LiveVesselIsTheRecordedLaunch_StillSkipped",
+       "line": 163
+      },
+      {
+       "method": "ExternalVesselGhost_UnknownLiveGuid_FallsBackToPidOnlySkip",
+       "line": 182
+      },
+      {
+       "method": "ExternalVesselGhost_NullRecording_NotSkipped",
+       "line": 201
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CommittedScienceDictTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CommitScienceSubjects_EqualValue_DictionaryRetainsValue",
+       "line": 36
+      },
+      {
+       "method": "RebuildCommittedScienceSubjects_ClearsAndRepopulates",
+       "line": 64
+      },
+      {
+       "method": "RebuildCommittedScienceSubjects_EmptyInput_ClearsAll",
+       "line": 92
+      },
+      {
+       "method": "RebuildCommittedScienceSubjects_LogsBeforeAndAfterCount",
+       "line": 115
+      },
+      {
+       "method": "RebuildCommittedScienceSubjects_OverwritesExistingValues",
+       "line": 143
+      },
+      {
+       "method": "GetCommittedScienceSubjectIds_ReflectsRebuild",
+       "line": 169
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LegacyTreeMigrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsResourceImpactingAction_Theory",
+       "line": 108
+      },
+      {
+       "method": "IsResourceImpactingAction_Theory_CoversEveryEnumValue",
+       "line": 120
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

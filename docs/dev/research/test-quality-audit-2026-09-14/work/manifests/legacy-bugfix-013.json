@@ -1,0 +1,263 @@
+{
+ "batch_id": "legacy-bugfix-013",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 61,
+ "files": [
+  {
+   "file": "CrashCoalescerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "InitialState_HasPendingBreakupIsFalse",
+       "line": 34
+      },
+      {
+       "method": "InitialState_TickReturnsNull",
+       "line": 41
+      },
+      {
+       "method": "SingleSplit_TickWithinWindow_ReturnsNull",
+       "line": 52
+      },
+      {
+       "method": "SingleSplit_TickAfterWindow_ReturnsBreakup",
+       "line": 63
+      },
+      {
+       "method": "SingleControlledChild_CorrectCounts",
+       "line": 81
+      },
+      {
+       "method": "SingleDebris_CorrectCounts",
+       "line": 96
+      },
+      {
+       "method": "RapidSplits_ThreeInWindow_SingleBreakup",
+       "line": 114
+      },
+      {
+       "method": "MixedControlledAndDebris_CorrectCounts",
+       "line": 133
+      },
+      {
+       "method": "WindowBoundary_JustBelow_ReturnsNull",
+       "line": 156
+      },
+      {
+       "method": "WindowBoundary_Exact_ReturnsBreakup",
+       "line": 166
+      },
+      {
+       "method": "ResetBetweenUses_SecondBreakupHasNoLeftoverState",
+       "line": 181
+      },
+      {
+       "method": "ManualReset_ClearsAllState",
+       "line": 204
+      },
+      {
+       "method": "NoSplits_RepeatedTick_AlwaysNull",
+       "line": 223
+      },
+      {
+       "method": "BreakupCause_OverheatPreserved",
+       "line": 236
+      },
+      {
+       "method": "BreakupCause_StructuralFailurePreserved",
+       "line": 247
+      },
+      {
+       "method": "BreakupCause_DefaultIsCrash",
+       "line": 258
+      },
+      {
+       "method": "CoalesceWindow_MatchesDefaultConstructor",
+       "line": 273
+      },
+      {
+       "method": "CoalesceWindow_MatchesCustomConstructor",
+       "line": 284
+      },
+      {
+       "method": "BreakupDuration_SingleSplit_IsZero",
+       "line": 299
+      },
+      {
+       "method": "BreakupDuration_MultipleSplits_IsLastMinusFirst",
+       "line": 311
+      },
+      {
+       "method": "BreakupDuration_DoesNotIncludeIdleWindowTime",
+       "line": 327
+      },
+      {
+       "method": "CustomWindow_LargerWindow_DoesNotExpireEarly",
+       "line": 347
+      },
+      {
+       "method": "EmittedBranchPoint_HasValidId",
+       "line": 366
+      },
+      {
+       "method": "EmittedBranchPoint_HasEmptyChildAndParentIds",
+       "line": 378
+      },
+      {
+       "method": "Log_WindowOpened_OnFirstSplit",
+       "line": 395
+      },
+      {
+       "method": "Log_WindowOpened_NotOnSubsequentSplit",
+       "line": 406
+      },
+      {
+       "method": "Log_BreakupEmitted_ContainsControlledAndDebrisCounts",
+       "line": 430
+      },
+      {
+       "method": "Log_ControlledChildAdded_LoggedWithPid",
+       "line": 449
+      },
+      {
+       "method": "Log_DebrisAdded_Logged",
+       "line": 464
+      },
+      {
+       "method": "Log_Reset_LoggedOnManualReset",
+       "line": 478
+      },
+      {
+       "method": "Log_Reset_LoggedOnWindowExpiry",
+       "line": 489
+      },
+      {
+       "method": "AllDecoupleWindow_EmitsJointBreakWithDecoupleCause",
+       "line": 505
+      },
+      {
+       "method": "AllDecoupleWindow_MultipleChildren_EmitsSingleJointBreak",
+       "line": 522
+      },
+      {
+       "method": "DecouplerPartId_CapturedFromFirstDecoupleSplit",
+       "line": 539
+      },
+      {
+       "method": "MixedWindow_DecoupleThenCrash_EmitsBreakup",
+       "line": 554
+      },
+      {
+       "method": "MixedWindow_CrashThenDecouple_EmitsBreakup",
+       "line": 570
+      },
+      {
+       "method": "Log_DecoupleEmitted_TaggedAsJointBreak",
+       "line": 584
+      },
+      {
+       "method": "DecoupleWindow_ToString_ShowsSplitCause",
+       "line": 598
+      },
+      {
+       "method": "BreakupBranchPoint_ToString_IncludesTypeAndId",
+       "line": 614
+      },
+      {
+       "method": "NonBreakupBranchPoint_ToString_IncludesTypeAndId",
+       "line": 632
+      },
+      {
+       "method": "MultiVesselSplit_AllChildrenReported",
+       "line": 651
+      },
+      {
+       "method": "MultiVesselSplit_SameUT_AllCountedSeparately",
+       "line": 669
+      },
+      {
+       "method": "LastEmittedControlledChildPids_AvailableAfterTick",
+       "line": 691
+      },
+      {
+       "method": "LastEmittedControlledChildPids_EmptyWhenNoControlledChildren",
+       "line": 714
+      },
+      {
+       "method": "LastEmittedControlledChildPids_OverwrittenByNextBreakup",
+       "line": 725
+      },
+      {
+       "method": "LastEmittedDebrisPids_AvailableAfterTick",
+       "line": 747
+      },
+      {
+       "method": "LastEmittedDebrisPids_ControlledPidsNotIncluded",
+       "line": 764
+      },
+      {
+       "method": "LastEmittedDebrisPids_PreservedAfterReset",
+       "line": 778
+      },
+      {
+       "method": "LastEmittedDebrisPids_FourBoosters_AllTracked",
+       "line": 795
+      },
+      {
+       "method": "LastEmittedDebrisPids_OverwrittenByNextBreakup",
+       "line": 815
+      },
+      {
+       "method": "Log_DebrisAdded_IncludesPid",
+       "line": 833
+      },
+      {
+       "method": "PreCapturedSnapshot_SurvivedThroughEmission",
+       "line": 848
+      },
+      {
+       "method": "PreCapturedSnapshot_NullWhenNotProvided",
+       "line": 870
+      },
+      {
+       "method": "PreCapturedSnapshot_ClearedOnReset",
+       "line": 880
+      },
+      {
+       "method": "PreCapturedSnapshot_MultipleDebris",
+       "line": 899
+      },
+      {
+       "method": "PreCapturedTrajectoryPoint_SurvivesThroughEmission",
+       "line": 917
+      },
+      {
+       "method": "PreCapturedTrajectoryPoint_ClearedOnNextEmission",
+       "line": 946
+      },
+      {
+       "method": "ShouldSkipDeadOnArrivalControlledChild_DeadAndNoSnapshot_ReturnsTrue",
+       "line": 975
+      },
+      {
+       "method": "ShouldSkipDeadOnArrivalControlledChild_DeadButHasSnapshot_ReturnsTrue",
+       "line": 987
+      },
+      {
+       "method": "ShouldSkipDeadOnArrivalControlledChild_AliveNoSnapshot_ReturnsFalse",
+       "line": 998
+      },
+      {
+       "method": "ShouldSkipDeadOnArrivalControlledChild_AliveWithSnapshot_ReturnsFalse",
+       "line": 1008
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,328 @@
+{
+ "batch_id": "wiring-gates-004",
+ "cluster": "wiring-gates",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "SettingsSectionGateWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DiagnosticsSectionIsGatedWithItsSeparator",
+       "line": 64
+      },
+      {
+       "method": "SampleDensitySectionIsGatedWithItsSeparator",
+       "line": 73
+      },
+      {
+       "method": "LoopingSectionIsGatedWithItsSeparator",
+       "line": 85
+      },
+      {
+       "method": "TheAutoLoopClickAwayCommitIsGatedAndDropsTheEditInBasic",
+       "line": 100
+      },
+      {
+       "method": "GatesReadTheFrameLatchedMode",
+       "line": 131
+      },
+      {
+       "method": "NoOtherSettingsSectionIsGated",
+       "line": 146
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ContractAcceptPatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ContractAcceptPatch_AllowsAcceptWhenNotCommitted_NoDialogLogAndReturnsTrue",
+       "line": 65
+      },
+      {
+       "method": "ContractAcceptPatch_BlocksWhenCommitted_LogsAndReturnsFalse",
+       "line": 81
+      },
+      {
+       "method": "ContractAcceptPatch_BypassesWhenReplayingActions_LogsAndReturnsTrue",
+       "line": 103
+      },
+      {
+       "method": "ContractAcceptPatch_PredicateUsesCommittedContractAcceptIdsRawKey",
+       "line": 124
+      },
+      {
+       "method": "MissionControlAcceptPatch_TargetsStockOnClickAcceptBeforeUiMutation",
+       "line": 144
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GrepAuditMapRenderPhaseSpineDriveTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MapRenderPhaseSpineDriveAudit_StaysDeletedRepoWide",
+       "line": 40
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SoiSeamProducerWiringGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnVesselSOIChanged_RoutesTheSeamThroughTheTransitionHelper",
+       "line": 31
+      },
+      {
+       "method": "OnVesselSOIChanged_DoesNotOpenARawSectionItself",
+       "line": 40
+      },
+      {
+       "method": "TransitionHelper_ResolvesTheFrameInsteadOfHardcodingOne",
+       "line": 59
+      },
+      {
+       "method": "TransitionHelper_LogsTheSeamTransition",
+       "line": 76
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SpendingGateConsistencyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LeakNoReservation_AddsBackTheFullLeakGap_ReturnsLive",
+       "line": 27
+      },
+      {
+       "method": "LeakNoReservation_TheExactBugGCase_IsAffordable",
+       "line": 38
+      },
+      {
+       "method": "ReservationNoLeak_RespectsReservation_ReturnsAvailable",
+       "line": 55
+      },
+      {
+       "method": "ReservationNoLeak_BlocksOverspendOfReservedScience",
+       "line": 66
+      },
+      {
+       "method": "LeakAndReservation_SubtractsReservationFromLeakCorrectedBase",
+       "line": 78
+      },
+      {
+       "method": "NoLeakNoReservation_ReturnsAvailableUnchanged",
+       "line": 94
+      },
+      {
+       "method": "RunningAboveLive_DoesNotReduceBelowAvailable",
+       "line": 104
+      },
+      {
+       "method": "AuthoritativeReduction_IgnoresLeakGap_ReturnsAvailable",
+       "line": 122
+      },
+      {
+       "method": "AuthoritativeReduction_StillRespectsReservation",
+       "line": 132
+      },
+      {
+       "method": "LiveEqualsRunning_ReturnsAvailable",
+       "line": 146
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ScenarioGameEventHandlerContractTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AllScenarioGameEventHandlers_AreInstanceMethods_NotStatic",
+       "line": 42
+      },
+      {
+       "method": "KnownScenarioGameEventHandler_IsInstanceMethod_NotStatic",
+       "line": 83
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GrepAuditMapRenderDirectorDriveTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MapRenderDirectorDriveAudit_StaysDeletedRepoWide",
+       "line": 30
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GrepAuditActiveLegRecordingsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ActiveLegRecordingsAudit_StaysDeletedRepoWide",
+       "line": 26
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ProgrammaticRecoveryCrewSuppressionGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SuppressedRecovery_SkipsTheExperienceCapture",
+       "line": 31
+      },
+      {
+       "method": "UnsuppressedPlayerRecovery_StillCaptures",
+       "line": 43
+      },
+      {
+       "method": "EveryOtherGuardStillSkipsIndependently",
+       "line": 54
+      },
+      {
+       "method": "EveryProductionRecoverVesselFromFlightCallIsCrewSuppressed",
+       "line": 68
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "OnContractOfferedStoreTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ConvertEvent_ContractOffered_StillReturnsNull",
+       "line": 44
+      },
+      {
+       "method": "OnContractOffered_NullContract_DoesNotCrashOrAddEvent",
+       "line": 63
+      },
+      {
+       "method": "OnContractOffered_NoStoreAddEvent_ForAnyContract",
+       "line": 78
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ContractCompletionDedupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsDuplicateContractCompletion_FirstSeen_NotDuplicate_RecordsLastSeen",
+       "line": 21
+      },
+      {
+       "method": "IsDuplicateContractCompletion_SameGuidWithinWindow_IsDuplicate",
+       "line": 34
+      },
+      {
+       "method": "IsDuplicateContractCompletion_WithinWindowSmallDrift_IsDuplicate",
+       "line": 52
+      },
+      {
+       "method": "IsDuplicateContractCompletion_SameGuidOutsideWindow_NotDuplicate",
+       "line": 66
+      },
+      {
+       "method": "IsDuplicateContractCompletion_DifferentGuid_NotDuplicate",
+       "line": 81
+      },
+      {
+       "method": "IsDuplicateContractCompletion_NullOrEmptyGuid_NotDuplicate",
+       "line": 97
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TimelineArchiveFilterWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FilterBarDrawsTheArchivedToggleBoundToTheSharedFilter",
+       "line": 41
+      },
+      {
+       "method": "BuildCallPassesTheArchiveFilterThrough",
+       "line": 50
+      },
+      {
+       "method": "CacheRebuildRoutesThroughTheSharedPredicate",
+       "line": 62
+      },
+      {
+       "method": "RevealedArchivedRowsAreMarkedInTheRowDraw",
+       "line": 75
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

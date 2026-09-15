@@ -1,0 +1,292 @@
+{
+ "batch_id": "spawn-vessel-020",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "SpawnCollisionBlockLimitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldAbandonCollisionBlockedSpawn_AtMax_ReturnsTrue",
+       "line": 37
+      },
+      {
+       "method": "ShouldAbandonCollisionBlockedSpawn_AboveMax_ReturnsTrue",
+       "line": 43
+      },
+      {
+       "method": "ShouldAbandonCollisionBlockedSpawn_BelowMax_ReturnsFalse",
+       "line": 49
+      },
+      {
+       "method": "ShouldAbandonCollisionBlockedSpawn_Zero_ReturnsFalse",
+       "line": 55
+      },
+      {
+       "method": "ShouldAbandonCollisionBlockedSpawn_ZeroMax_ZeroCount_ReturnsTrue",
+       "line": 61
+      },
+      {
+       "method": "MaxCollisionBlocks_ConstantValue",
+       "line": 68
+      },
+      {
+       "method": "FormatChainStatus_BlockedAndWalkbackExhausted_ShowsExhaustedMessage",
+       "line": 79
+      },
+      {
+       "method": "FormatChainStatus_BlockedNotExhausted_ShowsWaitingMessage",
+       "line": 100
+      },
+      {
+       "method": "FormatChainStatus_WalkbackExhaustedButNotBlocked_ShowsNormalStatus",
+       "line": 119
+      },
+      {
+       "method": "ComputeGhostLabelText_BlockedAndWalkbackExhausted_ShowsAbandoned",
+       "line": 143
+      },
+      {
+       "method": "ComputeGhostLabelText_BlockedNotExhausted_ShowsBlocked",
+       "line": 156
+      },
+      {
+       "method": "ComputeGhostLabelText_DefaultParam_BackwardCompatible",
+       "line": 166
+      },
+      {
+       "method": "GhostChain_WalkbackExhausted_DefaultsFalse",
+       "line": 181
+      },
+      {
+       "method": "Recording_CollisionBlockCount_DefaultsZero",
+       "line": 192
+      },
+      {
+       "method": "Recording_SpawnAbandoned_DefaultsFalse",
+       "line": 203
+      },
+      {
+       "method": "SpawnAbandoned_PreventsVesselGoneReset",
+       "line": 210
+      },
+      {
+       "method": "SpawnAbandoned_False_AllowsVesselGoneReset",
+       "line": 234
+      },
+      {
+       "method": "ShouldAbandonSpawnDeathLoop_AtMax_ReturnsTrue",
+       "line": 256
+      },
+      {
+       "method": "ShouldAbandonSpawnDeathLoop_AboveMax_ReturnsTrue",
+       "line": 262
+      },
+      {
+       "method": "ShouldAbandonSpawnDeathLoop_BelowMax_ReturnsFalse",
+       "line": 268
+      },
+      {
+       "method": "ShouldAbandonSpawnDeathLoop_Zero_ReturnsFalse",
+       "line": 274
+      },
+      {
+       "method": "MaxSpawnDeathCycles_ConstantValue",
+       "line": 280
+      },
+      {
+       "method": "Recording_SpawnDeathCount_DefaultsZero",
+       "line": 286
+      },
+      {
+       "method": "SpawnDeathLoop_AtMax_AbandonsSpawn",
+       "line": 293
+      },
+      {
+       "method": "SpawnDeathLoop_BelowMax_ResetsSpawnState",
+       "line": 319
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DebrisParentStateGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Returns_True_When_ParentRecording_Is_Null",
+       "line": 18
+      },
+      {
+       "method": "Returns_True_When_ClosedBackgroundParent_Not_In_ActivePool",
+       "line": 26
+      },
+      {
+       "method": "Returns_True_When_BackgroundMap_Has_Different_RecordingId_For_Vessel",
+       "line": 59
+      },
+      {
+       "method": "Returns_True_When_BackgroundMap_Has_No_Entry_For_Vessel",
+       "line": 77
+      },
+      {
+       "method": "Returns_True_When_VesselPersistentId_Is_Zero_AND_Not_TreeActiveRecording",
+       "line": 94
+      },
+      {
+       "method": "Returns_True_When_Tree_Is_Null",
+       "line": 118
+      },
+      {
+       "method": "Returns_False_When_Parent_Is_Active_Recording_With_Lagging_ExplicitEndUT",
+       "line": 129
+      },
+      {
+       "method": "Returns_False_When_Parent_Is_Active_Continuation_After_Split",
+       "line": 153
+      },
+      {
+       "method": "Returns_False_When_Parent_Is_TreeActiveRecording_Even_If_Not_In_BackgroundMap",
+       "line": 186
+      },
+      {
+       "method": "Returns_False_When_Parent_Is_TreeActiveRecording_With_VesselPersistentId_Zero",
+       "line": 209
+      },
+      {
+       "method": "Returns_False_When_FocusedParent_Has_ChildBranchPointId_From_Breakup",
+       "line": 229
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SpawnCollisionWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SpawnBlocked_ChainStaysActive",
+       "line": 112
+      },
+      {
+       "method": "SpawnBlocked_BlockedSinceUT_Tracked",
+       "line": 140
+      },
+      {
+       "method": "SpawnBlocked_ClearedOnSuccessfulSpawn",
+       "line": 163
+      },
+      {
+       "method": "SpawnBlocked_DefaultsToFalse",
+       "line": 179
+      },
+      {
+       "method": "GhostExtension_OrbitalStrategy_ChosenCorrectly",
+       "line": 193
+      },
+      {
+       "method": "GhostExtension_SurfaceStrategy_ChosenCorrectly",
+       "line": 207
+      },
+      {
+       "method": "GhostExtension_LastRecordedPosition_FallbackForPointsOnly",
+       "line": 220
+      },
+      {
+       "method": "GhostExtension_NoneForEmptyRecording",
+       "line": 239
+      },
+      {
+       "method": "GhostExtension_NullRecording_ReturnsNone",
+       "line": 250
+      },
+      {
+       "method": "TerrainCorrection_ShouldCorrectForSurfaceSpawn",
+       "line": 264
+      },
+      {
+       "method": "TerrainCorrection_SkippedForOrbital",
+       "line": 277
+      },
+      {
+       "method": "TerrainCorrection_SkippedForNaNTerrainHeight",
+       "line": 287
+      },
+      {
+       "method": "TerrainCorrection_SplashedAlsoApplies",
+       "line": 297
+      },
+      {
+       "method": "CanSpawnAtChainTip_BlockedChain_StillReturnsTrue",
+       "line": 311
+      },
+      {
+       "method": "CanSpawnAtChainTip_TerminatedChain_ReturnsFalse",
+       "line": 324
+      },
+      {
+       "method": "SpawnCollisionPadding_Is5Meters",
+       "line": 334
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DebrisRelativeRecorderPolicyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NormalizeParentAnchoredRelativeRecording_StaleRelativeTail_ClampsSectionExplicitEndAndFlatPoint",
+       "line": 28
+      },
+      {
+       "method": "NormalizeParentAnchoredRelativeRecording_SingleRelativeFrame_ClampsToSampleUT",
+       "line": 57
+      },
+      {
+       "method": "NormalizeParentAnchoredRelativeRecording_EmptyRelativeSection_DropsAndClearsTailMetadata",
+       "line": 75
+      },
+      {
+       "method": "NormalizeParentAnchoredRelativeRecording_RelativeCheckpoint_ClampsToCheckpointEndUT",
+       "line": 108
+      },
+      {
+       "method": "NormalizeParentAnchoredRelativeRecording_LegacyDebris_DoesNotMutate",
+       "line": 146
+      },
+      {
+       "method": "NormalizeParentAnchoredRelativeRecording_LiveLoopDebris_DoesNotMutate",
+       "line": 163
+      },
+      {
+       "method": "NormalizeParentAnchoredRelativeRecording_NonDebris_DoesNotMutate",
+       "line": 180
+      },
+      {
+       "method": "NormalizeParentAnchoredRelativeRecording_LaterAbsoluteBoundarySection_AllowsExplicitEndUT",
+       "line": 197
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

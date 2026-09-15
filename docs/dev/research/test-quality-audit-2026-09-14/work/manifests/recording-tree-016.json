@@ -1,0 +1,235 @@
+{
+ "batch_id": "recording-tree-016",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "RecordingsTableUITests.cs",
+   "ranges": [
+    {
+     "start": 1811,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldSuppressRowLoopUi_NonViewableOrbitalCoast_Suppressed",
+       "line": 1811
+      },
+      {
+       "method": "ShouldSuppressRowLoopUi_RelativeTrackApproach_NotSuppressed",
+       "line": 1821
+      },
+      {
+       "method": "ComputeLoopAggregate_AllNonDebrisLoop_AllLoopTrue",
+       "line": 1838
+      },
+      {
+       "method": "ComputeLoopAggregate_MixedNonDebrisLoop_AllLoopFalse",
+       "line": 1851
+      },
+      {
+       "method": "ComputeLoopAggregate_DebrisExcludedFromCount",
+       "line": 1864
+      },
+      {
+       "method": "ComputeLoopAggregate_NonLoopableOrbitalCoastExcludedFromCount",
+       "line": 1882
+      },
+      {
+       "method": "ComputeLoopAggregate_AllDebris_SuppressesToggle",
+       "line": 1899
+      },
+      {
+       "method": "ComputeLoopAggregate_EmptyMembers_SuppressesToggle",
+       "line": 1915
+      },
+      {
+       "method": "ComputeLoopAggregate_OutOfRangeIndices_Skipped",
+       "line": 1924
+      },
+      {
+       "method": "ComputeLoopAggregate_NullCommittedOrIndices_Empty",
+       "line": 1936
+      },
+      {
+       "method": "ComputeLoopAggregateHeader_MatchesRangeOverload",
+       "line": 1951
+      },
+      {
+       "method": "ComputeLoopAggregateHeader_NullOrEmpty_Suppresses",
+       "line": 1973
+      },
+      {
+       "method": "LoopAggregateState_DerivedProperties_NeverDriftFromCounts",
+       "line": 1982
+      },
+      {
+       "method": "IPlaybackTrajectory_LoopPlayback_MasksDebris",
+       "line": 2005
+      },
+      {
+       "method": "BulkSetLoopPlayback_GroupMode_DoesNotTouchCustomRange",
+       "line": 2031
+      },
+      {
+       "method": "BulkSetLoopPlayback_GroupMode_OffThenOn_PreservesCustomRange",
+       "line": 2053
+      },
+      {
+       "method": "BulkSetLoopPlayback_ChainMode_AppliesAutoRange_ClearsOnDisable",
+       "line": 2074
+      },
+      {
+       "method": "BulkSetLoopPlayback_SkipsDebris",
+       "line": 2097
+      },
+      {
+       "method": "BulkSetLoopPlayback_SkipsNonLoopableOrbitalCoast",
+       "line": 2117
+      },
+      {
+       "method": "BulkSetLoopPlayback_SkipsNullAndOutOfRange",
+       "line": 2134
+      },
+      {
+       "method": "BulkSetLoopPlayback_NullIndices_HeaderPath_WritesAllNonDebris",
+       "line": 2146
+      },
+      {
+       "method": "BulkSetLoopPlayback_NullCommitted_ReturnsZero",
+       "line": 2165
+      },
+      {
+       "method": "LogTabSwitch_Logs_OldAndNew",
+       "line": 2174
+      },
+      {
+       "method": "BuildGroupTreeData_EmptyInput_ProducesEmptyOutputs",
+       "line": 2191
+      },
+      {
+       "method": "BuildGroupTreeData_UngroupedRecording_NotInAnyGroup",
+       "line": 2206
+      },
+      {
+       "method": "BuildGroupTreeData_GroupedRecording_AppearsInGroup",
+       "line": 2219
+      },
+      {
+       "method": "BuildGroupTreeData_SupersededRelation_HidesOldRecording",
+       "line": 2237
+      },
+      {
+       "method": "BuildGroupTreeData_RewindRetiredRecording_HidesFork",
+       "line": 2279
+      },
+      {
+       "method": "BuildGroupTreeData_ChainWithNoGroups_IsRootChain",
+       "line": 2324
+      },
+      {
+       "method": "BuildGroupTreeData_ChainWithGroupMember_NotRootChain",
+       "line": 2342
+      },
+      {
+       "method": "BuildGroupDisplayBlocks_TreeVesselMergesStandaloneAndChainSegments",
+       "line": 2362
+      },
+      {
+       "method": "BuildGroupDisplayBlocks_CrewGroupKeepsSingletonCrewRowsFlat",
+       "line": 2390
+      },
+      {
+       "method": "BuildGroupDisplayBlocks_GroupedChainKeepsFullChainVisible",
+       "line": 2417
+      },
+      {
+       "method": "BuildGroupDisplayBlocks_GroupedLaterChainSegmentKeepsChainHeadFirst",
+       "line": 2440
+      },
+      {
+       "method": "CompareRecordings_LaunchSite_SortsBySiteName",
+       "line": 2473
+      },
+      {
+       "method": "CompareRecordings_LaunchSite_SameSite_TiebreaksByUT",
+       "line": 2483
+      },
+      {
+       "method": "CompareRecordings_LaunchSite_NullSite_SortsBeforeNamed",
+       "line": 2493
+      },
+      {
+       "method": "CompareRecordings_LaunchSite_CaseInsensitive",
+       "line": 2503
+      },
+      {
+       "method": "CompareRecordings_LaunchSite_Descending_ReversesOrder",
+       "line": 2514
+      },
+      {
+       "method": "BuildSortedIndices_LaunchSite_GroupsBySiteThenUT",
+       "line": 2526
+      },
+      {
+       "method": "GetRecordingSortKey_LaunchSite_ReturnsRowFallback",
+       "line": 2545
+      },
+      {
+       "method": "GetChainSortKey_LaunchSite_ReturnsZero",
+       "line": 2553
+      },
+      {
+       "method": "GetGroupSortKey_LaunchSite_ReturnsZero",
+       "line": 2563
+      },
+      {
+       "method": "CompareRootItemsForSort_GloopsGroupAlwaysSortsFirst",
+       "line": 2572
+      },
+      {
+       "method": "TreeConnector_LastSibling_IsCornerBranch",
+       "line": 2598
+      },
+      {
+       "method": "TreeConnector_EarlierSibling_IsTeeBranch",
+       "line": 2609
+      },
+      {
+       "method": "TreeConnector_CornerAndTeeDiffer",
+       "line": 2620
+      },
+      {
+       "method": "ResolveLastChildSection_FollowsPrecedence",
+       "line": 2632
+      },
+      {
+       "method": "MissionsIsTheDefaultAndFirstTab",
+       "line": 2663
+      },
+      {
+       "method": "VisibleTabCountIsZeroInBasicAndTwoInAdvanced",
+       "line": 2689
+      },
+      {
+       "method": "TabIndexClampsIntoRange",
+       "line": 2706
+      },
+      {
+       "method": "ClampTabForBasicMovesTheSelectionOffTheHiddenTab",
+       "line": 2729
+      },
+      {
+       "method": "RecordingStoragePathsAreUnaffectedByRename",
+       "line": 2763
+      },
+      {
+       "method": "ScrollToRecordingSelectsRecordingsTab",
+       "line": 2792
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

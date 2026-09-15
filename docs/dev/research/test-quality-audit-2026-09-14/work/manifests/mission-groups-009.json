@@ -1,0 +1,151 @@
+{
+ "batch_id": "mission-groups-009",
+ "cluster": "mission-groups",
+ "tier": "A",
+ "expected_methods": 33,
+ "files": [
+  {
+   "file": "MissionStoreTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EnsureDefaults_CreatesOnePerTree_AllIncluded_AndIsIdempotent",
+       "line": 52
+      },
+      {
+       "method": "Clone_CopiesSelection_IntoAnIndependentMission",
+       "line": 67
+      },
+      {
+       "method": "Clone_InsertsCopyDirectlyAfterSource",
+       "line": 96
+      },
+      {
+       "method": "Delete_BlockedOnOriginal_AllowedOnCopy",
+       "line": 114
+      },
+      {
+       "method": "Delete_OriginalNeverDeletable_EvenWithCopies",
+       "line": 130
+      },
+      {
+       "method": "ClassifyDeleteRefusal_NamesTheRealReason",
+       "line": 152
+      },
+      {
+       "method": "PruneOrphans_RemovesMissionsForMissingTrees",
+       "line": 186
+      },
+      {
+       "method": "PruneOrphans_ProtectsMissionForParkedTreeId",
+       "line": 198
+      },
+      {
+       "method": "PruneOrphans_StillRemovesTrueOrphan_WhenParkedIdsGivenButDontMatch",
+       "line": 224
+      },
+      {
+       "method": "SaveLoad_RoundTripsNameTreeAndSelection",
+       "line": 239
+      },
+      {
+       "method": "SaveLoad_RoundTripsArchivedFlag_AndHideArchivedToggle",
+       "line": 275
+      },
+      {
+       "method": "Load_MissingArchiveValues_DefaultToNotArchived",
+       "line": 292
+      },
+      {
+       "method": "SaveLoad_AndClone_RoundTripExcludedIntervalKeys",
+       "line": 309
+      },
+      {
+       "method": "Clone_CopiesArchivedFlag",
+       "line": 335
+      },
+      {
+       "method": "SaveLoad_UnsetAnchor_RoundTripsAsNaN",
+       "line": 347
+      },
+      {
+       "method": "SetLoopEnabled_On_TurnsTargetOn_AndSameTreeOthersOff",
+       "line": 364
+      },
+      {
+       "method": "SetLoopEnabled_On_KeepsLoopingMissionsOnOtherTrees",
+       "line": 389
+      },
+      {
+       "method": "SetLoopEnabled_Off_TurnsOnlyTargetOff",
+       "line": 408
+      },
+      {
+       "method": "SetLoopEnabled_On_StampsAnchorUT_AndReEnableReAnchors",
+       "line": 423
+      },
+      {
+       "method": "NormalizeOneLoopPerTree_ClearsExtraSameTreeLoops_KeepsFirstPerTree",
+       "line": 445
+      },
+      {
+       "method": "NormalizeOneLoopPerTree_KeepsOneLoopPerDistinctTree",
+       "line": 468
+      },
+      {
+       "method": "NormalizeOneLoopPerTree_NullTreeIdMissions_CollapseToOneSlot",
+       "line": 487
+      },
+      {
+       "method": "ReconcileSelections_RemovesBogusHead_AndWarns_KeepsValidHead",
+       "line": 513
+      },
+      {
+       "method": "ReconcileSelections_AllValidHeads_RemovesNothing_AndDoesNotWarn",
+       "line": 539
+      },
+      {
+       "method": "ReconcileSelections_RemovesStaleIntervalKey_KeepsValidKey_AndWarns",
+       "line": 560
+      },
+      {
+       "method": "EnsureDefaults_CreatesMissionsAtCurrentSelectionSchemaGeneration",
+       "line": 642
+      },
+      {
+       "method": "Clone_CopiesSelectionSchemaGeneration",
+       "line": 649
+      },
+      {
+       "method": "SaveLoad_RoundTripsSelectionSchemaGeneration",
+       "line": 661
+      },
+      {
+       "method": "Load_MissingSelectionSchemaGeneration_DefaultsToZero",
+       "line": 675
+      },
+      {
+       "method": "ReconcileSelections_Generation0_ExtendsExclusionsAcrossDockSubIntervals",
+       "line": 690
+      },
+      {
+       "method": "ReconcileSelections_Generation0_EmptyExclusions_StampedWithoutExtension",
+       "line": 729
+      },
+      {
+       "method": "ReconcileSelections_Generation1_PreservesMixedDockSelection",
+       "line": 760
+      },
+      {
+       "method": "ReconcileSelections_Generation0_TreeNotCommitted_StampDeferred",
+       "line": 787
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

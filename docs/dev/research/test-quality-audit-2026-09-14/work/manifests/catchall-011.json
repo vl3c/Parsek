@@ -1,0 +1,270 @@
+{
+ "batch_id": "catchall-011",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "PostWalkActionReconcilerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyPostWalk_ReputationPenalty_KerbalDeath_MapsToStockVesselLossKey",
+       "line": 166
+      },
+      {
+       "method": "ReconcilePostWalk_KerbalDeath_PairsWithStockVesselLossEvent_NoWarn",
+       "line": 177
+      },
+      {
+       "method": "ReconcilePostWalk_KerbalDeath_WithNoStockEvent_WarnsNamingVesselLoss",
+       "line": 194
+      },
+      {
+       "method": "ReconcilePostWalk_KerbalDeath_RecordingLeftTheTimeline_SkipsInsteadOfWarning",
+       "line": 250
+      },
+      {
+       "method": "ReconcilePostWalk_HiddenCaptureMagnitudeDrifted_StillWarns",
+       "line": 280
+      },
+      {
+       "method": "ReconcilePostWalk_HiddenCaptureMagnitudeAgrees_SkipsQuietly",
+       "line": 312
+      },
+      {
+       "method": "GetPostWalkLegTolerance_MatchesTheCompareStagePerResource",
+       "line": 336
+      },
+      {
+       "method": "ReconcilePostWalk_RecordingLeftTheTimeline_ButNoCaptureAtAll_StillWarns",
+       "line": 351
+      },
+      {
+       "method": "ReconcilePostWalk_KerbalDeath_RecordingStillInTimeline_StillPairs",
+       "line": 373
+      },
+      {
+       "method": "ReconcilePostWalk_RecordingStillInTimeline_ButNoEventCaptured_StillWarns",
+       "line": 395
+      },
+      {
+       "method": "IsActionRecordingVisibleToCurrentTimeline_UntaggedRowIsAlwaysVisible",
+       "line": 416
+      },
+      {
+       "method": "IsActionRecordingVisibleToCurrentTimeline_TaggedRowFollowsTheEffectiveSet",
+       "line": 428
+      },
+      {
+       "method": "ClassifyPostWalk_ReputationPenalty_MapsSourceToStockReasonKey",
+       "line": 447
+      },
+      {
+       "method": "ClassifyPostWalk_ReputationPenalty_DirectlyCapturedSources_NotReconciled",
+       "line": 474
+      },
+      {
+       "method": "ClassifyPostWalk_ContractComplete_AppliesAllThreeTransformedLegs",
+       "line": 496
+      },
+      {
+       "method": "ClassifyPostWalk_ContractComplete_Ineffective_MirrorsModuleSkip",
+       "line": 518
+      },
+      {
+       "method": "ClassifyPostWalk_ContractPenaltyTypes_NegateFundsPenaltyAndCarryEffectiveRep",
+       "line": 545
+      },
+      {
+       "method": "ClassifyPostWalk_ContractFail_HasNoEffectiveGate",
+       "line": 568
+      },
+      {
+       "method": "ClassifyPostWalk_MilestoneAchievement_UsesAwardedFieldsKeyedProgression",
+       "line": 593
+      },
+      {
+       "method": "ClassifyPostWalk_MilestoneAchievement_Ineffective_MirrorsDuplicateSkip",
+       "line": 617
+      },
+      {
+       "method": "ClassifyPostWalk_ReputationEarning_MapsSourceToStockReasonKey",
+       "line": 638
+      },
+      {
+       "method": "ClassifyPostWalk_ReputationEarning_UnpairedSource_NotReconciled",
+       "line": 666
+      },
+      {
+       "method": "ClassifyPostWalk_FundsEarning_KscPath_UsesFundsAwardedKeyedOther",
+       "line": 685
+      },
+      {
+       "method": "ClassifyPostWalk_FundsEarning_OwnChannelSources_NotReconciledHere",
+       "line": 711
+      },
+      {
+       "method": "ClassifyPostWalk_FundsEarning_Ineffective_NotReconciled",
+       "line": 729
+      },
+      {
+       "method": "ClassifyPostWalk_ScienceEarning_Transmitted_UsesPostCapEffectiveScience",
+       "line": 748
+      },
+      {
+       "method": "ClassifyPostWalk_ScienceEarning_Recovered_KeysVesselRecovery",
+       "line": 771
+      },
+      {
+       "method": "ClassifyPostWalk_ScienceEarning_Ineffective_NotReconciled",
+       "line": 790
+      },
+      {
+       "method": "ClassifyPostWalk_NullAction_NotReconciled",
+       "line": 809
+      },
+      {
+       "method": "ClassifyPostWalk_UntransformedTypes_NotReconciled",
+       "line": 823
+      },
+      {
+       "method": "ReconcilePostWalk_MilestoneMatchesAcrossAllThreeLegs_NoWarn",
+       "line": 836
+      },
+      {
+       "method": "ReconcilePostWalk_ContractFundsDiverge_WarnCarriesBothValues",
+       "line": 866
+      },
+      {
+       "method": "ReconcilePostWalk_WrongReasonKeyOnObservedEvent_ReportsMissingChannel",
+       "line": 901
+      },
+      {
+       "method": "ReconcilePostWalk_EventOutsideEpsilonWindow_DoesNotPair",
+       "line": 921
+      },
+      {
+       "method": "ReconcilePostWalk_ActionBeyondCutoff_IsNotWalked",
+       "line": 938
+      },
+      {
+       "method": "ReconcilePostWalk_SecondPass_IsIdempotent",
+       "line": 954
+      },
+      {
+       "method": "ReconcilePostWalk_SecondPass_OnMismatch_DoesNotDoubleWarn",
+       "line": 980
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EnsurePassIntegrityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AnalysisPass_WhenEnsureMutatesSections_MarksRecordingDirty",
+       "line": 152
+      },
+      {
+       "method": "AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean",
+       "line": 177
+      },
+      {
+       "method": "AnalysisPass_OnAlreadyNormalizedRecording_DoesNotDirty",
+       "line": 199
+      },
+      {
+       "method": "Ensure_PureResort_IsReportedAsMutationButNotAsChanged",
+       "line": 224
+      },
+      {
+       "method": "Ensure_ShiftingSectionOrdinals_InvalidatesSectionAnnotations",
+       "line": 258
+      },
+      {
+       "method": "Ensure_EmptyShellReconcile_InvalidatesSectionAnnotations",
+       "line": 302
+      },
+      {
+       "method": "Ensure_NoSectionChange_KeepsSectionAnnotations",
+       "line": 331
+      },
+      {
+       "method": "Ensure_TrailingPromotionWithoutResort_KeepsSectionAnnotations",
+       "line": 355
+      },
+      {
+       "method": "Append_ShiftingSectionOrdinals_InvalidatesSectionAnnotations",
+       "line": 384
+      },
+      {
+       "method": "Append_InOrderTailAppend_KeepsSectionAnnotations",
+       "line": 410
+      },
+      {
+       "method": "Ensure_Invalidation_IsScopedToTheMutatedRecording",
+       "line": 437
+      },
+      {
+       "method": "Ensure_ShiftingSectionOrdinals_AlsoClearsResolvedSessionAnchors",
+       "line": 467
+      },
+      {
+       "method": "Ensure_ShiftingSectionOrdinals_ClearsAnchorsEvenWithNoPannAnnotations",
+       "line": 498
+      },
+      {
+       "method": "Ensure_NoSectionChange_KeepsResolvedSessionAnchors",
+       "line": 512
+      },
+      {
+       "method": "Ensure_DetachedSyntheticSnapshot_DoesNotInvalidateTheRealRecording",
+       "line": 536
+      },
+      {
+       "method": "PreReFlyAnchorSnapshotRecording_IsFlaggedDetachedSynthetic",
+       "line": 559
+      },
+      {
+       "method": "Ensure_WithInvalidationSuppressed_StillNormalizesButKeepsAnnotations",
+       "line": 592
+      },
+      {
+       "method": "Ensure_SortIsStableAcrossPasses_SoResortDoesNotPingPong",
+       "line": 616
+      },
+      {
+       "method": "TheInvalidationOptOut_HasExactlyOneProductionCaller",
+       "line": 668
+      },
+      {
+       "method": "TheOptOutCaller_TakesTheDropOnItsCommittedPath",
+       "line": 695
+      },
+      {
+       "method": "LoadOrCompute_OrdinalPastEndOfSectionList_IsNotInstalled",
+       "line": 849
+      },
+      {
+       "method": "LoadOrCompute_AllOrdinalsInRange_InstallsEverythingAndDoesNotWarn",
+       "line": 884
+      },
+      {
+       "method": "IsInstallableSectionIndex_BoundsAreHalfOpen",
+       "line": 909
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

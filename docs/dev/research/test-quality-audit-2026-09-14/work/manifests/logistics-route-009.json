@@ -1,0 +1,135 @@
+{
+ "batch_id": "logistics-route-009",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 29,
+ "files": [
+  {
+   "file": "Logistics/RouteBackingMissionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Compute_DockEdge_WindowEndsAtDock",
+       "line": 135
+      },
+      {
+       "method": "Compute_ExactBoundary_StartAtDockExcluded_EndAtDockKept",
+       "line": 179
+      },
+      {
+       "method": "Compute_SingleInterval_NoPostUndockStructure_EmptySet",
+       "line": 201
+      },
+      {
+       "method": "Compute_BadWindow_FallsBackToEmptySetAndLogs",
+       "line": 222
+      },
+      {
+       "method": "Compute_NullTree_EmptySetAndLogs",
+       "line": 237
+      },
+      {
+       "method": "ComputeMembers_MultiLegTree_CoversTransportThroughLine_ExcludesPostDock",
+       "line": 261
+      },
+      {
+       "method": "ComputeMembers_BadWindow_FallsBackToWholeSegment",
+       "line": 282
+      },
+      {
+       "method": "ComputeMembers_NullTree_Empty",
+       "line": 296
+      },
+      {
+       "method": "ComputeMembers_EarlierUndock_DoesNotTrimContinuingSurvivor",
+       "line": 308
+      },
+      {
+       "method": "ComputeAutoExcluded_NewSegPeelOfKnownMember_PreDockKept_PostDockTailTrimmed",
+       "line": 397
+      },
+      {
+       "method": "ComputeAutoExcluded_BaseIdRuleAlone_NewSegPeelKept_NewBranchExcluded",
+       "line": 442
+      },
+      {
+       "method": "ComputeAutoExcluded_EmptySourceRefs_FailsOpenToEmpty",
+       "line": 472
+      },
+      {
+       "method": "ComputeAutoExcluded_EmptyCreationExcludedSet_HonestFallbackPreserved",
+       "line": 502
+      },
+      {
+       "method": "ComputeAutoExcluded_NullTreeOrRoute_ReturnsEmptyAndLogs",
+       "line": 525
+      },
+      {
+       "method": "BuildMission_SignatureGate_DerivesOncePerTopology_RederivesOnGrowth",
+       "line": 541
+      },
+      {
+       "method": "BuildMission_CopiesExcludedSet_SetsLoopFields_NeverTouchesStore",
+       "line": 612
+      },
+      {
+       "method": "BuildMission_NullRoute_ReturnsNull",
+       "line": 656
+      },
+      {
+       "method": "BuildMission_RateLimitsItsPerFrameLog",
+       "line": 667
+      },
+      {
+       "method": "StripSegMarker_StripsSegAndDockMarkers",
+       "line": 710
+      },
+      {
+       "method": "ComputeExcluded_StartTrim_ExcludesPreOriginDock",
+       "line": 780
+      },
+      {
+       "method": "ComputeStartExcluded_ExactBoundary_EndAtOriginExcluded_StartAtOriginKept",
+       "line": 816
+      },
+      {
+       "method": "ComputeStartExcluded_OriginUndockChildBranch_Excluded",
+       "line": 832
+      },
+      {
+       "method": "ComputeStartExcluded_BadInputs_EmptySetAndLogs",
+       "line": 852
+      },
+      {
+       "method": "ComputeStartExcluded_NullTree_EmptySetAndLogs",
+       "line": 866
+      },
+      {
+       "method": "TryComputeSelectionSpan_ShuttleExclusions_SpanIsOriginUndockToDock",
+       "line": 878
+      },
+      {
+       "method": "TryComputeSelectionSpan_PreOriginOffshootOutlivesUndock_SpanStartDisagrees",
+       "line": 896
+      },
+      {
+       "method": "TryComputeSelectionSpan_NullTreeOrAllExcluded_False",
+       "line": 915
+      },
+      {
+       "method": "ComputeAutoExcluded_StartProng_NewPreOriginKey_AutoExcluded",
+       "line": 958
+      },
+      {
+       "method": "ComputeAutoExcluded_NoOriginUndockUT_EndProngOnly",
+       "line": 1006
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

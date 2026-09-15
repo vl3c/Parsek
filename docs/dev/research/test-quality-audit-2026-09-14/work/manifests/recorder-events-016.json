@@ -1,0 +1,111 @@
+{
+ "batch_id": "recorder-events-016",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 23,
+ "files": [
+  {
+   "file": "TrackSectionSerializationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SerializeTrackSections_ManyNonDefaultSources_EmitsOneSummaryLineNamingEach",
+       "line": 114
+      },
+      {
+       "method": "SerializeTrackSections_AllDefaultSources_LogsNothing",
+       "line": 144
+      },
+      {
+       "method": "RoundTrip_AtmosphericAbsolute_5Frames",
+       "line": 180
+      },
+      {
+       "method": "RoundTrip_ExoBallisticOrbitalCheckpoint_2Segments",
+       "line": 228
+      },
+      {
+       "method": "RoundTrip_CurrentRelativeFrame_WithAnchorRecordingIdAndAnchorVesselId",
+       "line": 271
+      },
+      {
+       "method": "RoundTrip_MultipleSections_OrderPreserved",
+       "line": 313
+      },
+      {
+       "method": "BackwardCompat_NoTrackSectionNodes_EmptyList",
+       "line": 388
+      },
+      {
+       "method": "ForwardTolerance_UnknownEnv_SkippedNoCrash",
+       "line": 406
+      },
+      {
+       "method": "ForwardTolerance_UnknownRef_SkippedNoCrash",
+       "line": 429
+      },
+      {
+       "method": "RoundTrip_EmptySection_ZeroFramesZeroCheckpoints",
+       "line": 452
+      },
+      {
+       "method": "RoundTrip_BackgroundFlag_PreservedCorrectly",
+       "line": 488
+      },
+      {
+       "method": "RoundTrip_SourceActive_SrcKeyNotSerialized",
+       "line": 517
+      },
+      {
+       "method": "Serialize_AnchorPidZero_NotWritten",
+       "line": 551
+      },
+      {
+       "method": "SerializeTrajectoryInto_IncludesTrackSections",
+       "line": 577
+      },
+      {
+       "method": "DeserializeTrajectoryFrom_LoadsTrackSections",
+       "line": 602
+      },
+      {
+       "method": "SerializeTrajectoryInto_NoTrackSections_NoTrackSectionNodes",
+       "line": 644
+      },
+      {
+       "method": "AltitudeMetadata_RoundTrip",
+       "line": 657
+      },
+      {
+       "method": "OrbitalCheckpoint_IsPredicted_RoundTrip",
+       "line": 685
+      },
+      {
+       "method": "AltitudeMetadata_LegacyMissing_DefaultsToNaN",
+       "line": 712
+      },
+      {
+       "method": "AltitudeMetadata_NaN_NotSerialized",
+       "line": 732
+      },
+      {
+       "method": "TrackSection_BoundarySeamFlag_RoundTripsThroughTextCodec",
+       "line": 765
+      },
+      {
+       "method": "TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyTextLoad",
+       "line": 799
+      },
+      {
+       "method": "TrackSection_BoundarySeamFlag_NotWrittenWhenFalse",
+       "line": 821
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

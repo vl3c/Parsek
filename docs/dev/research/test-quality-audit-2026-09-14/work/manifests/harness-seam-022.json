@@ -1,0 +1,310 @@
+{
+ "batch_id": "harness-seam-022",
+ "cluster": "harness-seam",
+ "tier": "C",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "TestCommandEnterWatchModeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Index_arg_is_optional_and_a_nonnegative_integer",
+       "line": 41
+      },
+      {
+       "method": "Auto_select_takes_the_first_fully_watchable_candidate",
+       "line": 51
+      },
+      {
+       "method": "Auto_select_honours_the_tree_scope_filter",
+       "line": 65
+      },
+      {
+       "method": "Auto_select_returns_minus_one_when_nothing_is_watchable",
+       "line": 79
+      },
+      {
+       "method": "Completion_waits_for_the_read_back_and_the_settle_window",
+       "line": 93
+      },
+      {
+       "method": "Completion_times_out_on_a_silent_refusal",
+       "line": 104
+      },
+      {
+       "method": "A_confirmed_read_back_wins_over_an_expired_budget",
+       "line": 117
+      },
+      {
+       "method": "Complete_payload_carries_index_recid_and_the_watching_claim",
+       "line": 126
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandRecordingVerbsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Start_FreshRecorder_NoAlreadyFlag",
+       "line": 23
+      },
+      {
+       "method": "Start_AlreadyLive_CarriesAlreadyTrue",
+       "line": 31
+      },
+      {
+       "method": "Start_NullRecordingId_EmptyString",
+       "line": 39
+      },
+      {
+       "method": "Stop_LiveRecorder_StoppedTrue_NoIdle",
+       "line": 46
+      },
+      {
+       "method": "Stop_NoRecorder_StoppedFalse_IdleTrue",
+       "line": 54
+      },
+      {
+       "method": "Commit_PayloadIsCommittedTrue",
+       "line": 62
+      },
+      {
+       "method": "Discard_WithTree_DiscardedTrue",
+       "line": 69
+      },
+      {
+       "method": "Discard_NoTree_NothingTrue",
+       "line": 77
+      },
+      {
+       "method": "Reap_UncommittedId_Selected",
+       "line": 91
+      },
+      {
+       "method": "Reap_KnownId_Skipped_CommittedRestoreCloneSafe",
+       "line": 100
+      },
+      {
+       "method": "Reap_NullAndEmptyIdEntries_Skipped",
+       "line": 112
+      },
+      {
+       "method": "Reap_NullInputs_EmptyResult_FailClosed",
+       "line": 122
+      },
+      {
+       "method": "ReapGate_NormalDiscard_NoSkip",
+       "line": 137
+      },
+      {
+       "method": "ReapGate_UnsafeShapes_Skip",
+       "line": 148
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandFlushAndQuitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldSave_OnlyWhenGameLoadedAndSaveFolderPresent",
+       "line": 24
+      },
+      {
+       "method": "ShouldSave_SuppressedAfterBatchBaselineRestore",
+       "line": 38
+      },
+      {
+       "method": "ShouldSave_DefaultsToNotSuppressed",
+       "line": 47
+      },
+      {
+       "method": "ShouldSuppressSaveAfterBatchRestore_OnlyForTheRestoredFolder",
+       "line": 63
+      },
+      {
+       "method": "IsStateMutatingVerb_ClassifiesTheSeamVerbs",
+       "line": 89
+      },
+      {
+       "method": "IsStateMutatingVerb_UnknownVerbsCountAsMutating",
+       "line": 101
+      },
+      {
+       "method": "NonMutatingVerbs_AreAllImplementedVerbs",
+       "line": 110
+      },
+      {
+       "method": "BuildPayload_ReflectsSavedFlag",
+       "line": 117
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandEvaBoardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Range_WithinBound_True",
+       "line": 27
+      },
+      {
+       "method": "Range_AtBound_InclusiveTrue",
+       "line": 33
+      },
+      {
+       "method": "Range_PastBound_False",
+       "line": 39
+      },
+      {
+       "method": "Range_DefaultOverload_Is10m",
+       "line": 46
+      },
+      {
+       "method": "Board_AllFive_Ok",
+       "line": 60
+      },
+      {
+       "method": "Board_CrewUnchanged_NeverOk_StillWaiting",
+       "line": 67
+      },
+      {
+       "method": "Board_VesselGoneButCrewAbsent_NeverOk",
+       "line": 76
+      },
+      {
+       "method": "Board_CrewAboardButTargetNotActive_StillWaiting",
+       "line": 85
+      },
+      {
+       "method": "Board_CrewAboardActiveButNotQuiescent_StillWaiting",
+       "line": 92
+      },
+      {
+       "method": "Board_NotSettled_StillWaiting",
+       "line": 102
+      },
+      {
+       "method": "Board_BudgetExpiredCrewUnchanged_BoardTimeout",
+       "line": 109
+      },
+      {
+       "method": "Board_PositiveBeatsBudget",
+       "line": 118
+      },
+      {
+       "method": "Payload_CarriesKerbalBoardedPid",
+       "line": 127
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandSettingApplierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Expected_CoversEveryWhitelistedName",
+       "line": 54
+      },
+      {
+       "method": "ApplySetting_AlwaysSetsLiveField_AndRoutesRecordOnlyForTrackedNames",
+       "line": 66
+      },
+      {
+       "method": "ApplySetting_TrackedName_RoutesSidecar_GameParamsName_DoesNot",
+       "line": 104
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandDeferralBudgetTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Default_Is60",
+       "line": 17
+      },
+      {
+       "method": "LoadGame_Is300",
+       "line": 24
+      },
+      {
+       "method": "StartRecording_UsesSceneWaitBudget_GreaterThanDefault",
+       "line": 30
+      },
+      {
+       "method": "RunTests_UsesScenarioBudget_WhenProvided",
+       "line": 38
+      },
+      {
+       "method": "RunTests_FallsBack_WhenNoScenarioBudget",
+       "line": 44
+      },
+      {
+       "method": "C1Verbs_UseTheirBudgets",
+       "line": 50
+      },
+      {
+       "method": "C2EvaVerbs_UseTheirBudgets",
+       "line": 61
+      },
+      {
+       "method": "Eva4ChuteVerb_UsesItsBudget",
+       "line": 74
+      },
+      {
+       "method": "RewindToLaunchVerb_UsesItsBudget",
+       "line": 87
+      },
+      {
+       "method": "ShouldTimeout_False_WithinBudget",
+       "line": 100
+      },
+      {
+       "method": "ShouldTimeout_True_AtBudgetBoundary",
+       "line": 107
+      },
+      {
+       "method": "ShouldTimeout_True_PastBudget",
+       "line": 113
+      },
+      {
+       "method": "ShouldTimeout_Converts_OverLoadGameBudget",
+       "line": 119
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

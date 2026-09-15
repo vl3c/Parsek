@@ -1,0 +1,167 @@
+{
+ "batch_id": "ledger-career-022",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 37,
+ "files": [
+  {
+   "file": "KerbalsModuleEndStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Dead_VesselDestroyedWithCrewAboard_IsPermanentlyReserved",
+       "line": 178
+      },
+      {
+       "method": "Dead_CrewLostOffAnIntactVessel_IsPermanentWhileSurvivorStaysAboard",
+       "line": 201
+      },
+      {
+       "method": "Dead_DeathRowDroppedFromEffectiveLedger_KerbalReturnsToAvailable",
+       "line": 223
+      },
+      {
+       "method": "Recovered_ReservationEndsAtRecordingEndUT",
+       "line": 267
+      },
+      {
+       "method": "Recovered_ReservationUsesDoubleEndUT_NotTheActionsFloatEndUT",
+       "line": 281
+      },
+      {
+       "method": "Recovered_ThenDeadInAnotherRecording_PermanentWinsRegardlessOfRowOrder",
+       "line": 300
+      },
+      {
+       "method": "Recovered_TwoRecordings_ReservationTakesTheLaterEndUT_RegardlessOfRowOrder",
+       "line": 322
+      },
+      {
+       "method": "Missing_CrewTransferredOffTheVessel_IsUnknownAndStaysOpenEnded",
+       "line": 346
+      },
+      {
+       "method": "Missing_RecordingWithNoTerminalState_IsUnknownAndStaysOpenEnded",
+       "line": 366
+      },
+      {
+       "method": "Missing_UnknownDoesNotDowngradeAnEarlierPermanentLoss",
+       "line": 380
+      },
+      {
+       "method": "ShouldUseGhostOnlyChainHandoffEndState_TruthTable",
+       "line": 411
+      },
+      {
+       "method": "ShouldUseGhostOnlyChainHandoffEndState_EvaCrewNameIsAValidStartCrewSource",
+       "line": 428
+      },
+      {
+       "method": "ShouldUseGhostOnlyChainHandoffEndState_NullRecording_IsFalse",
+       "line": 444
+      },
+      {
+       "method": "InferGhostOnlyChainHandoffEndState_MapsDestroyedToDeadAndEverythingElseToRecovered",
+       "line": 454
+      },
+      {
+       "method": "GhostOnlyChainHandoff_UnterminatedSegment_ProducesFiniteReservationNotIndefinite",
+       "line": 461
+      },
+      {
+       "method": "GhostOnlyChainHandoff_DestroyedSegment_StillProducesPermanentReservation",
+       "line": 488
+      },
+      {
+       "method": "StandIn_ReservedOwner_GetsGeneratedStandInAndReplacementBridgeEntry",
+       "line": 514
+      },
+      {
+       "method": "StandIn_SeatedInALaterRecording_EndStateIsAttributedToTheOriginalOwner",
+       "line": 535
+      },
+      {
+       "method": "StandIn_StillHoldingTheSlot_IsTheActiveOccupantAndNotRetired",
+       "line": 590
+      },
+      {
+       "method": "StandIn_DisplacedByTheOwnerReturning_IsRetiredNotReserved",
+       "line": 609
+      },
+      {
+       "method": "GetRetiredKerbals_ReturnsADefensiveSnapshot",
+       "line": 631
+      },
+      {
+       "method": "MiaRespawn_KspFlippedTheDeadKerbalBackToAvailable_ModuleKeepsThemReserved",
+       "line": 657
+      },
+      {
+       "method": "MiaRespawn_TombstoneCleanupPreservesAKerbalWhoIsStillReserved",
+       "line": 684
+      },
+      {
+       "method": "MiaRespawn_TombstoneCleanupPreservesAKerbalStillPresentInARecording",
+       "line": 703
+      },
+      {
+       "method": "TryGetRosterCreatedKerbalName_OnlyRosterCreatingTypesQualify",
+       "line": 740
+      },
+      {
+       "method": "TryGetRosterCreatedKerbalName_NullActionOrEmptyName_IsFalse",
+       "line": 752
+      },
+      {
+       "method": "ProcessAction_RosterCreatingRow_TracksTheKerbalWithoutReservingThem",
+       "line": 763
+      },
+      {
+       "method": "QueueTombstonedRosterKerbals_QueuesOnlyTheRosterCreatingRows",
+       "line": 782
+      },
+      {
+       "method": "QueueTombstonedRosterKerbals_NullList_IsANoOp",
+       "line": 802
+      },
+      {
+       "method": "Cutoff_RowsAfterTheCutoffAreExcludedFromTheEndStateWalk",
+       "line": 816
+      },
+      {
+       "method": "Cutoff_ADeathAfterTheCutoffDoesNotMakeTheKerbalPermanentlyGone",
+       "line": 840
+      },
+      {
+       "method": "ProcessAction_OrphanedRowForAnUnknownRecording_ProducesNoReservation",
+       "line": 863
+      },
+      {
+       "method": "RepeatedWalks_TheWholeEndStateSurfaceIsStable",
+       "line": 892
+      },
+      {
+       "method": "RepeatedWalksWithApplyToRoster_DoNotDeepenTheChainOrRegenerateTheStandIn",
+       "line": 926
+      },
+      {
+       "method": "LoadSlots_ReportsLoadedAndIgnoredEntryCounts",
+       "line": 986
+      },
+      {
+       "method": "LoadSlots_NoNodeAtAll_ReportsNoData",
+       "line": 1011
+      },
+      {
+       "method": "LoadSlots_LegacyCrewReplacements_FlagsTheMigrationPath",
+       "line": 1022
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

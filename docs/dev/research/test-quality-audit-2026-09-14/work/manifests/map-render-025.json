@@ -1,0 +1,343 @@
+{
+ "batch_id": "map-render-025",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "Rendering/AnchorCandidateBuilderStructuralEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryFindFlaggedSampleAtUT_ExactMatch_ReturnsFlaggedIndex",
+       "line": 48
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_FlaggedWithinTolerance_ReturnsFlaggedIndex",
+       "line": 66
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_NoFlaggedSamples_ReturnsMinusOne",
+       "line": 80
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_FlaggedOutsideTolerance_ReturnsMinusOne",
+       "line": 97
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_MultipleFlaggedSamples_ReturnsClosestToUT",
+       "line": 114
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_UnflaggedClosestSampleIgnored_FlaggedFartherWins",
+       "line": 132
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_NullFrames_ReturnsMinusOne",
+       "line": 152
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_EmptyFrames_ReturnsMinusOne",
+       "line": 159
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_NegativeTolerance_ClampsToZero",
+       "line": 167
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_FutureBitOnlyNoStructuralEventBit_DoesNotMatch",
+       "line": 188
+      },
+      {
+       "method": "TryFindFlaggedSampleAtUT_FutureBitAndStructuralEventBit_Matches",
+       "line": 204
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/RenderManifestSizeBudgetTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TwentyUnitsTwoCycles_SerializeUnderTheBudget",
+       "line": 25
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/PhaseSeamTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RigidFactory_IsRigidG1_RequiresTangentMatch",
+       "line": 22
+      },
+      {
+       "method": "FlexibleSoiFactory_IsFlexibleG0_CarriesCrossing",
+       "line": 33
+      },
+      {
+       "method": "SwitchContinuationFactory_IsSwitchG0",
+       "line": 44
+      },
+      {
+       "method": "Classify_BodyChange_IsFlexibleSoi_EvenForRigidKinds",
+       "line": 55
+      },
+      {
+       "method": "Classify_AscentToOrbit_SameBody_IsRigid",
+       "line": 66
+      },
+      {
+       "method": "Classify_OrbitToLanding_SameBody_IsRigid_BothDirections",
+       "line": 76
+      },
+      {
+       "method": "Classify_MemberSwitch_IsSwitchContinuation_OverridesEverything",
+       "line": 86
+      },
+      {
+       "method": "Classify_NonRigidSameBodyJoin_IsNone",
+       "line": 96
+      },
+      {
+       "method": "TangentDiscontinuity_AlignedTangents_NoAnomaly",
+       "line": 109
+      },
+      {
+       "method": "TangentDiscontinuity_SmallAngleWithinTolerance_NoAnomaly",
+       "line": 116
+      },
+      {
+       "method": "TangentDiscontinuity_LargeAngle_FlagsAnomaly",
+       "line": 125
+      },
+      {
+       "method": "TangentDiscontinuity_CustomTolerance_Respected",
+       "line": 133
+      },
+      {
+       "method": "TangentDiscontinuity_ZeroOrNonFiniteTangent_NoFalseAnomaly",
+       "line": 142
+      },
+      {
+       "method": "TangentDiscontinuity_NonFiniteTolerance_FallsBackToDefault",
+       "line": 154
+      },
+      {
+       "method": "KindToken_IsGrepStable",
+       "line": 162
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/PhaseChainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyCoverage_ResolvesPhasesGapsAndWindow",
+       "line": 53
+      },
+      {
+       "method": "LocatePhaseIndex_MatchesClassify_ForInPhaseUTs",
+       "line": 68
+      },
+      {
+       "method": "EmptyChain_IsAlwaysGapOrOutside_NeverThrows",
+       "line": 79
+      },
+      {
+       "method": "NonFiniteUt_IsOutsideWindow",
+       "line": 89
+      },
+      {
+       "method": "HoldPhaseInChain_CoversItsWholeSpan_NotAGap",
+       "line": 97
+      },
+      {
+       "method": "TryGetPhase_ReturnsPhaseOrFalse",
+       "line": 119
+      },
+      {
+       "method": "ChainCarriesKeyingAndWindowFields",
+       "line": 129
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/SeamFieldsDrawIrrelevantSourceGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LiveDrawPath_ReadsNoRenderSegmentSeamOrGeneratedField",
+       "line": 59
+      },
+      {
+       "method": "Comparator_DocumentsSeamOmission_AndNamesThisGate",
+       "line": 81
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/GhostRenderDirectorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "InSegment_EmitsSingleVisibleTreatment",
+       "line": 26
+      },
+      {
+       "method": "Gap_WithVisiblePrior_HoldsPrior",
+       "line": 39
+      },
+      {
+       "method": "Gap_WithNoPrior_IsHidden",
+       "line": 49
+      },
+      {
+       "method": "Outside_IsHidden",
+       "line": 56
+      },
+      {
+       "method": "TreatmentSwap_EmitsExactlyOneTreatmentPerFrame",
+       "line": 65
+      },
+      {
+       "method": "WarpStep_AcrossInteriorGap_HoldsPriorIntent_NoBlink_Headless",
+       "line": 81
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PolylineDriverWalkDeleteGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DriverWalk_DirectDeorbitClockReads_StayDeleted",
+       "line": 35
+      },
+      {
+       "method": "DriverWalk_ConsumesDeorbitClock_ThroughTheStitcherAbsorb",
+       "line": 52
+      },
+      {
+       "method": "DriverWalk_RetainedFallbackMechanisms_StayWired",
+       "line": 63
+      },
+      {
+       "method": "ShadowRenderDriver_NoteIntentWrite_StaysDeleted",
+       "line": 76
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/MovingTargetStationApproachTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_TransferArrivalAnchor_IsTheLiveStationVessel",
+       "line": 41
+      },
+      {
+       "method": "Build_TransferProvenance_IsFaithfulFallback_InV1",
+       "line": 54
+      },
+      {
+       "method": "Build_ArrivalSeam_IsFlexibleSoiG0_OffCamera",
+       "line": 64
+      },
+      {
+       "method": "Build_StationHold_IsHoldPhase_AnchoredToStation_NotALoiter",
+       "line": 76
+      },
+      {
+       "method": "Build_SeamsLinkTransferAndHold",
+       "line": 92
+      },
+      {
+       "method": "Build_PhaseWindows_AreContiguous",
+       "line": 101
+      },
+      {
+       "method": "SummaryToken_NamesStationGuidWindowsAndSeam",
+       "line": 110
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/AnchorCorrectionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AnchorCorrection_Constructor_PreservesAllFields",
+       "line": 15
+      },
+      {
+       "method": "AnchorCorrection_Default_HasZeroEpsilon",
+       "line": 40
+      },
+      {
+       "method": "AnchorSource_AllValuesUnderByte",
+       "line": 64
+      },
+      {
+       "method": "AnchorKey_EqualKeys_AreEqual",
+       "line": 86
+      },
+      {
+       "method": "AnchorKey_DifferentSection_AreNotEqual",
+       "line": 102
+      },
+      {
+       "method": "AnchorKey_DifferentSide_AreNotEqual",
+       "line": 115
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

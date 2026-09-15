@@ -1,0 +1,195 @@
+{
+ "batch_id": "recording-tree-009",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 44,
+ "files": [
+  {
+   "file": "SessionMergerTests.cs",
+   "ranges": [
+    {
+     "start": 1386,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MergeTree_PreservesReseededPredictedTailWhenSectionEndUTExtendsPastLastRecordedPoint",
+       "line": 1386
+      },
+      {
+       "method": "MergeTree_PreservesPredictedTailWhenLastPointAlignsWithSectionEndUT",
+       "line": 1491
+      },
+      {
+       "method": "MergeTree_RejectsPredictedSegmentAnchoredBelowResolvedPayloadWhenSourcePointsAreTruncated",
+       "line": 1582
+      },
+      {
+       "method": "MergeTree_RejectsUnsafePredictedOrbitTailWhenFlatPointsAreStale",
+       "line": 1684
+      },
+      {
+       "method": "MergeTree_NonMonotonicFlatTail_RebuildsFromTrackSectionsInsteadOfPreservingBadCopy",
+       "line": 1758
+      },
+      {
+       "method": "MergeTree_LogsOverlapCount",
+       "line": 1826
+      },
+      {
+       "method": "MergeTree_LogsSourceDistribution",
+       "line": 1847
+      },
+      {
+       "method": "MergeTree_DiscontiniutyAbove1m_LogsWarning",
+       "line": 1872
+      },
+      {
+       "method": "MergeTree_CrossReferenceFrameBoundary_NoDiscontinuityWarning",
+       "line": 1896
+      },
+      {
+       "method": "MergeTree_SmallDiscontinuity_NoWarning",
+       "line": 1924
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_NoPrev_TaggedNoPrev",
+       "line": 2000
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_ZeroDt_TaggedFrameMismatch",
+       "line": 2012
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_GapMatchesVelocity_TaggedUnrecordedGap",
+       "line": 2025
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_SmallGapLargeJump_TaggedSampleSkip",
+       "line": 2041
+      },
+      {
+       "method": "LooksLikeSaveLoadTeleportBoundary_OverlappingActiveSections_ReturnsTrue",
+       "line": 2056
+      },
+      {
+       "method": "LooksLikeSaveLoadTeleportBoundary_RunwaySurfaceToAtmoBoundary_ReturnsFalse",
+       "line": 2109
+      },
+      {
+       "method": "MergeTree_DiscontinuityWarning_OverlapSeam_TaggedSaveLoadTeleport",
+       "line": 2128
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_StationaryWithFloor_TaggedUnrecordedGap",
+       "line": 2197
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_NaNVelocity_TaggedInvalidData",
+       "line": 2212
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_InfinityVelocity_TaggedInvalidData",
+       "line": 2230
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_NonFiniteUT_TaggedInvalidData",
+       "line": 2248
+      },
+      {
+       "method": "ClassifyBoundaryDiscontinuity_NonFiniteDisc_TaggedInvalidData",
+       "line": 2265
+      },
+      {
+       "method": "MergeTree_DiscontinuityWarning_IncludesClassification",
+       "line": 2291
+      },
+      {
+       "method": "MergeTree_DiscontinuityWarning_InvalidData_UsesExactCause",
+       "line": 2333
+      },
+      {
+       "method": "MergeTree_DiscontinuityWarning_NonFiniteUt_SanitizesLoggedDt",
+       "line": 2360
+      },
+      {
+       "method": "MergeTree_BackgroundToActiveUnrecordedGap_InsertsSharedBoundaryPoint",
+       "line": 2396
+      },
+      {
+       "method": "MergeTree_BackgroundToActiveUnrecordedGap_PreservesValidatedFlatTail",
+       "line": 2453
+      },
+      {
+       "method": "MergeTree_BackgroundToActiveSampleSkip_LeavesBoundaryWarningUnhealed",
+       "line": 2514
+      },
+      {
+       "method": "MergeTree_BackgroundToActiveRelativeAnchorMismatch_SkipsHeal",
+       "line": 2555
+      },
+      {
+       "method": "MergeTree_BackgroundToActiveRelativeAnchorRecordingMismatch_SkipsHeal",
+       "line": 2605
+      },
+      {
+       "method": "MergeTree_BackgroundToActiveRelativeWithShadows_DefersHeal",
+       "line": 2660
+      },
+      {
+       "method": "MergeTree_StalePersistedBoundaryDiscontinuity_RecomputesBeforeHealer",
+       "line": 2710
+      },
+      {
+       "method": "MergeTree_BackgroundToActiveUnrecordedGap_HealsMultipleBoundaries",
+       "line": 2747
+      },
+      {
+       "method": "MergeTree_CrossBodyBoundary_SkipsDiscontinuity",
+       "line": 2801
+      },
+      {
+       "method": "ResolveOverlaps_FramesTrimmedToResultBoundaries",
+       "line": 2852
+      },
+      {
+       "method": "ResolveOverlaps_SameSourceOverlap_FirstOneWins",
+       "line": 2946
+      },
+      {
+       "method": "ResolveOverlaps_LowerPriorityFullyCovered_Dropped",
+       "line": 2970
+      },
+      {
+       "method": "MergePartEvents_BothEmpty_EmptyOutput",
+       "line": 2992
+      },
+      {
+       "method": "MergePartEvents_OneEmpty_CopiesOther",
+       "line": 3000
+      },
+      {
+       "method": "MergeTree_WithOverlappingSections_ResolvesCorrectly",
+       "line": 3015
+      },
+      {
+       "method": "MergeTree_LogsStartAndCompletion",
+       "line": 3059
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_MunFrames_UsesMunRadius",
+       "line": 3078
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_NullBodyName_FallsBackToKerbin",
+       "line": 3099
+      },
+      {
+       "method": "ComputeBoundaryDiscontinuity_CrossBodyBoundary_ReturnsZero",
+       "line": 3118
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

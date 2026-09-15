@@ -1,0 +1,301 @@
+{
+ "batch_id": "catchall-059",
+ "cluster": "catchall",
+ "tier": "C",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "CurrencyReservationOverlayTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FundsTooltip_WhenReserved_ShowsTotalAndReservedWithThousandsSeparators",
+       "line": 11
+      },
+      {
+       "method": "ScienceTooltip_WhenReserved_ShowsOneDecimalPlace",
+       "line": 20
+      },
+      {
+       "method": "NothingReserved_StillRendersWithZero",
+       "line": 29
+      },
+      {
+       "method": "AvailableExceedsTotal_ClampsReservedToZero",
+       "line": 40
+      },
+      {
+       "method": "OverCommitted_AvailableClampedToZero_ShowsFullBalanceReserved",
+       "line": 50
+      },
+      {
+       "method": "OverCommitted_WithShortfall_AddsShortByLine",
+       "line": 66
+      },
+      {
+       "method": "NegativeBalance_ShowsTheSignedBalance_NotTotalZeroReservedZero",
+       "line": 77
+      },
+      {
+       "method": "NegativeBalance_FutureDigsDeeper_AddsShortByAtTheWorstPoint",
+       "line": 90
+      },
+      {
+       "method": "FromLedger_Healthy_TotalIsBarPlusReserved",
+       "line": 99
+      },
+      {
+       "method": "FromLedger_ScienceHoldBack_KeepsTotalMinusReservedEqualToTheBar",
+       "line": 108
+      },
+      {
+       "method": "FromLedger_GenuineDeficit_BarFloored_EngagesTheDeficitWording",
+       "line": 119
+      },
+      {
+       "method": "FromLedger_NegativeLedgerButBarHeldUpByTheDrawdownGuard_StaysBarAnchored",
+       "line": 130
+      },
+      {
+       "method": "FromLedger_OverCommitted_ReservesTheBalanceAndNamesTheShortfall",
+       "line": 142
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FastForwardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CanFastForward_AlreadyRewinding_ReturnsFalse",
+       "line": 56
+      },
+      {
+       "method": "CanFastForward_NullRecording_ReturnsFalse",
+       "line": 70
+      },
+      {
+       "method": "CanFastForward_EmptyPoints_ReturnsFalse",
+       "line": 78
+      },
+      {
+       "method": "CanFastForwardAtUT_CurrentRecording_ReturnsFalse",
+       "line": 87
+      },
+      {
+       "method": "CanFastForwardAtUT_PastRecording_ReturnsFalse",
+       "line": 99
+      },
+      {
+       "method": "CanFastForwardAtUT_FutureRecording_ReturnsTrue",
+       "line": 111
+      },
+      {
+       "method": "CanFastForward_IsRecording_ReturnsFalse",
+       "line": 123
+      },
+      {
+       "method": "CanFastForward_HasPendingTree_ReturnsFalse",
+       "line": 132
+      },
+      {
+       "method": "CanFastForward_NoSaveFile_PassesPreRuntimeGuards",
+       "line": 144
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BoundaryOverlapLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BorrowWindow_PerLoopLine_CarriesSecondaryActiveAndResidualZero",
+       "line": 56
+      },
+      {
+       "method": "EngagedLoop_BoundaryOverlapEngagedLine_Fires",
+       "line": 78
+      },
+      {
+       "method": "EngagedLoop_NoLaunchAdvanceCappedWarn",
+       "line": 87
+      },
+      {
+       "method": "AlignedLoop_NoSecondaryActive_NoBoundaryOverlapLine",
+       "line": 101
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ActionIdMigrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NewGameAction_HasAutoAssignedActionId_WithActPrefix",
+       "line": 60
+      },
+      {
+       "method": "GameAction_ActionId_RoundTripsWhenExplicit",
+       "line": 68
+      },
+      {
+       "method": "LegacyGameAction_WithoutActionId_GetsDeterministicLegacyId",
+       "line": 90
+      },
+      {
+       "method": "LegacyActionId_DifferentInputs_ProduceDifferentIds",
+       "line": 106
+      },
+      {
+       "method": "LegacyActionIdMigration_EmitsOneShotInfoLog_OnceOnly",
+       "line": 121
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "AltitudeSplitExtendedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SimulatedMunDescent_SplitsAtThreshold",
+       "line": 24
+      },
+      {
+       "method": "SimulatedMunAscent_SplitsAtThreshold",
+       "line": 64
+      },
+      {
+       "method": "StockAirlessBodies_ThresholdValues",
+       "line": 108
+      },
+      {
+       "method": "AltitudeBoundaryConfirmed_LogsCorrectly",
+       "line": 117
+      },
+      {
+       "method": "GetSegmentPhaseLabel_ApproachPhase",
+       "line": 129
+      },
+      {
+       "method": "GetSegmentPhaseLabel_ApproachWithoutBody",
+       "line": 140
+      },
+      {
+       "method": "ClearBoundaryFlags_ClearsAltitudeState",
+       "line": 149
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ResolveReFlySettleStabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "True_DuringActiveSettleForSameRecording",
+       "line": 24
+      },
+      {
+       "method": "True_DuringActiveSettleForDebrisParent",
+       "line": 40
+      },
+      {
+       "method": "True_DuringBoundedClearHold",
+       "line": 61
+      },
+      {
+       "method": "True_WhenAnotherRecordingClearsBeforeFirstHoldExpires",
+       "line": 82
+      },
+      {
+       "method": "True_WhenShiftExtendsRecentClearHold",
+       "line": 100
+      },
+      {
+       "method": "False_WhenShiftFiresAfterClearHoldWindow",
+       "line": 132
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LockOwnershipTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatParse_RoundTrips_WithSpacedRootPath",
+       "line": 25
+      },
+      {
+       "method": "Format_UsesInvariantCulture_NoCommaInT",
+       "line": 36
+      },
+      {
+       "method": "TryParseLockLine_Missing_Fails",
+       "line": 48
+      },
+      {
+       "method": "NoExistingLock_Acquires",
+       "line": 56
+      },
+      {
+       "method": "OwnSessionLock_Reclaims",
+       "line": 65
+      },
+      {
+       "method": "ForeignLiveLock_StandsDown_EvenWithOlderT",
+       "line": 75
+      },
+      {
+       "method": "ForeignDeadLock_ReclaimsWithWarn_EvenWithRecentT",
+       "line": 87
+      },
+      {
+       "method": "ForeignUnknownProbe_OlderOrEqualT_ReclaimsWithWarn",
+       "line": 99
+      },
+      {
+       "method": "ForeignUnknownProbe_NewerT_StandsDown",
+       "line": 111
+      },
+      {
+       "method": "ParseThenDecide_EndToEnd_ForeignLive_StandsDown",
+       "line": 122
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

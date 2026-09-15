@@ -1,0 +1,267 @@
+{
+ "batch_id": "logistics-route-035",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "Logistics/RouteCandidateFinderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsTreeFullySealed_NullOrEmpty_ReturnsFalse",
+       "line": 33
+      },
+      {
+       "method": "IsTreeFullySealed_AllImmutable_ReturnsTrue",
+       "line": 40
+      },
+      {
+       "method": "IsTreeFullySealed_OneCommittedProvisional_ReturnsFalse",
+       "line": 47
+      },
+      {
+       "method": "IsTreeFullySealed_OneNotCommitted_ReturnsFalse",
+       "line": 55
+      },
+      {
+       "method": "DeriveCandidates_EligibleSealedTree_ReturnsCandidate",
+       "line": 65
+      },
+      {
+       "method": "DeriveCandidates_UnsealedTree_Skipped",
+       "line": 78
+      },
+      {
+       "method": "DeriveCandidates_IneligibleTree_Skipped",
+       "line": 90
+      },
+      {
+       "method": "DeriveCandidates_AlreadyPromoted_Skipped",
+       "line": 103
+      },
+      {
+       "method": "DeriveCandidates_NoTrees_ReturnsEmpty",
+       "line": 125
+      },
+      {
+       "method": "DeriveNearMisses_CountsUndockedStart",
+       "line": 136
+      },
+      {
+       "method": "DeriveNearMisses_CountsUntrackedGain_WithDetail",
+       "line": 160
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsWindowUISendingButtonTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ArmedAndDispatchable_ShowsSending",
+       "line": 38
+      },
+      {
+       "method": "ArmedButPaused_DoesNotShowSending",
+       "line": 47
+      },
+      {
+       "method": "ArmedButBroken_DoesNotShowSending",
+       "line": 59
+      },
+      {
+       "method": "NotArmed_DoesNotShowSending",
+       "line": 71
+      },
+      {
+       "method": "NullRoute_DoesNotShowSending",
+       "line": 78
+      },
+      {
+       "method": "InTransit_ClassifiesPauseAfterCycle_AndLabels",
+       "line": 100
+      },
+      {
+       "method": "Dispatchable_ClassifiesSendOnce_AndLabels",
+       "line": 115
+      },
+      {
+       "method": "Labels_DifferAndAreNotEnumTokens",
+       "line": 126
+      },
+      {
+       "method": "Tooltips_NonEmptyAndDistinct",
+       "line": 141
+      },
+      {
+       "method": "ResolveArmedKind_SendOnceArmed_StaysSendOnce_EvenInTransit",
+       "line": 159
+      },
+      {
+       "method": "ResolveArmedKind_NotSendOnce_InTransit_IsPauseAfterCycle",
+       "line": 168
+      },
+      {
+       "method": "ResolveArmedKind_NotSendOnce_NonTransit_FallsBackToSendOnce",
+       "line": 180
+      },
+      {
+       "method": "EveryStatus_MapsToNonEnumReason",
+       "line": 200
+      },
+      {
+       "method": "WaitingForResources_ExplainsVisualOnlyCycle",
+       "line": 213
+      },
+      {
+       "method": "Status_MapsToExpectedReason",
+       "line": 225
+      },
+      {
+       "method": "FormatCycleCount_MatchesExpected",
+       "line": 247
+      },
+      {
+       "method": "FormatIntervalFieldValue_FormatsFriendlyDurationWithUnit",
+       "line": 272
+      },
+      {
+       "method": "FormatIntervalFieldValue_NonPositiveOrNonFinite_ReturnsZero",
+       "line": 284
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RoverRelayCOracleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ReportTheOracle",
+       "line": 72
+      },
+      {
+       "method": "TheRelayIsEligibleWithRoverBAsTheSourceAndLanderAAsTheDestination",
+       "line": 130
+      },
+      {
+       "method": "TheTreeYieldsExactlyOneRouteCandidate",
+       "line": 172
+      },
+      {
+       "method": "ThePersistedProofsAreTheOnesTheDefectWroteAndBothAreRefused",
+       "line": 197
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteWindowBasisPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CountdownPresentation_ReaimWindows_NextDeliverableWindowLaunch",
+       "line": 74
+      },
+      {
+       "method": "CountdownPresentation_ZeroDrift_NextLaunchAfter",
+       "line": 118
+      },
+      {
+       "method": "CountdownPresentation_Flat_UsesExistingDockCountdown",
+       "line": 152
+      },
+      {
+       "method": "ResolveDetailCountdown_NextWindow_PrecedenceAndFallback",
+       "line": 187
+      },
+      {
+       "method": "FormatCountdownSurfaces_NextWindow",
+       "line": 207
+      },
+      {
+       "method": "StepperWording_WindowedBasis_EveryNth",
+       "line": 222
+      },
+      {
+       "method": "BasisLabel_PerBasis",
+       "line": 238
+      },
+      {
+       "method": "CountdownAccessor_NotGhostDriving_RefusesWithoutResolve",
+       "line": 257
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteDestinationCapacityCheckTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FullFit_Passes",
+       "line": 76
+      },
+      {
+       "method": "ResourceShort_Holds_NamesResource",
+       "line": 103
+      },
+      {
+       "method": "InventorySlotShort_Holds_NamesStoredPart",
+       "line": 133
+      },
+      {
+       "method": "PurePickupStop_SkippedWithoutProbing",
+       "line": 160
+      },
+      {
+       "method": "UnresolvedStop_NullProbe_FailsOpen",
+       "line": 179
+      },
+      {
+       "method": "MultiStop_SecondStopShort_NamesStopIndex",
+       "line": 196
+      },
+      {
+       "method": "SameDestination_TwoStops_CombinedResourcesGate",
+       "line": 231
+      },
+      {
+       "method": "SameDestination_TwoStops_SharedInventorySlots",
+       "line": 264
+      },
+      {
+       "method": "DegenerateInputs_Pass",
+       "line": 294
+      },
+      {
+       "method": "FirstShortToken_ResourceBeforeInventory_AndFallback",
+       "line": 307
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

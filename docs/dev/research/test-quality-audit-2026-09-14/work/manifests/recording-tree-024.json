@@ -1,0 +1,123 @@
+{
+ "batch_id": "recording-tree-024",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "MergeDialogResourcesAppliedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MergeCommit_AdvancesIndexesAndMovesToCommitted",
+       "line": 163
+      },
+      {
+       "method": "MergeCommit_DoesNotTouchMilestoneReplayIndexes",
+       "line": 201
+      },
+      {
+       "method": "MergeCommit_LeavesEmptyPointRecordingsUnadvanced",
+       "line": 240
+      },
+      {
+       "method": "MergeDiscard_DoesNotAdvanceRecordingIndexes",
+       "line": 269
+      },
+      {
+       "method": "MergeDiscard_SerializedPendingTree_RefreshesSaveAndQuicksaveWithoutCommitting",
+       "line": 290
+      },
+      {
+       "method": "MergeDiscard_RecalculatesAfterPendingTreeRemoval",
+       "line": 329
+      },
+      {
+       "method": "MergeDiscard_ReFlyMarkerTreeMismatch_FallsBackToRegularTreeDiscard",
+       "line": 352
+      },
+      {
+       "method": "MergeDiscard_ReFlyPath_PreservesCommittedMissionTreeAndRp",
+       "line": 387
+      },
+      {
+       "method": "MergeDiscard_ReFlyPath_RestoresSanitizedTreeWhenCommittedCopyDetached",
+       "line": 472
+      },
+      {
+       "method": "MergeCommit_LogsUserChoiceInfoLine",
+       "line": 558
+      },
+      {
+       "method": "MergeCommit_ReFlyPath_RefreshesQuicksaveAfterMarkerClears",
+       "line": 576
+      },
+      {
+       "method": "MergeCommit_InterruptedReFlyPath_SkipsQuicksaveRefresh",
+       "line": 624
+      },
+      {
+       "method": "MergeCommit_NullTree_LogsWarnAndReturns",
+       "line": 680
+      },
+      {
+       "method": "MergeDiscard_NullTree_LogsWarnAndReturns",
+       "line": 689
+      },
+      {
+       "method": "MergeDiscard_ReFlyInPlaceFork_RemovesForkLeavesOriginIntact",
+       "line": 713
+      },
+      {
+       "method": "MergeDiscard_ReFlyInPlaceForkAttachedToCommittedTree_RemovesForkAndPrunesTreeEntry",
+       "line": 850
+      },
+      {
+       "method": "MergeDiscard_ReFlyInPlaceForkInCommittedTreeWithSessionBranchPoint_PrunesBranchPointAndScrubsRefs",
+       "line": 979
+      },
+      {
+       "method": "MergeDiscard_ReFlyInPlaceForkInCommittedTreeWithPolluted_PreSessionBp_ScrubClears",
+       "line": 1175
+      },
+      {
+       "method": "MergeDiscardRanToCompletion_JournalActive_RefusesAndReturnsFalse",
+       "line": 1267
+      },
+      {
+       "method": "MergeDiscard_JournalActive_RefusesAndDoesNotClobberJournal",
+       "line": 1303
+      },
+      {
+       "method": "TryDiscardActiveReFlyAttempt_JournalActive_RefusesAndReturnsFalse",
+       "line": 1331
+      },
+      {
+       "method": "MergeDiscardRanToCompletion_NormalDiscard_ReturnsTrue",
+       "line": 1369
+      },
+      {
+       "method": "MergeCommit_PassedTreeMismatchesPendingSlot_RefusesAndLogsWarn",
+       "line": 1393
+      },
+      {
+       "method": "MergeCommit_NoPendingTree_PassedTreeRefused",
+       "line": 1432
+      },
+      {
+       "method": "MergeDiscardRanToCompletion_PassedTreeMismatchesPendingSlot_RefusesAndLogsWarn",
+       "line": 1457
+      },
+      {
+       "method": "MergeDialog_PreSwitchDialog_EscRespawnsInsteadOfDismissing",
+       "line": 1494
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

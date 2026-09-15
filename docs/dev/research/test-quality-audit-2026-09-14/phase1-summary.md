@@ -7,7 +7,7 @@ fragments pass `tools/lint_fragments.py`; `merge_fragments.py` filled every D1 r
 
 Review agents: Opus 5 (High effort), 4 in parallel, 2-8 batches per pass sized by tier; the
 session (Fable 5.1) supervised, fixed one lint failure left by a stalled pass (ledger-career-034,
-two rows missing the `->` token), and spot-checked 100% of High findings (`work/supervisor-notes.md`).
+two rows missing the `->` token), and spot-checked 100% of High findings (`work/supervisor-notes.md`, committed).
 
 ## Totals
 

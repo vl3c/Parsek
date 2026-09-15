@@ -1,0 +1,279 @@
+{
+ "batch_id": "map-render-023",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "Rendering/SmoothingSplineTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Fit_LinearRamp_RoundTripsExactly",
+       "line": 32
+      },
+      {
+       "method": "Fit_PreservesEndpointSamples",
+       "line": 62
+      },
+      {
+       "method": "Fit_RejectsLessThanFourSamples",
+       "line": 97
+      },
+      {
+       "method": "Fit_NaNInputProducesFailureReason",
+       "line": 116
+      },
+      {
+       "method": "Fit_NonMonotonicUTRejected",
+       "line": 137
+      },
+      {
+       "method": "Fit_LongitudeWrapsCorrectly",
+       "line": 157
+      },
+      {
+       "method": "Evaluate_OutsideRangeClampsToEndpoint",
+       "line": 189
+      },
+      {
+       "method": "Fit_WithFlags_SkipsRejectedSamples",
+       "line": 226
+      },
+      {
+       "method": "Fit_WithFlags_AfterRejectionTooFewSamples_ReturnsInvalid",
+       "line": 258
+      },
+      {
+       "method": "Fit_WithoutFlags_LegacyBehaviorUnchanged",
+       "line": 283
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/AnchorCorrectionConsumerHookTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AllowAnchorCorrection_NullRecordingId_ReturnsFalse",
+       "line": 51
+      },
+      {
+       "method": "AllowAnchorCorrection_NegativeSectionIndex_ReturnsFalse",
+       "line": 69
+      },
+      {
+       "method": "AllowAnchorCorrection_NoAnchorInStore_ReturnsFalse",
+       "line": 82
+      },
+      {
+       "method": "AllowAnchorCorrection_AnchorPresent_ReturnsTrueAndSetsOut",
+       "line": 99
+      },
+      {
+       "method": "AllowRenderAnchorCorrectionInterval_Suppressed_SuppressesAnchor",
+       "line": 123
+      },
+      {
+       "method": "AllowPointHermiteInterpolation_Suppressed_UsesLinearPath",
+       "line": 144
+      },
+      {
+       "method": "AllowRenderAnchorCorrectionInterval_NoReFlyDisplayOffset_AppliesAnchor",
+       "line": 157
+      },
+      {
+       "method": "AllowAnchorCorrection_WrongSection_ReturnsFalse",
+       "line": 178
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/NestedSoiSubtreeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryBuild_JoolMoonTour_IsNested_WithCrossingsAndRoot",
+       "line": 52
+      },
+      {
+       "method": "TryBuild_KerbinMunMinmus_IsNested_TwoSiblingMoons",
+       "line": 68
+      },
+      {
+       "method": "TryBuild_SingleLevelKerbinMun_IsNotNested",
+       "line": 81
+      },
+      {
+       "method": "TryBuild_InterplanetaryChain_IsNotNested_SunIsRoot",
+       "line": 89
+      },
+      {
+       "method": "TryBuild_InterplanetaryChain_LiveSelfReferentialSun_IsNotNested",
+       "line": 98
+      },
+      {
+       "method": "TryBuild_JoolMoonTour_LiveSelfReferentialSun_StillNested",
+       "line": 112
+      },
+      {
+       "method": "TryBuild_DunaIke_IsNotNested_SingleMoonUnderDuna",
+       "line": 124
+      },
+      {
+       "method": "TryBuild_NullOrSingle_OrNullDelegate_ReturnsNull",
+       "line": 133
+      },
+      {
+       "method": "TryBuild_DelegateThatThrows_IsTolerated_NotNested",
+       "line": 142
+      },
+      {
+       "method": "SummaryToken_NamesRootVisitedAndCrossings",
+       "line": 152
+      },
+      {
+       "method": "Constructor_NullArgs_DefaultToEmptyLists",
+       "line": 165
+      },
+      {
+       "method": "TryBuild_KerbinDepartureJoolTour_PayloadScopedToSubtree",
+       "line": 177
+      },
+      {
+       "method": "TryBuild_MoonsOnlyTour_PayloadStartsAtFirstVisitedMoon",
+       "line": 202
+      },
+      {
+       "method": "TryBuild_TwoQualifyingParents_RootIsFirstVisitedParent",
+       "line": 219
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/TrajectorySidecarBinaryStructuralEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "V10RoundTrip_StructuralEventFlagSet_PreservesFlag",
+       "line": 62
+      },
+      {
+       "method": "V10RoundTrip_NoFlag_PreservesZero",
+       "line": 113
+      },
+      {
+       "method": "CurrentBinaryRead_PreservesFlags_AndEveryOtherField",
+       "line": 151
+      },
+      {
+       "method": "V10RoundTrip_MixedFlaggedAndUnflaggedPoints_RoundTripsEachIndependently",
+       "line": 212
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/AnchorFrameTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Variants_CarryKindAndToken",
+       "line": 24
+      },
+      {
+       "method": "BodyAnchor_PreservesName",
+       "line": 45
+      },
+      {
+       "method": "ResolveBody_KnownStockBody_Resolves",
+       "line": 53
+      },
+      {
+       "method": "ResolveBody_NeverVisitedStockBody_StillResolves",
+       "line": 62
+      },
+      {
+       "method": "ResolveBody_MissingName_FailsClosed_NotNre",
+       "line": 72
+      },
+      {
+       "method": "ResolveBody_UnknownBody_FailsClosed",
+       "line": 83
+      },
+      {
+       "method": "ResolveBody_NullProbe_FailsClosed_NotNre",
+       "line": 93
+      },
+      {
+       "method": "ResolveBody_ThrowingProbe_FailsClosed_NotPropagated",
+       "line": 100
+      },
+      {
+       "method": "ParentChild_TwoBodyFixedSamples_InRange_UsesPrimary",
+       "line": 110
+      },
+      {
+       "method": "ParentChild_BodyFixedRange_IsInclusive",
+       "line": 123
+      },
+      {
+       "method": "ParentChild_OneBodyFixedSample_FallsToSecondaryWhenItCovers",
+       "line": 133
+      },
+      {
+       "method": "ParentChild_OutOfRangeBodyFixed_NoSecondary_Retires_NotClamped",
+       "line": 144
+      },
+      {
+       "method": "ParentChild_PrimaryHasEnoughSamplesButUtOutOfRange_FallsToSecondaryWhenItCovers",
+       "line": 155
+      },
+      {
+       "method": "ParentChild_OutOfRangeBothSurfaces_Retires",
+       "line": 169
+      },
+      {
+       "method": "ParentChild_PrimaryWinsOverSecondary_WhenBothCover",
+       "line": 179
+      },
+      {
+       "method": "ParentChild_NonFiniteUt_Retires",
+       "line": 190
+      },
+      {
+       "method": "ParentChild_DegenerateRange_StartAfterEnd_Retires",
+       "line": 200
+      },
+      {
+       "method": "ParentChild_DegenerateSecondaryRange_FallsToRetire",
+       "line": 210
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

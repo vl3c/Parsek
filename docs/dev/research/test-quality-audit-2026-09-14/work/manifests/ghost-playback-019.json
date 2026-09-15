@@ -1,0 +1,186 @@
+{
+ "batch_id": "ghost-playback-019",
+ "cluster": "ghost-playback",
+ "tier": "B",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "WatchEntryAcceptanceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StaleCacheSameBodyInRange_IsAccepted",
+       "line": 54
+      },
+      {
+       "method": "GenuinelyCrossBody_IsStillRefused",
+       "line": 94
+      },
+      {
+       "method": "TrajectoryResolutionFailure_FallsBackToTheCache",
+       "line": 133
+      },
+      {
+       "method": "CurrentReading_DecidesAheadOfTheTrajectory",
+       "line": 192
+      },
+      {
+       "method": "NoStateAndNoActiveBody_BothRefuse",
+       "line": 215
+      },
+      {
+       "method": "DecisionLine_NamesTheEvidenceThatDecided",
+       "line": 249
+      },
+      {
+       "method": "EvidenceTokens_AreTheGrepStableStrings",
+       "line": 297
+      },
+      {
+       "method": "TrajectoryResolver_AnswersMinmusForAParkedGhostWithoutPositioningIt",
+       "line": 316
+      },
+      {
+       "method": "LoopScheduleIsKeyedByTheRowsOwnIndex_NotTheWatchedOne",
+       "line": 369
+      },
+      {
+       "method": "ResetLoopPhase_SkippedWhenTheCurrentPhaseIsItselfWatchable",
+       "line": 438
+      },
+      {
+       "method": "ResetLoopPhase_SkippedWhenTheLoopStartIsCrossBodyButThePhaseIsNot",
+       "line": 454
+      },
+      {
+       "method": "ResetLoopPhase_PreservedWhenTheCurrentPhaseIsNotWatchable",
+       "line": 483
+      },
+      {
+       "method": "ResetLoopPhase_PreExistingTermsAreUnchanged",
+       "line": 500
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostCommNetRelayTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeCombinedPower_SingleAntenna_ReturnsPower",
+       "line": 35
+      },
+      {
+       "method": "ComputeCombinedPower_MultipleAntennas_CombinesCorrectly",
+       "line": 62
+      },
+      {
+       "method": "ComputeCombinedPower_EmptyList_ReturnsZero",
+       "line": 97
+      },
+      {
+       "method": "ComputeCombinedPower_NullList_ReturnsZero",
+       "line": 113
+      },
+      {
+       "method": "ComputeCombinedPower_NonCombinable_ReturnsStrongest",
+       "line": 125
+      },
+      {
+       "method": "ComputeCombinedPower_MixedCombinability_OnlyCombinableContribute",
+       "line": 157
+      },
+      {
+       "method": "ComputeCombinedPower_AsymmetricPowers_CombinesCorrectly",
+       "line": 199
+      },
+      {
+       "method": "ComputeCombinedPower_ZeroExponent_SumsPositiveCombinablePower",
+       "line": 235
+      },
+      {
+       "method": "ComputeCombinedPower_AllZeroPower_ReturnsZero",
+       "line": 265
+      },
+      {
+       "method": "ComputeCombinedRelayPower_OnlyRelayType_IncludesRelays",
+       "line": 287
+      },
+      {
+       "method": "ComputeCombinedRelayPower_DirectType_Excluded",
+       "line": 324
+      },
+      {
+       "method": "ComputeCombinedRelayPower_EmptyType_TreatedAsRelay",
+       "line": 359
+      },
+      {
+       "method": "ComputeCombinedRelayPower_AllDirect_ReturnsZero",
+       "line": 383
+      },
+      {
+       "method": "ComputeCombinedRelayPower_InternalType_Excluded",
+       "line": 409
+      },
+      {
+       "method": "ComputeCombinedRelayPower_NullList_ReturnsZero",
+       "line": 433
+      },
+      {
+       "method": "ComputeCombinedRelayPower_MixedTypes_OnlyRelayAndLegacy",
+       "line": 445
+      },
+      {
+       "method": "ShouldRegisterCommNet_HasAntennas_True",
+       "line": 505
+      },
+      {
+       "method": "ShouldRegisterCommNet_NoAntennas_False",
+       "line": 531
+      },
+      {
+       "method": "ShouldRegisterCommNet_NullList_False",
+       "line": 547
+      },
+      {
+       "method": "ShouldRegisterCommNet_ZeroPowerAntennas_False",
+       "line": 559
+      },
+      {
+       "method": "ShouldRegisterCommNet_MixedPower_TrueIfAnyPositive",
+       "line": 578
+      },
+      {
+       "method": "ShouldRegisterCommNet_WithRelayAntennas_True",
+       "line": 596
+      },
+      {
+       "method": "IsRemoteTechPresent_NoRTAssembly_ReturnsFalse",
+       "line": 627
+      },
+      {
+       "method": "IsRemoteTechPresent_CachesResult",
+       "line": 641
+      },
+      {
+       "method": "NewInstance_HasZeroActiveNodes",
+       "line": 663
+      },
+      {
+       "method": "HasNode_UnregisteredPid_ReturnsFalse",
+       "line": 675
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

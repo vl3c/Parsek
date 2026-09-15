@@ -1,0 +1,203 @@
+{
+ "batch_id": "recording-tree-041",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "ChainSegmentManagerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Constructor_LogsCreation",
+       "line": 68
+      },
+      {
+       "method": "Constructor_InitializesFieldsToDefaults",
+       "line": 78
+      },
+      {
+       "method": "HasActiveChain_FalseWhenIdNull",
+       "line": 101
+      },
+      {
+       "method": "HasActiveChain_TrueWhenIdSet",
+       "line": 108
+      },
+      {
+       "method": "ClearAll_ResetsAllSixteenFields",
+       "line": 120
+      },
+      {
+       "method": "ClearAll_HasActiveChainFalseAfterClear",
+       "line": 154
+      },
+      {
+       "method": "ClearAll_Logs",
+       "line": 165
+      },
+      {
+       "method": "ClearChainIdentity_ClearsOnlyIdentityFields",
+       "line": 181
+      },
+      {
+       "method": "ClearChainIdentity_HasActiveChainFalseAfterClear",
+       "line": 214
+      },
+      {
+       "method": "StopContinuation_ClearsFourContinuationFields",
+       "line": 229
+      },
+      {
+       "method": "StopContinuation_DoesNotTouchChainIdentity",
+       "line": 245
+      },
+      {
+       "method": "StopContinuation_DoesNotTouchPendingFields",
+       "line": 259
+      },
+      {
+       "method": "StopContinuation_DoesNotTouchUndockContinuationFields",
+       "line": 273
+      },
+      {
+       "method": "StopContinuation_LogsReasonAndPreviousState",
+       "line": 287
+      },
+      {
+       "method": "StopUndockContinuation_ClearsThreeFields",
+       "line": 309
+      },
+      {
+       "method": "StopUndockContinuation_DoesNotClearUndockLastVel",
+       "line": 324
+      },
+      {
+       "method": "StopUndockContinuation_DoesNotTouchChainIdentity",
+       "line": 337
+      },
+      {
+       "method": "StopUndockContinuation_DoesNotTouchPendingFields",
+       "line": 351
+      },
+      {
+       "method": "StopUndockContinuation_DoesNotTouchContinuationFields",
+       "line": 365
+      },
+      {
+       "method": "StopUndockContinuation_LogsReasonAndPreviousState",
+       "line": 379
+      },
+      {
+       "method": "ClearChainIdentity_ThenStopContinuation_OnlyClearsRespectiveFields",
+       "line": 401
+      },
+      {
+       "method": "StopContinuation_ThenStopUndockContinuation_ClearsBothIndependently",
+       "line": 426
+      },
+      {
+       "method": "ClearAll_AfterPartialClears_StillResetsEverything",
+       "line": 447
+      },
+      {
+       "method": "ClearAll_SetsRecordingIdxToNegativeOne_NotZero",
+       "line": 483
+      },
+      {
+       "method": "ClearAll_SetsLastUT_ToNegativeOne_NotZero",
+       "line": 498
+      },
+      {
+       "method": "ClearAll_CalledTwice_IsIdempotent",
+       "line": 516
+      },
+      {
+       "method": "StopContinuation_CalledOnAlreadyStoppedState_IsIdempotent",
+       "line": 530
+      },
+      {
+       "method": "StopUndockContinuation_CalledOnAlreadyStoppedState_IsIdempotent",
+       "line": 545
+      },
+      {
+       "method": "ClearAll_NullsPendingBoundaryAnchor",
+       "line": 562
+      },
+      {
+       "method": "ClearChainIdentity_DoesNotClearPendingBoundaryAnchor",
+       "line": 576
+      },
+      {
+       "method": "SampleContinuationVessel_PidZero_ReturnsImmediately",
+       "line": 592
+      },
+      {
+       "method": "SampleContinuationVessel_NegativeRecIdx_CallsStopWithStaleIndex",
+       "line": 613
+      },
+      {
+       "method": "SampleContinuationVessel_RecIdxBeyondCount_CallsStopWithStaleIndex",
+       "line": 630
+      },
+      {
+       "method": "SampleContinuationVessel_RecIdxLargeValue_CallsStopWithStaleIndex",
+       "line": 650
+      },
+      {
+       "method": "UpdateContinuationSampling_PidZero_NoOp",
+       "line": 669
+      },
+      {
+       "method": "UpdateUndockContinuationSampling_PidZero_NoOp",
+       "line": 684
+      },
+      {
+       "method": "UpdateContinuationSampling_StaleIdx_StopsContinuation",
+       "line": 697
+      },
+      {
+       "method": "UpdateUndockContinuationSampling_StaleIdx_StopsUndockContinuation",
+       "line": 716
+      },
+      {
+       "method": "StopAllContinuations_NeitherActive_NoChanges",
+       "line": 738
+      },
+      {
+       "method": "StopAllContinuations_OnlyContinuationActive_StopsOnlyThat",
+       "line": 758
+      },
+      {
+       "method": "StopAllContinuations_OnlyUndockActive_StopsOnlyThat",
+       "line": 779
+      },
+      {
+       "method": "StopAllContinuations_BothActive_StopsBoth",
+       "line": 800
+      },
+      {
+       "method": "StopAllContinuations_BothActive_PreservesChainIdentity",
+       "line": 820
+      },
+      {
+       "method": "RefreshContinuationSnapshotCore_PidZero_ReturnsImmediately",
+       "line": 843
+      },
+      {
+       "method": "RefreshContinuationSnapshotCore_NegativeRecIdx_ReturnsImmediately",
+       "line": 862
+      },
+      {
+       "method": "RefreshContinuationSnapshotCore_StaleRecIdx_CallsStop",
+       "line": 876
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

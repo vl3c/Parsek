@@ -1,0 +1,323 @@
+{
+ "batch_id": "ui-settings-001",
+ "cluster": "ui-settings",
+ "tier": "A",
+ "expected_methods": 76,
+ "files": [
+  {
+   "file": "TimelineBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EmptyInputs_ProducesEmptyList",
+       "line": 54
+      },
+      {
+       "method": "SingleRecording_ProducesStartEndSpawn",
+       "line": 70
+      },
+      {
+       "method": "HiddenRecording_Skipped",
+       "line": 96
+      },
+      {
+       "method": "PlaybackDisabled_StillEmitsVesselSpawn",
+       "line": 113
+      },
+      {
+       "method": "TerminalSpawnSuperseded_SuppressesVesselSpawnEntry",
+       "line": 131
+      },
+      {
+       "method": "UTSortOrderAcrossSources",
+       "line": 152
+      },
+      {
+       "method": "GameActionTypesMapCorrectly",
+       "line": 180
+      },
+      {
+       "method": "ScienceInitialCustomText",
+       "line": 206
+      },
+      {
+       "method": "ReputationInitialCustomText",
+       "line": 228
+      },
+      {
+       "method": "SandboxMode_HidesInitialResourceSeedRows",
+       "line": 246
+      },
+      {
+       "method": "ScienceSandboxMode_ShowsOnlyScienceInitialSeedRow",
+       "line": 268
+      },
+      {
+       "method": "CareerMode_ShowsAllInitialResourceSeedRows",
+       "line": 292
+      },
+      {
+       "method": "NullMode_LeavesInitialResourceSeedRowsVisible",
+       "line": 315
+      },
+      {
+       "method": "MilestoneText_IncludesAllRewardLegs",
+       "line": 339
+      },
+      {
+       "method": "IneffectiveT1DemotedToT2",
+       "line": 361
+      },
+      {
+       "method": "AdjacentSameMilestoneSameUt_AreCompactedIntoSingleRicherEntry",
+       "line": 386
+      },
+      {
+       "method": "SameMilestoneDifferentUt_AreNotCompacted",
+       "line": 424
+      },
+      {
+       "method": "SameMilestoneWithinPointOneSeconds_AreCompacted",
+       "line": 457
+      },
+      {
+       "method": "SameMilestoneWithinPointOneSeconds_IgnoresInterleavedNonMilestone",
+       "line": 493
+      },
+      {
+       "method": "AdjacentSameMilestoneSameUt_WithConflictingRewardLegs_AreNotCompacted",
+       "line": 537
+      },
+      {
+       "method": "IneffectiveT2StaysT2",
+       "line": 575
+      },
+      {
+       "method": "TierClassification_AllT1Types",
+       "line": 604
+      },
+      {
+       "method": "TierClassification_AllT2Types",
+       "line": 637
+      },
+      {
+       "method": "KerbalHire_CareerMode_IsDetailsOnlyAndShowsFunds",
+       "line": 671
+      },
+      {
+       "method": "KerbalHire_CareerModeWithZeroCost_HidesFunds",
+       "line": 701
+      },
+      {
+       "method": "KerbalHire_NoFundsModes_HidesFunds",
+       "line": 735
+      },
+      {
+       "method": "FormatDuration_ProducesCorrectText",
+       "line": 781
+      },
+      {
+       "method": "ChainRecording_LaunchShowsFullChainDuration",
+       "line": 791
+      },
+      {
+       "method": "ChainDuration_BranchExcluded",
+       "line": 818
+      },
+      {
+       "method": "MidChainRecording_NoVesselSpawn",
+       "line": 841
+      },
+      {
+       "method": "LegacyEvents_AppearAtT2",
+       "line": 866
+      },
+      {
+       "method": "LegacyEvents_HiddenTaggedRowsFiltered",
+       "line": 900
+      },
+      {
+       "method": "LegacyEvents_ResourceEventsFiltered",
+       "line": 931
+      },
+      {
+       "method": "LegacyMilestoneAndStrategyDuplicates_AreFilteredWhenMatchingGameActionsExist",
+       "line": 958
+      },
+      {
+       "method": "LegacyMilestoneAndStrategyEvents_AreNotFilteredForIneffectiveOrNonMatchingActions",
+       "line": 1062
+      },
+      {
+       "method": "GameActionRecordingId_ResolvesVesselName",
+       "line": 1146
+      },
+      {
+       "method": "VesselSpawn_TerminalStateText",
+       "line": 1176
+      },
+      {
+       "method": "BuildLogsSummary",
+       "line": 1207
+      },
+      {
+       "method": "IntegrationTest_AllSourcesMerged",
+       "line": 1225
+      },
+      {
+       "method": "VesselSpawn_AllTerminalStates",
+       "line": 1293
+      },
+      {
+       "method": "MapGameActionType_UnknownType_LogsWarning",
+       "line": 1304
+      },
+      {
+       "method": "MapGameActionType_StrategyScienceDebit_MapsToScienceSpendingSilently",
+       "line": 1314
+      },
+      {
+       "method": "ZeroDurationRecording_ProducesValidEntries",
+       "line": 1333
+      },
+      {
+       "method": "HiddenRecordings_LogSkipCount",
+       "line": 1352
+      },
+      {
+       "method": "HumanizeSubjectId_FormatsCorrectly",
+       "line": 1378
+      },
+      {
+       "method": "IsPlayerAction_ClassifiesActionsCorrectly",
+       "line": 1388
+      },
+      {
+       "method": "TreeRecordingWithEvaBranch_OnlyLeafSpawns",
+       "line": 1437
+      },
+      {
+       "method": "TreeRecordingBreakupOnly_EffectiveLeafSpawns",
+       "line": 1470
+      },
+      {
+       "method": "HasSamePidTreeContinuation_WithContinuation_ReturnsTrue",
+       "line": 1506
+      },
+      {
+       "method": "HasSamePidTreeContinuation_DifferentPid_ReturnsFalse",
+       "line": 1523
+      },
+      {
+       "method": "HasSamePidTreeContinuation_NoChildBranchPoint_ReturnsFalse",
+       "line": 1539
+      },
+      {
+       "method": "HasSamePidTreeContinuation_ZeroPid_ReturnsFalse",
+       "line": 1549
+      },
+      {
+       "method": "MultiBranchTree_OnlyFinalLeafSpawns",
+       "line": 1569
+      },
+      {
+       "method": "HumanizeStrategyId_MapsCorrectly",
+       "line": 1613
+      },
+      {
+       "method": "CrewDeath_SingleDeadKerbal_ProducesEntry",
+       "line": 1623
+      },
+      {
+       "method": "CrewDeath_MultipleDeadKerbal_ProducesMultipleEntries",
+       "line": 1646
+      },
+      {
+       "method": "CrewDeath_NoneDeadKerbal_NoEntry",
+       "line": 1668
+      },
+      {
+       "method": "CrewDeath_NullCrewEndStates_NoEntry",
+       "line": 1686
+      },
+      {
+       "method": "CrewDeath_HiddenRecording_Skipped",
+       "line": 1701
+      },
+      {
+       "method": "CrewDeath_LogsCount",
+       "line": 1719
+      },
+      {
+       "method": "GetCrewDeathText_FormatsCorrectly",
+       "line": 1746
+      },
+      {
+       "method": "EvaReassignment_FilteredAtBranchTime",
+       "line": 1756
+      },
+      {
+       "method": "EvaReassignment_DifferentUT_NotFiltered",
+       "line": 1792
+      },
+      {
+       "method": "EvaReassignment_DifferentRecording_NotFiltered",
+       "line": 1824
+      },
+      {
+       "method": "EvaReassignment_LogsFilterCount",
+       "line": 1857
+      },
+      {
+       "method": "BuildEvaBranchKeys_ReturnsEmptyForNoEva",
+       "line": 1896
+      },
+      {
+       "method": "BuildEvaBranchKeys_ReturnsKeyForEvaWithParent",
+       "line": 1904
+      },
+      {
+       "method": "BuildEvaBranchKeys_SkipsEvaWithoutParent",
+       "line": 1917
+      },
+      {
+       "method": "TreeChild_DestroyedWithMatchingRp_EmitsUnfinishedFlightSeparation",
+       "line": 1942
+      },
+      {
+       "method": "ActiveParentAndChild_UnfinishedFlights_BothEmitTimelineRows",
+       "line": 2008
+      },
+      {
+       "method": "TreeChild_Debris_DoesNotEmitSeparationEntry",
+       "line": 2086
+      },
+      {
+       "method": "TreeChild_DestroyedNoMatchingRp_EmitsRegularSeparation",
+       "line": 2130
+      },
+      {
+       "method": "NoOpZeroFundsSpending_IsFilteredFromTimeline",
+       "line": 2180
+      },
+      {
+       "method": "NonZeroPartPurchase_RowShowsPartName",
+       "line": 2222
+      },
+      {
+       "method": "LegacyFreePartPurchaseEvent_IsSkipped",
+       "line": 2250
+      },
+      {
+       "method": "LegacyTechContractPartDuplicates_AreFilteredWhenMatchingGameActionsExist",
+       "line": 2283
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

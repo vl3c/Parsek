@@ -1,0 +1,261 @@
+{
+ "batch_id": "harness-seam-019",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 55,
+ "files": [
+  {
+   "file": "TestCommandMergeAnswerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MapChoice_KnownChoices",
+       "line": 29
+      },
+      {
+       "method": "MapChoice_UnknownChoices",
+       "line": 41
+      },
+      {
+       "method": "ResultLabel_PerChoice",
+       "line": 52
+      },
+      {
+       "method": "DecideAnswerCompletion_AppliedAndSettled_CompleteOk",
+       "line": 58
+      },
+      {
+       "method": "DecideAnswerCompletion_AppliedButInFlight_StillWaiting",
+       "line": 66
+      },
+      {
+       "method": "DecideAnswerCompletion_AppliedButLoading_StillWaiting",
+       "line": 76
+      },
+      {
+       "method": "DecideAnswerCompletion_SettledButNotApplied_StillWaiting",
+       "line": 85
+      },
+      {
+       "method": "DecideAnswerCompletion_BudgetExpiredWithoutApply_AnswerTimeout",
+       "line": 95
+      },
+      {
+       "method": "DecideAnswerCompletion_CompleteWinsOverBudget",
+       "line": 103
+      },
+      {
+       "method": "DecideAnswerCompletion_AppliedButSceneStallsPastBudget_AppliedSceneStall",
+       "line": 112
+      },
+      {
+       "method": "DecideAnswerCompletion_AppliedButLoadingStallsPastBudget_AppliedSceneStall",
+       "line": 124
+      },
+      {
+       "method": "CompletePayload_CarriesChoiceAndResult",
+       "line": 134
+      },
+      {
+       "method": "AppliedStallPayload_CarriesAppliedTrueChoiceAndResult",
+       "line": 143
+      },
+      {
+       "method": "DecideConclusionDrive_ActiveTreeInFlight_DrivesNow",
+       "line": 162
+      },
+      {
+       "method": "DecideConclusionDrive_NonFlightScene_DrivesNowEvenWithoutActiveTree",
+       "line": 171
+      },
+      {
+       "method": "DecideConclusionDrive_FlightNoActiveTreeWithinBudget_Waits",
+       "line": 182
+      },
+      {
+       "method": "DecideConclusionDrive_FlightNoActiveTreeAtBudget_DrivesUnsettled",
+       "line": 195
+      },
+      {
+       "method": "ReFlyResumeSettleBudget_LeavesRoomInTheVerbBudget",
+       "line": 207
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestRunnerSearchFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Matches_EmptyQuery_MatchesEverything",
+       "line": 44
+      },
+      {
+       "method": "Matches_WhitespaceQuery_MatchesEverything",
+       "line": 51
+      },
+      {
+       "method": "Matches_IsCaseInsensitive",
+       "line": 57
+      },
+      {
+       "method": "Matches_TrimsQueryWhitespace",
+       "line": 64
+      },
+      {
+       "method": "Matches_NonEmptyQuery_NeverMatchesEmptyTarget",
+       "line": 70
+      },
+      {
+       "method": "Matches_NoSubstring_ReturnsFalse",
+       "line": 77
+      },
+      {
+       "method": "GetSearchableTestName_PrefersMethodNameOverName",
+       "line": 85
+      },
+      {
+       "method": "GetSearchableTestName_FallsBackToName_WhenNoMethod",
+       "line": 96
+      },
+      {
+       "method": "GetSearchableTestName_NullTest_ReturnsEmpty",
+       "line": 102
+      },
+      {
+       "method": "FilterCategories_EmptyQuery_ReturnsSameListReference",
+       "line": 110
+      },
+      {
+       "method": "FilterCategories_WhitespaceQuery_ReturnsSameListReference",
+       "line": 121
+      },
+      {
+       "method": "FilterCategories_NullGroups_ReturnsEmpty",
+       "line": 129
+      },
+      {
+       "method": "FilterCategories_CategoryNameMatch_KeepsWholeCategory",
+       "line": 138
+      },
+      {
+       "method": "FilterCategories_CaseInsensitiveCategoryMatch",
+       "line": 155
+      },
+      {
+       "method": "FilterCategories_TestNameMatch_KeepsOnlyMatchingTests",
+       "line": 166
+      },
+      {
+       "method": "FilterCategories_TestNameMatch_PreservesTestObjectReferences",
+       "line": 182
+      },
+      {
+       "method": "FilterCategories_NoMatch_ReturnsEmpty",
+       "line": 197
+      },
+      {
+       "method": "FilterCategories_CategoryDroppedWhenNeitherNameNorTestsMatch",
+       "line": 209
+      },
+      {
+       "method": "FilterCategories_MatchesMethodName",
+       "line": 223
+      },
+      {
+       "method": "FilterCategories_CategoryNameMatch_ShowsAllTests_EvenWhenSomeTestsAlsoMatch",
+       "line": 242
+      },
+      {
+       "method": "FilterCategories_TrimsQuery",
+       "line": 258
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandRecoveryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FreshId_NoJournal_Executes",
+       "line": 21
+      },
+      {
+       "method": "Claimed_Interrupted_NoReExecute",
+       "line": 28
+      },
+      {
+       "method": "Executed_RewritesResponse",
+       "line": 35
+      },
+      {
+       "method": "Done_Skips",
+       "line": 42
+      },
+      {
+       "method": "Replay_ClaimedOnly_DecidesInterrupted",
+       "line": 51
+      },
+      {
+       "method": "Replay_ClaimedThenExecuted_DecidesRewrite",
+       "line": 60
+      },
+      {
+       "method": "Replay_FullLifecycle_DecidesSkip",
+       "line": 71
+      },
+      {
+       "method": "Replay_UnknownId_DecidesExecute",
+       "line": 83
+      },
+      {
+       "method": "LoadGame_Claimed_Interrupted_NeverReInitiate",
+       "line": 92
+      },
+      {
+       "method": "LoadGame_Executed_Rewrites",
+       "line": 101
+      },
+      {
+       "method": "LoadGame_Done_Skips",
+       "line": 111
+      },
+      {
+       "method": "DuplicateId_HighestPhaseWins",
+       "line": 124
+      },
+      {
+       "method": "MultipleIds_TrackedIndependently",
+       "line": 136
+      },
+      {
+       "method": "Executed_RewriteResponse_ReEmitsOriginalVerdictPayloadMsg",
+       "line": 151
+      },
+      {
+       "method": "Executed_RewriteResponse_IsByteEquivalentToOriginalResponse",
+       "line": 177
+      },
+      {
+       "method": "TornTrailingExecuted_Ignored_StaysAtClaimed",
+       "line": 202
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

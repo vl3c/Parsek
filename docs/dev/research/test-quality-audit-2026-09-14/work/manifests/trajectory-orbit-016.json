@@ -1,0 +1,233 @@
+{
+ "batch_id": "trajectory-orbit-016",
+ "cluster": "trajectory-orbit",
+ "tier": "B",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "ReaimPlaybackResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CurrentUtPath_ReturnsBuiltSegments_AndConsistentWindow",
+       "line": 118
+      },
+      {
+       "method": "CurrentUtPath_CachesPerWindow_NoRebuildSameWindow",
+       "line": 145
+      },
+      {
+       "method": "CurrentUtPath_AdvancingWindow_ResolvesNextWindow_DistinctGeometry",
+       "line": 169
+      },
+      {
+       "method": "UnsupportedOrInvalid_ReturnsFalse_NoBuild",
+       "line": 197
+      },
+      {
+       "method": "NoHeliocentricLeg_ReturnsFalse_BeforeBuild",
+       "line": 222
+      },
+      {
+       "method": "Clear_DropsCachedWindow_NextResolveRebuilds",
+       "line": 244
+      },
+      {
+       "method": "RetimedArrival_ReturnsFalseForAnEmptyMemberId_WithoutTouchingTheCache",
+       "line": 277
+      },
+      {
+       "method": "RetimedArrival_ReturnsFalseForAnUncachedMemberOrWindow_AndBuildsNothing",
+       "line": 295
+      },
+      {
+       "method": "RetimedArrival_ReturnsFalseForACachedWindowMiss",
+       "line": 317
+      },
+      {
+       "method": "RetimedArrival_IsRecordedArrivalPlusCaptureShiftExactly",
+       "line": 340
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TrajectoryMathTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PureSlerp_ClampsTLikeUnitySlerp",
+       "line": 14
+      },
+      {
+       "method": "PureSlerp_UsesShortestPathForSignEquivalentEndpoint",
+       "line": 24
+      },
+      {
+       "method": "PureSlerp_NearAntipodalEndpoints_TakesShortPath",
+       "line": 44
+      },
+      {
+       "method": "AngularDeltaDegrees_SimpleDelta_ReturnsAbsoluteDifference",
+       "line": 125
+      },
+      {
+       "method": "AngularDeltaDegrees_ZeroDelta_ReturnsZero",
+       "line": 132
+      },
+      {
+       "method": "AngularDeltaDegrees_AcrossWraparound_ReturnsShortPath",
+       "line": 138
+      },
+      {
+       "method": "AngularDeltaDegrees_TrueLongPath_RejectsCorrectly",
+       "line": 147
+      },
+      {
+       "method": "AngularDeltaDegrees_HalfTurn_Returns180",
+       "line": 156
+      },
+      {
+       "method": "AngularDeltaDegrees_InclinationRange_SafeForCommonValues",
+       "line": 165
+      },
+      {
+       "method": "AngularDeltaDegrees_AnglesOutsideZeroTo360_NormalizesCorrectly",
+       "line": 175
+      },
+      {
+       "method": "AngularDeltaDegrees_ResultAlwaysNonNegative",
+       "line": 185
+      },
+      {
+       "method": "TryInterpolateWorldHermite_ConstantVelocityMatchesLerp",
+       "line": 195
+      },
+      {
+       "method": "TryInterpolateWorldHermite_UsesEndpointVelocities",
+       "line": 216
+      },
+      {
+       "method": "TryInterpolateWorldHermite_RejectsLargeBow",
+       "line": 237
+      },
+      {
+       "method": "CoOrbitalShift_CircularOrbit_ReducesToOffsetOverSma",
+       "line": 268
+      },
+      {
+       "method": "CoOrbitalShift_ScalesLinearlyWithOffset",
+       "line": 284
+      },
+      {
+       "method": "CoOrbitalShift_NegativeOffset_PlacesBehind",
+       "line": 297
+      },
+      {
+       "method": "CoOrbitalShift_ZeroOffset_YieldsZeroShift",
+       "line": 307
+      },
+      {
+       "method": "CoOrbitalShift_HyperbolicSma_UsesAbsoluteValue",
+       "line": 317
+      },
+      {
+       "method": "CoOrbitalShift_DegenerateInputs_ReturnFalseWithZeroShift",
+       "line": 341
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RelativePlaybackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ApplyRelativeLocalOffset_RoundTrip_WithComputeRelativeLocalOffset",
+       "line": 17
+      },
+      {
+       "method": "ApplyRelativeLocalRotation_RoundTrip_WithComputeRelativeLocalRotation",
+       "line": 37
+      },
+      {
+       "method": "ResolveRelativePlaybackPosition_UsesAnchorLocalOffsetPath",
+       "line": 57
+      },
+      {
+       "method": "ResolveRelativePlaybackRotation_RoundTripsV6AnchorLocalStorage",
+       "line": 75
+      },
+      {
+       "method": "ResolveRelativePlaybackRotation_PreservesLegacyAnchorTimesStoredSemantics",
+       "line": 93
+      },
+      {
+       "method": "FindTrackSectionForUT_NullSections_ReturnsNegativeOne",
+       "line": 117
+      },
+      {
+       "method": "FindTrackSectionForUT_EmptySections_ReturnsNegativeOne",
+       "line": 124
+      },
+      {
+       "method": "FindTrackSectionForUT_UTBeforeAllSections_ReturnsNegativeOne",
+       "line": 132
+      },
+      {
+       "method": "FindTrackSectionForUT_UTAfterAllSections_ReturnsNegativeOne",
+       "line": 143
+      },
+      {
+       "method": "FindTrackSectionForUT_UTAtStartOfSection_ReturnsIndex",
+       "line": 154
+      },
+      {
+       "method": "FindTrackSectionForUT_UTAtEndOfLastSection_ReturnsLastIndex",
+       "line": 165
+      },
+      {
+       "method": "FindTrackSectionForUT_UTAtBoundary_ReturnsSecondSection",
+       "line": 178
+      },
+      {
+       "method": "FindTrackSectionForUT_UTInMiddleSection_ReturnsCorrectIndex",
+       "line": 191
+      },
+      {
+       "method": "FindTrackSectionForUT_ThreeSections_AllReachable",
+       "line": 206
+      },
+      {
+       "method": "InterpolatedOffset_AppliedToAnchor_CorrectPosition",
+       "line": 225
+      },
+      {
+       "method": "FindTrackSectionForUT_RelativeSection_ReturnsCorrectIndex",
+       "line": 282
+      },
+      {
+       "method": "FindTrackSectionForUT_AbsoluteBeforeRelative_ReturnsAbsolute",
+       "line": 314
+      },
+      {
+       "method": "FindTrackSectionForUT_WithMixedSections_NavigatesCorrectly",
+       "line": 343
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

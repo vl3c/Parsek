@@ -1,0 +1,287 @@
+{
+ "batch_id": "ghost-playback-001",
+ "cluster": "ghost-playback",
+ "tier": "A1",
+ "expected_methods": 67,
+ "files": [
+  {
+   "file": "GhostPlaybackEngineTests.cs",
+   "ranges": [
+    {
+     "start": 307,
+     "end": 1585,
+     "methods": [
+      {
+       "method": "ShouldLoopPlayback_NullTrajectory_ReturnsFalse",
+       "line": 307
+      },
+      {
+       "method": "ShouldLoopPlayback_LoopDisabled_ReturnsFalse",
+       "line": 313
+      },
+      {
+       "method": "ShouldLoopPlayback_NullPoints_ReturnsFalse",
+       "line": 321
+      },
+      {
+       "method": "ShouldLoopPlayback_EmptyPoints_ReturnsFalse",
+       "line": 330
+      },
+      {
+       "method": "ShouldLoopPlayback_SinglePoint_ReturnsFalse",
+       "line": 339
+      },
+      {
+       "method": "ShouldLoopPlayback_TooShortDuration_ReturnsFalse",
+       "line": 353
+      },
+      {
+       "method": "ShouldLoopPlayback_ExactlyMinDuration_ReturnsFalse",
+       "line": 362
+      },
+      {
+       "method": "ShouldLoopPlayback_ValidLooping_ReturnsTrue",
+       "line": 371
+      },
+      {
+       "method": "ShouldLoopPlayback_JustOverMinDuration_ReturnsTrue",
+       "line": 378
+      },
+      {
+       "method": "ShouldLoopPlayback_NoLogOutput",
+       "line": 386
+      },
+      {
+       "method": "ResolveRecordingEndpointPlaybackUT_UsesLastPointUT",
+       "line": 399
+      },
+      {
+       "method": "ResolveRecordingEndpointPlaybackUT_NoPointsUsesOrbitEndUT",
+       "line": 415
+      },
+      {
+       "method": "TryGetCheckpointBackedOrbitEndpointUT_CheckpointSectionWithOrbitSegment_ReturnsTrue",
+       "line": 431
+      },
+      {
+       "method": "TryGetCheckpointBackedOrbitEndpointUT_StaleLastPointUsesCheckpointSectionEnd",
+       "line": 462
+      },
+      {
+       "method": "TryGetCheckpointBackedOrbitEndpointUT_PartialCheckpointTailUsesNearestOrbitEndpoint",
+       "line": 509
+      },
+      {
+       "method": "TryGetCheckpointBackedOrbitEndpointUT_AbsoluteSectionReturnsFalse",
+       "line": 554
+      },
+      {
+       "method": "TryGetCheckpointBackedOrbitEndpointUT_NoOrbitSegmentReturnsFalse",
+       "line": 581
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_AfterLastFlatPointInOrbitSegment_ReturnsTrue",
+       "line": 602
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_AtLastFlatPoint_ReturnsFalse",
+       "line": 619
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_AfterLastFlatPointOutsideOrbitSegment_ReturnsFalse",
+       "line": 636
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_DegenerateInRangeSegment_ReturnsFalse",
+       "line": 653
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_BeforeNearPredictedSegmentStart_BridgesGap",
+       "line": 670
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_DegeneratePredictedBridgeSegment_ReturnsFalse",
+       "line": 687
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_BeforeDistantPredictedSegmentStart_DoesNotBridgeGap",
+       "line": 704
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_DestroyedTailBridgesFinalizerGap",
+       "line": 725
+      },
+      {
+       "method": "TryFindOrbitTailPlaybackSegment_ReturnsSegmentIndexForBridge",
+       "line": 746
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_BeforeOnRailsTransitionGap_BridgesGap",
+       "line": 775
+      },
+      {
+       "method": "TryFindOrbitTailPlaybackSegment_BridgesOnRailsTransitionGap",
+       "line": 803
+      },
+      {
+       "method": "PredictedOrbitTailContinuity_EngagesOnFirstOrbitFrameAcrossOnRailsGap",
+       "line": 825
+      },
+      {
+       "method": "ShouldUseOrbitTailPlayback_GapExactlyAtBridgeCap_BridgesButNotJustBeyond",
+       "line": 851
+      },
+      {
+       "method": "ShouldPrimeSinglePointGhostFromOrbit_UsesOrbitTailGate",
+       "line": 885
+      },
+      {
+       "method": "TryGetRelativeSectionAtUT_RelativeEndpointReturnsSectionTarget",
+       "line": 909
+      },
+      {
+       "method": "TryGetRelativeSectionAtUT_SinglePointRelativeEndpointStillRoutesRelative",
+       "line": 937
+      },
+      {
+       "method": "TryGetRelativeSectionAtUT_LegacyMissingAnchorStillRoutesButDoesNotInventPid",
+       "line": 968
+      },
+      {
+       "method": "TryGetRelativeSectionAtUT_AbsoluteEndpointReturnsFalse",
+       "line": 991
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_AfterRelativeSection_ReturnsTrue",
+       "line": 1010
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_InsideRelativeSectionWithoutBodyFixed_ReturnsTrue",
+       "line": 1019
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_BodyFixedPrimaryCover_ReturnsFalse",
+       "line": 1033
+      },
+      {
+       "method": "ShouldSkipRecordedRelativeResolverForAuthoredFrameGap_BodyFixedPrimaryCover_ReturnsTrue",
+       "line": 1047
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_InsideSectionAfterAuthoredFrames_ReturnsTrue",
+       "line": 1061
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_ShadowFramesCover_ReturnsFalse",
+       "line": 1086
+      },
+      {
+       "method": "AuthoredFrameGapHasShadowCoverage_ShadowCoveredGapWithOrbitTail_ReturnsTrue",
+       "line": 1108
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleBodyFixedPrimaryFrame_ReturnsTrue",
+       "line": 1133
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_LiveAnchorLoopDebris_ReturnsFalse",
+       "line": 1156
+      },
+      {
+       "method": "ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorWithRelativeSection_ReturnsTrue",
+       "line": 1169
+      },
+      {
+       "method": "ShouldUseLoopAnchoredDebrisChain_NonLoopParentWithLivePidRelativeSection_ReturnsFalse",
+       "line": 1179
+      },
+      {
+       "method": "ShouldUseLoopAnchoredDebrisChain_LoopParentWithMismatchedSectionAnchorPid_ReturnsFalse",
+       "line": 1194
+      },
+      {
+       "method": "ParentAnchoredCoveragePolicy_InheritedLoopAnchoredDebrisChain_DoesNotApplyOrdinaryRetirement",
+       "line": 1213
+      },
+      {
+       "method": "ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorWithAbsoluteSection_ReturnsFalse",
+       "line": 1239
+      },
+      {
+       "method": "ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorWithoutCoveringSection_ReturnsFalse",
+       "line": 1249
+      },
+      {
+       "method": "ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorSectionOutlivesFrames_ReturnsFalse",
+       "line": 1259
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleRelativeFrameWithoutBodyFixed_ReturnsTrue",
+       "line": 1277
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_ProjectedFlatPointsWithoutBodyFixed_ReturnsTrue",
+       "line": 1296
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_EmptyFramesAndNoProjectedPoints_ReturnsTrue",
+       "line": 1313
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_AbsoluteSection_ReturnsFalse",
+       "line": 1330
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_LegacyDebris_ReturnsFalse",
+       "line": 1342
+      },
+      {
+       "method": "ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_EmptyParentId_ReturnsTrue",
+       "line": 1352
+      },
+      {
+       "method": "IsParentAnchoredBodyFixedPrimaryCandidate_ControlledChild_True",
+       "line": 1362
+      },
+      {
+       "method": "IsParentAnchoredBodyFixedPrimaryCandidate_GenuineDebris_True",
+       "line": 1376
+      },
+      {
+       "method": "IsParentAnchoredBodyFixedPrimaryCandidate_NoParentAnchor_False",
+       "line": 1384
+      },
+      {
+       "method": "ResolveRecordingEndpointCoverageUT_OrbitEndpointPastRelativeCoverage_UsesOrbitEndpoint",
+       "line": 1395
+      },
+      {
+       "method": "ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss_OrbitEndpointPastRelativeCoverage_ReturnsTrue",
+       "line": 1419
+      },
+      {
+       "method": "ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss_EndpointInsideRelativeCoverage_ReturnsFalse",
+       "line": 1435
+      },
+      {
+       "method": "TryPositionRelativeSectionAtPlaybackUT_ParentAnchoredDebrisWithoutBodyFixed_RetiresInsteadOfRelativeFallback",
+       "line": 1443
+      },
+      {
+       "method": "TryPositionRelativeSectionAtPlaybackUT_ParentAnchoredDebrisOutsideCoverage_Retires",
+       "line": 1474
+      },
+      {
+       "method": "TryPositionRelativeSectionAtPlaybackUT_ParentAnchoredDebrisAfterAuthoredFrames_Retires",
+       "line": 1506
+      },
+      {
+       "method": "TryPositionRelativeSectionAtPlaybackUT_BodyFixedCoveredButVisualMissing_RetiresInsteadOfRelativeFallback",
+       "line": 1545
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

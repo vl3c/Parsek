@@ -1,0 +1,260 @@
+{
+ "batch_id": "catchall-053",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "OnFlightReadyMergeDialogGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NoPendingTree_ReturnsFalse",
+       "line": 34
+      },
+      {
+       "method": "PendingTree_NoRestoring_NoReFly_ReturnsTrue",
+       "line": 43
+      },
+      {
+       "method": "PendingTree_RestoringActiveTree_ReturnsFalse",
+       "line": 54
+      },
+      {
+       "method": "PendingTree_ReFlySessionActive_ReturnsFalse",
+       "line": 66
+      },
+      {
+       "method": "PendingTree_PlaceholderModeMarker_ReturnsTrue",
+       "line": 79
+      },
+      {
+       "method": "PendingTree_RestoringAndReFlyActive_ReturnsFalse",
+       "line": 95
+      },
+      {
+       "method": "NoPendingTree_RestoringActive_ReturnsFalse",
+       "line": 106
+      },
+      {
+       "method": "NoPendingTree_ReFlySessionActive_ReturnsFalse",
+       "line": 115
+      },
+      {
+       "method": "UpgradeRestoreMode_ReFlyRetryWithFinalizedPending_ReturnsTrue",
+       "line": 130
+      },
+      {
+       "method": "UpgradeRestoreMode_RestoreAlreadyScheduled_ReturnsFalse",
+       "line": 146
+      },
+      {
+       "method": "UpgradeRestoreMode_VesselSwitchAlreadyScheduled_ReturnsFalse",
+       "line": 160
+      },
+      {
+       "method": "UpgradeRestoreMode_NoPendingTree_ReturnsFalse",
+       "line": 170
+      },
+      {
+       "method": "UpgradeRestoreMode_PendingNotFinalized_ReturnsFalse",
+       "line": 180
+      },
+      {
+       "method": "UpgradeRestoreMode_NoReFlySession_ReturnsFalse",
+       "line": 192
+      },
+      {
+       "method": "AcceptFinalized_ReFlyActiveAndFinalized_ReturnsTrue",
+       "line": 211
+      },
+      {
+       "method": "AcceptFinalized_ReFlyActiveButNotFinalized_ReturnsFalse",
+       "line": 220
+      },
+      {
+       "method": "AcceptFinalized_FinalizedButNoReFly_ReturnsFalse",
+       "line": 230
+      },
+      {
+       "method": "AcceptFinalized_NoPendingTree_ReturnsFalse",
+       "line": 242
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PostSpawnTerminalStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SpawnedAndRecovered_ClearsTerminalState",
+       "line": 35
+      },
+      {
+       "method": "SpawnedAndDestroyed_ClearsTerminalState",
+       "line": 56
+      },
+      {
+       "method": "SpawnedAndOrbiting_NotCleared",
+       "line": 77
+      },
+      {
+       "method": "SpawnedAndLanded_NotCleared",
+       "line": 95
+      },
+      {
+       "method": "SpawnedAndSplashed_NotCleared",
+       "line": 111
+      },
+      {
+       "method": "SpawnedAndSubOrbital_NotCleared",
+       "line": 127
+      },
+      {
+       "method": "NotSpawned_Recovered_NotCleared",
+       "line": 147
+      },
+      {
+       "method": "NotSpawned_Destroyed_NotCleared",
+       "line": 164
+      },
+      {
+       "method": "SpawnedButNoTerminalState_NoChange",
+       "line": 185
+      },
+      {
+       "method": "LogMessage_IncludesContextAndVesselName",
+       "line": 205
+      },
+      {
+       "method": "NoLog_WhenNotCleared",
+       "line": 228
+      },
+      {
+       "method": "DefaultContext_UsedWhenOmitted",
+       "line": 248
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SilentFullFidelityCommitDecisionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AutoMergeOff_IsAlwaysGhostOnly_WithNotAutoMergeReason",
+       "line": 60
+      },
+      {
+       "method": "ReFlyActive_IsAlwaysGhostOnly_WhateverTheTreeState",
+       "line": 84
+      },
+      {
+       "method": "MainMenu_IsAlwaysGhostOnly_WhateverTheTreeState",
+       "line": 100
+      },
+      {
+       "method": "Finalized_AtARealScene_TakesTheSilentFullFidelityRoute",
+       "line": 113
+      },
+      {
+       "method": "NonReFlyResumeStash_AtARealScene_PreservesFidelityInsteadOfGhostOnly",
+       "line": 132
+      },
+      {
+       "method": "TheTreeStateIsNoLongerAGhostOnlyReason",
+       "line": 150
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DuplicateBlockerRecoveryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldRecoverBlockerVessel_SelfPidMatch_ReturnsTrue",
+       "line": 59
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_SiblingRecordingPid_ReturnsFalse_Bug312",
+       "line": 67
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_DifferentName_ReturnsFalse",
+       "line": 77
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_NotYetSpawned_ReturnsFalse",
+       "line": 84
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_ZeroSpawnedPid_ReturnsFalse",
+       "line": 93
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_NullRecording_ReturnsFalse",
+       "line": 102
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_NullBlockerName_ReturnsFalse",
+       "line": 108
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_NullRecordingName_ReturnsFalse",
+       "line": 115
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_EmptyBlockerName_ReturnsFalse",
+       "line": 122
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_EmptyRecordingName_ReturnsFalse",
+       "line": 129
+      },
+      {
+       "method": "ShouldRecoverBlockerVessel_CaseSensitive_ReturnsFalse",
+       "line": 136
+      },
+      {
+       "method": "DuplicateBlockerRecovered_DefaultsFalse",
+       "line": 150
+      },
+      {
+       "method": "DuplicateBlockerRecovered_PreventsSecondRecoveryCheck",
+       "line": 157
+      },
+      {
+       "method": "ResetPlaybackState_ClearsDuplicateBlockerRecovered",
+       "line": 180
+      },
+      {
+       "method": "CollisionBlockCount_DefaultsZero",
+       "line": 209
+      },
+      {
+       "method": "SpawnAbandoned_DefaultsFalse",
+       "line": 216
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

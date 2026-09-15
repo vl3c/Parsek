@@ -1,0 +1,291 @@
+{
+ "batch_id": "legacy-bugfix-011",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 68,
+ "files": [
+  {
+   "file": "EnvironmentDetectorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_BelowAtmosphere_ReturnsAtmospheric",
+       "line": 32
+      },
+      {
+       "method": "Classify_AtAtmosphereEdge_StillAtmospheric",
+       "line": 47
+      },
+      {
+       "method": "Classify_AboveAtmosphereWithThrust_ReturnsExoPropulsive",
+       "line": 66
+      },
+      {
+       "method": "Classify_NoAtmosphereBodyWithThrust_ReturnsExoPropulsive",
+       "line": 81
+      },
+      {
+       "method": "Classify_AboveAtmosphereNoThrust_ReturnsExoBallistic",
+       "line": 100
+      },
+      {
+       "method": "Classify_AtmosphereBoundaryExact_ReturnsExoBallistic",
+       "line": 115
+      },
+      {
+       "method": "Classify_NoAtmosphereBodyNoThrust_ReturnsExoBallistic",
+       "line": 130
+      },
+      {
+       "method": "Classify_OrbitingAboveAtmosphereNoThrust_ReturnsExoBallistic",
+       "line": 149
+      },
+      {
+       "method": "Classify_OrbitingAboveAtmosphereWithThrust_ReturnsExoPropulsive",
+       "line": 164
+      },
+      {
+       "method": "Classify_EscapingNoThrust_ReturnsExoBallistic",
+       "line": 179
+      },
+      {
+       "method": "Classify_EscapingWithThrust_ReturnsExoPropulsive",
+       "line": 194
+      },
+      {
+       "method": "Classify_OrbitingAirlessBodyNoThrust_ReturnsExoBallistic",
+       "line": 209
+      },
+      {
+       "method": "Classify_LandedMoving_ReturnsSurfaceMobile",
+       "line": 228
+      },
+      {
+       "method": "Classify_SplashedMoving_ReturnsSurfaceMobile",
+       "line": 243
+      },
+      {
+       "method": "Classify_LandedOnAirlessBodyMoving_ReturnsSurfaceMobile",
+       "line": 258
+      },
+      {
+       "method": "Classify_LandedStationary_ReturnsSurfaceStationary",
+       "line": 277
+      },
+      {
+       "method": "Classify_Prelaunch_ReturnsSurfaceStationary",
+       "line": 292
+      },
+      {
+       "method": "Classify_LandedOnAirlessBodyStationary_ReturnsSurfaceStationary",
+       "line": 307
+      },
+      {
+       "method": "Classify_SurfaceSpeedExactlyAtThreshold_ReturnsSurfaceStationary",
+       "line": 322
+      },
+      {
+       "method": "Classify_AirlessBelowApproachNoThrust_ReturnsApproach",
+       "line": 341
+      },
+      {
+       "method": "Classify_AirlessBelowApproachWithThrust_ReturnsApproach",
+       "line": 357
+      },
+      {
+       "method": "Classify_AirlessAboveApproach_ReturnsExoBallistic",
+       "line": 373
+      },
+      {
+       "method": "Classify_AirlessAtExactApproachAltitude_ReturnsExoBallistic",
+       "line": 389
+      },
+      {
+       "method": "Classify_AtmosphericBodyWithApproachAltitude_StillReturnsAtmospheric",
+       "line": 405
+      },
+      {
+       "method": "Classify_AirlessZeroApproachAltitude_ReturnsExo",
+       "line": 421
+      },
+      {
+       "method": "Classify_AirlessOrbitingBelowApproach_ReturnsExoBallistic",
+       "line": 437
+      },
+      {
+       "method": "Classify_AirlessOrbitingBelowApproachWithThrust_ReturnsExoPropulsive",
+       "line": 454
+      },
+      {
+       "method": "Classify_LandedOnAirlessBelowApproach_ReturnsSurface",
+       "line": 470
+      },
+      {
+       "method": "Classify_AirlessNearSurfaceFlyingSituation_ReturnsSurface",
+       "line": 486
+      },
+      {
+       "method": "Classify_AirlessNearSurfaceSubOrbitalSituation_ReturnsSurface",
+       "line": 503
+      },
+      {
+       "method": "Classify_AirlessAt150m_ReturnsApproach_NotSurface",
+       "line": 519
+      },
+      {
+       "method": "Classify_AtmosphericEvaNearGroundFlying_ReturnsSurface",
+       "line": 535
+      },
+      {
+       "method": "Classify_AtmosphericEvaWithoutValidTerrainHeight_RemainsAtmospheric",
+       "line": 552
+      },
+      {
+       "method": "Classify_AtmosphericEvaAtSeaLevelWithOcean_ReturnsSurface",
+       "line": 569
+      },
+      {
+       "method": "Classify_AtmosphericEvaAboveSeaLevelThreshold_RemainsAtmospheric",
+       "line": 587
+      },
+      {
+       "method": "Classify_LandedInAtmosphere_ReturnsSurface_NotAtmospheric",
+       "line": 609
+      },
+      {
+       "method": "Hysteresis_SameClassificationRepeatedly_NoTransition",
+       "line": 628
+      },
+      {
+       "method": "Hysteresis_AtmosphericToSurfaceStationary_DebouncedTransition",
+       "line": 644
+      },
+      {
+       "method": "Hysteresis_AtmosphericToExoBallistic_ImmediateTransition",
+       "line": 656
+      },
+      {
+       "method": "Hysteresis_SurfaceStationaryToAtmospheric_DebouncedTransition",
+       "line": 668
+      },
+      {
+       "method": "Hysteresis_ThrustToggle_WithinDebounce_NoTransition",
+       "line": 684
+      },
+      {
+       "method": "Hysteresis_ThrustToggle_AfterDebounce_TransitionConfirmed",
+       "line": 697
+      },
+      {
+       "method": "Hysteresis_ThrustToggle_ExactlyAtDebounce_TransitionConfirmed",
+       "line": 710
+      },
+      {
+       "method": "Hysteresis_SurfaceSpeedToggle_WithinDebounce_NoTransition",
+       "line": 726
+      },
+      {
+       "method": "Hysteresis_SurfaceSpeedToggle_AfterDebounce_TransitionConfirmed",
+       "line": 738
+      },
+      {
+       "method": "Hysteresis_SurfaceStationaryToMobile_AfterDebounce_TransitionConfirmed",
+       "line": 750
+      },
+      {
+       "method": "Hysteresis_CancelPending_RevertBeforeDebounce_NoTransition",
+       "line": 766
+      },
+      {
+       "method": "Hysteresis_DifferentPending_ResetsTimer",
+       "line": 787
+      },
+      {
+       "method": "Hysteresis_DifferentPendingWithDebounce_ResetsTimer",
+       "line": 802
+      },
+      {
+       "method": "GetDebounceFor_ThrustToggle_Returns1s",
+       "line": 823
+      },
+      {
+       "method": "GetDebounceFor_SurfaceSpeed_Returns3s",
+       "line": 832
+      },
+      {
+       "method": "GetDebounceFor_AtmosphericToExo_ReturnsZero",
+       "line": 841
+      },
+      {
+       "method": "GetDebounceFor_SurfaceToAtmospheric_ReturnsHalfSecond",
+       "line": 850
+      },
+      {
+       "method": "GetDebounceFor_ExoToSurface_ReturnsZero",
+       "line": 859
+      },
+      {
+       "method": "GetDebounceFor_ApproachToExo_ReturnsApproachDebounce",
+       "line": 868
+      },
+      {
+       "method": "GetDebounceFor_ExoToApproach_ReturnsApproachDebounce",
+       "line": 877
+      },
+      {
+       "method": "GetDebounceFor_ApproachToSurface_ReturnsApproachDebounce",
+       "line": 886
+      },
+      {
+       "method": "Hysteresis_ConfirmedTransition_LogsOldAndNewEnvironmentAndUT",
+       "line": 905
+      },
+      {
+       "method": "Hysteresis_ImmediateTransition_LogsDebounceZero",
+       "line": 922
+      },
+      {
+       "method": "Hysteresis_Initialization_LogsVerbose",
+       "line": 939
+      },
+      {
+       "method": "IsSurfaceEnvironment_OnlyTrueForSurfaceStates",
+       "line": 962
+      },
+      {
+       "method": "IsSurfaceForAnchorDetection_PrefersDebouncedEnvironment",
+       "line": 968
+      },
+      {
+       "method": "IsSurfaceForAnchorDetection_DebouncedFlyingTrumpsLandedSituation",
+       "line": 981
+      },
+      {
+       "method": "IsSurfaceForAnchorDetection_FallsBackToSituation_WhenNoEnvironment",
+       "line": 1000
+      },
+      {
+       "method": "ResolveAnchorOnSurface_NullHysteresis_FallsBackToSituation",
+       "line": 1025
+      },
+      {
+       "method": "ResolveAnchorOnSurface_LiveHysteresis_PrefersDebouncedClassification",
+       "line": 1036
+      },
+      {
+       "method": "ResolveAnchorOnSurface_LiveHysteresis_AllSurfaceEnvironmentsRecognized",
+       "line": 1051
+      },
+      {
+       "method": "ResolveAnchorOnSurface_LiveHysteresis_NonSurfaceEnvironmentsReturnFalse",
+       "line": 1061
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

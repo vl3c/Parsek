@@ -1,0 +1,240 @@
+{
+ "batch_id": "catchall-041",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "CommitTerminalVerdictLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatCommitTerminalLine_NamesStateAndBody",
+       "line": 86
+      },
+      {
+       "method": "FormatCommitTerminalLine_LandedRecordingNamesItsSurfaceBody",
+       "line": 97
+      },
+      {
+       "method": "FormatCommitTerminalLine_LandedOnMunIsDistinguishableFromMinmusAndKerbin",
+       "line": 112
+      },
+      {
+       "method": "FormatCommitTerminalLine_OrbitBodyWinsOverSurfaceBody",
+       "line": 129
+      },
+      {
+       "method": "FormatCommitTerminalLine_LandedPrefersSurfaceBodyOverStaleOrbitBody",
+       "line": 141
+      },
+      {
+       "method": "FormatCommitTerminalLine_SplashedPrefersSurfaceBodyOverStaleOrbitBody",
+       "line": 159
+      },
+      {
+       "method": "FormatCommitTerminalLine_LandedWithOnlyOrbitBodyStillNamesIt",
+       "line": 171
+      },
+      {
+       "method": "IsSurfaceTerminalState_CoversExactlyLandedAndSplashed",
+       "line": 182
+      },
+      {
+       "method": "FormatCommitTerminalLine_LandedWithNoSurfaceBodyStillRendersNullToken",
+       "line": 199
+      },
+      {
+       "method": "FormatCommitTerminalLine_ForeignBodyIsDistinguishableFromHome",
+       "line": 208
+      },
+      {
+       "method": "FormatCommitTerminalLine_SubOrbitalIsDistinguishableFromOrbiting",
+       "line": 223
+      },
+      {
+       "method": "FormatCommitTerminalLine_NullTerminalFieldsRenderAsNullToken",
+       "line": 236
+      },
+      {
+       "method": "FormatCommitTerminalLine_NullRecordingDoesNotThrow",
+       "line": 246
+      },
+      {
+       "method": "FormatCommitTerminalSummaryLine_NamesRootRecording",
+       "line": 256
+      },
+      {
+       "method": "FormatCommitTerminalSummaryLine_KeepsTheHarnessLogContractTokenShape",
+       "line": 270
+      },
+      {
+       "method": "FormatCommitTerminalSummaryLine_UsesTheSameSurfaceFirstPrecedence",
+       "line": 289
+      },
+      {
+       "method": "LogCommitTerminalVerdicts_BoundedTree_LogsOneLinePerRecording",
+       "line": 309
+      },
+      {
+       "method": "LogCommitTerminalVerdicts_OverCap_LogsSingleSummaryNamingRoot",
+       "line": 332
+      },
+      {
+       "method": "LogCommitTerminalVerdicts_EmptyOrNullTree_LogsWithoutThrowing",
+       "line": 359
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "UiComplexityModeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AdvancedShowsEveryNonRetiredSurface",
+       "line": 27
+      },
+      {
+       "method": "RetiredSurfacesAreHiddenInEveryMode",
+       "line": 45
+      },
+      {
+       "method": "BasicHidesExactlyTheDocumentedSet",
+       "line": 71
+      },
+      {
+       "method": "AdvancedHidesOnlyRetiredSurfaces",
+       "line": 100
+      },
+      {
+       "method": "BasicKeepsCoreLoopSurfaces",
+       "line": 123
+      },
+      {
+       "method": "EverySurfaceIsDecided",
+       "line": 135
+      },
+      {
+       "method": "ResolveModeUsesFootprintOnlyWhenNoStoredValue",
+       "line": 169
+      },
+      {
+       "method": "StoredValueAlwaysWinsOverFootprint",
+       "line": 187
+      },
+      {
+       "method": "OutOfRangeStoredValueResolvesToAdvanced",
+       "line": 203
+      },
+      {
+       "method": "PersistedEnumValuesAreStable",
+       "line": 214
+      },
+      {
+       "method": "EverySurfaceKeyHasAtLeastOneEnforcementSite",
+       "line": 228
+      },
+      {
+       "method": "TheEnforcementScanRedsWhenTheOnlyCallSiteIsInAComment",
+       "line": 262
+      },
+      {
+       "method": "FormatHiddenSurfaces_NamesTheHiddenSetForTheModeChangeLog",
+       "line": 312
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BodyFixedFramesEmptinessInvariantTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TwoBodyFixedSamples_AreAuthoredRenderablePayload",
+       "line": 107
+      },
+      {
+       "method": "OneBodyFixedSample_IsNotPayload_MatchesTheCoveragePrimitive",
+       "line": 114
+      },
+      {
+       "method": "TheThresholdConstantAgreesWithTheCoveragePrimitive",
+       "line": 129
+      },
+      {
+       "method": "TheThresholdConstantAgreesWithTheRendererGate",
+       "line": 149
+      },
+      {
+       "method": "BodyFixedPointsOnANonRelativeSection_DoNotCount",
+       "line": 185
+      },
+      {
+       "method": "BodyFixedOnlyLeaf_IsNotZeroPoint_AndValidatesAsASupersedeTarget",
+       "line": 204
+      },
+      {
+       "method": "SingleBodyFixedSampleLeaf_IsJudgedEmptyByBothPredicates",
+       "line": 215
+      },
+      {
+       "method": "BothEmptinessPredicatesReadTheSameSectionTerm",
+       "line": 228
+      },
+      {
+       "method": "HasPlayablePayload_StaysNarrow_SoTheBoundsWalkNeverSeesAnEmptyFramesList",
+       "line": 253
+      },
+      {
+       "method": "TheBoundsWalkStillGatesOnTheNarrowPredicate_PinnedBySourceInspection",
+       "line": 277
+      },
+      {
+       "method": "BodyFixedOnlySection_RoundTripsThroughTheTrajectorySidecar",
+       "line": 291
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "C2CareerLedgerReplayTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FixtureLedger_LoadsAllSixtyEightActions",
+       "line": 111
+      },
+      {
+       "method": "FixtureSave_ParsesWithKnownPools",
+       "line": 118
+      },
+      {
+       "method": "FixtureLedger_StrategyExchange_HasAFundsCreditAndNoScienceDebit",
+       "line": 134
+      },
+      {
+       "method": "RealEngine_ReplaysC2Ledger_PoolsVsSave",
+       "line": 189
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

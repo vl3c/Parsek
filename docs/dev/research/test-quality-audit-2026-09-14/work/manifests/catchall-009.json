@@ -1,0 +1,255 @@
+{
+ "batch_id": "catchall-009",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "ReflectionClassifierCoreTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyDeployRetractEventName_DispatchesToTheRightVocabulary",
+       "line": 185
+      },
+      {
+       "method": "ClassifyRobotArmScannerEventName_UnpackIsNotAPack",
+       "line": 209
+      },
+      {
+       "method": "ClassifyRobotArmScannerEventName_UnpackInGuiNameAlsoSuppressesThePackMatch",
+       "line": 220
+      },
+      {
+       "method": "LadderCore_StateNameWinsOverEverythingElse",
+       "line": 238
+      },
+      {
+       "method": "LadderCore_TransientStateNameAbortsWithoutConsultingFallbacks",
+       "line": 260
+      },
+      {
+       "method": "LadderCore_UnknownStateNameFallsThroughToEventActivity",
+       "line": 278
+      },
+      {
+       "method": "LadderCore_RetractAvailableMeansDeployed",
+       "line": 294
+      },
+      {
+       "method": "LadderCore_ExtendAvailableMeansRetracted",
+       "line": 307
+      },
+      {
+       "method": "LadderCore_BothActionsAvailableIsAmbiguousAndFallsThroughToBoolFields",
+       "line": 320
+      },
+      {
+       "method": "LadderCore_NoMatchingEventsSkipsTheActivityStageEvenWhenAvailabilityLooksDecisive",
+       "line": 335
+      },
+      {
+       "method": "LadderCore_DeployedFamilyBoolFieldsMapDirectly",
+       "line": 356
+      },
+      {
+       "method": "LadderCore_RetractedFamilyBoolFieldsAreInverted",
+       "line": 372
+      },
+      {
+       "method": "LadderCore_DeployedFamilyOutranksRetractedFamilyWhenBothArePresent",
+       "line": 386
+      },
+      {
+       "method": "LadderCore_NoStateNameNoEventsNoFieldsIsUnclassified",
+       "line": 402
+      },
+      {
+       "method": "AnimationGroupCore_UsesTheAnimationGroupVocabularyAndPrefersEventActivity",
+       "line": 419
+      },
+      {
+       "method": "AnimationGroupCore_FallsBackToBoolFieldsWhenActivityIsAmbiguous",
+       "line": 435
+      },
+      {
+       "method": "AnimationGroupCore_UnknownModuleIsUnclassified",
+       "line": 450
+      },
+      {
+       "method": "AnimateGenericCore_AnimTimeEndpointsDecideWithoutReadingAnythingElse",
+       "line": 471
+      },
+      {
+       "method": "AnimateGenericCore_MidTravelOrNonFiniteAnimTimeFallsThroughToEventActivity",
+       "line": 494
+      },
+      {
+       "method": "AnimateGenericCore_MidTravelWithNoOtherSignalIsUnclassified",
+       "line": 509
+      },
+      {
+       "method": "AnimateGenericCore_MidTravelFallsAllTheWayThroughToBoolFields",
+       "line": 522
+      },
+      {
+       "method": "AeroCore_EventActivityWinsOverFieldValues",
+       "line": 539
+      },
+      {
+       "method": "AeroCore_AeroSpecificDeployedFieldsAreProbed",
+       "line": 560
+      },
+      {
+       "method": "AeroCore_AeroSpecificRetractedFieldsAreInverted",
+       "line": 578
+      },
+      {
+       "method": "AeroCore_DeflectionMagnitudeDecidesWhenNoBoolFieldExists",
+       "line": 598
+      },
+      {
+       "method": "AeroCore_NonFiniteDeflectionIsSkippedNotReadAsZero",
+       "line": 612
+      },
+      {
+       "method": "AeroCore_AllDeflectionCandidatesNonFiniteIsUnclassified",
+       "line": 627
+      },
+      {
+       "method": "AeroCore_BoolFieldOutranksDeflection",
+       "line": 644
+      },
+      {
+       "method": "AeroCore_LaterDeflectionCandidatesAreOnlyUsedWhenEarlierOnesAreAbsent",
+       "line": 659
+      },
+      {
+       "method": "AeroCore_NothingReadableIsUnclassified",
+       "line": 674
+      },
+      {
+       "method": "RobotArmCore_EventActivityWinsAndUsesTheScannerVocabulary",
+       "line": 691
+      },
+      {
+       "method": "RobotArmCore_ScannerSpecificDeployedFieldsAreProbed",
+       "line": 711
+      },
+      {
+       "method": "RobotArmCore_ScannerSpecificRetractedFieldsAreInverted",
+       "line": 727
+      },
+      {
+       "method": "RobotArmCore_AnimTimeIsTheLastResort",
+       "line": 743
+      },
+      {
+       "method": "RobotArmCore_MidTravelOrNonFiniteAnimTimeStaysUnclassified",
+       "line": 760
+      },
+      {
+       "method": "RobotArmCore_BoolFieldsOutrankAnimTime",
+       "line": 773
+      },
+      {
+       "method": "AnimateHeatCore_FirstCandidateFieldWinsAndIsReported",
+       "line": 792
+      },
+      {
+       "method": "AnimateHeatCore_NonFiniteCandidateIsSkippedInFavourOfTheNextOne",
+       "line": 807
+      },
+      {
+       "method": "AnimateHeatCore_ScalarShapesAreNormalizedToZeroOne",
+       "line": 830
+      },
+      {
+       "method": "AnimateHeatCore_NoCandidateFieldIsUnclassified",
+       "line": 843
+      },
+      {
+       "method": "RoboticMovingCore_FirstResolvedFlagWinsEvenWhenItIsFalse",
+       "line": 860
+      },
+      {
+       "method": "RoboticMovingCore_AnyOfTheFallbackFlagsIsAccepted",
+       "line": 879
+      },
+      {
+       "method": "RoboticMovingCore_NoFlagAtAllReportsNoSignal",
+       "line": 890
+      },
+      {
+       "method": "WheelPlan_DeadbandsAreOrderedBySignalGranularity",
+       "line": 905
+      },
+      {
+       "method": "WheelCore_SuspensionUsesItsOwnScalarPlanAndDeadband",
+       "line": 928
+      },
+      {
+       "method": "WheelCore_SuspensionFallsBackToTheSuspensionPositionVector",
+       "line": 946
+      },
+      {
+       "method": "WheelCore_SuspensionPositionVectorIsNotConsultedForOtherWheelModules",
+       "line": 961
+      },
+      {
+       "method": "WheelCore_MotorSteeringFallsBackToSteeringAngleAndTightensTheDeadband",
+       "line": 976
+      },
+      {
+       "method": "WheelCore_MotorPrefersItsRpmPlanOverTheSteeringAngleFallback",
+       "line": 998
+      },
+      {
+       "method": "WheelCore_UnreadableModuleReportsNoPositionButStillYieldsADeadband",
+       "line": 1018
+      },
+      {
+       "method": "RoboticPlan_PistonIsLinearAndTheOthersAreAngular",
+       "line": 1037
+      },
+      {
+       "method": "RoboticCore_HingeReadsItsAnglePlan",
+       "line": 1056
+      },
+      {
+       "method": "RoboticCore_RotorDoesNotReadTheHingeAnglePlan",
+       "line": 1074
+      },
+      {
+       "method": "RoboticCore_PistonReadsItsLinearPlan",
+       "line": 1090
+      },
+      {
+       "method": "RoboticCore_FallsBackToServoTransformPositionMagnitude",
+       "line": 1108
+      },
+      {
+       "method": "RoboticCore_FallsBackToServoTransformRotationAngleLast",
+       "line": 1125
+      },
+      {
+       "method": "RoboticCore_ScalarPlanOutranksTheTransformFallbacks",
+       "line": 1139
+      },
+      {
+       "method": "RoboticCore_WheelModuleNamesRouteToTheWheelPlan",
+       "line": 1159
+      },
+      {
+       "method": "RoboticCore_UnsampleableModuleReportsNoPositionButStillYieldsADeadband",
+       "line": 1180
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

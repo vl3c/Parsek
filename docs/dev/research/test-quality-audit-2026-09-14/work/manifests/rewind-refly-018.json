@@ -1,0 +1,287 @@
+{
+ "batch_id": "rewind-refly-018",
+ "cluster": "rewind-refly",
+ "tier": "B",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "ReFlyPreservedFleetGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SelectedSlotVesselIsPresent_MatchesOnVesselPid",
+       "line": 73
+      },
+      {
+       "method": "SelectedSlotVesselIsPresent_MatchesOnRootPartPidWhenTheVesselPidWasRegenerated",
+       "line": 82
+      },
+      {
+       "method": "SelectedSlotVesselIsPresent_ZeroPidsNeverMatch",
+       "line": 93
+      },
+      {
+       "method": "SelectedSlotVesselIsPresent_PreservedUnrelatedVesselIsNotTheSelectedSlot",
+       "line": 101
+      },
+      {
+       "method": "SelectedSlotIsUnmapped_IsTrueOnlyWhenNeitherKeyMapsAnything",
+       "line": 111
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_DisabledSlotsOwnVessel_IsStripped",
+       "line": 171
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_SameCraftDifferentLaunch_IsNeverStripped",
+       "line": 186
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_UnknownRecordingGuid_IsNeverStripped",
+       "line": 201
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_UnknownLiveGuid_IsNeverStripped",
+       "line": 226
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_GenuineSpawnPid_StaysPidConclusive",
+       "line": 238
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_EnabledSlot_IsLeftToTheNormalStrip",
+       "line": 257
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_MappedPid_IsLeftToTheNormalStrip",
+       "line": 271
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_TheResolvedSelectedVesselIsProtectedOutright",
+       "line": 289
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_SelectedSlotIsNeverACandidate",
+       "line": 321
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_UnresolvableOriginRecording_YieldsNothing",
+       "line": 338
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_FollowsTheSupersedeWalkToTheEffectiveTip",
+       "line": 354
+      },
+      {
+       "method": "ResolveDisabledSlotVesselsToStrip_NullInputs_YieldNothing",
+       "line": 392
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReFlySessionMarkerRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ReFlySessionMarker_AllFields_RoundTrips",
+       "line": 12
+      },
+      {
+       "method": "ReFlySessionMarker_RewindPointUT_DefaultsToNaN",
+       "line": 47
+      },
+      {
+       "method": "ReFlySessionMarker_NaNRewindPointUT_OmitsValue_LoadsAsNaN",
+       "line": 56
+      },
+      {
+       "method": "ReFlySessionMarker_LegacyWithoutRewindPointUT_LoadsAsNaN",
+       "line": 82
+      },
+      {
+       "method": "ReFlySessionMarker_MinimalFields_RoundTrips",
+       "line": 101
+      },
+      {
+       "method": "ReFlySessionMarker_LegacyWithoutSupersedeTarget_LoadsNull",
+       "line": 132
+      },
+      {
+       "method": "ReFlySessionMarker_PreSessionBranchPointIds_RoundTrip_PopulatedList",
+       "line": 149
+      },
+      {
+       "method": "ReFlySessionMarker_PreSessionBranchPointIds_RoundTrip_EmptyListSurvivesAsEmpty",
+       "line": 177
+      },
+      {
+       "method": "ReFlySessionMarker_LegacyWithoutPreSessionBranchPointIds_LoadsAsNull",
+       "line": 204
+      },
+      {
+       "method": "ReFlySessionMarker_InPlaceContinuationTrue_RoundTrips",
+       "line": 226
+      },
+      {
+       "method": "ReFlySessionMarker_InPlaceContinuationFalse_OmitsValue_LoadsAsFalse",
+       "line": 253
+      },
+      {
+       "method": "ReFlySessionMarker_LegacyMarkerWithoutFlag_LoadsAsFalse",
+       "line": 279
+      },
+      {
+       "method": "ReFlySessionMarker_InPlaceContinuationFlag_CaseInsensitiveLoad",
+       "line": 298
+      },
+      {
+       "method": "IsInPlaceContinuation_NullMarker_False",
+       "line": 322
+      },
+      {
+       "method": "IsInPlaceContinuation_EmptyIds_False",
+       "line": 328
+      },
+      {
+       "method": "IsInPlaceContinuation_ForkShape_True",
+       "line": 341
+      },
+      {
+       "method": "IsInPlaceContinuation_LegacyShape_False",
+       "line": 354
+      },
+      {
+       "method": "IsInPlaceContinuation_PlaceholderPattern_False",
+       "line": 371
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindTechStickinessTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildTargetTechIdsForPatch_WithMaxValueCutoff_IncludesBothPreAndPostRpUnlocks",
+       "line": 147
+      },
+      {
+       "method": "BuildTargetTechIdsForPatch_DiscriminatorBaselineSnapshotAtRpUt_OmitsPostRpUnlockOnReplayCutoff",
+       "line": 169
+      },
+      {
+       "method": "BuildTargetTechIdsForPatch_BaselineExclusion_RemovesTombstonedUnlock",
+       "line": 192
+      },
+      {
+       "method": "BuildTargetTechIdsForPatch_BaselineExclusion_SurvivingActionAddsNodeBack",
+       "line": 216
+      },
+      {
+       "method": "RecalculateAndPatch_WithMaxValueCutoff_EnablesRewindTechTreePatchPath",
+       "line": 259
+      },
+      {
+       "method": "RecalculateAndPatch_WithNullCutoff_SkipsTechTreePatchAndWouldDropPostRpUnlock",
+       "line": 293
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReFlyRevertButtonGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Apply_NoScenario_TreatedAsInactive",
+       "line": 81
+      },
+      {
+       "method": "Apply_ScenarioWithoutMarker_TreatedAsInactive",
+       "line": 94
+      },
+      {
+       "method": "Apply_ScenarioWithMarker_TreatedAsActive",
+       "line": 107
+      },
+      {
+       "method": "Apply_ActiveMarker_FlagWasFalse_ForcesTrueAndLogs",
+       "line": 122
+      },
+      {
+       "method": "Apply_ActiveMarker_FlagAlreadyTrue_LeavesForcedFlagFalse",
+       "line": 143
+      },
+      {
+       "method": "Apply_MarkerCleared_AfterForce_ResetsFlagAndLogs",
+       "line": 163
+      },
+      {
+       "method": "Apply_MarkerCleared_NoPriorForce_DoesNotTouchFlag",
+       "line": 187
+      },
+      {
+       "method": "Apply_Idempotent_RepeatedActiveCalls_LogVerboseAfterFirstForce",
+       "line": 207
+      },
+      {
+       "method": "Apply_ResetBranch_FlagAlreadyAtNatural_StillClearsForcedFlag",
+       "line": 238
+      },
+      {
+       "method": "ApplyForTesting_Hook_BypassesRealFlagAndForcedFlag",
+       "line": 266
+      },
+      {
+       "method": "Subscribe_Then_Unsubscribe_AreIdempotent",
+       "line": 291
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LoadTimeSweepOrphanRpTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SweepMissingRewindPointQuicksaves_ConcludesSlotTipsAndReapsRp",
+       "line": 45
+      },
+      {
+       "method": "SweepMissingRewindPointQuicksaves_SkipsActiveMarkerRp",
+       "line": 105
+      },
+      {
+       "method": "SweepMissingRewindPointQuicksaves_SkipsSessionProvisionalRpBeforeSealing",
+       "line": 184
+      },
+      {
+       "method": "SweepMissingRewindPointQuicksaves_ReturnsOnlyCleanedMissingRps",
+       "line": 239
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

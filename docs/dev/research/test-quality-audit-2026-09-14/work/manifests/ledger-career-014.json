@@ -1,0 +1,231 @@
+{
+ "batch_id": "ledger-career-014",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 53,
+ "files": [
+  {
+   "file": "StrategyConversionCaptureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ConverterScienceTake_IsCaptured",
+       "line": 60
+      },
+      {
+       "method": "ConverterScienceYield_IsCaptured",
+       "line": 71
+      },
+      {
+       "method": "CurrencyOperationFundsMultiplier_IsCaptured_OnANominalChannelReason",
+       "line": 85
+      },
+      {
+       "method": "NonZeroInputFunds_UnderANominalChannelReason_IsCaptured",
+       "line": 107
+      },
+      {
+       "method": "NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured",
+       "line": 136
+      },
+      {
+       "method": "NonZeroInputFunds_UnderAnUnrecognisedReason_KeepsTheZeroInputRule",
+       "line": 161
+      },
+      {
+       "method": "IsNominalChannelFundsReason_MatchesExactlyTheThreeNames",
+       "line": 181
+      },
+      {
+       "method": "CurrencyOperationScienceMultiplier_IsCaptured",
+       "line": 197
+      },
+      {
+       "method": "CrossCurrencyFundsYield_IsCaptured",
+       "line": 210
+      },
+      {
+       "method": "SubThresholdMovements_AreNotCaptured",
+       "line": 222
+      },
+      {
+       "method": "ZeroInputReputationDelta_IsEvaluatedAsALeg",
+       "line": 231
+      },
+      {
+       "method": "NonZeroInputReputation_IsCaptured_UnlikeFunds",
+       "line": 244
+      },
+      {
+       "method": "NonZeroInputNegativeReputation_IsCaptured_TheDebitFamily",
+       "line": 285
+      },
+      {
+       "method": "StandsDown_WhenResourceEventsSuppressed",
+       "line": 303
+      },
+      {
+       "method": "StandsDown_WhenReplayingActions",
+       "line": 312
+      },
+      {
+       "method": "DoesNotStandDown_OnAnOrdinaryFrame",
+       "line": 321
+      },
+      {
+       "method": "ScienceTake_BuildsAConverterSourcedDebit",
+       "line": 334
+      },
+      {
+       "method": "ScienceYield_BuildsACreditRow",
+       "line": 355
+      },
+      {
+       "method": "FundsYield_BuildsAStrategyFundsEarning",
+       "line": 373
+      },
+      {
+       "method": "NegativeFundsLeg_BuildsANominalStrategyConverterSpending",
+       "line": 391
+      },
+      {
+       "method": "NegativeFundsLeg_DoesNotTakeTheExchangersReasonKeyedSource",
+       "line": 417
+      },
+      {
+       "method": "StrategyConverterFundsSpendingRows_DedupKeyDisambiguatesByAmount",
+       "line": 437
+      },
+      {
+       "method": "StrategyConverterFundsSpending_RoundTrips",
+       "line": 480
+      },
+      {
+       "method": "ReputationYield_BuildsAStrategySourcedEarning",
+       "line": 500
+      },
+      {
+       "method": "NegativeReputationLeg_IsANominalStrategyConverterPenalty",
+       "line": 529
+      },
+      {
+       "method": "NegativeReputationLeg_DoesNotTakeTheExchangersPreCurvedSource",
+       "line": 557
+      },
+      {
+       "method": "StrategyReputationPenaltyRows_DedupKeyDisambiguatesByAmount",
+       "line": 578
+      },
+      {
+       "method": "StrategyReputationRows_DedupKeyDisambiguatesByAmount",
+       "line": 621
+      },
+      {
+       "method": "PendingExchangerDebit_IsNotShrunkByConverterRows",
+       "line": 663
+      },
+      {
+       "method": "PendingExchangerDebit_StillCancelsAgainstExchangerRows",
+       "line": 698
+      },
+      {
+       "method": "ConverterSourcedDebit_RoundTrips",
+       "line": 731
+      },
+      {
+       "method": "DebitWithoutAConversionSourceValue_LoadsAsExchanger",
+       "line": 751
+      },
+      {
+       "method": "ScienceCreditRow_RoundTrips",
+       "line": 767
+      },
+      {
+       "method": "ScienceModule_CreditsAYieldUnconditionally",
+       "line": 789
+      },
+      {
+       "method": "ScienceModule_IgnoresANonPositiveYield",
+       "line": 804
+      },
+      {
+       "method": "Recorder_SubscribesAndUnsubscribesTheQueryDoorSymmetrically",
+       "line": 824
+      },
+      {
+       "method": "Recorder_QueryDoorStandsDownBeforeReadingTheQuery",
+       "line": 837
+      },
+      {
+       "method": "Recorder_ScienceCaptureBlockSitsBelowTheThresholdReturn",
+       "line": 854
+      },
+      {
+       "method": "InGameCell_DrivesTheConverterFamilyByName",
+       "line": 876
+      },
+      {
+       "method": "DecideRecalcDispatch_DefersWhenRowsWereWrittenAndAHostExists",
+       "line": 895
+      },
+      {
+       "method": "DecideRecalcDispatch_RunsInlineWithNoFrameHostRatherThanDroppingIt",
+       "line": 906
+      },
+      {
+       "method": "DecideRecalcDispatch_NoRowsMeansNoRecalcInEitherHostState",
+       "line": 914
+      },
+      {
+       "method": "TheDoorWritesItsRowsBeforeItDecidesHowToDispatchTheRecalc",
+       "line": 928
+      },
+      {
+       "method": "QueryLogField_ReadsEveryFieldOfTheDoorsOwnSummaryLine",
+       "line": 953
+      },
+      {
+       "method": "QueryLogField_DoesNotConfuseAPrefixFieldWithItsLongerSibling",
+       "line": 983
+      },
+      {
+       "method": "QueryLogField_FailsClosedRatherThanReturningZero",
+       "line": 997
+      },
+      {
+       "method": "QueryLogField_ReadsTheInvariantCultureRoundTripFormTheDoorWrites",
+       "line": 1011
+      },
+      {
+       "method": "GuardedClampLine_MatchesBothDirectionsAndNamesTheResource",
+       "line": 1025
+      },
+      {
+       "method": "TeardownTruncate_RaisesOnlyWhenTheLedgerShrankBelowTheCapturedBaseline",
+       "line": 1051
+      },
+      {
+       "method": "GuardedClampLine_IgnoresOrdinaryLinesAndNulls",
+       "line": 1069
+      },
+      {
+       "method": "InGameCells_CoverTheWholeCaptureMatrixByName",
+       "line": 1083
+      },
+      {
+       "method": "InGameCells_EachFireTheirExchangeExactlyOnce",
+       "line": 1110
+      },
+      {
+       "method": "InGameCells_PairEveryLedgerInvisiblePoolMoveWithARow",
+       "line": 1151
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

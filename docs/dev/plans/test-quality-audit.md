@@ -49,7 +49,7 @@ Raw and derived evidence under `docs/dev/research/test-quality-audit-2026-09-14/
   (agents never hand-edit CSV; they emit JSONL). Columns pinned in the rubric.
 - `file-summary.csv`, `file-batches.csv` (batch manifests with method ranges), `coverage-by-class.csv`,
   `july-crosswalk.csv`, `findings/` (committed per-batch JSONL fragments), `mutations/` (committed
-  patches + `mutations.csv`), `work/` (gitignored: TRX, cobertura XML, scratch, raw agent drafts).
+  patches + `mutations.csv`), `work/` (manifests, dispatch order, per-phase agent inputs/outputs and supervisor notes are committed; only the TRX, cobertura XML and other large regenerable inputs are gitignored, see the research dir `README.md`).
 - D3 proposals are committed as `coverage-opportunities.md` for review, then folded into the dated
   audit doc.
 
