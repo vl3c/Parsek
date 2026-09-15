@@ -3325,7 +3325,7 @@ namespace Parsek
             {
                 if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
                 {
-                    undockRec.VesselDestroyed = true;
+                    MarkContinuationVesselDestroyed(undockRec);
                     Log($"Undock continuation vessel destroyed (pid={chainManager.UndockContinuationPid})");
                 }
                 chainManager.StopUndockContinuation("vessel destroyed");
@@ -3334,7 +3334,9 @@ namespace Parsek
 
         /// <summary>
         /// Pure write the destroy handler applies to a committed continuation recording
-        /// whose tracked vessel just died.
+        /// whose tracked vessel just died. Both mirrored branches of OnVesselWillDestroy
+        /// (chain continuation and undock continuation) route through it, so the preserve
+        /// below is one contract rather than one contract plus one inline write.
         /// <para>
         /// Bug #95: Do NOT null VesselSnapshot on committed recordings. VesselDestroyed
         /// already gates spawn via ShouldSpawnAtRecordingEnd, and after a revert the flag

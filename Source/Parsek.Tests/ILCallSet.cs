@@ -84,5 +84,85 @@ namespace Parsek.Tests
                 m.DeclaringType != null &&
                 declaringType.IsAssignableFrom(m.DeclaringType));
         }
+
+        /// <summary>
+        /// How many times <paramref name="method"/> calls <paramref name="name"/> declared on
+        /// <paramref name="declaringType"/>. A gate that pins TWO mirrored call sites needs
+        /// the count, not the boolean: one of the two can be reverted to an inline write with
+        /// the boolean still satisfied by its twin.
+        /// </summary>
+        internal static int CallCount(MethodBase method, Type declaringType, string name)
+        {
+            return CalledMethods(method).Count(m =>
+                string.Equals(m.Name, name, StringComparison.Ordinal) &&
+                m.DeclaringType != null &&
+                declaringType.IsAssignableFrom(m.DeclaringType));
+        }
+
+        /// <summary>
+        /// Every FIELD <paramref name="method"/> READS (ldfld / ldflda / ldsfld / ldsflda),
+        /// in IL order, duplicates included.
+        ///
+        /// <para>A call-set-only gate is blind to a public field: swapping a
+        /// <c>v.transform.position</c> call for a <c>v.CoM</c> field read removes a call and
+        /// adds no call, so a "calls X and does not call Y" gate stays GREEN through exactly
+        /// the substitution it exists to forbid. Reading the field set closes that hole.</para>
+        /// </summary>
+        internal static List<FieldInfo> ReadFields(MethodBase method)
+        {
+            return FieldOperands(
+                method, OpCodes.Ldfld, OpCodes.Ldflda, OpCodes.Ldsfld, OpCodes.Ldsflda);
+        }
+
+        /// <summary>
+        /// Every FIELD <paramref name="method"/> WRITES (stfld / stsfld), in IL order,
+        /// duplicates included.
+        /// </summary>
+        internal static List<FieldInfo> WrittenFields(MethodBase method)
+        {
+            return FieldOperands(method, OpCodes.Stfld, OpCodes.Stsfld);
+        }
+
+        /// <summary>
+        /// True when <paramref name="method"/> reads the field <paramref name="name"/>
+        /// declared on <paramref name="declaringType"/> (or on a base of it).
+        /// </summary>
+        internal static bool ReadsField(MethodBase method, Type declaringType, string name)
+        {
+            return MatchesField(ReadFields(method), declaringType, name);
+        }
+
+        /// <summary>
+        /// True when <paramref name="method"/> writes the field <paramref name="name"/>
+        /// declared on <paramref name="declaringType"/> (or on a base of it).
+        /// </summary>
+        internal static bool WritesField(MethodBase method, Type declaringType, string name)
+        {
+            return MatchesField(WrittenFields(method), declaringType, name);
+        }
+
+        private static bool MatchesField(
+            IEnumerable<FieldInfo> fields, Type declaringType, string name)
+        {
+            return fields.Any(f =>
+                string.Equals(f.Name, name, StringComparison.Ordinal) &&
+                f.DeclaringType != null &&
+                declaringType.IsAssignableFrom(f.DeclaringType));
+        }
+
+        private static List<FieldInfo> FieldOperands(MethodBase method, params OpCode[] opcodes)
+        {
+            var wanted = new HashSet<OpCode>(opcodes);
+            var fields = new List<FieldInfo>();
+            foreach (var instruction in HarmonyLib.PatchProcessor.ReadMethodBody(method))
+            {
+                if (!wanted.Contains(instruction.Key))
+                    continue;
+                var field = instruction.Value as FieldInfo;
+                if (field != null)
+                    fields.Add(field);
+            }
+            return fields;
+        }
     }
 }

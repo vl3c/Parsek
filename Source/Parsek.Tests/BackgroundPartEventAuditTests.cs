@@ -109,7 +109,12 @@ namespace Parsek.Tests
             var backgroundPolled = ILCallSet.CalledMethodNames(
                 ILCallSet.Method(typeof(BackgroundRecorder), "PollPartEvents"), isPolledCheck);
 
-            // Floor: an empty set on either side would make the equality below vacuous.
+            // Floor: an empty set on either side would make the equality below vacuous, and a
+            // SYMMETRIC removal (the same Check*State dropped from both pollers) keeps the
+            // equality green while shrinking real coverage. 19 is the count at the time of
+            // writing and is a deliberate maintenance tripwire: a genuine retirement of a
+            // polled state must LOWER this floor in the same commit, on purpose, rather than
+            // pass unnoticed.
             Assert.True(flightPolled.Count >= 19,
                 $"FlightRecorder.PollPartStates polls only {flightPolled.Count} Check*State method(s): " +
                 string.Join(", ", flightPolled.OrderBy(n => n)));

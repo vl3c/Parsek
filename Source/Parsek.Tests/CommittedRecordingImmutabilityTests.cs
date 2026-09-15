@@ -104,6 +104,30 @@ namespace Parsek.Tests
             Assert.True(rec.VesselDestroyed);
         }
 
+        /// <summary>
+        /// The cell above drives the helper, so it pins the preserve for whichever branches
+        /// call it - it cannot see a branch that skipped the helper and wrote the flag inline.
+        /// OnVesselWillDestroy has TWO mirrored continuation-destroy branches (chain
+        /// continuation, undock continuation); both must route through the helper, or bug #95
+        /// can come back through the branch the helper does not own. Read out of the IL
+        /// because the handler itself needs a live Vessel.
+        /// </summary>
+        [Fact]
+        public void ContinuationVesselDestroyed_BothDestroyBranchesRouteThroughTheHelper()
+        {
+            var handler = ILCallSet.Method(typeof(ParsekFlight), "OnVesselWillDestroy");
+
+            Assert.Equal(
+                2,
+                ILCallSet.CallCount(
+                    handler, typeof(ParsekFlight), "MarkContinuationVesselDestroyed"));
+            Assert.False(
+                ILCallSet.WritesField(handler, typeof(Recording), "VesselDestroyed"),
+                "OnVesselWillDestroy writes Recording.VesselDestroyed inline instead of " +
+                "routing through MarkContinuationVesselDestroyed. An inline write is where a " +
+                "bug #95 VesselSnapshot null comes back unpinned.");
+        }
+
         [Fact]
         public void ContinuationVesselDestroyed_VesselDestroyedGatesSpawn()
         {

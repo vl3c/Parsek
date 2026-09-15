@@ -89,7 +89,8 @@ _(unreleased — entries accumulate here per commit)_
   that once shipped a ten-metre debris drift - would have slipped through green. All
   seven now call the real production code: five through a small piece of that code lifted
   out so it can be called without a running game (behaviour unchanged, the original call
-  site calls the extracted piece), two by reading the compiled code's own list of calls,
+  sites call the extracted piece; where the same write had two mirrored branches, both
+  now route through it), two by reading the compiled code's own list of calls,
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.

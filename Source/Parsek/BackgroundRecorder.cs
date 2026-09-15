@@ -1308,7 +1308,7 @@ namespace Parsek
 
             // Create a continuation recording for the parent vessel itself
             // (it keeps existing with potentially fewer parts).
-            // The continuation stays at the same Generation as the parent — it's
+            // The continuation stays at the same Generation as the parent - it's
             // the same logical vessel, just with fewer parts. Only spinoff children
             // get parentGeneration + 1.
             // NOTE: with MaxRecordingGeneration=1 the cap above this point already
@@ -1324,10 +1324,10 @@ namespace Parsek
                 ParentBranchPointId = bp.Id,
                 ExplicitStartUT = branchUT,
                 IsDebris = parentRec.IsDebris,
-                // Forward-compat propagation (plan Decision §10): MaxRecordingGeneration=1
+                // Forward-compat propagation (plan Decision section 10): MaxRecordingGeneration=1
                 // means parent continuations of *debris* recordings are never created
                 // today, but if Step 4a raises the cap, the contract must already be in
-                // place — see plan §"`IsDebris` propagation surface" site #8.
+                // place - see plan section "`IsDebris` propagation surface" site #8.
                 ParentAnchorRecordingId = parentRec.ParentAnchorRecordingId,
                 Generation = parentRec.Generation,
                 Controllers = controllers,

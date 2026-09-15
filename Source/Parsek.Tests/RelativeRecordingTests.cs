@@ -194,6 +194,25 @@ namespace Parsek.Tests
                 "The live-anchor pose producer calls Vessel.GetWorldPos3D (CoM). That is the " +
                 "shipped relative-debris drift: the recorded offset gets shifted by " +
                 "Inverse(R) * (vesselTransform - CoM), about 10 m on a Kerbal X parent.");
+
+            // GetWorldPos3D is only ONE spelling of the CoM. Vessel.CoM / Vessel.CoMD are
+            // public FIELDS, so reading one emits ldfld and no call at all: a call-set-only
+            // gate stays GREEN through the very substitution it exists to forbid. Pin the
+            // field reads too, plus the property spelling in case a future KSP version or a
+            // shim turns either into an accessor.
+            foreach (string comMember in new[] { "CoM", "CoMD" })
+            {
+                Assert.False(
+                    ILCallSet.ReadsField(producer, typeof(Vessel), comMember),
+                    $"The live-anchor pose producer reads Vessel.{comMember} (the centre of " +
+                    "mass). Same ~10 m relative-debris drift as GetWorldPos3D: the recorded " +
+                    "lla is vesselTransform-aligned, so any CoM-sourced anchor shifts every " +
+                    "relative offset by Inverse(R) * (vesselTransform - CoM).");
+                Assert.False(
+                    ILCallSet.Calls(producer, typeof(Vessel), "get_" + comMember),
+                    $"The live-anchor pose producer reads Vessel.{comMember} through a property " +
+                    "accessor. Same CoM drift as the field read.");
+            }
         }
 
         // Regression: pins that the recorder's live anchor position must match the
