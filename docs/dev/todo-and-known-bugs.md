@@ -3069,7 +3069,7 @@ all and is silent.
 
 No committed harness spec pins `reason=sealedTipClosed`.
 
-## REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE-ACROSS-SWITCH-CONTINUATIONS: "does this slot qualify" and "is its tip open" are answered over DIFFERENT recording sets, so a slot whose flight continued through a `VesselSwitchContinuation` can qualify on one walk and resolve its tip on another [FOUND 2026-09-08 while forensically reading session `2026-09-08_2317_refly-a-manual`; NOT the cause of that session's closure and not fixed with it]
+## ~~REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE-ACROSS-SWITCH-CONTINUATIONS: "does this slot qualify" and "is its tip open" are answered over DIFFERENT recording sets, so a slot whose flight continued through a `VesselSwitchContinuation` can qualify on one walk and resolve its tip on another~~ [FOUND 2026-09-08 while forensically reading session `2026-09-08_2317_refly-a-manual`; NOT the cause of that session's closure and not fixed with it. DESIGN RULED + FIXED 2026-09-15 on a constructed headless fixture]
 
 `570960da1` (2026-08-05, PR #1427) repointed `UnfinishedFlightClassifier.TryQualify`
 (`:115`) and the candidate-shape gate (`:736`) from `ResolveChainTerminalRecording` to
@@ -3090,6 +3090,62 @@ reach, are both reachable shapes on paper; neither has been observed in a log ye
 this wants a constructed fixture (a slot whose flight continues through a stock Switch
 -To segment, then terminates) rather than a speculative edit.
 
+
+**DESIGN (ruled 2026-09-15). The CANONICAL walk is the switch-hopping one,
+`EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations`
+(`EffectiveState.cs`), because PR #1427's intent is that a flight continued through a
+stock Switch-To is ONE flight: the branch point is an observation boundary, not a
+downstream split.** So `EffectiveState.EffectiveTipRecordingId` gained the hop AT ITS
+CHAIN-HOP STEP (it now calls the switch-hopping walker instead of
+`ResolveChainTerminalRecording`), and with it `ChildSlot.EffectiveRecordingId`, the
+open/closed read `UnfinishedFlightClassifier.IsSlotEffectiveTipOpen`, the CommitTree tip
+promotion in `RecordingStore.ApplyRewindProvisionalMergeStates` and RewindInvoker's slot
+resolution all answer over the same recording as `TryQualify` and the candidate-shape
+gate. Two mechanical details the fix needed: the cheap-exit gate widened from "has a
+ChainId" to "has a ChainId OR a child branch point" (a switch-continuation segment
+carries no ChainId, and those two fields are the only ways the combined walk can
+advance, so a recording with neither still skips the owning-tree scan); and
+`EffectiveTipRecordingId` gained a tree-context overload, because the CommitTree
+promotion pass runs BEFORE the tree reaches `RecordingStore.CommittedTrees` and the hop
+must read that tree's branch points. The sibling walker `IsInSupersedeForwardTrail` took
+the same hop so slot membership still reaches the tip the composite walker returns. The
+walk logs every hop and every stop under `[Supersede] SwitchContinuationWalk:`.
+
+**Caller audit (every remaining `ResolveChainTerminalRecording` site).** HOPPED, because
+the question is "how did this flight END" and the bare walk reads no terminal at all
+when it lives on the continuation segment: `UnfinishedFlightClassifier` :477 (the manual
+stash terminal read, which pairs with the `TryQualify` reject immediately above it) and
+:793 `IsPotentialManualStashShape` (mirrors the candidate-shape gate, which already
+hops); `RecordingStore` :1290 `ShouldAutoSealStableEvaCommitSlot` and :1310
+`AutoSealStableEvaCommitSlot` (the decision to CLOSE a slot, and the line that logs
+which terminal it was taken on); `SupersedeCommit` `IsTerminalFailureReFlyOutcome`,
+`IsHardSafetyTerminal`, `RequiresSlotAwareMergeClassification` and
+`DescribeTerminalForLogs` (safety gates that FAIL OPEN on a missing terminal - a
+Recovered / Docked / Boarded conclusion stamped on a switch segment would have let a
+re-fly through). LEFT ON THE PLAIN CHAIN WALK, with reasons: `SupersedeCommit`
+`CollectRecordingIdsForSafetyGate` enumerates CHAIN LINEAGE ids for a science/action
+scan, not a terminal, and its own `AddMatchingChainRecordingIds` pass owns membership -
+a hop would add an id from a different lineage; `MergeDialog.Commit`
+`CollectActiveReFlyParentChainTerminalTipIds` compares chain-tip IDENTITIES against
+`activeChainIds` to suppress old futures, so hopping would name a recording outside the
+chain it is comparing; the three in-game cells
+(`MergeNonFocusReFlyToOrbitImmutableTest`, `MergeReFlyStructuralMutationAutoSealsTest`,
+`MergeReFlyToSubOrbitalKeepsSlotOpenTest`) each build their own chain in-test with no
+switch continuation in it, so the two walks are identical there by construction.
+`Display/GhostTrajectoryPolylineRenderer` / `GhostPlaybackLogic.WatchMode` /
+`RecordingsTableUI` mention the walker in comments only and call nothing.
+
+**Mirror directions, all pinned in
+`Source/Parsek.Tests/SwitchContinuationTipWalkAgreementTests.cs`:** a real downstream
+split (Undock) still STOPS the walk (`reason=notSwitchBranchPoint`); a switch branch
+point with two claimants is NOT hopped (`reason=danglingOrAmbiguousChild`), nor is a
+dangling one; a supersede row anchored on the continuation child IS followed after the
+hop (origin -> segment -> fork); and a cycle through a switch hop terminates and warns.
+The agreement cell asserts that the qualify walk, `EffectiveTipRecordingId` and
+`slot.EffectiveRecordingId` all name the continuation segment - pre-fix the last two
+named the origin. Promotion is covered end to end: CommitTree now promotes the
+continuation tip (`CommitTree promoted chain-tip rec=... head=...`), the slot reads
+OPEN, the RewindPoint refuses to reap, and sealing the continuation tip closes the slot.
 ## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
 
 The log line that names the mechanism, from the CEN-7 runlog seven milliseconds after

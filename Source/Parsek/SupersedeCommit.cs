@@ -1189,7 +1189,10 @@ namespace Parsek
 
         internal static bool IsTerminalFailureReFlyOutcome(Recording rec)
         {
-            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: a safety/outcome gate that
+            // FAILS OPEN on a missing terminal, so it must see the terminal that
+            // lives on the switch-continuation segment.
+            Recording terminalRec = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, null) ?? rec;
             TerminalState? terminal = terminalRec?.TerminalStateValue;
             if (!terminal.HasValue) return false;
             if (terminal.Value == TerminalState.Destroyed)
@@ -1670,7 +1673,10 @@ namespace Parsek
 
         private static bool IsHardSafetyTerminal(Recording rec)
         {
-            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: hard-safety gate; the bare chain
+            // walk would miss a Recovered / Docked / Boarded terminal stamped on a
+            // switch-continuation segment and let the re-fly through.
+            Recording terminalRec = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, null) ?? rec;
             TerminalState? terminal = terminalRec?.TerminalStateValue;
             if (!terminal.HasValue)
                 return false;
@@ -2230,7 +2236,10 @@ namespace Parsek
         private static bool RequiresSlotAwareMergeClassification(Recording rec)
         {
             if (rec == null) return false;
-            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: the slot-aware precondition must
+            // read the same terminal the slot walk now resolves, or an Orbiting
+            // conclusion behind a switch continuation falls back to the v0.9 classifier.
+            Recording terminalRec = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, null) ?? rec;
             TerminalState? terminal = terminalRec.TerminalStateValue;
             if (!terminal.HasValue) return false;
             // Orbiting is the only stable terminal that requires slot-aware
@@ -2262,7 +2271,9 @@ namespace Parsek
         private static string DescribeTerminalForLogs(Recording rec)
         {
             if (rec == null) return "<null>";
-            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: diagnostics must name the same
+            // recording the decisions above were taken on.
+            Recording terminalRec = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, null) ?? rec;
             return terminalRec.TerminalStateValue.HasValue
                 ? terminalRec.TerminalStateValue.Value.ToString()
                 : "<none>";
