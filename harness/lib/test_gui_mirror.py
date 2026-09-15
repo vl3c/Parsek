@@ -659,6 +659,58 @@ class EndToEndRenderTests(unittest.TestCase):
         self.assertNotIn('src="', self.html.replace('src="data:', 'src="DATA'))
 
 
+class CompareScopeTests(unittest.TestCase):
+    """Compare shows ONE window: the one selected in the rail.
+
+    The filter lives in a single pure function in the page, `compareRowsFor`, so
+    what is pinned here is that the function the page ships filters on the
+    capture's own window and on the seam's window set, and that the section it
+    renders is built from that one window rather than from every key in the model.
+    A Compare view listing every window's keys is what this replaced.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.model = gmi.build_model([make_shots(self.root)],
+                                     make_scenarios(self.root), with_photos=False)
+        self.html = gmi.render_html(self.model)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_the_row_filter_keys_on_the_captures_own_window(self):
+        body = self.html[self.html.index("function compareRowsFor(win){"):]
+        body = body[:body.index("function buildCompare(")]
+        self.assertIn("if (cap.window !== win) return;", body)
+        self.assertIn("M.seamWindows.indexOf(cap.window) < 0", body)
+
+    def test_the_section_is_built_from_the_selected_window_only(self):
+        body = self.html[self.html.index("function buildCompare(){"):]
+        body = body[:body.index("function sideBlock(")]
+        self.assertIn("var win = S.window;", body)
+        self.assertIn("rows[win] = compareRowsFor(win);", body)
+        self.assertIn("[win].forEach(function(win){", body)
+        self.assertNotIn("Object.keys(M.keys).forEach", body,
+                         "buildCompare still walks every key in the model")
+
+    def test_a_window_outside_the_seam_set_says_so_instead_of_comparing(self):
+        body = self.html[self.html.index("function buildCompare(){"):]
+        self.assertIn("is a diagnostic surface", body)
+
+    def test_the_rail_re_filters_compare_without_leaving_it(self):
+        self.assertIn("if (S.view === 'compare') buildCompare();", self.html)
+
+    def test_the_global_summary_is_secondary_not_the_default_view(self):
+        # It survives as a fold appended AFTER the window's own section.
+        self.assertIn("sumSum.textContent = 'every window at a glance';", self.html)
+        self.assertIn("host.appendChild(sumSum", self.html.replace("sumHost.appendChild(sumSum);",
+                                                                   "host.appendChild(sumSum"))
+        self.assertIn("host.appendChild(sumHost);", self.html)
+
+    def test_an_unchanged_pair_says_how_many_captures_agreed(self):
+        self.assertIn("captures, no difference)", self.html)
+
+
 class RailDisclosureTests(unittest.TestCase):
     """The rail's window headers are a real disclosure widget, not a list of
     shortcuts.

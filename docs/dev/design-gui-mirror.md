@@ -121,6 +121,12 @@ to be longest.
 
 ## 4. Before / after (the Compare view)
 
+Compare shows ONE window: the one selected in the rail, re-filtering when another
+is picked there (each rail header carries a `cmp` affordance that jumps straight
+to it). Listing every window's keys at once was a page nobody could read. The
+whole-program summary table survives as a fold under the window's own section, and
+its rows are links into the other windows.
+
 `key = (fixture, window, tab, state, mode, scene)`. Every capture of one key is
 sorted by `capturedUtc`; BEFORE is the earliest, AFTER the latest, and the pair is
 reported as CHANGED only when the two trees differ once the sampled colours are

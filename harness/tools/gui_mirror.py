@@ -1550,6 +1550,14 @@ table.sum th,table.sum td{border:1px solid #2c2c2c;padding:4px 7px;text-align:le
 table.sum th{background:#1f1f1f;color:var(--dim);font-weight:600}
 table.sum td.y{color:var(--ok)}
 table.sum td.n{color:var(--dim)}
+table.sum tr.here td{background:#25323f}
+table.sum .wlink{color:var(--accent);cursor:pointer}
+table.sum .wlink:hover{text-decoration:underline}
+#compareView>details{margin-top:24px}
+#compareView>details>summary{cursor:pointer;color:var(--accent);font-size:12px}
+#rail .w .cmpbtn{font-size:10px;color:var(--dim);border:1px solid #3a3a3a;
+  border-radius:3px;padding:0 3px;margin-left:4px}
+#rail .w .cmpbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* The window's own tooltip echo strip: `TooltipEchoBox` draws one box-styled
    label, wrapped, one or two text lines tall, and scrolls (never ellipsises)
    text that will not fit. */
@@ -1982,6 +1990,16 @@ function buildRail(){
                 ' captures of ' + w.token;
     row.appendChild(el('span', 'caret' + (open ? ' open' : ''), '\u25b8'));
     row.appendChild(el('b', null, w.token));
+    var cmpBtn = el('span', 'cmpbtn', 'cmp');
+    cmpBtn.title = 'Compare the ' + w.token + ' window';
+    cmpBtn.onclick = function(ev){
+      ev.stopPropagation();
+      S.window = w.token;
+      var r = pick(w.token, null, null, null, S.fixture);
+      if (r) select(r.cap, r.exact);
+      S.view = 'compare'; showView();
+    };
+    row.appendChild(cmpBtn);
     row.appendChild(el('span', 'n', String(w.captureCount)));
     function toggle(ev){
       if (ev) ev.stopPropagation();
@@ -2007,7 +2025,10 @@ function buildRail(){
       var sr = el('div', 's' + (c.id === S.capture ? ' sel' : ''));
       sr.appendChild(el('span', null, k));
       sr.appendChild(el('span', 'n', c.fixture));
-      sr.onclick = function(){ select(c, c.fixture === S.fixture); };
+      sr.onclick = function(){
+        select(c, c.fixture === S.fixture);
+        if (S.view === 'compare') buildCompare();
+      };
       list.appendChild(sr);
     });
     M.missing.filter(function(m){ return m.window === w.token; }).forEach(function(m){
@@ -2041,63 +2062,100 @@ function showView(){
 }
 
 /* ---- Compare: earliest capture of a key beside the latest ---- */
-var compareBuilt = false;
-function buildCompare(){
-  if (compareBuilt) return;
-  compareBuilt = true;
-  var host = document.getElementById('compareView');
-  host.innerHTML = '';
-  host.appendChild(el('p','small',
-    'BEFORE is the earliest capture of a (fixture, window, tab, state, mode) key; ' +
-    'AFTER is the latest. Both sides are drawn by the same generator off their own ' +
-    'dump, so a layout difference on the page is a layout difference in the game. ' +
-    'The notes are lifted from the repo records named beside them; the numbers are ' +
-    'measured off the two dumps.'));
-
-  var rows = {};
+/* The keys of ONE window, which is the unit a reader compares in. Pure, and the
+   only place the filter lives, so the test can assert it never returns a key
+   belonging to another window. */
+function compareRowsFor(win){
+  var rows = [];
   Object.keys(M.keys).forEach(function(k){
     var info = M.keys[k];
     var cap = byId[info.after];
     if (!cap) return;
+    if (cap.window !== win) return;
     if (M.seamWindows.indexOf(cap.window) < 0) return;
-    (rows[cap.window] = rows[cap.window] || []).push({ k: k, info: info });
+    rows.push({ k: k, info: info });
   });
+  rows.sort(function(a,b){ return (b.info.changed?1:0) - (a.info.changed?1:0); });
+  return rows;
+}
+function buildCompare(){
+  var host = document.getElementById('compareView');
+  host.innerHTML = '';
+  var win = S.window;
+  if (M.seamWindows.indexOf(win) < 0){
+    /* the GuiTree probe and anything else the seam cannot open */
+    host.appendChild(el('p','small',
+      'Compare covers the windows the command seam can open. "' + win +
+      '" is a diagnostic surface, so it has no before/after to show. Pick a window '
+      + 'in the rail.'));
+    return;
+  }
+  host.appendChild(el('p','small',
+    'Comparing the "' + win + '" window only - pick another in the rail to switch. '
+    + 'BEFORE is the earliest capture of a (fixture, window, tab, state, mode, scene) '
+    + 'key; AFTER is the latest. Both sides are drawn by the same generator off their '
+    + 'own dump, so a layout difference on the page is a layout difference in the '
+    + 'game. The notes are lifted from the repo records named beside them; the numbers '
+    + 'are measured off the two dumps.'));
 
-  /* summary table */
+  var rows = {};
+  rows[win] = compareRowsFor(win);
+
+  /* The whole-program summary, kept as a fold under the window being compared:
+     one row per window is context, not the thing being read. */
+  var sumHost = document.createElement('details');
+  var sumSum = document.createElement('summary');
+  sumSum.textContent = 'every window at a glance';
+  sumHost.appendChild(sumSum);
   var tb = el('table','sum');
   var hr = el('tr');
   ['Window','Changed','What (from the record)','PRs'].forEach(function(h){
     hr.appendChild(el('th',null,h)); });
   tb.appendChild(hr);
-  var order = Object.keys(rows).sort();
-  order.forEach(function(win){
-    var changed = rows[win].some(function(r){ return r.info.changed; });
-    var note = M.notes[win] || {};
+  var order = M.seamWindows.filter(function(w){
+    return M.captures.some(function(c){ return c.window === w; }); }).sort();
+  order.forEach(function(w2){
+    var wrows = compareRowsFor(w2);
+    var changed = wrows.some(function(r){ return r.info.changed; });
+    var note = M.notes[w2] || {};
     var what = (note.changelog && note.changelog.length)
       ? note.changelog[0].title
       : (changed ? 'capture set differs; no CHANGELOG entry names this window'
                  : 'no change yet');
     var prs = (note.prs || []).map(function(p){ return '#' + p.pr; }).join(' ');
-    var tr = el('tr');
-    tr.appendChild(el('td',null,win));
+    var tr = el('tr' + (w2 === win ? ' here' : ''));
+    if (w2 === win) tr.className = 'here';
+    var wc = el('td');
+    var link = el('span','wlink', w2);
+    link.onclick = function(){ S.window = w2; buildCompare(); buildRail(); };
+    wc.appendChild(link);
+    tr.appendChild(wc);
     var td = el('td', changed ? 'y' : 'n', changed ? 'yes' : 'no');
     tr.appendChild(td);
     tr.appendChild(el('td',null,what));
     tr.appendChild(el('td',null,prs || '-'));
     tb.appendChild(tr);
   });
-  host.appendChild(tb);
+  sumHost.appendChild(tb);
 
-  order.forEach(function(win){
+  [win].forEach(function(win){
     var sec = el('div','cmp');
     sec.appendChild(el('h3', null, win));
     sec.appendChild(noteBlock(win, rows[win]));
-    rows[win].sort(function(a,b){ return (b.info.changed?1:0)-(a.info.changed?1:0); });
+    if (!rows[win].length){
+      sec.appendChild(el('div','small',
+        'No key of this window has a capture the seam could pair - it was '
+        + 'photographed in one run only, so there is no BEFORE to put beside it.'));
+    }
     rows[win].forEach(function(r){
       var before = byId[r.info.before], after = byId[r.info.after];
       var pair = el('div','pair');
-      pair.appendChild(sideBlock(r.info.changed ? 'BEFORE' : 'UNCHANGED (one capture)',
-                                 before, r.info));
+      var n = (r.info.all || []).length;
+      pair.appendChild(sideBlock(
+        r.info.changed ? 'BEFORE'
+                       : (n > 1 ? 'UNCHANGED (' + n + ' captures, no difference)'
+                                : 'UNCHANGED (one capture)'),
+        before, r.info));
       if (r.info.changed) pair.appendChild(sideBlock('AFTER', after, r.info));
       sec.appendChild(el('div','small', r.k.split('|').filter(Boolean).join(' / ')));
       sec.appendChild(pair);
@@ -2105,6 +2163,7 @@ function buildCompare(){
     });
     host.appendChild(sec);
   });
+  host.appendChild(sumHost);
 }
 
 function sideBlock(title, cap, info){
@@ -2267,8 +2326,9 @@ function boot(){
     return Object.keys(breadth[b]||{}).length - Object.keys(breadth[a]||{}).length;
   })[0];
   fixSel.value = S.fixture;
-  fixSel.onchange = function(){ S.fixture = fixSel.value; compareBuilt=false;
-    go(S.window, S.tab, S.state, S.mode); };
+  fixSel.onchange = function(){ S.fixture = fixSel.value;
+    go(S.window, S.tab, S.state, S.mode);
+    if (S.view === 'compare') buildCompare(); };
   S.mode = M.modes.indexOf('advanced') >= 0 ? 'advanced' : (M.modes[0]||null);
 
   var mb = document.getElementById('btnMode');
