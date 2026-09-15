@@ -644,23 +644,33 @@ namespace Parsek.Tests
         private static Func<string, double, double, bool> PaintsProbe()
             => GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan;
 
+        /// <summary>The live per-LEG OWNERSHIP arm: the owning draw's published span covers the leg's
+        /// span.</summary>
+        private static Func<string, double, double, bool> OwnsSpanProbe()
+            => GhostTrajectoryPolylineRenderer.IsOwningNonOrbitalLegSpan;
+
         /// <summary>
-        /// DrawAll's arbitration for one group, exactly as the live loop runs it: the ownership arm
-        /// stands the whole group down, then each surviving leg is arbitrated on the paint arm.
-        /// Appends the ids of the members that drew at least one leg to <paramref name="drawn"/> and
-        /// returns the number of LEGS stood down (the live <c>skippedOwned</c> counter's unit).
+        /// DrawAll's arbitration for one group, exactly as the live loop runs it: the ownership arm's
+        /// member-level precondition once, then each leg arbitrated on the ownership arm's span test
+        /// and, failing that, on the paint arm. Appends the ids of the members that drew at least one
+        /// leg to <paramref name="drawn"/> and returns the number of LEGS stood down (the live
+        /// <c>skippedOwned</c> counter's unit).
         /// </summary>
         private static int ArbitrateGroup(
             RouteTrajectoryLineRenderer.RouteMemberLegs group, List<string> drawn)
         {
             if (group.legs == null || group.legs.Length == 0) return 0;
-            if (RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(group, OwnsProbe()))
-                return group.legs.Length;
+            bool memberOwned =
+                RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(group, OwnsProbe());
 
             int skipped = 0, drew = 0;
             for (int i = 0; i < group.legs.Length; i++)
             {
-                if (RouteTrajectoryLineRenderer.ShouldSkipLegAsGhostPainted(
+                if (memberOwned && RouteTrajectoryLineRenderer.ShouldSkipLegAsGhostOwned(
+                        group.memberRecordingId, group.legs[i].startUT, group.legs[i].endUT,
+                        OwnsSpanProbe()))
+                    skipped++;
+                else if (RouteTrajectoryLineRenderer.ShouldSkipLegAsGhostPainted(
                         group.memberRecordingId, group.legs[i].startUT, group.legs[i].endUT,
                         PaintsProbe()))
                     skipped++;

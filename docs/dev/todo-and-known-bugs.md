@@ -85,6 +85,25 @@ again, regenerate and read the KNOTS greedy cuts and the upward-edge count; the 
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 
+## TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`]
+
+**What is true.** `RefusalVerdict` (`TestCommandMapViewVerbs.cs:171-177`) returns `"REJECTED"` only
+for `Unavailable` (the pre-call `MapView.fetch == null` gate) and `"ERROR"` for `Refused` (stock was
+called and declined). That split is the seam-wide convention - `harness/lib/hlib.py:1080-1090`
+(`SEAM_VERDICT_OUTCOME_TERMINAL = "ERROR"`), mirrored by `EnterWatchMode`'s post-call
+`watch-not-entered` - and it is pinned by
+`TestCommandMapViewVerbsTests.RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled`. The XML doc on the
+`Refused` enum member still says "REJECTED with the per-direction reason", which is the stale half.
+No lane is red today: every committed `EnterMapView` / `ExitMapView` step is `expect = "OK"` (all eleven
+specs with an uncommented step for either verb: B32, GUI-6, GUI-9, H59, RF-7M, RF-8, V26M, V27M, V3C, V6M, W1), so nothing
+exercises the refusal branch. The cost is authorship - a spec
+author who reads the enum doc writes `expect = "REJECTED"` for a stock-declined toggle and the lane
+mismatches against the ERROR the seam emits.
+
+**Fix.** Documentation only: change the last sentence of the `MapViewToggleOutcome.Refused` doc to
+say ERROR with the per-direction reason (and, optionally, point at `RefusalVerdict` for the
+REJECTED/ERROR rule). Do not touch `RefusalVerdict` - the behavior is the contract.
+
 ## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
 
 **What is true.**
@@ -453,6 +472,14 @@ against the Recordings tab's x=14 width 1311), so its header owes the bare 16 px
 20. Its data columns are 1 px off today; the shared 20 would walk them 4 px the other way.
 Pinned by `TableRowInsetAlignmentTests.TheRecordingsTabGutterRoutesThroughTheSharedDerivation`,
 which asserts the Missions tab is NOT routed through it.
+
+**LOOKED AT AGAIN 2026-09-15 (the GUI-10 / hover-flags PR) AND DELIBERATELY LEFT.** The
+brief was to take the fix if it were a one-liner in `MissionsWindowUI` and otherwise leave it,
+and it is not one in either half: the Missions-tab half is the `padding.right` change this
+entry's own fix section already prefers, which moves every row draw in that tab by 4 px and
+cannot be checked without re-running a census dump; and the merged-cell half is the
+multi-row-shape change described below. Both belong in a change whose own flight re-diffs the
+GUI-4 `bd-missions-*` dumps, not in a PR whose flights are pointed at dialogs and hover.
 
 **Fix (proposed, not applied).** Wrap the body rows' leading toggle + index pair in a
 container of the header's merged width, and open every row with
@@ -1727,7 +1754,7 @@ the wave supervisor's keep-4 ruling; 0 flights, the offline control stands (`_00
 3); only an opportunistic live control on an NRE-bearing run remains open. n and the class
 composition are in the spec comment and in test_hlib's CEILINGS comment.
 
-## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BOTH HALVES RULED 2026-09-15 (register B3 / B4); the `sub-2-point-drop` half stays open until the Gloops PR lands]
+## ~~D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one~~ [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. RULED 2026-09-15 (operator ruling B4: option (1), Gloops stays as is). CLOSED 2026-09-15: both halves are done - `sub-2-point-drop` by GL-2 and `manual-gloops` by GL-1, each LIVE-PROVEN + ARMED on its first flight, and the `stop-on-switch` half (B3) by the registry PR #1697]
 
 **B3 RULED YES and APPLIED 2026-09-15 (the R2 half).** `stop-on-switch` is RENAMED
 `switch-backgrounds-recording` in `harness/coverage/registry.toml` and CLAIMED on CI-1 off
@@ -1735,12 +1762,6 @@ a literal token (`Transitioned to background (pid=`) pinned from run `2026-09-08
 with an armed re-flight and one negative control flown this session (run ids in
 `autotest-status.md`). The cell is no longer a registry defect and no longer unclaimable;
 every doc line that still said so was corrected in the same PR.
-
-**B4 RULED YES with the constraint that Gloops code stays untouched; implemented on branch
-`gloops-seam-verbs` (separate PR).** The `sub-2-point-drop` half is therefore NOT closed
-here: this PR only rewrites the registry comment to record that the always-tree commit path
-keeps a 1-point recording (MC-3 measured it) so Gloops is the drop's only seam-reachable
-producer, and corrects the stale S0.5 / S0.6 comments.
 
 **What the cell names.** `harness/coverage/registry.toml` D1 `sub-2-point-drop`: a
 recording shorter than two points is dropped instead of committed. The only producer
@@ -1807,11 +1828,12 @@ DIFFERENT predicate (`Points.Count == 0`);
 (3) delete the value with a rationale comment - DEMOTED, because a same-predicate
 tree-mode path exists and deletion would drop a real behaviour from the registry.
 
-**Stale comments to correct in the PR that takes the decision (not a drive-by):** the
-"stationary-pod sub-2-point-drop" remarks at
-`harness/scenarios/S0.5-live-record-discard.toml:74` and
-`harness/scenarios/S0.6-live-record-commit.toml:62` predate always-tree mode; a tree
-commit never passes through `CreateRecordingFromFlightData`.
+**~~Stale comments to correct in the PR that takes the decision (not a drive-by)~~ DONE
+2026-09-15:** the "stationary-pod sub-2-point-drop" remarks at
+`harness/scenarios/S0.5-live-record-discard.toml` and
+`harness/scenarios/S0.6-live-record-commit.toml` predated always-tree mode - a tree commit
+never passes through `CreateRecordingFromFlightData`. Both now say what their count range
+is actually robust to, and both point at `GL-2-gloops-sub-2-point-drop` for the drop itself.
 
 **Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 3):**
 two separate answers, both operator calls (roadmap "Priority register (2026-09-11)" items B3
@@ -1825,8 +1847,15 @@ and B4).
     requires it.
   - Claim it on CI-1 with the token, an armed re-flight and one negative control. No C#.
 - `sub-2-point-drop`: option (1) above.
-  - The tree commit path keeps a 1-point recording (MC-3 measured it, per the memo), so the
-    drop's only seam-reachable producer is Gloops.
+  - The tree commit path keeps a 1-point recording (MC-3 measured it, per the memo), so
+    Gloops is the only seam VERB whose SUBJECT the drop can be. CORRECTED 2026-09-15 (the
+    memo file itself stays as written): that is NOT the same as "the only producer". The
+    dock/undock chain path reaches the same factory on all four of its branches
+    (`ParsekFlight.HandleDockUndockCommitRestart` ->
+    `ChainSegmentManager.CommitDockUndockSegment` -> `CommitSegmentCore`) with no
+    always-tree guard, and logs `CommitSegmentCore`'s own "segment too short" instead -
+    a literal whose full line carries an EM DASH before "aborting"
+    (`ChainSegmentManager.cs:659`), so a spec citing it must not pin ASCII.
   - Rewrite the registry comment to say so, and close the cell together with `manual-gloops`
     through ONE C# seam verb pair (`GloopsStart` / `GloopsStop`, about 150 lines).
     Confidence is medium on the verb shape.
@@ -1836,13 +1865,65 @@ Line numbers re-checked 2026-09-11 at `b21fc2096`:
 - `FallbackCommitSplitRecorder` is declared at `:6843`;
 - the Gloops `too short - discarded` ScreenMessage is at `:17085` (cited as `:17058` above).
 
-**Fix (revised 2026-09-15; the registry half DONE, the C# half pending).**
-- The registry PR redefined `stop-on-switch` as `switch-backgrounds-recording` and claimed
-  it on CI-1, rewrote the `sub-2-point-drop` comment, and corrected the S0.5 / S0.6
-  comments. DONE 2026-09-15.
-- A separate C# PR on branch `gloops-seam-verbs` adds the Gloops verb pair (Gloops code
-  itself untouched, per B4's constraint) and the lanes that claim `manual-gloops` and
-  `sub-2-point-drop`. PENDING.
+**RULING B4, taken 2026-09-15 (operator): option (1), and GLOOPS STAYS AS IS.** The cell
+is KEPT and closed through a seam verb pair, with no change to the Gloops recorder, its
+window or any code it calls - `GLOOPS-STANDALONE-WINDDOWN` and GUI-P13 stay open and
+untouched. Option (2) was not taken (it would have redefined a real behaviour away from its
+own producer) and option (3) was already demoted.
+
+**Fix (`sub-2-point-drop` half: BUILT 2026-09-15, branch `gloops-seam-verbs`; awaiting its
+reading flight).**
+- ADDITIVE M-A2 verb pair `GloopsStart` / `GloopsStop`, no args, both `RequiresFlight`,
+  both SINGLE-PHASE (the recorder attaches to the physics-frame patch inside
+  `FlightRecorder.StartRecording`, and the stop half stops / builds / commits / nulls in one
+  synchronous call, so each read-back is a final answer). 36 -> 38 implemented, reserved
+  unchanged at 5. They drive the EXISTING entry points - the same two internal
+  `ParsekFlight` members the window's primary button calls - and every REJECTED token is a
+  READ-BACK of an existing Gloops guard's decision rather than a second copy of it. A unit
+  cell reads the applier's source and asserts it reaches no other Gloops mutator (no
+  Discard, no Preview) and writes no Gloops field.
+- THE DROP IS NOT A REFUSAL: the button behaves identically, so `GloopsStop` terminates OK
+  with `committed=false points=<n> dropped=too-short`, and a lane gates on the PRODUCTION
+  log line. A REJECTED would have forced the lane to call its own subject a driver fault.
+- Two lanes, both authored as READING-RUN specs and neither armed:
+  `GL-1-gloops-manual-lifecycle` (claims `manual-gloops`; `samplingDensity=2` and eight
+  inert probes between start and stop, with the commit token deliberately UNGATED because
+  whether a stationary pod accrues two points is the reading-run unknown) and
+  `GL-2-gloops-sub-2-point-drop` (claims both; `samplingDensity=0` and ADJACENT steps, so
+  the take cannot reach two points, with the drop gated on four independently-failing
+  tokens).
+- SCOPE, corrected in review and carried into every doc that states it: the Gloops stop is
+  the only seam VERB whose SUBJECT is the drop, NOT the only producer. The census above
+  called `CommitDockUndockSegment` "not proven dead", and it is not: `ParsekFlight
+  .HandleDockUndockCommitRestart` reaches `ChainSegmentManager.CommitDockUndockSegment` ->
+  `CommitSegmentCore` -> the factory on all FOUR of its branches (dock initiator, dock
+  target, undock stay, undock switch) with no always-tree guard anywhere on that chain. A
+  docking lane could meet the same refusal incidentally; it would log `CommitSegmentCore`'s
+  own Verbose "segment too short" rather than the Gloops Warn GL-2 gates, so the two are
+  distinguishable in a log.
+- `points=` in the stop payload is the committed recording's `Points.Count` on a commit and
+  the RECORDER COUNT BEFORE THE CALL on a drop. It is deliberately NOT "the number the < 2
+  rule was applied to": `FinalizeRecordingState` can ADD a boundary sample at stop when the
+  vessel is on rails, and the factory TRIMS leading stationary points before re-applying the
+  test, so a pre-call 1 can commit and a pre-call 5 can drop.
+- The registry comment now names Gloops with that scope, and the stale S0.5 / S0.6
+  "stationary-pod sub-2-point-drop" remarks named below are CORRECTED in the same change.
+
+**FLOWN 2026-09-15, and both declared unknowns answered.** GL-1: reading `2026-09-15_1601`
+PASS attempt 1 (65 s), armed `_1613` PASS attempt 1 (81 s), control `_1620`
+PARSEK-FAIL(expectation) on exactly the seeded `points=7`. The stationary PRELAUNCH pod
+COMMITS, at THREE points, so the count collapsed to exactly 1 and the outcome-agnostic
+prefix became four whole tokens. GL-2: reading `2026-09-15_1621` PASS attempt 1 (63 s),
+armed `_1623` PASS attempt 1 (52 s), control `_1624` PARSEK-FAIL(expectation) on exactly the
+seeded `dropped=too-long`. The take lands on EXACTLY ONE point, and the validator question
+answered itself - `logValidate status=PASS recRulesSuppressed=True` - so no suppression was
+added. Both lanes show two report-only stock teardown NREs with no Parsek frames
+(`KbApp.OnDestroy`, `Pipeline-Session Clear`): KSP's own quit noise, seen through the
+report-only `unityExceptions` row and deliberately not gated.
+
+**The `stop-on-switch` half (B3) is CLOSED TOO**, by the registry PR #1697 rather than by
+this one: redefined `switch-backgrounds-recording` and claimed on CI-1. Nothing in this
+entry remains open.
 
 ## ~~RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later~~ [FILED 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. CLOSED 2026-09-11: the re-pinned spec flew green and both D4 claims were taken]
 
@@ -2055,7 +2136,91 @@ still carries an id. Exactly one selector is accepted; both together is a REJECT
 than a precedence, because the two open different lists and guessing would photograph the
 wrong one under the caller's label.
 
-## GUI-CENSUS-NO-SEAM-PATH-RAISES-A-PARSEK-DIALOG: `op=dialog` shipped as the read-only half, and nothing in the seam can put a modal on screen and leave it standing, so all 21 dialogs are unphotographable
+## ~~GUI-CENSUS-NO-SEAM-PATH-RAISES-A-PARSEK-DIALOG: `op=dialog` shipped as the read-only half, and nothing in the seam can put a modal on screen and leave it standing, so all 21 dialogs are unphotographable~~ [CLOSED 2026-09-15 by the different door this entry's FIX section asked for. `UiAction op=raise popup=<name>` calls ONE dialog's own production spawn site and STOPS; `op=dismiss popup=<name> [press=<button>]` takes it down. SIX of the 21 modals now have a picture, flown by the new lane `GUI-10-census-dialogs`, run `2026-09-15_1538`, PASS on attempt 1, 67 s, 8 PNG + 8 dumps]
+
+**WHAT CLOSED IT, and it is NOT either of the two prerequisites this entry named.** Both of
+those were about `AnswerMergeDialog` - a surface-only mode, and a path not needing a live
+Re-Fly marker - and neither was built. The wedge guards on all three verbs are untouched and
+should stay that way. What shipped instead is a THIRD route that none of them blocks: the
+spawn sites themselves are ordinary methods, so a raise op calls one and returns, leaving the
+modal standing for `op=dialog` to report and `CaptureScreenshot` to photograph. The closed set
+is in `TestCommandUiDialogRaise.cs`; the appliers are
+`ParsekTestCommandAddon.UiRaiseDismiss.cs`.
+
+**THE SIX WITH A PICTURE** (each raised, reported standing, photographed, dumped, dismissed):
+`actionblocked` (`ParsekResourceBlock`, "Action Blocked"), `savefailed`
+(`ParsekSceneExitSaveFailed`, "Save failed"), `wiperecordings`
+(`ParsekWipeRecordingsConfirm`), `wipemilestones` (`ParsekWipeMilestonesConfirm`),
+`fastforward` (`ParsekFastForwardConfirm`) and `seal` (`ParsekUFSealDialog`). Every
+`op=dialog` step beside them read `open=true count=1` with that name, title and button list,
+which is the machine-readable half the PNG could not carry - a `PopupDialog` is uGUI and
+cannot appear in a `.gui.json` at all.
+
+**NOTHING WAS CONFIRMED.** Four of the six carry a mutating confirm (`Wipe All` clears every
+committed recording, `Seal Permanently` is permanent, `Fast-Forward` warps), so dismissal
+defaults to `PopupDialog.DismissPopup` and the seam REFUSES `press=` on any of them
+(`press-not-allowed`). One button was pressed in the whole flight, the harmless `OK`. Two
+independent proofs it stayed harmless: `recordings.count 21` held, and none of
+`All recordings wiped` / `All milestones wiped` / `Sealed slot=` appears (all three are
+`forbidden`). The `seal` row is the one spawn site that takes a `ControlTypes.All` lock only
+its own callbacks release, and the dismiss path clears it explicitly.
+
+**THE SEVENTH RAISABLE ROW ANSWERED A TYPED REFUSAL rather than a picture**, which is the
+right answer: `REJECTED dialog-target-unavailable popup=rewind detail=no-rewind-owner-among=21`.
+`ShowRewindConfirmation` silently returns when `RecordingStore.GetRewindRecording` is null and
+no recording in `bdock-recorded` carries a `rewindSaveFileName`, so the applier resolves the
+owner BEFORE calling the spawn site instead of calling into a guard and then reporting a modal
+that is not there. A host with a rewind point would photograph it. The one-modal-at-a-time
+guard also fired live (`dialog-already-open popup=wiperecordings open=ParsekSceneExitSaveFailed
+count=1`).
+
+**FOURTEEN STAY FILED, each with the state a pure in-process call cannot supply** - see
+GUI-CENSUS-FOURTEEN-DIALOGS-NEED-LIVE-STATE-TO-RAISE below, which carries the list and is the
+successor to this entry.
+
+**Two earlier runs, both instrument rather than product.** `2026-09-15_1524` PARSEK-FAIL on
+ONE mismatch, `recordings.count 21 > max 13`: the count had been derived from the committed
+fixture directory and the STAGED save carries 21, so staging is not a copy. `2026-09-15_1526`
+INVALID(instance-locked), the machine lock working as designed while a sibling worktree flew
+LT-2 - which also re-provisioned the automation DLL underneath, and is why the deployed hash
+is re-pinned per flight (`ffa524672a4c...` before, between and after both of the day's
+flights).
+
+## GUI-CENSUS-FOURTEEN-DIALOGS-NEED-LIVE-STATE-TO-RAISE: the 14 modals `op=raise` deliberately does not reach, each named with what it would need [Filed 2026-09-15 as the successor to the entry above, which is closed. Not a defect and not a backlog item to clear blindly: a dialog raised over synthetic state photographs a screen the game cannot be in]
+
+The raise table admits a dialog only when its spawn is reachable by a pure in-process call
+with data the host already carries. What the other fourteen need, read off their spawn sites
+rather than guessed:
+
+  * **the tree merge dialog** (`ParsekMerge`, `MergeDialog.ShowTreeDialog`) - a
+    `RecordingTree`, and BOTH its buttons act on it (`MergeCommit` / `MergeDiscard`), so a
+    synthetic tree's commit would write invented history into the fixture the lane is
+    photographing. The 3-button Re-Fly variant additionally needs a live
+    `ActiveReFlySessionMarker`.
+  * **the pre-switch decision dialog** (`ParsekPreSwitch`,
+    `MergeDialog.ShowPreSwitchDecisionDialog`) - a non-null live `Vessel`, so FLIGHT only, and
+    it RE-SPAWNS ITSELF on any non-button teardown by design, so a dismiss-without-press
+    cannot close it at all.
+  * **the ghost icon context menu** (`ParsekGhostIconMenu`) - spawned INSIDE a Harmony Prefix
+    (`Patches/GhostVesselLoadPatch.cs`) over a live ghost ProtoVessel in map view. There is no
+    method to call.
+  * **the Tracking Station ghost popup** (`ParsekTrackingStationGhostMenu`) - its host exists
+    only in `GameScenes.TRACKSTATION`, which runs no `ParsekUI`, so every `UiAction` there
+    answers `REJECTED ui-host-unavailable`.
+  * **Re-Fly invoke** (`ParsekRewindInvoke`) - a `RewindPoint` with a valid child slot.
+  * **Re-Fly revert** (`ParsekReFlyRevert`) - a `ReFlySessionMarker`.
+  * **Disband Group**, **Confirm: Delete Route**, **Confirm: Delete Dormant Route** and
+    **Create Supply Route?** - a group closure, a live `Route`, a dormant `Route` and a
+    `RouteCandidate` with non-null `Analysis` AND `Tree` respectively, all reached through
+    private methods on a live window instance.
+  * the remainder are the warp confirmations and the mission warp-to-launch confirm, whose
+    spawn doors are private and whose inputs are derivable but whose confirm handlers move UT.
+
+Fix, if one is ever wanted: a lane on a host that CARRIES the state (a save with a rewind
+point buys `rewind` and `ParsekRewindInvoke`; a logistics host buys the three route confirms),
+not more raise rows. Two of the fourteen are structurally out of reach whatever the host -
+the ghost icon menu has no callable spawn, and the Tracking Station has no `UiAction` at all.
+
 
 FILED 2026-09-11 while authoring the wave-2 census lanes (branch `gui-census-lanes`).
 Derived from the three verbs' own sources, not from a failed run - a run was not needed,
@@ -2222,7 +2387,79 @@ today) and would refuse the legitimate case of arranging state now and photograp
 after a later mode switch. Recorded beside `SettleChecksHostShowUi` and in
 `design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)"; no behaviour change.
 
-## GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window [Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it]
+## GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window [Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it. STILL OPEN 2026-09-15, and now with a CAUSE and both pre-registered candidates RETIRED - see the update at the head of this entry]
+
+**UPDATE 2026-09-15: BOTH CANDIDATE FIXES WERE BUILT, FLOWN AND REFUTED, and the flight
+measured the cause instead.** Run `2026-09-15_1539` (GUI-7, PASS attempt 1, 63 s, deployed
+DLL sha256 `ffa524672a4c...`) flew both hover moves with `focus=true nudge=true`:
+
+  * candidate (a), foreground, WAS APPLIED and reported which rung took it -
+    `fgOutcome=attached` on the first move (a plain `SetForegroundWindow` was refused and the
+    documented `AttachThreadInput` retry took it) and `fgOutcome=already` on the second, with
+    `fg=true` afterwards on both. So the window owned the input queue either way.
+  * candidate (b), a real mouse EVENT, WAS APPLIED too: the relative `SendInput`
+    `(+1,0)/(-1,0)` pair was accepted on both moves
+    (`nudge=true sent a relative (+1,0)/(-1,0) SendInput pair`).
+  * and the hover STILL did not paint. Both answers read `tooltip=-`, which is the hover-echo
+    strip's own text as of the settled frame (`TooltipEchoStripLatch.LastText`).
+
+**THE CAUSE, measured rather than reasoned.** A one-shot Verbose probe now reports, from
+INSIDE a Parsek `OnGUI` Repaint, what IMGUI's own mouse position reads beside
+`Input.mousePosition` in the same pass (`TooltipEchoStripLatch.SampleMousePositionProbe`,
+armed by every `op=pointer` and re-armed once the read-back lands). On every probe of the
+flight:
+
+```
+eventLocal=-8.0,-8.0  eventScreen=0.0,0.0  input=133.0,558.0  inputGuiY=162.0  screenH=720
+eventLocal=-8.0,-8.0  eventScreen=0.0,0.0  input=133.0,523.0  inputGuiY=197.0  screenH=720
+```
+
+`Input.mousePosition` tracks the commanded point exactly (133,161 and 133,196 within the
+op's 1 px), and `Event.current.mousePosition` NEVER MOVES: it reads window-local -8,-8 for a
+window at 8,8, i.e. screen origin, which is outside every control in the game. So the two
+pipelines genuinely disagree, and a hover is decided by the one that does not follow the
+cursor. That is a POSITIVE statement of the cause and it retires the position-vs-event
+hypothesis's remedy as well as its diagnosis: injecting a real `WM_MOUSEMOVE` does not move
+the value IMGUI computes its hit test from.
+
+**MECHANICALLY CONFIRMED on this run's own artefacts, two independent ways.** The `roots`
+tree of both hover dumps hashes IDENTICAL to `b1-main-idle-advanced.gui.json` (canonicalised
+sha256, first 16 hex `dbf76cbc604a04a1` for all three), exactly as on 2026-09-11; and a
+per-pixel comparison of the main window region (8,8)-(258,708) against the idle capture
+differs ONLY at y >= 445 - 2443 and 1703 pixels of 175000, all of it the live flight status
+block BELOW both hovered rects. The hovered buttons themselves (`rect=18,150,230,21` for
+`Real Spawn Control (0)`, `rect=18,185,230,21` for `Timeline`) and the tooltip strip are
+pixel-identical, so there is no button highlight and no strip text.
+
+**RE-CONFIRMED ON THE POST-REVIEW BUILD.** Run `2026-09-15_1627` (PASS attempt 1, 68 s,
+deployed DLL sha256 `625cfd52985e...`) reproduces every reading above after the review pass
+added the re-armed second probe and `tooltipFrame=`: `eventScreen=0.0,0.0` on every probe
+while the landed pair reads `input=134.0,558.0` -> `inputGuiY=162.0` against a commanded
+`134,161`, both answers `tooltip=- tooltipFrame=0`. The frame is ZERO because no non-empty
+strip text was ever observed in the session, which is the same statement the empty
+`tooltip=` makes, from the other side.
+
+**WHAT STAYS.** Both flags stay in AS MEASURED, and GUI-7 keeps flying them: the answer
+reports what each did, so the next candidate is compared against this reading rather than
+against a guess, and a reader of a future red hover lane can tell "the mechanism did not
+apply" from "it applied and IMGUI still did not believe it". The two hover labels stay as
+they are with their run ids citing them. The lane's `required` contracts pin the applied
+flags and the probe line, NOT a non-empty strip - pinning a reading the product does not
+produce would red the lane forever on a claim nothing in it can satisfy.
+
+**WHAT IS LEFT TO TRY, and neither is cheap.** (c) find what Unity fills
+`Event.current.mousePosition` from in a KSP player build and whether anything managed can
+move it - the value is per-`Event`, so a synthesised `EventType.MouseMove` pushed into the
+GUI queue is the shape, and that is the thing `TestCommandUiPointer`'s header rejected on the
+grounds that it proves nothing about the hit test a player's cursor drives (that objection is
+weaker now: the player's cursor demonstrably does not drive this value either in an
+unattended run). (d) accept that the four hover surfaces are unphotographable by the seam and
+cover them with an in-game test that drives a probe window's own layout, which is what
+`DisabledHoverEchoImguiTest` and `LogisticsTooltipEchoImguiTest` already do headlessly for
+the mechanism - what no test gives is a PICTURE for a reviewer. Filed as (c) / (d) rather
+than chosen.
+
+
 
 MEASURED on three lanes and four captures, all on the 2026-09-11 reading runs, all PASS.
 The addressing half works and the painting half does not.
@@ -2796,7 +3033,7 @@ authored for (pre-rewind-boarded crew, re-fly lands them). Decisions owed: (1) y
 `endUT` screening for death-encoding intervals; (2) whether RF-12L is flown to its intended
 conclusion first, as the lane that would prove the change.
 
-## REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. OPEN as a cleanup]
+## ~~REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached~~ [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. FIXED 2026-09-15 on branch `render-and-recorder-hygiene`: the second candidate and the sixth-segment sentence are gone; `ResolveFixtureDir` / `DescribeCandidates` are untouched]
 
 `Source/Parsek.Tests/ReflyARecordedFixtureCodecTests.cs` lines ~114-116 carry a SECOND
 `FixtureCandidates` entry, `../../../../../../Parsek-refly-lanes/harness/fixtures/saves/refly-a-recorded`.
@@ -3791,7 +4028,7 @@ accepts both without saying which it saw is the vacuous reading this suite refus
 
 ---
 
-## ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER: a route member whose phase the ghost OWNS has ALL of its legs stood down, including the ones the ghost's mesh does not cover [RAISED 2026-09-06 on branch `g10-leg-drop` while making the PAINT arm per-leg. Pre-existing M6 v1 behaviour, not a regression. OPEN, low priority]
+## ~~ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER: a route member whose phase the ghost OWNS has ALL of its legs stood down, including the ones the ghost's mesh does not cover~~ [RAISED 2026-09-06 on branch `g10-leg-drop` while making the PAINT arm per-leg. Pre-existing M6 v1 behaviour, not a regression. FIXED 2026-09-15 on branch `render-and-recorder-hygiene`, headlessly. UNFLOWN]
 
 The route line's no-double-draw arbitration has two arms. The PAINT arm is per LEG (a leg stands
 down only when a visible ghost mesh of the same recording overlaps that leg's own recorded span).
@@ -3804,13 +4041,55 @@ So when the ghost is FLYING a member (rather than forward-painting it), the rout
 member's whole recorded path even though the ghost's mesh covers only the leg it is on. On a
 multi-leg member that is the same hole the paint arm just closed, on a different population.
 
-Not fixed here for two reasons: it is the shipped v1 behaviour that H59's ARMED census pinned
-(`routesDrawn=0 legsDrawn=0 skippedOwned=1` on a one-leg member, where the two granularities
-agree), and closing it means giving the ownership publish a span, i.e. touching the ownership
-contract for a cosmetic gap. The clean fix if it ever matters: publish the OWNING leg's span
-alongside the ownership id and route the ownership arm through the same span overlap. Any lane
-that reads it will show `ownedLegs=` greater than the legs the ghost's `Polyline frame: drawn=`
-count can account for.
+Not fixed in that pass for two reasons: it is the shipped v1 behaviour that H59's ARMED census
+pinned (`routesDrawn=0 legsDrawn=0 skippedOwned=1` on a one-leg member, where the two
+granularities agree), and closing it means giving the ownership publish a span, i.e. touching the
+ownership contract for a cosmetic gap. The clean fix if it ever matters: publish the OWNING leg's
+span alongside the ownership id and route the ownership arm through the same span overlap. Any
+lane that reads it will show `ownedLegs=` greater than the legs the ghost's
+`Polyline frame: drawn=` count can account for.
+
+**FIXED 2026-09-15 exactly that way, and the ownership contract is NOT widened.**
+`GhostTrajectoryPolylineRenderer.drewNonOrbitalLegSpans` is written at the ONE existing feeder -
+the per-recording `if (anyDrawn)` block that adds to `drewNonOrbitalLegRecordings`, published only
+on an ACTUAL draw - and carries the union of the PRIMARY head's drawn legs (the boundary-overlap
+secondary is excluded, exactly as it is from the id set). It shares the id set's clear lifecycle
+to the line: the top of every `LateUpdate`, and `Clear()`. `drewNonOrbitalLegRecordings` remains
+the SOLE ownership source and `IsRenderingNonOrbitalLeg` is byte-unchanged, so `GhostMapPresence`
+(proto orbit-line hide, the `IsIconSuppressed` fallback) reads exactly what it read before.
+
+The route line's ownership arm keeps `ShouldSkipGroupAsGhostDrawn` as the member-level
+precondition (and cheap early-out) and adds `ShouldSkipLegAsGhostOwned` over
+`IsOwningNonOrbitalLegSpan` inside the leg loop, through the SAME
+`GhostTrajectoryPolylineRenderer.LegSpansOverlap` predicate the paint arm uses - so the two arms
+cannot drift apart on endpoint handling (strict on both ends: adjacent legs sharing an endpoint UT
+do not drag each other down). `ResolveOwnedLegOverlap` is FAIL-CLOSED when a span is absent
+(stand the leg down whole, the v1 behaviour, plus one rate-limited Info naming the recording):
+ownership without a span is a broken publish contract the single feeder cannot produce, and the
+safe direction is the one that cannot put a second identical line over a live ghost mesh.
+
+REVIEWER'S NOTE, recorded rather than acted on: `LegSpansOverlap` is STRICT on both ends, so an
+owned span of ZERO duration overlaps nothing and would stand no route leg down - fail-OPEN in that
+one direction, which is the same property the pre-existing PAINT arm has and the same reason the
+strictness exists (adjacent legs of one recording share an endpoint UT exactly). Theoretical: a
+real leg carries at least two samples, so its span is never zero.
+
+MIRRORS CHECKED, each with a cell in `RouteLineOwnershipSpanArbitrationTests`: a ONE-LEG member
+still reads `skippedOwned=1 ownedLegs=1` (H59's armed census pin does not move - the two
+granularities agree there); a member with NO ghost slot is untouched (`ownedLegs=0`); ownership
+published then cleared un-stands the leg on the next frame; and the three-leg member whose MIDDLE
+leg the ghost draws reads `ownedLegs=1` where v1 read 3. The M-A7 deferral record stays ONE per
+(route, member) per frame on both arms (the manifest census counts members deferred, not legs).
+`RouteLinePaintArbitrationSourceGateTests` pins both halves of the arm inside `DrawAll`'s own
+brace-matched body.
+
+UNFLOWN. The lanes that would read it: `V18T-depot-route-ts-arrival`,
+`V26M-interbody-route-map-lines`, `V26T-interbody-route-ts-arrival`, `H59-surface-route-map-lines`.
+The token is `Route line draw: ... skippedOwned=<n> ... ownedLegs=<n> paintedLegs=<n>`. H59 is the
+one with live ownership-arm evidence (nine `skippedOwned=1 ownedLegs=1 paintedLegs=0` frames on a
+ONE-LEG member) and must read the SAME numbers; V26M's ghost population in the map window is
+epoch-dependent (V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT), so its `ownedLegs=` stays a
+regex rather than a literal.
 
 ---
 
@@ -5158,7 +5437,7 @@ scope. Walk: `docs/dev/research/g10-interbody-route-feasibility.md` (its blocker
 now historical; blocker 2, that no COMMITTED fixture carries an inter-body dock, is
 answered by the B32 harvest of the operator's `orbital supply route` save).
 
-## EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT: a frame-LESS `Absolute` TrackSection sits on exactly the span of the `OrbitalCheckpoint` section beside it, so INV2 reports the pair and nothing retires either [MEASURED 2026-09-07 on branch `inv2-checkpoint-retire`, through the production read path, on the three operator sidecars committed at `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/`. DEFECT in produced DATA, split out of INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER below. OPEN, no fix proposed here]
+## ~~EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT: a frame-LESS `Absolute` TrackSection sits on exactly the span of the `OrbitalCheckpoint` section beside it, so INV2 reports the pair and nothing retires either~~ [MEASURED 2026-09-07 on branch `inv2-checkpoint-retire`, through the production read path, on the three operator sidecars committed at `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/`. DEFECT in produced DATA, split out of INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER below. CLOSED 2026-09-15 on branch `render-and-recorder-hygiene`: the producer is identified off the real bytes and was ALREADY FIXED on 2026-08-28, after the play that wrote these sidecars and before they were committed. NO CODE CHANGE]
 
 **What was measured.** After `CheckpointDoubleCoverRetire` clears every
 checkpoint-vs-checkpoint overlap in those three recordings, four INV2 findings stand
@@ -5189,7 +5468,7 @@ taken on this evidence: nothing here establishes what an empty `Absolute` sectio
 to the recorder, the optimizer's environment classification or
 `boundaryDiscontinuityMeters`, and the producer that emits it has not been identified.
 
-**What closing this needs**, in order: find the producer - the span is exactly the
+**What closing this needed**, in order: find the producer - the span is exactly the
 packed/on-rails stretch the checkpoint section describes, and the empty section is
 `src = Active`, so the lead is the ACTIVE recorder's section close at the on-rails
 transition rather than the checkpoint bridge, but that has NOT been driven and the
@@ -5199,6 +5478,68 @@ and `boundaryDiscontinuityMeters` both read sections regardless of payload), and
 then either fix the producer or widen the retire. The shared build-time containment dedupe in
 `harness/tools/build_duna_one_recorded.py` already drops frame-less shells, so the
 committed fixture corpus does not carry these and no lane is blocked by them.
+
+**THE PRODUCER, NAMED OFF THE REAL BYTES 2026-09-15, AND IT IS ALREADY FIXED.** The lead was
+right, and the `src` value was not the only evidence available - the section ORDER is. Dumping
+the three sidecars through the production read path
+(`RecordingStore.LoadTrajectorySidecarForTesting`) after `CheckpointDoubleCoverRetire` shows
+every one of the four standing shells sitting immediately after an `OrbitalCheckpoint` section
+that ENDS exactly at the shell's `startUT` and carries a conic of a DIFFERENT body than the
+checkpoint covering the shell's own span:
+
+| recording | shell span | body before -> body of the covering checkpoint |
+| --- | --- | --- |
+| `041770246...` | `[6675562.0340952, 6676373.1069955891]` | Kerbin -> Mun |
+| `36c7688b...` | `[63901473.58333458, 68378174.685928717]` | Kerbin -> Sun |
+| `36c7688b...` | `[72258643.296207383, 72279764.818765983]` | Sun -> Duna |
+| `58130506...` | `[6646497.6471289583, 6647570.0420407793]` | Kerbin -> Mun |
+
+Four shells, four ON-RAILS SOI CROSSINGS. That is the exact signature of
+`FlightRecorder.TransitionTrackSectionAtSoiBoundary` (`FlightRecorder.cs:5717`) as it stood
+BEFORE commit `b3c130aef` (2026-08-28, "Fix SOI-seam double emit: the on-rails crossing opened
+an unfillable Absolute section"): it opened `ReferenceFrame.Absolute` unconditionally at the
+crossing, `OnPhysicsFrame` early-returns on `isOnRails`, so that section could never receive a
+frame and closed payload-free at the next boundary, while the new SOI's orbit segment went into
+the flat `OrbitSegments` list and was later promoted to an `OrbitalCheckpoint` section over the
+byte-equal span by `OrbitSegmentCheckpointBridge`. The fix routes the frame through
+`ResolveSoiBoundarySectionFrame` (`FlightRecorder.cs:5699`), which answers `OrbitalCheckpoint` /
+`TrackSectionSource.Checkpoint` while on rails, so `AddOrbitSegmentToCurrentTrackSection` can
+attach the new SOI's segment to THAT section and nothing is synthesized alongside it.
+
+So there is NOTHING LEFT TO FIX AT THE PRODUCER, and no retire is widened. The dates line up
+with the sibling entry's own observation that the producer's guard "is dated after the play":
+the fix is 2026-08-28, the play these sidecars come from was measured 2026-09-02, and the bytes
+were committed 2026-09-07. The read path is byte-freeze by contract - committed recordings are
+never migrated - so these four findings stand on these bytes forever, which is exactly what
+`CheckpointDoubleCoverRetireTests.RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate`
+pins. The shipped producer is pinned by
+`SoiSeamDoubleEmitTests.OnRailsSoiCrossing_EmitsNoFramelessSection` (drives the primitive
+sequence of one on-rails interplanetary leg and asserts zero payload-free sections), by
+`OnRailsSoiCrossing_ReadPathEnsure_IsInv2Clean`, and at the source by
+`SoiSeamProducerWiringGateTests` (the seam must call the resolver, never a literal). The
+attribution above is now a cell of its own rather than prose:
+`SoiSeamDoubleEmitTests.RealBytes_EveryStandingEmptyAbsoluteSitsOnAnOnRailsSoiBodyChange`.
+
+**THE SECOND QUESTION, ANSWERED: the shells are NOT load-bearing.** All four read
+`isBoundarySeam = false` and `boundaryDiscontinuityMeters = 0`, so the optimizer's split
+predicate gets no seam short-circuit from them and no discontinuity, and both neighbours on
+every pair are `ExoBallistic` `OrbitalCheckpoint`-framed sections of the same environment class -
+the case section 3 of `IsSplittableEnvOrBodyBoundary` keeps COHESIVE anyway. Nothing about a
+split decision changes for their presence. Had they been seam-flagged the answer would have been
+the opposite, and this entry would have said so and stopped there.
+
+**ONE RESIDUAL, STATED RATHER THAN FIXED.** `TrackSectionCloseClassifier` discards a payload-free
+section only when it spanned less than `PayloadFreeMaxDurationSeconds = 1.0`, so a payload-free
+section of ANY longer span still persists - which is how these four reached disk. That bound is
+deliberate (it is a hygiene threshold, not the load-bearing fix: the codec predicates skip a
+payload-free section whatever its span, and the analyzer's INV11-EMPTY-SECTION reports it), and
+with the one identified producer fixed there is no live emitter left to catch, so tightening it
+now would be a speculative change to a classifier the `isBoundarySeam` persistence contract also
+runs through. Adjacent and already handled: an OnSave mid-coast
+(`CheckpointOpenTrackSectionForSerialization`) closes and REOPENS the same reference frame, so a
+packed `OrbitalCheckpoint` section that has not yet taken its conic persists payload-free too -
+that population is `OrbitalCheckpoint`, and `CheckpointDoubleCoverRetire` is exactly the pass
+that retires it at load.
 
 ## ~~INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER~~: three recordings in the operator's real play carry a coarse checkpoint envelope alongside a payload-less shell and a re-clip of itself, and the producer's own guard against that shape is dated after the play [MEASURED 2026-09-02 by the B32 / V26M / V26T reading runs over the new `interbody-route-recorded` fixture. DEFECT in produced DATA; the analyzer is RIGHT and no fixture edit is proposed. FIXED 2026-09-07 by the load-time retire below, for the checkpoint-vs-checkpoint half; what stands afterwards is a DIFFERENT population, split out as EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT]
 

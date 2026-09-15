@@ -57,11 +57,17 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 263 committed
+### Scenarios: 266 committed
 
-Re-derived 2026-09-15 on `registry-decisions-0911`, the registry PR: `ls harness/scenarios/*.toml`
-returns **263** files; tiers: 129 nightly, 26 daily, 108 operator, parsed from the specs'
-`tier` keys. Four lanes moved operator -> nightly in that PR under register item B7 (MC-3,
+RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main` twice (the second
+merge brought `GUI-10-census-dialogs` in): `ls harness/scenarios/*.toml` returns **266**
+files; tiers: 129 nightly, 26 daily, 111 operator, parsed from the specs' `tier` keys.
+Three new files since the registry PR's 263 - GL-1, GL-2 and GUI-10 - all `operator`, so
+only that column moves.
+
+The derivation before it: re-derived 2026-09-15 on `registry-decisions-0911`, the registry
+PR: `ls harness/scenarios/*.toml` returned **263** files; tiers: 129 nightly, 26 daily, 108
+operator. Four lanes moved operator -> nightly in that PR under register item B7 (MC-3,
 GS-4, GS-8, GS-9), so the nightly / operator split moves by four while the total moves with
 the specs the parallel branches added.
 
@@ -109,11 +115,17 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 187 of 250 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
+### Coverage: 189 of 250 registry cells (was 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
+
+RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main`:
+`hlib.compute_coverage(specs, [], registry)` over the 266 committed specs returns
+`values 250 covered 189 uncovered 61`. The denominator does NOT move (both D1 cells were
+long-standing values); the numerator moves by TWO, `manual-gloops` (GL-1 + GL-2) and
+`sub-2-point-drop` (GL-2), each claimed off a lane that is LIVE-PROVEN and ARMED.
 
 Re-derived 2026-09-15 on `registry-decisions-0911`, the registry PR that ruled register
-items B1-B10: `hlib.compute_coverage(specs, [], registry)` over the 263 committed specs
-returns `values 250 covered 187 uncovered 63`. The denominator moves by TWO, the two values
+items B1-B10: the same call over the 263 committed specs of that moment returned
+`values 250 covered 187 uncovered 63`. The denominator moves by TWO, the two values
 the operator ruled in (D4 `persistence-graze-suppression`, D9 `rewind-to-launch-repeat`),
 and the numerator by THREE: those two plus D1 `switch-backgrounds-recording` on CI-1, which
 is a RENAME of `stop-on-switch` and therefore adds no cell.
@@ -234,7 +246,7 @@ values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 Per dimension (total / uncovered) for the derivation of 2026-09-11 on `loop-render-residue`
 (256 specs, 184 of 248, after its merge of origin/main `afa1d47c0`;
 the registry PR then took it to 187 of 250 over 263 specs, moving the D1, D4 and D9 rows
-by one each - see the residue table below, which is re-derived), every row identical to `cheap-flights-arming`'s read after its merge of
+by one each, and the Gloops PR to 189 of 250 over 266 specs, moving the D1 row by two more - see the residue table below, which is re-derived), every row identical to `cheap-flights-arming`'s read after its merge of
 `f7141586f`; the retained `de5ac6112` block directly above it is history). The D1 row
 moved there with the ghost-replay Tier B wave's `switch-segment-noop-discard` claim, and
 the D2 / D17 rows with wave package A2's two claims. The 2026-08-04 uncovered count stays
@@ -317,8 +329,8 @@ D17 mods.
 **Distance to done.** Register items 1-3 plus the claim passes (D6 on 2026-09-08,
 D3 / D4 / D5 by the claim-gap wave on 2026-09-10 / -11, D1 `switch-segment-noop-discard`
 by the ghost-replay Tier B wave and D2 `proximity-cadence-bg` / D17 `better-time-warp` by
-wave package A2 on 2026-09-11) took the count to 184 of 248, and the registry PR of
-2026-09-15 to 187 of 250,
+wave package A2 on 2026-09-11) took the count to 184 of 248, the registry PR of
+2026-09-15 to 187 of 250 and the Gloops PR of the same day to 189 of 250,
 past the 175 this paragraph once projected (178 after the claim-gap wave's first pass,
 181 after the three D4 cells its make-up round flew, 182 with the Tier B D1 cell, then
 A2's two, then the registry PR's three - two of which came with their own new cell). The realistic ceiling for UNATTENDED coverage is
@@ -404,8 +416,11 @@ Re-derive before acting:
   from the specs' `tier` keys; re-derived 2026-09-15 after the registry PR, which was 256 =
   125 / 26 / 105 when this register was written and moved four lanes operator -> nightly
   under item B7).
-- Coverage, from `harness/`: the one-liner below prints `263 specs 187 of 250`, so **187 of
-  250** cells are covered and 63 are uncovered (was 184 of 248; the registry PR added D4
+- Coverage, from `harness/`: the one-liner below prints `266 specs 189 of 250`, so **189 of
+  250** cells are covered and 61 are uncovered (was 187 of 250 over 263 specs; the Gloops PR
+  claimed D1 `manual-gloops` and `sub-2-point-drop` off GL-1 / GL-2, both long-standing
+  values, so the numerator moves by two and the denominator not at all. Before that: 184 of
+  248, taken to 187 of 250 by the registry PR, which added D4
   `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` and claimed both, plus D1
   `switch-backgrounds-recording` on CI-1 - a rename, so no denominator move).
 - The in-game category axis: `hlib.parse_ingame_test_declarations` over every `.cs` under
@@ -485,12 +500,26 @@ the run ids in `autotest-status.md`.
    on CI-1 off a literal token pinned from `2026-09-08_1054`, armed re-flight and control
    flown 2026-09-15; the stale "registry defect" / "unclaimable" doc lines were corrected
    in the same PR.
-4. **RULED YES WITH CONSTRAINT - D1 `sub-2-point-drop` and `manual-gloops`.** Close both through one Gloops seam
-   verb pair (`GloopsStart` / `GloopsStop`), with the registry comment naming Gloops as the
-   drop's only seam-reachable producer? Recommendation: yes. Cost: ~150 lines of C# plus the
-   lanes. Memo s3; todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE. RULED YES with the
-   constraint that Gloops code stays untouched; implemented on branch `gloops-seam-verbs`
-   (separate PR). This PR only rewrites the `sub-2-point-drop` registry comment.
+4. **RULED YES 2026-09-15 (B4) and DONE the same day - D1 `sub-2-point-drop` and
+   `manual-gloops`.** The recommendation was taken as written, with one binding
+   constraint: GLOOPS STAYS AS IS - the
+   recorder, its window and every code path they call are UNTOUCHED, and
+   `GLOOPS-STANDALONE-WINDDOWN` / GUI-P13 stay open. BUILT on branch `gloops-seam-verbs`:
+   the ADDITIVE no-arg pair `GloopsStart` / `GloopsStop` (36 -> 38 implemented, reserved
+   unchanged at 5; both `RequiresFlight`, both single-phase), the registry comment naming
+   Gloops as the only seam VERB whose SUBJECT is the drop (re-derived from the full caller
+   set: a tree commit never passes through `CreateRecordingFromFlightData` and KEEPS a
+   1-point recording, but the dock/undock chain-segment path IS live and reaches the same
+   factory, so the wording is scoped to the verb rather than claiming sole production), the
+   two stale S0.5 / S0.6 remarks corrected, and two READING-RUN lanes:
+   `GL-1-gloops-manual-lifecycle` and `GL-2-gloops-sub-2-point-drop`. BOTH FLEW THE SAME
+   DAY and both are LIVE-PROVEN + ARMED with the full three-run discipline: GL-1 reading
+   `2026-09-15_1601` / armed `_1613` / control `_1620`, GL-2 reading `_1621` / armed `_1623`
+   / control `_1624`, every run PASS on attempt 1 and each control PARSEK-FAIL(expectation)
+   on exactly its seeded token. The two declared unknowns are answered in the rows: the
+   stationary pod COMMITS at three points, and the designed refusal Warn does not trip the
+   log validator. Shipped in the Gloops PR (`gloops-seam-verbs`). Memo s3; todo
+   D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE (now closed, both halves).
 5. **RULED DEFINE (do not fly) - D17 `making-history`: define it or delete it.** Recommendation: define it as
    alt-site launch capture on stock-minimal and rank it last (a GS-4 clone launching from
    `Desert_Launch_Site`, one operator reading flight); or delete the value with an honest
@@ -512,7 +541,8 @@ the run ids in `autotest-status.md`.
    Memo s6 and s12; todo CADENCE-PROMOTIONS-2026-09-11. DONE: all four flipped to nightly;
    the nightly p50 sum moves from ~7.25 h to ~7.67 h (GS-8 645 s, GS-9 494 s, GS-4 338 s,
    MC-3 53 s; method as #1652), and the tier counts re-derive to daily 26 / nightly 129 /
-   operator 108 over 263 specs.
+   operator 108 over 263 specs (111 operator over 266 after GL-1, GL-2 and GUI-10, all
+   operator).
 8. **RULED SIX - GS-4's `unityExceptions` ceiling: 4 or 6.** Recommendation: 6 now, per the H23
    precedent (6 is the legal maximum of the known stock class set). Or pre-authorise the
    re-pin to 6 on the first no-Parsek-frame red at 5. Either answer reverses the wave's
@@ -604,12 +634,19 @@ verb pair, which is its own PR on branch `gloops-seam-verbs`.
    - Product C#: no (test generator only). Flights: 3.
    - Todo: D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL.
    - Decisions: none.
-6. **Gloops seam verb pair** (`GloopsStart` / `GloopsStop`), closing D1 `manual-gloops` and
-   `sub-2-point-drop`.
-   - Product C#: yes (~150 lines, on the M-A2 command seam). Flights: not estimated by the
-     memo.
-   - Todo: D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
-   - Decisions: B4.
+6. **SHIPPED 2026-09-15 - Gloops seam verb pair** (`GloopsStart` / `GloopsStop`), closing
+   D1 `manual-gloops` and `sub-2-point-drop`.
+   - Shipped on branch `gloops-seam-verbs` under B4's constraint that GLOOPS ITSELF IS
+     UNTOUCHED: the pair is ADDITIVE on the M-A2 seam (36 -> 38 implemented, reserved
+     unchanged at 5), both verbs no-arg, `RequiresFlight` and single-phase, and they call
+     the same two internal `ParsekFlight` members the Gloops window's primary button calls.
+     Zero diff under any Gloops file; `GLOOPS-STANDALONE-WINDDOWN` and GUI-P13 stay open.
+   - Flights: SIX, all on 2026-09-15 and all attempt 1 - GL-1 reading `_1601` / armed
+     `_1613` / control `_1620`, GL-2 reading `_1621` / armed `_1623` / control `_1624`. Both
+     lanes are LIVE-PROVEN + ARMED with the three-run discipline complete.
+   - Todo: D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE (CLOSED, both halves - this item
+     took the `sub-2-point-drop` half, the registry PR #1697 took `stop-on-switch`).
+   - Decisions: B4, ruled yes.
 
 Not ranked (the memo's item 8, drop or defer):
 - the RF-12L boundary-seam stability pair: drop;
@@ -3740,7 +3777,9 @@ PASS attempt 1 (55 s, both `scope=InterBody basis=Endpoints` lines, the same two
 STILL OPEN AFTER THIS BLOCK, and no part of it: `DispatchWindowPeriod != 0` synodic cadence is
 unmeasured and unmeasurable by design since the scope fix (the field is informational), no
 dispatch has been driven on an inter-body route, the ownership arm is still whole-member
-(ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER), and V26M's paint-arm stand-down remains
+(ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER - closed 2026-09-15 on branch
+`render-and-recorder-hygiene`; unflown, see that entry for the lanes that would read it), and
+V26M's paint-arm stand-down remains
 epoch-dependent rather than guaranteed by the step list
 (V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
 

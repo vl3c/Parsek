@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.OrphanCleanup.cs b/Source/Parsek/RecordingStore.OrphanCleanup.cs
+index d635dcadc..584cb636a 100644
+--- a/Source/Parsek/RecordingStore.OrphanCleanup.cs
++++ b/Source/Parsek/RecordingStore.OrphanCleanup.cs
+@@ -273,8 +273,6 @@ namespace Parsek
+ 
+             pendingTreeIdCount = 0;
+             pendingTreeIdCount += AddKnownTreeRecordingIds(knownIds, pendingTree);
+-            pendingTreeIdCount += AddKnownTreeRecordingIds(
+-                knownIds, savedPendingTreeDuringActiveRestore);
+             return knownIds;
+         }
+ 

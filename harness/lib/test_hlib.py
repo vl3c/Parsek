@@ -1077,7 +1077,13 @@ class SpecValidationRejectTests(unittest.TestCase):
         # alone by ONE: the reserved envelope never carried a UI-introspection verb,
         # and it is not a second spelling of CaptureScreenshot - one produces pixels
         # and the other an IMGUI control tree, and a census drives them as a PAIR.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 36)
+        # 38 / 5 after the Gloops pair, an ADDITION again and therefore the first
+        # number moving alone - by TWO, the same signature the GUI-census pair left.
+        # The reserved envelope never carried a ghost-only-recorder verb, and neither
+        # name is a second spelling of StartRecording / StopRecording: those own the
+        # auto-record tree that commits into the career, these own the parallel
+        # ghost-only recorder behind the Gloops window's primary button.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 38)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1102,6 +1108,37 @@ class SpecValidationRejectTests(unittest.TestCase):
                          cs_initializer_literals(text, "ImplementedVerbs"),
                          "hlib.IMPLEMENTED_SEAM_VERBS must equal the C# "
                          "ImplementedVerbs initializer as an ORDERED list")
+
+    def test_the_gloops_pair_is_implemented_and_is_not_a_second_recorder_pair(self):
+        """The Gloops pair (P2, 2026-09-15). ADDITIVE (never in the reserved envelope)
+        and it must COEXIST with StartRecording / StopRecording rather than replace
+        them: the two pairs drive DIFFERENT recorders (the auto-record tree that
+        commits into the career vs the parallel ghost-only recorder behind the Gloops
+        window's primary button), and a spec's wire token has to say which one it
+        used."""
+        for verb in ("GloopsStart", "GloopsStop"):
+            self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+            self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+            # SINGLE-phase: the recorder attaches to the physics-frame patch inside
+            # FlightRecorder.StartRecording and the stop half commits synchronously, so
+            # neither verb may claim a deferred budget it would never spend.
+            self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+            # World-mutating on the tail axis ("ghost-only" is not "harmless": a
+            # committed take is a real row with its own .prec sidecar), `recording` on
+            # the post-mission axis (its verdict is a Parsek claim, not a kerbal's
+            # physical in-world state). The two axes disagree by design.
+            self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                             hlib.SEAM_VERB_TAIL_ROLE[verb])
+            self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                             hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertIn("StartRecording", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertIn("StopRecording", hlib.IMPLEMENTED_SEAM_VERBS)
+        # Its refusal vocabulary is mapped, so a refusal names a driver-* subkind
+        # instead of collapsing into the coarse driver-verdict-mismatch. All four are
+        # GATE-class: the verbs take no args, so there is no arg fault they can have.
+        for reason in ("gloops-already-recording", "gloops-no-active-vessel",
+                       "gloops-start-blocked", "no-gloops-recorder"):
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_is_implemented_and_is_not_a_second_timejump(self):
         """RF-12 phase 4. WarpToUT is ADDITIVE (never in the reserved envelope) and
@@ -8629,6 +8666,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # the second pair of captures, because a whole-log `forbidden` cannot be scoped to
         # the hidden window - if the operator wants the restore gated by a marker line
         # instead, that is a second lane with no restore step in it.
+        # GUI-10 is the DIALOG census lane: the first pictures of any Parsek modal, over
+        # the two new `op=raise` / `op=dismiss` seam ops. Operator-tier by CADENCE for the
+        # same reason GUI-9 is - it is a capture host, and it RAISES MODALS, which is the
+        # one thing no cadence tier should be doing unattended beside other lanes.
+        "GUI-10-census-dialogs.toml":
+                                       "tier=operator by CADENCE (capture host, and it "
+                                       "raises modals). Owed: the first flight, and the "
+                                       "reviewer's call on which of the remaining 14 "
+                                       "dialogs are worth a raise path (each needs a "
+                                       "live Vessel, RewindPoint, Route, RouteCandidate "
+                                       "or session marker - all named in the spec "
+                                       "header and in the todo entry).",
         "GUI-9-playback-toggle-map-scope.toml":
                                        "tier=operator by CADENCE (capture host, one "
                                        "ruling proven once). Owed: the first flight, and "
@@ -9362,6 +9411,14 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # produces ARE the deliverable rather than a verdict to calibrate.
         "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0548`, PASS on attempt 1, 96 s wall, every step met, 46 harvested files (22 PNG + 22 `<label>.gui.json` + the `GuiTree` cell's own `parsek-guitree-probe.gui.json` + KSP.log). The one thing that reading had to settle is the step both 2026-09-10 attempts died on: `UiAction op=rect window=settings` now reads back `rect=270,8,400,718` in Advanced and `rect=270,8,400,700` in Basic - WIDTH held at the commanded 400 in both modes while the Advanced height grew 18 px over its 700 floor, which is exactly the floor semantics the fix shipped. PRIOR (2026-09-10, `_2255` and attempt 2 `_2256`): both INVALID on that ONE step and nothing else, at 375x718 against a commanded 360x700 when the width half was still a two-sided check. The `GuiTree` batch read `total=1 passed=1 failed=0 skipped=0` on all three runs and the pin is now WHOLE off the reading run - the id has LEFT IngameBatchWiringGroupTests.INTERIM_PIN_IDS, which is what 'a whole pin belongs to a run that READ a verdict' was waiting for - and all 22 dumps read `patched=17/17`, the reading that closed GUITREE-INTERCEPTION-LAYER-NEVER-RUN. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. The reading run proved that a third time: the row read REPORT with `verdictStatus=PARSEK-FAIL red=1 topRule=INV2-NO-DOUBLE-COVER failNonBaselined=7`, gating=false, and the chain ran on to a PASS. (The STAGED host reads FAIL=7 over four recordings where the offline reading of the un-staged `c1` read FAIL=25 over seven - staging is not a copy; both are RED=1, which is all this declaration turns on.) No human call is outstanding.",
         "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0551`, PASS on attempt 1, 57 s wall, all 29 steps met, 9 harvested files (4 PNG + 4 `<label>.gui.json` + KSP.log). The step this lane existed to re-read is the one its first flight died on, and it is now an ASSERTION rather than a failure: `op=open window=spawncontrol` answered `uiaction error reason=window-self-closed window=spawncontrol frames=1` under `expect = ERROR` with that reason pinned as a log contract, so the lane now TESTS that Real Spawn Control force-closes itself on a candidate-less host (`SpawnControlUI.DrawIfOpen`, `reason=zero-candidates candidates=0`) instead of photographing empty scenery under that window's name. PRIOR (2026-09-10, `_2259` and attempt 2 `_2300`): both INVALID on that one step. The first draft of this row also had the HAZARD backwards and the correction stands: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, periapsis 69.55 km above the GROUND, so it cannot impact on this orbit at all - and the lane flew in 57 s at 1x. The PICTURE of Real Spawn Control is still owed to a GUI-3 lane on a committed candidate host (GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST); a re-stage cannot pay it, because the host is operator-local by construction. No human call is outstanding.",
+        # THE TWO GLOOPS LANES, 2026-09-15 (package P2). Operator-tier by the
+        # CALIBRATION discipline, not by debt: both are first flights of a subject
+        # whose key quantity - how many trajectory points a motionless PRELAUNCH pod
+        # accrues between two seam steps - is DERIVED from the density preset's max
+        # sample interval rather than measured, and the derivation is what the reading
+        # run is for. Neither owes outstanding HUMAN work; what each owes is a flight.
+        "GL-1-gloops-manual-lifecycle.toml": "tier=operator by the calibration discipline; NEVER FLOWN. First driven run of the MANUAL Gloops (ghost-only) recorder, which had no seam producer at all before the GloopsStart / GloopsStop pair. Its ONE derived quantity is deliberately ungated: whether eight inert RecordingState round trips at samplingDensity=2 (High, 1.0 s max interval) let a stationary pod reach TWO points, which is what separates a committed take from GL-2's drop. The lane therefore requires only the production start line and both seam terminals, with `gloopsstop committed=` matched outcome-agnostically and count ranged 0..1; arming the commit token and tightening the count is the operator call AFTER the reading run. A second reading question is recorded in its header rather than assumed: the REC log rules stay suppressed because spec_expects_live_recording keys on a StartRecording step this lane does not have.",
+        "GL-2-gloops-sub-2-point-drop.toml": "tier=operator by the calibration discipline; NEVER FLOWN. The mirror of GL-1 on the same knob - samplingDensity=0 (Low, 8.0 s max interval) with the stop step ADJACENT to the start - so the take cannot reach two points and CommitGloopsRecorderData must refuse it. That refusal IS gated (the production `not enough points (< 2)` Warn, the seam `committed=false`, the `dropped=too-short` payload token, count pinned 0..0), because it is deterministic by construction rather than derived: S0.5 and S0.6 already name the same drop in their headers and WIDEN their assertions to tolerate it, which is the evidence it happens and the reason nothing gated it until now. The reading-run question left open is narrower and is about the VALIDATOR, not the product: whether validate-ksp-log treats a designed refusal Warn on the WRN surface as an unexpected one.",
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
@@ -15124,6 +15181,154 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
     def test_uiaction_dialog_needs_nothing(self):
         self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "dialog"}))
 
+    def test_uiaction_pointer_takes_the_two_opt_in_flags_and_they_default_false(self):
+        """GUI-10, deliverable 1. `focus=` and `nudge=` are OPT-IN on op=pointer: both
+        default to false so every lane written before them is byte-identical, and both are
+        closed-valued so `focus = "1"` fails pre-launch instead of costing a whole KSP
+        boot to learn."""
+        # Absent: the shape every wave-2 lane writes, and it stays clean.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "133", "y": "196"}))
+        # The pair the census flies.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "pointer", "x": "133", "y": "196",
+                "focus": "true", "nudge": "true"}))
+        # Orthogonal to park: taking the foreground and THEN parking where nothing is
+        # hovered is a legitimate request.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "pointer", "park": "true", "focus": "true"}))
+        # Both are UiAction-owned closed rows, so the VALUE half is caught by the shared
+        # VERB_SCOPED_CLOSED_ARGS loop rather than by a per-op branch.
+        for key in (hlib.UIACTION_FOCUS_KEY, hlib.UIACTION_NUDGE_KEY):
+            self.assertEqual("UiAction", hlib.VERB_SCOPED_CLOSED_ARGS[key][0])
+            self.assertEqual(("true", "false"), hlib.VERB_SCOPED_CLOSED_ARGS[key][1])
+
+    def test_uiaction_pointer_flags_are_flagged_on_ops_that_ignore_them(self):
+        """The mirror direction: only op=pointer reads either flag, so anywhere else they
+        would be sent and silently ignored - the `park=` guard they sit beside had exactly
+        this shape already."""
+        for key in ("focus", "nudge", "park"):
+            errors = hlib.validate_ui_action_step(
+                0, {"op": "open", "window": "main", key: "true"})
+            self.assertTrue(
+                any(("args.%s: only op=pointer reads it" % key) in e for e in errors),
+                (key, errors))
+
+    def test_uiaction_raise_and_dismiss_require_a_popup_and_name_no_window(self):
+        """GUI-10, deliverable 2. `popup=` is REQUIRED on both (there is no default modal,
+        and guessing one would photograph a dialog the lane never asked for), neither op
+        names a window (a PopupDialog is uGUI, which no window-table row can name), and
+        `press=` is op=dismiss ONLY - a raise that pressed would take down the modal it
+        exists to leave standing, which is exactly what makes AnswerMergeDialog unusable
+        for a census."""
+        for op in ("raise", "dismiss"):
+            errors = hlib.validate_ui_action_step(0, {"op": op})
+            self.assertTrue(any("popup-arg-missing" in e for e in errors), (op, errors))
+            self.assertNotIn(op, hlib.UIACTION_OPS_NEEDING_WINDOW)
+            self.assertIn(op, hlib.UIACTION_OP_VALUES)
+            self.assertEqual([], hlib.validate_ui_action_step(
+                1, {"op": op, "popup": "wiperecordings"}))
+            # A window= is the ops-needing-window rule's own refusal.
+            errors = hlib.validate_ui_action_step(
+                2, {"op": op, "popup": "wiperecordings", "window": "missions"})
+            self.assertTrue(any("does not read it" in e for e in errors), (op, errors))
+
+        # press= on a dismiss is legal; on a raise it is refused with the reason.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "dismiss", "popup": "wiperecordings", "press": "Cancel"}))
+        errors = hlib.validate_ui_action_step(
+            4, {"op": "raise", "popup": "wiperecordings", "press": "Cancel"})
+        self.assertTrue(any("only op=dismiss reads it" in e for e in errors), errors)
+
+    def test_uiaction_popup_and_press_are_flagged_on_ops_that_ignore_them(self):
+        for key in ("popup", "press"):
+            errors = hlib.validate_ui_action_step(
+                0, {"op": "dialog", key: "wiperecordings"})
+            self.assertTrue(
+                any(("args.%s: only op=raise and op=dismiss read it" % key) in e
+                    for e in errors), (key, errors))
+
+    def test_the_popup_key_is_not_spelled_dialog_because_that_key_is_taken(self):
+        """VERB_SCOPED_CLOSED_ARGS admits exactly ONE owner verb per arg key, and
+        `dialog=` is AnswerMergeDialog's - so a `UiAction dialog=<name>` step would be a
+        hard pre-launch error ("only the AnswerMergeDialog verb reads it") on every raise
+        step ever written. The new ops therefore spell it `popup=`, which is the same
+        resolution `op=find` used when it spelled its filter `ctrl` rather than the
+        already-taken `kind`."""
+        self.assertEqual("popup", hlib.UIACTION_POPUP_KEY)
+        self.assertNotEqual(hlib.UIACTION_POPUP_KEY, hlib.ANSWERMERGE_DIALOG_KEY)
+        self.assertEqual("UiAction",
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.UIACTION_POPUP_KEY][0])
+        self.assertEqual("AnswerMergeDialog",
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.ANSWERMERGE_DIALOG_KEY][0])
+
+    def test_the_raisable_popup_set_mirrors_the_c_sharp_table(self):
+        """The popup vocabulary is MIRRORED, not derived: a spec naming a popup the seam
+        does not know is a typed REJECTED that costs a KSP boot to learn. Read out of
+        TestCommandUiDialogRaise.cs by its per-row `Name = <Token>Dialog` assignments with
+        comments stripped - the table's own header names the dialogs it deliberately does
+        NOT raise, so a parse over the raw text would import them."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandUiDialogRaise.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            src = fh.read()
+        code = "\n".join(
+            line for line in src.splitlines()
+            if not line.strip().startswith("//")
+            and not line.strip().startswith("///"))
+        consts = dict(re.findall(
+            r'internal const string ([A-Za-z0-9_]+Dialog)\s*=\s*"([^"]+)"', code))
+        used = re.findall(r"Name = ([A-Za-z0-9_]+Dialog),", code)
+        self.assertTrue(used, "no table rows parsed out of TestCommandUiDialogRaise.cs")
+        self.assertEqual(tuple(hlib.UIACTION_POPUP_VALUES),
+                         tuple(consts[name] for name in used))
+        # The dialogs the table names but refuses to raise must NOT have leaked in.
+        for absent in ("merge", "preswitch", "ghosticon", "refly"):
+            self.assertNotIn(absent, hlib.UIACTION_POPUP_VALUES)
+
+    def test_the_popup_table_parse_is_not_vacuous(self):
+        """Anti-vacuity for the parse above, over a SYNTHETIC source: the real table's
+        header comment names four dialogs it excludes, so a parse that read comments would
+        import them and the mirror would pass against a table that does not contain
+        them."""
+        synthetic = "\n".join([
+            '        // internal const string MergeDialog = "merge";',
+            '        internal const string SealDialog = "seal";',
+            '        // A comment naming Name = MergeDialog, which must NOT be parsed.',
+            '                Name = SealDialog,',
+        ])
+        code = "\n".join(
+            line for line in synthetic.splitlines()
+            if not line.strip().startswith("//"))
+        consts = dict(re.findall(
+            r'internal const string ([A-Za-z0-9_]+Dialog)\s*=\s*"([^"]+)"', code))
+        used = re.findall(r"Name = ([A-Za-z0-9_]+Dialog),", code)
+        self.assertEqual(("seal",), tuple(consts[name] for name in used))
+
+    def test_the_pressable_set_mirrors_the_c_sharp_permitted_labels(self):
+        """The closed `press=` set must be exactly the labels some table row PERMITS. An
+        earlier version of this cell pinned "space-free" instead, on the premise that the
+        wire could not carry a space - it can (the encoder percent-encodes space, % and =
+        alike on both sides), so that pin would have blocked a legitimate future row and
+        sent its author to widen an encoder that already handles it."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandUiDialogRaise.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            code = "\n".join(
+                line for line in fh.read().splitlines()
+                if not line.strip().startswith("//")
+                and not line.strip().startswith("///"))
+        # An AnyButton row permits every button it declares; a SafeButtonOnly row permits
+        # only its SafeButton. Both are simple assignments in the table.
+        permitted = set(re.findall(r'SafeButton = "([^"]+)"', code))
+        for buttons in re.findall(r"Buttons = new\[\] \{ ([^}]+) \}", code):
+            labels = re.findall(r'"([^"]+)"', buttons)
+            if len(labels) == 1:
+                permitted.add(labels[0])
+        self.assertEqual(set(hlib.UIACTION_PRESS_VALUES), permitted)
+        for label in hlib.UIACTION_PRESS_VALUES:
+            self.assertTrue(label.strip(), label)
+
     def test_the_window_table_parse_is_not_vacuous(self):
         """Anti-vacuity for the parse above, and specifically for the comment-stripping
         half: the C# table's header comment mentions tab-shaped and window-shaped words,
@@ -15360,7 +15565,9 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                          % sorted(shape_checked & closed))
         for key in (hlib.UIACTION_OP_KEY, hlib.UIACTION_WINDOW_KEY,
                     hlib.UIACTION_CTRL_KEY, hlib.UIACTION_STATE_KEY,
-                    hlib.UIACTION_PARK_KEY, hlib.ANSWERMERGE_DIALOG_KEY):
+                    hlib.UIACTION_PARK_KEY, hlib.UIACTION_FOCUS_KEY,
+                    hlib.UIACTION_NUDGE_KEY, hlib.UIACTION_POPUP_KEY,
+                    hlib.UIACTION_PRESS_KEY, hlib.ANSWERMERGE_DIALOG_KEY):
             with self.subTest(key=key):
                 self.assertIn(key, closed)
 

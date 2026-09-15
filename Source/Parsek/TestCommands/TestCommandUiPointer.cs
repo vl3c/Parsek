@@ -17,6 +17,51 @@ namespace Parsek.TestCommands
         /// <summary>Target Y in GAME CLIENT pixels, TOP-DOWN - the same frame the GUI-tree
         /// dump's <c>rect</c> uses, and NOT Unity's bottom-up mouse frame.</summary>
         internal float Y;
+
+        /// <summary>True for <c>focus=true</c>: bring the game window to the FOREGROUND
+        /// before the move. Default false, so every lane written before the arg existed is
+        /// byte-identical.</summary>
+        internal bool Focus;
+
+        /// <summary>True for <c>nudge=true</c>: after landing, synthesise one relative
+        /// (+1,0) then (-1,0) mouse move so the window receives a real
+        /// <c>WM_MOUSEMOVE</c> rather than only a new cursor position. Default
+        /// false.</summary>
+        internal bool Nudge;
+    }
+
+    /// <summary>
+    /// How <c>focus=true</c> ended up: which rung of the foreground ladder answered, and
+    /// whether the game window really is the foreground window afterwards. Reported on the
+    /// wire because the whole question
+    /// GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT asks is whether foreground was
+    /// the missing half, and an unreported "we tried" would settle nothing.
+    /// </summary>
+    internal enum UiPointerFocusOutcome
+    {
+        /// <summary><c>focus=</c> was absent or false: nothing was attempted.</summary>
+        NotRequested = 0,
+
+        /// <summary>The game window was ALREADY the foreground window, so no call was
+        /// made. The common case on an operator desktop that just launched the game, and
+        /// the reading that makes a failed hover NOT a foreground problem.</summary>
+        Already = 1,
+
+        /// <summary>A plain <c>SetForegroundWindow</c> took it.</summary>
+        Direct = 2,
+
+        /// <summary><c>SetForegroundWindow</c> was refused and the documented
+        /// <c>AttachThreadInput</c> path took it on the retry.</summary>
+        Attached = 3,
+
+        /// <summary>Both rungs ran and <c>GetForegroundWindow</c> still names something
+        /// else. NOT an error: the move and the read-back are still the verdict, and this
+        /// is the measurement the census wanted.</summary>
+        Refused = 4,
+
+        /// <summary>No game window handle was resolved, so foreground could not be
+        /// asked for at all (the assumed-origin fallback rung).</summary>
+        NoWindow = 5,
     }
 
     /// <summary>
@@ -62,6 +107,40 @@ namespace Parsek.TestCommands
         internal const string XArg = "x";
         internal const string YArg = "y";
         internal const string ParkArg = "park";
+
+        /// <summary>
+        /// <c>focus=true|false</c> (default false): bring the game window to the foreground
+        /// before moving.
+        ///
+        /// <para><b>WHY IT IS OPT-IN AND WHY IT IS NOT THE DEFAULT.</b> This op already
+        /// reaches outside the process; foreground reaches further - it STEALS focus from
+        /// whatever the operator is doing on his own desktop. It is also, on the evidence,
+        /// not obviously the missing half: the four census hover captures all READ BACK
+        /// their cursor position, which by this op's own contract means the game was
+        /// sampling input. So it ships as a measurement a lane can ask for, with the
+        /// outcome reported either way (<see cref="UiPointerFocusOutcome"/>), rather than
+        /// as a behaviour change under every existing lane.</para>
+        /// </summary>
+        internal const string FocusArg = "focus";
+
+        /// <summary>
+        /// <c>nudge=true|false</c> (default false): after the cursor lands, send ONE
+        /// relative <c>(+1,0)</c> then <c>(-1,0)</c> synthetic move.
+        ///
+        /// <para>The point is the EVENT, not the position: <c>SetCursorPos</c> warps the
+        /// cursor, and Unity's per-frame position sample follows a warp while the window's
+        /// mouse event stream does not. A relative <c>SendInput</c> produces a real
+        /// <c>WM_MOUSEMOVE</c>, and the pair cancels out so the cursor ends where the move
+        /// put it - the hovered control is unchanged and the read-back still compares
+        /// against the commanded point.</para>
+        /// </summary>
+        internal const string NudgeArg = "nudge";
+
+        /// <summary>The two accepted values of both flag args. Shared with
+        /// <see cref="ParkTrueToken"/> / <see cref="ParkFalseToken"/> deliberately: one
+        /// boolean spelling across the op, so a spec author learns it once.</summary>
+        internal const string FlagTrueToken = "true";
+        internal const string FlagFalseToken = "false";
 
         /// <summary>The one accepted <c>park=</c> value. <c>park=false</c> is accepted too
         /// and means "ordinary x/y move", so a generated spec can carry the key
@@ -145,8 +224,33 @@ namespace Parsek.TestCommands
         internal static bool TryParseRequest(string rawX, string rawY, string rawPark,
                                              out UiPointerRequest request,
                                              out string rejectReason)
+            => TryParseRequest(rawX, rawY, rawPark, null, null, out request,
+                               out rejectReason);
+
+        /// <summary>
+        /// The full parse, with the two opt-in flags.
+        ///
+        /// <para>Both flags are ORTHOGONAL to the park / x-y shape and to each other: a
+        /// <c>park=true focus=true</c> is a legitimate request (take the window foreground,
+        /// then park the cursor where it hovers nothing), and so is
+        /// <c>focus=true nudge=true</c>, which is the pair the census flies. Neither flag
+        /// can make an otherwise-invalid shape valid, so the shape checks stay exactly where
+        /// they were and the flags are parsed first only so an invalid flag is reported as
+        /// such rather than being masked by a shape reject.</para>
+        /// </summary>
+        internal static bool TryParseRequest(string rawX, string rawY, string rawPark,
+                                             string rawFocus, string rawNudge,
+                                             out UiPointerRequest request,
+                                             out string rejectReason)
         {
             request = default(UiPointerRequest);
+
+            bool focus, nudge;
+            if (!TryParseFlag(rawFocus, out focus) || !TryParseFlag(rawNudge, out nudge))
+            {
+                rejectReason = ArgInvalidReason;
+                return false;
+            }
 
             bool park = false;
             if (rawPark != null)
@@ -168,7 +272,10 @@ namespace Parsek.TestCommands
             }
             if (park)
             {
-                request = new UiPointerRequest { Park = true, X = ParkX, Y = ParkY };
+                request = new UiPointerRequest
+                {
+                    Park = true, X = ParkX, Y = ParkY, Focus = focus, Nudge = nudge,
+                };
                 rejectReason = null;
                 return true;
             }
@@ -189,9 +296,24 @@ namespace Parsek.TestCommands
                 rejectReason = ArgInvalidReason;
                 return false;
             }
-            request = new UiPointerRequest { Park = false, X = x, Y = y };
+            request = new UiPointerRequest
+            {
+                Park = false, X = x, Y = y, Focus = focus, Nudge = nudge,
+            };
             rejectReason = null;
             return true;
+        }
+
+        /// <summary>Parses one optional boolean flag. Absent is FALSE; anything outside
+        /// {true,false} fails, so a <c>focus=1</c> is a REJECTED rather than a silently
+        /// ignored arg (the <c>park=</c> rule).</summary>
+        internal static bool TryParseFlag(string raw, out bool value)
+        {
+            value = false;
+            if (raw == null) return true;
+            if (raw == FlagTrueToken) { value = true; return true; }
+            if (raw == FlagFalseToken) { value = false; return true; }
+            return false;
         }
 
         private static bool TryParseFinite(string raw, out float value)
@@ -297,6 +419,36 @@ namespace Parsek.TestCommands
         internal static List<KeyValuePair<string, string>> BuildPayload(
             float observedX, float observedGuiY, bool park, int screenX, int screenY,
             string via)
+            => BuildPayload(observedX, observedGuiY, park, screenX, screenY, via,
+                            false, false, UiPointerFocusOutcome.NotRequested, false, null);
+
+        /// <summary>
+        /// The full payload, with what the two opt-in flags DID.
+        ///
+        /// <para>Five further keys, and every one is present on every answer (the
+        /// <c>describe</c> rule - a missing key is indistinguishable from an older seam
+        /// build): <c>focus=</c> / <c>nudge=</c> are what was ASKED for,
+        /// <c>fgOutcome=</c> names the rung that answered, <c>fg=</c> is the direct
+        /// question <c>GetForegroundWindow() == the game hwnd</c> AFTER the call, and
+        /// <c>tooltip=</c> is the hover-echo strip's text as of the settled frame, which is
+        /// the thing the whole flag pair exists to make non-empty.</para>
+        /// </summary>
+        /// <param name="focusRequested">The <c>focus=</c> arg as given.</param>
+        /// <param name="nudgeApplied">Whether the relative move was actually sent (false
+        /// when <c>nudge=</c> was absent OR when the send was refused).</param>
+        /// <param name="focus">Which rung answered.</param>
+        /// <param name="foregroundIsGame"><c>GetForegroundWindow()</c> equals the resolved
+        /// game window after the call. False when no handle was resolved.</param>
+        /// <param name="tooltip">The strip text, or null / empty for none.</param>
+        /// <param name="tooltipFrame">The frame that text was observed in, so a reader can
+        /// tell a live hover from a value a strip left behind minutes ago. Nothing resets
+        /// the latch on a scene change, which is exactly why the frame is on the
+        /// wire.</param>
+        internal static List<KeyValuePair<string, string>> BuildPayload(
+            float observedX, float observedGuiY, bool park, int screenX, int screenY,
+            string via, bool focusRequested, bool nudgeApplied,
+            UiPointerFocusOutcome focus, bool foregroundIsGame, string tooltip,
+            int tooltipFrame = 0)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return new List<KeyValuePair<string, string>>
@@ -308,7 +460,58 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("sx", screenX.ToString(ic)),
                 new KeyValuePair<string, string>("sy", screenY.ToString(ic)),
                 new KeyValuePair<string, string>("via", via ?? "unknown"),
+                new KeyValuePair<string, string>(
+                    "focus", focusRequested ? "true" : "false"),
+                new KeyValuePair<string, string>("nudge", nudgeApplied ? "true" : "false"),
+                new KeyValuePair<string, string>("fgOutcome", FocusOutcomeToken(focus)),
+                new KeyValuePair<string, string>("fg", foregroundIsGame ? "true" : "false"),
+                new KeyValuePair<string, string>(
+                    "tooltip", string.IsNullOrEmpty(tooltip)
+                        ? TooltipEchoStripLatch.EmptyTextToken
+                        : TooltipEchoStripLatch.FormatForLog(tooltip)),
+                new KeyValuePair<string, string>(
+                    "tooltipFrame", tooltipFrame.ToString(ic)),
             };
+        }
+
+        /// <summary>The wire token for a focus outcome. Lower-case hyphenless words, the
+        /// <c>via=</c> spelling, so a log contract can pin one.</summary>
+        internal static string FocusOutcomeToken(UiPointerFocusOutcome outcome)
+        {
+            switch (outcome)
+            {
+                case UiPointerFocusOutcome.Already: return "already";
+                case UiPointerFocusOutcome.Direct: return "direct";
+                case UiPointerFocusOutcome.Attached: return "attached";
+                case UiPointerFocusOutcome.Refused: return "refused";
+                case UiPointerFocusOutcome.NoWindow: return "no-window";
+                default: return "not-requested";
+            }
+        }
+
+        /// <summary>
+        /// Which rung of the foreground ladder a live attempt landed on, from the three
+        /// facts the applier can observe. Pure so the ladder's own reading is testable
+        /// without a window manager.
+        /// </summary>
+        /// <param name="requested">The <c>focus=</c> arg.</param>
+        /// <param name="haveWindow">Whether a game window handle was resolved at all.</param>
+        /// <param name="wasAlreadyForeground"><c>GetForegroundWindow()</c> equalled the game
+        /// window BEFORE anything was called.</param>
+        /// <param name="directTookIt">Foreground equalled the game window after the plain
+        /// <c>SetForegroundWindow</c>.</param>
+        /// <param name="attachTookIt">Foreground equalled it after the
+        /// <c>AttachThreadInput</c> retry.</param>
+        internal static UiPointerFocusOutcome ClassifyFocus(
+            bool requested, bool haveWindow, bool wasAlreadyForeground,
+            bool directTookIt, bool attachTookIt)
+        {
+            if (!requested) return UiPointerFocusOutcome.NotRequested;
+            if (!haveWindow) return UiPointerFocusOutcome.NoWindow;
+            if (wasAlreadyForeground) return UiPointerFocusOutcome.Already;
+            if (directTookIt) return UiPointerFocusOutcome.Direct;
+            if (attachTookIt) return UiPointerFocusOutcome.Attached;
+            return UiPointerFocusOutcome.Refused;
         }
     }
 }

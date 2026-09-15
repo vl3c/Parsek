@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index 43dcc4e9b..3e63e13e7 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -4598,8 +4598,7 @@ namespace Parsek
+                         savedPendingTreeDuringActiveRestore != null;
+                     if (recCount > 0
+                         || treeCount > 0
+-                        || hasPending
+-                        || hasSavedPendingDuringActiveRestore)
++                        || hasPending)
+                     {
+                         string msg =
+                             $"ResetForTesting blocked: refusing to wipe live save data " +

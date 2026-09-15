@@ -71,11 +71,19 @@ D14 = ["sandbox", "scene-flight", "kerbin"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# ROBUST either way: the always-tree commit path KEEPS a 1-point recording (MC-3
-# measured it), and discard zeroes the store regardless. Whether the short recording
-# survives finalization or not, DiscardTree tears the active tree down, so the
-# committed store returns to the injection baseline of zero. This is the
-# no-injection count the harness design note describes.
+# ROBUST either way, and for a reason that is now measured on both sides: the
+# always-tree commit path KEEPS a 1-point recording (MC-3 measured it), and discard
+# zeroes the store regardless - so whether the short recording survives finalization
+# or not, DiscardTree tears the active tree down and the committed store returns to
+# the injection baseline of zero. This is the no-injection count the harness design
+# note describes.
+# CORRECTED 2026-09-15 (the D1 `sub-2-point-drop` ruling, B4): this comment used to
+# say "ROBUST to the stationary-pod sub-2-point-drop", wording that PREDATES
+# always-tree mode. A tree commit never passes through
+# RecordingStore.CreateRecordingFromFlightData at all, so nothing in this lane can
+# drop for being short and the range is robust for the reason above and no other.
+# The drop has its own lane now - GL-2-gloops-sub-2-point-drop, over the Gloops
+# recorder, LIVE-PROVEN 2026-09-15 at exactly one point.
 # NOTE: count.max==0 does NOT suppress the REC rules here - suppression keys on
 # spec_expects_live_recording (True via StartRecording), not on the count.
 count = { min = 0, max = 0 }

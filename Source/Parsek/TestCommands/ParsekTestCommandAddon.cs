@@ -803,7 +803,9 @@ namespace Parsek.TestCommands
                 TryCompleteDumpGuiTree(now);
                 return;
             }
-            // GUI census: the settle poll for the SEVEN two-phase UiAction ops
+            // GUI census: the settle poll for the two-phase UiAction ops (the set is
+        // TestCommandUiAction.OpIsTwoPhase, named there rather than counted here - an
+        // earlier version of this comment carried a count that went stale twice)
             // (TestCommandUiAction.OpIsTwoPhase is the authority: open, rect, pointer,
             // find, expand, target, picker). Same bounded-completion contract, but the
             // SIGNAL is not the same for all of them, which is why TryCompleteUiAction
@@ -1301,6 +1303,14 @@ namespace Parsek.TestCommands
         // TryCompleteTwoPhaseCore.
         void ITestCommandExecutor.DumpGuiTree(ParsedCommand cmd) => DumpGuiTreeImpl(cmd);
 
+        // The Gloops pair: bodies in the sibling ParsekTestCommandAddon.Gloops.cs partial.
+        // Both single-phase - the recorder attaches to the physics-frame patch inside
+        // FlightRecorder.StartRecording, and the stop half stops / builds / commits / nulls
+        // inside one synchronous call, so each read-back is a final answer - so neither has
+        // a TryComplete* counterpart in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.GloopsStart(ParsedCommand cmd) => GloopsStartImpl(cmd);
+        void ITestCommandExecutor.GloopsStop(ParsedCommand cmd) => GloopsStopImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1356,6 +1366,8 @@ namespace Parsek.TestCommands
                 case "CaptureScreenshot": exec.CaptureScreenshot(cmd); break;
                 case "UiAction": exec.UiAction(cmd); break;
                 case "DumpGuiTree": exec.DumpGuiTree(cmd); break;
+                case "GloopsStart": exec.GloopsStart(cmd); break;
+                case "GloopsStop": exec.GloopsStop(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

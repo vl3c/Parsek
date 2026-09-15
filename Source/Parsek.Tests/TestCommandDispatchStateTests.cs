@@ -54,6 +54,8 @@ namespace Parsek.Tests
             public void CaptureScreenshot(ParsedCommand cmd) => Calls.Add("CaptureScreenshot");
             public void UiAction(ParsedCommand cmd) => Calls.Add("UiAction");
             public void DumpGuiTree(ParsedCommand cmd) => Calls.Add("DumpGuiTree");
+            public void GloopsStart(ParsedCommand cmd) => Calls.Add("GloopsStart");
+            public void GloopsStop(ParsedCommand cmd) => Calls.Add("GloopsStop");
         }
 
         [Fact]
@@ -150,6 +152,13 @@ namespace Parsek.Tests
         // nothing does. NOT RequiresGameLoaded like its census partner UiAction, which
         // drives PARSEK's own windows and needs a save behind them.
         [InlineData("DumpGuiTree", "AnyScene")]
+        // The Gloops pair is RequiresFlight, and here it is a HARD precondition rather
+        // than a convenience: the ghost-only recorder samples the ACTIVE VESSEL from the
+        // flight-scene physics-frame patch, and ParsekFlight.Instance - which owns both
+        // entry points - exists in no other scene. Its real refusals are executor-side
+        // and typed REJECTED, each one a read-back of an existing Gloops guard.
+        [InlineData("GloopsStart", "RequiresFlight")]
+        [InlineData("GloopsStop", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -196,6 +205,8 @@ namespace Parsek.Tests
             fake.CaptureScreenshot(cmd);
             fake.UiAction(cmd);
             fake.DumpGuiTree(cmd);
+            fake.GloopsStart(cmd);
+            fake.GloopsStop(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

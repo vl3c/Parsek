@@ -1688,9 +1688,10 @@ and a harness cell reads that set out of the source to keep the two from driftin
 #### UiAction (additive; drive the Parsek windows for a capture)
 
 `UiAction
-op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback>
-[window=] [tab=] [mode=] [x= y= w= h=] [park=] [text=] [ctrl=] [index=] [key=] [state=]
-[mission=] [route=] [group=] [recording=]`. Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
+op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback|raise|dismiss>
+[window=] [tab=] [mode=] [x= y= w= h=] [park=] [focus=] [nudge=] [text=] [ctrl=] [index=]
+[key=] [state=] [mission=] [route=] [group=] [recording=] [popup=] [press=]`.
+Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
 the `ListHandles` one: the Parsek UI is hosted in SPACECENTER as well as FLIGHT, so a KSC
 census under a flight row would defer to its budget and TIMEOUT. A scene that hosts no
 Parsek UI at all - the Tracking Station draws markers only (`ParsekTrackingStation.OnGUI`)
@@ -1707,20 +1708,25 @@ READS THEM BACK.
 
 **EVERY OP THAT CHANGES DRAWN STATE IS TWO-PHASE** (`TestCommandUiAction.OpIsTwoPhase`):
 `open`, `rect`, the five census ops `pointer` / `find` / `expand` / `target` / `picker`,
-and `playback`. `close`, `tab` and `complexity` are single-phase for the reasons below,
-and `describe` / `dialog` are single-phase because they write nothing at all.
+`playback`, and the two modal ops `raise` / `dismiss`. `close`, `tab` and `complexity` are
+single-phase for the reasons below, and `describe` / `dialog` are single-phase because they
+write nothing at all.
 
 WHAT THE SETTLE CHECKS is NOT uniform, and the asymmetry is deliberate
 (`TestCommandUiAction.SettleChecksHostShowUi`). The host-visibility gate
 (`window-host-hidden`) applies to `open` and `rect` ALONE, because those two read back a
 FIELD: a frame that never reached the window compares the written value with itself. The
-six later ops do not have that hole - `find` reads a captured TREE, in which an undrawn
+eight later ops do not have that hole - `find` reads a captured TREE, in which an undrawn
 window is simply absent (`find-window-not-drawn`); `pointer` reads
 `Input.mousePosition`, which no window draws; `expand` / `target` / `picker` read a
 collection or an open flag whose only other writer is a player click the seam never
-synthesises; and `playback` reads a field on the `Recording`, which no window owns. Applying the gate to them would refuse correct work: a `pointer park` issued
-with the Parsek surface deliberately hidden is exactly the hover-free capture a census
-wants.
+synthesises; `playback` reads a field on the `Recording`, which no window owns; and
+`raise` / `dismiss` read whether a NAMED `PopupDialog` stands, which is a uGUI object
+drawn outside either host's `showUI` gate entirely - a Parsek surface hidden by that gate
+neither draws the modal nor can fake it, so the host question does not arise for those two
+in the first place. Applying the gate to them would refuse correct work: a `pointer park`
+issued with the Parsek surface deliberately hidden is exactly the hover-free capture a
+census wants, and a modal raised over a hidden host is still the modal a player would see.
 
 **`open` AND `rect`** were the original two, and both write a value whose read-back only means something after an
 OnGUI pass has run, so before a frame is DRAWN both read back exactly what was just
@@ -1919,6 +1925,58 @@ readable back against "someone was using the mouse", and the number of moves in 
 recoverable from `KSP.log` alone. A lane that uses the op says so in its header. Also
 `op=pointer park=true`, which parks at the client corner so later captures are hover-free.
 
+**`focus=` AND `nudge=`, BOTH DEFAULTING FALSE**, are the two opt-in flags added for
+GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: on three wave-2 lanes and four captures
+the cursor landed within 1 px of the resolved control and IMGUI painted no hover, no
+`GUI.tooltip` and no disabled-hover echo. NEITHER IS A DEFAULT, and the reason is the same
+one that makes this op singular: it already reaches outside the process, and these reach
+further. `focus=true` STEALS the foreground from whatever the operator is doing on his own
+desktop; `nudge=true` synthesises input at the system level. Both are also, on the
+evidence, not obviously the missing half - all four failed captures READ BACK their cursor
+position, which by this op's own contract means the game was sampling input - so they ship
+as a measurement a lane asks for, with the outcome reported either way, rather than as a
+behaviour change under every lane written before them.
+
+`focus=true` climbs a THREE-RUNG ladder and reports which rung answered
+(`TestCommandUiPointer.ClassifyFocus` / `UiPointerFocusOutcome`, wire tokens `already` /
+`direct` / `attached` / `refused` / `no-window` / `not-requested`). Rung 0 is
+ALREADY-FOREGROUND, which costs no call and is the expected reading on an operator desktop
+that just launched the game - and it is the answer that makes a still-unpainted hover NOT a
+foreground problem. Rung 1 is a plain `SetForegroundWindow`. Rung 2, used only when rung 1
+was refused, is the documented `AttachThreadInput` workaround: Windows permits
+`SetForegroundWindow` from a process that does not own the foreground only under conditions
+a mid-run harness may not meet, and attaching this thread's input queue to the current
+foreground thread supplies one of them. The attach is detached in a `finally`, because
+leaving two input queues attached would couple the game's input to another process's for
+the rest of the session. `SwitchToThisWindow` was REJECTED as undocumented and because it
+restores / animates the window (which would move the very geometry a census pins), and
+`AllowSetForegroundWindow` because it must be called by the CURRENT foreground process, not
+by us. A refused foreground is never an ERROR: the move and the read-back remain the op's
+verdict, and the refusal is itself the measurement.
+
+`nudge=true` IS THE DISCRIMINATOR, and it is about the EVENT rather than the position.
+`SetCursorPos` WARPS the cursor: Unity's per-frame position sample follows a warp, while
+the window's mouse EVENT stream - which is what an IMGUI hover is computed during - sees
+nothing. A relative `SendInput` (`MOUSEEVENTF_MOVE` with no `ABSOLUTE` flag) produces a
+real `WM_MOUSEMOVE`, so the flag sends one `(+1,0)` then `(-1,0)` pair, AFTER the move and
+in ONE `SendInput` call so another process's input cannot be interleaved between them. The
+pair cancels, so the cursor ends where the move put it: the resolved control is still the
+hovered one and the read-back still compares against the commanded point. A partially
+accepted send (UIPI, an input block) reports `nudge=false` rather than failing the step.
+
+FIVE NEW PAYLOAD KEYS, and they are APPENDED AFTER `via=` rather than slotted in beside the
+coordinates: the wave-2 census lanes' log contracts pin `uiaction pointer at=<x>,<y>
+park=<b> via=` and stop there, so appending keeps every one of those regexes matching.
+`focus=` / `nudge=` are what was asked for (the second is what was actually SENT),
+`fgOutcome=` names the rung, `fg=` is the direct question `GetForegroundWindow() == the
+game hwnd` after the call, and `tooltip=` is `TooltipEchoStripLatch.LastText` - the
+hover-echo strip's text as of the settled frame, `-` when the strip is empty, which is the
+reading the whole flag pair exists to make non-empty. That latch is the observability half:
+`TooltipEchoBox` calls it on its Repaint pass, it logs one Info line per DISTINCT strip text
+(capped per session), and `op=pointer` arms its `Event.current.mousePosition` versus
+`Input.mousePosition` probe on EVERY move - the op's read-back already proves the second,
+and only the first decides a hover.
+
 **`op=find` turns a control's TEXT into a rect and a centre.** `op=pointer` takes pixels
 and a spec cannot know them: a window's layout depends on its rect, its complexity mode,
 the save's row counts and the skin, so a hard-coded coordinate would hover whatever moved
@@ -2076,6 +2134,89 @@ gate that now holds the premise. `count=` is separate from `nbuttons=` so a read
 that a two-modal state was reported as one arbitrarily; Parsek's own contract is that at
 most one stands, so `count > 1` is itself a finding.
 
+**`op=raise` AND `op=dismiss` CLOSE THE HALF `op=dialog` COULD NOT.** That op is the
+READ-ONLY report, and nothing in the seam could put a modal up: after census wave 2 the
+`modal dialogs` row of `design-gui-inventory.md` section 2 stood at 0 of 21 and all six
+wave-2 lanes answered `open=false count=0`, because the three verbs that come close each
+refuse BY DESIGN and none of them should change - `ExitToSpaceCenter` answers
+`REJECTED dialog-required` rather than driving an exit into an outstanding merge decision,
+`AnswerMergeDialog` raises AND presses inside one completion pass (and is `markerLive`-gated
+on top), and `SimulateStockSwitchClick` turns all three pre-switch cases into typed
+REJECTEDs. `op=raise popup=<name>` is the different door: it calls ONE dialog's own
+production spawn site and STOPS, so the modal stands for `op=dialog` to report and
+`CaptureScreenshot` to photograph; `op=dismiss popup=<name> [press=]` takes it down.
+Nothing here builds a `MultiOptionDialog` of its own - a seam-authored popup would
+photograph a screen the game cannot be in, and would additionally have to satisfy
+`ParsekDialogNamePrefixSourceGateTests` for a name no production path writes.
+
+THE CLOSED SET IS THE DESIGN, not a backlog. `popup=` takes one of SEVEN tokens, read off
+`TestCommandUiDialogRaise`'s own table in its cheapest-first order: `actionblocked` and
+`savefailed` (the two informational popups, no host state at all, a single `OK` each),
+`wiperecordings` and `wipemilestones` (a count and `ParsekUI.ActiveInstance`), and
+`rewind` / `fastforward` / `seal` (a committed recording from the effective set;
+`rewind` additionally needs one whose rewind OWNER resolves). A row is in the table only
+when its spawn is reachable by a pure in-process call with data the host already carries -
+no scene transition, no live Re-Fly marker, no synthesised `Vessel`. The rest stay FILED
+with their reason in `docs/dev/todo-and-known-bugs.md`: the tree merge dialog's spawn takes
+a `RecordingTree` and BOTH its buttons act on it, so a synthetic one's commit would write
+invented history into the fixture; the pre-switch decision dialog needs a live `Vessel` and
+RE-SPAWNS ITSELF on any non-button teardown, so a dismiss-without-press cannot close it;
+the ghost icon context menu is spawned inside a Harmony Prefix over a live ghost
+ProtoVessel in map view, so there is no method to call; the Tracking Station ghost popup's
+host scene runs no `ParsekUI` and therefore no `UiAction`; Re-Fly invoke and revert need a
+RewindPoint with a child slot and a live session marker; and the three Logistics confirms
+plus Disband Group need a live `Route` / `RouteCandidate` / group closure.
+
+SPELLED `popup` AND NOT `dialog`, for the reason `op=find` spells its control filter `ctrl`
+rather than `kind`: `hlib.VERB_SCOPED_CLOSED_ARGS` admits exactly ONE owner verb per arg
+key, `dialog=` is already `AnswerMergeDialog`'s, and a second owner would make every
+`UiAction` step carrying it a hard PRE-LAUNCH error reading "only the AnswerMergeDialog
+verb reads it". The house answer to that collision is a different word.
+
+DISMISS WITHOUT PRESSING IS THE DEFAULT and `press=` is opt-in, because most of these
+confirms MUTATE the save - `Wipe All` clears every committed recording and unreserves every
+crew reservation, `Seal Permanently` is permanent, `Fast-Forward` warps UT - so a census
+lane that pressed them would destroy the fixture it is photographing. `op=dismiss` with no
+`press=` calls `PopupDialog.DismissPopup`, and a `press=` must name a button the dialog's
+own `UiDialogPressPolicy` allows: `AnyButton` on the two informational popups (whose only
+button is `OK`), `SafeButtonOnly` on all five confirms, where the ONE allowed label is the
+row's `Cancel`. Every mutating confirm is therefore refused (`press-not-allowed`) - the
+refusal is the point rather than a convenience, since a lane must be UNABLE to wipe its own
+host by naming the wrong button. The press itself goes through the button's own
+`OptionSelected` callback (`AnswerMergeDialog`'s entry point) and is selected BY LABEL, not
+by position, so "press Cancel" cannot become "press Wipe All" when a dialog's button order
+changes. Both closed vocabularies are space-free by construction, which is load-bearing:
+the wire is space-separated `key=value` pairs and `TestCommandProtocol` encodes only `%`
+and `=`, so a future safe button reading "No, cancel" needs the encoder widened rather than
+a second spelling.
+
+ONE MODAL AT A TIME. A raise while ANY Parsek popup stands is
+`REJECTED dialog-already-open` naming what is up. Parsek's own contract is that at most one
+modal is up (every spawn site dismisses first), so raising a second would both violate it
+and make the following `op=dialog` report an arbitrary one of two - exactly the `count > 1`
+state that op flags as a finding.
+
+THE INPUT LOCK, carried per row rather than blanket-cleared. Exactly one spawn site in the
+table takes a `ControlTypes.All` lock that only its own button callbacks release
+(`UnfinishedFlightSealHandler`, the `seal` row's `OwnsInputLock`), so a dismiss WITHOUT a
+press releases it explicitly and logs that it did - otherwise every later step in the lane
+runs behind a lock nothing will ever lift. The other six rows take no lock, and the two
+`MergeDialog` sites that do are not in the table. A blanket "clear every Parsek lock" would
+reach locks this op did not set.
+
+BOTH ARE TWO-PHASE for the `op=open` reason exactly. A `PopupDialog` is instantiated
+through uGUI, so the frame after the spawn is the first in which it exists as a drawn
+surface, and the settle is what separates "the production spawn site ran" from "its own
+guard returned silently" - every one of those spawn sites has such a guard. The raise
+settle confirms the standing popup's name equals the table's `PopupName` EXACTLY, so a
+silent early return cannot read as a success over some other Parsek modal that happened to
+be up. Dismissal is the mirror: `DismissPopup` destroys through Unity, so an immediate
+read-back would still find the popup. Payloads deliberately echo `op=dialog`'s shape so a
+lane's raise step and its following report step are comparable key for key -
+`op=raise popup= name= title= buttons= nbuttons= pressable=` and
+`op=dismiss popup= name= pressed= open=` (`pressed=` is the label or `-`, and `open=` is
+the settled read-back, always `false` on an OK).
+
 **Terminals.** `REJECTED`: `op-arg-missing` / `op-arg-invalid` (the message carries the
 valid op list), `window-arg-missing` / `window-unknown` (the message carries the whole
 valid window list, which is the only place a spec author learns the spelling without
@@ -2101,9 +2242,13 @@ safe point - NOT a refusal, which is why it is not spelled like one),
 `window-host-hidden` (see below - and it applies to `open` / `rect` ALONE, see
 `SettleChecksHostShowUi` above), `ui-action-threw`.
 
-THE SIX CENSUS OPS ADD, all typed and all distinct from the above. `op=pointer`:
+THE NINE LATER OPS ADD, all typed and all distinct from the above - the six the census
+shipped with, plus `playback`, `raise` and `dismiss` (the "six" this paragraph used to count
+stopped being the number the moment `playback` landed). `op=pointer`:
 `REJECTED pointer-arg-missing` (neither `park=true` nor BOTH `x` and `y` - a lone
-coordinate is a missing arg, not a half-move) / `pointer-arg-invalid` /
+coordinate is a missing arg, not a half-move) / `pointer-arg-invalid` (also a `focus=` or
+`nudge=` outside {`true`,`false`} - a `focus=1` is REJECTED rather than silently ignored,
+the `park=` rule) /
 `pointer-arg-conflict` (`park=true` AND a coordinate: refused rather than resolved by
 precedence, since the two say different things about where the cursor ends up) /
 `pointer-off-screen` (a cursor parked off the game window hovers nothing, so every later
@@ -2137,7 +2282,25 @@ carries how many DO exist, so `known=0` on an empty save reads differently from 
 on a typo - and it is a REJECTED rather than a cheerful `changed=0`, which is the one
 answer a lane cannot act on); `ERROR playback-not-applied`. `op=dialog` has none: it writes nothing and reports
 `open=false` with `-` sentinels when no Parsek popup stands, because a lane that asserts
-"no dialog is up" needs a key to assert on. `AnswerMergeDialog` gains
+"no dialog is up" needs a key to assert on. `op=raise` and `op=dismiss` share a
+`popup=` vocabulary and therefore share its two rejects:
+`REJECTED popup-arg-missing` (no default modal - guessing one would photograph a dialog the
+lane never asked for) / `popup-unknown` (the message carries the whole valid list, so a spec
+author learns the spelling without reading the source). `op=raise` adds
+`REJECTED dialog-already-open` (a raise while any Parsek popup stands; see ONE MODAL AT A
+TIME above) / `dialog-target-unavailable` (the raise needs something the host does not carry
+- no effective recording, or no rewind owner among the ones it has - refused PRE-CALL rather
+than calling a spawn site that silently returns and then reporting a modal that is not
+there) and `ERROR dialog-not-raised` (the production spawn site ran and no popup of the
+expected name stands after a drawn frame: its own guard returned, or something dismissed it
+before the settle). `op=dismiss` adds `REJECTED dialog-not-open` (no popup of that name is
+up - a cheerful OK over nothing would let a lane's raise fail silently and its capture
+photograph an empty screen under a dialog label) / `press-unknown` (a `press=` naming no
+button of that dialog) / `press-not-allowed` (a `press=` naming a button the dialog's policy
+forbids, i.e. a confirm that would wipe, seal or warp; kept apart from the previous because
+a typo and a forbidden confirm send an author to different fixes, and the message carries
+what IS pressable), and `ERROR dialog-not-dismissed` (the popup is still standing after the
+settle). `AnswerMergeDialog` gains
 `REJECTED dialog-arg-invalid` (message carries the valid set).
 
 **REVIEW FOLLOW-UPS (2026-09-11).** Five defects and two residues, found reviewing the six
@@ -2341,10 +2504,21 @@ comment NAMES `pointer` and `dialog` as the two ops deliberately absent from the
 regex that read comments would report them as members and pass GREEN against a source
 saying the opposite - and a sibling synthetic-source cell keeps that half non-vacuous. The
 per-op REQUIREDNESS of the new args (`text` for find, `key` for expand, one selector for
-target / picker, a pair-or-park for pointer) lives in `validate_ui_action_step` alongside
+target / picker, a pair-or-park for pointer, `popup` for raise and dismiss) lives in
+`validate_ui_action_step` alongside
 the originals, including the one shared-key subtlety: `x` / `y` belong to BOTH `op=rect`
 and `op=pointer`, so the stray-rect-arg branch narrows to `w` / `h` on a pointer step
-rather than flagging the two coordinates the op actually reads.
+rather than flagging the two coordinates the op actually reads. The four newest args carry
+STRAY branches in the mirror direction as well, because an arg only one op reads is
+silently ignored by every other one and a spec author would never learn it: `park` / `focus`
+/ `nudge` on anything but `op=pointer`, and `popup` / `press` on anything but `op=raise` /
+`op=dismiss`, are pre-launch errors naming the op that would have ignored them. `press=` on
+an `op=raise` is its own branch rather than a stray: a raise that pressed would dismiss the
+modal it exists to leave standing - the exact defect that made `AnswerMergeDialog` unusable
+for the census. Both closed vocabularies (`UIACTION_POPUP_VALUES`,
+`UIACTION_PRESS_VALUES`, alongside the two boolean `UIACTION_FOCUS_VALUES` /
+`UIACTION_NUDGE_VALUES`) are `VERB_SCOPED_CLOSED_ARGS` rows owned by `UiAction`, which is
+what makes `popup=` and not `dialog=` the only spelling available.
 
 **Tail / post-mission roles.** `world-mutating` and `recording`, and the tail role is NOT
 about opening windows: `op=complexity` PERSISTS `uiComplexityMode` through
@@ -2447,6 +2621,158 @@ cell reads out of the source.
 makes the census's first flight a MEASUREMENT of the interception layer rather than only a
 picture gallery.
 
+#### GloopsStart / GloopsStop (additive; the manual ghost-only recorder)
+
+**Grammar.** `cmd=GloopsStart` and `cmd=GloopsStop`, NO ARGS on either. There is nothing to
+parameterise: the Gloops recorder binds to whatever `FlightGlobals.ActiveVessel` is, and a
+spec that wants a different subject switches vessels with the verbs that already exist.
+
+**Precondition.** `RequiresFlight` on both, and here it is a HARD precondition rather than a
+convenience: the recorder samples the ACTIVE VESSEL from the flight-scene physics-frame
+patch, and `ParsekFlight.Instance` - which owns both entry points - exists in no other
+scene. A DEFER (not a REJECT) on wrong-scene, for every other FLIGHT-only verb's reason: the
+wrong-scene case is overwhelmingly a scene still settling in from the previous step, and the
+budget still bounds a genuinely wrong-scene spec.
+
+**Phases.** SINGLE-PHASE on both, and neither is a `DEFERRED_SEAM_VERB` (they ride the 60 s
+default and spend none of it). See the update block above for why: both production calls
+resolve fully before they return, so a read-back taken the instant each returns is a final
+answer. Neither has a `TryComplete*` counterpart in `TryCompleteTwoPhaseCore`.
+
+**Action.** Exactly the two calls the Gloops window's primary button makes:
+`ParsekFlight.StartGloopsRecording()` and `ParsekFlight.StopGloopsRecording()`. Both are
+driven UNCONDITIONALLY so their OWN guards decide and log; the appliers pre-check nothing,
+because a pre-check would be a second copy of those guards and the one thing this pair must
+not add is a rule of its own. Three samples taken around each call carry the verdict -
+whether a recorder existed, whether an active vessel existed, and which recording
+`LastGloopsRecording` named - plus the recorder's point count, sampled BEFORE the stop
+because the commit nulls the recorder and takes the count with it.
+
+**Terminals.**
+
+| Verb | Verdict | Payload / msg | Meaning |
+|---|---|---|---|
+| `GloopsStart` | OK | `started=true`, `vessel=<name>` | the ghost-only recorder is live on that vessel |
+| `GloopsStart` | REJECTED | `gloops-already-recording` | a Gloops recorder was ALREADY sampling; production no-ops and warns, and no second recorder was forced |
+| `GloopsStart` | REJECTED | `gloops-no-active-vessel` | no active vessel (production: `StartGloopsRecording: no active vessel`) |
+| `GloopsStart` | REJECTED | `gloops-start-blocked` | `FlightRecorder.StartRecording` declined - paused, or the vessel was not recordable - and production cleared the recorder again |
+| `GloopsStart` | ERROR | `no-flight-instance` | `ParsekFlight.Instance` absent for a frame around a scene teardown (the `StartRecording` row) |
+| `GloopsStop` | OK | `committed=true`, `points=<n>`, `recordingId=<id>` | the take was committed as a ghost-only recording |
+| `GloopsStop` | OK | `committed=false`, `points=<n>`, `dropped=too-short` | THE SUB-2-POINT DROP. Not a refusal - see above |
+
+**What `points=` means, and it is deliberately two different things.** On a COMMIT it is
+the committed recording's own `Points.Count`; on a DROP it is the RECORDER COUNT BEFORE
+THE CALL, because the drop leaves no recording to read. Neither is "the number the < 2
+rule was applied to", and describing it that way would be wrong in both directions:
+production can ADD a sample after the pre-call reading (`FinalizeRecordingState` takes a
+boundary sample when the vessel is on rails at stop time) and REMOVE several before the
+second test (`CreateRecordingFromFlightData` trims leading stationary points and re-applies
+`< 2` to what is left), so a pre-call 1 can commit and a pre-call 5 can drop.
+
+**`dropped=too-short` is on the LOG LINE as well as in the payload.** A spec's
+`logContracts` are regexes over `KSP.log`, the seam's exec diagnostic carries no payload and
+the response file is never scanned, so a token that lived only in the payload could not be
+gated by the lane whose subject it is. The applier prints it on the drop branch of its own
+`gloopsstop` Info line.
+
+Note also that the production Warn a lane gates
+(`StopGloopsRecording: not enough points (< 2)`) is written by the `ParsekFlight` CALLER
+after the factory returns null, so it covers BOTH factory refusals - the raw `< 2` test and
+the post-trim one.
+| `GloopsStop` | REJECTED | `no-gloops-recorder` | nothing to stop (production: `StopGloopsRecording: no Gloops recorder`) |
+| `GloopsStop` | ERROR | `no-flight-instance` | as above |
+
+Every REJECTED token is a READ-BACK of an existing Gloops guard's decision, and all four map
+to `driver-gate` in `hlib._SEAM_REFUSAL_SUBKINDS` - the verbs take no args, so there is no
+arg-class fault they can have.
+
+**Why the stop keys on the recorder OBJECT, not on `IsGloopsRecording`.** Production commits
+a recorder that a vessel switch already auto-stopped (`CheckGloopsAutoStoppedByVesselSwitch`
+-> `CommitGloopsRecorderData`), so a refusal keyed on "is it sampling" would report
+`no-gloops-recorder` for a call that went on to commit.
+
+**Why the commit is detected by ID CHANGE.** Both the commit path and the drop path null the
+recorder, so "the recorder is gone" separates nothing. The only observable that does is
+`LastGloopsRecording` naming a DIFFERENT recording after the call than before it.
+
+**Tail / post-mission roles.** `world-mutating` on the tail axis, and "ghost-only" is exactly
+the word that invites the wrong call there: a committed Gloops take is a REAL row in the
+committed store with its own `.prec` sidecar that a save captures and every index-keyed host
+mirrors - the ghost-only flag governs whether the career sees its resource deltas, not
+whether anything was written. `recording` on the post-mission axis (its verdict is a claim
+about Parsek's own recorder, which the analyzer / expectations / saveParse chain owns).
+Neither appears in `NonMutatingVerbs`, so `FlushAndQuit` still saves after one.
+
+**First consumers.** `GL-1-gloops-manual-lifecycle` (the lifecycle, dwelling at High density)
+and `GL-2-gloops-sub-2-point-drop` (the drop, adjacent steps at Low density), both authored
+as reading-run specs and neither armed.
+
+> Update (the Gloops pair, 2026-09-15): TWO further ADDITIVE verbs, `GloopsStart` and
+> `GloopsStop`, both no-arg. The same shape as every addition since M-C1.1 - the reserved
+> list never carried a ghost-only-recorder verb, so neither is a promotion and the
+> implemented table moves alone, by two: **38 implemented / 5 reserved**.
+>
+> WHY THEY EXIST, and it is a measured gap rather than a wish. The Gloops recorder is a
+> SECOND `FlightRecorder` running in parallel with the auto-record one on the same vessel,
+> whose take is committed `IsGhostOnly` with looping off and the loop period at auto - a
+> recording the career never sees. It is the ONLY producer in Parsek for two D1 coverage
+> cells, and nothing unattended could reach it, because its three buttons live in one
+> window whose open flag is only ever written by a player click. That is the same gap
+> `CaptureScreenshot` / `UiAction` closed one subsystem over.
+>   `manual-gloops` is the manual recorder LIFECYCLE. `StartRecording` does not cover it
+>   and must not be made to: that verb owns the auto-record tree that commits into the
+>   career, and folding the two recorders into one wire token would make a spec ambiguous
+>   about which one it exercised - the argument that kept `InvokeRewindToLaunch` separate
+>   from `InvokeRewind`.
+>   `sub-2-point-drop` is `RecordingStore.CreateRecordingFromFlightData` refusing to build
+>   a `Recording` from fewer than two trajectory points, after which
+>   `ParsekFlight.CommitGloopsRecorderData` warns `StopGloopsRecording: not enough points
+>   (< 2)` and discards. The Gloops stop is the only seam VERB whose SUBJECT is that
+>   drop - deliberately NOT "the only producer" - re-derived from the full caller set
+>   rather than assumed (todo `D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE`): in
+>   always-tree mode a tree commit never passes through that factory at all (it appends
+>   through `TryAppendCapturedToTree`, which KEEPS a 1-point recording), so no
+>   `StartRecording` lane can produce this drop however short its take; the remaining
+>   split-edge callers are abnormal aborts no seam verb can provoke on demand; and the
+>   DOCK/UNDOCK CHAIN-SEGMENT PATH is live and reaches the same factory
+>   (`ParsekFlight.HandleDockUndockCommitRestart`, all four branches ->
+>   `ChainSegmentManager.CommitDockUndockSegment` -> `CommitSegmentCore`), with no
+>   always-tree guard anywhere on that chain - it logs `CommitSegmentCore`'s own Verbose
+>   "segment too short" rather than the Gloops Warn a lane gates, so the two are
+>   distinguishable in a log. Two stale
+>   comments fall out of the same derivation and are corrected in this change: S0.5 and
+>   S0.6 each attributed a possible count to "the stationary-pod sub-2-point-drop",
+>   wording that predates always-tree mode and describes a path their own commits no
+>   longer take.
+>
+> NO GLOOPS CODE CHANGED, by operator ruling B4 (2026-09-15: Gloops stays as is). The
+> appliers call the same two internal `ParsekFlight` members the window's primary button
+> calls and touch nothing else; `GLOOPS-STANDALONE-WINDDOWN` and GUI-P13 stay open and
+> unchanged. A unit cell reads the applier's source and asserts it reaches no other Gloops
+> mutator - no `DiscardGloopsInProgress`, no `DiscardLastGloopsRecording`, no
+> `PreviewGloopsRecording` - and writes no Gloops field. THERE IS DELIBERATELY NO VERB PER
+> BUTTON: the gap is the lifecycle and the drop, both of which live on start/stop, and a
+> Discard / Preview sibling would be a wider surface than the gap.
+>
+> BOTH SINGLE-PHASE, and neither is a borderline call. The recorder attaches to the
+> physics-frame patch INSIDE `FlightRecorder.StartRecording`
+> (`PhysicsFramePatch.GloopsRecorderInstance = this`), so a read-back of
+> `IsGloopsRecording` taken the instant the call returns is a final answer rather than a
+> value written a frame ago; and the stop half stops, builds, commits (or drops) and nulls
+> the recorder inside one synchronous call. This is the `SimulateStockSwitchClick` /
+> map-view row. What a LATER frame changes is the recorder's POINT COUNT - sampling runs on
+> the physics frame, gated by the density preset's max sample interval - and that is a
+> property of the flight BETWEEN the two verbs, which is the spec's business rather than a
+> completion criterion. It is also what makes the two first consumers mirror images: `GL-1`
+> pins `samplingDensity=2` (High, 1.0 s) and puts eight inert probes between start and
+> stop, `GL-2` pins `samplingDensity=0` (Low, 8.0 s) and puts nothing.
+>
+> THE DROP IS NOT A REFUSAL, which is the load-bearing contract decision here. The window's
+> Stop button behaves identically, so `GloopsStop` terminates **OK** with
+> `committed=false points=<n> dropped=too-short` and a lane gates on the PRODUCTION log
+> line. A REJECTED would have forced the `sub-2-point-drop` lane to declare its own subject
+> a driver fault. Full contract below (`#### GloopsStart / GloopsStop`).
+
 ## Behavior
 
 ### Addon lifecycle
@@ -2513,6 +2839,8 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `CaptureScreenshot` | any scene (the `ExportRenderManifest` row; the safe-point gate already excludes LOADING / a transition / the settle window, which is when a capture would photograph a black frame) | pre-delete a colliding target, then the reflectively-resolved `UnityEngine.ScreenCapture.CaptureScreenshot(<KSP root>/Screenshots/<label>.png, superSize)`; TWO-PHASE, holding the head until the file reports the same non-zero size on two consecutive polls | `label`, `path` (relative), `bytes` (settled), `superSize`, `overwrote` |
 | `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect (CLAMPED to that window's own resize floor), walk the window table read-only, move the OS cursor (`user32!SetCursorPos` after `ClientToScreen`), capture one in-memory GUI tree and locate a control by text, drive a window's set-of-expanded-keys, call `StructureListWindowUI.OpenForMission` / `OpenForRoute`, open `GroupPickerUI` / the Logistics link picker the way a row's button does, or report the live `PopupDialog`. Every op read-back-verified - and every op that changes drawn state TWO-PHASE, holding the head for one DRAWN frame (or, for `find`, for one CAPTURE) so the read-back describes what the game did rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect clamped minW minH` / the describe inventory (`scene complexity count` + seven keys per window) / `op x y park sx sy via` / `op window text ctrl match matches x y w h cx cy` / `op window key state changed expanded total` / `op window target id title steps open` / `op window picker target open` / `op open count name title buttons nbuttons` |
 | `DumpGuiTree` | any scene (the `CaptureScreenshot` row) | `GuiTreeRecorder.ArmForNextRepaint(label)` from the Update-phase pump (the recorder REFUSES to arm from inside an IMGUI pass), then TWO-PHASE, holding the head until the recorder reports THIS arm's dump written to `<KSP root>/Screenshots/<label>.gui.json` | `label`, `path` (relative), `bytes`, `windows`, `nodes`, `patched` (`<ok>/<of>`, the arm-time reading), `hits` |
+| `GloopsStart` | FLIGHT; else Defer | `ParsekFlight.StartGloopsRecording()` driven unconditionally, then RE-SAMPLE `IsGloopsRecording` - the production guards decide and log, the verb reports what it observed | `started`, `vessel` |
+| `GloopsStop` | FLIGHT; else Defer | `ParsekFlight.StopGloopsRecording()`; a take under two points is DROPPED by production and reported OK with `committed=false`, not REJECTED | `committed`, `points`, and `recordingId` XOR `dropped` |
 | `FlushAndQuit` | any scene (incl. menus) | if a game is loaded, force a scenario/game save so committed data is durable, THEN `Application.Quit()` deferred one frame; response + journal `DONE` written and flushed BEFORE quitting. Deliberately replaces kRPC master's `Quit()` RPC (a bare `Application.Quit()`, not commit-safe). | `saved` bool |
 
 Notes:

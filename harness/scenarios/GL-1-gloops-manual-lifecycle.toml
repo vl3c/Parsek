@@ -1,0 +1,146 @@
+schema = 1
+id = "GL-1-gloops-manual-lifecycle"
+tier = "operator"
+# The MANUAL Gloops recorder lifecycle, driven end to end through the seam for the
+# first time. D1 `manual-gloops` had no producer at all until the GloopsStart /
+# GloopsStop pair landed: the Gloops window's three buttons live behind an open flag
+# only a player click ever writes, so nothing unattended could start that recorder.
+#
+# NOT a second spelling of S0.5 / S0.6. Those drive StartRecording / StopRecording,
+# which own the AUTO-RECORD tree that commits into the career. This drives the PARALLEL
+# ghost-only recorder: a second FlightRecorder sampling the same vessel, whose take is
+# committed IsGhostOnly with looping off and the loop period at auto, and which the
+# career never sees. Same fixture, same pod, different recorder - which is the point.
+#
+# READING RUN, NOT ARMED. One thing about this lane is genuinely unknown until it flies
+# and is deliberately NOT gated below: whether a stationary PRELAUNCH pod accrues TWO
+# trajectory points between the start and stop steps. Points are sampled on the physics
+# frame, and a motionless vessel crosses no threshold, so the only thing that produces a
+# sample is the density preset's MAX interval - 1.0 s at High, which this lane pins for
+# exactly that reason (samplingDensity=2) - against a gap made of eight inert
+# RecordingState round trips, each bounded below by run.py's 0.25 s poll. If the take
+# lands under two points, CommitGloopsRecorderData drops it and the store stays empty,
+# which is GL-2's subject rather than a defect. The operator reads the produced
+# `gloopsstop committed=` / `points=` line and THEN arms the commit token below.
+# READ `points=` CAREFULLY when arming: on a COMMIT it is the committed recording's own
+# Points.Count, on a DROP it is the recorder count BEFORE the call. Neither is the number
+# the < 2 rule was applied to - production can ADD a boundary sample at stop when the
+# vessel is on rails (FlightRecorder.FinalizeRecordingState) and REMOVE leading stationary
+# points before the second test (CreateRecordingFromFlightData), which on a PAD POD is not
+# hypothetical: every point it has is stationary.
+#
+# Second reading-run unknown: the REC log rules stay SUPPRESSED here. hlib's
+# spec_expects_live_recording keys on a StartRecording step, and this lane has none, so
+# a Gloops-only run is classified as if no live recording happened. Whether the Gloops
+# recorder emits the same start/stop markers those rules pin is a question for the
+# reading run's KSP.log, not an assumption to encode now.
+description = "Manual Gloops (ghost-only) recorder lifecycle driven through the seam: GloopsStart, dwell, GloopsStop over the stationary pod fixture."
+instanceProfile = "stock-minimal"
+tags = ["recording", "gloops", "ghost-only", "live-recording", "D1"]
+
+[fixture]
+# The gloops-airshow SANDBOX save (named for this recorder): a single pure-stock mk1
+# pod on the KSC pad (PRELAUNCH, body=Kerbin) plus one asteroid SpaceObject. LoadGame
+# drops straight into FLIGHT with the pod as the active, unpacked vessel, which is what
+# the RequiresFlight Gloops verbs need. injectedRecordings="none": the store starts
+# EMPTY so a committed Gloops row is unambiguous - it can only have come from this lane.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Step notes:
+#   autoRecordOnLaunch=false pins the AUTO recorder off so the only recorder in play is
+#     the Gloops one. Without it a scene bounce could start an auto-record tree whose
+#     own commit would land in the count assertion below and hide the subject.
+#   samplingDensity=2 is High (ParsekSettings.GetMaxSampleInterval: 1.0 s max interval
+#     vs 3.0 Medium / 8.0 Low). Load-bearing, and the mirror of what GL-2 does with the
+#     same knob: that lane pins Low so the take CANNOT reach two points, this one pins
+#     High so it has the best chance to.
+#   The eight RecordingState steps are the DWELL, and they are inert by design
+#     (TAIL_ROLE_INERT: a read-only probe that writes nothing). They exist to let real
+#     time pass with the vessel off rails - which is why the dwell is NOT a WarpToUT:
+#     rails warp packs the vessel and FlightRecorder.OnPhysicsFrame early-returns on
+#     `isOnRails`, so a warp would advance the clock and record NOTHING, the exact
+#     opposite of what this lane needs.
+#   GloopsStart / GloopsStop are single-phase, so neither carries a deferred budget.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "samplingDensity", value = "2" },        expect = "OK" },
+  { cmd = "GloopsStart",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "GloopsStop",                                                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST. D1 `manual-gloops` is the claim and the whole reason the lane exists: the
+# manual ghost-only recorder lifecycle, start to stop, driven rather than clicked.
+# The run is SANDBOX / FLIGHT / Kerbin (D14).
+# NOT claimed: `sub-2-point-drop` (GL-2's subject - this lane tries to AVOID it), and
+# no D16 sidecar token, because whether a .prec sidecar is written at all is precisely
+# the reading-run unknown described in the header.
+D1  = ["manual-gloops"]
+D14 = ["sandbox", "scene-flight", "kerbin"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, and a bare
+# key written after an `[expectations.<sub>]` header is TOML-scoped to that sub-table
+# and never read (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# 0 or 1, and the RANGE is the reading-run instrument rather than a weak assertion. The
+# store starts empty (injectedRecordings="none") and the auto recorder is pinned off, so
+# the only thing that can add a row is this lane's Gloops take: 1 means it committed, 0
+# means it finalized under two points and was dropped. TWO or more would mean something
+# recorded that this spec did not ask for, which is the case worth reding on.
+# TIGHTENED 2026-09-15 off the reading run `2026-09-15_1601_GL-1-gloops-manual-lifecycle`
+# (PASS attempt 1, 65 s): the take COMMITTED, so the range collapses to exactly one row.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# Gated on what is CERTAIN: the production start line (ParsekFlight.StartGloopsRecording
+# Info, with the bound vessel) and both seam terminals. `gloopsstop committed=` is
+# deliberately outcome-AGNOSTIC - it matches committed=true and committed=false alike -
+# so the lane proves the lifecycle ran without prejudging the point accrual the reading
+# run exists to measure.
+# ARMED 2026-09-15 off the reading run `2026-09-15_1601_GL-1-gloops-manual-lifecycle`
+# (PASS attempt 1, 65 s, mismatches=0), whose KSP.log answers the lane's declared unknown:
+# the stationary PRELAUNCH pod DOES accrue enough samples at samplingDensity=2, and the
+# take COMMITTED at THREE points. The four lines below are that log's own bytes:
+#   [Parsek][INFO][Flight] Gloops recording started: vessel=mk1-capsule, pid=2871960053, ghostSnap=True
+#   [Parsek][INFO][TestCommands] gloopsstart started=true vessel=mk1-capsule
+#   [Parsek][INFO][Flight] StopGloopsRecording: Gloops recording committed "mk1-capsule" (3 points, id=e12af737f62f4f4eb61cdbc6d8de1fe6)
+#   [Parsek][INFO][TestCommands] gloopsstop committed=true points=3 recordingId=e12af737f62f4f4eb61cdbc6d8de1fe6
+# The recording id is run-local (a fresh guid per commit) and is the ONLY part regexed;
+# the pid is the fixture craft's baked persistentId and the point count is the subject, so
+# both are literals. `committed=true points=3` is now the gate the outcome-agnostic
+# `gloopsstop committed=` prefix deliberately was not.
+required  = [
+  "Gloops recording started: vessel=mk1-capsule, pid=2871960053, ghostSnap=True",
+  "gloopsstart started=true vessel=mk1-capsule",
+  "StopGloopsRecording: Gloops recording committed \"mk1-capsule\" \\(3 points, id=[0-9a-f]{32}\\)",
+  "gloopsstop committed=true points=3 recordingId=[0-9a-f]{32}",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 600 >= 300 LoadGame (the only deferred step, under the
+# 540 deferred cap) + twelve fast single-phase verbs + KSP boot + margin.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
