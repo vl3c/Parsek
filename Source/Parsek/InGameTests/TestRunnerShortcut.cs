@@ -82,12 +82,25 @@ namespace Parsek.InGameTests
         private static TestRunnerShortcut instance;
         private const float DefaultWindowWidth = 440f;
         private const float DefaultWindowHeight = 600f;
-        private const float MinWindowWidth = 320f;
+        // INTERNAL (was private) so the automation-only `UiAction op=rect` seam clamps a
+        // commanded rect to THIS window's own floor, read through the seam's one handle
+        // row rather than copied into it (UiWindowHandle.MinW / MinH).
+        internal const float MinWindowWidth = 320f;
         // Default height is also the minimum: the window opens at this height
         // and will not shrink below it (matches the Logistics window).
-        private const float MinWindowHeight = DefaultWindowHeight;
+        internal const float MinWindowHeight = DefaultWindowHeight;
         private const float ErrorIndent = 40f;
         private const float ErrorMaxWidth = 380f;
+
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from, named ONCE and read at
+        /// both the <c>GUILayout.Window</c> call in <c>OnGUI</c> and the seam's
+        /// <c>testrunnerglobal</c> handle row (<c>UiAction op=find</c> scopes a captured
+        /// GUI tree to this id's subtree). Two copies of the literal would let the seam
+        /// search the SETTINGS-launched runner's children instead - the two windows carry
+        /// the same title - and answer a plausible rect for a control in the other window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekTestRunnerGlobal";
 
         /// <summary>
         /// Singleton accessor — non-null after Awake when DontDestroyOnLoad keeps the
@@ -103,6 +116,80 @@ namespace Parsek.InGameTests
         /// until the window is first opened (the runner is lazily created in <c>OnGUI</c>).
         /// </summary>
         internal static InGameTestRunner ActiveRunnerForGating => instance != null ? instance.runner : null;
+
+        /// <summary>
+        /// This window's own open flag - the SAME field Ctrl+Shift+T toggles and the Close
+        /// button lowers - exposed for the automation-only <c>UiAction op=open/close
+        /// window=testrunnerglobal</c> seam. Adds no player-facing surface: the seam writes
+        /// the field a click writes and reads it back, exactly as every other window's
+        /// <c>IsOpen</c> row does (see the applier's file header for why it drives internal
+        /// state rather than synthesising clicks).
+        ///
+        /// <para>Unlike every <c>ParsekUI</c> sub-window, this window is drawn from THIS
+        /// MonoBehaviour's own <c>OnGUI</c> and is therefore NOT inside either scene host's
+        /// <c>showUI</c> gate: it draws in every scene but LOADING, with the main window
+        /// open or shut. That is why the seam exempts it from the hidden-host settle
+        /// refusal (<c>TestCommandUiAction.WindowDrawsOutsideHostShowUi</c>).</para>
+        /// </summary>
+        internal bool IsOpenForTesting
+        {
+            get { return showWindow; }
+            set { showWindow = value; }
+        }
+
+        /// <summary>
+        /// The live window rect, readable and writable from outside the draw pass, for
+        /// <c>UiAction op=rect</c> (place and enlarge the window so one capture shows more
+        /// rows than the default size fits). Writing it is safe before the first draw as
+        /// well as after: <c>OnGUI</c> seeds its default only when <c>width &lt; 1</c>, so
+        /// a commanded rect suppresses the seed rather than being overwritten by it - the
+        /// <c>TestRunnerUI.WindowRectForTesting</c> contract verbatim.
+        /// </summary>
+        internal Rect WindowRectForTesting
+        {
+            get { return windowRect; }
+            set { windowRect = value; }
+        }
+
+        /// <summary>
+        /// The runner this window owns, or null before the window's first draw (it is
+        /// created lazily in <see cref="EnsureRunner"/>). Read by the seam's
+        /// <c>UiAction op=run window=testrunnerglobal</c> arm, which runs a category
+        /// through THIS runner - the only way a capture can show this window's own results
+        /// table populated, since the addon's <c>RunTests</c> runner is a separate
+        /// instance with its own <c>InGameTestInfo</c> objects.
+        /// </summary>
+        internal InGameTestRunner RunnerForTesting => runner;
+
+        /// <summary>
+        /// Every category key this window's fold set can carry, in the window's own drawn
+        /// order, for <c>UiAction op=expand window=testrunnerglobal key=category:&lt;name&gt;</c>
+        /// (and for <c>key=all</c> / <c>key=none</c>, which walk this list). Empty before
+        /// the first draw, when the runner - and therefore the discovery - does not exist
+        /// yet.
+        /// </summary>
+        internal List<string> EnumerateCategoryExpandKeysForTesting()
+        {
+            var keys = new List<string>();
+            if (cachedGroups == null) return keys;
+            foreach (var group in cachedGroups) keys.Add(group.Key);
+            return keys;
+        }
+
+        /// <summary>
+        /// Expands or collapses one category fold, the category header button's own body.
+        /// Returns whether the set CHANGED, which is what the op's <c>changed=</c> reports.
+        /// </summary>
+        internal bool SetCategoryExpandedForTesting(string category, bool expanded)
+        {
+            if (string.IsNullOrEmpty(category)) return false;
+            return expanded
+                ? expandedCategories.Add(category)
+                : expandedCategories.Remove(category);
+        }
+
+        /// <summary>How many category folds are open (the op's <c>expanded=</c>).</summary>
+        internal int ExpandedCategoryCountForTesting => expandedCategories.Count;
 
         internal bool HasOpaqueStyleForTesting => opaqueStyle != null;
         internal bool HasAllOpaqueStateBackgroundsForTesting => AreAllOpaqueStyleBackgroundsPresent(opaqueStyle);
@@ -202,7 +289,7 @@ namespace Parsek.InGameTests
 
             windowRect = RunWindowWithNormalizedGuiColors(() =>
                 GUILayout.Window(
-                    "ParsekTestRunnerGlobal".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     windowRect,
                     DrawWindow,
                     "Parsek - Test Runner",

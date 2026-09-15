@@ -778,8 +778,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeTree_RelativeThreadsCurrentRecordingFormatThroughProductionCallers()
+        public void MergeTree_SameAnchorRelativeBoundary_MeasuresAnchorLocalDiscontinuity()
         {
+            // Renamed from ..._RelativeThreadsCurrentRecordingFormatThroughProductionCallers,
+            // which overclaimed: MergeTree only forwards the format version to
+            // MeasureRelativeAwareBoundary / TryGetBodyFixedBoundaryPoint, and
+            // neither body reads it, so no fixture here can witness the
+            // "threading". What this cell DOES cover is the anchor-local
+            // measurement path: two same-anchor Relative sections whose
+            // boundary dt is sub-millisecond, measured at ~30 m. The merged
+            // recording's own format version is asserted below - that one IS
+            // a real copy (SessionMerger copies it onto the merge result).
+            // Revisit only if a per-version gate ever lands in the
+            // measurement path.
             var background = MakeSectionWithFrame(
                 10.0, lat: 0.0, lon: 0.0, alt: 0.0,
                 velocity: Vector3.zero,
@@ -807,6 +818,36 @@ namespace Parsek.Tests
 
             Assert.InRange(merged.TrackSections[1].boundaryDiscontinuityMeters, 29.0f, 31.0f);
             Assert.DoesNotContain(logLines, l => l.Contains("boundary discontinuity skipped"));
+            Assert.Equal(rec.RecordingFormatVersion, merged.RecordingFormatVersion);
+        }
+
+        [Fact]
+        public void MergeTree_CopiesTheSourceRecordingFormatVersion_NotTheFieldDefault()
+        {
+            // Recording.RecordingFormatVersion is initialised to
+            // RecordingSchema.CurrentRecordingFormatVersion, so asserting the
+            // merge result carries the CURRENT version is a tautology - the
+            // fresh Recording SessionMerger builds would carry it with the
+            // copy deleted. Stamp a version the default cannot be, so the copy
+            // itself is the term under test.
+            int stamped = RecordingStore.CurrentRecordingFormatVersion + 7;
+            var section = MakeSectionWithFrame(
+                10.0, lat: 0.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Absolute,
+                source: TrackSectionSource.Active);
+            section.startUT = 0.0;
+            section.endUT = 10.0;
+            var rec = MakeRecording("rec-stamped-format", "Stamped Format",
+                new List<TrackSection> { section });
+            rec.RecordingFormatVersion = stamped;
+            Assert.NotEqual(RecordingStore.CurrentRecordingFormatVersion,
+                rec.RecordingFormatVersion);
+
+            var merged = SessionMerger.MergeTree(MakeTree("Stamped Format Merge", rec))[
+                "rec-stamped-format"];
+
+            Assert.Equal(stamped, merged.RecordingFormatVersion);
         }
 
         #endregion

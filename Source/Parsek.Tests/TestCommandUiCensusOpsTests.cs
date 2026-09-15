@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Parsek.InGameTests;
 using Parsek.Logistics;
 using Parsek.TestCommands;
 using Xunit;
@@ -633,16 +634,21 @@ namespace Parsek.Tests
         // ================================================================ op=expand
 
         [Fact]
-        public void Expand_OnlyThreeWindowsKeepDriveableExpansionState()
+        public void Expand_OnlyTheFiveWindowsWithFoldsKeepDriveableExpansionState()
         {
             // Kerbals joined the set with the 2026-09-15 column-table rebuild: its Roster
             // tab keeps a per-row replacement-chain expansion plus one fold row over the
-            // plain-kerbal bucket, and its Flights tab a per-kerbal fold.
+            // plain-kerbal bucket, and its Flights tab a per-kerbal fold. The two RUNNER
+            // windows joined with GUI-12: each draws one fold per in-game test category,
+            // and both OPEN with every one of them expanded, so `key=none` is the state a
+            // census could not otherwise photograph.
             var expandable = new[]
             {
                 TestCommandUiAction.MissionsWindow,
                 TestCommandUiAction.LogisticsWindow,
                 TestCommandUiAction.KerbalsWindow,
+                TestCommandUiAction.TestRunnerWindow,
+                TestCommandUiAction.TestRunnerGlobalWindow,
             };
             foreach (string window in expandable)
                 Assert.NotNull(TestCommandUiState.ExpandPrefixesFor(window));
@@ -1074,6 +1080,221 @@ namespace Parsek.Tests
                 new List<string> { null, "Discard" }));
         }
 
+        // ================================================================ op=run
+
+        [Fact]
+        public void Run_OnlyTheTwoRunnerWindowsOwnARunner()
+        {
+            // The mutation this kills: a third window admitted into op=run. Every other
+            // window owns no InGameTestRunner, so the op would have nothing to dispatch on
+            // and the applier's resolver would answer null - reported as
+            // run-runner-not-ready, i.e. as a window that had not drawn, which sends a
+            // spec author to add an op=open step that can never help.
+            Assert.True(TestCommandUiState.WindowOwnsTestRunner(
+                TestCommandUiAction.TestRunnerWindow));
+            Assert.True(TestCommandUiState.WindowOwnsTestRunner(
+                TestCommandUiAction.TestRunnerGlobalWindow));
+            foreach (UiWindowSpec spec in TestCommandUiAction.Windows)
+            {
+                if (spec.Name == TestCommandUiAction.TestRunnerWindow
+                    || spec.Name == TestCommandUiAction.TestRunnerGlobalWindow)
+                    continue;
+                Assert.False(TestCommandUiState.WindowOwnsTestRunner(spec.Name),
+                    "this window owns no test runner: " + spec.Name);
+            }
+            Assert.Equal(
+                new[] { TestCommandUiAction.TestRunnerWindow,
+                        TestCommandUiAction.TestRunnerGlobalWindow },
+                TestCommandUiState.RunnableWindowNames.Split(','));
+        }
+
+        [Fact]
+        public void Run_AnUnsupportedWindowIsNamedRatherThanSilentlyInert()
+        {
+            Assert.False(TestCommandUiState.TryParseRun(
+                TestCommandUiAction.MissionsWindow, "GuiTree",
+                out string category, out string reason));
+            Assert.Null(category);
+            Assert.Equal(TestCommandUiState.RunUnsupportedWindowReason, reason);
+        }
+
+        [Fact]
+        public void Run_CategoryIsRequiredAndAnEmptyOneIsATypoRatherThanRunEverything()
+        {
+            // The RunTests IsEmptyCategoryArg rule, and for its reason: absent could be
+            // read as "run all", which is minutes of tests half of which mutate the save,
+            // so neither absent nor blank defaults to anything here.
+            foreach (string raw in new string[] { null, "", "   " })
+            {
+                Assert.False(TestCommandUiState.TryParseRun(
+                    TestCommandUiAction.TestRunnerWindow, raw,
+                    out string category, out string reason));
+                Assert.Null(category);
+                Assert.Equal(TestCommandUiState.RunCategoryArgMissingReason, reason);
+            }
+        }
+
+        [Fact]
+        public void Run_APresentCategoryPassesThroughVerbatim()
+        {
+            // VERBATIM, never trimmed or case-folded: the applier matches it against
+            // InGameTestInfo.Category with StringComparison.Ordinal, so a seam that
+            // normalised here would accept a spelling the match then misses and report
+            // run-category-unknown over a category that exists.
+            Assert.True(TestCommandUiState.TryParseRun(
+                TestCommandUiAction.TestRunnerGlobalWindow, "GuiTree",
+                out string category, out string reason));
+            Assert.Equal("GuiTree", category);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void Run_NeedsAWindowAndHoldsTheHeadUntilTheBatchEnds()
+        {
+            Assert.True(TestCommandUiAction.OpNeedsWindow(UiActionOp.Run));
+            Assert.True(TestCommandUiAction.OpIsTwoPhase(UiActionOp.Run));
+            // NOT the host-showUI settle gate: that one is open/rect only, and this op
+            // reads a runner's counters rather than a field a hidden host could fake.
+            Assert.False(TestCommandUiAction.SettleChecksHostShowUi(UiActionOp.Run));
+            Assert.Equal("run", TestCommandUiAction.OpToken(UiActionOp.Run));
+            Assert.True(TestCommandUiAction.TryParseOp(
+                "run", out UiActionOp op, out string reject));
+            Assert.Equal(UiActionOp.Run, op);
+            Assert.Null(reject);
+            Assert.Contains("run", TestCommandUiAction.ValidOpNames.Split(','));
+        }
+
+        [Fact]
+        public void RunPayload_CarriesTheFourNumbersTheWindowSummaryDraws()
+        {
+            var payload = TestCommandUiState.BuildRunPayload(
+                TestCommandUiAction.TestRunnerWindow, "GuiTree", 3, 2, 0, 1);
+            Assert.Equal("run", payload[0].Value);
+            var map = payload.ToDictionary(kv => kv.Key, kv => kv.Value);
+            Assert.Equal(TestCommandUiAction.TestRunnerWindow, map["window"]);
+            Assert.Equal("GuiTree", map["category"]);
+            Assert.Equal("3", map["total"]);
+            Assert.Equal("2", map["passed"]);
+            Assert.Equal("0", map["failed"]);
+            Assert.Equal("1", map["skipped"]);
+        }
+
+        // =============================================== the global runner as a window row
+
+        [Fact]
+        public void TheGlobalRunnerIsATableRowAvailableInBothScenes()
+        {
+            // It is the ONE window with no main-window button, so it is last in the table
+            // and therefore last in a describe payload. Both scene flags are true because
+            // its draw is in its own OnGUI: it is there in every scene but LOADING.
+            UiWindowSpec spec = TestCommandUiAction.Windows[
+                TestCommandUiAction.Windows.Count - 1];
+            Assert.Equal(TestCommandUiAction.TestRunnerGlobalWindow, spec.Name);
+            Assert.True(spec.InFlight);
+            Assert.True(spec.InSpaceCenter);
+            Assert.Empty(spec.Tabs);
+            // And the two runner windows are DISTINCT tokens: they share a title, which is
+            // exactly why a census must be able to name them apart.
+            Assert.NotEqual(TestCommandUiAction.TestRunnerWindow,
+                            TestCommandUiAction.TestRunnerGlobalWindow);
+        }
+
+        [Fact]
+        public void TheGlobalRunnerIsExemptFromTheHiddenHostSettleRefusal()
+        {
+            // Its window is drawn by TestRunnerShortcut.OnGUI, not by either scene host,
+            // so a settled read-back over it describes a frame that really did draw it
+            // even with the Parsek toolbar surface shut. `main` is exempt for the other
+            // reason (it IS that showUI flag), and every other window is NOT.
+            Assert.True(TestCommandUiAction.WindowDrawsOutsideHostShowUi(
+                TestCommandUiAction.TestRunnerGlobalWindow));
+            Assert.True(TestCommandUiAction.WindowDrawsOutsideHostShowUi(
+                TestCommandUiAction.MainWindow));
+            Assert.False(TestCommandUiAction.SettleRefusedForHiddenHost(
+                TestCommandUiAction.TestRunnerGlobalWindow, hostShowUi: false));
+            // The SETTINGS-launched runner is inside the host gate and stays refused: it
+            // is drawn from ParsekUI, behind the same showUI as every sub-window.
+            Assert.False(TestCommandUiAction.WindowDrawsOutsideHostShowUi(
+                TestCommandUiAction.TestRunnerWindow));
+            Assert.True(TestCommandUiAction.SettleRefusedForHiddenHost(
+                TestCommandUiAction.TestRunnerWindow, hostShowUi: false));
+            foreach (UiWindowSpec spec in TestCommandUiAction.Windows)
+            {
+                if (spec.Name == TestCommandUiAction.MainWindow
+                    || spec.Name == TestCommandUiAction.TestRunnerGlobalWindow)
+                    continue;
+                Assert.False(TestCommandUiAction.WindowDrawsOutsideHostShowUi(spec.Name),
+                    "this window draws inside the host showUI gate: " + spec.Name);
+            }
+            // An unknown token answers false (refuse the read-back), the safe direction.
+            Assert.False(TestCommandUiAction.WindowDrawsOutsideHostShowUi("nosuchwindow"));
+            Assert.False(TestCommandUiAction.WindowDrawsOutsideHostShowUi(null));
+        }
+
+        [Fact]
+        public void RunTally_CountsTHATCategorysRowsOnly_NotTheWholeRunner()
+        {
+            // THE DEFECT THIS KILLS, and it is why the op does not report
+            // runner.Passed / Failed / Skipped: those are recomputed over EVERY discovered
+            // test (InGameTestRunner.RecountResults) while ResetCategory clears only the
+            // named category, so on a runner that has run two categories they carry both.
+            // A lane whose second op=run step gated on `failed=0` would have been reading
+            // the FIRST step's failure.
+            //
+            // The stand-in for the runner is its own discovery list: `runner.Tests` is
+            // exactly an IReadOnlyList<InGameTestInfo>, and constructing a real runner
+            // needs a MonoBehaviour host xUnit cannot supply.
+            var tests = new List<InGameTestInfo>
+            {
+                new InGameTestInfo { Category = "Alpha", Name = "a1",
+                                     Status = TestStatus.Failed },
+                new InGameTestInfo { Category = "Alpha", Name = "a2",
+                                     Status = TestStatus.Passed },
+                new InGameTestInfo { Category = "Beta", Name = "b1",
+                                     Status = TestStatus.Passed },
+                new InGameTestInfo { Category = "Beta", Name = "b2",
+                                     Status = TestStatus.Skipped },
+                // NotRun rows are NOT considered, the runner's own BATCH_COMPLETE rule: a
+                // category whose second cell never ran reads total=1, not total=2.
+                new InGameTestInfo { Category = "Beta", Name = "b3",
+                                     Status = TestStatus.NotRun },
+            };
+
+            UiRunTally beta = TestCommandUiState.TallyCategory(tests, "Beta");
+            Assert.Equal(2, beta.Total);
+            Assert.Equal(1, beta.Passed);
+            Assert.Equal(0, beta.Failed);
+            Assert.Equal(1, beta.Skipped);
+
+            // The mirror direction: Alpha's failure must not leak into Beta's step, and
+            // Beta's pass must not leak into Alpha's.
+            UiRunTally alpha = TestCommandUiState.TallyCategory(tests, "Alpha");
+            Assert.Equal(2, alpha.Total);
+            Assert.Equal(1, alpha.Passed);
+            Assert.Equal(1, alpha.Failed);
+            Assert.Equal(0, alpha.Skipped);
+        }
+
+        [Fact]
+        public void RunTally_IsOrdinalAndNullSafe()
+        {
+            var tests = new List<InGameTestInfo>
+            {
+                new InGameTestInfo { Category = "GuiTree", Status = TestStatus.Passed },
+                null,
+            };
+            // ORDINAL, matching the runner's own category filter and the applier's
+            // pre-dispatch discovery count: a case-folded compare would tally a category
+            // the batch never ran.
+            Assert.Equal(0, TestCommandUiState.TallyCategory(tests, "guitree").Total);
+            Assert.Equal(1, TestCommandUiState.TallyCategory(tests, "GuiTree").Total);
+            // A null list is the runner-went-away path in the settle; a null category
+            // cannot reach it (TryParseRun refused), and both answer zeros rather than
+            // throwing inside a completion.
+            Assert.Equal(0, TestCommandUiState.TallyCategory(null, "GuiTree").Total);
+            Assert.Equal(0, TestCommandUiState.TallyCategory(tests, null).Total);
+        }
+
         // ================================================================ reason vocabulary
 
         [Fact]
@@ -1114,6 +1335,12 @@ namespace Parsek.Tests
                 TestCommandUiState.PickerTargetNotFoundReason,
                 TestCommandUiState.PickerNotOpenedReason,
                 TestCommandUiDialog.DialogArgInvalidReason,
+                TestCommandUiState.RunUnsupportedWindowReason,
+                TestCommandUiState.RunCategoryArgMissingReason,
+                TestCommandUiState.RunCategoryUnknownReason,
+                TestCommandUiState.RunRunnerNotReadyReason,
+                TestCommandUiState.RunAlreadyRunningReason,
+                TestCommandUiState.RunNotFinishedReason,
             };
             Assert.Equal(reasons.Count, reasons.Distinct().Count());
             // And none collides with the original six ops' vocabulary.

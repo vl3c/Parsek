@@ -2232,13 +2232,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanAutoSplitIgnoringGhostTriggers_AllowsTreeRecordings()
+        public void CanAutoSplitIgnoringGhostTriggers_TreeIdIsNotAGate_SameVerdictAsCanAutoSplit()
         {
+            // Renamed from ..._AllowsTreeRecordings, which overclaimed: neither
+            // CanAutoSplitIgnoringGhostTriggers nor anything it calls reads
+            // Recording.TreeId, so "allows tree recordings" was not a property
+            // this fixture could witness. What the cell CAN pin is the
+            // contrast: the tree recording and the identical non-tree
+            // recording must both be splittable, and with no trigger events on
+            // the fixture the base CanAutoSplit must agree with the
+            // ignoring-triggers overload. A newly added tree skip reds the
+            // first assertion and leaves the control green.
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
             rec.TreeId = "tree-001";
 
             Assert.True(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(rec, 1));
+            Assert.True(RecordingOptimizer.CanAutoSplit(rec, 1));
+
+            var noTree = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            Assert.Null(noTree.TreeId);
+            Assert.True(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(noTree, 1));
+            Assert.True(RecordingOptimizer.CanAutoSplit(noTree, 1));
         }
 
         [Fact]
@@ -2377,8 +2393,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FindSplitCandidatesForOptimizer_FindsTreeRecordings()
+        public void FindSplitCandidatesForOptimizer_ExoToAtmoBoundary_TreeIdIsNotAGate()
         {
+            // Renamed from ..._FindsTreeRecordings: RecordingOptimizer reads
+            // Recording.TreeId nowhere, so the old name named a property the
+            // fixture could not witness. The boundary it DOES cover is
+            // ExoBallistic -> Atmospheric, and the pinned contract is that the
+            // tree recording and the identical non-tree recording produce the
+            // SAME single (0,1) candidate. A tree skip added to the scan reds
+            // the tree arm and leaves the control green.
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
             rec.TreeId = "tree-001";
@@ -2387,6 +2410,14 @@ namespace Parsek.Tests
             var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(committed);
             Assert.Single(candidates);
             Assert.Equal((0, 1), candidates[0]);
+
+            var noTree = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            Assert.Null(noTree.TreeId);
+            var controlCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { noTree });
+            Assert.Single(controlCandidates);
+            Assert.Equal((0, 1), controlCandidates[0]);
         }
 
         [Fact]
@@ -3175,6 +3206,12 @@ namespace Parsek.Tests
         [Fact]
         public void PopulateLoopSync_NonDebrisGetsMinusOne()
         {
+            // A LINKABLE partner is present on purpose: same tree, non-debris,
+            // different pid, and a UT range that covers rec1's StartUT - i.e.
+            // every term the candidate scan requires. With the debris-only
+            // fast-skip in place both stay at -1; without it rec1 would link to
+            // the partner. A list holding rec1 alone cannot tell the skip from
+            // the field's own -1 default.
             var rec = new Recording
             {
                 RecordingId = "rec1",
@@ -3185,10 +3222,21 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 10 });
             rec.Points.Add(new TrajectoryPoint { ut = 50 });
 
-            var recordings = new List<Recording> { rec };
+            var partner = new Recording
+            {
+                RecordingId = "rec2",
+                TreeId = "tree1",
+                VesselPersistentId = 999,
+                IsDebris = false
+            };
+            partner.Points.Add(new TrajectoryPoint { ut = 5 });
+            partner.Points.Add(new TrajectoryPoint { ut = 60 });
+
+            var recordings = new List<Recording> { rec, partner };
             RecordingStore.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, rec.LoopSyncParentIdx);
+            Assert.Equal(-1, partner.LoopSyncParentIdx);
         }
 
         [Fact]
@@ -3214,6 +3262,13 @@ namespace Parsek.Tests
         [Fact]
         public void PopulateLoopSync_DebrisWithoutTreeId_GetsMinusOne()
         {
+            // The partner is the one the candidate scan WOULD accept if the
+            // TreeId conjunct were dropped from the fast-skip: non-debris,
+            // different pid, covering the debris's StartUT, and carrying the
+            // SAME (null) TreeId, since the scan compares the two tree ids for
+            // equality. With the guard in place the debris never scans and
+            // stays at -1; without it the pair links. A list holding the
+            // debris alone cannot tell the guard from the field default.
             var debris = new Recording
             {
                 RecordingId = "debris1",
@@ -3224,7 +3279,17 @@ namespace Parsek.Tests
             debris.Points.Add(new TrajectoryPoint { ut = 30 });
             debris.Points.Add(new TrajectoryPoint { ut = 35 });
 
-            var recordings = new List<Recording> { debris };
+            var partner = new Recording
+            {
+                RecordingId = "parent_no_tree",
+                TreeId = null,
+                VesselPersistentId = 100,
+                IsDebris = false
+            };
+            partner.Points.Add(new TrajectoryPoint { ut = 10 });
+            partner.Points.Add(new TrajectoryPoint { ut = 50 });
+
+            var recordings = new List<Recording> { debris, partner };
             RecordingStore.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, debris.LoopSyncParentIdx);
@@ -3746,9 +3811,15 @@ namespace Parsek.Tests
             var recordings = new List<Recording> { rec };
 
             RecordingOptimizer.TrimBoringTail(rec, recordings);
-            // Last point should be at or just before trimUT = 17050 + 10 = 17060
+            // Both loose bounds also hold for a ZERO buffer (the trim would
+            // keep the point at 17050 and EndUT would be 17050), so they pin
+            // "no more than the buffer", never the buffer itself. Pin the
+            // exact trimmed end: trimUT = lastInterestingUT 17050 + the
+            // 10 s default buffer, and the boring tail samples every 10 s, so
+            // the last kept point is exactly 17060.
             Assert.True(rec.EndUT >= 17050);
             Assert.True(rec.EndUT <= 17060);
+            Assert.Equal(17060.0, rec.EndUT, 6);
         }
 
         [Fact]

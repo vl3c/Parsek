@@ -10,6 +10,33 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: both in-game test runner windows are now photographed in their
+  real states, and the one reachable only by Ctrl+Shift+T is reachable by the census for
+  the first time.** Two windows carry the title `Parsek - Test Runner`: the one Settings
+  opens and a separate global one the Ctrl+Shift+T shortcut owns in every scene. The
+  census had a single picture of the first (idle, which for that window means all 113
+  categories expanded) and none at all of the second, whose open flag was a private field
+  on its own MonoBehaviour. Three automation-only seam additions close that. The global
+  window becomes a twelfth window-table row, reached through its own singleton and exempt
+  from the hidden-host read-back refusal because its draw is outside the Parsek toolbar
+  surface's visibility gate. The expand op learns both windows' category folds, which
+  makes the COLLAPSED category list photographable for the first time - both windows open
+  with every fold already open, so that state existed in no capture. And a new op runs one
+  in-game test category through the runner a WINDOW owns, which is the only way a results
+  capture can be honest: each runner window builds its own test runner with its own
+  discovery, so the existing batch verb drives a third runner and leaves both windows'
+  tables reading "not run" under a label claiming results. The new lane flies seven
+  captures with a control-tree dump each over a committed career at the Space Center
+  (PASS on its first run): four states of the Settings-launched window (idle, everything
+  collapsed, one category expanded, and real results after a real one-test batch - the
+  summary line moved to `1 passed` and the category header to `1/1`) and three of the
+  global one. The dumps also measured what separates the twins: exactly three controls at
+  every state, the search bar one has and the other does not. Player-facing behaviour is
+  unchanged - the ops live behind the automation command seam, and the production edits
+  are accessors plus one window-id literal named once instead of twice. One honest
+  asymmetry found and filed rather than changed: only the global window's footer tells
+  the player that the results file auto-updates, though both windows export it.
+
 - **Developer tooling: the GUI census now produces a page that BEHAVES like
   Parsek's GUI.** `harness/tools/gui_mirror.py` turns the census artifacts into one
   self-contained HTML file in which every window is laid out from the captured
@@ -308,6 +335,50 @@ _(unreleased — entries accumulate here per commit)_
   its discriminating twin already exists in the same suite). No production code changed and
   no log text changed; each strengthened cell carries a mutation patch that reds it.
 
+- **Tests: twelve rewind / Re-Fly cells from the audit's T3 (weak or misleading)
+  register now let the production term they name decide the verdict.** Each ran the
+  right code but could not see the branch its name claimed. The legacy-marker
+  structural-mutation cell excluded its branch point by lineage, so the conservative
+  null-baseline skip was never the reason it passed; the in-place slot-lookup fallback
+  used a Landed terminal, which never requires slot-aware classification, so the
+  in-place exemption from the abort could not fire; a carve-out ordering cell ran with
+  the competing chain-head gate disarmed; the idempotent re-apply hit an empty-list
+  early-out and never reached the duplicate guard its comment named; a Discard cell
+  asserted a predicate that stays true for a recording the prune removed from the
+  store; two spawn cells left the terminal null, so the effective-leaf rule and the
+  passed tree context were never consulted; a dialog headline was pinned only up to
+  the vessel name, and a classifier-fallback cell asserted a false that a hardcoded
+  false also produces; two crew-loss fixture cells compared a derivation against
+  itself; and the abort-before-dispatch cell asserted only that the run did not reach
+  its last line. The fixtures are now armed so the named term is the sole
+  discriminator, with three new sibling cells carrying the mirror direction (an
+  Orbiting in-place continuation, a non-debris recording of the same chain shape, and
+  a different-pid child resolvable only through the passed tree context, which shares
+  its instrument with an existing breakup-debris cell), and the two
+  fixture cells read the injected recording and the RP quicksave sidecar rather than
+  re-deriving what the fixture wrote. No production code changed; no log text changed;
+  nothing a player sees changes. Each cell was re-checked by breaking the named
+  production line on purpose and confirming it goes red.
+
+- **Tests: the other eight T3 rows, all recording-tree, now fail when the thing their
+  name promises breaks.** Two optimizer cells claimed to cover "tree recordings" while
+  the optimizer reads a recording's tree id nowhere, so they were renamed to the
+  boundary they actually cover and each gained a no-tree control, which makes the pair
+  a real contrast instead of a claim. Two loop-sync cells asserted a value that is also
+  the field's own default, because their fixture list held a single recording and no
+  partner could ever be found; each now carries the partner the scan WOULD accept, so
+  the guard is what produces the answer. A tail-trim cell pinned a window that a zero
+  buffer also satisfies and now pins the exact trimmed end. A scene-exit rate-limit
+  cell fired one failure reason five times while claiming a per-reason key, and now
+  fires two further reasons on the same recording inside the same window. A merge cell
+  named a version-threading that the measured code path does not read, so it was
+  renamed to the anchor-local measurement it does cover and gained a sibling that
+  stamps a format version the field default cannot be. And a sidecar cell asserting
+  "sparse encoding" touched nothing sparse: it now reads the writer's own accounting
+  line and pins the sparse list, point and per-field omission counts. No production
+  code changed; no log text changed; nothing a player sees changes. Each cell was
+  re-checked by breaking the named production line on purpose and confirming it goes
+  red.
 - **Tests: the final slice of the audit's Medium T1 register - fourteen catch-all and
   legacy-bugfix cells - now reaches the production line each name claims, closing that
   register.** Eleven cells

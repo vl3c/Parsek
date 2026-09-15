@@ -27,6 +27,20 @@ instead of open (the `pointer` row of 6.2). Sections 3 to 5 and 7 are still the 
 reading against `4eb427e9e`; 3.12 alone carries re-derived line numbers, because that is where
 the authoring pass hit them.
 
+COVERAGE UPDATED AGAIN 2026-09-15 (late) off `GUI-12-census-testrunners` (run
+`2026-09-15_2057`, PASS on attempt 1, 89 s wall, every verifier PASS or SKIPPED,
+`expectations mismatches=0`, analyzer RED=0, deployed automation DLL sha256
+`74d03cb94e233636534dd695f28d6f31e70feaf327ef38d88b851c8abb559369`, host the committed
+`career-earned-ksc` fixture at SPACECENTER, 7 PNGs + 7 `.gui.json` dumps, every dump
+`patched=17/17`). THIS IS THE LANE THAT CLOSES THE WINDOW CLASS: the global Ctrl+Shift+T
+runner was the last Parsek window with no picture and no seam route, and it now has both, so
+section 2's window row reads 14 of 14 and window 13 of 3.0 carries a token instead of an
+exclusion. What moved: section 2's tally, its denominator and its exclusion sentence (three
+deliberate exclusions -> two), rows 12 and 13 of 3.0 with the asymmetry bullet under them, the
+whole of 3.11 - which alone carries re-derived line numbers for BOTH runner files, because
+that is where this authoring pass hit them - and the two Test Runner rows of section 7's size
+table. Sections 3 to 5 and the rest of 7 are still the 2026-09-11 reading against `4eb427e9e`.
+
 ## 1. Purpose and scope
 
 This document is the structural map of Parsek's player-facing surface as it exists today:
@@ -83,9 +97,12 @@ patch that catches every `GUI.Window` overload, `GUILayout.Window` and
 `droppedOverCap=0`. The mechanism, its counters and its limits are owned by
 `design-gui-tree-dump.md`; the verb contracts by `design-autotest-command-seam.md`. There is
 NO verb that clicks a control, expands a row, selects a row, or moves the pointer - which is
-why the window table names three deliberate exclusions (`TestCommands/TestCommandUiAction.cs:369-380`:
-`GroupPickerUI` and the Logistics link picker are popups over a selection nothing can arm,
-`TestRunnerShortcut` is a separate MonoBehaviour with no accessor).
+why the window table names TWO deliberate exclusions (`TestCommands/TestCommandUiAction.cs:484-504`):
+`GroupPickerUI` and the Logistics link picker, both popups over a SELECTION nothing in the seam
+can arm, so raising either flag would photograph an empty picker. `TestRunnerShortcut` WAS the
+third and is now the `testrunnerglobal` row: a separate MonoBehaviour needs an accessor, not a
+driveable context, and one shipped with GUI-12 (3.11). Adding either survivor still costs a way
+to drive its context first, which is why the source names them rather than leaving them absent.
 
 **The host.** Both lanes ran the operator-local fixture `fixtures/local-saves/c1-gui`
 (`harness/scenarios/GUI-1-census-ksc.toml:34-44`), chosen for density: a 42 MB long-lived
@@ -113,26 +130,33 @@ lanes. WAVE 3 FLEW ON 2026-09-15 and added **8** more - `GUI-10-census-dialogs`,
 dumps + `KSP.log`) - so the corpus is **113 player-facing captures** across nine lanes. SIX of
 the eight are the first pictures of any Parsek modal; the other two
 (`dlg-baseline-no-modal`, `dlg-teardown-no-modal`) bracket them and are the lane's own proof
-that nothing stood over the frames before or after. The tally below is recomputed from the
-files, per class, and the wave-1 and wave-2 columns are kept beside it so the movement is
-visible rather than asserted.
+that nothing stood over the frames before or after. WAVE 4 FLEW LATER THAT DAY and added **7**
+more - `GUI-12-census-testrunners`, run `2026-09-15_2057`, PASS on ATTEMPT 1, 89 s wall, every
+verifier PASS or SKIPPED, `expectations mismatches=0`, analyzer RED=0, 7 PNGs + 7
+`<label>.gui.json` dumps, every dump `patched=17/17` - so the corpus is **120 player-facing
+captures** across ten lanes. FOUR of the seven are the Settings-launched runner in four states
+and THREE are the global Ctrl+Shift+T runner, which had no picture and no seam route before
+this lane. The tally below is recomputed from the files, per class, and the earlier wave
+columns are kept beside it so the movement is visible rather than asserted.
 
-| kind | wave 1 | after wave 2 | after wave 3 | still not photographed |
-|---|---|---|---|---|
-| windows | **10 of 14** | **13 of 14** | **13 of 14** | the global Ctrl+Shift+T Test Runner alone. Wave 2 pays all three hosts the seam's window table excludes by name: `Link round-trip partner` (GUI-3), `Manage Groups` + `Set Parent Group` (GUI-3 and GUI-4, both titles each), and `Parsek - Real Spawn Control` (GUI-6, one candidate row). Wave 3 adds no window: its subject is uGUI |
-| tabs | **12 of 12** | **12 of 12** | **12 of 12** | none. Wave 2 re-shoots them on hosts whose rows can be read off committed bytes, adds the FLIGHT form of eight (GUI-6 / GUI-7) and the EMPTY form of six (GUI-8) |
-| modal dialogs | **0 of 21** | **0 of 21** | **6 of 21** | 15 of the 21. SIX HAVE A PICTURE as of wave 3, each raised through its own production spawn site, reported standing by `op=dialog`, photographed, dumped and dismissed: `actionblocked` (`ParsekResourceBlock` / "Action Blocked" / `OK`), `savefailed` (`ParsekSceneExitSaveFailed` / "Save failed" / `OK`), `wiperecordings` (`ParsekWipeRecordingsConfirm` / "Confirm: Wipe Recordings" / `Wipe All`, `Cancel`), `wipemilestones` (`ParsekWipeMilestonesConfirm` / "Confirm: Wipe Milestones" / `Wipe All`, `Cancel`), `fastforward` (`ParsekFastForwardConfirm` / "Confirm: Fast-Forward" / `Fast-Forward`, `Cancel`) and `seal` (`ParsekUFSealDialog` / "Confirm: Seal Unfinished Flight" / `Seal Permanently`, `Cancel`). Each of the six `op=dialog` steps beside them read `open=true count=1` with that name, title and button list. THE SEVENTH RAISABLE ROW, `Confirm: Rewind`, answered the typed refusal `REJECTED dialog-target-unavailable popup=rewind detail=no-rewind-owner-among=21` on this host - its spawn site silently returns when `RecordingStore.GetRewindRecording` is null, and no recording in `bdock-recorded` carries a `rewindSaveFileName` - so a host with a rewind point is what would photograph it. THE REMAINING 14 STAY FILED WITH THEIR REASON, each needing state a pure in-process call cannot supply: the tree merge dialog (`ParsekMerge`; its spawn takes a `RecordingTree` and BOTH its buttons act on it, so a synthetic one's commit would write invented history), the pre-switch decision dialog (`ParsekPreSwitch`; needs a live `Vessel`, so FLIGHT only, and RE-SPAWNS ITSELF on any non-button teardown), the ghost icon context menu (`ParsekGhostIconMenu`; spawned inside a Harmony Prefix over a live ghost ProtoVessel in map view, so there is no method to call), the Tracking Station ghost popup (its host exists only in TRACKSTATION, which runs no ParsekUI, so every `UiAction` there answers `REJECTED ui-host-unavailable`), Re-Fly invoke (`ParsekRewindInvoke`; a RewindPoint with a child slot), Re-Fly revert (`ParsekReFlyRevert`; a live `ReFlySessionMarker`), `Confirm: Disband Group`, the three Logistics confirms (delete route, delete dormant route, create route - a live `Route` or `RouteCandidate`), and the remainder. See 6.2 |
-| overlays / markers / badges | **0 of 7** | **2 of 7** | **2 of 7** | the Watch Mode overlay (GUI-6 `play-main-watchmode-advanced`, also standing in `play-spawncontrol-advanced`) and the flight-map ghost markers (GUI-6 `play-mapview-ghostmarkers-advanced`, 243 `[GhostMap] Marker DRAWN` lines behind it) ARE photographed. The five still dark: the currency reservation tooltip, the stock-UI badges, the Tracking Station markers, the in-world ghost labels and the Logistics launcher TINT (zero `broken-state tint applied` lines in any lane, so only the untinted button has a picture) |
-| tooltip surfaces in a USEFUL state | **0 of 2** | **0 of 2** | **0 of 2** | both, and THE CAUSE IS NO LONGER OPEN - it was MEASURED on 2026-09-15 (GUI-7 run `2026-09-15_1539`, PASS on attempt 1, 63 s, 17 harvested files), and the reading RETIRES both candidates the finding had pre-registered. A one-shot Verbose probe inside a Parsek `OnGUI` Repaint (`TooltipEchoStripLatch.SampleMousePositionProbe`, armed by every `op=pointer`) reports `Event.current.mousePosition` beside `Input.mousePosition` in the SAME pass: the EVENT position reads `eventLocal=-8.0,-8.0` -> `eventScreen=0.0,0.0` on every probe of the flight, while the POLLED position tracks the commanded point exactly (`input=133.0,558.0` -> `inputGuiY=162.0` against a commanded `133,161`; `input=133.0,523.0` -> `inputGuiY=197.0` against `133,196`). So Unity's polled position follows a warped cursor and the position IMGUI computes its hit test from never moves at all - it stays pinned at the screen origin, which is outside every control. Neither foreground nor a synthetic mouse event is the cause: both reach-further flags were CONFIRMED APPLIED on the same run and changed nothing (`fgOutcome=attached` on the first hover move, `fgOutcome=already` on the second, `fg=true` after both, the relative `SendInput` pair accepted on both), and both answers still read `tooltip=-`. See GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT and the `pointer` row of 6.2 |
-| screen messages | **0 of 95** | **0 of 95** | **0 of 95** | all 95; zero `ScreenMessage` lines in any of the six wave-2 logs, and wave 3 does not re-measure the class - it drives modals, which are not screen messages |
-| empty-vs-populated PAIRS | **0** | **9** | **9** | Missions tab, Recordings tab, Timeline Overview, Timeline Re-Fly, Kerbals Roster, Kerbals Outcomes, Logistics, Career Milestones and the Structure window each now hold BOTH forms. Wave 1 could hold none: it flew one host. Wave 3 adds no surface pair: its `dlg-baseline-no-modal` / `dlg-teardown-no-modal` pair is a no-modal bracket around the six dialog captures, not the empty and populated forms of one surface |
+| kind | wave 1 | after wave 2 | after wave 3 | after wave 4 | still not photographed |
+|---|---|---|---|---|---|
+| windows | **10 of 14** | **13 of 14** | **13 of 14** | **14 of 14** | none - THE CLASS IS CLOSED. Wave 2 pays all three hosts the seam's window table excluded by name: `Link round-trip partner` (GUI-3), `Manage Groups` + `Set Parent Group` (GUI-3 and GUI-4, both titles each), and `Parsek - Real Spawn Control` (GUI-6, one candidate row). Wave 3 adds no window: its subject is uGUI. Wave 4 pays the last one, the global Ctrl+Shift+T Test Runner, whose open flag was a private field on a separate MonoBehaviour until GUI-12 gave it an accessor and the `testrunnerglobal` seam row (3.11); the same lane re-shoots the SETTINGS-launched runner in three further states, which is a state gain rather than a window gain |
+| tabs | **12 of 12** | **12 of 12** | **12 of 12** | **12 of 12** | none. Wave 2 re-shoots them on hosts whose rows can be read off committed bytes, adds the FLIGHT form of eight (GUI-6 / GUI-7) and the EMPTY form of six (GUI-8). Neither runner window has tabs |
+| modal dialogs | **0 of 21** | **0 of 21** | **6 of 21** | **6 of 21** | 15 of the 21. SIX HAVE A PICTURE as of wave 3, each raised through its own production spawn site, reported standing by `op=dialog`, photographed, dumped and dismissed: `actionblocked` (`ParsekResourceBlock` / "Action Blocked" / `OK`), `savefailed` (`ParsekSceneExitSaveFailed` / "Save failed" / `OK`), `wiperecordings` (`ParsekWipeRecordingsConfirm` / "Confirm: Wipe Recordings" / `Wipe All`, `Cancel`), `wipemilestones` (`ParsekWipeMilestonesConfirm` / "Confirm: Wipe Milestones" / `Wipe All`, `Cancel`), `fastforward` (`ParsekFastForwardConfirm` / "Confirm: Fast-Forward" / `Fast-Forward`, `Cancel`) and `seal` (`ParsekUFSealDialog` / "Confirm: Seal Unfinished Flight" / `Seal Permanently`, `Cancel`). Each of the six `op=dialog` steps beside them read `open=true count=1` with that name, title and button list. THE SEVENTH RAISABLE ROW, `Confirm: Rewind`, answered the typed refusal `REJECTED dialog-target-unavailable popup=rewind detail=no-rewind-owner-among=21` on this host - its spawn site silently returns when `RecordingStore.GetRewindRecording` is null, and no recording in `bdock-recorded` carries a `rewindSaveFileName` - so a host with a rewind point is what would photograph it. THE REMAINING 14 STAY FILED WITH THEIR REASON, each needing state a pure in-process call cannot supply: the tree merge dialog (`ParsekMerge`; its spawn takes a `RecordingTree` and BOTH its buttons act on it, so a synthetic one's commit would write invented history), the pre-switch decision dialog (`ParsekPreSwitch`; needs a live `Vessel`, so FLIGHT only, and RE-SPAWNS ITSELF on any non-button teardown), the ghost icon context menu (`ParsekGhostIconMenu`; spawned inside a Harmony Prefix over a live ghost ProtoVessel in map view, so there is no method to call), the Tracking Station ghost popup (its host exists only in TRACKSTATION, which runs no ParsekUI, so every `UiAction` there answers `REJECTED ui-host-unavailable`), Re-Fly invoke (`ParsekRewindInvoke`; a RewindPoint with a child slot), Re-Fly revert (`ParsekReFlyRevert`; a live `ReFlySessionMarker`), `Confirm: Disband Group`, the three Logistics confirms (delete route, delete dormant route, create route - a live `Route` or `RouteCandidate`), and the remainder. See 6.2 |
+| overlays / markers / badges | **0 of 7** | **2 of 7** | **2 of 7** | **2 of 7** | the Watch Mode overlay (GUI-6 `play-main-watchmode-advanced`, also standing in `play-spawncontrol-advanced`) and the flight-map ghost markers (GUI-6 `play-mapview-ghostmarkers-advanced`, 243 `[GhostMap] Marker DRAWN` lines behind it) ARE photographed. The five still dark: the currency reservation tooltip, the stock-UI badges, the Tracking Station markers, the in-world ghost labels and the Logistics launcher TINT (zero `broken-state tint applied` lines in any lane, so only the untinted button has a picture) |
+| tooltip surfaces in a USEFUL state | **0 of 2** | **0 of 2** | **0 of 2** | **0 of 2** | both, and THE CAUSE IS NO LONGER OPEN - it was MEASURED on 2026-09-15 (GUI-7 run `2026-09-15_1539`, PASS on attempt 1, 63 s, 17 harvested files), and the reading RETIRES both candidates the finding had pre-registered. A one-shot Verbose probe inside a Parsek `OnGUI` Repaint (`TooltipEchoStripLatch.SampleMousePositionProbe`, armed by every `op=pointer`) reports `Event.current.mousePosition` beside `Input.mousePosition` in the SAME pass: the EVENT position reads `eventLocal=-8.0,-8.0` -> `eventScreen=0.0,0.0` on every probe of the flight, while the POLLED position tracks the commanded point exactly (`input=133.0,558.0` -> `inputGuiY=162.0` against a commanded `133,161`; `input=133.0,523.0` -> `inputGuiY=197.0` against `133,196`). So Unity's polled position follows a warped cursor and the position IMGUI computes its hit test from never moves at all - it stays pinned at the screen origin, which is outside every control. Neither foreground nor a synthetic mouse event is the cause: both reach-further flags were CONFIRMED APPLIED on the same run and changed nothing (`fgOutcome=attached` on the first hover move, `fgOutcome=already` on the second, `fg=true` after both, the relative `SendInput` pair accepted on both), and both answers still read `tooltip=-`. See GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT and the `pointer` row of 6.2 |
+| screen messages | **0 of 95** | **0 of 95** | **0 of 95** | **0 of 95** | all 95; zero `ScreenMessage` lines in any of the six wave-2 logs, and neither wave 3 nor wave 4 re-measures the class - one drives modals and the other windows, and neither is a screen message |
+| empty-vs-populated PAIRS | **0** | **9** | **9** | **9** | Missions tab, Recordings tab, Timeline Overview, Timeline Re-Fly, Kerbals Roster, Kerbals Outcomes, Logistics, Career Milestones and the Structure window each now hold BOTH forms. Wave 1 could hold none: it flew one host. Wave 3 adds no surface pair: its `dlg-baseline-no-modal` / `dlg-teardown-no-modal` pair is a no-modal bracket around the six dialog captures, not the empty and populated forms of one surface. Wave 4 adds none either: its four Settings-launched states are one surface in four states, and the closest thing to a pair - the same rows before and after a real run - is a RESULTS pair rather than an empty-vs-populated one |
 
 THE DENOMINATOR, re-derived rather than carried forward. The named classes sum to **57**
 countable surfaces (14 windows + 12 tabs + 21 dialogs + 7 overlays/markers/badges + 2 tooltip
 surfaces + 1 toolbar button), so wave 1's coverage was **22 of 57**, after wave 2 it was
-**27 of 57** (13 + 12 + 0 + 2 + 0 + 0), and after wave 3 it is **33 of 57**
-(13 + 12 + 6 + 2 + 0 + 0) - the whole of that movement is the dialog class, and the two
-classes still at zero are the ones nothing has yet found a path to.
+**27 of 57** (13 + 12 + 0 + 2 + 0 + 0), after wave 3 it was **33 of 57**
+(13 + 12 + 6 + 2 + 0 + 0) - the whole of that movement the dialog class - and after wave 4 it
+is **34 of 57** (14 + 12 + 6 + 2 + 0 + 0), the one further surface being the global runner and
+the window class now CLOSED. The two classes still at zero are the ones nothing has yet found a
+path to.
 THE "22 OF 105" THIS PARAGRAPH USED TO CARRY WAS A
 HAND-SUM ERROR and is corrected here rather than repeated: 105 does not reconcile with the
 class list it names under any reading (the classes give 57; adding appendix 5's ~38 in-window
@@ -236,16 +260,19 @@ The 14 distinct IMGUI windows, in the main window's own button order - the order
 | 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
 | 10 | `Real Spawn Control` | `UI/SpawnControlUI.cs:162` | FLIGHT only | `spawncontrol` | `play-spawncontrol-advanced` (GUI-6, 69 nodes, one candidate row) |
 | 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs:94` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
-| 12 | `Parsek - Test Runner` (Settings-launched) | `UI/TestRunnerUI.cs:122` | FLIGHT, SPACECENTER | `testrunner` | `ksc-testrunner-advanced` (4217 nodes) |
-| 13 | `Parsek - Test Runner` (global Ctrl+Shift+T) | `InGameTests/TestRunnerShortcut.cs:204` | ANY scene | excluded `TestCommandUiAction.cs:378-380` | NONE |
+| 12 | `Parsek - Test Runner` (Settings-launched) | `UI/TestRunnerUI.cs:133` | FLIGHT, SPACECENTER | `testrunner` | `ksc-testrunner-advanced` (4217 nodes) plus four GUI-12 labels, all `cek-` on `career-earned-ksc`: `-testrunner-idle-advanced` (4217 in this window's subtree, the same figure GUI-1 read), `-testrunner-collapsed-advanced` (473), `-testrunner-category-advanced` (479) and `-testrunner-results-advanced` (479, one real pass in the table). Four states, not one picture (3.11) |
+| 13 | `Parsek - Test Runner` (global Ctrl+Shift+T) | `InGameTests/TestRunnerShortcut.cs:291` | ANY scene | `testrunnerglobal` | three GUI-12 labels: `cek-testrunnerglobal-idle-advanced` (4214 in this window's subtree), `-collapsed-advanced` (470) and `-category-advanced` (476) - ITS FIRST PICTURES OF ANY KIND. The delta against row 12 is EXACTLY 3 nodes at every comparable state, and the dumps say which three: the `Search:` label, the text field and the 24 px `x` clear button this window does not draw (3.11) |
 | 14 | `Set Parent Group` / `Manage Groups` | `UI/GroupPickerUI.cs:224` | as its host | excluded `TestCommandUiAction.cs:369-373`; reached by `op=picker picker=manage|setparent` | both titles on GUI-3 (`ib-missions-grouppicker-manage/setparent-advanced`) and GUI-4 (`bd-missions-grouppicker-manage/setparent-advanced`) |
 
 Two asymmetries in that table are mechanical facts, not presentation choices:
 
 - Window 13 is the ONLY one that calls raw `GUILayout.Window` instead of
-  `ClickThruBlocker.GUILayoutWindow` (`InGameTests/TestRunnerShortcut.cs:204`), so it is the
+  `ClickThruBlocker.GUILayoutWindow` (`InGameTests/TestRunnerShortcut.cs:291`), so it is the
   only Parsek window with no click-through protection; it compensates with its own
-  `windowRect.Contains(Event.current.mousePosition)` input lock at `:213`.
+  `windowRect.Contains(Event.current.mousePosition)` input lock at `:300`. It is also the only
+  row drawn OUTSIDE both scene hosts' `showUI` gate - its draw is in its own `OnGUI`
+  (`:264`) - which is why the seam exempts it, and only it besides `main`, from the
+  hidden-host settle refusal (`TestCommandUiAction.WindowDrawsOutsideHostShowUi`, `:857`).
 - The TRACKING STATION hosts no Parsek window at all. `ParsekTrackingStation.cs:350` has an
   `OnGUI`, and its whole body is the pause gate plus `DrawAtmosphericMarkers()`; the source
   says so in place at `:394-395`, and `UiAction` answers `REJECTED ui-host-unavailable` there.
@@ -735,6 +762,10 @@ greyed. No picture: the `Recording` or `Saved` blocks, `Stop Preview`.
 
 ### 3.11 The two Test Runner windows
 
+EVERY `file:line` IN THIS SUBSECTION WAS RE-DERIVED ON 2026-09-15 against both runner files,
+because that is where the GUI-12 authoring pass hit them; the rest of section 3 is still the
+2026-09-11 reading.
+
 They share a row model, status icons, colours, category labels and `Run` / `Run+` / play
 semantics (both call into `InGameTests/TestRunnerPresentation.cs` and the same
 `InGameTestRunner` API). Two row kinds, no columns, no sort keys (categories are ordinal-sorted):
@@ -742,21 +773,72 @@ a category header `"{arrow} {category} ({passed}/{total})"` plus `Run` 40 and `R
 test row with a 20 px status icon, an expanding name label with `[isolated]` / `[single]` /
 `(NNNms)` suffixes, and a 24 px play button - followed by an ALWAYS-rendered error row that
 collapses to `Height(0)` when empty, because a conditional begin/end would desync the
-Layout/Repaint control count (`UI/TestRunnerUI.cs:334-346`).
+Layout/Repaint control count (`UI/TestRunnerUI.cs:386-398`).
 
 | difference | global (Ctrl+Shift+T) | Settings-launched |
 |---|---|---|
-| search / filter bar | absent | present (`UI/TestRunnerUI.cs:446-460`) |
-| footer labels | two (`InGameTests/TestRunnerShortcut.cs:551`, `:553`) | one (`UI/TestRunnerUI.cs:498`) |
-| window host | raw `GUILayout.Window` | `ClickThruBlocker` |
-| input lock | CAMERACONTROLS + six editor types + `KSC_ALL` (`:217-222`) | CAMERACONTROLS only |
-| open-flag accessor | NONE - private field, so no `op=open` reaches it | `IsOpen` + `WindowRectForTesting` |
-| complexity | never gated; draws in every scene but LOADING (`:180`) | launcher lives inside the Basic-hidden Diagnostics section, and the close handler shuts an open instance (`ParsekUI.cs:516-521`) |
-| extra responsibility | hosts the M-A3 autorun hooks (`:136-152`, `:635-710`, `:728`, `:787`) | none |
+| search / filter bar | absent | present (`UI/TestRunnerUI.cs:497-512`) |
+| footer labels | two (`InGameTests/TestRunnerShortcut.cs:638`, `:640`) | one (`UI/TestRunnerUI.cs:555`) |
+| window host | raw `GUILayout.Window` (`:291`) | `ClickThruBlocker` (`UI/TestRunnerUI.cs:133`) |
+| input lock | CAMERACONTROLS + six editor types + `KSC_ALL` (`:304-310`) | CAMERACONTROLS only |
+| open-flag accessor | `IsOpenForTesting` + `WindowRectForTesting` (`:134`, `:148`), reached through this MonoBehaviour's OWN singleton `Instance` (`:109`) rather than through `ParsekUI` | `IsOpen` + `WindowRectForTesting` |
+| complexity | never gated; draws in every scene but LOADING (`:267`) | launcher lives inside the Basic-hidden Diagnostics section, and the close handler shuts an open instance (`ParsekUI.cs:516-521`) |
+| extra responsibility | hosts the M-A3 autorun hooks (env consts `:69`-`:80`, read-once parse `:223`, `UpdateAutorun` `:722`, `FireAutorun` `:815`, the multi-category driver `:874`) | none |
 
-Picture: `ksc-testrunner-advanced` only - 4217 nodes, idle, 113 category headers, 624 play rows,
-zero collapsed categories, summary `idle | 0 passed  0 failed  0 skipped  (624 total)`. The
-global window has no picture anywhere and is unreachable from the seam.
+BOTH WINDOWS ARE NOW PHOTOGRAPHED, by `GUI-12-census-testrunners` (run `2026-09-15_2057`, host
+the committed `career-earned-ksc` fixture at SPACECENTER, 113 categories and 624 play rows on
+that build). Seven captures, and the node counts below are the window's OWN SUBTREE with the
+whole dump's total in brackets: the Settings-launched runner idle 4217 (4253), every fold closed
+473 (509), one category expanded over the closed list 479 (515), and the same rows after a real
+run 479 (515); the global runner idle 4214 (4250), closed 470 (506), one category 476 (512).
+IDLE MEANS EVERY CATEGORY EXPANDED for both, because each seeds its fold set from its own
+discovery at lazy init (`UI/TestRunnerUI.cs:111-116`, `InGameTests/TestRunnerShortcut.cs:471-477`),
+which is why GUI-1's single 4217-node picture was the largest dump in the census and still showed
+one state of four - and why the load-bearing seam direction is `key=none` rather than `key=all`.
+
+THE DIFFERENCE BETWEEN THE TWO WINDOWS IS MEASURED, not inferred: exactly 3 nodes at every
+comparable state (4217/4214, 473/470, 479/476), and the dumps name them - the `Search:` label,
+the text field and the 24 px `x` clear button the global window does not draw. The footer
+asymmetry the table above states is confirmed in the same dumps and in that direction: the
+GLOBAL window draws TWO footer labels (`Results file auto-updates after each run. Multi-scene
+runs accumulate.` and `Ctrl+Shift+T to toggle from any scene`) while the Settings-launched one
+draws ONE (`Ctrl+Shift+T opens a separate runner window, in any scene`, the P16 fix).
+
+THE SEAM ROUTES THAT BOUGHT THOSE PICTURES, all automation-only, all writing internal state a
+click already writes, and none of them a player-facing surface:
+
+- `testrunnerglobal` is a twelfth window-table row, so every `op=describe` payload in the census
+  now reads `windows=12`. The count is the seam's whole TABLE rather than the scene's drawn set,
+  which is why the eleven older census specs had their pinned echoes bumped from `windows=11` in
+  the same commit. It is the only row besides `main` exempt from the hidden-host settle refusal
+  (`TestCommands/TestCommandUiAction.cs:857`), because its draw is in its own `OnGUI` outside
+  both scene hosts' `showUI` gate, so a settled read-back over it describes a frame that really
+  did draw it.
+- `op=expand key=category:<name>` drives either window's fold set through ONE key prefix
+  (`TestCommands/TestCommandUiState.cs:121`), one set per window, with `window=` saying which -
+  the prefix names the same collection shape in both, so a second one would only invite the two
+  to drift. The flown readings: `key=none` answered `changed=113 expanded=0 total=113` on each
+  window, and `key=category:GuiTree state=true` answered `changed=1 expanded=1 total=113`.
+- `op=run window=<runner> category=<name>` runs one in-game test category through THAT WINDOW'S
+  OWN `InGameTestRunner` - the category header `Run` button's body, `ResetCategory` then
+  `RunCategory` (`TestCommands/ParsekTestCommandAddon.UiRun.cs:106-107`). It is NOT the
+  `RunTests` verb, and that is the whole reason it exists: each runner window constructs its own
+  runner with its own reflection discovery, so a `RunTests` batch drives a THIRD runner and
+  leaves both windows' tables reading "not run" - a capture labelled "results" over a table of
+  dots. The flown reading is `uiaction run ok ... discovered=1 total=1 passed=1 failed=0
+  skipped=0` over `GuiTree`, and the window followed it. The summary label moved from
+  `idle | 0 passed  0 failed  0 skipped  (624 total)` to
+  `idle | 1 passed  0 failed  0 skipped  (624 total)`, and the category header from
+  `GuiTree (0/1)` to `GuiTree (1/1)`. So
+  `cek-testrunner-results-advanced` is the product's own rendering of a real outcome rather than
+  a seeded status. That runner is also read by the addon's safe-point gate (`IsBatchRunning` /
+  `CommandRunnerIsRunningForGating`), which now covers the Settings-launched window's runner as
+  well, since this op can start a batch on it.
+
+NO PICTURE STILL: a FAILED row (the red error row that expands out of its `Height(0)` collapse),
+the `Run+` isolated path, and either window MID-RUN - `op=run` is two-phase and polls
+`!runner.IsRunning`, so a frame between the dispatch and the finish is not something a lane can
+time.
 
 ### 3.12 Dialogs (21)
 
@@ -1467,8 +1549,8 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 | Settings | none | 280 x 600 (the 600 is a guess; every first open requests a height fit, `:75-86`) | NO handle; height is fixed between fits | yes | yes |
 | Real Spawn Control | 350 x 150 (`UI/SpawnControlUI.cs:74-75`) | 750 x 200 | yes | yes | yes |
 | Gloops | none | 280 x 230 (`UI/GloopsRecorderUI.cs:48-49`) | NO handle | yes | yes |
-| Test Runner (Settings) | 320 x 600 (`UI/TestRunnerUI.cs:70-73`) | 440 x 600 | yes | yes, 600 of 720 | yes |
-| Test Runner (global) | 320 x 600 (`InGameTests/TestRunnerShortcut.cs:85-88`) | 440 x 600 at a FIXED screen position (20, 60), not anchored to the main window (`:195`) | yes | yes | yes |
+| Test Runner (Settings) | 320 x 600 (`UI/TestRunnerUI.cs:79-84`, re-derived 2026-09-15) | 440 x 600 | yes | yes, 600 of 720 | yes |
+| Test Runner (global) | 320 x 600 (`InGameTests/TestRunnerShortcut.cs:83-91`, re-derived 2026-09-15) | 440 x 600 at a FIXED screen position (20, 60), not anchored to the main window (`:282`) | yes | yes | yes. GUI-12 commands it to 620x700 through `op=rect window=testrunnerglobal`, the same rect as its twin, so the two are comparable at a glance |
 | Group picker | 220 x 200 (`UI/GroupPickerUI.cs:88-89`) | 280 x 300, clamped to the screen at the click point (`:207-213`) | yes | yes | yes |
 | Logistics link picker | 240 x 180 (`UI/LogisticsWindowUI.cs:329-330`) | 340 x 380, clamped at the arming mouse position | yes | yes | yes |
 

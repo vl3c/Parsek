@@ -332,6 +332,15 @@ covered" rather than "what does it look like".
 192 captures over 7 fixtures and 12 windows, from 16 census runs (GUI-1 through
 GUI-11).
 
+STALE BY ONE LANE AND ONE WINDOW as of the same day: `GUI-12-census-testrunners`
+(PASS `2026-09-15_2057`) adds SEVEN captures - four states of `testrunner` (idle,
+every fold collapsed, one category expanded, real results) against the one this
+table counts, and three of the THIRTEENTH window, `testrunnerglobal`, the global
+Ctrl+Shift+T runner, which had no capture of any kind before it. The generator needs
+no change to take them (`parse_label` reads its window vocabulary out of the logs),
+so the mirror wants one REGENERATION rather than an edit; the numbers above are left
+as the reading they were, per this section's own "as of" contract.
+
 | Window | Captures | Distinct states | Datasets |
 | --- | --- | --- | --- |
 | main | 56 | 27 | all 7 |

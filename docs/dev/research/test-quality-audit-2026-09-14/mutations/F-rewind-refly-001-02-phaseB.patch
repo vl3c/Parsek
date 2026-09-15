@@ -1,0 +1,28 @@
+diff --git a/Source/Parsek/SupersedeCommit.cs b/Source/Parsek/SupersedeCommit.cs
+index 00b958c1d..71ddd4f06 100644
+--- a/Source/Parsek/SupersedeCommit.cs
++++ b/Source/Parsek/SupersedeCommit.cs
+@@ -1421,7 +1421,7 @@ namespace Parsek
+             // gate would auto-seal a stashed slot the player never
+             // mutated. Conservatively skip the gate when the baseline is
+             // absent (legacy markers created before this field shipped).
+-            if (marker.PreSessionBranchPointIds == null) return false;
++            // MUTATION: null baseline treated as an empty set.
+ 
+             ParsekScenario scenario = ParsekScenario.Instance;
+             double? cutoff = TryResolveReFlyStructuralCutoffUT(
+@@ -1437,10 +1437,11 @@ namespace Parsek
+                 : null;
+             if (tree == null || tree.BranchPoints == null) return false;
+ 
+-            HashSet<string> preSessionSet = new HashSet<string>(
+-                marker.PreSessionBranchPointIds, StringComparer.Ordinal);
++            HashSet<string> preSessionSet = marker.PreSessionBranchPointIds != null
++                ? new HashSet<string>(marker.PreSessionBranchPointIds, StringComparer.Ordinal)
++                : new HashSet<string>(StringComparer.Ordinal);
+             HashSet<string> lineageSet = BuildReFlyTargetLineageRecordingIds(rec);
+-            baselineCount = marker.PreSessionBranchPointIds.Count;
++            baselineCount = preSessionSet.Count;
+             lineageCount = lineageSet.Count;
+ 
+             // A small UT slack absorbs floating-point round-trip drift

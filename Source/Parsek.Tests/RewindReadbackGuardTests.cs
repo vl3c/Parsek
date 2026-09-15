@@ -390,6 +390,16 @@ namespace Parsek.Tests
                 && l.Contains("ABORTING rewind ledger patch")
                 && l.Contains("loaded quicksave values stand"));
             Assert.DoesNotContain(logLines, l => l.Contains("PatchAll complete"));
+            // "PatchAll complete" alone only proves the run did not REACH the
+            // end; a guard relocated below PatchScience / PatchFunds would
+            // also skip it. Pin the BEFORE-dispatch half by asserting the
+            // first two dispatch targets logged nothing: PatchScience's
+            // null-module warn and PatchFunds' null-module warn are the lines
+            // a mid-dispatch abort would leave behind on this fixture.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("PatchScience: null ScienceModule"));
+            Assert.DoesNotContain(logLines, l => l.Contains("PatchFunds:"));
+            Assert.DoesNotContain(logLines, l => l.Contains("PatchReputation:"));
         }
 
         [Fact]

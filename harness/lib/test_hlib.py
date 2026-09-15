@@ -8694,6 +8694,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "the first flight, whose six PNGs ARE the "
                                        "deliverable, and then the ordinary promotion "
                                        "call. NEVER FLOWN at authoring time.",
+        "GUI-12-census-testrunners.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: "
+                                       "the ordinary promotion call. FLOWN once at "
+                                       "authoring time (2026-09-15) - the seven PNGs and "
+                                       "seven dumps ARE the deliverable - so the tag "
+                                       "names the cadence decision only.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -14964,6 +14970,77 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                          "order and sums `expanded=` the same way)"
                          % (dict(hlib.UIACTION_EXPAND_PREFIXES), wired))
 
+    def test_the_runnable_window_set_mirrors_the_c_sharp_predicate(self):
+        """Reads OUTSIDE harness/. `op=run window=` is validated here against
+        UIACTION_RUNNABLE_WINDOWS and by the seam against
+        TestCommandUiState.WindowOwnsTestRunner; a window added on one side alone is a
+        typed REJECTED (`run-unsupported-window`) after a full KSP boot, or - the other
+        direction - a pre-launch error on a window the seam would have driven.
+
+        UNLIKE its neighbours this set is NOT derived from the C# by any other cell: the
+        window / op / expand-prefix vocabularies each have a parse that reads their own
+        table, which is why they stay in step without anyone remembering. This one is a
+        hand-kept tuple, so it needs its own parse. Comments are stripped first, per the
+        house rule: that predicate's neighbourhood names both window constants in prose
+        (the `RunnableWindowNames` summary, the reject-reason doc comments), so a raw
+        regex would read the documentation instead of the code and pass GREEN against a
+        predicate that had lost a window."""
+        state_path = os.path.join(
+            PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiState.cs")
+        action_path = os.path.join(
+            PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        for path in (state_path, action_path):
+            self.assertTrue(os.path.isfile(path),
+                            "the C# run tables moved; this mirror is vacuous: %s" % path)
+        state = self._strip_cs_comments(state_path)
+        action = self._strip_cs_comments(action_path)
+
+        window_tokens = dict(re.findall(
+            r'internal const string (\w+Window) = "([a-z]+)";', action))
+        body = self._parse_cs_window_owns_test_runner_body(state)
+        wired = [window_tokens[c] for c in re.findall(
+            r"TestCommandUiAction\.(\w+Window)", body)]
+        self.assertTrue(wired, "WindowOwnsTestRunner parsed to an empty window list")
+        self.assertEqual(list(hlib.UIACTION_RUNNABLE_WINDOWS), wired,
+                         "hlib.UIACTION_RUNNABLE_WINDOWS %r vs the C# "
+                         "WindowOwnsTestRunner body's windows %r"
+                         % (list(hlib.UIACTION_RUNNABLE_WINDOWS), wired))
+
+        # And the REJECT MESSAGE carries the same set in the same order: it is the only
+        # place a spec author learns the spelling without reading the source, so a
+        # predicate and a message that disagree send them to a window the op refuses.
+        joined = re.search(
+            r"internal static string RunnableWindowNames =>(.*?);", state, re.S)
+        self.assertIsNotNone(joined, "RunnableWindowNames moved")
+        self.assertEqual(wired, [window_tokens[c] for c in re.findall(
+            r"TestCommandUiAction\.(\w+Window)", joined.group(1))])
+
+    @staticmethod
+    def _parse_cs_window_owns_test_runner_body(stripped):
+        """The body of the comment-free `WindowOwnsTestRunner`, signature to `;`."""
+        marker = "internal static bool WindowOwnsTestRunner(string window)"
+        at = stripped.find(marker)
+        assert at >= 0, "WindowOwnsTestRunner signature not found"
+        end = stripped.find(";", at)
+        assert end > at, "WindowOwnsTestRunner body has no terminator"
+        return stripped[at + len(marker):end]
+
+    def test_the_window_owns_test_runner_parse_is_not_vacuous(self):
+        """Anti-vacuity for the parse above, over a SYNTHETIC source whose comments name
+        a THIRD window: the real neighbourhood documents the set in prose, so a parse
+        that read comments would report a window the predicate refuses."""
+        synthetic = "\n".join([
+            "        // A comment naming TestCommandUiAction.MissionsWindow, which is",
+            "        /// NOT in the set.",
+            "        internal static bool WindowOwnsTestRunner(string window)",
+            "            => window == TestCommandUiAction.TestRunnerWindow;",
+        ])
+        stripped = "\n".join(
+            line.split("//", 1)[0] for line in synthetic.splitlines())
+        body = self._parse_cs_window_owns_test_runner_body(stripped)
+        self.assertEqual(["TestRunnerWindow"],
+                         re.findall(r"TestCommandUiAction\.(\w+Window)", body))
+
     def test_the_census_ops_closed_arg_rows_name_their_owner_verbs(self):
         """The four new closed-value rows, and specifically that `ctrl=` is NOT spelled
         `kind=`. VERB_SCOPED_CLOSED_ARGS allows exactly one owner verb per key and
@@ -15000,6 +15077,37 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         errors = hlib.validate_ui_action_step(
             0, {"op": "open", "window": "settings", "text": "Close"})
         self.assertTrue(any("only mean anything on op=find" in e for e in errors), errors)
+
+    def test_uiaction_run_requires_a_category_and_a_window_that_owns_a_runner(self):
+        # The four faults this branch exists for, each of which would otherwise cost a
+        # whole KSP boot to learn: a missing category, a WRITTEN-but-blank one (a typo,
+        # never "run everything"), a window with no runner, and the arg on an op that
+        # does not read it - which is the easy mistake here, because the RunTests VERB
+        # reads the same key.
+        self.assertTrue(any(
+            "run-category-arg-missing" in e for e in hlib.validate_ui_action_step(
+                0, {"op": "run", "window": "testrunner"})))
+        self.assertTrue(any(
+            "run-category-arg-missing" in e for e in hlib.validate_ui_action_step(
+                1, {"op": "run", "window": "testrunner", "category": "   "})))
+        self.assertTrue(any(
+            "run-unsupported-window" in e for e in hlib.validate_ui_action_step(
+                2, {"op": "run", "window": "missions", "category": "GuiTree"})))
+        self.assertTrue(any(
+            "only op=run reads it" in e for e in hlib.validate_ui_action_step(
+                3, {"op": "expand", "window": "missions", "key": "all",
+                    "category": "GuiTree"})))
+        # And the mirror direction: both runner windows are legal, and nothing else about
+        # the step is required.
+        for window in hlib.UIACTION_RUNNABLE_WINDOWS:
+            self.assertEqual([], hlib.validate_ui_action_step(
+                4, {"op": "run", "window": window, "category": "GuiTree"}))
+        # `window=` itself is REQUIRED, from the shared ops-needing-a-window table rather
+        # than from this branch - asserted here so the two cannot drift apart silently.
+        self.assertIn("run", hlib.UIACTION_OPS_NEEDING_WINDOW)
+        self.assertTrue(any(
+            "window-arg-missing" in e for e in hlib.validate_ui_action_step(
+                5, {"op": "run", "category": "GuiTree"})))
 
     def test_uiaction_expand_keys_are_validated_against_that_windows_prefixes(self):
         self.assertTrue(any(

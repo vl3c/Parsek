@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MergeDialog.DialogText.cs b/Source/Parsek/MergeDialog.DialogText.cs
+index 4940498ba..dbe0b55ab 100644
+--- a/Source/Parsek/MergeDialog.DialogText.cs
++++ b/Source/Parsek/MergeDialog.DialogText.cs
+@@ -80,7 +80,7 @@ namespace Parsek
+             bool willAutoSeal)
+         {
+             string headline = $"<align=\"center\">{vesselLabel} - " +
+-                              $"{FormatDuration(reFlyDuration)}</align>\n\n";
++                              $"</align>\n\n";
+             if (!willAutoSeal)
+             {
+                 // Not a sealing terminal: the dialog shows both

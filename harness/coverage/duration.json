@@ -622,6 +622,16 @@
         "2026-09-15T17:45:24Z": 60.0
       }
     },
+    "GUI-12-census-testrunners": {
+      "last": 89.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 89.0,
+      "p95": 89.0,
+      "samples": {
+        "2026-09-15T20:59:06Z": 89.0
+      }
+    },
     "GUI-2-census-flight": {
       "last": 57.0,
       "lastVsP50": 1.0,

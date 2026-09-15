@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MergeDialog.DialogText.cs b/Source/Parsek/MergeDialog.DialogText.cs
+index 4940498ba..488ba3393 100644
+--- a/Source/Parsek/MergeDialog.DialogText.cs
++++ b/Source/Parsek/MergeDialog.DialogText.cs
+@@ -58,7 +58,7 @@ namespace Parsek
+             }
+ 
+             source = "preview:" + (classifierReason ?? "<unavailable>");
+-            return preview.WillAutoSeal;
++            return false; // MUTATION: hardcoded fallback.
+         }
+ 
+         /// <summary>

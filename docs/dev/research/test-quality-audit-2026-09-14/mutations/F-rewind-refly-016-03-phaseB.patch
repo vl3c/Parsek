@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek.Tests/Generators/ScenarioWriter.cs b/Source/Parsek.Tests/Generators/ScenarioWriter.cs
+index e22e068e2..a8d6f1adc 100644
+--- a/Source/Parsek.Tests/Generators/ScenarioWriter.cs
++++ b/Source/Parsek.Tests/Generators/ScenarioWriter.cs
+@@ -1099,7 +1099,8 @@ namespace Parsek.Tests.Generators
+                 VesselName = builder.GetVesselName(),
+                 RecordingFormatVersion = builder.GetFormatVersion(),
+                 RecordingSchemaGeneration = builder.GetSchemaGeneration(),
+-                VesselPersistentId = StableHashToUint(recordingId),
++                // MUTATION: recording-side pid derived from a different seed.
++                VesselPersistentId = StableHashToUint(recordingId + ":drift"),
+                 RecordedVesselGuid = builder.GetRecordedVesselGuid(),
+                 ExplicitStartUT = builder.GetStartUT(),
+                 ExplicitEndUT = builder.GetEndUT(),

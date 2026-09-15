@@ -1,0 +1,240 @@
+schema = 1
+id = "GUI-12-census-testrunners"
+tier = "operator"
+# THE TWO TEST-RUNNER WINDOWS, photographed in their real states. They are the last
+# Parsek windows the census treated as one picture each, and one of them had no picture
+# at all.
+#
+# WHAT WAS MISSING, measured off the committed lanes rather than remembered:
+#   - the SETTINGS-launched runner (`UI/TestRunnerUI.cs`, seam token `testrunner`) had
+#     exactly ONE capture in the whole census, `ksc-testrunner-advanced` on GUI-1, in its
+#     idle state - which for this window means EVERY category expanded, because its lazy
+#     init seeds the fold set from its own discovery. At 4253 nodes that dump is the
+#     largest in the census and it shows one state of four;
+#   - the GLOBAL Ctrl+Shift+T runner (`InGameTests/TestRunnerShortcut.cs`, its own window
+#     id `ParsekTestRunnerGlobal`) had NO seam route and NO capture: it was one of the
+#     three deliberate exclusions named in the seam's window table, because its open flag
+#     is a private field on a separate MonoBehaviour with no accessor. It is also the only
+#     Parsek window drawn with a raw `GUILayout.Window` and the only one outside both
+#     scene hosts' `showUI` gate.
+#
+# THE THREE SEAM ADDITIONS THIS LANE FLIES (all automation-only, no player-facing
+# surface):
+#   1. `testrunnerglobal`, a twelfth window-table row reaching `TestRunnerShortcut`'s own
+#      singleton the way the `main` row reaches the scene host. It is exempt from the
+#      hidden-host settle refusal (`WindowDrawsOutsideHostShowUi`) because its draw is in
+#      its own `OnGUI`, so a settled read-back over it describes a frame that really did
+#      draw it. Every `describe` echo in the census now reads `windows=12` for this one
+#      row - the count is the seam's whole TABLE, not the scene's drawn set, which is why
+#      the eleven older census specs had their pins bumped in the same commit.
+#   2. `op=expand key=category:<name>` on BOTH runner windows (prefix `category`, one set
+#      per window). The load-bearing direction here is `key=none`: both windows open with
+#      every category expanded, so the COLLAPSED category list is the state no capture
+#      could previously exist for.
+#   3. `op=run window=<runner> category=<name>`, which runs one in-game test category
+#      through THAT WINDOW'S OWN runner - the category header "Run" button's body
+#      verbatim. It is NOT the `RunTests` verb, and the difference is the whole reason the
+#      op exists: each runner window constructs its own `InGameTestRunner`, each runner
+#      does its own reflection discovery, and `Status` lives on those per-runner
+#      `InGameTestInfo` objects. A `RunTests` batch drives a THIRD runner (the addon's
+#      own), so it leaves both windows' tables reading "not run" - a capture labelled
+#      "results" over a table of dots. This lane would rather add the op than take a
+#      dishonest picture.
+#
+# WHY `category = "GuiTree"` AND NOT A BIGGER ONE. It is ONE test, scene-agnostic,
+# batch-safe, builds and destroys its own probe window, needs no fixture and no vessel -
+# and it has a FLOWN green record at SPACECENTER (`GUI-1`, reading run
+# `2026-09-11_0548`: `total=1 passed=1 failed=0 skipped=0`). One passing row plus the
+# summary line is all a results CAPTURE needs; a bigger category would buy more rows at
+# the price of minutes and of save-mutating cells.
+#
+# WHY THIS LANE PINS NO `BATCH_COMPLETE` LINE. `op=run` is not a batch OWNER in the
+# harness's sense (`hlib.validate_spec`: a RunTests step XOR an `[driver.autorun]`
+# block), and a spec that pinned the tally without owning a batch is a validation error
+# by that rule. The batch does emit a line (`category=GuiTree`), and a reader will find
+# it in the log; what this lane GATES on instead is `uiaction run ok ... failed=0` with
+# the counts regexed - so a failing cell reds the lane, while a test ADDED to the GuiTree
+# category never does. That is the deliberate difference from GUI-1's whole pin: that one
+# is cross-checked against the C# attributes by `CommittedBatchTallySourceSyncTests`,
+# which only sees RunTests-owned specs, so an exact count here would be a hardcoded
+# number with no gate keeping it true.
+#
+# HOST: the committed `career-earned-ksc` fixture, and the choice is about the SCENE
+# rather than density: neither runner window reads the save at all - its rows come from
+# the assembly's `[InGameTest]` attributes - so this is the one census lane whose content
+# is reproducible on any host. A committed fixture is therefore the right one, and this
+# one already boots to the Space Center for GUI-5. The `cek-` label prefix is that host's
+# own, which is what groups these pages with GUI-5's in the mirror
+# (`harness/tools/gui_mirror.py` parses a label as
+# `<host>-<window>[-<tab>][-<state>]-<mode>`).
+#
+# ADVANCED ONLY, deliberately. The Settings-launched runner is a GATED window: the
+# Advanced -> Basic switch CLOSES it (it has no reopen path in Basic), so a Basic pass
+# would photograph its absence, which GUI-1 already records. The global runner is NEVER
+# gated - Ctrl+Shift+T works in Basic - but its CONTENT does not change with the mode, so
+# a second pass would be the same picture under a different label.
+#
+# SEVEN captures and seven dumps = 14 files, plus the `GuiTree` cell's own probe dump
+# (`parsek-guitree-probe.gui.json`), against the harvest's 64-file cap
+# (`hlib.ARTIFACT_MAX_SCREENSHOTS`).
+#
+# A `describe` FOLLOWS the run as well as every open, and that one is not decoration: it
+# is the in-run proof that the window is STILL OPEN after a batch whose teardown reverts
+# a `persistent.sfs` baseline. If a batch ever closed the window under us, the capture
+# after it would be of an empty scene and the pinned `openWindows=main,testrunner` is
+# what reds instead.
+description = "GUI census: both in-game test runner windows in their real states - the Settings-launched runner idle, collapsed, one category expanded and with real results after running the GuiTree category through its own runner, and the global Ctrl+Shift+T runner idle and collapsed through its new seam route."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "testrunner", "GUI-12", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-ksc"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot, explicitly to the Space Center ---
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- the host surface (every sub-window draw sits inside the host's showUI gate) ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # ================= the SETTINGS-launched runner (token `testrunner`) =================
+  # Sized 620x700 at x=270, the GUI-1 rect for this window: 700 px is above its own
+  # MinWindowHeight (600) and the list inside scrolls, so the picture is honestly clipped
+  # at the scroll view rather than squeezed into a layout no drag can produce.
+  { cmd = "UiAction", args = { op = "open", window = "testrunner" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "testrunner", x = "270", y = "8", w = "620", h = "700" }, expect = "OK" },
+
+  # STATE 1: idle. For this window that means EVERY category expanded - the state GUI-1's
+  # single capture already had, retaken here so the four states sit side by side in one
+  # contact sheet and under labels the mirror can group.
+  { cmd = "CaptureScreenshot", args = { label = "cek-testrunner-idle-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-testrunner-idle-advanced" }, expect = "OK" },
+
+  # STATE 2: every fold CLOSED - the category list itself, which no capture had. `none`
+  # carries its own direction, so no `state=` beside it (the seam REJECTS that pair).
+  { cmd = "UiAction", args = { op = "expand", window = "testrunner", key = "none" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-testrunner-collapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-testrunner-collapsed-advanced" }, expect = "OK" },
+
+  # STATE 3: ONE category expanded, over the collapsed list - the shape a person actually
+  # works in. `GuiTree` because it is the category the run below uses, so state 3 and
+  # state 4 are the same rows before and after.
+  { cmd = "UiAction", args = { op = "expand", window = "testrunner", key = "category:GuiTree", state = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-testrunner-category-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-testrunner-category-advanced" }, expect = "OK" },
+
+  # STATE 4: REAL RESULTS. The window's own runner runs the category, so the status glyph,
+  # the row colour and the summary box are the product's own rendering of a real outcome.
+  # The describe after it is the proof the window survived the batch teardown (which
+  # reverts a persistent.sfs baseline) - without it a closed window would be photographed
+  # as an empty scene.
+  { cmd = "UiAction", args = { op = "run", window = "testrunner", category = "GuiTree" }, expect = "OK", budget = 120 },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-testrunner-results-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-testrunner-results-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "testrunner" }, expect = "OK" },
+
+  # ============ the GLOBAL Ctrl+Shift+T runner (token `testrunnerglobal`) =============
+  # Its first capture ever. Same rect as its twin, so the two are comparable at a glance:
+  # they carry the same title and the same layout and differ in their controls (this one
+  # has no Search bar and a different footer line), which is exactly the kind of thing a
+  # census exists to make visible.
+  { cmd = "UiAction", args = { op = "open", window = "testrunnerglobal" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "testrunnerglobal", x = "270", y = "8", w = "620", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-testrunnerglobal-idle-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-testrunnerglobal-idle-advanced" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "expand", window = "testrunnerglobal", key = "none" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-testrunnerglobal-collapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-testrunnerglobal-collapsed-advanced" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "expand", window = "testrunnerglobal", key = "category:GuiTree", state = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-testrunnerglobal-category-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-testrunnerglobal-category-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "testrunnerglobal" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+# Only this lane's OWN verbs. THE DESCRIBE ECHOES ARE THE IN-RUN MAPPING CHECK: each
+# `open` is followed by a `describe` whose `open=<n> openWindows=<names>` echo is pinned
+# as a literal, which is an EXACT claim - a third open window would move the count. That
+# is what catches a seam whose `testrunnerglobal` token is wired to the OTHER runner's
+# fields, and the two windows carry the SAME TITLE, so a screenshot alone could not.
+# `windows=12` on every line is the twelfth row this lane adds.
+#
+# THE EXPAND LINES pin `expanded=` exactly and REGEX `total=`: the total is the number of
+# in-game test categories (113 today), which moves whenever a category is added anywhere
+# in the assembly, and no cell cross-checks a literal here. `expanded=0` after `key=none`
+# and `expanded=1 changed=1` after the single-category key are the load-bearing halves -
+# they say the fold set really is in the state the capture beside them claims.
+#
+# THE RUN LINE pins `failed=0` and regexes the counts, for the reason in the header: a
+# GuiTree cell that FAILS must red this lane (the picture would show a red row under a
+# label claiming a pass), while a test added to that category must not.
+required = [
+  # --- the host, then each window as it opens ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunner",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunnerglobal",
+  # --- the fold states, settled (the `uiaction expand` line without `initiated`) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=testrunner key=none state=false changed=[0-9]+ expanded=0 total=[1-9][0-9]* frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=testrunner key=category:GuiTree state=true changed=1 expanded=1 total=[1-9][0-9]* frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=testrunnerglobal key=none state=false changed=[0-9]+ expanded=0 total=[1-9][0-9]* frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=testrunnerglobal key=category:GuiTree state=true changed=1 expanded=1 total=[1-9][0-9]* frames=[0-9]+",
+  # --- the batch that populated the results table, through the WINDOW's own runner ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction run initiated window=testrunner category=GuiTree discovered=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction run ok window=testrunner category=GuiTree discovered=[1-9][0-9]* total=[1-9][0-9]* passed=[1-9][0-9]* failed=0 skipped=[0-9]+",
+  # --- one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=cek-testrunner-idle-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-testrunner-idle-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-testrunner-collapsed-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-testrunner-category-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-testrunner-results-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-testrunnerglobal-idle-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-testrunnerglobal-collapsed-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-testrunnerglobal-category-advanced .*patched=17/17",
+]
+forbidden = []
+
+[runtime]
+# Seven captures and seven dumps, each holding the FIFO head for a couple of frames, a
+# 300 s cold load allowance, ~20 single-phase UI ops and ONE one-cell in-game batch whose
+# baseline capture and revert are a `persistent.sfs` copy on a small committed career.
+# 900 s is generous on purpose: the product is the images and the trees, and a KILLED run
+# leaves neither. THE MEASURED WALL IS 89 s (reading run `2026-09-15_2057`, PASS attempt 1),
+# so the budget is 10x the measurement and stays where it is rather than being trimmed to
+# it.
+#
+# THE IN-GAME BOUND ON THE RUN STEP IS 60 s AND IT IS NOT THIS BUDGET. A step `budget` is
+# the HARNESS's own wait; the seam's own deferral bound for every `UiAction` op is
+# `DeferralBudget.BudgetSeconds("UiAction")`, which has no row and therefore takes the 60 s
+# default. The `GuiTree` cell here finishes in ~0.14 s, so the margin is three orders of
+# magnitude - but a lane that picked a multi-minute category would read
+# `ERROR run-not-finished` on a batch that was working, which is why the category above is
+# named for being ONE fast scene-agnostic cell.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
