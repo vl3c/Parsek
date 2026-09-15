@@ -276,6 +276,29 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: twelve more priority-2 recording-tree and rewind coverage gaps from the
+  unit-test quality audit are closed.** Eleven rows were new coverage, one was guarded
+  already, and none is obsolete, so eleven new cells landed with no production change. On
+  the recording tree: the quickload resume path is proved to report NO tail environment
+  when the last track section carries neither frames, checkpoints nor duration (only the
+  positive arm was pinned, and the negative arm is what makes the resume skip the
+  environment resync); a pending tree belonging to a DIFFERENT tree id is proved not to be
+  kept over the loaded one after a stale-epoch hydration failure; a trajectory sidecar long
+  enough to clear the header-length gate but carrying the wrong magic is proved to be
+  rejected as a magic mismatch, which no fixture reached because every short file failed on
+  length first; checkpoints that touch a split UT exactly are proved to land wholly in their
+  owning half instead of emitting a zero-length clone into the other; a pre-flag saved
+  surface position with rotation fields is proved to load as a recorded rotation, and the
+  save side is proved to persist a live call site's implicit rotation as recorded in both
+  directions; the switch-continuation resolver is proved to refuse a child whose vessel id
+  differs from the focused vessel, and to terminate on a cyclic tree instead of recursing
+  until the stack overflows. On rewind: the pre-rewind carve-out is proved not to fire for a
+  same-chain sibling on a different branch, nor when the supersede target cannot be resolved
+  to a committed recording; and the post-load supersede re-apply is proved to do nothing when
+  the rewound owner is no longer committed. The already-guarded row is the recording loader's
+  isDebris default, which `RecordingFieldExtensionTests.BackwardCompat_NoIsDebris_DefaultsFalse`
+  and four fixture cells already red on, so no duplicate cell was written for it.
+
 - **Tests: twelve more priority-2 recording coverage gaps from the unit-test quality
   audit are closed.** Ten rows were new coverage and two turned out to be guarded
   already, so ten new cells landed with no production change and none is obsolete. On the

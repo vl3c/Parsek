@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/SurfacePosition.cs b/Source/Parsek/SurfacePosition.cs
+index d0e5e8e7d..d0f14cf9b 100644
+--- a/Source/Parsek/SurfacePosition.cs
++++ b/Source/Parsek/SurfacePosition.cs
+@@ -70,7 +70,7 @@ namespace Parsek
+             if (bool.TryParse(node.GetValue("rotationRecorded"), out rotationRecorded))
+                 pos.rotationRecorded = rotationRecorded;
+             else
+-                pos.rotationRecorded = hasRotationFields ? (bool?)true : false;
++                pos.rotationRecorded = false;
+             int sitInt;
+             if (int.TryParse(node.GetValue("situation"), NumberStyles.Integer, ic, out sitInt)
+                 && Enum.IsDefined(typeof(SurfaceSituation), sitInt))

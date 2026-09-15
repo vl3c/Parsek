@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/SwitchSegmentBuilder.cs b/Source/Parsek/SwitchSegmentBuilder.cs
+index 533ac31ee..07cdaacf1 100644
+--- a/Source/Parsek/SwitchSegmentBuilder.cs
++++ b/Source/Parsek/SwitchSegmentBuilder.cs
+@@ -410,11 +410,6 @@ namespace Parsek
+                 // breakup debris and EVA kerbal exits produce children with
+                 // different PIDs that must not be treated as continuations of
+                 // the focused vessel.
+-                if (focusedVesselPersistentId != 0
+-                    && child.VesselPersistentId != focusedVesselPersistentId)
+-                {
+-                    continue;
+-                }
+ 
+                 WalkToTerminalLeaves(tree, child, focusedVesselPersistentId,
+                     leaves, visited);
