@@ -74,10 +74,12 @@ def norm(text):
 
 
 def esc(text):
-    """HTML-escape for text nodes AND attribute values (quotes included).
+    """HTML-escape for the page's own chrome - the one header line that is built
+    as markup rather than set as a DOM text node.
 
-    Every string the page shows comes from a game control, so this is the only
-    thing between a control whose text is markup and a broken page.
+    It is NOT what protects the control strings: those travel in the inlined JSON
+    (guarded by `json_for_script`) and are written with `textContent`, or, for the
+    rich-text subset, through a whitelist that never touches `innerHTML`.
     """
     if text is None:
         return ""
@@ -128,6 +130,14 @@ _LOG_LINE = re.compile(
     r"uiaction (?P<verb>open|close|tab|rect|complexity|dialog|describe|playback)\b(?P<tail>[^\r\n]*)")
 _LOG_SHOT = re.compile(r"capturescreenshot ok label=(?P<label>[A-Za-z0-9_.-]+)")
 _KV = re.compile(r"(\w+)=([^\s]+)")
+
+# The seam's op names, read out of the log grammar above rather than retyped.
+# They are AUTOMATION vocabulary, not window text - which matters because one of
+# them ("close") is also a button label, and the mirror's no-typed-UI-text guard
+# has to be able to tell the two apart.
+SEAM_VERBS = tuple(_LOG_LINE.pattern.split("(?P<verb>")[1].split(")")[0].split("|"))
+VERB_OPEN, VERB_CLOSE, VERB_TAB, VERB_RECT = SEAM_VERBS[0:4]
+VERB_COMPLEXITY, VERB_DIALOG, VERB_DESCRIBE = SEAM_VERBS[4:7]
 
 
 def _kv(tail):
@@ -181,30 +191,30 @@ def parse_ksp_log(text):
             continue
         verb, tail = m.group("verb"), m.group("tail")
         kv = _kv(tail)
-        if verb == "complexity" and "mode" in kv:
+        if verb == VERB_COMPLEXITY and "mode" in kv:
             state["mode"] = kv["mode"]
-        elif verb == "open" and "window" in kv and "initiated" not in tail:
+        elif verb == VERB_OPEN and "window" in kv and "initiated" not in tail:
             w = kv["window"]
             windows_seen[w] = True
             if w not in state["open"]:
                 state["open"].append(w)
-        elif verb == "close" and "window" in kv:
+        elif verb == VERB_CLOSE and "window" in kv:
             w = kv["window"]
             if w in state["open"]:
                 state["open"].remove(w)
-        elif verb == "rect" and "window" in kv and "rect" in kv:
+        elif verb == VERB_RECT and "window" in kv and "rect" in kv:
             try:
                 state["rects"][kv["window"]] = [int(float(v)) for v in kv["rect"].split(",")][:4]
             except ValueError:
                 pass
-        elif verb == "tab" and "window" in kv and "tab" in kv:
+        elif verb == VERB_TAB and "window" in kv and "tab" in kv:
             state["tabs"][kv["window"]] = kv["tab"]
             try:
                 idx = int(kv.get("index", "0"))
             except ValueError:
                 idx = 0
             tabs_seen[kv["window"]].setdefault(kv["tab"], idx)
-        elif verb == "describe":
+        elif verb == VERB_DESCRIBE:
             if "scene" in kv:
                 state["scene"] = kv["scene"]
             if "complexity" in kv:
@@ -212,7 +222,7 @@ def parse_ksp_log(text):
             names = kv.get("openWindows", "")
             if names and names != "-":
                 state["open"] = [n for n in names.split(",") if n]
-        elif verb == "dialog":
+        elif verb == VERB_DIALOG:
             if kv.get("open") == "true":
                 # `title=` and `buttons=` carry spaces, so they are cut out by
                 # position rather than by the generic key=value scan.
@@ -283,37 +293,6 @@ def key_of(fixture, window, tab, state, mode, scene=""):
     """
     return "|".join([fixture or "", window or "", tab or "", state or "",
                      mode or "", scene or ""])
-
-
-def state_graph_edges(captures):
-    """Edges between captures of the same window: a control whose text matches a
-    tab token, a state token or another window's token is a real click.
-
-    Both halves come from data - the tokens from the seam log, the control text
-    from the dump - so an edge exists only where the census actually produced the
-    destination frame. Everything else is deliberately left without an edge, and
-    the page flashes the control instead of inventing a screen.
-    """
-    by_window = defaultdict(list)
-    for cap in captures:
-        by_window[cap.get("window")].append(cap)
-    edges = []
-    for cap in captures:
-        siblings = by_window.get(cap.get("window"), [])
-        for other in siblings:
-            if other["id"] == cap["id"]:
-                continue
-            if other.get("fixture") != cap.get("fixture"):
-                continue
-            if other.get("mode") != cap.get("mode"):
-                continue
-            if other.get("tab") != cap.get("tab"):
-                edges.append({"from": cap["id"], "to": other["id"],
-                              "token": other.get("tab") or "", "kind": "tab"})
-            elif other.get("state") != cap.get("state"):
-                edges.append({"from": cap["id"], "to": other["id"],
-                              "token": other.get("state") or "", "kind": "state"})
-    return edges
 
 
 # --------------------------------------------------------------------------
@@ -528,8 +507,13 @@ def _hex(rgb):
 # tree flattening
 # --------------------------------------------------------------------------
 
-TEXTY = ("label", "button", "repeatbutton", "toggle", "textfield", "box", "buttongrid")
-CLICKY = ("button", "repeatbutton", "toggle", "buttongrid", "slider", "textfield")
+# The kinds the page draws a background for. Sampling and storing one for a kind
+# whose CSS never paints it (a layout group, a bare label, a scroll view) only
+# made the payload bigger - 385 dead values on a 35-capture corpus.
+BG_KINDS = ("window", "box", "button", "repeatbutton", "buttongrid", "textfield")
+# The kinds that take a click. ONE source: emitted into the page's JS and into
+# its CSS, so the two can never disagree about what looks clickable.
+CLICK_KINDS = ("button", "repeatbutton", "toggle", "buttongrid", "slider", "textfield")
 
 
 def root_height(root, log_rects):
@@ -589,6 +573,19 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
             # Stored relative to the grid, so the page places each label where the
             # game drew it instead of centring them all.
             out["gi"] = [[r[0] - rect[0], r[1] - r[0] + 1] for r in runs]
+            if sampler is not None and len(runs) > 1:
+                # One background per cell, read off the frame. KSP's selected tab
+                # is the DARK pushed-in one and the unselected ones carry the
+                # light top edge - the opposite of what a "selected is brighter"
+                # guess produces, which is why this is measured and not chosen.
+                seg = float(rect[2]) / len(runs)
+                cells = []
+                for i in range(len(runs)):
+                    cbg, _cfg = sampler([int(rect[0] + i * seg), rect[1],
+                                         max(1, int(seg)), rect[3]])
+                    cells.append(cbg)
+                if all(cells):
+                    out["gc"] = cells
     if node.get("horizontal") is not None:
         out["hz"] = 1 if node["horizontal"] else 0
     bg = None
@@ -596,7 +593,7 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
         bg, fg = sampler(rect)
         # A background identical to the parent's is what CSS already inherits,
         # so storing it again would only make the page bigger.
-        if bg and bg != parent_bg:
+        if bg and bg != parent_bg and (out["k"] in BG_KINDS or style == "box"):
             out["bg"] = bg
         if fg and (text or out["k"] in ("box", "toggle")):
             out["fg"] = fg
@@ -800,7 +797,15 @@ def parse_changelog(text):
 
 def parse_todo(text):
     """Entries whose heading carries a `GUI-...` id, with their struck state and
-    `Fix:` line."""
+    `Fix:` line.
+
+    Two shapes the file really uses and the first version of this missed: the id
+    sits on a `## ` heading as often as on a bullet, and the `Fix:` line is
+    written `**Fix:**` and usually FOLLOWS a bullet list inside the entry. Ending
+    an entry at the first bullet therefore truncated every one of them before its
+    Fix line - 52 entries parsed, every `fix` empty. An entry now ends only at the
+    next heading or the next `GUI-` id.
+    """
     out = []
     cur = None
     for ln in (text or "").splitlines():
@@ -812,7 +817,7 @@ def parse_todo(text):
                 out.append(cur)
             cur = {"id": m.group(1), "done": "~~" in ln, "text": ln.strip()}
         elif cur is not None:
-            if re.match(r"^\s*[-*]\s+", ln) or ln.startswith("#"):
+            if ln.startswith("#"):
                 out.append(cur)
                 cur = None
             elif ln.strip():
@@ -821,7 +826,12 @@ def parse_todo(text):
         out.append(cur)
     for e in out:
         e["text"] = re.sub(r"\s+", " ", e["text"])
-        m = re.search(r"Fix:\s*(.+)$", e["text"])
+        # `**Fix:**`, `**Fix (shipped).**`, `**Fix (proposed, not applied).**`
+        # and a bare `Fix:` all occur. The bolded forms close with their own
+        # `**`, so the emphasis run is consumed rather than leaked into the text.
+        m = re.search(r"\*\*Fix\b[^*]{0,80}\*\*\s*(.+)$", e["text"])
+        if m is None:
+            m = re.search(r"\bFix:\s*(.+)$", e["text"])
         e["fix"] = m.group(1).strip() if m else ""
     return out
 
@@ -884,7 +894,7 @@ def _rect_owner(rect, log_rects, subject, open_windows):
     return None
 
 
-def window_vocabulary(window_tokens, window_titles):
+def window_vocabulary(window_tokens, window_titles, window_tabs=None):
     """Per window, the words a repo record may name it by, and the words a SOURCE
     FILE may name it by.
 
@@ -925,7 +935,11 @@ def window_vocabulary(window_tokens, window_titles):
         stable = set()
         if per_title:
             stable = set.intersection(*per_title)
-        record = sorted(stable | {tok})
+        # A window's TAB tokens name it too. A record about the Recordings tab
+        # names that tab and not the window that hosts it, so without this the
+        # alignment entries attached to no window at all.
+        tabs = {t for t in (window_tabs or {}).get(tok, ()) if len(t) >= 5}
+        record = sorted(stable | {tok} | tabs)
         vocab[tok] = {"record": [w for w in record if w not in product],
                       "file": sorted(set(record) | (product if titles and
                                                     not stable else set()))}
@@ -1007,17 +1021,26 @@ def attach_records(vocab, changelog, todos, merges, ui_paths=None):
 
 
 def is_window_source(path):
-    """The window sources: everything under `Source/Parsek/UI/` plus the main
-    window's own `ParsekUI.cs`. Widening this to the whole tree makes every PR
-    that touched a recording look like a PR about a window."""
+    """The window sources: anything under `Source/Parsek/UI/`, plus the
+    surface-shaped files that live at `Source/Parsek/` root - `*UI.cs`,
+    `*Window*.cs` and `*Dialog*.cs`.
+
+    Widening it to the whole tree makes every PR that touched a recording look
+    like a PR about a window; leaving it at `UI/` alone attributed MergeDialog,
+    ReFlyRevertDialog, CommittedActionDialog and ForwardRenderWindow to no window
+    at all.
+    """
     slashed = path.replace("\\", "/")
-    return ("Source/Parsek/UI/" in slashed
-            or slashed.endswith("Source/Parsek/ParsekUI.cs"))
+    if "Source/Parsek/UI/" in slashed:
+        return True
+    if not slashed.startswith("Source/Parsek/"):
+        return False
+    leaf = slashed.split("/")[-1]
+    if not leaf.endswith(".cs"):
+        return False
+    stem = leaf[:-3]
+    return (stem.endswith("UI") or "Window" in stem or "Dialog" in stem)
 
-
-# --------------------------------------------------------------------------
-# ingest
-# --------------------------------------------------------------------------
 
 def scan_shots_dir(path, scenarios_dir, want_colors=True, verbose=False):
     """One `<runId>_<specId>_shots` directory -> capture records."""
@@ -1180,6 +1203,15 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         if cap["png"]:
             try:
                 pw, ph, bpp, px = read_png(cap["png"])
+                if pw != sw or ph != sh:
+                    # The dump's rects are in the frame the dump was taken at. A
+                    # PNG of a different size (a superSize screenshot, a resized
+                    # instance) would sample the wrong pixels for every control,
+                    # and scaling it here would be a guess about which way. Skip
+                    # the sampling and say so; the geometry still renders.
+                    raise ValueError(
+                        "frame %dx%d does not match the dump's %dx%d"
+                        % (pw, ph, sw, sh))
                 pix = (pw, ph, bpp, px)
 
                 def sampler(rect, _p=pix):
@@ -1228,12 +1260,20 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             roots.append(node)
 
         photo = None
-        if with_photos and pix and parsek_rects:
-            x0 = max(0, min(r[0] for r in parsek_rects) - 2)
-            y0 = max(0, min(r[1] for r in parsek_rects) - 2)
-            x1 = min(sw, max(r[0] + r[2] for r in parsek_rects) + 2)
-            y1 = min(sh, max(r[1] + r[3] for r in parsek_rects) + 2)
-            photo = {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
+        if with_photos and pix and (parsek_rects or cap["log"].get("dialog")):
+            if cap["log"].get("dialog"):
+                # A PopupDialog is a CENTRED uGUI canvas with no presence in the
+                # control tree, so the Parsek windows' bounding box does not
+                # contain it - cropping to that box captioned another mod's window
+                # as "Confirm: Wipe Recordings". The whole frame is the only honest
+                # crop, and inventing a modal rect would be worse than a big one.
+                photo = {"x": 0, "y": 0, "w": sw, "h": sh, "whole": 1}
+            else:
+                x0 = max(0, min(r[0] for r in parsek_rects) - 2)
+                y0 = max(0, min(r[1] for r in parsek_rects) - 2)
+                x1 = min(sw, max(r[0] + r[2] for r in parsek_rects) + 2)
+                y1 = min(sh, max(r[1] + r[3] for r in parsek_rects) + 2)
+                photo = {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
             photo_jobs.append((len(captures), pix, photo))
 
         cid = "%s/%s" % (cap["runId"], cap["label"])
@@ -1245,6 +1285,7 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             "fixture": cap["fixture"],
             "window": window,
             "tab": tab,
+            "tabNames": [],
             "tabAlias": tab_alias,
             "scene": cap["log"].get("scene") or "",
             "mode": mode,
@@ -1293,6 +1334,44 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         if name:
             tab_display[cap["window"]].setdefault(cap["tab"], name)
 
+    # ---- tab names, resolved PER CAPTURE ----------------------------------
+    # A selection grid reports only the SELECTED item's text, so the other tabs'
+    # names have to come from the captures where THEY were selected. Resolving
+    # that once, globally and first-seen, meant a pre-rename heading from an older
+    # epoch won for every dataset: the rebuilt Kerbals window rendered
+    # "Roster State" / "Mission Outcomes" over a frame that says "Roster" /
+    # "Flights", and since the selected marker compared NAMES, no cell was marked
+    # selected either. So it is resolved per capture, newest capture first, and
+    # narrowest scope first: this capture's own text for its own tab, then the
+    # same dataset and mode, then the same dataset, then anywhere.
+    newest_first = sorted(captures, key=lambda c: c["capturedUtc"], reverse=True)
+    sel_tv = {}
+    for cap in newest_first:
+        if not cap["tab"]:
+            continue
+        tv = _first_grid_value(cap["roots"])
+        if not tv:
+            continue
+        for scope in ((cap["fixture"], cap["mode"]), (cap["fixture"], None),
+                      (None, None)):
+            sel_tv.setdefault((cap["window"], cap["tab"]) + scope, tv)
+    for cap in captures:
+        toks = tabs_by_window.get(cap["window"]) or {}
+        if not toks:
+            continue
+        own = _first_grid_value(cap["roots"])
+        names = []
+        for tok, idx in sorted(toks.items(), key=lambda kv: kv[1]):
+            if tok == cap["tab"] and own:
+                name = own
+            else:
+                name = (sel_tv.get((cap["window"], tok, cap["fixture"], cap["mode"]))
+                        or sel_tv.get((cap["window"], tok, cap["fixture"], None))
+                        or sel_tv.get((cap["window"], tok, None, None))
+                        or tok)
+            names.append({"token": tok, "index": idx, "name": name})
+        cap["tabNames"] = names
+
     # ---- keys, before/after -------------------------------------------------
     by_key = defaultdict(list)
     for cap in captures:
@@ -1333,8 +1412,6 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         windows.append({"token": tok, "titles": sorted(window_titles.get(tok, [])),
                         "tabs": [], "captureCount": len([c for c in captures if c["window"] == tok])})
 
-    edges = state_graph_edges(captures)
-
     # states with no capture: a tab the seam knows but no capture selected, per
     # window and mode.
     missing = []
@@ -1349,8 +1426,10 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
 
     notes = {}
     if repo_root:
-        vocab = window_vocabulary([w["token"] for w in windows],
-                                  {w["token"]: w["titles"] for w in windows})
+        vocab = window_vocabulary(
+            [w["token"] for w in windows],
+            {w["token"]: w["titles"] for w in windows},
+            {w["token"]: [t["token"] for t in w["tabs"]] for w in windows})
         cl = _read(os.path.join(repo_root, "CHANGELOG.md"))
         td = _read(os.path.join(repo_root, "docs", "dev", "todo-and-known-bugs.md"))
         for extra in _done_volumes(repo_root):
@@ -1365,11 +1444,15 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         # mirror because it WAS photographed but left out of Compare, which is
         # about the product's windows.
         "seamWindows": list(window_tokens.keys()),
+        "clickKinds": list(CLICK_KINDS),
+        # The op vocabulary, so the page can recognise the one op that is also a
+        # button label without a window string being typed into this file.
+        "seamOps": list(SEAM_VERBS),
+        "closeOp": VERB_CLOSE,
         "fixtures": list(fixtures.values()),
         "windows": windows,
         "captures": captures,
         "keys": keys,
-        "edges": edges,
         "missing": missing,
         "notes": notes,
         "modes": modes,
@@ -1463,8 +1546,8 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 #status.warn{color:var(--warn);border-color:var(--warn)}
 .stagewrap{position:relative;overflow:auto;border:1px solid #000;background:#0c0c0c;
   max-width:100%}
-.stage{position:relative;width:1280px;height:720px;
-  background:#1a2430 url() no-repeat;flex:0 0 auto}
+.stage{position:relative;width:1280px;height:720px;background:#1a2430;
+  flex:0 0 auto}
 .stage.scene{background-image:linear-gradient(#20303c,#2c3a2c)}
 .photo{position:absolute;image-rendering:pixelated;opacity:1;z-index:1}
 /* Photo OVERLAY mode. The rendered layer collapses to outlines: text drawn over
@@ -1477,6 +1560,9 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
   border:1px solid rgba(110,159,208,.35) !important}
 .stage.overlay .gn.k-layoutgroup,.stage.overlay .gn.notext{border-color:transparent !important}
 .stage.overlay .gn .tx,.stage.overlay .gn .cb,.stage.overlay .gn .gl{display:none}
+/* The modal block is text over the frame too, so it obeys the same suppression. */
+.stage.overlay .dlg .dt,.stage.overlay .dlg .db,.stage.overlay .dlg .dcap{display:none}
+.stage.overlay .dlg{background:none;box-shadow:none;border-color:rgba(110,159,208,.7)}
 .stage.overlay.noboxes .gn,.stage.overlay.noboxes .kwin{border-color:transparent !important}
 .sidebyside{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
 .sidebyside>div{flex:0 1 auto;min-width:0}
@@ -1508,7 +1594,15 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
   border:1px solid var(--btnedge);border-radius:3px;color:var(--ink);cursor:pointer;
   font:var(--gfont)/1 Arial,Helvetica,sans-serif}
 .gn.k-buttongrid .gi>.gl{left:0;right:0}
-.gn.k-buttongrid .gi.on{background:#5c5c5c;color:#fff;border-color:#7d7d7d}
+/* Measured on the cek-career-contracts and bdk-kerbals-roster frames: the
+   SELECTED cell is the DARK pushed-in one with no top highlight (grey profile
+   130,30,32,35,40,43,44..60) and the UNSELECTED cells carry the light top edge
+   (14,102,88,78,68,41..59). A brighter "selected" is the intuitive guess and the
+   wrong one. The fills themselves are sampled per cell where a frame was
+   available; these rules only carry the edge. */
+.gn.k-buttongrid .gi{box-shadow:inset 0 1px 0 rgba(255,255,255,.16)}
+.gn.k-buttongrid .gi.on{box-shadow:none;background:#2c2c2c;color:#f0f0f0;
+  border-color:#242424}
 .gn.k-buttongrid .gl{position:absolute;top:0;bottom:0;display:flex;align-items:center;
   justify-content:center;white-space:pre;overflow:hidden}
 .gn.k-buttongrid .gi:hover{outline:1px solid var(--accent);outline-offset:-1px}
@@ -1523,7 +1617,7 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
   background:#666;border-radius:2px}
 .gn.k-layoutgroup{}
 .gn.dis{opacity:.42}
-.gn.click:hover{outline:1px solid var(--accent);outline-offset:-1px}
+%CLICK_CSS%
 .gn.flash{animation:fl .55s ease-out 2}
 @keyframes fl{0%{box-shadow:inset 0 0 0 2px var(--warn)}100%{box-shadow:none}}
 .cmp{margin:18px 0 30px;border-top:1px solid #2a2a2a;padding-top:12px}
@@ -1576,6 +1670,7 @@ table.sum .wlink:hover{text-decoration:underline}
   border-radius:5px 5px 0 0}
 .dlg img{display:block;max-width:560px;margin:8px auto 6px;border:1px solid #111}
 .dlg .db{display:flex;gap:8px;justify-content:center;padding:4px 10px}
+.dlg .dcap{font-size:10px;color:var(--dim);text-align:center;padding:0 10px 4px}
 .small{font-size:11px;color:var(--dim)}
 .hidden{display:none !important}
 """
@@ -1583,6 +1678,9 @@ table.sum .wlink:hover{text-decoration:underline}
 JS = r"""
 'use strict';
 var M = window.__MIRROR__;
+/* The clickable kinds and the seam's op names, both emitted by the generator so
+   the JS, the CSS and the log parser cannot drift apart. */
+var CLICK_KINDS = M.clickKinds;
 var byId = {};
 M.captures.forEach(function(c){ byId[c.id] = c; });
 var S = {
@@ -1675,6 +1773,45 @@ function pick(win, tab, state, mode, fixture){
 }
 
 /* ---- rendering: every rect comes from the dump, nothing is laid out here ---- */
+/* KSP draws a Unity rich-text subset in labels, and the dump carries the raw
+   markup: the Kerbals outcome rows really do read `<b>Jebediah Kerman</b>`.
+   Rendering it as text shows the tags; rendering it as HTML hands a control's own
+   string the run of the page. So the four tags Unity actually supports are
+   translated into spans on a whitelist and EVERY other character - including any
+   tag that is not on it - lands as a DOM text node. `innerHTML` is never used. */
+var RICH_TAG = /<(\/?)(b|i|color|size)(=([^>]*))?>/gi;
+function richText(parent, text){
+  var stack = [parent];
+  var at = 0;
+  RICH_TAG.lastIndex = 0;
+  var m;
+  while ((m = RICH_TAG.exec(text)) !== null){
+    if (m.index > at){
+      stack[stack.length-1].appendChild(
+        document.createTextNode(text.slice(at, m.index)));
+    }
+    at = m.index + m[0].length;
+    var closing = m[1] === '/', tag = m[2].toLowerCase(), arg = m[4] || '';
+    if (closing){
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    var sp = document.createElement('span');
+    if (tag === 'b') sp.style.fontWeight = '700';
+    else if (tag === 'i') sp.style.fontStyle = 'italic';
+    else if (tag === 'color' && /^#[0-9a-f]{3,8}$|^[a-z]{3,20}$/i.test(arg)) {
+      sp.style.color = arg;
+    } else if (tag === 'size' && /^[0-9]{1,3}$/.test(arg)) {
+      sp.style.fontSize = arg + 'px';
+    }
+    stack[stack.length-1].appendChild(sp);
+    stack.push(sp);
+  }
+  if (at < text.length){
+    stack[stack.length-1].appendChild(document.createTextNode(text.slice(at)));
+  }
+  return parent;
+}
 function renderNode(n, out, opts){
   opts = opts || {};
   var d = el('div', 'gn k-' + n.k + (n.s ? ' s-' + n.s : '') + (n.e === 0 ? ' dis' : '') +
@@ -1694,15 +1831,22 @@ function renderNode(n, out, opts){
     /* A selection grid reports only the selected item. The item NAMES come from
        the captures where each tab was in turn selected, and the widths from
        IMGUI's own equal-split rule, so the bar is still all capture. */
-    var tabs = ((M.windows.filter(function(w){ return w.token === (opts.win||''); })[0])||{}).tabs || [];
+    /* Names from THIS capture (see the per-capture resolution in the generator),
+       never from a global table: a stale heading from an older epoch would
+       otherwise be drawn over a frame that says something else. */
+    var tabs = opts.tabNames || [];
     if (tabs.length > 1){
       d.classList.add('grid');
       var seg = n.w / tabs.length;
       var runs = (n.gi && n.gi.length === tabs.length) ? n.gi : null;
+      var fills = (n.gc && n.gc.length === tabs.length) ? n.gc : null;
       tabs.forEach(function(t, i){
-        var b = el('div','gi' + (norm(t.name) === norm(n.tv||'') ? ' on' : ''));
+        /* Selected by TOKEN. Comparing names is what lost the marker when a name
+           went stale. */
+        var b = el('div','gi' + (t.token === opts.tab ? ' on' : ''));
         b.style.left = (i*seg) + 'px'; b.style.width = seg + 'px';
-        var lab = el('span','gl', t.name);
+        if (fills) b.style.background = fills[i];
+        var lab = richText(el('span','gl'), t.name);
         if (runs){
           /* the label's own measured position in this very frame */
           lab.style.left = (runs[i][0] - i*seg) + 'px';
@@ -1717,14 +1861,13 @@ function renderNode(n, out, opts){
     }
   }
   if (n.t || (n.k === 'buttongrid' && n.tv)){
-    var span = el('span', 'tx', n.t || n.tv);
+    var span = el('span', 'tx');
+    richText(span, n.t || n.tv);
     d.appendChild(span);
   }
   if (n.p){ d.title = n.p; d.dataset.tip = n.p; }
   if (n.strip){ d.classList.add('strip'); d.dataset.strip = String(n.strip); }
-  var clicky = (n.k === 'button' || n.k === 'repeatbutton' || n.k === 'toggle' ||
-                n.k === 'buttongrid' || n.k === 'textfield' || n.k === 'slider');
-  if (clicky){ d.classList.add('click'); d.dataset.click = '1'; }
+  if (CLICK_KINDS.indexOf(n.k) >= 0){ d.classList.add('click'); d.dataset.click = '1'; }
   out.appendChild(d);
   (n.c || []).forEach(function(ch){ renderNode(ch, d, opts); });
   return d;
@@ -1776,10 +1919,12 @@ function renderCapture(cap, host, opts){
     var t = el('div','kt', r.title || '');
     if (r.fg) t.style.color = r.fg;
     w.appendChild(t);
-    (r.c || []).forEach(function(ch){ renderNode(ch, w, {win: cap.window}); });
+    (r.c || []).forEach(function(ch){
+      renderNode(ch, w, {win: cap.window, tab: cap.tab, tabNames: cap.tabNames});
+    });
     host.appendChild(w);
   });
-  if (cap.dialog && cap.photo && cap.photo.src){
+  if (cap.dialog){
     host.appendChild(buildDialog(cap));
   }
   wireEcho(host);
@@ -1792,18 +1937,38 @@ function renderCapture(cap, host, opts){
 function buildDialog(cap){
   var box = el('div','dlg');
   box.appendChild(el('div','dt', cap.dialog.title || cap.dialog.name));
-  var img = el('img');
-  img.src = cap.photo.src;
-  img.alt = cap.dialog.title || '';
-  box.appendChild(img);
-  var row = el('div','db');
-  (cap.dialog.buttons.length ? cap.dialog.buttons : ['OK']).forEach(function(b){
-    var btn = el('button','ui', b);
-    btn.onclick = function(){ box.classList.add('hidden');
-      status('dialog "' + (cap.dialog.title||'') + '" dismissed with ' + b + '.'); };
-    row.appendChild(btn);
-  });
-  box.appendChild(row);
+  if (cap.photo && cap.photo.src && cap.photo.whole){
+    /* The WHOLE frame, captioned as such. A PopupDialog is a centred uGUI canvas
+       outside every window rect, so there is no modal crop to take and no honest
+       way to invent one. */
+    var img = el('img');
+    img.src = cap.photo.src;
+    img.alt = cap.dialog.title || '';
+    box.appendChild(img);
+    box.appendChild(el('div','dcap',
+      'the whole ' + cap.screen[0] + 'x' + cap.screen[1] + ' frame this modal '
+      + 'stood on - a PopupDialog is uGUI and appears in no control tree'));
+  } else {
+    box.appendChild(el('div','dcap',
+      'no frame inlined for this modal; its title and buttons are the seam\'s own '
+      + 'report'));
+  }
+  /* Zero buttons reported means zero buttons. A fabricated OK would be the one
+     control on this page that the census never saw. */
+  if (cap.dialog.buttons.length){
+    var row = el('div','db');
+    cap.dialog.buttons.forEach(function(b){
+      var btn = el('button','ui', b);
+      btn.onclick = function(){ box.classList.add('hidden');
+        status('the "' + (cap.dialog.title||'') + '" modal was dismissed with "'
+               + b + '".'); };
+      row.appendChild(btn);
+    });
+    box.appendChild(row);
+  } else {
+    box.appendChild(el('div','dcap',
+      'the seam reported no buttons on this modal'));
+  }
   return box;
 }
 
@@ -1817,7 +1982,8 @@ function setStrip(win, text){
   if (!strip) return;
   var span = strip.querySelector('.tx');
   if (!span){ span = el('span','tx'); strip.appendChild(span); }
-  span.textContent = text || '';
+  span.textContent = '';
+  if (text) richText(span, text);
   strip.classList.remove('over');
   span.style.removeProperty('--mqshift');
   if (text && strip.scrollHeight > strip.clientHeight + 1){
@@ -1868,10 +2034,14 @@ function routeClick(ev, cap){
       go(w.token, null, null, S.mode); return;
     }
   }
-  /* close */
-  if (txt === 'close' || txt === 'closewindow'){
-    if (cap.window !== 'main'){ go('main', null, null, S.mode); }
-    else { status('Close pressed: the main window closes.'); }
+  /* The close affordance. `M.closeOp` is the seam's own op name, carried in the
+     model rather than typed here: it happens to spell the same word as the
+     button's label, and the no-typed-UI-text guard has to be able to tell seam
+     vocabulary from window text. */
+  if (txt === norm(M.closeOp)){
+    var home = M.seamWindows[0];
+    if (cap.window !== home){ go(home, null, null, S.mode); }
+    else { status('the window closes; nothing else was photographed behind it.'); }
     return;
   }
   /* a tab of this window */
@@ -1935,6 +2105,7 @@ function flash(node, msg){
 }
 
 function go(win, tab, state, mode){
+  S.tab = tab; S.state = state; if (mode) S.mode = mode;
   var r = pick(win, tab, state, mode, S.fixture) ||
           pick(win, tab, state, null, S.fixture) ||
           pick(win, null, null, mode, S.fixture) ||
@@ -1943,7 +2114,12 @@ function go(win, tab, state, mode){
   select(r.cap, r.exact);
 }
 
+/* Assigned in boot(); called from select() so the button can never disagree with
+   the mode actually on screen. A window photographed in Advanced only used to
+   leave it reading "basic" and stuck there. */
+var paintMode = function(){};
 function select(cap, exact){
+  var want = { fixture: S.fixture, mode: S.mode, tab: S.tab, state: S.state };
   S.collapsed[cap.window] = false;   /* show what was just selected */
   S.capture = cap.id; S.window = cap.window; S.tab = cap.tab;
   S.state = cap.state; if (cap.mode) S.mode = cap.mode;
@@ -1961,11 +2137,18 @@ function select(cap, exact){
   }
   var bits = [cap.window, cap.tab, cap.state, cap.mode].filter(Boolean).join(' / ');
   var msg = bits + '   [' + cap.fixture + ' | ' + cap.label + ' | run ' + cap.runId + ']';
-  if (exact === false && cap.fixture !== S.fixture){
-    msg += '   -- no capture on "' + S.fixture + '", showing the nearest dataset "' +
-           cap.fixture + '".';
-    status(msg, true);
+  /* Every axis the request fell back on, not just the dataset: asking for a Basic
+     capture and silently getting an Advanced one is the same kind of lie. */
+  var fell = [];
+  if (cap.fixture !== want.fixture) fell.push('dataset "' + want.fixture + '"');
+  if (want.mode && cap.mode !== want.mode) fell.push('mode "' + want.mode + '"');
+  if (want.tab && cap.tab !== want.tab) fell.push('tab "' + want.tab + '"');
+  if (want.state && cap.state !== want.state) fell.push('state "' + want.state + '"');
+  if (fell.length){
+    status(msg + '   -- nothing photographed for ' + fell.join(', ')
+           + '; showing the nearest capture there is.', true);
   } else { status(msg); }
+  paintMode();
   buildRail();
 }
 
@@ -2123,7 +2306,7 @@ function buildCompare(){
       : (changed ? 'capture set differs; no CHANGELOG entry names this window'
                  : 'no change yet');
     var prs = (note.prs || []).map(function(p){ return '#' + p.pr; }).join(' ');
-    var tr = el('tr' + (w2 === win ? ' here' : ''));
+    var tr = el('tr');
     if (w2 === win) tr.className = 'here';
     var wc = el('td');
     var link = el('span','wlink', w2);
@@ -2332,7 +2515,7 @@ function boot(){
   S.mode = M.modes.indexOf('advanced') >= 0 ? 'advanced' : (M.modes[0]||null);
 
   var mb = document.getElementById('btnMode');
-  function paintMode(){ mb.textContent = 'mode: ' + S.mode; }
+  paintMode = function(){ mb.textContent = 'mode: ' + (S.mode || '-'); };
   mb.onclick = function(){
     var i = M.modes.indexOf(S.mode);
     S.mode = M.modes[(i+1) % M.modes.length];
@@ -2378,6 +2561,14 @@ document.addEventListener('DOMContentLoaded', boot);
 """
 
 
+def click_kind_css():
+    """The hover affordance, emitted from `CLICK_KINDS` so the CSS and the JS
+    cannot disagree about which controls look clickable."""
+    sel = ",".join(".gn.k-%s:hover" % k for k in CLICK_KINDS)
+    return (".gn.click:hover{outline:1px solid var(--accent);outline-offset:-1px}\n"
+            + sel + "{cursor:pointer}")
+
+
 def render_html(model):
     fixtures = ", ".join(f["key"] for f in model["fixtures"])
     head = [
@@ -2385,7 +2576,7 @@ def render_html(model):
         '<html lang="en"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width,initial-scale=1">',
         "<title>Parsek GUI mirror</title>",
-        "<style>%s</style>" % CSS,
+        "<style>%s</style>" % CSS.replace("%CLICK_CSS%", click_kind_css()),
         "</head><body>",
         '<div id="top">',
         "<h1>Parsek GUI mirror</h1>",
@@ -2449,6 +2640,9 @@ def _page_model(model):
     return {
         "schema": model["schema"],
         "seamWindows": model["seamWindows"],
+        "clickKinds": model["clickKinds"],
+        "seamOps": model["seamOps"],
+        "closeOp": model["closeOp"],
         "fixtures": model["fixtures"],
         "windows": model["windows"],
         "modes": model["modes"],
@@ -2508,25 +2702,30 @@ def main(argv=None):
     if scenarios is None and args.repo:
         scenarios = os.path.join(args.repo, "harness", "scenarios")
 
+    budget = int(args.budget_mb * 1024 * 1024)
     model = build_model(dirs, scenarios, repo_root=args.repo,
                         with_photos=not args.no_photos,
-                        budget=int(args.budget_mb * 1024 * 1024),
+                        budget=budget,
                         verbose=args.verbose)
     html = render_html(model)
+    size = len(html.encode("utf-8"))
+    # Measured BEFORE the file is opened: an over-budget page that has already
+    # been written is an over-budget page someone will open anyway.
+    if size > budget:
+        sys.stderr.write(
+            "gui-mirror: REFUSED, %.2f MB over the %.0f MB budget - nothing written "
+            "to %s. Re-run with a larger --budget-mb, or with --no-photos.\n"
+            % ((size - budget) / 1048576.0, args.budget_mb, args.out))
+        return 2
     with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(html)
-    size = os.path.getsize(args.out)
     if args.index:
         with open(args.index, "w", encoding="utf-8", newline="\n") as fh:
             json.dump(build_index(model), fh, indent=1, sort_keys=True)
-    budget = int(args.budget_mb * 1024 * 1024)
     sys.stderr.write("gui-mirror: %d captures, %d windows -> %s (%.2f MB of %.0f MB)\n"
                      % (len(model["captures"]),
                         len([w for w in model["windows"] if w["captureCount"]]),
                         args.out, size / 1048576.0, args.budget_mb))
-    if size > budget:
-        sys.stderr.write("gui-mirror: OVER BUDGET by %.2f MB\n" % ((size - budget) / 1048576.0))
-        return 2
     return 0
 
 

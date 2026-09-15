@@ -27,7 +27,9 @@ _(unreleased — entries accumulate here per commit)_
   renders a synthetic capture and then asserts the generator's own source does not
   contain the strings the page showed). A click with no capture behind it flashes
   the control and says `no capture for this state yet` rather than inventing a
-  screen; the captured frame can be put beside the rendering, or under it as thin
+  screen; each rail header folds its own window's captures away and Compare shows
+  the window selected there; KSP's rich-text subset is translated on a whitelist
+  rather than shown as tags or handed the run of the page; the captured frame can be put beside the rendering, or under it as thin
   per-control outlines, so a layout check never stacks text on text; and the left rail lists every state that has a capture next to every
   state the command seam knows and nothing photographed. Which window, tab,
   complexity mode and scene each capture IS comes from that run's KSP.log rather

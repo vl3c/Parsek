@@ -10,8 +10,8 @@ The cells that matter are therefore the ones about that claim holding:
   * a capture is never paired with, or shown in place of, a capture of something
     else - the dataset fallback says so out loud and the before/after key carries
     the scene;
-  * an edge in the state graph exists only where the destination capture exists,
-    so a click can never invent a screen;
+  * a click resolves through one ranking function over the captures that EXIST,
+    so it can never invent a screen;
   * a control whose text is markup cannot break out of the page;
   * the page fits its size budget, since a self-contained page that does not is
     not deliverable.
@@ -25,6 +25,7 @@ Runnable with the stdlib runner only (NO pytest, NO KSP, NO network)::
     cd harness && python -m unittest discover -s lib -q
 """
 
+import io
 import json
 import os
 import shutil
@@ -70,11 +71,22 @@ def dump(label, window_title, kids, grid_value=None):
             "roots": roots}
 
 
-def tiny_png(path, w=1280, h=720, rgb=(68, 68, 68)):
+def tiny_png(path, w=1280, h=720, rgb=(68, 68, 68), bands=()):
     """A real PNG at the census frame size, so the colour sampler runs on it the
-    way it does in production rather than on a stub."""
-    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+    way it does in production rather than on a stub.
+
+    `bands` paints bright rectangles, which is how a synthetic frame can carry
+    the tab labels the grid measurement reads back out of it.
+    """
     import struct
+    px = bytearray(bytes(rgb) * (w * h))
+    for (bx0, by0, bx1, by1) in bands:
+        for y in range(by0, min(by1, h)):
+            for x in range(bx0, min(bx1, w)):
+                o = (y * w + x) * 3
+                px[o:o + 3] = bytes((224, 224, 224))
+    raw = b"".join(b"\x00" + bytes(px[y * w * 3:(y + 1) * w * 3])
+                   for y in range(h))
 
     def chunk(typ, body):
         c = typ + body
@@ -87,6 +99,48 @@ def tiny_png(path, w=1280, h=720, rgb=(68, 68, 68)):
                  + chunk(b"IEND", b""))
 
 
+TESTDATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata")
+
+
+def _load_excerpt():
+    """A small COMMITTED excerpt of a real census dump (the KSC main window from
+    `2026-09-11_0548_GUI-1-census-ksc`), so the no-typed-UI-text guard is checked
+    against strings the game actually drew and not only against synthetic ones."""
+    with open(os.path.join(TESTDATA, "gui_mirror_excerpt.gui.json"),
+              encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+REAL_EXCERPT = _load_excerpt()
+
+
+def _strings_of(node, acc=None):
+    """Every text, selection-grid value and tooltip in a COMPACT node tree."""
+    acc = set() if acc is None else acc
+    for key in ("t", "tv", "p"):
+        if node.get(key):
+            acc.add(node[key])
+    for ch in node.get("c") or ():
+        _strings_of(ch, acc)
+    return acc
+
+
+def _strings_of_dump(dump):
+    """The same, over a raw `parsek-gui-tree/1` dump."""
+    acc = set()
+
+    def walk(n):
+        for key in ("text", "textValue", "tooltip"):
+            if n.get(key):
+                acc.add(n[key])
+        for ch in n.get("children") or ():
+            walk(ch)
+
+    for root in dump.get("roots") or ():
+        walk(root)
+    return acc
+
+
 LOG_TWO_STATES = """
 [LOG 00:00:01] [Parsek][INFO][TestCommands] uiaction complexity mode=advanced already=true
 [LOG 00:00:02] [Parsek][INFO][TestCommands] uiaction open window=widgets open=true already=false frames=1
@@ -97,6 +151,18 @@ LOG_TWO_STATES = """
 [LOG 00:00:07] [Parsek][INFO][TestCommands] uiaction tab window=widgets tab=qorvex index=1 already=false
 [LOG 00:00:08] [Parsek][INFO][TestCommands] capturescreenshot ok label=syn-widgets-qorvex-advanced
 """.strip()
+
+
+LOG_WITH_DIALOG = (LOG_TWO_STATES
+                   .replace("capturescreenshot ok label=syn-widgets-zynthia-advanced",
+                            "uiaction dialog open=true count=1 "
+                            "name=ParsekWipeRecordingsConfirm "
+                            "title=Confirm: Wipe Recordings nbuttons=2 "
+                            "buttons=Wipe All|Cancel\n"
+                            "capturescreenshot ok label=dlg-wipe")
+                   .replace("capturescreenshot ok label=syn-widgets-qorvex-advanced",
+                            "uiaction dialog open=false count=0\n"
+                            "capturescreenshot ok label=dlg-clean"))
 
 
 def make_shots(root, name="2026-09-11_0548_SYN-1-census-widgets_shots",
@@ -119,7 +185,10 @@ def make_shots(root, name="2026-09-11_0548_SYN-1-census-widgets_shots",
                   encoding="utf-8") as fh:
             json.dump(d, fh)
         if with_png:
-            tiny_png(os.path.join(path, d["label"] + ".png"))
+            # One bright band per tab, inside the grid's own rect
+            # [280,43,680,21], so `grid_label_runs` has something real to read.
+            tiny_png(os.path.join(path, d["label"] + ".png"),
+                     bands=((300, 48, 380, 60), (640, 48, 720, 60)))
     return path
 
 
@@ -280,42 +349,6 @@ class KeyIdentityTests(unittest.TestCase):
         self.assertEqual(
             gmi.key_of("f", "w", "t", "s", "m", "SC"),
             gmi.key_of("f", "w", "t", "s", "m", "SC"))
-
-
-class StateGraphTests(unittest.TestCase):
-    """An edge exists only where the destination capture exists."""
-
-    def caps(self):
-        return [
-            {"id": "1", "window": "kerbals", "tab": "roster", "state": "",
-             "mode": "advanced", "fixture": "bd"},
-            {"id": "2", "window": "kerbals", "tab": "outcomes", "state": "",
-             "mode": "advanced", "fixture": "bd"},
-            {"id": "3", "window": "kerbals", "tab": "roster", "state": "expanded",
-             "mode": "advanced", "fixture": "bd"},
-            # a different fixture and a different mode: NOT reachable from 1
-            {"id": "4", "window": "kerbals", "tab": "roster", "state": "",
-             "mode": "advanced", "fixture": "other"},
-            {"id": "5", "window": "kerbals", "tab": "roster", "state": "",
-             "mode": "basic", "fixture": "bd"},
-        ]
-
-    def test_tab_and_state_edges_exist_within_one_fixture_and_mode(self):
-        edges = gmi.state_graph_edges(self.caps())
-        outgoing = {(e["to"], e["kind"]) for e in edges if e["from"] == "1"}
-        self.assertIn(("2", "tab"), outgoing)
-        self.assertIn(("3", "state"), outgoing)
-
-    def test_no_edge_crosses_a_fixture_or_a_mode(self):
-        edges = gmi.state_graph_edges(self.caps())
-        outgoing = {e["to"] for e in edges if e["from"] == "1"}
-        self.assertNotIn("4", outgoing, "an edge crossed the dataset")
-        self.assertNotIn("5", outgoing, "an edge crossed the complexity mode")
-
-    def test_a_window_with_one_capture_has_no_edges(self):
-        one = [{"id": "1", "window": "settings", "tab": None, "state": "",
-                "mode": "advanced", "fixture": "bd"}]
-        self.assertEqual(gmi.state_graph_edges(one), [])
 
 
 class EscapingTests(unittest.TestCase):
@@ -585,11 +618,13 @@ class EndToEndRenderTests(unittest.TestCase):
         self.assertEqual((cap["window"], cap["mode"], cap["fixture"], cap["scene"]),
                          ("widgets", "advanced", "syn-fixture", "SPACECENTER"))
 
-    def test_the_switch_between_the_two_states_exists_as_an_edge(self):
-        ids = {c["tab"]: c["id"] for c in self.model["captures"]}
-        edges = {(e["from"], e["to"]) for e in self.model["edges"]}
-        self.assertIn((ids["zynthia"], ids["qorvex"]), edges)
-        self.assertIn((ids["qorvex"], ids["zynthia"]), edges)
+    def test_both_states_are_reachable_from_the_model(self):
+        # There is no edge table: a click resolves by ranking the captures that
+        # exist, so what has to hold is that BOTH states are in the model under
+        # the same window and can be told apart by their tab.
+        tabs = sorted(c["tab"] for c in self.model["captures"])
+        self.assertEqual(tabs, ["qorvex", "zynthia"])
+        self.assertEqual({c["window"] for c in self.model["captures"]}, {"widgets"})
 
     def test_both_tab_names_are_known_although_no_single_dump_carries_both(self):
         # A selection grid reports only the SELECTED item, so the other tab's
@@ -605,15 +640,37 @@ class EndToEndRenderTests(unittest.TestCase):
         self.assertIn("qorvex row", self.html)
 
     def test_the_generator_types_no_window_text_of_its_own(self):
-        # The guard on the whole claim: the tool's SOURCE must not contain the
-        # strings the page shows. A window label that lives in the generator is
-        # a window label that can drift from the game.
+        # The guard on the whole claim, driven by the CORPUS rather than by a
+        # handful of needles: every string the captures carry - control text,
+        # selection-grid value, tooltip - must be absent from the generator's own
+        # source as a quoted literal. A window label that lives in the generator
+        # is a window label that can drift from the game.
+        #
+        # The seam's own vocabulary is exempt and has to be: an op name
+        # ("close"), a complexity mode ("advanced") and a window or tab token all
+        # come out of the logs, and one of them happens to spell the same word as
+        # a button's label. Those are automation identifiers the page is entitled
+        # to know.
         with open(gmi.__file__, encoding="utf-8") as fh:
             src = fh.read()
-        for typed in ("Parsek - Widgets", "zynthia row", "qorvex row",
-                      "Go to the Qorvex tab", "Zynthia", "Qorvex"):
-            self.assertNotIn(typed, src,
-                             "%r is typed into the generator" % typed)
+        exempt = set(gmi.SEAM_VERBS) | set(gmi.MODE_TOKENS)
+        for w in self.model["windows"]:
+            exempt.add(gmi.norm(w["token"]))
+            for t in w["tabs"]:
+                exempt.add(gmi.norm(t["token"]))
+        needles = set()
+        for cap in self.model["captures"]:
+            for root in cap["roots"]:
+                needles |= _strings_of(root)
+        needles |= _strings_of_dump(REAL_EXCERPT)
+        self.assertGreater(len(needles), 8, "the corpus yielded no strings to check")
+        for text in sorted(needles):
+            n = gmi.norm(text)
+            if len(n) < 4 or n in exempt:
+                continue
+            for quoted in ("'%s'" % text, '"%s"' % text):
+                self.assertNotIn(quoted, src,
+                                 "%r is typed into the generator" % text)
 
     def test_the_colours_are_sampled_from_the_frame(self):
         cap = self.model["captures"][0]
@@ -707,6 +764,12 @@ class CompareScopeTests(unittest.TestCase):
                                                                    "host.appendChild(sumSum"))
         self.assertIn("host.appendChild(sumHost);", self.html)
 
+    def test_the_summary_rows_are_built_with_a_valid_tag(self):
+        # `el(tag, cls)` takes the TAG first: a row built as el('tr here') threw
+        # InvalidCharacterError and took the whole Compare view down.
+        self.assertIn("var tr = el('tr');", self.html)
+        self.assertNotIn("el('tr' +", self.html)
+
     def test_an_unchanged_pair_says_how_many_captures_agreed(self):
         self.assertIn("captures, no difference)", self.html)
 
@@ -783,6 +846,245 @@ class RailDisclosureTests(unittest.TestCase):
         self.assertIn("var stored = loadCollapsed();", self.html)
 
 
+class TabNameResolutionTests(unittest.TestCase):
+    """A selection grid reports only the SELECTED item's text, so the other tabs'
+    names come from the captures where THEY were selected.
+
+    Resolving that once, globally and first-seen, meant a pre-rename heading from
+    an older epoch won everywhere: the rebuilt Kerbals window rendered
+    "Roster State" / "Mission Outcomes" over a frame reading "Roster" / "Flights",
+    and because the selected marker compared NAMES, no cell was marked selected
+    either. Both halves are pinned here.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def build(self, extra_runs=()):
+        dirs = [make_shots(self.root)]
+        for name, renames in extra_runs:
+            path = make_shots(self.root, name=name)
+            for label, newtv, utc in renames:
+                f = os.path.join(path, label + ".gui.json")
+                with open(f, encoding="utf-8") as fh:
+                    d = json.load(fh)
+                d["capturedUtc"] = utc
+                grid = d["roots"][0]["children"][0]
+                assert grid["kind"] == "buttongrid", grid["kind"]
+                grid["textValue"] = newtv
+                with open(f, "w", encoding="utf-8") as fh:
+                    json.dump(d, fh)
+            dirs.append(path)
+        return gmi.build_model(dirs, make_scenarios(self.root), with_photos=False)
+
+    def names_of(self, cap):
+        return [(t["token"], t["name"]) for t in cap["tabNames"]]
+
+    def test_each_capture_names_both_tabs_from_the_captures_themselves(self):
+        model = self.build()
+        for cap in model["captures"]:
+            self.assertEqual(self.names_of(cap),
+                             [("zynthia", "Zynthia"), ("qorvex", "Qorvex")],
+                             cap["label"])
+
+    def test_the_selected_tab_is_named_by_this_captures_own_text(self):
+        model = self.build()
+        for cap in model["captures"]:
+            own = dict(self.names_of(cap))[cap["tab"]]
+            grid = self.grid_of(cap)
+            self.assertEqual(gmi.norm(own), gmi.norm(grid["tv"]), cap["label"])
+
+    def grid_of(self, cap):
+        found = []
+
+        def walk(n):
+            if n.get("k") == "buttongrid":
+                found.append(n)
+            for ch in n.get("c") or ():
+                walk(ch)
+
+        for r in cap["roots"]:
+            walk(r)
+        return found[0]
+
+    def test_an_older_datasets_name_never_overrides_this_captures_own_text(self):
+        # The regression: an older run of the same lane carried the pre-rename
+        # heading, and it won for every capture in every dataset.
+        model = self.build(extra_runs=[(
+            "2026-09-01_0100_SYN-1-census-widgets_shots",
+            [("syn-widgets-zynthia-advanced", "Zynthia Classic",
+              "2026-09-01T01:00:00Z"),
+             ("syn-widgets-qorvex-advanced", "Qorvex Classic",
+              "2026-09-01T01:01:00Z")])])
+        newer = [c for c in model["captures"] if c["runId"] == "2026-09-11_0548"]
+        self.assertTrue(newer)
+        for cap in newer:
+            self.assertEqual(self.names_of(cap),
+                             [("zynthia", "Zynthia"), ("qorvex", "Qorvex")],
+                             "an older dataset's heading won over " + cap["label"])
+        older = [c for c in model["captures"] if c["runId"] == "2026-09-01_0100"]
+        for cap in older:
+            own = dict(self.names_of(cap))[cap["tab"]]
+            self.assertTrue(own.endswith("Classic"),
+                            "the older capture lost its own text: " + own)
+
+    def test_the_page_marks_the_selected_cell_by_token_not_by_name(self):
+        html = gmi.render_html(self.build())
+        self.assertIn("var b = el('div','gi' + (t.token === opts.tab ? ' on' : ''));",
+                      html)
+        self.assertNotIn("norm(t.name) === norm(n.tv", html,
+                         "the selected cell is still matched on names")
+
+    def test_the_page_takes_the_names_from_the_capture(self):
+        html = gmi.render_html(self.build())
+        self.assertIn("var tabs = opts.tabNames || [];", html)
+        self.assertIn("tabNames: cap.tabNames", html)
+
+    def test_the_selected_cell_is_the_dark_one_with_no_top_highlight(self):
+        html = gmi.render_html(self.build())
+        self.assertIn(".gn.k-buttongrid .gi{box-shadow:inset 0 1px 0 "
+                      "rgba(255,255,255,.16)}", html)
+        self.assertIn(".gn.k-buttongrid .gi.on{box-shadow:none;background:#2c2c2c;",
+                      html)
+        self.assertNotIn(".gi.on{background:#5c5c5c", html,
+                         "the inverted selected look is still shipped")
+
+    def test_the_cell_fills_are_sampled_when_a_frame_is_available(self):
+        model = gmi.build_model([make_shots(self.root)],
+                                make_scenarios(self.root), with_photos=False)
+        grid = self.grid_of(model["captures"][0])
+        self.assertEqual(len(grid["gc"]), 2)
+        for c in grid["gc"]:
+            self.assertRegex(c, r"^#[0-9a-f]{6}$")
+
+
+class OneSourceForClickableKindsTests(unittest.TestCase):
+    """The clickable-kind set is ONE constant, emitted into both the page's JS and
+    its CSS. Two copies is how a control ends up looking clickable and not being,
+    or the other way round."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.shots = make_shots(self.root)
+        self.scen = make_scenarios(self.root)
+        self.model = gmi.build_model([self.shots], self.scen, with_photos=False)
+        self.html = gmi.render_html(self.model)
+
+    def test_the_js_reads_the_set_from_the_model(self):
+        self.assertIn("var CLICK_KINDS = M.clickKinds;", self.html)
+        self.assertIn("CLICK_KINDS.indexOf(n.k) >= 0", self.html)
+        self.assertNotIn("n.k === 'repeatbutton'", self.html,
+                         "the clickable set was re-listed inline in the JS")
+
+    def test_the_css_is_emitted_from_the_same_constant(self):
+        for kind in gmi.CLICK_KINDS:
+            self.assertIn(".gn.k-%s:hover" % kind, self.html)
+
+    def test_the_model_carries_it(self):
+        self.assertEqual(self.model["clickKinds"], list(gmi.CLICK_KINDS))
+        self.assertEqual(gmi.build_index(self.model)["seamWindows"],
+                         self.model["seamWindows"])
+
+
+class TodoFixLineTests(unittest.TestCase):
+    """The `Fix:` line, in the shapes the file really uses. The first version
+    ended an entry at its first bullet, which is BEFORE the Fix line in almost
+    every entry - 52 entries parsed, every fix empty."""
+
+    REAL_SHAPE = """# GUI exposure audit
+
+## GUI-P5-WIPE-ALL-GAME-ACTIONS-CLEARS-ONLY-MILESTONES: the button names the ledger
+
+MEASURED 2026-09-11 off the source. The handler is `MilestoneStore.ClearAll`.
+
+- it clears milestones
+- it does not touch the ledger
+
+**Fix (shipped).** Relabel, do not widen - a button that really wiped the ledger
+would be a new destructive capability.
+
+## ~~GUI-P8-DEFAULTS-SKIPS-TWO-DRAWN-SETTINGS~~: Defaults missed the slider
+
+- one
+- two
+
+**Fix:** add `ghostAudioVolume` to `SettingsDefaults`.
+
+## GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY: the field ceil-snaps
+
+Fix: not decided.
+"""
+
+    def setUp(self):
+        self.items = {e["id"]: e for e in gmi.parse_todo(self.REAL_SHAPE)}
+
+    def test_every_entry_is_found(self):
+        self.assertEqual(sorted(self.items), [
+            "GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY",
+            "GUI-P5-WIPE-ALL-GAME-ACTIONS-CLEARS-ONLY-MILESTONES",
+            "GUI-P8-DEFAULTS-SKIPS-TWO-DRAWN-SETTINGS"])
+
+    def test_a_bullet_list_does_not_end_an_entry_before_its_fix_line(self):
+        fix = self.items["GUI-P5-WIPE-ALL-GAME-ACTIONS-CLEARS-ONLY-MILESTONES"]["fix"]
+        self.assertTrue(fix.startswith("Relabel, do not widen"), fix)
+
+    def test_the_bolded_marker_is_consumed_not_leaked(self):
+        for id_ in self.items:
+            self.assertNotIn("**", self.items[id_]["fix"])
+            self.assertFalse(self.items[id_]["fix"].startswith("("),
+                             "the emphasis run leaked into the fix text")
+
+    def test_the_plain_form_works_too(self):
+        self.assertEqual(self.items["GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY"]["fix"],
+                         "not decided.")
+
+    def test_the_struck_state_is_read_off_the_heading(self):
+        self.assertTrue(self.items["GUI-P8-DEFAULTS-SKIPS-TWO-DRAWN-SETTINGS"]["done"])
+        self.assertFalse(self.items["GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY"]["done"])
+
+    def test_the_real_file_yields_fix_lines(self):
+        # The regression this replaced: 52 entries, every fix empty.
+        repo = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        path = os.path.join(repo, "docs", "dev", "todo-and-known-bugs.md")
+        if not os.path.exists(path):
+            self.skipTest("todo file not present")
+        with open(path, encoding="utf-8") as fh:
+            entries = gmi.parse_todo(fh.read())
+        self.assertGreater(len(entries), 20)
+        self.assertGreater(sum(1 for e in entries if e["fix"]), 10,
+                           "no Fix line was extracted from the real file")
+
+
+class BackgroundStorageTests(unittest.TestCase):
+    """A background is stored only for the kinds the page paints one for. It used
+    to be stored for layout groups, bare labels and scroll views as well - 385
+    values on a 35-capture corpus that nothing ever read."""
+
+    def test_only_the_painting_kinds_carry_a_background(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        model = gmi.build_model([make_shots(root)], make_scenarios(root))
+        seen = []
+
+        def walk(n):
+            if "bg" in n:
+                seen.append((n["k"], n.get("s")))
+            for ch in n.get("c") or ():
+                walk(ch)
+
+        for cap in model["captures"]:
+            for r in cap["roots"]:
+                walk(r)
+        self.assertTrue(seen, "nothing was sampled at all")
+        for kind, style in seen:
+            self.assertTrue(kind in gmi.BG_KINDS or style == "box",
+                            "%s/%s stored a background the page never paints"
+                            % (kind, style))
+
+
 class SizeBudgetTests(unittest.TestCase):
     """A self-contained page that does not fit its budget is not deliverable, so
     the budget is a gate and not a hope."""
@@ -800,14 +1102,20 @@ class SizeBudgetTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
-    def test_an_impossible_budget_is_reported_rather_than_silently_broken(self):
+    def test_an_impossible_budget_refuses_without_writing_anything(self):
+        # An over-budget page that has already been written is an over-budget
+        # page someone will open anyway, so the size is measured before the file
+        # is opened.
         root = tempfile.mkdtemp()
         try:
             shots = make_shots(root)
             out = os.path.join(root, "m.html")
+            idx = os.path.join(root, "m.json")
             rc = gmi.main(["--shots", shots, "--scenarios", make_scenarios(root),
-                           "--out", out, "--budget-mb", "0.001"])
+                           "--out", out, "--index", idx, "--budget-mb", "0.001"])
             self.assertEqual(rc, 2, "over-budget page exited 0")
+            self.assertFalse(os.path.exists(out), "the refused page was written")
+            self.assertFalse(os.path.exists(idx), "the refused index was written")
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
@@ -820,6 +1128,251 @@ class SizeBudgetTests(unittest.TestCase):
             self.assertNotIn("data:image/png", gmi.render_html(model))
         finally:
             shutil.rmtree(root, ignore_errors=True)
+
+
+class RichTextTests(unittest.TestCase):
+    """KSP draws a Unity rich-text subset in labels and the dump carries the raw
+    markup, so the page has to translate it - on a whitelist, and never through
+    `innerHTML`, because the string belongs to a control."""
+
+    def setUp(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        shots = make_shots(root)
+        nasty = ('<b>Jebediah Kerman</b> <color=#ff0000>lost</color>'
+                 '<script>alert(1)</script><iframe src=x>')
+        path = os.path.join(shots, "syn-widgets-zynthia-advanced.gui.json")
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+        d["roots"][0]["children"][-1]["text"] = nasty
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(d, fh)
+        self.nasty = nasty
+        self.model = gmi.build_model([shots], make_scenarios(root), with_photos=False)
+        self.html = gmi.render_html(self.model)
+
+    def test_the_whitelist_is_the_four_tags_unity_supports(self):
+        self.assertIn("var RICH_TAG = /<(\\/?)(b|i|color|size)(=([^>]*))?>/gi;",
+                      self.html)
+
+    def test_the_translation_never_uses_innerhtml(self):
+        body = self.html[self.html.index("function richText("):]
+        body = body[:body.index("function renderNode(")]
+        self.assertNotIn("innerHTML", body)
+        self.assertIn("document.createTextNode", body)
+        self.assertIn("document.createElement('span')", body)
+
+    def test_a_non_whitelisted_tag_stays_in_the_payload_as_data(self):
+        # It reaches the page escaped inside the JSON and lands as a text node,
+        # so it shows as the tag the control really drew rather than executing.
+        self.assertIn("\\u003cscript\\u003e", self.html)
+        self.assertNotIn("<script>alert(1)</script>", self.html)
+        self.assertNotIn("<iframe", self.html)
+
+    def test_the_whole_string_survives_into_the_payload(self):
+        cap = [c for c in self.model["captures"] if c["tab"] == "zynthia"][0]
+        self.assertIn(self.nasty, _strings_of(cap["roots"][0]))
+
+    def test_the_colour_and_size_arguments_are_validated(self):
+        body = self.html[self.html.index("function richText("):]
+        body = body[:body.index("function renderNode(")]
+        self.assertIn("/^#[0-9a-f]{3,8}$|^[a-z]{3,20}$/i.test(arg)", body)
+        self.assertIn("/^[0-9]{1,3}$/.test(arg)", body)
+
+
+class DialogCaptureTests(unittest.TestCase):
+    """A PopupDialog is a centred uGUI canvas with no presence in any control
+    tree, so the Parsek windows' bounding box does not contain it. Cropping to
+    that box captioned another mod's window as the modal."""
+
+    def build(self, with_photos=True):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        shots = make_shots(root, log=LOG_WITH_DIALOG)
+        for old, new in (("syn-widgets-zynthia-advanced", "dlg-wipe"),
+                         ("syn-widgets-qorvex-advanced", "dlg-clean")):
+            for ext in (".gui.json", ".png"):
+                src = os.path.join(shots, old + ext)
+                if os.path.exists(src):
+                    os.rename(src, os.path.join(shots, new + ext))
+        for label in ("dlg-wipe", "dlg-clean"):
+            path = os.path.join(shots, label + ".gui.json")
+            with open(path, encoding="utf-8") as fh:
+                d = json.load(fh)
+            d["label"] = label
+            d["screenshotHint"] = label + ".png"
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(d, fh)
+        return gmi.build_model([shots], make_scenarios(root),
+                               with_photos=with_photos)
+
+    def test_a_modal_capture_photographs_the_whole_frame(self):
+        model = self.build()
+        dlg = [c for c in model["captures"] if c["dialog"]][0]
+        self.assertEqual([dlg["photo"]["x"], dlg["photo"]["y"],
+                          dlg["photo"]["w"], dlg["photo"]["h"]],
+                         [0, 0, 1280, 720])
+        self.assertEqual(dlg["photo"]["whole"], 1)
+
+    def test_a_capture_with_no_modal_still_crops_to_the_windows(self):
+        model = self.build()
+        plain = [c for c in model["captures"] if not c["dialog"]][0]
+        self.assertNotEqual(plain["photo"]["w"], 1280)
+        self.assertNotIn("whole", plain["photo"])
+
+    def test_the_title_and_buttons_come_through_without_any_photo(self):
+        model = self.build(with_photos=False)
+        dlg = [c for c in model["captures"] if c["dialog"]][0]
+        self.assertIsNone(dlg["photo"])
+        self.assertEqual(dlg["dialog"]["title"], "Confirm: Wipe Recordings")
+        self.assertEqual(dlg["dialog"]["buttons"], ["Wipe All", "Cancel"])
+        html = gmi.render_html(model)
+        self.assertIn("Confirm: Wipe Recordings", html)
+        self.assertIn("Wipe All", html)
+
+    def test_no_button_is_ever_fabricated(self):
+        html = gmi.render_html(self.build())
+        self.assertNotIn("['OK']", html)
+        self.assertIn("if (cap.dialog.buttons.length){", html)
+        self.assertIn("the seam reported no buttons on this modal", html)
+
+    def test_the_modal_block_is_suppressed_in_overlay_mode_too(self):
+        html = gmi.render_html(self.build())
+        self.assertIn(".stage.overlay .dlg .dt,.stage.overlay .dlg .db,"
+                      ".stage.overlay .dlg .dcap{display:none}", html)
+
+
+class SuperSizeGuardTests(unittest.TestCase):
+    """A frame whose size disagrees with the dump would sample the wrong pixels
+    for every control, and scaling it here would be a guess about which way."""
+
+    def test_a_mismatched_frame_is_not_sampled_and_is_reported(self):
+        root = tempfile.mkdtemp()
+        try:
+            shots = make_shots(root)
+            # a superSize screenshot: twice the frame the dump was taken at
+            tiny_png(os.path.join(shots, "syn-widgets-zynthia-advanced.png"),
+                     2560, 1440)
+            err = io.StringIO()
+            real, sys.stderr = sys.stderr, err
+            try:
+                model = gmi.build_model([shots], make_scenarios(root), verbose=True)
+            finally:
+                sys.stderr = real
+            bad = [c for c in model["captures"] if c["tab"] == "zynthia"][0]
+            good = [c for c in model["captures"] if c["tab"] == "qorvex"][0]
+            self.assertIsNone(bad["roots"][0].get("bg"),
+                              "a mismatched frame was sampled anyway")
+            self.assertTrue(good["roots"][0].get("bg"))
+            self.assertIn("does not match the dump", err.getvalue())
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+class MutationPinningTests(unittest.TestCase):
+    """One cell per mutation that survived the first pass. Each pins a decision
+    the suite could not previously tell from its opposite."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def two_runs(self, second_differs=True):
+        """The same key photographed twice, older run first."""
+        early = make_shots(self.root, name="2026-09-11_0548_SYN-1-census-widgets_shots")
+        late = make_shots(self.root, name="2026-09-15_1744_SYN-1-census-widgets_shots")
+        for path, utc in ((early, "2026-09-11T05:49:25Z"), (late, "2026-09-15T17:45:00Z")):
+            for label in ("syn-widgets-zynthia-advanced", "syn-widgets-qorvex-advanced"):
+                f = os.path.join(path, label + ".gui.json")
+                with open(f, encoding="utf-8") as fh:
+                    d = json.load(fh)
+                d["capturedUtc"] = utc
+                if second_differs and path is late:
+                    d["roots"][0]["children"][-1]["text"] = "a genuinely new row"
+                with open(f, "w", encoding="utf-8") as fh:
+                    json.dump(d, fh)
+        return gmi.build_model([early, late], make_scenarios(self.root),
+                               with_photos=False)
+
+    def test_m3_the_earliest_capture_is_the_before(self):
+        model = self.two_runs()
+        info = [v for v in model["keys"].values() if v["changed"]][0]
+        self.assertIn("2026-09-11_0548", info["before"])
+        self.assertIn("2026-09-15_1744", info["after"])
+
+    def test_m5_identical_trees_with_different_ids_pair_as_unchanged(self):
+        model = self.two_runs(second_differs=False)
+        self.assertTrue(model["keys"])
+        for k, info in model["keys"].items():
+            self.assertEqual(len(info["all"]), 2, k)
+            self.assertFalse(info["changed"],
+                             "two identical trees were reported as a change")
+            self.assertIsNone(info["measured"])
+
+    def test_m5_a_real_tree_difference_pairs_as_changed(self):
+        model = self.two_runs(second_differs=True)
+        changed = [v for v in model["keys"].values() if v["changed"]]
+        self.assertTrue(changed, "a real tree difference was not reported")
+        self.assertIsNotNone(changed[0]["measured"])
+
+    def test_m11_a_tighter_budget_produces_fewer_photo_bytes(self):
+        shots = make_shots(self.root)
+        scen = make_scenarios(self.root)
+        roomy = gmi.build_model([shots], scen, with_photos=True,
+                                budget=16 * 1024 * 1024)
+        # Tight enough that the first (quant 8) step does not fit, so the
+        # encoder has to walk down its own ladder.
+        tight = gmi.build_model([shots], scen, with_photos=True,
+                                budget=5 * 1024)
+        self.assertGreater(roomy["photoBytes"], 0)
+        self.assertLess(tight["photoBytes"], roomy["photoBytes"],
+                        "the budget did not change what was encoded")
+
+    def test_m15_grid_label_runs_are_present_only_when_a_frame_is(self):
+        with_png = make_shots(self.root, name="2026-09-11_0548_SYN-1-census-widgets_shots")
+        without = make_shots(self.root, name="2026-09-12_0548_SYN-1-census-widgets_shots",
+                             with_png=False)
+        scen = make_scenarios(self.root)
+
+        def grid_of(model):
+            cap = model["captures"][0]
+            found = []
+
+            def walk(n):
+                if n.get("k") == "buttongrid":
+                    found.append(n)
+                for ch in n.get("c") or ():
+                    walk(ch)
+
+            for r in cap["roots"]:
+                walk(r)
+            return found[0]
+
+        self.assertIn("gi", grid_of(gmi.build_model([with_png], scen)))
+        self.assertNotIn("gi", grid_of(gmi.build_model([without], scen)))
+
+    def test_m16_the_seam_log_beats_the_label_on_the_window(self):
+        # The label says one window, the log says another: the log wins, because
+        # the label is a filename and the log is what was on screen.
+        shots = make_shots(self.root, log=LOG_TWO_STATES.replace(
+            "window=widgets", "window=gizmos").replace("openWindows=widgets",
+                                                       "openWindows=gizmos"))
+        model = gmi.build_model([shots], make_scenarios(self.root), with_photos=False)
+        self.assertEqual(model["captures"][0]["window"], "gizmos")
+        self.assertNotEqual(model["captures"][0]["window"], "widgets")
+
+    def test_m17_overlay_mode_suppresses_every_text_layer(self):
+        model = gmi.build_model([make_shots(self.root)],
+                                make_scenarios(self.root), with_photos=False)
+        html = gmi.render_html(model)
+        for rule in (".stage.overlay .gn .tx,.stage.overlay .gn .cb,"
+                     ".stage.overlay .gn .gl{display:none}",
+                     ".stage.overlay .kwin>.kt{display:none}",
+                     ".stage.overlay .dlg .dt,.stage.overlay .dlg .db,"
+                     ".stage.overlay .dlg .dcap{display:none}"):
+            self.assertIn(rule, html, "overlay mode lost a text-suppression rule")
+        self.assertIn(".stage.overlay .gn{background:none !important;"
+                      "color:transparent !important;", html)
 
 
 class PngCodecTests(unittest.TestCase):

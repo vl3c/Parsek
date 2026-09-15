@@ -277,12 +277,13 @@ from the game: there is nothing to update when a window changes, only a census t
 re-fly.
 
 **A click with no capture behind it flashes the control and says
-`no capture for this state yet`.** That is the whole interaction contract. The state
-graph carries an edge only where the destination capture exists; the page never
+`no capture for this state yet`.** That is the whole interaction contract. A click
+resolves by ranking the captures that EXIST - the plain state before a named one,
+the first tab before a later one - and refuses when nothing matches; the page never
 fabricates a screen, because a plausible fabrication sends a reader to fix a bug
 that is not there while a gap sends them to fly a lane. The left rail lists every
 window and state that HAS a capture with its dataset, and every state the seam
-knows with none, greyed.
+knows with none, greyed; each window header folds its own list.
 
 Pass several runs of the same lane at once and the page grows a **Compare** view:
 BEFORE is the earliest capture of a

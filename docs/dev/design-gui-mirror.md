@@ -56,6 +56,16 @@ mirror uses 13px. Getting this wrong is visible at once - the dump's rects were
 laid out by KSP's own font, so a font that is 8% wide overflows cells the game
 fits, and the photo toggle is how it was caught.
 
+### Rich text
+
+KSP draws a Unity rich-text subset in labels and the dump carries the raw markup -
+the Kerbals outcome rows really do read `<b>Jebediah Kerman</b>`. Rendering that as
+text shows the tags; rendering it as HTML hands a control's own string the run of
+the page. So the four tags Unity supports (`b`, `i`, `color=`, `size=`) are
+translated into spans on a whitelist, with the colour and size arguments pattern-
+checked, and every other character - including any tag not on the list - lands as a
+DOM text node. `innerHTML` is never used anywhere on the page.
+
 ### Why colours are sampled from the PNG
 
 The dump records a style NAME, not a colour. The Kerbals Roster tab's clickable
@@ -68,9 +78,28 @@ product changes changes in the mirror on the next census with no code edit.
 
 ### Why a tab bar's labels are measured too
 
-A selection grid reports one rect and the selected item's text. It reports nothing
-about where the items sit or how their text is aligned, and the product is not
-uniform about it: the Kerbals bar centres its two labels while the Career bar
+A selection grid reports one rect and the SELECTED item's text. Three things
+follow, and all three were got wrong once by assuming instead of measuring.
+
+**The other tabs' names come from the captures where THEY were selected**, resolved
+PER CAPTURE and newest-first: this capture's own text for its own tab, then the
+same dataset and mode, then the same dataset, then anywhere. Resolving it once
+globally and first-seen let a pre-rename heading from an older epoch win for every
+dataset - the rebuilt Kerbals window rendered "Roster State" / "Mission Outcomes"
+over a frame that reads "Roster" / "Flights".
+
+**The selected cell is marked by TOKEN, not by name.** Comparing names is what
+lost the marker entirely once a name went stale: no cell was selected at all.
+
+**The selected cell is the DARK, pushed-in one.** Measured on the
+`cek-career-contracts` and `bdk-kerbals-roster` frames, the selected cell has no
+top highlight (grey profile 130,30,32,35,40,43,44..60) while the unselected ones
+carry the light top edge (14,102,88,78,68,41..59). A brighter selection is the
+intuitive guess and the wrong one. The fills themselves are sampled per cell off
+the frame, so only the edge is CSS.
+
+**The label positions are measured too.** The product is not uniform about
+alignment: the Kerbals bar centres its two labels while the Career bar
 left-aligns its four in cells of the same 245 px stride. Centring everything put
 the Career strip 87 px right of where the game draws it - measured against the
 photo, which is what caught it. So `grid_label_runs` reads the bright runs inside
@@ -98,6 +127,16 @@ it, and `<tab>` only if the seam ever reported selecting it ON THAT WINDOW. What
 is left is the state, joined with `-`. A host whose second token is no known
 window (`dlg-`, `scope-`) yields `window=None` rather than filing a modal under a
 window it never stood over.
+
+Two more consequences of the log winning, both visible in the rail. A capture
+labelled `flight-spawncontrol-advanced` surfaces as **window=main,
+state=spawncontrol**, because the seam never confirmed an open for that window on
+that host - the window closes itself when nothing is in range, so the label names
+a window that was not on screen and the log is right. And `parsek-guitree-probe`
+files under a window token `parsek` for lack of any log entry at all: the probe
+window is not a seam surface, so it has no token, and the host prefix is the only
+handle the page has. It is shown in the mirror because it WAS photographed, and
+left out of Compare because Compare is about the product's windows.
 
 **The log wins where the two disagree.** The label is a filename; the seam's own
 `uiaction` lines are what was on screen. One case where they differ on purpose: the
@@ -228,6 +267,17 @@ about 6.2 MB of control trees, 14.9 MB total.
 The PNG codec is stdlib `zlib` + `struct` (read, crop, subsample, re-encode);
 `harness/` is stdlib-only and Pillow is not available.
 
+The size is measured before the output file is opened, and an over-budget page is
+REFUSED rather than written and then complained about: a page that exists is a page
+someone opens. A modal capture is the one exception to the crop rule - a
+`PopupDialog` is a centred uGUI canvas outside every window rect, so its photo is
+the whole frame, captioned as such.
+
+And a frame whose dimensions disagree with the dump's own `screen` is not sampled
+at all (`-v` says which): the rects are in the frame the dump was taken at, so a
+superSize screenshot would sample the wrong pixels for every control, and scaling
+it here would be a guess about which way.
+
 ## 8. Foreign windows
 
 Another mod's window was on screen when the census ran and is in the dump. A root
@@ -310,6 +360,17 @@ value the dump does not carry, or a font.
    `crashed=0, stabl` in the mirror against `crashed=0, stable` in the frame. A
    real fix means shipping KSP's own font metrics, which is a bigger thing than
    this page.
+
+### What "unchanged" does not cover
+
+The changed test strips the sampled colours before comparing (`_strip` drops `bg`
+and `fg`), so **a colour-only change pairs as UNCHANGED**. That is deliberate: two
+runs of one lane differ in their pixels for reasons that are not the product -
+scenery, time of day, a ghost drifting behind the window - and pairing those as
+changes would bury the layout differences the view exists for. The cost is real
+though: a window whose only change was a text colour (a status turning red, a row
+becoming a link) reads as unchanged here. Put the two sides in side-by-side photo
+mode to see it.
 
 ## 12. What this page is not
 

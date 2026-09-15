@@ -1,0 +1,282 @@
+{
+ "schema": "parsek-gui-tree/1",
+ "label": "ksc-main-advanced",
+ "capturedUtc": "2026-09-11T05:49:25Z",
+ "frame": 6581,
+ "screen": {
+  "width": 1280,
+  "height": 720
+ },
+ "screenshotHint": "ksc-main-advanced.png",
+ "guiMatrix": {
+  "identity": true,
+  "m00": 1,
+  "m11": 1,
+  "m03": 0,
+  "m13": 0
+ },
+ "counts": {},
+ "funnels": [],
+ "roots": [
+  {
+   "kind": "window",
+   "rect": [
+    8,
+    8,
+    250,
+    0
+   ],
+   "localRect": [
+    8,
+    8,
+    250,
+    0
+   ],
+   "clipDepth": 1,
+   "style": "window",
+   "enabled": true,
+   "text": "Parsek",
+   "windowId": -376830,
+   "contentOrigin": [
+    8,
+    8
+   ],
+   "argSize": [
+    250,
+    300
+   ],
+   "children": [
+    {
+     "kind": "layoutgroup",
+     "rect": [
+      18,
+      38,
+      230,
+      256
+     ],
+     "localRect": [
+      10,
+      30,
+      230,
+      256
+     ],
+     "clipDepth": 1,
+     "style": "",
+     "enabled": true,
+     "text": null,
+     "horizontal": false,
+     "children": [
+      {
+       "kind": "button",
+       "rect": [
+        18,
+        48,
+        230,
+        21
+       ],
+       "localRect": [
+        10,
+        40,
+        230,
+        21
+       ],
+       "clipDepth": 1,
+       "style": "button",
+       "enabled": true,
+       "text": "Timeline",
+       "tooltip": "Every recorded flight and career event on one clock.",
+       "children": []
+      },
+      {
+       "kind": "button",
+       "rect": [
+        18,
+        73,
+        230,
+        21
+       ],
+       "localRect": [
+        10,
+        65,
+        230,
+        21
+       ],
+       "clipDepth": 1,
+       "style": "button",
+       "enabled": true,
+       "text": "Missions",
+       "tooltip": "Your missions, and the recordings they are built from.",
+       "children": []
+      },
+      {
+       "kind": "button",
+       "rect": [
+        18,
+        98,
+        230,
+        21
+       ],
+       "localRect": [
+        10,
+        90,
+        230,
+        21
+       ],
+       "clipDepth": 1,
+       "style": "button",
+       "enabled": true,
+       "text": "Logistics",
+       "tooltip": "Supply routes that repeat a delivery you already flew.",
+       "children": []
+      },
+      {
+       "kind": "button",
+       "rect": [
+        18,
+        133,
+        230,
+        21
+       ],
+       "localRect": [
+        10,
+        125,
+        230,
+        21
+       ],
+       "clipDepth": 1,
+       "style": "button",
+       "enabled": true,
+       "text": "Kerbals",
+       "tooltip": "Who is reserved, flying or retired in your timeline.",
+       "children": []
+      },
+      {
+       "kind": "button",
+       "rect": [
+        18,
+        158,
+        230,
+        21
+       ],
+       "localRect": [
+        10,
+        150,
+        230,
+        21
+       ],
+       "clipDepth": 1,
+       "style": "button",
+       "enabled": true,
+       "text": "Career",
+       "tooltip": "Contracts, strategies and buildings along the timeline.",
+       "children": []
+      },
+      {
+       "kind": "button",
+       "rect": [
+        18,
+        193,
+        230,
+        21
+       ],
+       "localRect": [
+        10,
+        185,
+        230,
+        21
+       ],
+       "clipDepth": 1,
+       "style": "button",
+       "enabled": true,
+       "text": "Settings",
+       "tooltip": "Recording, looping, ghost and diagnostic options.",
+       "children": []
+      },
+      {
+       "kind": "label",
+       "rect": [
+        18,
+        231,
+        230,
+        38
+       ],
+       "localRect": [
+        10,
+        223,
+        230,
+        38
+       ],
+       "clipDepth": 1,
+       "style": "box",
+       "enabled": true,
+       "text": "",
+       "children": []
+      },
+      {
+       "kind": "layoutgroup",
+       "rect": [
+        18,
+        273,
+        230,
+        21
+       ],
+       "localRect": [
+        10,
+        265,
+        230,
+        21
+       ],
+       "clipDepth": 1,
+       "style": "",
+       "enabled": true,
+       "text": null,
+       "horizontal": true,
+       "children": [
+        {
+         "kind": "label",
+         "rect": [
+          18,
+          273,
+          35,
+          17
+         ],
+         "localRect": [
+          10,
+          265,
+          35,
+          17
+         ],
+         "clipDepth": 1,
+         "style": "label",
+         "enabled": true,
+         "text": "v0.10.5",
+         "children": []
+        },
+        {
+         "kind": "button",
+         "rect": [
+          67,
+          273,
+          181,
+          21
+         ],
+         "localRect": [
+          59,
+          265,
+          181,
+          21
+         ],
+         "clipDepth": 1,
+         "style": "button",
+         "enabled": true,
+         "text": "Close",
+         "children": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
