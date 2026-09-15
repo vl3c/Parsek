@@ -399,6 +399,26 @@ namespace Parsek.Tests
                     relPath, stripLines, constructed[0]));
         }
 
+        // catches: the Kerbals row budgeting a width the window no longer opens at. The
+        // strip-height column is already cross-checked against the window constructor
+        // above; this does the same for the WIDTH column of the one row whose window
+        // exposes its first-open width as a constant. The dangerous direction is a window
+        // widening while the row stays narrow, which keeps the suite green while the gate
+        // budgets less than the strip really holds - the reverse of a useful gate.
+        [Fact]
+        public void TheKerbalsRowWidthIsTheWindowsOwnFirstOpenWidth()
+        {
+            float rowWidth = float.NaN;
+            foreach (object[] row in StripWindows())
+            {
+                if ((string)row[0] != "UI/KerbalsWindowUI.cs") continue;
+                rowWidth = (float)row[1];
+            }
+            Assert.False(float.IsNaN(rowWidth),
+                "the Kerbals row is gone from StripWindows - restore it or delete this cell");
+            Assert.Equal(KerbalsWindowUI.DefaultWindowWidth, rowWidth);
+        }
+
         // ------------------------------------------------------------------
         // Scanner
         // ------------------------------------------------------------------
@@ -753,7 +773,10 @@ namespace Parsek.Tests
             return line;
         }
 
-        private static string ReadParsekSource(string relPath)
+        /// <summary>Reads a file under <c>Source/Parsek/</c>. Internal because a source
+        /// gate in another class reuses it rather than carrying a second copy of the
+        /// five-segment walk to the repo root.</summary>
+        internal static string ReadParsekSource(string relPath)
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));

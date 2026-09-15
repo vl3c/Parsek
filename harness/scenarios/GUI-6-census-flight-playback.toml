@@ -139,7 +139,22 @@ tier = "operator"
 # log) and no root-level label other than the watch overlay's two appears in any dump. The
 # inventory's 6.1 row named this lane for that surface; it is corrected there, and the picture
 # needs a host where a ghost's spawn is actually abandoned or blocked.
-description = "GUI census wave 2, the flight scene mid-playback: photograph the main window's flight status with active ghosts, the Gloops recorder, the flight-only Watch column on the Recordings tab, the shared windows over a live scene, the sandbox Career banner, the map view with ghost markers, the watch-mode overlay and Real Spawn Control over the 243-ghost part-showcase corpus."
+# ADDED 2026-09-15, THE LIVE-CREW REFRESH PROOF (3 more captures, 14 -> 17 PNGs). The
+# Kerbals window builds its two tabs once and caches them, and until this PR the ONLY thing
+# that dropped that cache was a Parsek LEDGER write - while the Roster tab also reads the
+# stock roster and the live crew-to-vessel map, which no ledger write touches. This lane is
+# the only committed one that photographs the `Assigned (<vessel>)` cell at all, so it is
+# also the only place a stale one can be caught: the block below captures the Roster tab,
+# changes the crew for real with `EvaExit` (the same verb `EVA-1-pad-flag` flies green on
+# THIS fixture), and captures it again. The diff between the two dumps is the proof, and the
+# `onCrewOnEva` refresh line in the log is the mechanical half.
+#
+# IT IS THE LAST BLOCK ON PURPOSE, after even the two speculative steps: `EvaExit` creates a
+# vessel and moves the active-vessel focus, and both of those are inputs to the flight status
+# block, the watch-mode pick and Real Spawn Control's candidate distances. Appended rather
+# than spliced, so every reading the lane already measured is taken on the same scene it was
+# measured on, and a failure here still harvests all fourteen captures before it.
+description = "GUI census wave 2, the flight scene mid-playback: photograph the main window's flight status with active ghosts, the Gloops recorder, the flight-only Watch column on the Recordings tab, the shared windows over a live scene, the sandbox Career banner, the map view with ghost markers, the watch-mode overlay and Real Spawn Control over the 243-ghost part-showcase corpus, then the Kerbals Roster tab either side of a real EvaExit so the live-crew cache refresh has a picture."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "playback", "GUI-6", "pending-operator"]
 
@@ -265,6 +280,30 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "play-spawncontrol-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "spawncontrol" }, expect = "OK" },
 
+  # --- THE LIVE-CREW REFRESH, either side of a real crew change (see the header) ---
+  # The Roster tab first, which is what BUILDS the cached view model: the `Assigned
+  # (<vessel>)` cell reads the live crew-to-vessel map, not the ledger.
+  { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "roster" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-kerbals-roster-precrew-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-kerbals-roster-precrew-advanced" }, expect = "OK" },
+
+  # THE CREW CHANGE, with no ledger write anywhere near it. `release = "true"` drops the
+  # kerbal off the ladder to the pad, the same shape `EVA-1-pad-flag` flies on this fixture.
+  { cmd = "EvaExit", args = { release = "true" }, expect = "OK", budget = 120 },
+
+  # AND THE SAME TAB AGAIN. The kerbal's vessel is now the EVA kerbal, so his `Assigned`
+  # cell must have moved; before the refresh it would still read the pod, because nothing
+  # had dropped the cache.
+  { cmd = "CaptureScreenshot", args = { label = "play-kerbals-roster-postcrew-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-kerbals-roster-postcrew-advanced" }, expect = "OK" },
+  # And the Flights tab after it, so the mission-row collapse has a flight-scene picture too.
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-kerbals-flights-postcrew-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-kerbals-flights-postcrew-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
+
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -327,6 +366,14 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-main-ghosts-basic .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-main-watchmode-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-spawncontrol-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-roster-precrew-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-roster-postcrew-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-flights-postcrew-advanced .*patched=17/17",
+  # --- THE LIVE-CREW REFRESH ITSELF. One Verbose line per event, naming the event that
+  # dropped the cache: without the subscription the EVA writes nothing here and the second
+  # Roster capture is a picture of the FIRST one's stale view model.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] KerbalsWindow: live crew state changed \\(onCrewOnEva\\) - cache",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] KerbalsWindow: subscribed to 8 live-crew GameEvents",
 ]
 # EMPTY, the census host decision: a 243-recording injected corpus's load surface is not
 # what a LAYOUT review controls or observes, and it is gated where it is attributable
@@ -334,9 +381,9 @@ required = [
 forbidden = []
 
 [runtime]
-# 12 captures and 12 dumps, a TimeJump, a map-view round trip, a watch-mode entry and about
-# 45 single-phase UI ops, over a corpus of 243 injected recordings whose ghosts are all
-# playing. LT-5 measured the same host and the same jump at 72 s wall for a two-category
+# 15 captures and 15 dumps, a TimeJump, a map-view round trip, a watch-mode entry, one
+# EvaExit and about 50 single-phase UI ops, over a corpus of 243 injected recordings whose
+# ghosts are all playing. LT-5 measured the same host and the same jump at 72 s wall for a two-category
 # in-game batch; GUI-1 measured 22 captures plus 22 dumps at 96 s. 1200 s is roughly ten
 # times a generous sum of the two, and stays generous because the PRODUCT is the images.
 budgetSeconds = 1200

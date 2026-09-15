@@ -25,7 +25,7 @@ tier = "operator"
 #     load surface is gated elsewhere and its analyzer row needs no exemption.
 #
 # WHAT IT PHOTOGRAPHS (6 PNGs, each with a `<label>.gui.json` dump beside it): the Roster
-# tab closed, fully expanded, and with ONE stand-in row's replacement chain open; the
+# tab closed, fully expanded, and with ONE owner row's replacement chain open; the
 # Flights tab with every group unfolded and with every group folded to its header line.
 # The closed/open pairs are the point - the fold is the "minimal, need-to-know" ruling made
 # visible, and a reviewer reads it as a diff.
@@ -35,9 +35,16 @@ tier = "operator"
 # a per-kerbal group fold. `key=all` / `key=none` walk BOTH sets, which is why the folded
 # Flights capture below is taken after a `key=none` that also re-collapses the Roster tab -
 # stated here because a reviewer would otherwise read the next Roster capture as a
-# regression. `roster:Jane Kerman` is a NAMED key on purpose: it is committed fixture data,
-# and it proves the chain view hangs off the STAND-IN's own row rather than only off the
-# owner's.
+# regression. `roster:Bill Kerman` is a NAMED key on purpose: it is committed fixture data
+# (an owner with a stand-in), and it proves the chain view hangs off ONE row rather than
+# off the whole tab.
+#
+# THE NAMED KEY WAS `roster:Jane Kerman` ON THE FIRST TWO FLIGHTS, and that is a review
+# finding rather than an edit of taste: the chain describes ONE slot and that slot belongs
+# to the owner, so a stand-in row expanding into a chain containing itself was wrong. Only
+# the owner's row is expandable now, so `roster:Jane Kerman` is no longer an offered key
+# and the step would answer `changed=0`. The capture it produced is relabelled to match
+# what it is a picture of.
 #
 # `op=open window=main` FIRST IS A PRECONDITION (the settle for a non-`main` `open` /
 # `rect` refuses while the host's `showUI` is false), and `scene = "spacecenter"` is passed
@@ -62,6 +69,16 @@ tier = "operator"
 # showing ONE expansion on the STAND-IN's own row. Header-vs-cell delta ZERO on both tabs
 # (Roster cells x=284/478/702/836 header and body alike, Flights 284/418/632/746).
 #
+# WHAT THAT READING BOUGHT, and what this lane now measures instead. Two of its numbers were
+# the defect: the fifteen Flights rows were FIVE PER KERBAL for what this corpus records as
+# TWO MISSIONS - four of them at the identical `Y1, D01, 02:29` with the identical mission
+# name, and one of them `Outcome unknown` for a two-point mid-mission segment - and the
+# stand-in row was expandable. The row unit is the MISSION now, so the expected reading is
+# TWO rows per kerbal (`Kerbal X`, then `Kerbal X #2`), each dated by its first segment
+# START, each carrying the mission's FINAL outcome, with the segment count and the ordered
+# per-segment outcomes in the outcome cell's hover text; and the three group headers count
+# missions (`2 missions: ...`). The stand-in rows have no fold arrow.
+#
 # WHAT THE FIRST RUN FOUND, both fixed before the re-flight: the compact date clipped an
 # 80 px column (now 130, which moved the window's first-open width to 760), and this lane's
 # own `unfolded` Flights capture was FOLDED, because the bulk `key=none` that sets up the
@@ -71,7 +88,7 @@ tier = "operator"
 # owners because they are still ABOARD, so no committed flight anywhere was flown BY a
 # stand-in and every Crew cell reads `-`. The note's logic is covered by six unit cells; a
 # picture needs a fixture that does not exist.
-description = "GUI census: the rebuilt Kerbals window over a crewed corpus - the Roster tab closed, fully expanded and with one stand-in row's replacement chain open, and the Flights tab unfolded and folded, over a fixture with three reserved slots, three stand-ins and twenty-four crewed recordings."
+description = "GUI census: the rebuilt Kerbals window over a crewed corpus - the Roster tab closed, fully expanded and with one owner row's replacement chain open, and the Flights tab unfolded (one row per mission) and folded, over a fixture with three reserved slots, three stand-ins and twenty-four crewed recordings."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "kerbals", "GUI-11", "pending-operator"]
 
@@ -110,13 +127,16 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-expanded-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-expanded-advanced" }, expect = "OK" },
 
-  # ONE STAND-IN ROW'S CHAIN, and nothing else: `key=none` first so the picture carries a
+  # ONE OWNER ROW'S CHAIN, and nothing else: `key=none` first so the picture carries a
   # single expansion, then the named key. `changed=` on the pair says how much the bulk
   # collapse had to undo, which is the in-run check that the previous capture was open.
+  # The key is the SLOT OWNER: a stand-in's row is not expandable (the chain belongs to the
+  # slot, and the slot belongs to the owner), so `roster:Jane Kerman` - what the first two
+  # flights used - is no longer an offered key.
   { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "none" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "roster:Jane Kerman" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-standin-chain-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-standin-chain-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "roster:Bill Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-owner-chain-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-owner-chain-advanced" }, expect = "OK" },
 
   # THE FLIGHTS TAB WITH EVERY GROUP OPEN, so the per-flight rows (date, mission, outcome
   # word, "as <stand-in>") are the picture. The `key=all` is REQUIRED and not redundant
@@ -167,7 +187,7 @@ required = [
   # either side of them a diff rather than two pictures of the same thing.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=none state=false changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=roster:Jane Kerman state=true changed=1 expanded=1 total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=roster:Bill Kerman state=true changed=1 expanded=1 total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=flights:Bill Kerman state=true changed=1 expanded=1 total=[0-9]+",
   # --- the negative dialog assertion (see the header) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
@@ -176,7 +196,7 @@ required = [
   # --- every dump, each pinning the arm-time funnel reading for its own frame ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-collapsed-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-expanded-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-standin-chain-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-owner-chain-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-flights-unfolded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-flights-folded-advanced .*patched=17/17",
 ]

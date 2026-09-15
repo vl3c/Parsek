@@ -12,8 +12,9 @@ namespace Parsek
     ///     flight ended. Rows Parsek has something to say about are listed first; plain
     ///     available kerbals with no recorded flight collapse under one fold row.
     ///   * "Flights" (seam tab token <c>outcomes</c>): per-kerbal flight history, one
-    ///     row per recorded flight with its calendar date, mission, outcome word and the
-    ///     stand-in who flew it.
+    ///     row per MISSION (one recording tree) with its calendar start date, mission
+    ///     name, final outcome word and the stand-in who flew it. The segments a mission
+    ///     collapsed are counted and listed in the outcome cell's hover text.
     ///
     /// <para>Both tabs draw their column-header row and their body rows with the shared
     /// inset containers (<c>ParsekUI.GetTableRowStyle</c> /
@@ -60,7 +61,11 @@ namespace Parsek
         // minute ("Y1, D01, 02:29", 14 chars = 98 px at the skin's ~7 px advance) - the
         // first flight measured that clipped at 80. Last flight expands.
         private const float ColW_RosterName = 190f;
-        private const float ColW_RosterStatus = 220f;
+        /// <summary>Internal because <see cref="KerbalsPresentation"/> budgets the
+        /// "Status now" text against it: the stand-in form only carries its vessel inline
+        /// when the composed string fits this column, otherwise the vessel moves into the
+        /// cell's hover text.</summary>
+        internal const float ColW_RosterStatus = 220f;
         private const float ColW_RosterSince = 130f;
         // Flights: Date holds the same compact date, Mission a mission name, Outcome the
         // longest outcome word ("Outcome unknown", 15 chars), Crew note expands.
@@ -69,13 +74,23 @@ namespace Parsek
         private const float ColW_FlightOutcome = 110f;
 
         /// <summary>
-        /// Minimum width. The Roster tab is the wider of the two tables: its three fixed
-        /// columns are 190 + 220 + 130 = 540 px, so 570 leaves the expanding "Last
-        /// flight" column a readable sliver at the smallest size the player can drag to.
-        /// Below that the fixed columns would clip instead of shrinking - IMGUI does not
-        /// reflow a pinned width.
+        /// Minimum width, derived from the Roster tab (the wider of the two tables) rather
+        /// than guessed. Every term is measured off the census dumps, whose header cells
+        /// sit at x=284 / 478 / 702 / 836 inside a window placed at x=270:
+        ///
+        /// <para>540 px of fixed columns (190 + 220 + 130) + 12 px of inter-column cell
+        /// margin (the 4 px the skin adds between neighbours, three times: 478-284=194,
+        /// 702-478=224, 836-702=134) + 4 px of margin before the expanding column + 100 px
+        /// of readable sliver for it + 28 px of window chrome (14 px per side: 284-270) +
+        /// 16 px of scrollbar gutter (<c>ParsekUI.DefaultVerticalScrollbarFootprintWidth</c>)
+        /// = <b>700</b>.</para>
+        ///
+        /// <para>The previous 570 was 540 + 30 and left out the chrome, the margins and the
+        /// gutter, so the smallest size the player could drag to clipped the fixed columns -
+        /// IMGUI does not reflow a pinned width. Recorded in
+        /// <c>docs/dev/design-gui-kerbals-window.md</c> section 5.</para>
         /// </summary>
-        internal const float MinWindowWidth = 570f;
+        internal const float MinWindowWidth = 700f;
         internal const float MinWindowHeight = 150f;
 
         /// <summary>
@@ -96,7 +111,7 @@ namespace Parsek
         /// tables do not fit in 410, and 760 still leaves Career's own 820 room on a
         /// 1920-wide screen.
         /// </summary>
-        private const float DefaultWindowWidth = 760f;
+        internal const float DefaultWindowWidth = 760f;
         private const float DefaultWindowHeight = 400f;
         private Rect lastKerbalsWindowRect;
 
@@ -183,7 +198,7 @@ namespace Parsek
             new GUIContent("Roster",
                 "What each kerbal is doing now: available, aboard, reserved, standing in, retired or lost."),
             new GUIContent("Flights",
-                "Every recorded flight a kerbal took, and how each one ended.")
+                "Every mission a kerbal flew, and how each one ended for him.")
         };
 
         internal struct KerbalsViewModel
@@ -208,11 +223,22 @@ namespace Parsek
             public ChainMemberStatus Status;
         }
 
+        /// <summary>One kerbal's end state on ONE recorded SEGMENT. A mission is a whole
+        /// tree of these; <see cref="KerbalsPresentation.BuildFlightRows"/> collapses the
+        /// segments of one tree into one Flights row.</summary>
         internal struct CrewEndStateEntry
         {
             public string KerbalName;
             public string RecordingName;
             public string RecordingId;
+            /// <summary>The tree this segment belongs to, which is the MISSION key the
+            /// Flights tab groups by. Null on a pre-tree / standalone recording, and the
+            /// builder then keys that segment by its own recording id, so such a recording
+            /// stays a row of its own.</summary>
+            public string TreeId;
+            /// <summary>The segment's start UT. The Flights row's Date cell is the
+            /// EARLIEST of these across the kerbal's segments of one tree.</summary>
+            public double StartUT;
             public double EndUT;
             public KerbalEndState EndState;
         }
@@ -235,6 +261,133 @@ namespace Parsek
             cachedVM = null;
             ParsekLog.Verbose("UI", "KerbalsWindow: cache invalidated");
         }
+
+        // ------------------------- the live-crew refresh -------------------------
+
+        /// <summary>
+        /// The stock GameEvents that change what the two tabs read off LIVE state, as
+        /// opposed to off the ledger. <c>LedgerOrchestrator.OnTimelineDataChanged</c>
+        /// covers every ledger-side change, but the view model is ALSO built from the stock
+        /// roster walk (<c>CrewRoster.Crew</c> / <c>.Applicants</c> / <c>.Tourist</c>) and
+        /// from the live crew-to-vessel map (<c>GatherAssignedVessels</c>), and neither
+        /// moves the ledger: a transfer, an EVA, a board, a hire or a dismissal would leave
+        /// a stale `Assigned (&lt;vessel&gt;)` cell - or a missing row - until some
+        /// unrelated ledger write happened to drop the cache.
+        ///
+        /// <para>Every one funnels into <see cref="OnLiveCrewStateChanged"/>, which drops
+        /// the cache and logs ONE line naming the event, so the log says which of the eight
+        /// refreshed the tab. Subscribed and unsubscribed exactly where the timeline hook
+        /// is (<c>ParsekUI</c>'s two constructors and <c>ParsekUI.Cleanup</c>), so the
+        /// window's subscriptions live and die with its owning scene's ParsekUI.</para>
+        ///
+        /// <para>Which events, and why each one: the table is in
+        /// <c>docs/dev/design-gui-kerbals-window.md</c> section 7.</para>
+        /// </summary>
+        internal void SubscribeLiveCrewEvents()
+        {
+            GameEvents.onVesselCrewWasModified.Add(OnCrewVesselEvent);
+            GameEvents.onVesselChange.Add(OnCrewVesselChangeEvent);
+            GameEvents.onCrewTransferred.Add(OnCrewTransferredEvent);
+            GameEvents.onCrewOnEva.Add(OnCrewEvaEvent);
+            GameEvents.onCrewBoardVessel.Add(OnCrewBoardEvent);
+            GameEvents.onKerbalAdded.Add(OnKerbalRosterEvent);
+            GameEvents.onKerbalRemoved.Add(OnKerbalRosterEvent);
+            GameEvents.onKerbalStatusChange.Add(OnKerbalStatusEvent);
+            ParsekLog.Verbose("UI",
+                "KerbalsWindow: subscribed to 8 live-crew GameEvents");
+        }
+
+        internal void UnsubscribeLiveCrewEvents()
+        {
+            GameEvents.onVesselCrewWasModified.Remove(OnCrewVesselEvent);
+            GameEvents.onVesselChange.Remove(OnCrewVesselChangeEvent);
+            GameEvents.onCrewTransferred.Remove(OnCrewTransferredEvent);
+            GameEvents.onCrewOnEva.Remove(OnCrewEvaEvent);
+            GameEvents.onCrewBoardVessel.Remove(OnCrewBoardEvent);
+            GameEvents.onKerbalAdded.Remove(OnKerbalRosterEvent);
+            GameEvents.onKerbalRemoved.Remove(OnKerbalRosterEvent);
+            GameEvents.onKerbalStatusChange.Remove(OnKerbalStatusEvent);
+            ParsekLog.Verbose("UI",
+                "KerbalsWindow: unsubscribed from 8 live-crew GameEvents");
+        }
+
+        // One typed shim per GameEvents delegate shape, each funnelling into the single
+        // handler below. The shims exist only because the eight events carry five
+        // different payload types; nothing reads the payload.
+        private void OnCrewVesselEvent(Vessel v)
+        {
+            OnLiveCrewStateChanged("onVesselCrewWasModified");
+        }
+
+        private void OnCrewVesselChangeEvent(Vessel v)
+        {
+            OnLiveCrewStateChanged("onVesselChange");
+        }
+
+        private void OnCrewTransferredEvent(
+            GameEvents.HostedFromToAction<ProtoCrewMember, Part> data)
+        {
+            OnLiveCrewStateChanged("onCrewTransferred");
+        }
+
+        private void OnCrewEvaEvent(GameEvents.FromToAction<Part, Part> data)
+        {
+            OnLiveCrewStateChanged("onCrewOnEva");
+        }
+
+        private void OnCrewBoardEvent(GameEvents.FromToAction<Part, Part> data)
+        {
+            OnLiveCrewStateChanged("onCrewBoardVessel");
+        }
+
+        private void OnKerbalRosterEvent(ProtoCrewMember crew)
+        {
+            OnLiveCrewStateChanged("onKerbalAdded/Removed");
+        }
+
+        private void OnKerbalStatusEvent(
+            ProtoCrewMember crew,
+            ProtoCrewMember.RosterStatus oldStatus,
+            ProtoCrewMember.RosterStatus newStatus)
+        {
+            OnLiveCrewStateChanged("onKerbalStatusChange");
+        }
+
+        /// <summary>
+        /// The one handler behind all eight shims: drops the cached view model and logs
+        /// which event did it. Pure apart from the field write, so the log contract is
+        /// unit-testable - see <see cref="DescribeLiveCrewRefresh"/>.
+        /// </summary>
+        private void OnLiveCrewStateChanged(string eventName)
+        {
+            bool hadCache = cachedVM != null;
+            cachedVM = null;
+            ParsekLog.Verbose("UI", DescribeLiveCrewRefresh(eventName, hadCache));
+        }
+
+        /// <summary>The single Verbose line the live-crew refresh writes. Pure, so the
+        /// wording is pinned by a unit cell rather than by a flight.</summary>
+        internal static string DescribeLiveCrewRefresh(string eventName, bool hadCache)
+        {
+            return "KerbalsWindow: live crew state changed (" + (eventName ?? "?")
+                   + ") - cache " + (hadCache ? "invalidated" : "already empty");
+        }
+
+        /// <summary>The events <see cref="SubscribeLiveCrewEvents"/> wires, named once so a
+        /// unit cell can assert the set rather than re-listing it. Documentation and test
+        /// surface only - the subscribe call above is the production truth, and
+        /// <c>KerbalsLiveCrewRefreshTests</c> reads THIS file to keep the two in step.</summary>
+        internal static readonly string[] LiveCrewRefreshEvents =
+        {
+            "onVesselCrewWasModified",
+            "onVesselChange",
+            "onCrewTransferred",
+            "onCrewOnEva",
+            "onCrewBoardVessel",
+            "onKerbalAdded",
+            "onKerbalRemoved",
+            "onKerbalStatusChange"
+        };
 
         // ------------------------- the op=expand seam -------------------------
 
@@ -594,7 +747,17 @@ namespace Parsek
             {
                 GUILayout.Label(nameCell, cellStyle, GUILayout.Width(ColW_RosterName));
             }
-            GUILayout.Label(row.StatusText, cellStyle, GUILayout.Width(ColW_RosterStatus));
+            // The status cell carries hover text for exactly one status: an active stand-in
+            // who is also aboard a craft whose name does not fit the column inline.
+            if (string.IsNullOrEmpty(row.StatusTooltipText))
+            {
+                GUILayout.Label(row.StatusText, cellStyle, GUILayout.Width(ColW_RosterStatus));
+            }
+            else
+            {
+                GUILayout.Label(new GUIContent(row.StatusText, row.StatusTooltipText),
+                    cellStyle, GUILayout.Width(ColW_RosterStatus));
+            }
             GUILayout.Label(row.SinceText, cellStyle, GUILayout.Width(ColW_RosterSince));
             GUILayout.Label(row.LastFlightText, cellStyle, GUILayout.ExpandWidth(true));
             GUILayout.EndHorizontal();
@@ -701,7 +864,7 @@ namespace Parsek
 
             if (GUILayout.Button(
                     new GUIContent(arrow + " " + group.HeaderText,
-                        "Folds or unfolds this kerbal's recorded flight history."),
+                        "Folds or unfolds this kerbal's mission history."),
                     groupHeaderStyle, GUILayout.ExpandWidth(true)))
             {
                 ToggleFold(foldedKerbals, group.FoldKey,
@@ -722,13 +885,16 @@ namespace Parsek
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             bool clicked = GUILayout.Button(
                 new GUIContent(row.DateText,
-                    "Scrolls the Timeline window to the flight this row came from."),
+                    "Scrolls the Timeline window to this mission's last recorded flight."),
                 cellStyle, GUILayout.Width(ColW_FlightDate));
             clicked |= GUILayout.Button(
                 new GUIContent(row.MissionText, DescribeFlightRow(row)),
                 cellStyle, GUILayout.Width(ColW_FlightMission));
+            // The outcome is the mission's FINAL one, so its hover carries the per-segment
+            // list the row collapsed - which is where the detail the segment rows used to
+            // show went.
             clicked |= GUILayout.Button(
-                new GUIContent(row.OutcomeText, TooltipForOutcome(row.EndState)),
+                new GUIContent(row.OutcomeText, DescribeFlightRowOutcome(row)),
                 cellStyle, GUILayout.Width(ColW_FlightOutcome));
             clicked |= GUILayout.Button(
                 new GUIContent(row.CrewNoteText,
@@ -750,12 +916,27 @@ namespace Parsek
         }
 
         /// <summary>The row-level hover text: the raw recording behind a mission name, so
-        /// the id and the recorded craft name stay readable without a column of their
-        /// own.</summary>
+        /// the id and the recorded craft name stay readable without a column of their own.
+        /// The recording named is the mission's LAST segment - the one a click jumps
+        /// to.</summary>
         internal static string DescribeFlightRow(KerbalsPresentation.FlightRow row)
         {
             string rec = string.IsNullOrEmpty(row.RecordingName) ? "(unnamed)" : row.RecordingName;
             return "Recorded flight '" + rec + "' (id " + row.RecordingId + ").";
+        }
+
+        /// <summary>
+        /// The outcome cell's hover text: what the final outcome word means, plus the
+        /// mission's segment count and each segment's own outcome when the mission is more
+        /// than one segment. A single-segment mission adds nothing, so it keeps the plain
+        /// sentence.
+        /// </summary>
+        internal static string DescribeFlightRowOutcome(KerbalsPresentation.FlightRow row)
+        {
+            string sentence = TooltipForOutcome(row.EndState);
+            if (row.SegmentCount <= 1 || string.IsNullOrEmpty(row.SegmentSummaryText))
+                return sentence;
+            return sentence + " " + row.SegmentSummaryText + ".";
         }
 
         internal static string TooltipForOutcome(KerbalEndState state)
@@ -876,9 +1057,15 @@ namespace Parsek
 
         /// <summary>
         /// The stock roster as rows: crew always, applicants and tourists only when
-        /// Parsek has a badge on them (a slot, a reservation, the retired set or a
-        /// ledger-created name), because a hiring pool of forty applicants is not what
-        /// this window is for.
+        /// <c>KerbalsModule.IsManaged</c> says so - a live reservation, membership of the
+        /// retired set, or membership of some slot's replacement chain. A hiring pool of
+        /// forty applicants is not what this window is for.
+        ///
+        /// <para>Those three are the WHOLE predicate: <c>IsManaged</c> checks no
+        /// "ledger-created name" set and does not check slot OWNERSHIP either. Neither
+        /// omission loses a row. An owner is added by the pure builder straight from
+        /// <c>Slots</c>, and a Parsek-created stand-in sitting in the applicant pool is a
+        /// chain member by construction, so the third clause already carries it.</para>
         /// </summary>
         private static List<KerbalsPresentation.RosterKerbal> GatherRoster()
         {
@@ -1099,6 +1286,8 @@ namespace Parsek
                         KerbalName = kvp.Key,
                         RecordingName = rec.VesselName ?? "",
                         RecordingId = rec.RecordingId ?? "",
+                        TreeId = rec.TreeId,
+                        StartUT = rec.StartUT,
                         EndUT = rec.EndUT,
                         EndState = kvp.Value
                     });

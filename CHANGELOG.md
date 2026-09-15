@@ -179,25 +179,49 @@ _(unreleased — entries accumulate here per commit)_
     <kerbal>`, `Retired` or `Lost`. Kerbals with nothing to report - available, no
     reservation, no stand-in, no recorded flight - are collected behind one closed row,
     `Available, no recorded flights (N)`, so the tab reads as "what needs my attention"
-    rather than as a roster dump. A row whose slot has stand-ins still expands to the
-    same replacement chain as before, and a stand-in now gets its own row saying whose
-    slot it is covering.
+    rather than as a roster dump. A stand-in gets his own row saying whose slot he is
+    covering - but only while he is actually covering it: a chain has one active
+    occupant, and a member the owner has come back to displace reads as available again
+    rather than claiming to stand in for a kerbal who is home. The `Stand-in` cell also
+    names the craft he is aboard, on hover when it does not fit inline. The replacement
+    chain expands from the kerbal whose slot it is, and from his row only - a stand-in
+    row expanding into a chain containing itself was the reading that moved it.
   - **Flights** keeps the per-kerbal grouping, and the group header now always carries
-    the summary it used to show only when folded: `Jebediah Kerman [Pilot] - 2 flights:
-    1 recovered, 1 aboard`. Each row is a date (the calendar form the Timeline uses, not
-    raw seconds), the mission the flight belongs to (the recording name and id moved into
-    the hover text), the outcome as a word - `Recovered`, `Lost`, `Still aboard`, or
-    `Outcome unknown`, whose hover says "The flight has no recorded ending." - and a crew
-    note reading `as <kerbal>` when a stand-in flew that seat. Clicking a row still
-    scrolls the Timeline to that flight.
+    the summary it used to show only when folded: `Jebediah Kerman [Pilot] - 2 missions:
+    1 recovered, 1 aboard`. **One row per MISSION, not per recorded flight segment.** A
+    mission flown across several segments - a launch, a docking, a landing - used to draw
+    one row each: the first census of the rebuilt tab photographed five rows per kerbal
+    for what the player did as two missions, four of them repeating the same date and the
+    same mission name, and one of them reading `Outcome unknown` because a two-point
+    mid-mission segment has no ending of its own. A row is now the mission: its start date
+    (the calendar form the Timeline uses, not raw seconds), the mission name, the outcome
+    the mission actually reached - `Recovered`, `Lost`, `Still aboard`, or `Outcome
+    unknown` when nothing in it ever ended - and the crew note reading `as <kerbal>` when
+    a stand-in flew that seat. Nothing is lost: hovering the outcome lists every segment
+    and how each one ended (`3 segments: Still aboard, Still aboard, Recovered`), and
+    clicking the row still scrolls the Timeline - to the mission's last recorded flight,
+    which is where it got to.
 
-  The window's first-open width went from 410 to 760 px and its minimum from 280 to 570,
+  The window's first-open width went from 410 to 760 px and its minimum from 280 to 700,
   which is what the columns need (the two date columns are 130 px each: a compact KSP date
   reads "Y1, D01, 02:29" and the first flight of the rebuild photographed it clipped in
-  80); the two tabs' seam tokens (`roster`, `outcomes`) are
+  80). The minimum is now derived rather than estimated: 540 px of fixed columns plus the
+  cell margins between them, the window chrome, the scrollbar gutter and a readable sliver
+  for the expanding column. An interim 570 counted only the columns, so the smallest size
+  the window could be dragged to clipped the very columns it was sized for. The two tabs'
+  seam tokens (`roster`, `outcomes`) are
   unchanged, so nothing that drives the window by name moved. The empty-state line that
   used to say "No reserved crew, stand-ins, or retired kerbals." on a career with four
   kerbals in it is gone. Design: `docs/dev/design-gui-kerbals-window.md`.
+
+- **The Kerbals window now notices crew moving.** Both of its tabs are built once and
+  cached, and the only thing that dropped that cache was a change to Parsek's own ledger.
+  But the Roster tab also reads two things the ledger never touches - the stock roster
+  itself, and which craft each kerbal is sitting in - so transferring a kerbal between
+  craft, sending one on EVA, boarding, hiring or dismissing left the tab showing where
+  he used to be, or missing his row entirely, until some unrelated Parsek write happened
+  to refresh it. It now listens for those eight stock events as well and rebuilds on any
+  of them.
 
 - **Developer tooling: a test fixture resolver no longer looks for a sibling worktree by
   name.** `ReflyARecordedFixtureCodecTests` searched for its recorded save in two places:

@@ -62,6 +62,10 @@ namespace Parsek
             public RosterStatus Status;
             /// <summary>The "Status now" cell.</summary>
             public string StatusText;
+            /// <summary>The "Status now" cell's hover text, or null when the cell needs
+            /// none. Only an ACTIVE stand-in who is also aboard a craft too long to name
+            /// inline carries one (<see cref="FormatStatusTooltip"/>).</summary>
+            public string StatusTooltipText;
             /// <summary>The "Since" cell: the calendar date the current status started,
             /// or <see cref="EmptyCell"/>.</summary>
             public string SinceText;
@@ -71,8 +75,16 @@ namespace Parsek
             /// <summary>The slot this row belongs to: the kerbal himself on an owner row,
             /// the covered owner on a stand-in row, null when the kerbal has no slot.</summary>
             public string SlotOwnerName;
-            /// <summary>The slot's replacement chain, for the expandable chain view.
-            /// Never null; empty when the row has no slot or an empty chain.</summary>
+            /// <summary>
+            /// The slot's replacement chain, for the expandable chain view - populated on
+            /// the slot OWNER's row only. Never null; empty on a stand-in's row and on a
+            /// row with no slot.
+            ///
+            /// <para>It used to hang off both ends, which made a stand-in's own row expand
+            /// into a chain CONTAINING ITSELF: the chain describes one slot, and that slot
+            /// belongs to the owner. A stand-in row says whose slot it covers in its status
+            /// cell and stops there.</para>
+            /// </summary>
             public List<KerbalsWindowUI.ChainMember> Chain;
             /// <summary>Whether this kerbal owns at least one recorded flight.</summary>
             public bool HasFlights;
@@ -90,26 +102,62 @@ namespace Parsek
             public List<RosterRow> Plain;
         }
 
-        /// <summary>One row of the Flights tab.</summary>
+        /// <summary>
+        /// One row of the Flights tab: one MISSION (one recording tree) as one kerbal
+        /// experienced it, not one recorded segment.
+        ///
+        /// <para>The row unit was the segment until 2026-09-15; the GUI-11 capture read
+        /// five rows per kerbal for what the player did as two missions, all but one of
+        /// them repeating the same date and mission name, one of them
+        /// <c>Outcome unknown</c> for a mid-mission segment that simply has no ending. The
+        /// segments are still all there - as the count and the ordered outcome list in
+        /// <see cref="SegmentSummaryText"/>, which is the row's hover text.</para>
+        /// </summary>
         internal struct FlightRow
         {
             /// <summary>The OWNER the flight is filed under - the reverse-map already ran
             /// in <c>KerbalsModule.PopulateCrewEndStates</c>, so a stand-in's flight files
             /// under the kerbal he covered and says so in <see cref="CrewNoteText"/>.</summary>
             public string KerbalName;
+            /// <summary>The mission key: the tree id, or the recording id when the
+            /// recording has no tree (a standalone / pre-tree recording is its own
+            /// mission).</summary>
+            public string MissionKey;
+            /// <summary>The kerbal's FIRST segment start in this mission - what the Date
+            /// cell reads.</summary>
+            public double StartUT;
+            /// <summary>The kerbal's LAST segment end in this mission. Drives both the
+            /// row's outcome and the Roster tab's "Since" date, which is the date the
+            /// hold the flight created began.</summary>
             public double EndUT;
+            /// <summary>The Date cell: the calendar form of <see cref="StartUT"/>.</summary>
             public string DateText;
+            /// <summary>The calendar form of <see cref="EndUT"/>. NOT drawn in this tab -
+            /// the Roster tab's "Since" cell reads it, so a loss and a reservation stay
+            /// dated by when the flight ENDED, exactly as before the mission collapse.</summary>
+            public string EndDateText;
             public string MissionText;
+            /// <summary>The FINAL outcome word across the mission's segments.</summary>
             public string OutcomeText;
             /// <summary>"as &lt;stand-in&gt;" when someone else actually flew it, else
             /// <see cref="EmptyCell"/>.</summary>
             public string CrewNoteText;
+            /// <summary>The LAST segment's recording id - the Timeline jump target, so a
+            /// click lands on where the mission got to rather than where it started.</summary>
             public string RecordingId;
+            /// <summary>The last segment's recorded vessel name (the hover text's raw
+            /// identity half).</summary>
             public string RecordingName;
+            /// <summary>The FINAL end state across the mission's segments.</summary>
             public KerbalEndState EndState;
+            /// <summary>How many recorded segments this mission collapsed.</summary>
+            public int SegmentCount;
+            /// <summary>The hover text's segment half: <c>"3 segments: Still aboard,
+            /// Still aboard, Recovered"</c>, in segment order.</summary>
+            public string SegmentSummaryText;
         }
 
-        /// <summary>One kerbal's flights, in the order the tab draws them.</summary>
+        /// <summary>One kerbal's missions, in the order the tab draws them.</summary>
         internal struct FlightGroup
         {
             public string KerbalName;
@@ -123,7 +171,26 @@ namespace Parsek
         // ------------------------- the Flights tab -------------------------
 
         /// <summary>
-        /// Builds the Flights tab's grouped row model.
+        /// Builds the Flights tab's grouped row model: one group per kerbal, and inside it
+        /// ONE ROW PER MISSION (per recording tree the kerbal appears in), not one per
+        /// recorded segment.
+        ///
+        /// <para>Collapse rule, per (kerbal, tree):</para>
+        /// <list type="bullet">
+        /// <item>Date = the EARLIEST segment start;</item>
+        /// <item>Mission = the mission name of any of its segments (they share a tree, so
+        /// they share the name; the first resolvable one wins);</item>
+        /// <item>Outcome / <c>EndState</c> = the LAST segment by end UT. A segment with no
+        /// recorded ending followed by one that has an ending is therefore NOT the answer -
+        /// which is the whole reason the segment rows read wrong;</item>
+        /// <item>the Timeline jump target = that same last segment's recording;</item>
+        /// <item>the segment count and each segment's own outcome word go into the row's
+        /// hover text (<see cref="FormatSegmentSummary"/>).</item>
+        /// </list>
+        ///
+        /// <para>A recording with no tree keys by its own recording id, so a standalone
+        /// recording - an EVA branch that is its own tree included - stays a row of its
+        /// own.</para>
         /// </summary>
         /// <param name="endStates">The per-recording crew end states, as
         /// <c>KerbalsWindowUI.Build</c> collected them off the ERS recordings.</param>
@@ -167,27 +234,49 @@ namespace Parsek
             {
                 string name = sorted[i].KerbalName;
                 int j = i;
-                var rows = new List<FlightRow>();
+                // Mission key -> that mission's segments for THIS kerbal, in end-UT order
+                // (the sort above already produced it within a kerbal's run).
+                var missionKeys = new List<string>();
+                var segmentsOf = new Dictionary<string, List<KerbalsWindowUI.CrewEndStateEntry>>(
+                    StringComparer.Ordinal);
                 while (j < sorted.Count
                        && string.Equals(sorted[j].KerbalName, name, StringComparison.Ordinal))
                 {
-                    var e = sorted[j];
-                    rows.Add(new FlightRow
+                    KerbalsWindowUI.CrewEndStateEntry e = sorted[j];
+                    string key = MissionKeyOf(e);
+                    List<KerbalsWindowUI.CrewEndStateEntry> bucket;
+                    if (!segmentsOf.TryGetValue(key, out bucket))
                     {
-                        KerbalName = name,
-                        EndUT = e.EndUT,
-                        DateText = FormatDateCell(e.EndUT, formatDate),
-                        MissionText = ResolveMissionName(e, missionNameByRecordingId),
-                        OutcomeText = FormatOutcome(e.EndState),
-                        CrewNoteText = FormatCrewNote(
-                            ResolveStandIn(name, e.RecordingId, rawCrewByRecordingId,
-                                replacements, slots)),
-                        RecordingId = e.RecordingId ?? "",
-                        RecordingName = e.RecordingName ?? "",
-                        EndState = e.EndState
-                    });
+                        bucket = new List<KerbalsWindowUI.CrewEndStateEntry>();
+                        segmentsOf[key] = bucket;
+                        missionKeys.Add(key);
+                    }
+                    bucket.Add(e);
                     j++;
                 }
+
+                var rows = new List<FlightRow>();
+                for (int m = 0; m < missionKeys.Count; m++)
+                {
+                    rows.Add(BuildMissionRow(
+                        name,
+                        missionKeys[m],
+                        segmentsOf[missionKeys[m]],
+                        missionNameByRecordingId,
+                        rawCrewByRecordingId,
+                        replacements,
+                        slots,
+                        formatDate));
+                }
+
+                // Rows read top-down in the order the Date column shows, which is the
+                // mission's START. Ties break on the end, so the order is total.
+                rows.Sort((a, b) =>
+                {
+                    int s = a.StartUT.CompareTo(b.StartUT);
+                    if (s != 0) return s;
+                    return a.EndUT.CompareTo(b.EndUT);
+                });
 
                 string trait = null;
                 if (traitOf != null) traitOf.TryGetValue(name, out trait);
@@ -205,12 +294,112 @@ namespace Parsek
             return groups;
         }
 
+        /// <summary>The mission a segment belongs to: its tree, or itself when it has no
+        /// tree (a standalone recording is its own mission).</summary>
+        internal static string MissionKeyOf(KerbalsWindowUI.CrewEndStateEntry e)
+        {
+            if (!string.IsNullOrEmpty(e.TreeId)) return e.TreeId;
+            return e.RecordingId ?? "";
+        }
+
+        private static FlightRow BuildMissionRow(
+            string kerbalName,
+            string missionKey,
+            List<KerbalsWindowUI.CrewEndStateEntry> segments,
+            IReadOnlyDictionary<string, string> missionNameByRecordingId,
+            IReadOnlyDictionary<string, IReadOnlyCollection<string>> rawCrewByRecordingId,
+            IReadOnlyDictionary<string, string> replacements,
+            IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots,
+            Func<double, string> formatDate)
+        {
+            // Segment order inside one mission is END-UT ascending: that is the order the
+            // hover text lists the outcomes in, and its last element is the mission's own
+            // outcome. The caller's sort already produced it; sorting again keeps the
+            // helper correct for any caller.
+            segments.Sort((a, b) => a.EndUT.CompareTo(b.EndUT));
+
+            KerbalsWindowUI.CrewEndStateEntry last = segments[segments.Count - 1];
+            double startUT = segments[0].StartUT;
+            for (int s = 1; s < segments.Count; s++)
+                if (segments[s].StartUT < startUT) startUT = segments[s].StartUT;
+
+            // The mission name is a property of the tree, so any segment answers it - but
+            // a recording with no MissionStore entry falls back to its OWN vessel name, so
+            // take the first segment that resolves a real mission name and only fall back
+            // when none does.
+            string mission = null;
+            for (int s = 0; s < segments.Count; s++)
+            {
+                if (missionNameByRecordingId != null
+                    && !string.IsNullOrEmpty(segments[s].RecordingId)
+                    && missionNameByRecordingId.TryGetValue(segments[s].RecordingId, out mission)
+                    && !string.IsNullOrEmpty(mission))
+                {
+                    break;
+                }
+                mission = null;
+            }
+            if (string.IsNullOrEmpty(mission))
+                mission = ResolveMissionName(last, missionNameByRecordingId);
+
+            // The crew note answers "did a stand-in fly this MISSION", so the first
+            // segment that names one wins - a stand-in who flew the launch and handed
+            // over mid-mission still flew it.
+            string standIn = null;
+            for (int s = 0; s < segments.Count && standIn == null; s++)
+            {
+                standIn = ResolveStandIn(kerbalName, segments[s].RecordingId,
+                    rawCrewByRecordingId, replacements, slots);
+            }
+
+            return new FlightRow
+            {
+                KerbalName = kerbalName,
+                MissionKey = missionKey ?? "",
+                StartUT = startUT,
+                EndUT = last.EndUT,
+                DateText = FormatDateCell(startUT, formatDate),
+                EndDateText = FormatDateCell(last.EndUT, formatDate),
+                MissionText = mission,
+                OutcomeText = FormatOutcome(last.EndState),
+                CrewNoteText = FormatCrewNote(standIn),
+                RecordingId = last.RecordingId ?? "",
+                RecordingName = last.RecordingName ?? "",
+                EndState = last.EndState,
+                SegmentCount = segments.Count,
+                SegmentSummaryText = FormatSegmentSummary(segments)
+            };
+        }
+
         /// <summary>
-        /// The always-visible fold header: <c>"Name [Trait] - N flights: n recovered,
-        /// n lost, n aboard, n unknown"</c>. Zero buckets are omitted (the retired
-        /// <c>FormatKerbalSummary</c>'s rule, kept), and a single flight reads
-        /// "1 flight". A kerbal with no known trait drops the bracket rather than
-        /// rendering an empty one.
+        /// The mission row's hover half: <c>"1 segment: Still aboard"</c> /
+        /// <c>"3 segments: Still aboard, Still aboard, Recovered"</c>, in end-UT order, so
+        /// the detail the segment rows used to show is one hover away rather than gone.
+        /// </summary>
+        internal static string FormatSegmentSummary(
+            IReadOnlyList<KerbalsWindowUI.CrewEndStateEntry> segments)
+        {
+            int n = segments == null ? 0 : segments.Count;
+            if (n == 0) return "";
+            var words = new List<string>(n);
+            for (int s = 0; s < n; s++) words.Add(FormatOutcome(segments[s].EndState));
+            string label = n == 1
+                ? "1 segment"
+                : n.ToString(CultureInfo.InvariantCulture) + " segments";
+            return label + ": " + string.Join(", ", words.ToArray());
+        }
+
+        /// <summary>
+        /// The always-visible fold header: <c>"Name [Trait] - N missions: n recovered,
+        /// n lost, n aboard, n unknown"</c>. It counts MISSIONS, because a mission is what
+        /// a row is since 2026-09-15 - a header reading "5 flights" over two rows was the
+        /// second half of the same defect. Zero buckets are omitted (the retired
+        /// <c>FormatKerbalSummary</c>'s rule, kept), a single mission reads "1 mission",
+        /// and the buckets count each mission's FINAL outcome, so a mission whose middle
+        /// segment has no ending is not counted as unknown.
+        ///
+        /// <para>A kerbal with no known trait drops the bracket rather than rendering an
+        /// empty one.</para>
         /// </summary>
         internal static string FormatFlightGroupHeader(
             string kerbalName, string trait, IReadOnlyList<FlightRow> rows)
@@ -237,9 +426,9 @@ namespace Parsek
             string who = string.IsNullOrEmpty(trait)
                 ? kerbalName
                 : kerbalName + " [" + trait + "]";
-            string flightLabel = total == 1 ? "1 flight" : total.ToString(ic) + " flights";
-            if (parts.Count == 0) return who + " - " + flightLabel;
-            return who + " - " + flightLabel + ": " + string.Join(", ", parts);
+            string missionLabel = total == 1 ? "1 mission" : total.ToString(ic) + " missions";
+            if (parts.Count == 0) return who + " - " + missionLabel;
+            return who + " - " + missionLabel + ": " + string.Join(", ", parts);
         }
 
         /// <summary>The Flights tab's outcome vocabulary, four words wide.</summary>
@@ -380,6 +569,11 @@ namespace Parsek
             var slotOwnerOf = new Dictionary<string, string>(StringComparer.Ordinal);
             var chainOf = new Dictionary<string, List<KerbalsWindowUI.ChainMember>>(
                 StringComparer.Ordinal);
+            // A chain member's OWN status inside the chain of someone else's slot. This is
+            // what makes a row read "Stand-in for X" - membership alone does not (see
+            // ClassifyStatus).
+            var memberStatusOf = new Dictionary<string, KerbalsWindowUI.ChainMemberStatus>(
+                StringComparer.Ordinal);
             if (slots != null)
             {
                 var owners = new List<string>(slots.Keys);
@@ -392,6 +586,7 @@ namespace Parsek
                     List<KerbalsWindowUI.ChainMember> chain = BuildChainMembers(
                         slot, retiredSet, activeChainIndexOf);
                     slotOwnerOf[owner] = owner;
+                    // The chain view hangs off the OWNER's row only (see RosterRow.Chain).
                     chainOf[owner] = chain;
                     for (int c = 0; c < chain.Count; c++)
                     {
@@ -401,7 +596,7 @@ namespace Parsek
                         if (!slotOwnerOf.ContainsKey(member))
                         {
                             slotOwnerOf[member] = owner;
-                            chainOf[member] = chain;
+                            memberStatusOf[member] = chain[c].Status;
                         }
                     }
                 }
@@ -445,15 +640,25 @@ namespace Parsek
                 {
                     FlightGroup group = flights[g];
                     if (group.Rows == null || group.Rows.Count == 0) continue;
-                    lastFlightOf[group.KerbalName] = group.Rows[group.Rows.Count - 1];
-                    for (int r = group.Rows.Count - 1; r >= 0; r--)
+                    // "Latest flight" is the latest-ENDING mission, picked explicitly
+                    // rather than as the last row: the rows are ordered by the Date column
+                    // (the mission START), and two missions can overlap.
+                    FlightRow latest = group.Rows[0];
+                    FlightRow latestDeath = default(FlightRow);
+                    bool haveDeath = false;
+                    for (int r = 0; r < group.Rows.Count; r++)
                     {
-                        if (group.Rows[r].EndState == KerbalEndState.Dead)
+                        FlightRow row = group.Rows[r];
+                        if (row.EndUT > latest.EndUT) latest = row;
+                        if (row.EndState != KerbalEndState.Dead) continue;
+                        if (!haveDeath || row.EndUT > latestDeath.EndUT)
                         {
-                            deathFlightOf[group.KerbalName] = group.Rows[r];
-                            break;
+                            latestDeath = row;
+                            haveDeath = true;
                         }
                     }
+                    lastFlightOf[group.KerbalName] = latest;
+                    if (haveDeath) deathFlightOf[group.KerbalName] = latestDeath;
                 }
             }
 
@@ -476,12 +681,19 @@ namespace Parsek
 
                 bool hasFlights = lastFlightOf.ContainsKey(name);
 
+                KerbalsWindowUI.ChainMemberStatus? memberStatus = null;
+                if (!isOwnerRow)
+                {
+                    KerbalsWindowUI.ChainMemberStatus ms;
+                    if (memberStatusOf.TryGetValue(name, out ms)) memberStatus = ms;
+                }
+
                 RosterStatus status = ClassifyStatus(
                     name,
                     ownerPermanentlyGone: ownSlot != null && ownSlot.OwnerPermanentlyGone,
                     retired: retiredSet.Contains(name),
                     reservation: reservation,
-                    isStandIn: slotOwner != null && !isOwnerRow,
+                    memberStatus: memberStatus,
                     assignedVesselName: assignedVessel);
 
                 List<KerbalsWindowUI.ChainMember> chain;
@@ -497,6 +709,8 @@ namespace Parsek
                     Status = status,
                     StatusText = FormatStatus(status, name, slotOwner, reservation,
                         assignedVessel, formatDate),
+                    StatusTooltipText = FormatStatusTooltip(
+                        status, slotOwner, assignedVessel),
                     SinceText = FormatSince(status, name, lastFlightOf, deathFlightOf),
                     LastFlightText = FormatLastFlight(name, lastFlightOf),
                     SlotOwnerName = slotOwner,
@@ -529,19 +743,44 @@ namespace Parsek
                    + count.ToString(CultureInfo.InvariantCulture) + ")";
         }
 
+        /// <summary>
+        /// The "Status now" classification, in the resolution order
+        /// <see cref="RosterStatus"/> declares.
+        ///
+        /// <para><b>Stand-in is a per-MEMBER fact, not a per-chain one.</b> Chain
+        /// MEMBERSHIP is what makes a row point at a slot; it is not what makes the kerbal
+        /// the one standing in. A three-member chain has at most ONE active occupant, and
+        /// the row's own expansion already classified the other names
+        /// <c>displaced</c> / <c>retired</c> - so reading <c>Stand-in for X</c> off
+        /// membership contradicted the very line underneath it. Only
+        /// <see cref="KerbalsWindowUI.ChainMemberStatus.Active"/> reads as a stand-in;
+        /// a displaced or retired member falls through to
+        /// <c>Assigned (&lt;vessel&gt;)</c> / <c>Available</c> like any other kerbal.</para>
+        ///
+        /// <para>That also fixes the dead-owner case for free: when the owner is
+        /// permanently gone <c>KerbalsModule.GetActiveChainIndex</c> answers
+        /// <c>NoActiveChainOccupant</c>, so NO member is Active and the freed members stop
+        /// being labelled as covering a slot nobody will return to.</para>
+        /// </summary>
+        /// <param name="memberStatus">This kerbal's status inside the chain of SOMEONE
+        /// ELSE's slot, or null when the row is an owner row or carries no slot at all.</param>
         internal static RosterStatus ClassifyStatus(
             string name,
             bool ownerPermanentlyGone,
             bool retired,
             KerbalsModule.KerbalReservation reservation,
-            bool isStandIn,
+            KerbalsWindowUI.ChainMemberStatus? memberStatus,
             string assignedVesselName)
         {
             if (ownerPermanentlyGone) return RosterStatus.Lost;
             if (reservation != null && reservation.IsPermanent) return RosterStatus.Lost;
             if (retired) return RosterStatus.Retired;
             if (reservation != null) return RosterStatus.Reserved;
-            if (isStandIn) return RosterStatus.StandIn;
+            if (memberStatus.HasValue
+                && memberStatus.Value == KerbalsWindowUI.ChainMemberStatus.Active)
+            {
+                return RosterStatus.StandIn;
+            }
             if (!string.IsNullOrEmpty(assignedVesselName)) return RosterStatus.Assigned;
             return RosterStatus.Available;
         }
@@ -584,12 +823,56 @@ namespace Parsek
                         : "Reserved " + tail;
                 }
                 case RosterStatus.StandIn:
-                    return "Stand-in for " + (slotOwnerName ?? "?");
+                {
+                    string standIn = "Stand-in for " + (slotOwnerName ?? "?");
+                    if (string.IsNullOrEmpty(assignedVesselName)) return standIn;
+                    string withVessel = standIn + " (aboard " + assignedVesselName + ")";
+                    return withVessel.Length <= StatusCellMaxChars ? withVessel : standIn;
+                }
                 case RosterStatus.Assigned:
                     return "Assigned (" + assignedVesselName + ")";
                 default:
                     return "Available";
             }
+        }
+
+        /// <summary>Pessimistic average character advance for the skin's label font, the
+        /// same 7 px <c>TooltipEchoBudgetTests</c> budgets its strips at.</summary>
+        internal const float StatusCellCharAdvancePx = 7f;
+
+        /// <summary>How many characters the 220 px "Status now" column holds at
+        /// <see cref="StatusCellCharAdvancePx"/>. The stand-in form carries its vessel
+        /// INLINE only when the composed text fits; past that the vessel moves into the
+        /// cell's hover text, because a clipped cell reads as a shorter status rather than
+        /// as an overflow.</summary>
+        internal static int StatusCellMaxChars
+        {
+            get { return (int)(KerbalsWindowUI.ColW_RosterStatus / StatusCellCharAdvancePx); }
+        }
+
+        /// <summary>
+        /// The "Status now" cell's hover text, or null when the cell says everything
+        /// already. Exactly one status needs one: an ACTIVE stand-in who is also aboard a
+        /// craft, whose composed inline form does not fit
+        /// <see cref="StatusCellMaxChars"/>. Every other status is either self-contained or
+        /// short enough to say inline.
+        /// </summary>
+        internal static string FormatStatusTooltip(
+            RosterStatus status,
+            string slotOwnerName,
+            string assignedVesselName)
+        {
+            if (status != RosterStatus.StandIn) return null;
+            if (string.IsNullOrEmpty(assignedVesselName)) return null;
+            string standIn = "Stand-in for " + (slotOwnerName ?? "?");
+            if ((standIn + " (aboard " + assignedVesselName + ")").Length
+                <= StatusCellMaxChars)
+            {
+                // It fits inline, so the cell already carries the vessel.
+                return null;
+            }
+            return "Standing in for " + (slotOwnerName ?? "?")
+                   + "; aboard " + assignedVesselName + ".";
         }
 
         /// <summary>
@@ -598,6 +881,10 @@ namespace Parsek
         /// created the hold (the kerbal's latest recorded flight). Retired, stand-in,
         /// assigned and available carry no recorded start, so they read
         /// <see cref="EmptyCell"/> rather than a number that would be a guess.
+        ///
+        /// <para>It reads <see cref="FlightRow.EndDateText"/>, not the row's own Date
+        /// cell: a hold starts when the flight ENDED, and since the 2026-09-15 mission
+        /// collapse the Flights tab's Date column shows the mission's START.</para>
         /// </summary>
         internal static string FormatSince(
             RosterStatus status,
@@ -609,12 +896,12 @@ namespace Parsek
             if (status == RosterStatus.Lost
                 && deathFlightOf != null && deathFlightOf.TryGetValue(name, out row))
             {
-                return row.DateText;
+                return row.EndDateText;
             }
             if ((status == RosterStatus.Lost || status == RosterStatus.Reserved)
                 && lastFlightOf != null && lastFlightOf.TryGetValue(name, out row))
             {
-                return row.DateText;
+                return row.EndDateText;
             }
             return EmptyCell;
         }
