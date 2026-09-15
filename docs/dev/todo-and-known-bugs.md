@@ -7122,8 +7122,9 @@ per-family outcome per drivable skip class, InvariantCulture under `de-DE`).
 event, at both ends that could produce it.** One predicate,
 `PartStateSeeder.DeployableHasNoPoseAnimation(string animationName)`
 (`Source/Parsek/PartStateSeeder.cs`), is now the single convention for "this
-ModuleDeployablePart cannot be posed", and THREE sites read it rather than spelling the
-condition out:
+ModuleDeployablePart cannot be posed", and FOUR sites read it rather than spelling the
+condition out - the three RECORDER-side producers listed here plus the ghost builder's own
+sampling gate named below:
 
   - `PartStateSeeder.SeedDeployables` - returns false instead of adding the pid to
     `extendedDeployables`, so no `DeployableExtended` seed event is emitted
@@ -7137,8 +7138,9 @@ condition out:
     (`BackgroundRecorder.PartEventPolling.cs`) - the same poll for BG vessels, screened
     identically, because a background station's OX-STATs are the same population.
 
-`GhostVisualBuilder.SampleDeployableStates` now calls the same predicate where it used to
-spell `string.IsNullOrEmpty(animName)` itself, so the two ends cannot drift: the predicate
+The FOURTH site is `GhostVisualBuilder.SampleDeployableStates`, which now calls the same
+predicate where it used to spell `string.IsNullOrEmpty(animName)` itself, so the two ends
+cannot drift: the predicate
 IS the condition that produced `no-resolved-visual` (a module with no `animationName`
 samples no stowed/deployed pair, so `ResolveSampledStatesToDeployableInfo` returns null and
 only the break-subtree branch materialises a `DeployableGhostInfo` - with an EMPTY
@@ -7340,7 +7342,7 @@ the two surfaces are sourced from OPPOSITE ends:
     ASYMMETRY, and it was a real defect (fixed; see that entry).
   - CONVERTER LOOP: `GhostVisualBuilder.TryBuildSynthesizedMotionInfos(prefab, persistentId,
     partName, modelRoot, modelNode, cloneMap)` takes NO snapshot node at all. It walks
-    `prefab.Modules` and dispatches at `GhostVisualBuilder.cs:4184`
+    `prefab.Modules` and dispatches at `GhostVisualBuilder.cs:4186`
     (`string.Equals(moduleName, "ModuleAnimationGroup")`) into
     `TryBuildConverterLoopInfo` (`GhostVisualBuilder.cs:1932-1972`), which needs
     `activeAnimationName` and samples the prefab's clip. Prefab-sourced from end to end, so
@@ -7404,7 +7406,7 @@ THE CRAFT IS. The only converter aboard is a `FuelCell`, whose stock config
 (`GameData/Squad/Parts/Resources/FuelCell/FuelCell.cfg`) declares
 `ModuleResourceConverter` and `ModuleCargoPart` and nothing else. The ghost's loop family
 is discovered from `ModuleAnimationGroup.activeAnimationName`
-(`GhostVisualBuilder.cs:4184` -> `TryBuildConverterLoopInfo`, `:1932-1972`), which is the
+(`GhostVisualBuilder.cs:4186` -> `TryBuildConverterLoopInfo`, `:1932-1972`), which is the
 module a stock ISRU / drill carries and a fuel cell does not. So the feature's whole
 visible output - a drill head turning while the recording says it was mining - has never
 had a subject.
@@ -7423,8 +7425,8 @@ tail; they should be harvested in one session.
 light-event PRODUCER set is not "parts with a lamp": it is exactly the two call sites of
 `FlightRecorder.CheckLightTransition`, derived from source rather than guessed -
 
-  - `FlightRecorder.cs:2628` - a part with a `ModuleLight` (its `isOn`), and
-  - `FlightRecorder.cs:2663` - a part with NO ModuleLight carrying a `ModuleColorChanger`
+  - `FlightRecorder.cs:2649` - a part with a `ModuleLight` (its `isOn`), and
+  - `FlightRecorder.cs:2685` - a part with NO ModuleLight carrying a `ModuleColorChanger`
     whose `toggleInFlight` is true (its `animState`), which is how a cabin light becomes a
     light event at all.
 
@@ -7449,22 +7451,29 @@ second `no-family-state` skip.
 
 `HeatShield2` pid 2104924005 also carries a ModuleColorChanger, but Pattern B
 (`HeatShield2.cfg:84-89`, `_BurnColor`, `toggleInFlight = False`), so the `toggleInFlight`
-gate at `FlightRecorder.cs:2665` excludes it from the light family entirely. Correct, and
+gate at `FlightRecorder.cs:2682` excludes it from the light family entirely. Correct, and
 worth writing down so the next reader does not count it as a fifth producer.
 
-WHAT STILL DOES NOT CLOSE, stated rather than papered over: four producers against a
-tallied FIVE events, with `applied=3` while only the two `spotLight1` pids can carry a
-`LightGhostInfo` that a light event could reach. The ghost's third light info is
-`telescopicLadderBay` pid 2225231708 - a Unity `Light` cloned out of its model by
-`BuildLightGhostInfo` - but its stock cfg
-(`Squad/Parts/Utility/ladderTelescopicBay/ladderTelescopicBay.cfg`) declares only
-`RetractableLadder` and `ModuleCargoPart`, so NEITHER producer predicate can fire for it
-and it cannot be the source of an event. One pid therefore contributed TWO events to that
-batch, and WHICH one is not recoverable from the tally line: `pid=` is the
-representative of a family+surface batch, not an enumeration - the limitation the GS-6
-spec header already names. RE-TAKE on the re-flight rather than guess; nothing here is a
-defect, and NO dead-event producer was found (all four producers drive a surface that
-exists after the colour-changer fix).
+THE ARITHMETIC CLOSES, and the fifth event does not need re-taking. Four producer pids
+against a tallied FIVE events means one pid contributed TWO events to that batch, and the
+applier's own two seams say WHICH:
+
+  - `GhostPlaybackLogic.ClassifyUnityLightApply` (`GhostPlaybackLogic.cs:7675-7687`)
+    returns `Applied` as soon as the pid's `LightGhostInfo` holds ONE non-null `Light`.
+    There is no already-in-state check, so a SECOND event on the same pid scores `applied`
+    again rather than collapsing.
+  - `RecordLightPowerEvent` (`GhostPlaybackLogic.cs:2199-2214`) tallies each event exactly
+    once per surface (`tally.Record(...)` for `Light` and again for `ColorChanger`), so the
+    `applied=` / `skipped=` pair counts EVENTS, not pids.
+
+Only the two `spotLight1` pids carry a `LightGhostInfo` a light event can reach - the pod
+and the docking port have no Unity `Light`, and `telescopicLadderBay` pid 2225231708 has a
+cloned Unity `Light` but no producer module to fire one (its cfg declares only
+`RetractableLadder` and `ModuleCargoPart`). So `applied=3` over two eligible pids means the
+DOUBLED event is necessarily on one of the two spotLights, and `skipped=2` is the pod plus
+the docking port, one each. The shape that produces it is a LightOn / LightOff / LightOn run
+caught inside one `ApplyPartEvents` batch. Nothing is unaccounted for and nothing is a
+defect.
 
 NO CODE CHANGE from this entry.
 
@@ -7544,6 +7553,14 @@ decides per ModuleColorChanger instance which node the config-only fields come f
     when the snapshot declares no ModuleColorChanger at all the prefab's list is used
     whole; with no prefab node to fall back to the snapshot node is returned unchanged and
     the builder's own empty-`shaderProperty` skip counts it, as before.
+
+TWO DELIBERATE BEHAVIOUR CHANGES the rule carries, neither byte-identical and both
+intended: a snapshot part node that declares NO ModuleColorChanger at all now inherits the
+prefab's whole list (so a showcase or synthetic node built without the module gains the
+prefab's colour changers - which is the point, since that is also the shape a stripped
+sidecar takes), and a prefab declaring MORE instances than the snapshot truncates to the
+snapshot count (the per-index walk runs over the snapshot list, so prefab-only extras are
+never materialised).
 
 Pattern A (`toggleInFlight` + `_EmissiveColor`) and Pattern B (`_BurnColor`) classification,
 the curve evaluation, the material cloning and the off-state initialisation are all
