@@ -240,9 +240,17 @@ Tooltip budget: `TooltipEchoBudgetTests.StripWindows` pins this file at `760f, 5
 DoubleLine`, so the budget is `2 * (760 - 30) / 7 = 208` characters (it was
 `2 * 380 / 7 = 108`). Every literal in the file is still under the OLD 108, so the raise
 loosens nothing in practice - it stops the gate budgeting a width the window no longer opens
-at. The floor of 5 is unchanged and the file carries 9 literal `GUIContent` tooltips (two tab
-labels, three column headers, the plain-bucket fold, the chain expand, the Flights fold, the
-row cross-link), so removing a control still reds the row.
+at. The floor of 5 is unchanged and the file carries 10 literal `GUIContent` tooltips (two tab
+labels, three column headers - `Since`, `Last flight`, `Crew` - the plain-bucket fold, the
+owner-row chain expand, the Flights group fold, and two cells of the Flights row: the Date
+cross-link and the Crew note), so removing a control still reds the row. Three more
+`GUIContent`s in the file carry a RUNTIME-built tooltip and the scanner skips them by design
+(the Mission cell's `DescribeFlightRow`, the Outcome cell's `DescribeFlightRowOutcome`, and
+the Roster status cell's `StatusTooltipText`); the width column is cross-checked against
+`KerbalsWindowUI.DefaultWindowWidth` by its own cell.
+
+The `MinWindowWidth` raise does NOT touch this row: the budget is the FIRST-OPEN width, and
+that is unchanged at 760.
 
 ## 6. Seam contracts
 
