@@ -157,6 +157,23 @@ namespace Parsek.TestCommands
 
             internal bool PlaybackState;
             internal int PlaybackChanged;
+
+            // pointer flags (op=pointer focus= / nudge=)
+            internal bool PointerFocus;
+            internal bool PointerNudge;
+            internal UiPointerFocusOutcome PointerFocusOutcome;
+            internal bool PointerForegroundIsGame;
+
+            // raise / dismiss
+            /// <summary>The <c>popup=</c> wire token, re-resolved against the table by the
+            /// settle rather than carried as the spec struct: the table is the authority
+            /// and a copied row could not drift, but re-resolving keeps the settle's read
+            /// of PopupName on exactly one source.</summary>
+            internal string RaiseDialogName;
+
+            /// <summary>The button <c>op=dismiss</c> pressed, or null for a plain
+            /// dismissal.</summary>
+            internal string DismissPressButton;
         }
 
         private UiActionPending uiActionPending;
@@ -199,8 +216,12 @@ namespace Parsek.TestCommands
                 // Routed through the PURE predicate rather than a switch over the same
                 // set, so this dispatch and the harness's own per-op arg validation
                 // (hlib.UIACTION_OPS_NEEDING_WINDOW) cannot disagree about which ops name
-                // a window. The three branches are exhaustive over the five parseable ops
-                // plus describe; UiActionOp.None is unreachable (TryParseOp returned).
+                // a window. The branches below are exhaustive over every parseable op, with
+                // `describe` as the fall-through tail; UiActionOp.None is unreachable
+                // (TryParseOp returned). COUNT DELIBERATELY UNSTATED: an earlier version of
+                // this comment said "three branches over the five parseable ops" and was
+                // wrong by the time two more ops landed, which is exactly the drift a
+                // hand-kept number invites here.
                 if (TestCommandUiAction.OpNeedsWindow(op))
                 {
                     UiActionWindowOp(cmd, ui, scene, op);
@@ -224,6 +245,16 @@ namespace Parsek.TestCommands
                 if (op == UiActionOp.Playback)
                 {
                     UiActionPlaybackOp(cmd);
+                    return;
+                }
+                if (op == UiActionOp.Raise)
+                {
+                    UiActionRaiseOp(cmd);
+                    return;
+                }
+                if (op == UiActionOp.Dismiss)
+                {
+                    UiActionDismissOp(cmd);
                     return;
                 }
                 UiActionDescribe(ui, scene);
@@ -603,6 +634,16 @@ namespace Parsek.TestCommands
                     return;
                 case UiActionOp.Playback:
                     CompleteUiActionPlayback(ctx, pending);
+                    return;
+                // Both dialog ops read the live PopupDialog set, which is uGUI and drawn
+                // outside either host's showUI gate - so they pass the preamble's
+                // host-visibility check by not being in SettleChecksHostShowUi, and they
+                // take no window handle at all.
+                case UiActionOp.Raise:
+                    CompleteUiActionRaise(id, seq, verb, pending);
+                    return;
+                case UiActionOp.Dismiss:
+                    CompleteUiActionDismiss(id, seq, verb, pending);
                     return;
             }
 

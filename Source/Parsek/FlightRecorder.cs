@@ -6984,65 +6984,86 @@ namespace Parsek
                 ? v.id.ToString("N")
                 : VesselLaunchIdentity.TryReadVesselGuid(lastGoodVesselSnapshot);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured launch guid={pendingRecordedVesselGuid ?? "(none)"}");
-            // Backstop: forward the just-captured identity onto the active tree
-            // recording if it doesn't already carry it. Covers the always-tree-root
-            // path (created with whatever vessel was active at the time of root
-            // creation, which may have been null) and the promotion path
-            // (preexisting tree rec from a legacy recording without Controllers).
-            // No-op when the tree rec was already populated at creation time.
-            if (ActiveTree != null
-                && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
-                && ActiveTree.Recordings != null
-                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out var treeRecBackstop)
-                && treeRecBackstop != null)
-            {
-                bool backstopChanged = false;
-                if (treeRecBackstop.AdoptControllersIfEmpty(pendingStartControllers))
-                {
-                    backstopChanged = true;
-                    ParsekLog.Verbose("Recorder",
-                        $"StartRecording: forwarded {pendingStartControllers.Count} controller part(s) " +
-                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
-                }
-                // Forward the start-crew manifest too (same always-tree-root gap as controllers):
-                // the root recording is created before the crew snapshot exists, so without this it
-                // never carries StartCrew even though its vessel snapshot has the crew.
-                if (treeRecBackstop.AdoptStartCrewIfEmpty(pendingStartCrew))
-                {
-                    backstopChanged = true;
-                    ParsekLog.Verbose("Recorder",
-                        $"StartRecording: forwarded {pendingStartCrew.Count} start crew trait(s) " +
-                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
-                }
-                // Forward the launch guid too (same always-tree-root gap): the root recording is
-                // created before the vessel snapshot exists, so without this it never carries the
-                // launch-unique identity even though its snapshot's `pid` has it.
-                if (treeRecBackstop.AdoptRecordedVesselGuidIfEmpty(pendingRecordedVesselGuid))
-                {
-                    backstopChanged = true;
-                    ParsekLog.Verbose("Recorder",
-                        $"StartRecording: forwarded launch guid {pendingRecordedVesselGuid} " +
-                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
-                }
-                // Forward the start-location fields too (same always-tree-root gap): the recorder
-                // captures body / launch site at StartRecording (above), but for a multi-recording
-                // tree (launch then dock / continue) the OnSave flush forwards them to whichever
-                // child is active at save time, not the root, so the root keeps no LaunchSiteName /
-                // StartBodyName and a KSC-origin supply route cannot resolve its origin. A mid-flight
-                // child has LaunchSiteName == null so it never adopts a launch site it lacks.
-                if (treeRecBackstop.AdoptStartLocationIfEmpty(StartBodyName, StartBiome, StartSituation, LaunchSiteName))
-                {
-                    backstopChanged = true;
-                    ParsekLog.Verbose("Recorder",
-                        $"StartRecording: forwarded start location (body={StartBodyName ?? "(null)"}, " +
-                        $"launchSite={LaunchSiteName ?? "(null)"}) to active tree recording '{ActiveTree.ActiveRecordingId}'");
-                }
-                if (backstopChanged)
-                    treeRecBackstop.MarkFilesDirty();
-            }
+            ApplyStartRecordingTreeBackstop(
+                ActiveTree, pendingStartControllers, pendingStartCrew, pendingRecordedVesselGuid,
+                StartBodyName, StartBiome, StartSituation, LaunchSiteName);
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
                 : VesselSpawner.TryBackupSnapshot(v);
+        }
+
+        /// <summary>
+        /// Backstop: forward the just-captured start identity onto the active tree
+        /// recording if it doesn't already carry it. Covers the always-tree-root
+        /// path (created with whatever vessel was active at the time of root
+        /// creation, which may have been null) and the promotion path
+        /// (preexisting tree rec from a legacy recording without Controllers).
+        /// No-op when the tree rec was already populated at creation time.
+        /// <para>
+        /// Every input is already a captured value rather than a live Vessel read, so the
+        /// forward is testable without a KSP runtime; StartRecording hands it the fields it
+        /// captured a few lines earlier. Returns true when anything was adopted.
+        /// </para>
+        /// </summary>
+        internal static bool ApplyStartRecordingTreeBackstop(
+            RecordingTree activeTree,
+            List<ControllerInfo> startControllers,
+            Dictionary<string, int> startCrew,
+            string recordedVesselGuid,
+            string startBodyName, string startBiome, string startSituation, string launchSiteName)
+        {
+            if (activeTree == null
+                || string.IsNullOrEmpty(activeTree.ActiveRecordingId)
+                || activeTree.Recordings == null
+                || !activeTree.Recordings.TryGetValue(activeTree.ActiveRecordingId, out var treeRecBackstop)
+                || treeRecBackstop == null)
+                return false;
+
+            bool backstopChanged = false;
+            if (treeRecBackstop.AdoptControllersIfEmpty(startControllers))
+            {
+                backstopChanged = true;
+                ParsekLog.Verbose("Recorder",
+                    $"StartRecording: forwarded {startControllers.Count} controller part(s) " +
+                    $"to active tree recording '{activeTree.ActiveRecordingId}'");
+            }
+            // Forward the start-crew manifest too (same always-tree-root gap as controllers):
+            // the root recording is created before the crew snapshot exists, so without this it
+            // never carries StartCrew even though its vessel snapshot has the crew.
+            if (treeRecBackstop.AdoptStartCrewIfEmpty(startCrew))
+            {
+                backstopChanged = true;
+                ParsekLog.Verbose("Recorder",
+                    $"StartRecording: forwarded {startCrew.Count} start crew trait(s) " +
+                    $"to active tree recording '{activeTree.ActiveRecordingId}'");
+            }
+            // Forward the launch guid too (same always-tree-root gap): the root recording is
+            // created before the vessel snapshot exists, so without this it never carries the
+            // launch-unique identity even though its snapshot's `pid` has it.
+            if (treeRecBackstop.AdoptRecordedVesselGuidIfEmpty(recordedVesselGuid))
+            {
+                backstopChanged = true;
+                ParsekLog.Verbose("Recorder",
+                    $"StartRecording: forwarded launch guid {recordedVesselGuid} " +
+                    $"to active tree recording '{activeTree.ActiveRecordingId}'");
+            }
+            // Forward the start-location fields too (same always-tree-root gap): the recorder
+            // captures body / launch site at StartRecording (above), but for a multi-recording
+            // tree (launch then dock / continue) the OnSave flush forwards them to whichever
+            // child is active at save time, not the root, so the root keeps no LaunchSiteName /
+            // StartBodyName and a KSC-origin supply route cannot resolve its origin. A mid-flight
+            // child has LaunchSiteName == null so it never adopts a launch site it lacks.
+            if (treeRecBackstop.AdoptStartLocationIfEmpty(
+                    startBodyName, startBiome, startSituation, launchSiteName))
+            {
+                backstopChanged = true;
+                ParsekLog.Verbose("Recorder",
+                    $"StartRecording: forwarded start location (body={startBodyName ?? "(null)"}, " +
+                    $"launchSite={launchSiteName ?? "(null)"}) to active tree recording '{activeTree.ActiveRecordingId}'");
+            }
+            if (backstopChanged)
+                treeRecBackstop.MarkFilesDirty();
+            return backstopChanged;
         }
 
         /// <summary>

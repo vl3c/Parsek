@@ -2498,40 +2498,26 @@ namespace Parsek.Tests
             part.AddValue("crew", "Jebediah Kerman");
             part.AddValue("crew", "Bill Kerman");
 
-            // Simulate: Jeb already on a vessel by calling the pure method path
-            // (BuildExistingCrewSet needs FlightGlobals, so test the ConfigNode removal directly)
-            var duplicates = new HashSet<string> { "Jebediah Kerman" };
-
-            // Apply the removal using the same pattern as RemoveDuplicateCrewFromSnapshot
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            // Jeb is already aboard a live vessel. The holder map is the ONLY live-scene
+            // input of the dedup (BuildExistingCrewHolders needs FlightGlobals), so handing
+            // it in drives the production removal loop itself instead of replaying it.
+            var existingCrew = new Dictionary<string, string>
             {
-                var names = partNode.GetValues("crew");
-                var keep = new List<string>();
-                foreach (string name in names)
-                {
-                    if (duplicates.Contains(name))
-                    {
-                        ParsekLog.Warn("Spawner",
-                            $"Crew dedup: '{name}' already on a vessel in the scene — removed from spawn snapshot");
-                    }
-                    else
-                    {
-                        keep.Add(name);
-                    }
-                }
-                partNode.RemoveValues("crew");
-                foreach (string name in keep)
-                    partNode.AddValue("crew", name);
-            }
+                { "Jebediah Kerman", "\"Station Alpha\" (pid=42)" }
+            };
 
-            // Verify crew was removed
+            int removed = VesselSpawner.RemoveDuplicateCrewFromSnapshotCore(snapshot, existingCrew);
+
+            // Production removed the duplicate and kept the rest
+            Assert.Equal(1, removed);
             var remainingCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             Assert.Single(remainingCrew);
             Assert.Equal("Bill Kerman", remainingCrew[0]);
 
-            // Verify warning was logged
+            // The production Warn fired, naming the kerbal AND the holding vessel
             Assert.Contains(logLines, l =>
-                l.Contains("[Spawner]") && l.Contains("Crew dedup") && l.Contains("Jebediah Kerman"));
+                l.Contains("[Spawner]") && l.Contains("Crew dedup") &&
+                l.Contains("Jebediah Kerman") && l.Contains("Station Alpha"));
         }
 
         [Fact]
@@ -2563,23 +2549,16 @@ namespace Parsek.Tests
             part2.AddValue("crew", "Valentina Kerman");
             part2.AddValue("crew", "Bill Kerman");
 
-            // Both Jeb and Val are duplicates
-            var duplicates = new HashSet<string> { "Jebediah Kerman", "Valentina Kerman" };
-
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            // Both Jeb and Val are aboard live vessels; Bill is not.
+            var existingCrew = new Dictionary<string, string>
             {
-                var names = partNode.GetValues("crew");
-                var keep = new List<string>();
-                foreach (string name in names)
-                {
-                    if (!duplicates.Contains(name))
-                        keep.Add(name);
-                }
-                partNode.RemoveValues("crew");
-                foreach (string name in keep)
-                    partNode.AddValue("crew", name);
-            }
+                { "Jebediah Kerman", "\"Station Alpha\" (pid=42)" },
+                { "Valentina Kerman", "\"Lander\" (pid=43)" }
+            };
 
+            int removed = VesselSpawner.RemoveDuplicateCrewFromSnapshotCore(snapshot, existingCrew);
+
+            Assert.Equal(2, removed);
             var remaining = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             Assert.Single(remaining);
             Assert.Equal("Bill Kerman", remaining[0]);

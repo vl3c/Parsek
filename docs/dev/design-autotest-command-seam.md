@@ -1688,9 +1688,10 @@ and a harness cell reads that set out of the source to keep the two from driftin
 #### UiAction (additive; drive the Parsek windows for a capture)
 
 `UiAction
-op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback>
-[window=] [tab=] [mode=] [x= y= w= h=] [park=] [text=] [ctrl=] [index=] [key=] [state=]
-[mission=] [route=] [group=] [recording=]`. Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
+op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback|raise|dismiss>
+[window=] [tab=] [mode=] [x= y= w= h=] [park=] [focus=] [nudge=] [text=] [ctrl=] [index=]
+[key=] [state=] [mission=] [route=] [group=] [recording=] [popup=] [press=]`.
+Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
 the `ListHandles` one: the Parsek UI is hosted in SPACECENTER as well as FLIGHT, so a KSC
 census under a flight row would defer to its budget and TIMEOUT. A scene that hosts no
 Parsek UI at all - the Tracking Station draws markers only (`ParsekTrackingStation.OnGUI`)
@@ -1707,20 +1708,25 @@ READS THEM BACK.
 
 **EVERY OP THAT CHANGES DRAWN STATE IS TWO-PHASE** (`TestCommandUiAction.OpIsTwoPhase`):
 `open`, `rect`, the five census ops `pointer` / `find` / `expand` / `target` / `picker`,
-and `playback`. `close`, `tab` and `complexity` are single-phase for the reasons below,
-and `describe` / `dialog` are single-phase because they write nothing at all.
+`playback`, and the two modal ops `raise` / `dismiss`. `close`, `tab` and `complexity` are
+single-phase for the reasons below, and `describe` / `dialog` are single-phase because they
+write nothing at all.
 
 WHAT THE SETTLE CHECKS is NOT uniform, and the asymmetry is deliberate
 (`TestCommandUiAction.SettleChecksHostShowUi`). The host-visibility gate
 (`window-host-hidden`) applies to `open` and `rect` ALONE, because those two read back a
 FIELD: a frame that never reached the window compares the written value with itself. The
-six later ops do not have that hole - `find` reads a captured TREE, in which an undrawn
+eight later ops do not have that hole - `find` reads a captured TREE, in which an undrawn
 window is simply absent (`find-window-not-drawn`); `pointer` reads
 `Input.mousePosition`, which no window draws; `expand` / `target` / `picker` read a
 collection or an open flag whose only other writer is a player click the seam never
-synthesises; and `playback` reads a field on the `Recording`, which no window owns. Applying the gate to them would refuse correct work: a `pointer park` issued
-with the Parsek surface deliberately hidden is exactly the hover-free capture a census
-wants.
+synthesises; `playback` reads a field on the `Recording`, which no window owns; and
+`raise` / `dismiss` read whether a NAMED `PopupDialog` stands, which is a uGUI object
+drawn outside either host's `showUI` gate entirely - a Parsek surface hidden by that gate
+neither draws the modal nor can fake it, so the host question does not arise for those two
+in the first place. Applying the gate to them would refuse correct work: a `pointer park`
+issued with the Parsek surface deliberately hidden is exactly the hover-free capture a
+census wants, and a modal raised over a hidden host is still the modal a player would see.
 
 **`open` AND `rect`** were the original two, and both write a value whose read-back only means something after an
 OnGUI pass has run, so before a frame is DRAWN both read back exactly what was just
@@ -1919,6 +1925,58 @@ readable back against "someone was using the mouse", and the number of moves in 
 recoverable from `KSP.log` alone. A lane that uses the op says so in its header. Also
 `op=pointer park=true`, which parks at the client corner so later captures are hover-free.
 
+**`focus=` AND `nudge=`, BOTH DEFAULTING FALSE**, are the two opt-in flags added for
+GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: on three wave-2 lanes and four captures
+the cursor landed within 1 px of the resolved control and IMGUI painted no hover, no
+`GUI.tooltip` and no disabled-hover echo. NEITHER IS A DEFAULT, and the reason is the same
+one that makes this op singular: it already reaches outside the process, and these reach
+further. `focus=true` STEALS the foreground from whatever the operator is doing on his own
+desktop; `nudge=true` synthesises input at the system level. Both are also, on the
+evidence, not obviously the missing half - all four failed captures READ BACK their cursor
+position, which by this op's own contract means the game was sampling input - so they ship
+as a measurement a lane asks for, with the outcome reported either way, rather than as a
+behaviour change under every lane written before them.
+
+`focus=true` climbs a THREE-RUNG ladder and reports which rung answered
+(`TestCommandUiPointer.ClassifyFocus` / `UiPointerFocusOutcome`, wire tokens `already` /
+`direct` / `attached` / `refused` / `no-window` / `not-requested`). Rung 0 is
+ALREADY-FOREGROUND, which costs no call and is the expected reading on an operator desktop
+that just launched the game - and it is the answer that makes a still-unpainted hover NOT a
+foreground problem. Rung 1 is a plain `SetForegroundWindow`. Rung 2, used only when rung 1
+was refused, is the documented `AttachThreadInput` workaround: Windows permits
+`SetForegroundWindow` from a process that does not own the foreground only under conditions
+a mid-run harness may not meet, and attaching this thread's input queue to the current
+foreground thread supplies one of them. The attach is detached in a `finally`, because
+leaving two input queues attached would couple the game's input to another process's for
+the rest of the session. `SwitchToThisWindow` was REJECTED as undocumented and because it
+restores / animates the window (which would move the very geometry a census pins), and
+`AllowSetForegroundWindow` because it must be called by the CURRENT foreground process, not
+by us. A refused foreground is never an ERROR: the move and the read-back remain the op's
+verdict, and the refusal is itself the measurement.
+
+`nudge=true` IS THE DISCRIMINATOR, and it is about the EVENT rather than the position.
+`SetCursorPos` WARPS the cursor: Unity's per-frame position sample follows a warp, while
+the window's mouse EVENT stream - which is what an IMGUI hover is computed during - sees
+nothing. A relative `SendInput` (`MOUSEEVENTF_MOVE` with no `ABSOLUTE` flag) produces a
+real `WM_MOUSEMOVE`, so the flag sends one `(+1,0)` then `(-1,0)` pair, AFTER the move and
+in ONE `SendInput` call so another process's input cannot be interleaved between them. The
+pair cancels, so the cursor ends where the move put it: the resolved control is still the
+hovered one and the read-back still compares against the commanded point. A partially
+accepted send (UIPI, an input block) reports `nudge=false` rather than failing the step.
+
+FIVE NEW PAYLOAD KEYS, and they are APPENDED AFTER `via=` rather than slotted in beside the
+coordinates: the wave-2 census lanes' log contracts pin `uiaction pointer at=<x>,<y>
+park=<b> via=` and stop there, so appending keeps every one of those regexes matching.
+`focus=` / `nudge=` are what was asked for (the second is what was actually SENT),
+`fgOutcome=` names the rung, `fg=` is the direct question `GetForegroundWindow() == the
+game hwnd` after the call, and `tooltip=` is `TooltipEchoStripLatch.LastText` - the
+hover-echo strip's text as of the settled frame, `-` when the strip is empty, which is the
+reading the whole flag pair exists to make non-empty. That latch is the observability half:
+`TooltipEchoBox` calls it on its Repaint pass, it logs one Info line per DISTINCT strip text
+(capped per session), and `op=pointer` arms its `Event.current.mousePosition` versus
+`Input.mousePosition` probe on EVERY move - the op's read-back already proves the second,
+and only the first decides a hover.
+
 **`op=find` turns a control's TEXT into a rect and a centre.** `op=pointer` takes pixels
 and a spec cannot know them: a window's layout depends on its rect, its complexity mode,
 the save's row counts and the skin, so a hard-coded coordinate would hover whatever moved
@@ -2076,6 +2134,89 @@ gate that now holds the premise. `count=` is separate from `nbuttons=` so a read
 that a two-modal state was reported as one arbitrarily; Parsek's own contract is that at
 most one stands, so `count > 1` is itself a finding.
 
+**`op=raise` AND `op=dismiss` CLOSE THE HALF `op=dialog` COULD NOT.** That op is the
+READ-ONLY report, and nothing in the seam could put a modal up: after census wave 2 the
+`modal dialogs` row of `design-gui-inventory.md` section 2 stood at 0 of 21 and all six
+wave-2 lanes answered `open=false count=0`, because the three verbs that come close each
+refuse BY DESIGN and none of them should change - `ExitToSpaceCenter` answers
+`REJECTED dialog-required` rather than driving an exit into an outstanding merge decision,
+`AnswerMergeDialog` raises AND presses inside one completion pass (and is `markerLive`-gated
+on top), and `SimulateStockSwitchClick` turns all three pre-switch cases into typed
+REJECTEDs. `op=raise popup=<name>` is the different door: it calls ONE dialog's own
+production spawn site and STOPS, so the modal stands for `op=dialog` to report and
+`CaptureScreenshot` to photograph; `op=dismiss popup=<name> [press=]` takes it down.
+Nothing here builds a `MultiOptionDialog` of its own - a seam-authored popup would
+photograph a screen the game cannot be in, and would additionally have to satisfy
+`ParsekDialogNamePrefixSourceGateTests` for a name no production path writes.
+
+THE CLOSED SET IS THE DESIGN, not a backlog. `popup=` takes one of SEVEN tokens, read off
+`TestCommandUiDialogRaise`'s own table in its cheapest-first order: `actionblocked` and
+`savefailed` (the two informational popups, no host state at all, a single `OK` each),
+`wiperecordings` and `wipemilestones` (a count and `ParsekUI.ActiveInstance`), and
+`rewind` / `fastforward` / `seal` (a committed recording from the effective set;
+`rewind` additionally needs one whose rewind OWNER resolves). A row is in the table only
+when its spawn is reachable by a pure in-process call with data the host already carries -
+no scene transition, no live Re-Fly marker, no synthesised `Vessel`. The rest stay FILED
+with their reason in `docs/dev/todo-and-known-bugs.md`: the tree merge dialog's spawn takes
+a `RecordingTree` and BOTH its buttons act on it, so a synthetic one's commit would write
+invented history into the fixture; the pre-switch decision dialog needs a live `Vessel` and
+RE-SPAWNS ITSELF on any non-button teardown, so a dismiss-without-press cannot close it;
+the ghost icon context menu is spawned inside a Harmony Prefix over a live ghost
+ProtoVessel in map view, so there is no method to call; the Tracking Station ghost popup's
+host scene runs no `ParsekUI` and therefore no `UiAction`; Re-Fly invoke and revert need a
+RewindPoint with a child slot and a live session marker; and the three Logistics confirms
+plus Disband Group need a live `Route` / `RouteCandidate` / group closure.
+
+SPELLED `popup` AND NOT `dialog`, for the reason `op=find` spells its control filter `ctrl`
+rather than `kind`: `hlib.VERB_SCOPED_CLOSED_ARGS` admits exactly ONE owner verb per arg
+key, `dialog=` is already `AnswerMergeDialog`'s, and a second owner would make every
+`UiAction` step carrying it a hard PRE-LAUNCH error reading "only the AnswerMergeDialog
+verb reads it". The house answer to that collision is a different word.
+
+DISMISS WITHOUT PRESSING IS THE DEFAULT and `press=` is opt-in, because most of these
+confirms MUTATE the save - `Wipe All` clears every committed recording and unreserves every
+crew reservation, `Seal Permanently` is permanent, `Fast-Forward` warps UT - so a census
+lane that pressed them would destroy the fixture it is photographing. `op=dismiss` with no
+`press=` calls `PopupDialog.DismissPopup`, and a `press=` must name a button the dialog's
+own `UiDialogPressPolicy` allows: `AnyButton` on the two informational popups (whose only
+button is `OK`), `SafeButtonOnly` on all five confirms, where the ONE allowed label is the
+row's `Cancel`. Every mutating confirm is therefore refused (`press-not-allowed`) - the
+refusal is the point rather than a convenience, since a lane must be UNABLE to wipe its own
+host by naming the wrong button. The press itself goes through the button's own
+`OptionSelected` callback (`AnswerMergeDialog`'s entry point) and is selected BY LABEL, not
+by position, so "press Cancel" cannot become "press Wipe All" when a dialog's button order
+changes. Both closed vocabularies are space-free by construction, which is load-bearing:
+the wire is space-separated `key=value` pairs and `TestCommandProtocol` encodes only `%`
+and `=`, so a future safe button reading "No, cancel" needs the encoder widened rather than
+a second spelling.
+
+ONE MODAL AT A TIME. A raise while ANY Parsek popup stands is
+`REJECTED dialog-already-open` naming what is up. Parsek's own contract is that at most one
+modal is up (every spawn site dismisses first), so raising a second would both violate it
+and make the following `op=dialog` report an arbitrary one of two - exactly the `count > 1`
+state that op flags as a finding.
+
+THE INPUT LOCK, carried per row rather than blanket-cleared. Exactly one spawn site in the
+table takes a `ControlTypes.All` lock that only its own button callbacks release
+(`UnfinishedFlightSealHandler`, the `seal` row's `OwnsInputLock`), so a dismiss WITHOUT a
+press releases it explicitly and logs that it did - otherwise every later step in the lane
+runs behind a lock nothing will ever lift. The other six rows take no lock, and the two
+`MergeDialog` sites that do are not in the table. A blanket "clear every Parsek lock" would
+reach locks this op did not set.
+
+BOTH ARE TWO-PHASE for the `op=open` reason exactly. A `PopupDialog` is instantiated
+through uGUI, so the frame after the spawn is the first in which it exists as a drawn
+surface, and the settle is what separates "the production spawn site ran" from "its own
+guard returned silently" - every one of those spawn sites has such a guard. The raise
+settle confirms the standing popup's name equals the table's `PopupName` EXACTLY, so a
+silent early return cannot read as a success over some other Parsek modal that happened to
+be up. Dismissal is the mirror: `DismissPopup` destroys through Unity, so an immediate
+read-back would still find the popup. Payloads deliberately echo `op=dialog`'s shape so a
+lane's raise step and its following report step are comparable key for key -
+`op=raise popup= name= title= buttons= nbuttons= pressable=` and
+`op=dismiss popup= name= pressed= open=` (`pressed=` is the label or `-`, and `open=` is
+the settled read-back, always `false` on an OK).
+
 **Terminals.** `REJECTED`: `op-arg-missing` / `op-arg-invalid` (the message carries the
 valid op list), `window-arg-missing` / `window-unknown` (the message carries the whole
 valid window list, which is the only place a spec author learns the spelling without
@@ -2101,9 +2242,13 @@ safe point - NOT a refusal, which is why it is not spelled like one),
 `window-host-hidden` (see below - and it applies to `open` / `rect` ALONE, see
 `SettleChecksHostShowUi` above), `ui-action-threw`.
 
-THE SIX CENSUS OPS ADD, all typed and all distinct from the above. `op=pointer`:
+THE NINE LATER OPS ADD, all typed and all distinct from the above - the six the census
+shipped with, plus `playback`, `raise` and `dismiss` (the "six" this paragraph used to count
+stopped being the number the moment `playback` landed). `op=pointer`:
 `REJECTED pointer-arg-missing` (neither `park=true` nor BOTH `x` and `y` - a lone
-coordinate is a missing arg, not a half-move) / `pointer-arg-invalid` /
+coordinate is a missing arg, not a half-move) / `pointer-arg-invalid` (also a `focus=` or
+`nudge=` outside {`true`,`false`} - a `focus=1` is REJECTED rather than silently ignored,
+the `park=` rule) /
 `pointer-arg-conflict` (`park=true` AND a coordinate: refused rather than resolved by
 precedence, since the two say different things about where the cursor ends up) /
 `pointer-off-screen` (a cursor parked off the game window hovers nothing, so every later
@@ -2137,7 +2282,25 @@ carries how many DO exist, so `known=0` on an empty save reads differently from 
 on a typo - and it is a REJECTED rather than a cheerful `changed=0`, which is the one
 answer a lane cannot act on); `ERROR playback-not-applied`. `op=dialog` has none: it writes nothing and reports
 `open=false` with `-` sentinels when no Parsek popup stands, because a lane that asserts
-"no dialog is up" needs a key to assert on. `AnswerMergeDialog` gains
+"no dialog is up" needs a key to assert on. `op=raise` and `op=dismiss` share a
+`popup=` vocabulary and therefore share its two rejects:
+`REJECTED popup-arg-missing` (no default modal - guessing one would photograph a dialog the
+lane never asked for) / `popup-unknown` (the message carries the whole valid list, so a spec
+author learns the spelling without reading the source). `op=raise` adds
+`REJECTED dialog-already-open` (a raise while any Parsek popup stands; see ONE MODAL AT A
+TIME above) / `dialog-target-unavailable` (the raise needs something the host does not carry
+- no effective recording, or no rewind owner among the ones it has - refused PRE-CALL rather
+than calling a spawn site that silently returns and then reporting a modal that is not
+there) and `ERROR dialog-not-raised` (the production spawn site ran and no popup of the
+expected name stands after a drawn frame: its own guard returned, or something dismissed it
+before the settle). `op=dismiss` adds `REJECTED dialog-not-open` (no popup of that name is
+up - a cheerful OK over nothing would let a lane's raise fail silently and its capture
+photograph an empty screen under a dialog label) / `press-unknown` (a `press=` naming no
+button of that dialog) / `press-not-allowed` (a `press=` naming a button the dialog's policy
+forbids, i.e. a confirm that would wipe, seal or warp; kept apart from the previous because
+a typo and a forbidden confirm send an author to different fixes, and the message carries
+what IS pressable), and `ERROR dialog-not-dismissed` (the popup is still standing after the
+settle). `AnswerMergeDialog` gains
 `REJECTED dialog-arg-invalid` (message carries the valid set).
 
 **REVIEW FOLLOW-UPS (2026-09-11).** Five defects and two residues, found reviewing the six
@@ -2341,10 +2504,21 @@ comment NAMES `pointer` and `dialog` as the two ops deliberately absent from the
 regex that read comments would report them as members and pass GREEN against a source
 saying the opposite - and a sibling synthetic-source cell keeps that half non-vacuous. The
 per-op REQUIREDNESS of the new args (`text` for find, `key` for expand, one selector for
-target / picker, a pair-or-park for pointer) lives in `validate_ui_action_step` alongside
+target / picker, a pair-or-park for pointer, `popup` for raise and dismiss) lives in
+`validate_ui_action_step` alongside
 the originals, including the one shared-key subtlety: `x` / `y` belong to BOTH `op=rect`
 and `op=pointer`, so the stray-rect-arg branch narrows to `w` / `h` on a pointer step
-rather than flagging the two coordinates the op actually reads.
+rather than flagging the two coordinates the op actually reads. The four newest args carry
+STRAY branches in the mirror direction as well, because an arg only one op reads is
+silently ignored by every other one and a spec author would never learn it: `park` / `focus`
+/ `nudge` on anything but `op=pointer`, and `popup` / `press` on anything but `op=raise` /
+`op=dismiss`, are pre-launch errors naming the op that would have ignored them. `press=` on
+an `op=raise` is its own branch rather than a stray: a raise that pressed would dismiss the
+modal it exists to leave standing - the exact defect that made `AnswerMergeDialog` unusable
+for the census. Both closed vocabularies (`UIACTION_POPUP_VALUES`,
+`UIACTION_PRESS_VALUES`, alongside the two boolean `UIACTION_FOCUS_VALUES` /
+`UIACTION_NUDGE_VALUES`) are `VERB_SCOPED_CLOSED_ARGS` rows owned by `UiAction`, which is
+what makes `popup=` and not `dialog=` the only spelling available.
 
 **Tail / post-mission roles.** `world-mutating` and `recording`, and the tail role is NOT
 about opening windows: `op=complexity` PERSISTS `uiComplexityMode` through
