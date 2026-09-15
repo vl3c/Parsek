@@ -654,6 +654,15 @@ namespace Parsek.Tests
                 startUT: 0.0,
                 endUT: 992.23);
             rec.TerminalStateValue = TerminalState.Orbiting;
+            // A recorded terminal orbit, so every other term in the predicate
+            // answers "retain". The control assertion below proves the same
+            // fixture returns true without the marker, which leaves the
+            // SpawnSuppressedByRewind clause as the sole discriminator.
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitSemiMajorAxis = 700000.0;
+            Assert.True(ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn(
+                rec, hasFutureSegment: false));
+
             rec.SpawnSuppressedByRewind = true;
             rec.SpawnSuppressedByRewindReason =
                 ParsekScenario.RewindSpawnSuppressionReasonSameRecording;

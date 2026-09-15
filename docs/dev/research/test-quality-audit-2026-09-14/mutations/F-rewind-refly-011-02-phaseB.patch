@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/EffectiveState.cs b/Source/Parsek/EffectiveState.cs
+index 35f60c54b..f1ef9b12c 100644
+--- a/Source/Parsek/EffectiveState.cs
++++ b/Source/Parsek/EffectiveState.cs
+@@ -291,7 +291,7 @@ namespace Parsek
+ 
+                 // Supersede hop: scan supersedes for OldRecordingId == current.
+                 string next = null;
+-                if (supersedes != null)
++                if (false)
+                 {
+                     for (int i = 0; i < supersedes.Count; i++)
+                     {
+warning: in the working copy of 'Source/Parsek/EffectiveState.cs', LF will be replaced by CRLF the next time Git touches it

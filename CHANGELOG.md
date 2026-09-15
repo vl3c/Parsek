@@ -94,6 +94,23 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: twenty rewind / Re-Fly and recording-tree cells from the audit's T1
+  (vacuous) register now exercise the production line their names claim.** Each one
+  passed for a reason unrelated to its subject: a branch-point fixture with no parent
+  recordings was thrown out by the lineage filter before the baseline, cutoff or
+  branch-point-type rule under test could speak; a no-op rewind pass returned zero
+  through three downstream guards at once, so deleting the named one changed nothing;
+  a suppression fixture answered "do not retain" whether or not the suppression flag
+  was set; a supersede walk was pointed at two endpoints that already agreed; and two
+  clusters replayed a copy of the production decision inside the test body and then
+  checked their own copy. The fixtures now isolate the named term - lineage-attached
+  branch points, a droppable supersede row armed behind the guard, a recording that
+  would be retained without the marker, a provisional origin that only the walk can
+  get past - and the two replay clusters call the real decision instead of a mirror of
+  it. Each repair was re-checked by breaking the production line on purpose and
+  confirming the cell goes red. One cell whose arithmetic was true for every input was
+  removed; the ledger cutoff tests own that contract, and its one unique assertion
+  survives as its own cell. Nothing a player sees changes.
 - **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
   Four source-text wiring gates were scanning raw file text, so a call left behind only as a
   comment - or the same call text inside a nearby log message - kept the gate green after the

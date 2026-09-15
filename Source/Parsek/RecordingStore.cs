@@ -5299,7 +5299,9 @@ namespace Parsek
                 messageLabel: "Rewind");
         }
 
-        private static void BeginRewindForOwner(Recording owner)
+        // internal (not private) so RewindLoggingTests can drive the real
+        // baseline-argument selection instead of re-issuing BeginRewind inline.
+        internal static void BeginRewindForOwner(Recording owner)
         {
             var reserved = new BudgetSummary
             {
