@@ -8631,6 +8631,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "the call on whether the restore half deserves a "
                                        "second lane that never restores so a marker "
                                        "`forbidden` can gate it.",
+        # Authored 2026-09-15 with the Kerbals-window column-table rebuild. Operator by
+        # CADENCE for the same reason the wave-2 census rows are: its deliverable is six
+        # images over a capture host, not a regression floor worth a nightly slot. Its
+        # host IS committed (`fixtures/saves/bdock-recorded`), so unlike GUI-1 / GUI-2 any
+        # clone can stage it - the tier is a cadence call, not a mechanism.
+        "GUI-11-census-kerbals-crewed.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: "
+                                       "the first flight, whose six PNGs ARE the "
+                                       "deliverable, and then the ordinary promotion "
+                                       "call. NEVER FLOWN at authoring time.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -14822,6 +14832,60 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         body = self._parse_cs_op_needs_window_body(synthetic)
         self.assertEqual(["Close", "Open"],
                          sorted(set(re.findall(r"UiActionOp\.([A-Za-z]+)", body))))
+
+    @staticmethod
+    def _strip_cs_comments(path):
+        with open(path, encoding="utf-8-sig") as fh:
+            return "\n".join(line.split("//", 1)[0] for line in fh.read().splitlines())
+
+    def test_the_expand_prefix_map_mirrors_the_c_sharp_tables(self):
+        """Reads OUTSIDE harness/. `op=expand key=<prefix>:<value>` is validated here
+        against UIACTION_EXPAND_PREFIXES and by the seam against
+        TestCommandUiState.ExpandPrefixesFor; a prefix (or a whole window) added on one
+        side alone is a typed REJECTED - `expand-key-invalid`, or
+        `expand-unsupported-window` - after a full KSP boot.
+
+        Comments are stripped before the parse, per the house rule: that file's expand
+        region carries doc comments quoting prefix spellings and window names verbatim,
+        so a raw regex would read prose as code."""
+        state_path = os.path.join(
+            PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiState.cs")
+        action_path = os.path.join(
+            PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        for path in (state_path, action_path):
+            self.assertTrue(os.path.isfile(path),
+                            "the C# expand tables moved; this mirror is vacuous: %s"
+                            % path)
+        state = self._strip_cs_comments(state_path)
+        action = self._strip_cs_comments(action_path)
+
+        consts = dict(re.findall(
+            r'internal const string (\w+KeyPrefix) = "([a-z]+)";', state))
+        arrays = dict(re.findall(
+            r"private static readonly string\[\] (\w+ExpandPrefixes) = new\[\]"
+            r"[^;{]*\{([^}]*)\}", state, re.S))
+        window_tokens = dict(re.findall(
+            r'internal const string (\w+Window) = "([a-z]+)";', action))
+
+        wired = {}
+        for window_const, array_name in re.findall(
+                r"if \(window == TestCommandUiAction\.(\w+Window)\)\s*"
+                r"return (\w+ExpandPrefixes);", state):
+            self.assertIn(window_const, window_tokens,
+                          "no window token constant for %s" % window_const)
+            self.assertIn(array_name, arrays,
+                          "ExpandPrefixesFor returns %s but no such array was parsed"
+                          % array_name)
+            values = tuple(consts[c]
+                           for c in re.findall(r"\w+KeyPrefix", arrays[array_name]))
+            self.assertTrue(values, "%s parsed to an empty prefix list" % array_name)
+            wired[window_tokens[window_const]] = values
+
+        self.assertEqual(dict(hlib.UIACTION_EXPAND_PREFIXES), wired,
+                         "hlib.UIACTION_EXPAND_PREFIXES %r vs the C# ExpandPrefixesFor "
+                         "tables %r (order included - `key=all` walks the sets in that "
+                         "order and sums `expanded=` the same way)"
+                         % (dict(hlib.UIACTION_EXPAND_PREFIXES), wired))
 
     def test_the_census_ops_closed_arg_rows_name_their_owner_verbs(self):
         """The four new closed-value rows, and specifically that `ctrl=` is NOT spelled

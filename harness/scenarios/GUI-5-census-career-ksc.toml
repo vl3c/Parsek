@@ -24,7 +24,12 @@ tier = "operator"
 #   - two `.prec` sidecars, so the Missions tab, the Recordings tab and the Timeline draw
 #     rows rather than an empty-state sentence.
 #
-# WHAT IT PHOTOGRAPHS (17 PNGs, each with a `<label>.gui.json` dump beside it): all four
+# 2026-09-15: the Kerbals window was rebuilt as two column tables, and this lane gained a
+# third Kerbals capture - the Roster tab with its folds OPEN (`op=expand key=all`) beside
+# the closed form. Every count in the FLOWN block below is the 2026-09-11 reading, i.e.
+# BEFORE those three steps; the re-flight's own reading is recorded under it.
+#
+# WHAT IT PHOTOGRAPHS (18 PNGs, each with a `<label>.gui.json` dump beside it): all four
 # Career State tabs, both Kerbals tabs, all four Timeline filter modes, the Missions tab
 # collapsed and expanded, the Recordings tab, one ATTEMPTED populated tooltip echo strip
 # (measured: the cursor lands, the hover does not paint - see the FLOWN block below), and
@@ -172,6 +177,14 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "roster" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cek-kerbals-roster-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cek-kerbals-roster-advanced" }, expect = "OK" },
+  # THE FOLD OPEN. The 2026-09-15 rebuild collapses plain available kerbals with no
+  # recorded flight under one fold row, and collapses each row's replacement chain, so the
+  # capture above is the CLOSED form and this one the open form: the stock kerbals listed
+  # plus Debwig Kerman's chain under Jeb's reserved slot. `key=all` rather than a named key
+  # because a kerbal NAME is fixture data while `all` is what a census can carry.
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-kerbals-roster-expanded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-kerbals-roster-expanded-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cek-kerbals-outcomes-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cek-kerbals-outcomes-advanced" }, expect = "OK" },
@@ -265,6 +278,8 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=true via=",
   # --- the bulk expansion ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
+  # --- and the Kerbals fold, opened the same way (2026-09-15 rebuild) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   # --- the negative dialog assertion (see the header) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
   # --- one capture, proving the write-and-settle path end to end ---
@@ -277,6 +292,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-facilities-level0-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-milestones-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-roster-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-roster-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-outcomes-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-overview-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-details-advanced .*patched=17/17",

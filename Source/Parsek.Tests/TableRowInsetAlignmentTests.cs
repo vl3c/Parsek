@@ -85,6 +85,24 @@ namespace Parsek.Tests
                 RowMethod = "DrawMilestoneRow",
                 HeaderPinnedOutsideScrollView = false,
             },
+            // The Kerbals window's two tabs, rebuilt as column tables 2026-09-15. Both
+            // headers are drawn INSIDE the window scroll view that holds their rows, so
+            // like Career's four they take the body row container rather than the
+            // gutter-reserving header variant.
+            new TableSite
+            {
+                File = Path.Combine("UI", "KerbalsWindowUI.cs"),
+                HeaderMethod = "DrawRosterColumnHeader",
+                RowMethod = "DrawRosterRow",
+                HeaderPinnedOutsideScrollView = false,
+            },
+            new TableSite
+            {
+                File = Path.Combine("UI", "KerbalsWindowUI.cs"),
+                HeaderMethod = "DrawFlightsColumnHeader",
+                RowMethod = "DrawFlightRow",
+                HeaderPinnedOutsideScrollView = false,
+            },
         };
 
         // A column-width constant: ColW_Foo / SpawnColW_Foo. The ORDERED sequence of
@@ -187,6 +205,7 @@ namespace Parsek.Tests
                      {
                          Path.Combine("UI", "SpawnControlUI.cs"),
                          Path.Combine("UI", "CareerStateWindowUI.cs"),
+                         Path.Combine("UI", "KerbalsWindowUI.cs"),
                      })
             {
                 string prepared = ReadPreparedSource(file);

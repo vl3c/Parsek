@@ -7,6 +7,19 @@ using Xunit;
 
 namespace Parsek.Tests
 {
+    /// <summary>
+    /// The Kerbals window's two column tables, as rebuilt 2026-09-15: the pure
+    /// <see cref="KerbalsPresentation"/> builders (every status word, both fold
+    /// partitions, the stand-in attribution, the date fallback and both sort orders),
+    /// the window's own formatters, its fold / expand seam accessors and the two
+    /// cross-link helpers.
+    ///
+    /// <para>This class REPLACED the 43 cells that pinned the retired indented-outline
+    /// strings (<c>FormatOwnerHeader</c>, <c>FormatEndStateRow</c>,
+    /// <c>FormatKerbalSummary</c>, the rich-text Mission Outcomes header). Coverage moved
+    /// rather than shrank: every string those cells pinned has a successor cell here
+    /// naming the new wording. Contract: <c>docs/dev/design-gui-kerbals-window.md</c>.</para>
+    /// </summary>
     [Collection("Sequential")]
     public class KerbalsWindowUITests : IDisposable
     {
@@ -32,9 +45,9 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        // ──────────────────────────────────────────────────────────────────
+        // ------------------------------------------------------------------
         // Helpers
-        // ──────────────────────────────────────────────────────────────────
+        // ------------------------------------------------------------------
 
         private static KerbalsModule.KerbalSlot Slot(
             string owner, string trait, List<string> chain, bool permanentlyGone = false)
@@ -59,8 +72,19 @@ namespace Parsek.Tests
             };
         }
 
-        // Mirrors KerbalsModule.GetActiveChainIndex(KerbalSlot) semantics for the
-        // pure Build() call. Kept in sync with KerbalsModule lines 1046-1067.
+        private static KerbalsPresentation.RosterKerbal Kerbal(
+            string name, string trait, string vessel = null)
+        {
+            return new KerbalsPresentation.RosterKerbal
+            {
+                Name = name,
+                Trait = trait,
+                AssignedVesselName = vessel
+            };
+        }
+
+        // Mirrors KerbalsModule.GetActiveChainIndex(KerbalSlot) semantics for the pure
+        // builders.
         private static KerbalsWindowUI.ActiveChainIndexFunc ActiveChainIndexLike(
             IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> reservations)
         {
@@ -79,364 +103,11 @@ namespace Parsek.Tests
             };
         }
 
-        // ──────────────────────────────────────────────────────────────────
-        // Topology tests
-        // ──────────────────────────────────────────────────────────────────
-
-        [Fact]
-        public void Build_Topology_EmptyInputs_ReturnsEmptyTopology()
-        {
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>();
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
-            var retired = new List<string>();
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Empty(vm.Topology);
-            Assert.Empty(vm.OrphanRetired);
-        }
-
-        [Fact]
-        public void Build_Topology_SingleSlotNoChain_RendersAsLeaf()
-        {
-            // Jeb reserved, empty chain → one topology entry with zero chain members;
-            // header will be "[Jeb] — reserved until UT …", no arrow, no count.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot", new List<string>()) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", 18230.0) }
-            };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Single(vm.Topology);
-            var e = vm.Topology[0];
-            Assert.Equal("Jebediah Kerman", e.OwnerName);
-            Assert.Equal("Pilot", e.OwnerTrait);
-            Assert.True(e.OwnerReserved);
-            Assert.False(e.OwnerPermanentlyGone);
-            Assert.Equal(18230.0, e.OwnerReservedUntilUT);
-            Assert.Empty(e.Chain);
-        }
-
-        [Fact]
-        public void Build_Topology_SlotWithActiveStandIn_LabelsActive()
-        {
-            // Jeb reserved, Bill is Jeb's stand-in (not reserved) → Bill is the active
-            // chain occupant. Classification: Active (not Displaced, not Retired).
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { "Bill Kerman" }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
-            };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Single(vm.Topology);
-            var e = vm.Topology[0];
-            Assert.Single(e.Chain);
-            Assert.Equal("Bill Kerman", e.Chain[0].Name);
-            Assert.Equal(0, e.Chain[0].ChainIndex);
-            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Active, e.Chain[0].Status);
-        }
-
-        [Fact]
-        public void Build_Topology_SlotWithRetiredAndActive()
-        {
-            // Chain [Bill, Hanley]: Bill retired (seen in recordings, displaced), Hanley
-            // the active stand-in for Jeb. activeIdx==1 (Hanley is the first non-reserved
-            // occupant after Bill, but retired-first dominates for Bill).
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { "Bill Kerman", "Hanley Kerman" }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
-            };
-            // activeChainIndex injected so Hanley's slot[1] is Active.
-            KerbalsWindowUI.ActiveChainIndexFunc activeFn = slot => 1;
-            var retired = new List<string> { "Bill Kerman" };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                activeFn);
-
-            Assert.Single(vm.Topology);
-            var e = vm.Topology[0];
-            Assert.Equal(2, e.Chain.Count);
-            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Retired, e.Chain[0].Status);
-            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Active, e.Chain[1].Status);
-            Assert.Empty(vm.OrphanRetired);
-        }
-
-        [Fact]
-        public void Build_Topology_DeepChainAllReserved_EntriesAreDisplaced()
-        {
-            // Jeb and Bill both reserved; chain [Bill]. activeChainIndexOf returns
-            // Chain.Count==1, so no chain slot is flagged Active, and none are retired.
-            // Expected: Bill → Displaced.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { "Bill Kerman" }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) },
-                { "Bill Kerman", Res("Bill Kerman", 1500.0) }
-            };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Single(vm.Topology);
-            var e = vm.Topology[0];
-            Assert.Single(e.Chain);
-            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Displaced, e.Chain[0].Status);
-        }
-
-        [Fact]
-        public void Build_Topology_DeadOwner_IncludedWithFlag()
-        {
-            // Dead Val with a historical chain entry. Entry stays in topology — the
-            // owner header renders as deceased, chain members preserved so the player
-            // can still see who flew in Val's slot.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Valentina Kerman", Slot("Valentina Kerman", "Pilot",
-                    new List<string> { "Hanley Kerman" }, permanentlyGone: true) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Valentina Kerman", Res("Valentina Kerman", double.PositiveInfinity, permanent: true) }
-            };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Single(vm.Topology);
-            var e = vm.Topology[0];
-            Assert.True(e.OwnerPermanentlyGone);
-            Assert.False(e.OwnerReserved);
-            Assert.Single(e.Chain);
-            Assert.Equal("Hanley Kerman", e.Chain[0].Name);
-        }
-
-        [Fact]
-        public void Build_Topology_OrphanRetired_LandsInOrphanList()
-        {
-            // Retired Bill with no slot referencing him → orphan. Adara too. Orphans
-            // are ordinal-sorted so the UI is stable across runs.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>();
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
-            var retired = new List<string> { "Bill Kerman", "Adara Kerman" };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Empty(vm.Topology);
-            Assert.Equal(new[] { "Adara Kerman", "Bill Kerman" },
-                vm.OrphanRetired.ToArray());
-        }
-
-        [Fact]
-        public void Build_Topology_MultipleSlots_OrdinalOrdering()
-        {
-            // Dictionary enumeration order is implementation-defined; Build() must sort
-            // owner names ordinally so the rendered list is stable save-over-save.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Valentina Kerman", Slot("Valentina Kerman", "Pilot", new List<string>()) },
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot", new List<string>()) },
-                { "Bob Kerman", Slot("Bob Kerman", "Engineer", new List<string>()) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Valentina Kerman", Res("Valentina Kerman", 2000.0) },
-                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) },
-                { "Bob Kerman", Res("Bob Kerman", 1500.0) }
-            };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Equal(3, vm.Topology.Count);
-            Assert.Equal("Bob Kerman", vm.Topology[0].OwnerName);
-            Assert.Equal("Jebediah Kerman", vm.Topology[1].OwnerName);
-            Assert.Equal("Valentina Kerman", vm.Topology[2].OwnerName);
-        }
-
-        [Fact]
-        public void Build_Topology_NullChainEntrySkipped()
-        {
-            // Mid-EnsureChainDepth state leaves nulls in the chain. Those must not
-            // appear as ChainMember rows (nor contribute to the count badge).
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { null, "Bill Kerman" }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
-            };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
-                committedRecordings: null,
-                slot => 1);
-
-            Assert.Single(vm.Topology);
-            var e = vm.Topology[0];
-            Assert.Single(e.Chain);
-            Assert.Equal("Bill Kerman", e.Chain[0].Name);
-            Assert.Equal(1, e.Chain[0].ChainIndex);
-            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Active, e.Chain[0].Status);
-        }
-
-        [Fact]
-        public void Build_Topology_RetiredAlsoInChain_NotDuplicatedAsOrphan()
-        {
-            // Bill is in both `retired` and Jeb's Chain. He must appear exactly once,
-            // inside Jeb's topology entry as Retired, and NOT as an orphan.
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { "Bill Kerman" }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
-            var retired = new List<string> { "Bill Kerman" };
-
-            var vm = KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
-            Assert.Single(vm.Topology);
-            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Retired, vm.Topology[0].Chain[0].Status);
-            Assert.Empty(vm.OrphanRetired);
-        }
-
-        [Fact]
-        public void CountExpandableChainEntries_SkipsNullNames()
-        {
-            var chain = new List<KerbalsWindowUI.ChainMember>
-            {
-                new KerbalsWindowUI.ChainMember { Name = "Bill Kerman" },
-                new KerbalsWindowUI.ChainMember { Name = null },
-                new KerbalsWindowUI.ChainMember { Name = "" },
-                new KerbalsWindowUI.ChainMember { Name = "Hanley Kerman" }
-            };
-            Assert.Equal(2, KerbalsWindowUI.CountExpandableChainEntries(chain));
-            Assert.Equal(0, KerbalsWindowUI.CountExpandableChainEntries(null));
-        }
-
-        // ──────────────────────────────────────────────────────────────────
-        // FormatOwnerHeader
-        // ──────────────────────────────────────────────────────────────────
-
-        [Fact]
-        public void FormatOwnerHeader_ReservedUntilUT_FormatsInvariant()
-        {
-            // Thread set to German so a non-invariant format would insert a thousands
-            // separator or decimal comma. Result must remain locale-neutral.
-            var prev = Thread.CurrentThread.CurrentCulture;
-            try
-            {
-                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
-                var entry = new KerbalsWindowUI.SlotTopologyEntry
-                {
-                    OwnerName = "Jebediah Kerman",
-                    OwnerTrait = "Pilot",
-                    OwnerReserved = true,
-                    OwnerReservedUntilUT = 18230.0
-                };
-                Assert.Equal(
-                    "Jebediah Kerman [Pilot] - reserved until UT 18230",
-                    KerbalsWindowUI.FormatOwnerHeader(entry));
-            }
-            finally
-            {
-                Thread.CurrentThread.CurrentCulture = prev;
-            }
-        }
-
-        [Fact]
-        public void FormatOwnerHeader_DeadOwner_IncludesDeceasedSuffix()
-        {
-            var entry = new KerbalsWindowUI.SlotTopologyEntry
-            {
-                OwnerName = "Valentina Kerman",
-                OwnerTrait = "Pilot",
-                OwnerPermanentlyGone = true
-            };
-            Assert.Equal(
-                "Valentina Kerman [Pilot] - deceased",
-                KerbalsWindowUI.FormatOwnerHeader(entry));
-        }
-
-        [Fact]
-        public void FormatOwnerHeader_ActiveOwner_NoReservationSuffix()
-        {
-            var entry = new KerbalsWindowUI.SlotTopologyEntry
-            {
-                OwnerName = "Bob Kerman",
-                OwnerTrait = "Engineer",
-                OwnerReserved = false
-            };
-            Assert.Equal(
-                "Bob Kerman [Engineer] - active",
-                KerbalsWindowUI.FormatOwnerHeader(entry));
-        }
-
-        [Fact]
-        public void FormatOwnerHeader_PermanentReservation_RendersReservedWithoutUT()
-        {
-            // Open-ended reservations (ReservedUntilUT == +Inf, !IsPermanent would be a
-            // data bug, but the formatter defends against it) render as just "reserved".
-            var entry = new KerbalsWindowUI.SlotTopologyEntry
-            {
-                OwnerName = "Jebediah Kerman",
-                OwnerTrait = "Pilot",
-                OwnerReserved = true,
-                OwnerReservedUntilUT = double.PositiveInfinity
-            };
-            Assert.Equal(
-                "Jebediah Kerman [Pilot] - reserved",
-                KerbalsWindowUI.FormatOwnerHeader(entry));
-        }
-
-        [Fact]
-        public void FormatChainMember_RendersNameAndStatusTag()
-        {
-            Assert.Equal("Bill Kerman (retired)", KerbalsWindowUI.FormatChainMember(
-                new KerbalsWindowUI.ChainMember { Name = "Bill Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Retired }));
-            Assert.Equal("Hanley Kerman (active)", KerbalsWindowUI.FormatChainMember(
-                new KerbalsWindowUI.ChainMember { Name = "Hanley Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Active }));
-            Assert.Equal("Sam Kerman (displaced)", KerbalsWindowUI.FormatChainMember(
-                new KerbalsWindowUI.ChainMember { Name = "Sam Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Displaced }));
-        }
-
-        // ──────────────────────────────────────────────────────────────────
-        // Per-recording crew end-states (#415 Per-Recording Fates)
-        // ──────────────────────────────────────────────────────────────────
+        // A deterministic stand-in for KSPUtil.PrintDateCompact: "D<n>", so a date cell is
+        // recognisable in an assertion and carries no culture-sensitive separator of its
+        // own (the invariance of the PRODUCTION fallback has its own cell below).
+        private static readonly Func<double, string> FakeDate =
+            ut => "D" + ut.ToString("F0", CultureInfo.InvariantCulture);
 
         private static Recording RecWithEndStates(
             string id,
@@ -455,213 +126,777 @@ namespace Parsek.Tests
             };
         }
 
-        [Fact]
-        public void Build_EndStates_EmptyWhenNoCommittedRecordings()
+        private static KerbalsWindowUI.CrewEndStateEntry Entry(
+            string kerbal, string recordingId, string recordingName, double endUT,
+            KerbalEndState state)
         {
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>();
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>();
+            return new KerbalsWindowUI.CrewEndStateEntry
+            {
+                KerbalName = kerbal,
+                RecordingId = recordingId,
+                RecordingName = recordingName,
+                EndUT = endUT,
+                EndState = state
+            };
+        }
 
-            var vm = KerbalsWindowUI.Build(slots, reservations, new List<string>(),
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
+        private static Dictionary<string, IReadOnlyCollection<string>> RawCrew(
+            string recordingId, params string[] names)
+        {
+            return new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
+            {
+                { recordingId, new List<string>(names) }
+            };
+        }
 
-            Assert.Empty(vm.EndStates);
+        // ------------------------------------------------------------------
+        // BuildEndStates - the flat, sorted per-recording crew end states
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void BuildEndStates_NullRecordings_ReturnsEmpty()
+        {
+            Assert.Empty(KerbalsWindowUI.BuildEndStates(null));
         }
 
         [Fact]
-        public void Build_EndStates_SingleKerbalMultipleMissions_GroupedAndChronological()
+        public void BuildEndStates_GroupsByKerbalThenSortsChronologically()
         {
-            // Jeb flew two missions: Mun Hopper recovered at UT 12045; Duna Return died
-            // at UT 88432. Rows should be grouped under Jeb and sorted by EndUT ascending.
             var recs = new List<Recording>
             {
-                RecWithEndStates("duna-1", "Duna Return", 88432.0,
-                    new Dictionary<string, KerbalEndState>
-                    {
-                        { "Jebediah Kerman", KerbalEndState.Dead }
-                    }),
-                RecWithEndStates("mun-1", "Mun Hopper", 12045.0,
-                    new Dictionary<string, KerbalEndState>
-                    {
-                        { "Jebediah Kerman", KerbalEndState.Recovered }
-                    })
+                RecWithEndStates("r2", "Late", 900.0, new Dictionary<string, KerbalEndState>
+                    { { "Jebediah Kerman", KerbalEndState.Aboard } }),
+                RecWithEndStates("r1", "Early", 100.0, new Dictionary<string, KerbalEndState>
+                    { { "Jebediah Kerman", KerbalEndState.Recovered } }),
             };
 
-            var vm = KerbalsWindowUI.Build(
-                new Dictionary<string, KerbalsModule.KerbalSlot>(),
-                new Dictionary<string, KerbalsModule.KerbalReservation>(),
-                new List<string>(),
-                recs,
-                slot => KerbalsModule.NoActiveChainOccupant);
+            List<KerbalsWindowUI.CrewEndStateEntry> states =
+                KerbalsWindowUI.BuildEndStates(recs);
 
-            Assert.Equal(2, vm.EndStates.Count);
-            Assert.Equal("Jebediah Kerman", vm.EndStates[0].KerbalName);
-            Assert.Equal("Mun Hopper", vm.EndStates[0].RecordingName);
-            Assert.Equal(KerbalEndState.Recovered, vm.EndStates[0].EndState);
-            Assert.Equal(12045.0, vm.EndStates[0].EndUT);
-
-            Assert.Equal("Jebediah Kerman", vm.EndStates[1].KerbalName);
-            Assert.Equal("Duna Return", vm.EndStates[1].RecordingName);
-            Assert.Equal(KerbalEndState.Dead, vm.EndStates[1].EndState);
-            Assert.Equal(88432.0, vm.EndStates[1].EndUT);
+            Assert.Equal(2, states.Count);
+            Assert.Equal("r1", states[0].RecordingId);
+            Assert.Equal("r2", states[1].RecordingId);
         }
 
         [Fact]
-        public void Build_EndStates_MultipleKerbals_GroupedByNameOrdinally()
+        public void BuildEndStates_MultipleKerbals_OrderedOrdinallyByName()
         {
-            // Mun Hopper had Jeb + Bill aboard. Grouping must be ordinal-stable on kerbal name.
             var recs = new List<Recording>
             {
-                RecWithEndStates("mun-1", "Mun Hopper", 12045.0,
-                    new Dictionary<string, KerbalEndState>
-                    {
-                        { "Jebediah Kerman", KerbalEndState.Recovered },
-                        { "Bill Kerman", KerbalEndState.Recovered }
-                    })
-            };
-
-            var vm = KerbalsWindowUI.Build(
-                new Dictionary<string, KerbalsModule.KerbalSlot>(),
-                new Dictionary<string, KerbalsModule.KerbalReservation>(),
-                new List<string>(),
-                recs,
-                slot => KerbalsModule.NoActiveChainOccupant);
-
-            Assert.Equal(2, vm.EndStates.Count);
-            Assert.Equal("Bill Kerman", vm.EndStates[0].KerbalName);
-            Assert.Equal("Jebediah Kerman", vm.EndStates[1].KerbalName);
-        }
-
-        [Fact]
-        public void Build_EndStates_SkipsUnresolvedRecordings()
-        {
-            // Recording has a populated dict but CrewEndStatesResolved==false — still pending,
-            // don't surface it yet. The resolved recording alone should contribute rows.
-            var recs = new List<Recording>
-            {
-                RecWithEndStates("pending", "In-Flight Mission", 500.0,
-                    new Dictionary<string, KerbalEndState>
-                    {
-                        { "Valentina Kerman", KerbalEndState.Aboard }
-                    },
-                    resolved: false),
-                RecWithEndStates("done", "Recovered Mission", 1000.0,
-                    new Dictionary<string, KerbalEndState>
-                    {
-                        { "Bob Kerman", KerbalEndState.Recovered }
-                    })
-            };
-
-            var vm = KerbalsWindowUI.Build(
-                new Dictionary<string, KerbalsModule.KerbalSlot>(),
-                new Dictionary<string, KerbalsModule.KerbalReservation>(),
-                new List<string>(),
-                recs,
-                slot => KerbalsModule.NoActiveChainOccupant);
-
-            Assert.Single(vm.EndStates);
-            Assert.Equal("Bob Kerman", vm.EndStates[0].KerbalName);
-            Assert.Equal("Recovered Mission", vm.EndStates[0].RecordingName);
-        }
-
-        [Fact]
-        public void Build_EndStates_SkipsRecordingsWithNullDict()
-        {
-            // Resolved == true but CrewEndStates == null (e.g. solo EVA with no crew). Skip.
-            var recs = new List<Recording>
-            {
-                new Recording
+                RecWithEndStates("r1", "Shared", 50.0, new Dictionary<string, KerbalEndState>
                 {
-                    RecordingId = "eva-1",
-                    VesselName = "Jeb (EVA)",
-                    ExplicitEndUT = 200.0,
-                    CrewEndStates = null,
-                    CrewEndStatesResolved = true
-                }
+                    { "Valentina Kerman", KerbalEndState.Recovered },
+                    { "Bill Kerman", KerbalEndState.Recovered },
+                }),
             };
 
-            var vm = KerbalsWindowUI.Build(
-                new Dictionary<string, KerbalsModule.KerbalSlot>(),
-                new Dictionary<string, KerbalsModule.KerbalReservation>(),
-                new List<string>(),
-                recs,
-                slot => KerbalsModule.NoActiveChainOccupant);
+            List<KerbalsWindowUI.CrewEndStateEntry> states =
+                KerbalsWindowUI.BuildEndStates(recs);
 
-            Assert.Empty(vm.EndStates);
+            Assert.Equal(new[] { "Bill Kerman", "Valentina Kerman" },
+                states.Select(s => s.KerbalName).ToArray());
         }
 
         [Fact]
-        public void FormatEndStateRow_RendersRecordingNameStateAndUT()
+        public void BuildEndStates_SkipsUnresolvedAndNullDicts()
         {
-            var entry = new KerbalsWindowUI.CrewEndStateEntry
+            var recs = new List<Recording>
             {
-                KerbalName = "Jebediah Kerman",
-                RecordingName = "Mun Hopper",
-                EndUT = 12045.0,
-                EndState = KerbalEndState.Recovered
+                RecWithEndStates("pending", "Pending", 10.0,
+                    new Dictionary<string, KerbalEndState>
+                        { { "Bill Kerman", KerbalEndState.Aboard } },
+                    resolved: false),
+                RecWithEndStates("nodict", "NoDict", 20.0, null),
+                RecWithEndStates("good", "Good", 30.0,
+                    new Dictionary<string, KerbalEndState>
+                        { { "Bill Kerman", KerbalEndState.Recovered } }),
             };
-            Assert.Equal(
-                "Mun Hopper - Recovered at UT 12045",
-                KerbalsWindowUI.FormatEndStateRow(entry));
 
-            var unnamed = new KerbalsWindowUI.CrewEndStateEntry
-            {
-                KerbalName = "Bill Kerman",
-                RecordingName = "",
-                EndUT = 50.0,
-                EndState = KerbalEndState.Dead
-            };
-            Assert.Equal(
-                "(unnamed) - Dead at UT 50",
-                KerbalsWindowUI.FormatEndStateRow(unnamed));
+            List<KerbalsWindowUI.CrewEndStateEntry> states =
+                KerbalsWindowUI.BuildEndStates(recs);
+
+            Assert.Single(states);
+            Assert.Equal("good", states[0].RecordingId);
         }
 
-        // ──────────────────────────────────────────────────────────────────
-        // Subitem-indent parity (Roster State ↔ Mission Outcomes)
-        //
-        // These tests lock down the shared leading-indent convention used by
-        // both tabs' subitem rows. If someone refactors one tab's render code
-        // and silently changes the indent, the parity test fails before the
-        // drift reaches the player. This covers a regression we already hit
-        // twice during #416 UI polish.
-        // ──────────────────────────────────────────────────────────────────
+        // ------------------------------------------------------------------
+        // The Flights tab
+        // ------------------------------------------------------------------
+
+        private static List<KerbalsPresentation.FlightGroup> Flights(
+            IReadOnlyList<KerbalsWindowUI.CrewEndStateEntry> entries,
+            IReadOnlyDictionary<string, string> missionNames = null,
+            IReadOnlyDictionary<string, IReadOnlyCollection<string>> rawCrew = null,
+            IReadOnlyDictionary<string, string> replacements = null,
+            IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots = null,
+            IReadOnlyDictionary<string, string> traits = null,
+            Func<double, string> formatDate = null)
+        {
+            return KerbalsPresentation.BuildFlightRows(
+                entries, missionNames, rawCrew, replacements, slots, traits,
+                formatDate ?? FakeDate);
+        }
+
+        [Fact]
+        public void Flights_NoEndStates_ReturnsNoGroups()
+        {
+            Assert.Empty(Flights(new List<KerbalsWindowUI.CrewEndStateEntry>()));
+            Assert.Empty(Flights(null));
+        }
+
+        [Fact]
+        public void Flights_OneKerbal_RowsAreChronologicalAndCarryEveryCell()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r2", "Mun Hopper", 900.0, KerbalEndState.Aboard),
+                Entry("Jebediah Kerman", "r1", "Jumping Flea", 100.0, KerbalEndState.Recovered),
+            };
+            var missions = new Dictionary<string, string>(StringComparer.Ordinal)
+                { { "r1", "First Steps" } };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(entries, missions);
+
+            Assert.Single(groups);
+            KerbalsPresentation.FlightGroup g = groups[0];
+            Assert.Equal("Jebediah Kerman", g.KerbalName);
+            Assert.Equal(2, g.Rows.Count);
+            // Chronological, and the Mission column prefers the mission NAME, falling back
+            // to the recorded vessel name.
+            Assert.Equal("D100", g.Rows[0].DateText);
+            Assert.Equal("First Steps", g.Rows[0].MissionText);
+            Assert.Equal("Recovered", g.Rows[0].OutcomeText);
+            Assert.Equal("D900", g.Rows[1].DateText);
+            Assert.Equal("Mun Hopper", g.Rows[1].MissionText);
+            Assert.Equal("Still aboard", g.Rows[1].OutcomeText);
+            // Nobody stood in, so the Crew column says nothing rather than repeating a name.
+            Assert.Equal(KerbalsPresentation.EmptyCell, g.Rows[0].CrewNoteText);
+        }
+
+        [Fact]
+        public void Flights_MissionNameFallsBackToRecordingNameThenUnnamed()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Bill Kerman", "r1", "", 10.0, KerbalEndState.Recovered),
+            };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(entries);
+
+            Assert.Equal("(unnamed)", groups[0].Rows[0].MissionText);
+        }
+
+        [Fact]
+        public void Flights_GroupsOrderedOrdinallyByKerbalName()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Valentina Kerman", "r1", "A", 10.0, KerbalEndState.Recovered),
+                Entry("Bill Kerman", "r1", "A", 10.0, KerbalEndState.Recovered),
+            };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(entries);
+
+            Assert.Equal(new[] { "Bill Kerman", "Valentina Kerman" },
+                groups.Select(g => g.KerbalName).ToArray());
+        }
+
+        [Theory]
+        [InlineData(KerbalEndState.Recovered, "Recovered")]
+        [InlineData(KerbalEndState.Dead, "Lost")]
+        [InlineData(KerbalEndState.Aboard, "Still aboard")]
+        [InlineData(KerbalEndState.Unknown, "Outcome unknown")]
+        public void Flights_OutcomeVocabularyIsFourWordsWide(
+            KerbalEndState state, string expected)
+        {
+            Assert.Equal(expected, KerbalsPresentation.FormatOutcome(state));
+        }
+
+        [Fact]
+        public void Flights_GroupHeader_SingleFlightReadsSingularAndCarriesTheTrait()
+        {
+            var rows = new List<KerbalsPresentation.FlightRow>
+            {
+                new KerbalsPresentation.FlightRow { EndState = KerbalEndState.Recovered },
+            };
+
+            Assert.Equal("Bill Kerman [Engineer] - 1 flight: 1 recovered",
+                KerbalsPresentation.FormatFlightGroupHeader("Bill Kerman", "Engineer", rows));
+            // No known trait: the bracket is dropped rather than rendered empty.
+            Assert.Equal("Bill Kerman - 1 flight: 1 recovered",
+                KerbalsPresentation.FormatFlightGroupHeader("Bill Kerman", "", rows));
+        }
+
+        [Fact]
+        public void Flights_GroupHeader_OmitsZeroBucketsAndOrdersThem()
+        {
+            var rows = new List<KerbalsPresentation.FlightRow>
+            {
+                new KerbalsPresentation.FlightRow { EndState = KerbalEndState.Unknown },
+                new KerbalsPresentation.FlightRow { EndState = KerbalEndState.Dead },
+                new KerbalsPresentation.FlightRow { EndState = KerbalEndState.Recovered },
+                new KerbalsPresentation.FlightRow { EndState = KerbalEndState.Recovered },
+            };
+
+            // Recovered, lost, aboard, unknown - in that order, with the empty bucket gone.
+            Assert.Equal(
+                "Jebediah Kerman [Pilot] - 4 flights: 2 recovered, 1 lost, 1 unknown",
+                KerbalsPresentation.FormatFlightGroupHeader(
+                    "Jebediah Kerman", "Pilot", rows));
+        }
+
+        [Fact]
+        public void Flights_GroupHeader_IsBuiltWhetherOrNotTheGroupIsFolded()
+        {
+            // The ruling: the bucket summary IS the header, not a folded-only extra.
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Bill Kerman", "r1", "A", 10.0, KerbalEndState.Recovered),
+            };
+            var traits = new Dictionary<string, string>(StringComparer.Ordinal)
+                { { "Bill Kerman", "Engineer" } };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(entries, traits: traits);
+
+            Assert.Equal("Bill Kerman [Engineer] - 1 flight: 1 recovered",
+                groups[0].HeaderText);
+        }
+
+        [Fact]
+        public void Flights_DateCell_FallsBackToInvariantRawUtWithNoFormatter()
+        {
+            // The builder is called DIRECTLY here: the Flights() helper substitutes its
+            // fake formatter for a null, and this cell is about the no-formatter path -
+            // which must spell the raw UT invariantly rather than pick up the host culture.
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Bill Kerman", "r1", "A", 12045.6, KerbalEndState.Recovered),
+            };
+
+            List<KerbalsPresentation.FlightGroup> groups =
+                KerbalsPresentation.BuildFlightRows(
+                    entries, null, null, null, null, null, null);
+
+            Assert.Equal("12046", groups[0].Rows[0].DateText);
+        }
+
+        // ------------------------------------------------------------------
+        // Stand-in attribution ("as <name>")
+        // ------------------------------------------------------------------
+
+        private static Dictionary<string, KerbalsModule.KerbalSlot> JebCoveredByLars()
+        {
+            return new Dictionary<string, KerbalsModule.KerbalSlot>(StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman",
+                    Slot("Jebediah Kerman", "Pilot", new List<string> { "Lars Kerman" }) },
+            };
+        }
+
+        [Fact]
+        public void StandIn_RawRecordingCrewIsThePerFlightSource()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 100.0, KerbalEndState.Recovered),
+            };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(
+                entries, rawCrew: RawCrew("r1", "Lars Kerman"), slots: JebCoveredByLars());
+
+            Assert.Equal("as Lars Kerman", groups[0].Rows[0].CrewNoteText);
+        }
+
+        [Fact]
+        public void StandIn_OwnerAboardMeansNoNoteEvenWithAChain()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 100.0, KerbalEndState.Recovered),
+            };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(
+                entries,
+                rawCrew: RawCrew("r1", "Jebediah Kerman", "Lars Kerman"),
+                slots: JebCoveredByLars());
+
+            Assert.Equal(KerbalsPresentation.EmptyCell, groups[0].Rows[0].CrewNoteText);
+        }
+
+        [Fact]
+        public void StandIn_ARawCrewmateOutsideTheChainIsNotReadAsAStandIn()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 100.0, KerbalEndState.Recovered),
+            };
+
+            // Bob flew along; he is nobody's stand-in.
+            List<KerbalsPresentation.FlightGroup> groups = Flights(
+                entries, rawCrew: RawCrew("r1", "Bob Kerman"), slots: JebCoveredByLars());
+
+            Assert.Equal(KerbalsPresentation.EmptyCell, groups[0].Rows[0].CrewNoteText);
+        }
+
+        [Fact]
+        public void StandIn_ReplacementMapIsTheFallbackWhenTheRecordingHasNoRawCrew()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 100.0, KerbalEndState.Recovered),
+            };
+            var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
+                { { "Jebediah Kerman", "Lars Kerman" } };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(
+                entries, rawCrew: null, replacements: replacements,
+                slots: JebCoveredByLars());
+
+            Assert.Equal("as Lars Kerman", groups[0].Rows[0].CrewNoteText);
+        }
+
+        [Fact]
+        public void StandIn_RawCrewWinsOverTheReplacementMap()
+        {
+            // The map says Lars covers Jeb NOW; this flight's own crew says Hanley did.
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>(StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
+                    new List<string> { "Hanley Kerman", "Lars Kerman" }) },
+            };
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 100.0, KerbalEndState.Recovered),
+            };
+            var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
+                { { "Jebediah Kerman", "Lars Kerman" } };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(
+                entries, rawCrew: RawCrew("r1", "Hanley Kerman"),
+                replacements: replacements, slots: slots);
+
+            Assert.Equal("as Hanley Kerman", groups[0].Rows[0].CrewNoteText);
+        }
+
+        [Fact]
+        public void StandIn_NoSlotMeansNoNoteWhateverTheMapSays()
+        {
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 100.0, KerbalEndState.Recovered),
+            };
+            var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
+                { { "Jebediah Kerman", "Lars Kerman" } };
+
+            List<KerbalsPresentation.FlightGroup> groups = Flights(
+                entries, replacements: replacements, slots: null);
+
+            Assert.Equal(KerbalsPresentation.EmptyCell, groups[0].Rows[0].CrewNoteText);
+        }
+
+        // ------------------------------------------------------------------
+        // The Roster tab
+        // ------------------------------------------------------------------
+
+        private static KerbalsPresentation.RosterRowSet Roster(
+            IReadOnlyList<KerbalsPresentation.RosterKerbal> roster,
+            IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots = null,
+            IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> reservations = null,
+            IReadOnlyList<string> retired = null,
+            IReadOnlyList<KerbalsPresentation.FlightGroup> flights = null)
+        {
+            var res = reservations
+                      ?? new Dictionary<string, KerbalsModule.KerbalReservation>(
+                          StringComparer.Ordinal);
+            return KerbalsPresentation.BuildRosterRows(
+                roster, slots, res, retired, flights, ActiveChainIndexLike(res), FakeDate);
+        }
+
+        private static KerbalsPresentation.RosterRow Find(
+            KerbalsPresentation.RosterRowSet set, string name)
+        {
+            foreach (KerbalsPresentation.RosterRow r in set.Involved)
+                if (r.Name == name) return r;
+            foreach (KerbalsPresentation.RosterRow r in set.Plain)
+                if (r.Name == name) return r;
+            throw new InvalidOperationException("no roster row for " + name);
+        }
+
+        [Fact]
+        public void Roster_PlainAvailableKerbalsLandInTheFoldedPartition()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+            {
+                Kerbal("Bill Kerman", "Engineer"),
+                Kerbal("Bob Kerman", "Scientist"),
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster);
+
+            Assert.Empty(set.Involved);
+            Assert.Equal(2, set.Plain.Count);
+            Assert.Equal("Available", set.Plain[0].StatusText);
+            Assert.Equal(KerbalsPresentation.EmptyCell, set.Plain[0].SinceText);
+            Assert.Equal(KerbalsPresentation.EmptyCell, set.Plain[0].LastFlightText);
+            Assert.Equal("Available, no recorded flights (2)",
+                KerbalsPresentation.FormatPlainFoldHeader(set.Plain.Count));
+        }
+
+        [Fact]
+        public void Roster_AKerbalWithAFlightIsListedRatherThanFolded()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Bill Kerman", "Engineer") };
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Bill Kerman", "r1", "Jumping Flea", 340.0, KerbalEndState.Recovered),
+            };
+
+            KerbalsPresentation.RosterRowSet set =
+                Roster(roster, flights: Flights(entries));
+
+            Assert.Single(set.Involved);
+            Assert.Empty(set.Plain);
+            Assert.Equal("Jumping Flea - Recovered", set.Involved[0].LastFlightText);
+            Assert.True(set.Involved[0].HasFlights);
+        }
+
+        [Fact]
+        public void Roster_AnAssignedKerbalStaysListedWithNoHistory()
+        {
+            // "Aboard something right now" is the one stock fact the window is asked for,
+            // so it does not collapse into the plain bucket.
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Valentina Kerman", "Pilot", "Station Alpha") };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster);
+
+            Assert.Single(set.Involved);
+            Assert.Equal("Assigned (Station Alpha)", set.Involved[0].StatusText);
+            Assert.Empty(set.Plain);
+        }
+
+        [Fact]
+        public void Roster_ReservedOwnerReadsWithoutRepeatingHisOwnName()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Jebediah Kerman", "Pilot") };
+            var res = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 18230.0) },
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(
+                roster,
+                new Dictionary<string, KerbalsModule.KerbalSlot>(StringComparer.Ordinal)
+                {
+                    { "Jebediah Kerman",
+                        Slot("Jebediah Kerman", "Pilot", new List<string>()) },
+                },
+                res);
+
+            Assert.Equal("Reserved until D18230", Find(set, "Jebediah Kerman").StatusText);
+        }
+
+        [Fact]
+        public void Roster_AnOpenEndedReservationReadsUntilRecovery()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Jebediah Kerman", "Pilot") };
+            var res = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", double.PositiveInfinity) },
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster, reservations: res);
+
+            Assert.Equal("Reserved until recovery",
+                Find(set, "Jebediah Kerman").StatusText);
+        }
+
+        [Fact]
+        public void Roster_AReservedStandInNamesTheSlotItServes()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+            {
+                Kerbal("Jebediah Kerman", "Pilot"),
+                Kerbal("Lars Kerman", "Pilot"),
+            };
+            var res = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal)
+            {
+                { "Lars Kerman", Res("Lars Kerman", 4200.0) },
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster, JebCoveredByLars(), res);
+
+            Assert.Equal("Reserved for Jebediah Kerman until D4200",
+                Find(set, "Lars Kerman").StatusText);
+        }
+
+        [Fact]
+        public void Roster_AStandInGetsItsOwnRowNamingTheOwner()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+            {
+                Kerbal("Jebediah Kerman", "Pilot"),
+                Kerbal("Lars Kerman", "Pilot"),
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster, JebCoveredByLars());
+
+            KerbalsPresentation.RosterRow lars = Find(set, "Lars Kerman");
+            Assert.Equal(KerbalsPresentation.RosterStatus.StandIn, lars.Status);
+            Assert.Equal("Stand-in for Jebediah Kerman", lars.StatusText);
+            Assert.Equal("Jebediah Kerman", lars.SlotOwnerName);
+            Assert.Contains("Lars Kerman", set.Involved.Select(r => r.Name));
+        }
+
+        [Fact]
+        public void Roster_AParsekStandInMissingFromTheStockRosterStillGetsARow()
+        {
+            // The stock list can have dropped a Parsek-created stand-in; the ledger's own
+            // names are added so the row does not silently vanish.
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Jebediah Kerman", "Pilot") };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster, JebCoveredByLars());
+
+            Assert.Equal("Stand-in for Jebediah Kerman",
+                Find(set, "Lars Kerman").StatusText);
+        }
+
+        [Fact]
+        public void Roster_ARetireeWithNoSlotStillGetsARow()
+        {
+            KerbalsPresentation.RosterRowSet set = Roster(
+                new List<KerbalsPresentation.RosterKerbal>(),
+                retired: new List<string> { "Hanley Kerman" });
+
+            KerbalsPresentation.RosterRow row = Find(set, "Hanley Kerman");
+            Assert.Equal(KerbalsPresentation.RosterStatus.Retired, row.Status);
+            Assert.Equal("Retired", row.StatusText);
+            Assert.Equal(KerbalsPresentation.EmptyCell, row.SinceText);
+        }
+
+        [Fact]
+        public void Roster_RetiredWinsOverStandIn()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Lars Kerman", "Pilot") };
+
+            KerbalsPresentation.RosterRowSet set = Roster(
+                roster, JebCoveredByLars(), retired: new List<string> { "Lars Kerman" });
+
+            Assert.Equal("Retired", Find(set, "Lars Kerman").StatusText);
+        }
+
+        [Fact]
+        public void Roster_ADeceasedOwnerReadsLostAndIsDatedByTheDeathFlight()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Bill Kerman", "Engineer") };
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>(StringComparer.Ordinal)
+            {
+                { "Bill Kerman", Slot("Bill Kerman", "Engineer",
+                    new List<string> { "Jane Kerman" }, permanentlyGone: true) },
+            };
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Bill Kerman", "r1", "Mun Hopper", 100.0, KerbalEndState.Recovered),
+                Entry("Bill Kerman", "r2", "Last Ride", 900.0, KerbalEndState.Dead),
+            };
+
+            KerbalsPresentation.RosterRowSet set =
+                Roster(roster, slots, flights: Flights(entries));
+
+            KerbalsPresentation.RosterRow row = Find(set, "Bill Kerman");
+            Assert.Equal(KerbalsPresentation.RosterStatus.Lost, row.Status);
+            Assert.Equal("Lost", row.StatusText);
+            Assert.Equal("D900", row.SinceText);
+            Assert.Equal("Last Ride - Lost", row.LastFlightText);
+        }
+
+        [Fact]
+        public void Roster_APermanentReservationAlsoReadsLost()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Bill Kerman", "Engineer") };
+            var res = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal)
+            {
+                { "Bill Kerman",
+                    Res("Bill Kerman", double.PositiveInfinity, permanent: true) },
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster, reservations: res);
+
+            Assert.Equal("Lost", Find(set, "Bill Kerman").StatusText);
+        }
+
+        [Fact]
+        public void Roster_AReservedKerbalIsDatedByHisLatestFlight()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Jebediah Kerman", "Pilot") };
+            var res = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 5000.0) },
+            };
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 1200.0, KerbalEndState.Aboard),
+            };
+
+            KerbalsPresentation.RosterRowSet set =
+                Roster(roster, reservations: res, flights: Flights(entries));
+
+            Assert.Equal("D1200", Find(set, "Jebediah Kerman").SinceText);
+        }
+
+        [Fact]
+        public void Roster_AStandInRowCarriesNoSinceDateButKeepsItsLastFlight()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+            {
+                Kerbal("Jebediah Kerman", "Pilot"),
+                Kerbal("Lars Kerman", "Pilot"),
+            };
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Lars Kerman", "r1", "Mun Hopper", 1200.0, KerbalEndState.Recovered),
+            };
+
+            KerbalsPresentation.RosterRowSet set =
+                Roster(roster, JebCoveredByLars(), flights: Flights(entries));
+
+            KerbalsPresentation.RosterRow lars = Find(set, "Lars Kerman");
+            Assert.Equal(KerbalsPresentation.EmptyCell, lars.SinceText);
+            Assert.Equal("Mun Hopper - Recovered", lars.LastFlightText);
+        }
+
+        [Fact]
+        public void Roster_RowsAreOrderedOrdinallyByName()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+            {
+                Kerbal("Valentina Kerman", "Pilot", "Station"),
+                Kerbal("Bill Kerman", "Engineer", "Station"),
+                Kerbal("Bob Kerman", "Scientist", "Station"),
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster);
+
+            Assert.Equal(new[] { "Bill Kerman", "Bob Kerman", "Valentina Kerman" },
+                set.Involved.Select(r => r.Name).ToArray());
+        }
+
+        [Fact]
+        public void Roster_TheChainViewHangsOffBothTheOwnerAndTheStandInRow()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+            {
+                Kerbal("Jebediah Kerman", "Pilot"),
+                Kerbal("Lars Kerman", "Pilot"),
+            };
+            var res = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 500.0) },
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster, JebCoveredByLars(), res);
+
+            KerbalsPresentation.RosterRow jeb = Find(set, "Jebediah Kerman");
+            KerbalsPresentation.RosterRow lars = Find(set, "Lars Kerman");
+            Assert.Single(jeb.Chain);
+            Assert.Single(lars.Chain);
+            // Jeb is reserved, so the first free chain member is the active occupant.
+            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Active, jeb.Chain[0].Status);
+            Assert.Equal("Lars Kerman", jeb.Chain[0].Name);
+        }
+
+        [Fact]
+        public void Roster_ARetiredChainMemberIsTaggedRetiredRatherThanActive()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Jebediah Kerman", "Pilot") };
+
+            KerbalsPresentation.RosterRowSet set = Roster(
+                roster, JebCoveredByLars(), retired: new List<string> { "Lars Kerman" });
+
+            Assert.Equal(KerbalsWindowUI.ChainMemberStatus.Retired,
+                Find(set, "Jebediah Kerman").Chain[0].Status);
+        }
+
+        [Fact]
+        public void Roster_IsPlainRowIsExactlyAvailableWithNoSlotAndNoFlights()
+        {
+            var plain = new KerbalsPresentation.RosterRow
+            {
+                Name = "Bob Kerman",
+                Status = KerbalsPresentation.RosterStatus.Available,
+            };
+            Assert.True(KerbalsPresentation.IsPlainRow(plain));
+
+            var withFlight = plain;
+            withFlight.HasFlights = true;
+            Assert.False(KerbalsPresentation.IsPlainRow(withFlight));
+
+            var withSlot = plain;
+            withSlot.SlotOwnerName = "Jebediah Kerman";
+            Assert.False(KerbalsPresentation.IsPlainRow(withSlot));
+
+            var retiredRow = plain;
+            retiredRow.Status = KerbalsPresentation.RosterStatus.Retired;
+            Assert.False(KerbalsPresentation.IsPlainRow(retiredRow));
+        }
+
+        // ------------------------------------------------------------------
+        // Window-side formatters
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void FormatRosterNameCell_ArrowWhenExpandable_TwoSpacesWhenLeaf()
+        {
+            var row = new KerbalsPresentation.RosterRow
+                { Name = "Bill Kerman", Trait = "Engineer" };
+
+            Assert.Equal("  Bill Kerman [Engineer]",
+                KerbalsWindowUI.FormatRosterNameCell(row, expandable: false, expanded: false));
+            Assert.Equal("\u25b6 Bill Kerman [Engineer]",
+                KerbalsWindowUI.FormatRosterNameCell(row, expandable: true, expanded: false));
+            Assert.Equal("\u25bc Bill Kerman [Engineer]",
+                KerbalsWindowUI.FormatRosterNameCell(row, expandable: true, expanded: true));
+
+            var noTrait = new KerbalsPresentation.RosterRow { Name = "Lars Kerman" };
+            Assert.Equal("  Lars Kerman",
+                KerbalsWindowUI.FormatRosterNameCell(noTrait, false, false));
+        }
 
         [Fact]
         public void SubitemIndent_IsFourSpaces()
         {
-            // Regression: fails if anyone "cleans up" the indent constant to a
-            // different value, silently shifting both tabs' subitem rendering.
             Assert.Equal("    ", KerbalsWindowUI.SubitemIndent);
         }
 
         [Fact]
-        public void FormatMissionOutcomeSubitemText_StartsWithSubitemIndent()
+        public void FormatChainMember_RendersNameAndStatusTag()
         {
-            // Regression: fails if Mission Outcomes subitem composition stops
-            // using the shared indent and, e.g., reverts to a BeginHorizontal
-            // + GUILayout.Space pattern (which historically produced the
-            // "subitems not aligned with parent" bug).
-            var entry = new KerbalsWindowUI.CrewEndStateEntry
-            {
-                KerbalName = "Jeb Kerman",
-                RecordingName = "Mun Hopper",
-                EndUT = 12045.0,
-                EndState = KerbalEndState.Recovered
-            };
-            string text = KerbalsWindowUI.FormatMissionOutcomeSubitemText(entry);
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, text, StringComparison.Ordinal);
-            // And the body itself (after the indent) is the unchanged FormatEndStateRow output.
-            Assert.Equal(
-                KerbalsWindowUI.SubitemIndent + KerbalsWindowUI.FormatEndStateRow(entry),
-                text);
+            Assert.Equal("Bill Kerman (retired)", KerbalsWindowUI.FormatChainMember(
+                new KerbalsWindowUI.ChainMember { Name = "Bill Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Retired }));
+            Assert.Equal("Hanley Kerman (active)", KerbalsWindowUI.FormatChainMember(
+                new KerbalsWindowUI.ChainMember { Name = "Hanley Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Active }));
+            Assert.Equal("Sam Kerman (displaced)", KerbalsWindowUI.FormatChainMember(
+                new KerbalsWindowUI.ChainMember { Name = "Sam Kerman", Status = KerbalsWindowUI.ChainMemberStatus.Displaced }));
         }
 
         [Fact]
         public void FormatRosterChainMemberText_StartsWithSubitemIndent_AndUsesBranchGlyph()
         {
-            // Regression: fails if the Roster chain-member render path drops the
-            // shared indent, or picks the wrong tree-branch glyph between the
-            // last-child (└─) and mid-child (├─) cases.
             var member = new KerbalsWindowUI.ChainMember
             {
                 Name = "Bill Kerman",
@@ -674,204 +909,197 @@ namespace Parsek.Tests
 
             Assert.StartsWith(KerbalsWindowUI.SubitemIndent, mid, StringComparison.Ordinal);
             Assert.StartsWith(KerbalsWindowUI.SubitemIndent, last, StringComparison.Ordinal);
-            Assert.Contains("\u251c\u2500", mid);   // mid-child branch char (├─)
-            Assert.Contains("\u2514\u2500", last);  // last-child branch char (└─)
+            Assert.Contains("\u251c\u2500", mid);   // mid-child branch char
+            Assert.Contains("\u2514\u2500", last);  // last-child branch char
             Assert.Contains(KerbalsWindowUI.FormatChainMember(member), mid);
-            Assert.Contains(KerbalsWindowUI.FormatChainMember(member), last);
         }
 
         [Fact]
-        public void MissionOutcomesAndRosterUseSameSubitemIndent()
+        public void TooltipForOutcome_UnknownSaysTheFlightHasNoRecordedEnding()
         {
-            // Parity test — the whole reason for extracting SubitemIndent into a
-            // shared constant. Fails if either tab's helper starts building its
-            // own indent from a literal string, letting the two drift apart.
-            var entry = new KerbalsWindowUI.CrewEndStateEntry
+            Assert.Equal("The flight has no recorded ending.",
+                KerbalsWindowUI.TooltipForOutcome(KerbalEndState.Unknown));
+            Assert.Contains("recovered",
+                KerbalsWindowUI.TooltipForOutcome(KerbalEndState.Recovered));
+        }
+
+        [Fact]
+        public void DescribeFlightRow_CarriesTheRawRecordingIdentityForTheHoverStrip()
+        {
+            var row = new KerbalsPresentation.FlightRow
             {
-                KerbalName = "Jeb Kerman",
+                RecordingId = "rec-42",
                 RecordingName = "Mun Hopper",
-                EndUT = 12045.0,
-                EndState = KerbalEndState.Recovered
             };
-            var member = new KerbalsWindowUI.ChainMember
-            {
-                Name = "Bill Kerman",
-                ChainIndex = 0,
-                Status = KerbalsWindowUI.ChainMemberStatus.Retired
-            };
+            Assert.Equal("Recorded flight 'Mun Hopper' (id rec-42).",
+                KerbalsWindowUI.DescribeFlightRow(row));
 
-            string outcomeText = KerbalsWindowUI.FormatMissionOutcomeSubitemText(entry);
-            string rosterText = KerbalsWindowUI.FormatRosterChainMemberText(member, isLast: true);
-
-            // Both texts must begin with the same leading run of spaces.
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, outcomeText, StringComparison.Ordinal);
-            Assert.StartsWith(KerbalsWindowUI.SubitemIndent, rosterText, StringComparison.Ordinal);
-            // The indent length must be identical (defensive check in case a future
-            // SubitemIndent becomes non-space; then startswith + equal-length still
-            // holds but the content must match exactly).
-            Assert.Equal(KerbalsWindowUI.SubitemIndent.Length,
-                outcomeText.Length - KerbalsWindowUI.FormatEndStateRow(entry).Length);
-        }
-
-        // ──────────────────────────────────────────────────────────────────
-        // FormatKerbalSummary (#415-1 fold toggle)
-        // ──────────────────────────────────────────────────────────────────
-
-        private static KerbalsWindowUI.CrewEndStateEntry EndStateEntry(
-            string kerbalName, KerbalEndState state)
-        {
-            return new KerbalsWindowUI.CrewEndStateEntry
-            {
-                KerbalName = kerbalName,
-                RecordingName = "",
-                RecordingId = "",
-                EndUT = 0.0,
-                EndState = state
-            };
+            var unnamed = new KerbalsPresentation.FlightRow { RecordingId = "rec-9" };
+            Assert.Equal("Recorded flight '(unnamed)' (id rec-9).",
+                KerbalsWindowUI.DescribeFlightRow(unnamed));
         }
 
         [Fact]
-        public void FormatKerbalSummary_SingleMissionRecovered_RendersSingular()
+        public void FormatRowDate_IsTheTimelinesOwnCompactCalendarForm()
         {
-            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
-            {
-                EndStateEntry("Bill Kerman", KerbalEndState.Recovered)
-            };
-
-            string result = KerbalsWindowUI.FormatKerbalSummary(
-                "Bill Kerman", entries, 0, entries.Count);
-
-            Assert.Equal("Bill Kerman (1 mission - 1 Recovered)", result);
-        }
-
-        [Fact]
-        public void FormatKerbalSummary_MultipleMissions_MixedStates_OrdersDeadRecoveredAboard()
-        {
-            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
-            {
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Recovered),
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Aboard),
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead),
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Recovered)
-            };
-
-            string result = KerbalsWindowUI.FormatKerbalSummary(
-                "Jebediah Kerman", entries, 0, entries.Count);
-
+            // Measured, not assumed: KSPUtil.PrintDateCompact DOES run in the headless
+            // host, so this is the same string the Timeline's row labels carry for the
+            // same UT - which is the point of routing both through one formatter. The
+            // try/catch fallback behind it is exercised where it can be: the builders'
+            // own no-formatter path (Flights_DateCell_FallsBackToInvariantRawUtWithNo-
+            // Formatter) pins the invariant raw-UT spelling.
             Assert.Equal(
-                "Jebediah Kerman (4 missions - 1 Dead, 2 Recovered, 1 Aboard)",
-                result);
+                TimelineWindowUI.FormatTimelineEntryTimeLabel(12045.6, 0.0, false),
+                KerbalsWindowUI.FormatRowDate(12045.6));
+        }
+
+        // ------------------------------------------------------------------
+        // Culture
+        // ------------------------------------------------------------------
+
+        // catches: a row builder picking up the OS culture. Every numeric cell in this
+        // window goes through an InvariantCulture format (or through the injected date
+        // formatter), so a de-DE host must produce byte-identical rows. Today's formats are
+        // separator-free integers, so this cell is a FLOOR rather than a proof - it reds
+        // the moment a site starts spelling a decimal or a grouped number without pinning
+        // the culture.
+        [Fact]
+        public void BothBuildersAreCultureInvariant()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Jebediah Kerman", "Pilot") };
+            var res = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 1234567.89) },
+            };
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 1234567.89,
+                    KerbalEndState.Recovered),
+            };
+
+            Func<string[]> render = () =>
+            {
+                // No date formatter on either builder, so every cell below is one of the
+                // window's OWN numeric formats rather than the injected calendar's.
+                List<KerbalsPresentation.FlightGroup> flights =
+                    KerbalsPresentation.BuildFlightRows(
+                        entries, null, null, null, null, null, null);
+                KerbalsPresentation.RosterRowSet set = KerbalsPresentation.BuildRosterRows(
+                    roster, null, res, null, flights, ActiveChainIndexLike(res), null);
+                return new[]
+                {
+                    flights[0].HeaderText,
+                    flights[0].Rows[0].DateText,
+                    set.Involved[0].StatusText,
+                    set.Involved[0].SinceText,
+                    set.Involved[0].LastFlightText,
+                };
+            };
+
+            var previous = Thread.CurrentThread.CurrentCulture;
+            string[] invariant;
+            string[] german;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
+                invariant = render();
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                german = render();
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = previous;
+            }
+
+            Assert.Equal(invariant, german);
+            Assert.Equal("1234568", german[1]);
+            Assert.Equal("Reserved until 1234568", german[2]);
+        }
+
+        // ------------------------------------------------------------------
+        // Fold / expand state, including the op=expand seam accessors
+        // ------------------------------------------------------------------
+
+        private static KerbalsWindowUI.KerbalsViewModel SeededVM()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+            {
+                Kerbal("Jebediah Kerman", "Pilot"),
+                Kerbal("Bob Kerman", "Scientist"),
+            };
+            var recs = new List<Recording>
+            {
+                RecWithEndStates("r1", "Mun Hopper", 100.0,
+                    new Dictionary<string, KerbalEndState>
+                        { { "Jebediah Kerman", KerbalEndState.Recovered } }),
+            };
+            var res = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman", Res("Jebediah Kerman", 500.0) },
+            };
+            return KerbalsWindowUI.BuildViewModel(
+                roster, JebCoveredByLars(), res, null, recs,
+                null, null, null, ActiveChainIndexLike(res), FakeDate);
         }
 
         [Fact]
-        public void FormatKerbalSummary_OmitsZeroCountStates()
+        public void ExpandSeam_EnumeratesOnlyTheKeysTheWindowDraws()
         {
-            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
-            {
-                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
-                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
-                EndStateEntry("Bill Kerman", KerbalEndState.Dead)
-            };
+            var ui = new KerbalsWindowUI(null);
+            // Before the first drawn frame there is no view model, so no key is offered -
+            // which is why op=expand settles on a frame.
+            Assert.Empty(ui.EnumerateRosterExpandKeysForTesting());
+            Assert.Empty(ui.EnumerateFlightExpandKeysForTesting());
 
-            string result = KerbalsWindowUI.FormatKerbalSummary(
-                "Bill Kerman", entries, 0, entries.Count);
+            ui.CachedViewModelForTesting = SeededVM();
 
-            Assert.Equal("Bill Kerman (3 missions - 3 Dead)", result);
-            Assert.DoesNotContain("Recovered", result);
-            Assert.DoesNotContain("Aboard", result);
-            Assert.DoesNotContain("Unknown", result);
+            List<string> rosterKeys = ui.EnumerateRosterExpandKeysForTesting();
+            // Jeb and Lars both carry the chain; Bob has none, so no key. Plus the one fold
+            // row over the plain bucket.
+            Assert.Contains("Jebediah Kerman", rosterKeys);
+            Assert.Contains("Lars Kerman", rosterKeys);
+            Assert.Contains(KerbalsWindowUI.PlainBucketKey, rosterKeys);
+            Assert.DoesNotContain("Bob Kerman", rosterKeys);
+
+            Assert.Equal(new[] { "Jebediah Kerman" },
+                ui.EnumerateFlightExpandKeysForTesting().ToArray());
         }
 
         [Fact]
-        public void FormatKerbalSummary_UnknownStateBucketed()
+        public void ExpandSeam_RosterKeysWriteTheChainExpansionAndThePlainBucket()
         {
-            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
-            {
-                EndStateEntry("Hanley Kerman", KerbalEndState.Aboard),
-                EndStateEntry("Hanley Kerman", KerbalEndState.Unknown)
-            };
+            var ui = new KerbalsWindowUI(null);
+            ui.CachedViewModelForTesting = SeededVM();
 
-            string result = KerbalsWindowUI.FormatKerbalSummary(
-                "Hanley Kerman", entries, 0, entries.Count);
+            Assert.Equal(0, ui.ExpandedRosterCountForTesting);
+            Assert.True(ui.SetRosterExpandedForTesting("Jebediah Kerman", true));
+            // Idempotent: a second write of the same state changes nothing, which is what
+            // the op's changed= term reports.
+            Assert.False(ui.SetRosterExpandedForTesting("Jebediah Kerman", true));
+            Assert.True(ui.SetRosterExpandedForTesting(KerbalsWindowUI.PlainBucketKey, true));
+            Assert.Equal(2, ui.ExpandedRosterCountForTesting);
 
-            Assert.Equal(
-                "Hanley Kerman (2 missions - 1 Aboard, 1 Unknown)",
-                result);
+            Assert.True(ui.SetRosterExpandedForTesting("Jebediah Kerman", false));
+            Assert.True(ui.SetRosterExpandedForTesting(KerbalsWindowUI.PlainBucketKey, false));
+            Assert.Equal(0, ui.ExpandedRosterCountForTesting);
         }
 
         [Fact]
-        public void FormatKerbalSummary_UsesSliceBoundaries()
+        public void ExpandSeam_FlightKeysAreInvertedAgainstTheFoldedSet()
         {
-            // Interleaved entries for three kerbals. Only Bill's slice [2, 5) should be
-            // counted — the slice is 2 Recovered + 1 Dead.
-            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
-            {
-                EndStateEntry("Adara Kerman", KerbalEndState.Aboard),
-                EndStateEntry("Adara Kerman", KerbalEndState.Recovered),
-                EndStateEntry("Bill Kerman", KerbalEndState.Recovered),
-                EndStateEntry("Bill Kerman", KerbalEndState.Dead),
-                EndStateEntry("Bill Kerman", KerbalEndState.Recovered),
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead),
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead)
-            };
+            var ui = new KerbalsWindowUI(null);
+            ui.CachedViewModelForTesting = SeededVM();
 
-            string result = KerbalsWindowUI.FormatKerbalSummary(
-                "Bill Kerman", entries, 2, 5);
-
-            Assert.Equal(
-                "Bill Kerman (3 missions - 1 Dead, 2 Recovered)",
-                result);
-        }
-
-        [Fact]
-        public void FormatMissionOutcomeHeaderText_Unfolded_BoldsOnlyKerbalName()
-        {
-            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
-            {
-                EndStateEntry("Bill Kerman", KerbalEndState.Recovered)
-            };
-
-            string result = KerbalsWindowUI.FormatMissionOutcomeHeaderText(
-                "Bill Kerman", entries, 0, entries.Count, folded: false);
-
-            Assert.Equal("<b>Bill Kerman</b>", result);
-        }
-
-        [Fact]
-        public void FormatMissionOutcomeHeaderText_Folded_BoldsOnlyKerbalName()
-        {
-            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
-            {
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Recovered),
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Aboard),
-                EndStateEntry("Jebediah Kerman", KerbalEndState.Dead)
-            };
-
-            string result = KerbalsWindowUI.FormatMissionOutcomeHeaderText(
-                "Jebediah Kerman", entries, 0, entries.Count, folded: true);
-
-            Assert.Equal(
-                "<b>Jebediah Kerman</b> (3 missions - 1 Dead, 1 Recovered, 1 Aboard)",
-                result);
-            Assert.DoesNotContain("<b> (3 missions", result);
-        }
-
-        [Fact]
-        public void FormatMissionOutcomeHeaderText_EscapesKerbalNameRichTextTags()
-        {
-            const string name = "Bill </b><color=red>Kerman";
-            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
-            {
-                EndStateEntry(name, KerbalEndState.Recovered)
-            };
-
-            string result = KerbalsWindowUI.FormatMissionOutcomeHeaderText(
-                name, entries, 0, entries.Count, folded: true);
-
-            Assert.Equal(
-                "<b>Bill <\u200B/b><\u200Bcolor=red>Kerman</b> (1 mission - 1 Recovered)",
-                result);
-            Assert.DoesNotContain("</b><color=red>", result);
+            // Default-unfolded: the one group is already expanded.
+            Assert.Equal(1, ui.ExpandedFlightCountForTesting);
+            Assert.True(ui.SetFlightExpandedForTesting("Jebediah Kerman", false));
+            Assert.Contains("Jebediah Kerman", ui.foldedKerbals);
+            Assert.Equal(0, ui.ExpandedFlightCountForTesting);
+            Assert.True(ui.SetFlightExpandedForTesting("Jebediah Kerman", true));
+            Assert.Equal(1, ui.ExpandedFlightCountForTesting);
         }
 
         [Fact]
@@ -911,8 +1139,8 @@ namespace Parsek.Tests
         [Fact]
         public void InvalidateCache_DoesNotClearFoldedKerbals()
         {
-            // Fold state is transient UI preference — it must survive cachedVM invalidation
-            // (e.g. after a ledger recalc) so the user doesn't silently lose their fold
+            // Fold state is transient UI preference - it must survive cachedVM invalidation
+            // (e.g. after a ledger recalc) so the player does not silently lose their fold
             // choices mid-session.
             var ui = new KerbalsWindowUI(null);
             ui.foldedKerbals.Add("Bill Kerman");
@@ -924,15 +1152,13 @@ namespace Parsek.Tests
             Assert.Contains("Jebediah Kerman", ui.foldedKerbals);
         }
 
-        // ──────────────────────────────────────────────────────────────────
-        // OnFatesRowClicked (#416 Phase 4 — Fates → Timeline scroll companion)
-        // ──────────────────────────────────────────────────────────────────
+        // ------------------------------------------------------------------
+        // The Timeline cross-link
+        // ------------------------------------------------------------------
 
         [Fact]
         public void OnFatesRowClicked_InvokesCallbackWithRecordingId()
         {
-            // Regression: fails if the hookup is wired to the wrong id (e.g. group id
-            // instead of recording id).
             string captured = null;
             KerbalsWindowUI.OnFatesRowClicked(id => captured = id, "rec-42");
             Assert.Equal("rec-42", captured);
@@ -941,7 +1167,6 @@ namespace Parsek.Tests
         [Fact]
         public void OnFatesRowClicked_LogsRecordingId()
         {
-            // Regression: fails silently if the click handler forgets to log.
             KerbalsWindowUI.OnFatesRowClicked(_ => { }, "rec-42");
             Assert.Contains(logLines, l =>
                 l.Contains("[UI]")
@@ -952,9 +1177,9 @@ namespace Parsek.Tests
         [Fact]
         public void OnFatesRowClicked_NullCallback_NoOpAndLogsOnce()
         {
-            // Regression: E14 — the pure helper must not NRE when the production
-            // callback (GetTimelineUI().ScrollToRecording) is missing, e.g. during
-            // a cold-start scene transition.
+            // Regression: E14 - the pure helper must not NRE when the production callback
+            // (GetTimelineUI().ScrollToRecording) is missing, e.g. during a cold-start
+            // scene transition.
             var ex = Record.Exception(() =>
                 KerbalsWindowUI.OnFatesRowClicked(null, "rec-stale"));
             Assert.Null(ex);
@@ -965,12 +1190,11 @@ namespace Parsek.Tests
             Assert.Equal(1, matches);
         }
 
-        // catches: the Mission Outcomes row's tooltip promise ("Scrolls the Timeline window
-        // to the flight this row came from") going back to doing nothing visible with the
-        // Timeline closed. The pending id is consumed inside the Timeline's DRAW path, so
-        // storing it against a shut window scrolls nothing now and then jumps the list
-        // whenever the player next opens it for something else (finding P6). The sibling
-        // cross-link RecordingsTableUI.ShowMissionForRecording opens its window the same way.
+        // catches: the Flights row's tooltip promise ("Scrolls the Timeline window to the
+        // flight this row came from") going back to doing nothing visible with the Timeline
+        // closed. The pending id is consumed inside the Timeline's DRAW path, so storing it
+        // against a shut window scrolls nothing now and then jumps the list whenever the
+        // player next opens it for something else (finding P6).
         [Fact]
         public void ScrollToRecording_OpensTheTimelineWindowWhenItIsClosed()
         {
@@ -980,7 +1204,7 @@ namespace Parsek.Tests
                 TimelineWindowUI timeline = ui.GetTimelineUI();
                 Assert.False(timeline.IsOpen);
 
-                // Exactly what the Mission Outcomes row hands OnFatesRowClicked.
+                // Exactly what a Flights row hands OnFatesRowClicked.
                 KerbalsWindowUI.OnFatesRowClicked(timeline.ScrollToRecording, "rec-fate-7");
 
                 Assert.True(timeline.IsOpen);
@@ -1001,32 +1225,52 @@ namespace Parsek.Tests
             }
         }
 
+        // ------------------------------------------------------------------
+        // The composed view model
+        // ------------------------------------------------------------------
+
         [Fact]
-        public void Build_EmitsVerboseLog_WithNewCounters()
+        public void BuildViewModel_ComposesBothTabsAndLogsTheirCounts()
         {
-            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>
-            {
-                { "Jebediah Kerman", Slot("Jebediah Kerman", "Pilot",
-                    new List<string> { "Bill Kerman" }) }
-            };
-            var reservations = new Dictionary<string, KerbalsModule.KerbalReservation>
-            {
-                { "Jebediah Kerman", Res("Jebediah Kerman", 1000.0) }
-            };
-            // Hanley is retired with no slot → orphan. Bill is retired AND in Jeb's chain →
-            // counted under topology, not orphans.
-            var retired = new List<string> { "Bill Kerman", "Hanley Kerman" };
+            KerbalsWindowUI.KerbalsViewModel vm = SeededVM();
 
-            KerbalsWindowUI.Build(slots, reservations, retired,
-                committedRecordings: null,
-                ActiveChainIndexLike(reservations));
-
+            Assert.Single(vm.EndStates);
+            Assert.Single(vm.Flights);
+            // Jeb (reserved) and Lars (stand-in) are listed; Bob is plain.
+            Assert.Equal(2, vm.Roster.Involved.Count);
+            Assert.Single(vm.Roster.Plain);
             Assert.Contains(logLines, l =>
                 l.Contains("[UI]")
                 && l.Contains("KerbalsWindow: built VM")
-                && l.Contains("topology=1")
-                && l.Contains("orphans=1")
-                && l.Contains("endStates=0"));
+                && l.Contains("roster=2+1")
+                && l.Contains("flightGroups=1")
+                && l.Contains("endStates=1"));
+        }
+
+        [Fact]
+        public void BuildViewModel_TheLiveRosterTraitWinsOverTheSlotsStoredCopy()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+                { Kerbal("Jebediah Kerman", "Engineer") };
+            var slots = new Dictionary<string, KerbalsModule.KerbalSlot>(StringComparer.Ordinal)
+            {
+                { "Jebediah Kerman",
+                    Slot("Jebediah Kerman", "Pilot", new List<string>()) },
+            };
+            var recs = new List<Recording>
+            {
+                RecWithEndStates("r1", "Mun Hopper", 100.0,
+                    new Dictionary<string, KerbalEndState>
+                        { { "Jebediah Kerman", KerbalEndState.Recovered } }),
+            };
+            var empty = new Dictionary<string, KerbalsModule.KerbalReservation>(
+                StringComparer.Ordinal);
+
+            KerbalsWindowUI.KerbalsViewModel vm = KerbalsWindowUI.BuildViewModel(
+                roster, slots, empty, null, recs, null, null, null,
+                ActiveChainIndexLike(empty), FakeDate);
+
+            Assert.Contains("[Engineer]", vm.Flights[0].HeaderText);
         }
     }
 }

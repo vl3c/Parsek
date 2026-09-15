@@ -6,12 +6,25 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Kerbals window — two tabs:
-    ///   * "Roster State": per-owner collapsible chain (reserved/active/retired/
-    ///     displaced stand-ins) plus the Unlinked Retired tail for stand-ins that
-    ///     no longer belong to any slot.
-    ///   * "Mission Outcomes": per-kerbal chronological committed-mission history
-    ///     (Aboard / Recovered / Dead / Unknown) with per-kerbal fold (#415-1).
+    /// Kerbals window - two read-only COLUMN TABLES:
+    ///   * "Roster" (seam tab token <c>roster</c>): one row per kerbal the player can
+    ///     see, with what he is doing right now, when that started and how his last
+    ///     flight ended. Rows Parsek has something to say about are listed first; plain
+    ///     available kerbals with no recorded flight collapse under one fold row.
+    ///   * "Flights" (seam tab token <c>outcomes</c>): per-kerbal flight history, one
+    ///     row per recorded flight with its calendar date, mission, outcome word and the
+    ///     stand-in who flew it.
+    ///
+    /// <para>Both tabs draw their column-header row and their body rows with the shared
+    /// inset containers (<c>ParsekUI.GetTableRowStyle</c> /
+    /// <c>GetTableBodyBoxStyle</c>), which is what keeps every cell under its own header
+    /// - see <c>ParsekUI.TableRowHorizontalInsetPx</c> and
+    /// <c>TableRowInsetAlignmentTests</c>. The header rows sit INSIDE the same scroll
+    /// view as the body, so neither reserves a scrollbar gutter.</para>
+    ///
+    /// <para>Every row text, status word, date cell and both sort orders are derived in
+    /// the pure <see cref="KerbalsPresentation"/>; this file gathers the live inputs and
+    /// draws. Full contract: <c>docs/dev/design-gui-kerbals-window.md</c>.</para>
     /// </summary>
     internal class KerbalsWindowUI
     {
@@ -39,10 +52,30 @@ namespace Parsek
         private Vector2 kerbalsScrollPos;
         // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
         internal const string KerbalsInputLockId = "Parsek_KerbalsWindow";
-        internal const float MinWindowWidth = 280f;
+
+        // ---- column widths, per tab ----
+        // Roster: the Name cell holds "Valentina Kerman [Scientist]" (28 chars) and the
+        // Status cell "Reserved for Valentina Kerman until Y1, D23" (43); Since holds one
+        // compact date; Last flight expands. Arithmetic behind the window sizing below.
+        private const float ColW_RosterName = 190f;
+        private const float ColW_RosterStatus = 220f;
+        private const float ColW_RosterSince = 80f;
+        // Flights: Date holds one compact date, Mission a mission name, Outcome the
+        // longest outcome word ("Outcome unknown", 15 chars), Crew note expands.
+        private const float ColW_FlightDate = 80f;
+        private const float ColW_FlightMission = 210f;
+        private const float ColW_FlightOutcome = 110f;
+
+        /// <summary>
+        /// Minimum width. The Roster tab is the wider of the two tables: its three fixed
+        /// columns are 190 + 220 + 80 = 490 px, so 520 leaves the expanding "Last flight"
+        /// column a readable sliver at the smallest size the player can drag to. Below
+        /// that the fixed columns would clip instead of shrinking - IMGUI does not
+        /// reflow a pinned width.
+        /// </summary>
+        internal const float MinWindowWidth = 520f;
         internal const float MinWindowHeight = 150f;
-        // Default width is half of CareerStateWindowUI.DefaultWindowWidth (820) so
-        // the two windows can sit side by side on a typical 16:9 monitor.
+
         /// <summary>
         /// The key this window's IMGUI window id is hashed from. Named once and used at
         /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
@@ -54,7 +87,14 @@ namespace Parsek
         /// </summary>
         internal const string WindowIdKey = "ParsekKerbals";
 
-        private const float DefaultWindowWidth = 410f;
+        /// <summary>
+        /// First-open width: the Roster tab's 490 px of fixed columns plus 200 px for the
+        /// expanding "Last flight" column plus the window chrome, rounded to 700. The old
+        /// 410 was half of Career's 820 so the two could sit side by side; two column
+        /// tables do not fit in 410, and 700 still leaves Career's own 820 room on a
+        /// 1920-wide screen.
+        /// </summary>
+        private const float DefaultWindowWidth = 700f;
         private const float DefaultWindowHeight = 400f;
         private Rect lastKerbalsWindowRect;
 
@@ -65,31 +105,52 @@ namespace Parsek
 
         private KerbalsViewModel? cachedVM;
 
+        /// <summary>
+        /// The built view model, writable from outside the draw pass. The expand seam's
+        /// key enumerations read it (a key the window does not draw must never be
+        /// offered), and in production it is seeded by the first drawn frame - which is
+        /// why <c>op=expand</c> is two-phase. Exposed so the seam's key / count contracts
+        /// are unit-testable headlessly, where no frame ever draws.
+        /// </summary>
+        internal KerbalsViewModel? CachedViewModelForTesting
+        {
+            get { return cachedVM; }
+            set { cachedVM = value; }
+        }
+
         // Fold-toggle arrow glyphs; match the chain-block pattern in RecordingsTableUI.
         private const string FoldedArrow = "\u25b6";
         private const string UnfoldedArrow = "\u25bc";
 
-        // Transient fold state for Mission Outcomes groups. Default-unfolded means we
-        // only store names that are currently folded, so HashSet fits the access pattern.
-        // InvalidateCache does NOT clear this — fold is UI preference, not data.
+        /// <summary>The seam key for the Roster tab's one fold row (the plain-kerbal
+        /// bucket). Parenthesised so it cannot collide with a kerbal name, which is what
+        /// the other keys in that set are.</summary>
+        internal const string PlainBucketKey = "(available)";
+
+        // Transient fold state for Flights groups. Default-unfolded means we only store
+        // names that are currently folded, so HashSet fits the access pattern.
+        // InvalidateCache does NOT clear this - fold is UI preference, not data.
         internal readonly HashSet<string> foldedKerbals = new HashSet<string>(StringComparer.Ordinal);
 
-        // Transient expand state for per-owner slot topology rows. Default-collapsed —
-        // the set only contains OwnerNames currently expanded, so the initial window
-        // view is a contiguous single-line list of owners. Orthogonal to data, so not
-        // cleared by InvalidateCache.
+        // Transient expand state for a Roster row's replacement-chain view.
+        // Default-collapsed - the set only contains kerbal names currently expanded, so
+        // the initial view is one line per kerbal. Orthogonal to data, so not cleared by
+        // InvalidateCache.
         private readonly HashSet<string> expandedSlots = new HashSet<string>(StringComparer.Ordinal);
 
+        // The Roster tab's plain-kerbal bucket. Closed by default (the "minimal,
+        // need-to-know" ruling); transient like the two sets above.
+        private bool plainBucketExpanded;
+
         private GUIStyle grayStyle;
-        private GUIStyle sectionHeaderStyle;
+        private GUIStyle columnHeaderStyle;
         private GUIStyle groupHeaderStyle;
         private GUIStyle deadStyle;
         private GUIStyle recoveredStyle;
         private GUIStyle aboardStyle;
         private GUIStyle activeChainStyle;
         private GUIStyle displacedStyle;
-        private GUIStyle missionOutcomeHeaderStyle;
-        // Toggle button style for tab bar — mirrors CareerStateWindowUI / TimelineWindowUI:
+        // Toggle button style for tab bar - mirrors CareerStateWindowUI / TimelineWindowUI:
         // the "on" background is copied from GUI.skin.button.active so the selected tab
         // looks visibly pushed in.
         private GUIStyle toggleButtonStyle;
@@ -113,22 +174,21 @@ namespace Parsek
         /// coverage cell so the wire token list cannot drift from the real toolbar.</summary>
         internal static int TabCountForTesting { get { return TabLabels.Length; } }
 
-
         // GUIContent (not bare strings) so each tab explains itself in the bottom help
         // strip on hover - the tab names are the two least obvious words in the window.
         private static readonly GUIContent[] TabLabels = new[]
         {
-            new GUIContent("Roster State",
-                "Who fills each crew slot now: reserved, flying or retired stand-ins."),
-            new GUIContent("Mission Outcomes",
+            new GUIContent("Roster",
+                "What each kerbal is doing now: available, aboard, reserved, standing in, retired or lost."),
+            new GUIContent("Flights",
                 "Every recorded flight a kerbal took, and how each one ended.")
         };
 
         internal struct KerbalsViewModel
         {
-            public List<SlotTopologyEntry> Topology;
-            public List<string> OrphanRetired;
             public List<CrewEndStateEntry> EndStates;
+            public List<KerbalsPresentation.FlightGroup> Flights;
+            public KerbalsPresentation.RosterRowSet Roster;
         }
 
         internal enum ChainMemberStatus
@@ -137,16 +197,6 @@ namespace Parsek
             Retired,
             Displaced,
             Unknown
-        }
-
-        internal struct SlotTopologyEntry
-        {
-            public string OwnerName;
-            public string OwnerTrait;
-            public bool OwnerPermanentlyGone;
-            public bool OwnerReserved;
-            public double OwnerReservedUntilUT;
-            public List<ChainMember> Chain;
         }
 
         internal struct ChainMember
@@ -182,6 +232,88 @@ namespace Parsek
         {
             cachedVM = null;
             ParsekLog.Verbose("UI", "KerbalsWindow: cache invalidated");
+        }
+
+        // ------------------------- the op=expand seam -------------------------
+
+        /// <summary>Every Roster row key the expand seam can drive: each kerbal whose row
+        /// carries a replacement chain, plus the plain-kerbal fold row. Enumerated off the
+        /// built view model so a key the window does not draw is never offered.</summary>
+        internal List<string> EnumerateRosterExpandKeysForTesting()
+        {
+            var keys = new List<string>();
+            if (cachedVM == null) return keys;
+            KerbalsPresentation.RosterRowSet set = cachedVM.Value.Roster;
+            AppendChainKeys(set.Involved, keys);
+            AppendChainKeys(set.Plain, keys);
+            keys.Add(PlainBucketKey);
+            return keys;
+        }
+
+        private static void AppendChainKeys(
+            List<KerbalsPresentation.RosterRow> rows, List<string> keys)
+        {
+            if (rows == null) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].Chain != null && rows[i].Chain.Count > 0)
+                    keys.Add(rows[i].FoldKey);
+            }
+        }
+
+        /// <summary>Writes one Roster expand key. Returns whether the state changed.</summary>
+        internal bool SetRosterExpandedForTesting(string key, bool expanded)
+        {
+            if (string.Equals(key, PlainBucketKey, StringComparison.Ordinal))
+            {
+                if (plainBucketExpanded == expanded) return false;
+                plainBucketExpanded = expanded;
+                return true;
+            }
+            return expanded ? expandedSlots.Add(key) : expandedSlots.Remove(key);
+        }
+
+        /// <summary>How many Roster keys are expanded right now (the seam's
+        /// <c>expanded=</c> term).</summary>
+        internal int ExpandedRosterCountForTesting
+        {
+            get { return expandedSlots.Count + (plainBucketExpanded ? 1 : 0); }
+        }
+
+        /// <summary>Every Flights group key the expand seam can drive: one per kerbal with
+        /// a recorded flight.</summary>
+        internal List<string> EnumerateFlightExpandKeysForTesting()
+        {
+            var keys = new List<string>();
+            if (cachedVM == null) return keys;
+            List<KerbalsPresentation.FlightGroup> groups = cachedVM.Value.Flights;
+            if (groups == null) return keys;
+            for (int i = 0; i < groups.Count; i++) keys.Add(groups[i].FoldKey);
+            return keys;
+        }
+
+        /// <summary>Writes one Flights group key. INVERTED on the production side
+        /// (<c>foldedKerbals</c> holds what is FOLDED) - the wire always speaks
+        /// "expanded".</summary>
+        internal bool SetFlightExpandedForTesting(string key, bool expanded)
+        {
+            return expanded ? foldedKerbals.Remove(key) : foldedKerbals.Add(key);
+        }
+
+        /// <summary>How many Flights groups are expanded: every group minus the folded
+        /// ones. Clamped at zero - <c>foldedKerbals</c> can hold a name the current view
+        /// model no longer carries, and a negative <c>expanded=</c> would read as a seam
+        /// defect.</summary>
+        internal int ExpandedFlightCountForTesting
+        {
+            get
+            {
+                List<string> keys = EnumerateFlightExpandKeysForTesting();
+                int folded = 0;
+                for (int i = 0; i < keys.Count; i++)
+                    if (foldedKerbals.Contains(keys[i])) folded++;
+                return Math.Max(0, keys.Count - folded);
+            }
         }
 
         public void DrawIfOpen(Rect mainWindowRect)
@@ -258,9 +390,9 @@ namespace Parsek
 
         private void EnsureStyles()
         {
-            // Section header style is shared across the mod via ParsekUI; reassign
-            // every draw so any ParsekUI-level updates flow through.
-            sectionHeaderStyle = parentUI.GetSectionHeaderStyle();
+            // Column-header style is shared across the mod via ParsekUI; reassign every
+            // draw so any ParsekUI-level updates flow through.
+            columnHeaderStyle = parentUI.GetColumnHeaderStyle();
             if (grayStyle != null) return;
             grayStyle = new GUIStyle(GUI.skin.label)
             {
@@ -291,10 +423,6 @@ namespace Parsek
             {
                 normal = { textColor = new Color(0.5f, 0.5f, 0.5f) }
             };
-            missionOutcomeHeaderStyle = new GUIStyle(GUI.skin.label)
-            {
-                richText = true
-            };
             // Tab bar button: selected tab looks pressed via onNormal.background copied
             // from GUI.skin.button.active.background (matches CareerStateWindowUI and
             // TimelineWindowUI toggle idiom).
@@ -312,39 +440,13 @@ namespace Parsek
         private void DrawKerbalsWindow(int windowID)
         {
             EnsureStyles();
-            // Breathing room below the title bar — matches Timeline's visual spacing.
+            // Breathing room below the title bar - matches Timeline's visual spacing.
             GUILayout.Space(5);
 
-            if (cachedVM == null)
-            {
-                var kerbals = LedgerOrchestrator.Kerbals;
-                // [Phase 3] ERS-routed: kerbals window view model reads visible
-                // recordings only; NotCommitted / superseded / session-suppressed
-                // entries are excluded from roster context.
-                var recordings = EffectiveState.ComputeERS();
-                if (kerbals == null)
-                {
-                    cachedVM = Build(
-                        null,
-                        null,
-                        null,
-                        recordings,
-                        null);
-                }
-                else
-                {
-                    cachedVM = Build(
-                        kerbals.Slots,
-                        kerbals.Reservations,
-                        kerbals.GetRetiredKerbals(),
-                        recordings,
-                        slot => kerbals.GetActiveChainIndex(slot));
-                }
-            }
-
+            if (cachedVM == null) cachedVM = GatherViewModel();
             var vm = cachedVM.Value;
 
-            // Tab bar — same idiom as CareerStateWindowUI.
+            // Tab bar - same idiom as CareerStateWindowUI.
             int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
             if (newTab != selectedTab)
             {
@@ -358,25 +460,21 @@ namespace Parsek
             switch (selectedTab)
             {
                 case 0:
-                    if (vm.Topology.Count == 0 && vm.OrphanRetired.Count == 0)
-                    {
-                        GUILayout.Label("No reserved crew, stand-ins, or retired kerbals.", grayStyle);
-                    }
-                    else
-                    {
-                        DrawTopologySection(vm.Topology);
-                        DrawOrphanRetiredSection(vm.OrphanRetired);
-                    }
+                    DrawRosterTab(vm.Roster);
                     break;
 
                 case 1:
-                    if (vm.EndStates.Count == 0)
+                    if (vm.Flights == null || vm.Flights.Count == 0)
                     {
-                        GUILayout.Label("No committed crew history yet.", grayStyle);
+                        GUILayout.Label("No recorded flights with crew yet.", grayStyle);
                     }
                     else
                     {
-                        DrawEndStatesSection(vm.EndStates);
+                        DrawFlightsColumnHeader();
+                        GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
+                        for (int i = 0; i < vm.Flights.Count; i++)
+                            DrawFlightGroup(vm.Flights[i]);
+                        GUILayout.EndVertical();
                     }
                     break;
             }
@@ -384,9 +482,9 @@ namespace Parsek
             GUILayout.EndScrollView();
 
             // Bottom "hovered control help text" strip (shared house helper), drawn after
-            // the roster list (so the live GUI.tooltip read sees a hovered row) and
-            // directly above the Close button - the house ordering every Parsek window
-            // uses. Fixed two-line height, always present.
+            // the tables (so the live GUI.tooltip read sees a hovered row) and directly
+            // above the Close button - the house ordering every Parsek window uses. Fixed
+            // two-line height, always present.
             tooltipEcho.Draw();
 
             if (GUILayout.Button("Close"))
@@ -401,76 +499,139 @@ namespace Parsek
             GUI.DragWindow();
         }
 
-        private void DrawTopologySection(List<SlotTopologyEntry> topology)
+        // ------------------------- the Roster tab -------------------------
+
+        private void DrawRosterTab(KerbalsPresentation.RosterRowSet set)
         {
-            if (topology.Count == 0) return;
-            GUILayout.BeginVertical(GUI.skin.box);
-
-            bool first = true;
-            for (int i = 0; i < topology.Count; i++)
+            int total = (set.Involved != null ? set.Involved.Count : 0)
+                        + (set.Plain != null ? set.Plain.Count : 0);
+            if (total == 0)
             {
-                var entry = topology[i];
-                int chainCount = CountExpandableChainEntries(entry.Chain);
-                bool expandable = chainCount > 0;
-                bool expanded = expandedSlots.Contains(entry.OwnerName);
+                // Only reachable on a save whose stock roster is empty (no career can be
+                // in that state; a hand-built sandbox or science save can).
+                GUILayout.Label("No kerbals in the roster.", grayStyle);
+                return;
+            }
 
-                if (!first) GUILayout.Space(3);
-                first = false;
+            DrawRosterColumnHeader();
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
 
-                DrawOwnerHeader(entry, expandable, expanded, chainCount);
+            if (set.Involved != null)
+            {
+                for (int i = 0; i < set.Involved.Count; i++)
+                    DrawRosterRow(set.Involved[i], dimmed: false);
+            }
 
-                if (expandable && expanded)
+            if (set.Plain != null && set.Plain.Count > 0)
+            {
+                string arrow = plainBucketExpanded ? UnfoldedArrow : FoldedArrow;
+                if (GUILayout.Button(
+                        new GUIContent(
+                            arrow + " " + KerbalsPresentation.FormatPlainFoldHeader(set.Plain.Count),
+                            "Kerbals with no reservation, stand-in or recorded flight; click to list them."),
+                        groupHeaderStyle, GUILayout.ExpandWidth(true)))
                 {
-                    int lastIdx = -1;
-                    if (entry.Chain != null)
-                    {
-                        for (int c = entry.Chain.Count - 1; c >= 0; c--)
-                        {
-                            if (!string.IsNullOrEmpty(entry.Chain[c].Name))
-                            {
-                                lastIdx = c;
-                                break;
-                            }
-                        }
-                    }
-                    for (int c = 0; c < entry.Chain.Count; c++)
-                    {
-                        var member = entry.Chain[c];
-                        if (string.IsNullOrEmpty(member.Name)) continue;
-                        GUILayout.Label(
-                            FormatRosterChainMemberText(member, isLast: (c == lastIdx)),
-                            StyleForChainMember(member.Status));
-                    }
+                    plainBucketExpanded = !plainBucketExpanded;
+                    ParsekLog.Verbose("UI",
+                        $"Kerbals plain bucket {(plainBucketExpanded ? "expanded" : "collapsed")} ({set.Plain.Count} kerbals)");
+                }
+                if (plainBucketExpanded)
+                {
+                    for (int i = 0; i < set.Plain.Count; i++)
+                        DrawRosterRow(set.Plain[i], dimmed: true);
                 }
             }
 
             GUILayout.EndVertical();
         }
 
-        private void DrawOwnerHeader(SlotTopologyEntry entry, bool expandable, bool expanded, int chainCount)
+        // Header and body rows both open with parentUI.GetTableRowStyle() and declare the
+        // same three fixed widths plus one expanding column, which is what keeps each cell
+        // under its own header (ParsekUI.TableRowHorizontalInsetPx). The header is INSIDE
+        // the body's scroll view, so it must NOT reserve a scrollbar gutter.
+        private void DrawRosterColumnHeader()
         {
-            string body = FormatOwnerHeader(entry);
-            string countSuffix = expandable ? $"  ({chainCount})" : "";
-            GUIStyle style = entry.OwnerPermanentlyGone ? deadStyle : groupHeaderStyle;
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
+            GUILayout.Label("Kerbal", columnHeaderStyle, GUILayout.Width(ColW_RosterName));
+            GUILayout.Label("Status now", columnHeaderStyle, GUILayout.Width(ColW_RosterStatus));
+            GUILayout.Label(
+                new GUIContent("Since",
+                    "When the status started, for the two the mod dates: a loss and a reservation."),
+                columnHeaderStyle, GUILayout.Width(ColW_RosterSince));
+            GUILayout.Label(
+                new GUIContent("Last flight",
+                    "The kerbal's most recent recorded flight, and how it ended."),
+                columnHeaderStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
+        }
 
-            if (!expandable)
+        private void DrawRosterRow(KerbalsPresentation.RosterRow row, bool dimmed)
+        {
+            bool expandable = row.Chain != null && row.Chain.Count > 0;
+            bool expanded = expandedSlots.Contains(row.FoldKey);
+            GUIStyle cellStyle = dimmed
+                ? grayStyle
+                : StyleForRosterStatus(row.Status);
+
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
+            string nameCell = FormatRosterNameCell(row, expandable, expanded);
+            if (expandable)
             {
-                // Indent by the width of the arrow + space so the leaf body lines
-                // up with bodies on arrow-prefixed (expandable) rows.
-                GUILayout.Label("  " + body + countSuffix, style);
-                return;
+                if (GUILayout.Button(
+                        new GUIContent(nameCell,
+                            "Shows the stand-ins who have covered this kerbal's slot."),
+                        cellStyle, GUILayout.Width(ColW_RosterName)))
+                {
+                    if (expanded) expandedSlots.Remove(row.FoldKey);
+                    else expandedSlots.Add(row.FoldKey);
+                    ParsekLog.Verbose("UI",
+                        $"Kerbal slot '{row.FoldKey}' {(expanded ? "collapsed" : "expanded")} ({row.Chain.Count} chain members)");
+                }
             }
-
-            string arrow = expanded ? UnfoldedArrow : FoldedArrow;
-            if (GUILayout.Button(
-                new GUIContent($"{arrow} {body}{countSuffix}",
-                    "Shows the stand-ins who have covered this kerbal's slot."),
-                GUI.skin.label, GUILayout.ExpandWidth(true)))
+            else
             {
-                if (expanded) expandedSlots.Remove(entry.OwnerName);
-                else expandedSlots.Add(entry.OwnerName);
-                ParsekLog.Verbose("UI",
-                    $"Kerbal slot '{entry.OwnerName}' {(expanded ? "collapsed" : "expanded")} ({chainCount} chain members)");
+                GUILayout.Label(nameCell, cellStyle, GUILayout.Width(ColW_RosterName));
+            }
+            GUILayout.Label(row.StatusText, cellStyle, GUILayout.Width(ColW_RosterStatus));
+            GUILayout.Label(row.SinceText, cellStyle, GUILayout.Width(ColW_RosterSince));
+            GUILayout.Label(row.LastFlightText, cellStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
+
+            if (expandable && expanded)
+            {
+                int lastIdx = row.Chain.Count - 1;
+                for (int c = 0; c < row.Chain.Count; c++)
+                {
+                    ChainMember member = row.Chain[c];
+                    GUILayout.Label(
+                        FormatRosterChainMemberText(member, isLast: (c == lastIdx)),
+                        StyleForChainMember(member.Status));
+                }
+            }
+        }
+
+        /// <summary>The Name cell: the fold arrow when the row has a chain, then
+        /// <c>"Name [Trait]"</c> (the bracket dropped when the trait is unknown). The two
+        /// leading spaces on a leaf row line its name up with an arrow-prefixed one.</summary>
+        internal static string FormatRosterNameCell(
+            KerbalsPresentation.RosterRow row, bool expandable, bool expanded)
+        {
+            string who = string.IsNullOrEmpty(row.Trait)
+                ? row.Name
+                : row.Name + " [" + row.Trait + "]";
+            if (!expandable) return "  " + who;
+            return (expanded ? UnfoldedArrow : FoldedArrow) + " " + who;
+        }
+
+        private GUIStyle StyleForRosterStatus(KerbalsPresentation.RosterStatus s)
+        {
+            switch (s)
+            {
+                case KerbalsPresentation.RosterStatus.Lost: return deadStyle;
+                case KerbalsPresentation.RosterStatus.Retired: return grayStyle;
+                case KerbalsPresentation.RosterStatus.Assigned: return aboardStyle;
+                case KerbalsPresentation.RosterStatus.StandIn: return activeChainStyle;
+                default: return GUI.skin.label;
             }
         }
 
@@ -485,52 +646,22 @@ namespace Parsek
             }
         }
 
-        private void DrawOrphanRetiredSection(List<string> orphans)
-        {
-            if (orphans.Count == 0) return;
-            GUILayout.Space(5);
-            GUILayout.Label(
-                new GUIContent($"Unlinked Retired ({orphans.Count})",
-                    "Retired stand-ins that no longer belong to any crew slot."),
-                sectionHeaderStyle);
-            GUILayout.BeginVertical(GUI.skin.box);
-            for (int i = 0; i < orphans.Count; i++)
-            {
-                GUILayout.Label(orphans[i], grayStyle);
-            }
-            GUILayout.EndVertical();
-        }
+        /// <summary>
+        /// Leading indent used by every subitem row under a fold/expand parent in this
+        /// window. Four spaces puts the first subitem character roughly under the
+        /// parent kerbal-name's first character (after the fold arrow).
+        /// </summary>
+        internal const string SubitemIndent = "    ";
 
-        internal static int CountExpandableChainEntries(List<ChainMember> chain)
+        /// <summary>
+        /// Renders a Roster chain-member subitem row as a single pre-indented string with
+        /// a tree-branch glyph. <paramref name="isLast"/> picks between the "mid" and
+        /// "last" tree characters.
+        /// </summary>
+        internal static string FormatRosterChainMemberText(ChainMember m, bool isLast)
         {
-            if (chain == null) return 0;
-            int n = 0;
-            for (int i = 0; i < chain.Count; i++)
-            {
-                if (!string.IsNullOrEmpty(chain[i].Name)) n++;
-            }
-            return n;
-        }
-
-        internal static string FormatOwnerHeader(SlotTopologyEntry entry)
-        {
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            string status;
-            if (entry.OwnerPermanentlyGone)
-            {
-                status = "deceased";
-            }
-            else if (entry.OwnerReserved)
-            {
-                status = double.IsPositiveInfinity(entry.OwnerReservedUntilUT)
-                    ? "reserved"
-                    : $"reserved until UT {entry.OwnerReservedUntilUT.ToString("F0", ic)}";
-            }
-            else
-            {
-                status = "active";
-            }
-            return $"{entry.OwnerName} [{entry.OwnerTrait}] - {status}";
+            string branch = isLast ? "\u2514\u2500 " : "\u251c\u2500 ";
+            return SubitemIndent + branch + FormatChainMember(m);
         }
 
         internal static string FormatChainMember(ChainMember m)
@@ -546,134 +677,112 @@ namespace Parsek
             return $"{m.Name} ({tag})";
         }
 
-        /// <summary>
-        /// Leading indent used by every subitem row under a fold/expand parent in this
-        /// window. Four spaces puts the first subitem character roughly under the
-        /// parent kerbal-name's first character (after the "▼ " arrow). Both the
-        /// Roster State tab's chain-member rows and the Mission Outcomes tab's per-
-        /// recording rows share this prefix so the two tabs cannot visually drift
-        /// apart — any edit that changes the prefix must update both format helpers
-        /// (and their parity test will fail if it doesn't).
-        /// </summary>
-        internal const string SubitemIndent = "    ";
+        // ------------------------- the Flights tab -------------------------
 
-        /// <summary>
-        /// Renders a Mission Outcomes subitem row as a single pre-indented string,
-        /// ready to pass to GUILayout.Button. The indent is SubitemIndent.
-        /// </summary>
-        internal static string FormatMissionOutcomeSubitemText(CrewEndStateEntry e)
+        private void DrawFlightsColumnHeader()
         {
-            return SubitemIndent + FormatEndStateRow(e);
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
+            GUILayout.Label("Date", columnHeaderStyle, GUILayout.Width(ColW_FlightDate));
+            GUILayout.Label("Mission", columnHeaderStyle, GUILayout.Width(ColW_FlightMission));
+            GUILayout.Label("Outcome", columnHeaderStyle, GUILayout.Width(ColW_FlightOutcome));
+            GUILayout.Label(
+                new GUIContent("Crew",
+                    "Who actually flew it, when a stand-in covered this kerbal's seat."),
+                columnHeaderStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
         }
 
-        /// <summary>
-        /// Renders the per-kerbal Mission Outcomes fold header with rich text so only
-        /// the main kerbal name is bold; arrow glyphs and folded summary details stay
-        /// in the normal label weight.
-        /// </summary>
-        internal static string FormatMissionOutcomeHeaderText(
-            string kerbalName,
-            IReadOnlyList<CrewEndStateEntry> entries,
-            int start,
-            int end,
-            bool folded)
+        private void DrawFlightGroup(KerbalsPresentation.FlightGroup group)
         {
-            string boldName = $"<b>{EscapeRichText(kerbalName)}</b>";
-            if (!folded) return boldName;
+            bool folded = foldedKerbals.Contains(group.FoldKey);
+            string arrow = folded ? FoldedArrow : UnfoldedArrow;
 
-            string summary = FormatKerbalSummary(kerbalName, entries, start, end);
-            if (summary.StartsWith(kerbalName, StringComparison.Ordinal))
+            if (GUILayout.Button(
+                    new GUIContent(arrow + " " + group.HeaderText,
+                        "Folds or unfolds this kerbal's recorded flight history."),
+                    groupHeaderStyle, GUILayout.ExpandWidth(true)))
             {
-                return boldName + summary.Substring(kerbalName.Length);
-            }
-            return boldName + " " + summary;
-        }
-
-        private static string EscapeRichText(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return text ?? "";
-            return text.Replace("<", "<\u200B");
-        }
-
-        /// <summary>
-        /// Renders a Roster State chain-member subitem row as a single pre-indented
-        /// string with a tree-branch glyph. <paramref name="isLast"/> picks between
-        /// the "mid" (├─) and "last" (└─) tree characters.
-        /// </summary>
-        internal static string FormatRosterChainMemberText(ChainMember m, bool isLast)
-        {
-            string branch = isLast ? "\u2514\u2500 " : "\u251c\u2500 ";
-            return SubitemIndent + branch + FormatChainMember(m);
-        }
-
-        private void DrawEndStatesSection(List<CrewEndStateEntry> endStates)
-        {
-            if (endStates.Count == 0) return;
-            GUILayout.BeginVertical(GUI.skin.box);
-
-            int i = 0;
-            bool first = true;
-            while (i < endStates.Count)
-            {
-                string name = endStates[i].KerbalName;
-                int j = i;
-                while (j < endStates.Count && endStates[j].KerbalName == name) j++;
-
-                if (!first) GUILayout.Space(3);
-                first = false;
-
-                bool folded = foldedKerbals.Contains(name);
-                string arrow = folded ? FoldedArrow : UnfoldedArrow;
-                string headerText = FormatMissionOutcomeHeaderText(
-                    name,
-                    endStates,
-                    i,
-                    j,
-                    folded);
-
-                // Per-kerbal fold row: label-styled button so the dropdown header
-                // sits visually as a row rather than a sub-heading. Rich text is
-                // limited to the main kerbal-name substring.
-                if (GUILayout.Button(
-                    new GUIContent($"{arrow} {headerText}",
-                        "Folds or unfolds this kerbal's recorded mission history."),
-                    missionOutcomeHeaderStyle, GUILayout.ExpandWidth(true)))
-                {
-                    ToggleFold(foldedKerbals, name, j - i);
-                }
-
-                if (!folded)
-                {
-                    for (int k = i; k < j; k++)
-                    {
-                        var e = endStates[k];
-                        // Subitem indent: shared with the Roster State tab's chain-
-                        // member format — see FormatMissionOutcomeSubitemText.
-                        if (GUILayout.Button(
-                            new GUIContent(FormatMissionOutcomeSubitemText(e),
-                                "Scrolls the Timeline window to the flight this row came from."),
-                            StyleForEndState(e.EndState)))
-                        {
-                            // Mirrors the Timeline row cross-link pattern
-                            // (TimelineWindowUI.DrawEntryRow). Note Timeline.GoTo itself now
-                            // routes to RecordingsTableUI.ShowMissionForRecording, not to
-                            // ScrollToRecording (design 4.1a). GetTimelineUI()
-                            // can return null during cold-start scene transitions — the
-                            // helper tolerates a null callback and still emits the
-                            // diagnostic log (E14).
-                            var timelineUI = parentUI != null ? parentUI.GetTimelineUI() : null;
-                            Action<string> scrollCallback = timelineUI != null
-                                ? timelineUI.ScrollToRecording
-                                : (Action<string>)null;
-                            OnFatesRowClicked(scrollCallback, e.RecordingId);
-                        }
-                    }
-                }
-                i = j;
+                ToggleFold(foldedKerbals, group.FoldKey,
+                    group.Rows != null ? group.Rows.Count : 0);
             }
 
-            GUILayout.EndVertical();
+            if (folded || group.Rows == null) return;
+            for (int i = 0; i < group.Rows.Count; i++)
+                DrawFlightRow(group.Rows[i]);
         }
+
+        private void DrawFlightRow(KerbalsPresentation.FlightRow row)
+        {
+            GUIStyle cellStyle = StyleForEndState(row.EndState);
+            // The whole row is the Timeline cross-link, so every cell is a label-styled
+            // button carrying the same help text: a click anywhere on the row scrolls the
+            // Timeline to the flight it came from.
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
+            bool clicked = GUILayout.Button(
+                new GUIContent(SubitemIndent + row.DateText,
+                    "Scrolls the Timeline window to the flight this row came from."),
+                cellStyle, GUILayout.Width(ColW_FlightDate));
+            clicked |= GUILayout.Button(
+                new GUIContent(row.MissionText, DescribeFlightRow(row)),
+                cellStyle, GUILayout.Width(ColW_FlightMission));
+            clicked |= GUILayout.Button(
+                new GUIContent(row.OutcomeText, TooltipForOutcome(row.EndState)),
+                cellStyle, GUILayout.Width(ColW_FlightOutcome));
+            clicked |= GUILayout.Button(
+                new GUIContent(row.CrewNoteText,
+                    "Who actually flew it, when a stand-in covered this kerbal's seat."),
+                cellStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
+
+            if (clicked)
+            {
+                // Mirrors the Timeline row cross-link pattern (TimelineWindowUI.DrawEntryRow).
+                // GetTimelineUI() can return null during cold-start scene transitions - the
+                // helper tolerates a null callback and still emits the diagnostic log (E14).
+                var timelineUI = parentUI != null ? parentUI.GetTimelineUI() : null;
+                Action<string> scrollCallback = timelineUI != null
+                    ? timelineUI.ScrollToRecording
+                    : (Action<string>)null;
+                OnFatesRowClicked(scrollCallback, row.RecordingId);
+            }
+        }
+
+        /// <summary>The row-level hover text: the raw recording behind a mission name, so
+        /// the id and the recorded craft name stay readable without a column of their
+        /// own.</summary>
+        internal static string DescribeFlightRow(KerbalsPresentation.FlightRow row)
+        {
+            string rec = string.IsNullOrEmpty(row.RecordingName) ? "(unnamed)" : row.RecordingName;
+            return "Recorded flight '" + rec + "' (id " + row.RecordingId + ").";
+        }
+
+        internal static string TooltipForOutcome(KerbalEndState state)
+        {
+            switch (state)
+            {
+                case KerbalEndState.Recovered:
+                    return "The flight ended with this kerbal recovered.";
+                case KerbalEndState.Dead:
+                    return "This kerbal did not come back from the flight.";
+                case KerbalEndState.Aboard:
+                    return "The flight ended with this kerbal still aboard the craft.";
+                default:
+                    return "The flight has no recorded ending.";
+            }
+        }
+
+        private GUIStyle StyleForEndState(KerbalEndState s)
+        {
+            switch (s)
+            {
+                case KerbalEndState.Dead: return deadStyle;
+                case KerbalEndState.Recovered: return recoveredStyle;
+                case KerbalEndState.Aboard: return aboardStyle;
+                default: return grayStyle;
+            }
+        }
+
+        // ------------------------- shared helpers -------------------------
 
         // Logs the tab-switch. Extracted as a pure helper so the log contract stays
         // testable outside IMGUI (mirrors CareerStateWindowUI.SwitchTab).
@@ -696,9 +805,9 @@ namespace Parsek
             return !wasFolded;
         }
 
-        // Pure helper for the Fates → Timeline cross-link. Production passes
+        // Pure helper for the Flights -> Timeline cross-link. Production passes
         // `parentUI.GetTimelineUI().ScrollToRecording` as the callback; tests pass a
-        // lambda spy. Tolerates a null callback (E14 — GetTimelineUI() can be null
+        // lambda spy. Tolerates a null callback (E14 - GetTimelineUI() can be null
         // during cold-start scene transitions) so the click never NREs; the log
         // still fires so stale-id clicks leave a diagnostic trail.
         internal static void OnFatesRowClicked(
@@ -709,213 +818,298 @@ namespace Parsek
             if (scrollCallback != null) scrollCallback(recordingId);
         }
 
-        internal static string FormatKerbalSummary(
-            string kerbalName,
-            IReadOnlyList<CrewEndStateEntry> entries,
-            int start,
-            int end)
+        /// <summary>
+        /// The calendar date a row cell shows: the Timeline's own compact-date form with
+        /// its raw-UT fallback (<c>TimelineWindowUI.FormatTimelineEntryTimeLabel</c>), so
+        /// the two windows date the same flight the same way. A KSP call, which is why
+        /// <see cref="KerbalsPresentation"/> takes it as a delegate.
+        /// </summary>
+        internal static string FormatRowDate(double ut)
         {
-            int dead = 0, recovered = 0, aboard = 0, unknown = 0;
-            for (int k = start; k < end; k++)
+            try { return KSPUtil.PrintDateCompact(ut, true); }
+            catch
             {
-                switch (entries[k].EndState)
+                return ut.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        // ------------------------- the view model -------------------------
+
+        /// <summary>
+        /// Gathers the live inputs and hands them to the pure builders. Everything
+        /// KSP-shaped happens here: the stock roster walk, the live crew-to-vessel map,
+        /// the ledger's slots / reservations / retired set, and the mission names.
+        /// </summary>
+        private KerbalsViewModel GatherViewModel()
+        {
+            var kerbals = LedgerOrchestrator.Kerbals;
+            // [Phase 3] ERS-routed: the kerbals window reads visible recordings only;
+            // NotCommitted / superseded / session-suppressed entries are excluded from
+            // roster context.
+            IReadOnlyList<Recording> recordings = EffectiveState.ComputeERS();
+
+            IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots =
+                kerbals != null ? kerbals.Slots : null;
+            IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> reservations =
+                kerbals != null ? kerbals.Reservations : null;
+            IReadOnlyList<string> retired = kerbals != null ? kerbals.GetRetiredKerbals() : null;
+            IReadOnlyDictionary<string, IReadOnlyCollection<string>> rawCrew =
+                kerbals != null ? kerbals.RawRecordingCrewByRecordingId : null;
+            ActiveChainIndexFunc activeChainIndexOf = kerbals != null
+                ? (ActiveChainIndexFunc)(slot => kerbals.GetActiveChainIndex(slot))
+                : null;
+
+            return BuildViewModel(
+                GatherRoster(),
+                slots,
+                reservations,
+                retired,
+                recordings,
+                GatherMissionNames(recordings),
+                rawCrew,
+                CrewReservationManager.CrewReplacements,
+                activeChainIndexOf,
+                FormatRowDate);
+        }
+
+        /// <summary>
+        /// The stock roster as rows: crew always, applicants and tourists only when
+        /// Parsek has a badge on them (a slot, a reservation, the retired set or a
+        /// ledger-created name), because a hiring pool of forty applicants is not what
+        /// this window is for.
+        /// </summary>
+        private static List<KerbalsPresentation.RosterKerbal> GatherRoster()
+        {
+            var rows = new List<KerbalsPresentation.RosterKerbal>();
+            int crew = 0, extra = 0, skipped = 0;
+            try
+            {
+                if (HighLogic.CurrentGame == null || HighLogic.CurrentGame.CrewRoster == null)
                 {
-                    case KerbalEndState.Dead: dead++; break;
-                    case KerbalEndState.Recovered: recovered++; break;
-                    case KerbalEndState.Aboard: aboard++; break;
-                    default: unknown++; break;
+                    ParsekLog.Verbose("UI", "KerbalsWindow: no crew roster to gather");
+                    return rows;
+                }
+                Dictionary<string, string> vesselOf = GatherAssignedVessels();
+                KerbalsModule kerbals = LedgerOrchestrator.Kerbals;
+
+                foreach (ProtoCrewMember pcm in HighLogic.CurrentGame.CrewRoster.Crew)
+                {
+                    if (pcm == null || string.IsNullOrEmpty(pcm.name)) continue;
+                    rows.Add(BuildRosterKerbal(pcm, vesselOf));
+                    crew++;
+                }
+                foreach (ProtoCrewMember pcm in HighLogic.CurrentGame.CrewRoster.Applicants)
+                {
+                    if (pcm == null || string.IsNullOrEmpty(pcm.name)) continue;
+                    if (kerbals == null || !kerbals.IsManaged(pcm.name)) { skipped++; continue; }
+                    rows.Add(BuildRosterKerbal(pcm, vesselOf));
+                    extra++;
+                }
+                foreach (ProtoCrewMember pcm in HighLogic.CurrentGame.CrewRoster.Tourist)
+                {
+                    if (pcm == null || string.IsNullOrEmpty(pcm.name)) continue;
+                    if (kerbals == null || !kerbals.IsManaged(pcm.name)) { skipped++; continue; }
+                    rows.Add(BuildRosterKerbal(pcm, vesselOf));
+                    extra++;
                 }
             }
-            int total = end - start;
-            var parts = new List<string>(4);
-            if (dead > 0) parts.Add($"{dead} Dead");
-            if (recovered > 0) parts.Add($"{recovered} Recovered");
-            if (aboard > 0) parts.Add($"{aboard} Aboard");
-            if (unknown > 0) parts.Add($"{unknown} Unknown");
-            string missionLabel = total == 1 ? "1 mission" : $"{total} missions";
-            return $"{kerbalName} ({missionLabel} - {string.Join(", ", parts)})";
-        }
-
-        private GUIStyle StyleForEndState(KerbalEndState s)
-        {
-            switch (s)
+            catch (Exception ex)
             {
-                case KerbalEndState.Dead: return deadStyle;
-                case KerbalEndState.Recovered: return recoveredStyle;
-                case KerbalEndState.Aboard: return aboardStyle;
-                default: return grayStyle;
+                // The headless xUnit host has no HighLogic at all; a transient KSP-side
+                // failure lands here too. The roster half of the tab then reads from the
+                // ledger's own names only, which is what the pure builder adds anyway.
+                ParsekLog.Verbose("UI",
+                    $"KerbalsWindow: roster gather failed ({ex.GetType().Name}) - ledger names only");
             }
+            ParsekLog.Verbose("UI",
+                $"KerbalsWindow: roster gathered - crew={crew} managedNonCrew={extra} skipped={skipped}");
+            return rows;
         }
 
-        internal static string FormatEndStateRow(CrewEndStateEntry e)
+        private static KerbalsPresentation.RosterKerbal BuildRosterKerbal(
+            ProtoCrewMember pcm, Dictionary<string, string> vesselOf)
         {
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            string rec = string.IsNullOrEmpty(e.RecordingName) ? "(unnamed)" : e.RecordingName;
-            return $"{rec} - {FormatEndState(e.EndState)} at UT {e.EndUT.ToString("F0", ic)}";
-        }
-
-        internal static string FormatEndState(KerbalEndState s)
-        {
-            switch (s)
+            string vessel = null;
+            if (vesselOf != null) vesselOf.TryGetValue(pcm.name, out vessel);
+            return new KerbalsPresentation.RosterKerbal
             {
-                case KerbalEndState.Dead: return "Dead";
-                case KerbalEndState.Recovered: return "Recovered";
-                case KerbalEndState.Aboard: return "Aboard";
-                default: return "Unknown";
-            }
+                Name = pcm.name,
+                Trait = pcm.trait ?? "",
+                AssignedVesselName = vessel
+            };
         }
 
-        internal static KerbalsViewModel Build(
+        /// <summary>
+        /// Crew name -> the vessel it is aboard right now. Ghost-map ProtoVessels are
+        /// skipped first (<c>GhostMapPresence.IsGhostMapVessel</c>), so a ghost's recorded
+        /// crew never reads as a live assignment.
+        /// </summary>
+        private static Dictionary<string, string> GatherAssignedVessels()
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            int vessels = 0, ghosts = 0, seated = 0;
+            try
+            {
+                var all = FlightGlobals.Vessels;
+                if (all == null) return map;
+                for (int v = 0; v < all.Count; v++)
+                {
+                    Vessel vessel = all[v];
+                    if (vessel == null) continue;
+                    if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) { ghosts++; continue; }
+                    vessels++;
+                    var vesselCrew = vessel.GetVesselCrew();
+                    if (vesselCrew == null) continue;
+                    for (int c = 0; c < vesselCrew.Count; c++)
+                    {
+                        ProtoCrewMember pcm = vesselCrew[c];
+                        if (pcm == null || string.IsNullOrEmpty(pcm.name)) continue;
+                        map[pcm.name] = vessel.vesselName ?? "";
+                        seated++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("UI",
+                    $"KerbalsWindow: live crew map failed ({ex.GetType().Name}) - no Assigned rows");
+                return map;
+            }
+            ParsekLog.Verbose("UI",
+                $"KerbalsWindow: live crew map - vessels={vessels} ghostsSkipped={ghosts} seated={seated}");
+            return map;
+        }
+
+        /// <summary>Recording id -> the mission name that recording belongs to, through
+        /// its tree's original mission. A recording with no tree or no mission is absent
+        /// from the map, and the row then falls back to the recorded vessel name.</summary>
+        private static Dictionary<string, string> GatherMissionNames(
+            IReadOnlyList<Recording> recordings)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (recordings == null) return map;
+            int named = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (string.IsNullOrEmpty(rec.TreeId)) continue;
+                Mission mission = MissionStore.FindOriginalMission(rec.TreeId);
+                if (mission == null || string.IsNullOrEmpty(mission.Name)) continue;
+                map[rec.RecordingId] = mission.Name;
+                named++;
+            }
+            ParsekLog.Verbose("UI",
+                $"KerbalsWindow: mission names resolved for {named} of {recordings.Count} recordings");
+            return map;
+        }
+
+        /// <summary>
+        /// Composes the whole view model out of pure inputs. The seam between the gather
+        /// above and the builders in <see cref="KerbalsPresentation"/>, and the entry point
+        /// the unit tests drive.
+        /// </summary>
+        internal static KerbalsViewModel BuildViewModel(
+            IReadOnlyList<KerbalsPresentation.RosterKerbal> roster,
             IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots,
             IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> reservations,
             IReadOnlyList<string> retired,
             IReadOnlyList<Recording> committedRecordings,
-            ActiveChainIndexFunc activeChainIndexOf)
+            IReadOnlyDictionary<string, string> missionNameByRecordingId,
+            IReadOnlyDictionary<string, IReadOnlyCollection<string>> rawCrewByRecordingId,
+            IReadOnlyDictionary<string, string> replacements,
+            ActiveChainIndexFunc activeChainIndexOf,
+            Func<double, string> formatDate)
         {
-            var vm = new KerbalsViewModel
-            {
-                Topology = new List<SlotTopologyEntry>(),
-                OrphanRetired = new List<string>(),
-                EndStates = new List<CrewEndStateEntry>()
-            };
+            List<CrewEndStateEntry> endStates = BuildEndStates(committedRecordings);
+            List<KerbalsPresentation.FlightGroup> flights = KerbalsPresentation.BuildFlightRows(
+                endStates,
+                missionNameByRecordingId,
+                rawCrewByRecordingId,
+                replacements,
+                slots,
+                BuildTraitMap(roster, slots),
+                formatDate);
+            KerbalsPresentation.RosterRowSet rosterRows = KerbalsPresentation.BuildRosterRows(
+                roster, slots, reservations, retired, flights, activeChainIndexOf, formatDate);
 
-            // Retired snapshot is a HashSet in KerbalsModule — iteration order is
-            // implementation-defined. Copy to an ordered lookup so classification is
-            // deterministic and orphan detection is O(1).
-            var retiredSet = new HashSet<string>(StringComparer.Ordinal);
-            if (retired != null)
+            ParsekLog.Verbose("UI",
+                $"KerbalsWindow: built VM - roster={rosterRows.Involved.Count}+{rosterRows.Plain.Count} "
+                + $"flightGroups={flights.Count} endStates={endStates.Count}");
+
+            return new KerbalsViewModel
             {
-                for (int i = 0; i < retired.Count; i++)
+                EndStates = endStates,
+                Flights = flights,
+                Roster = rosterRows
+            };
+        }
+
+        private static Dictionary<string, string> BuildTraitMap(
+            IReadOnlyList<KerbalsPresentation.RosterKerbal> roster,
+            IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (slots != null)
+            {
+                foreach (var pair in slots)
                 {
-                    string n = retired[i];
-                    if (!string.IsNullOrEmpty(n)) retiredSet.Add(n);
+                    if (pair.Value == null || string.IsNullOrEmpty(pair.Key)) continue;
+                    map[pair.Key] = pair.Value.OwnerTrait ?? "";
                 }
             }
-
-            // Names that appear in some slot's Chain — the complement within retiredSet
-            // is the orphan set. If the same stand-in name somehow appears in two
-            // different slots' chains (not expected by construction, but not enforced
-            // by the data source), it shows up under both owner rows and never lands
-            // in OrphanRetired — deliberate: duplicate visibility beats losing the
-            // link entirely.
-            var seenInChain = new HashSet<string>(StringComparer.Ordinal);
-
-            if (slots != null && reservations != null && activeChainIndexOf != null)
+            // The live roster wins over the slot's stored trait: the slot copy is a
+            // snapshot taken when the walk created it.
+            if (roster != null)
             {
-                var ownerNames = new List<string>(slots.Keys);
-                ownerNames.Sort(StringComparer.Ordinal);
-
-                for (int i = 0; i < ownerNames.Count; i++)
+                for (int i = 0; i < roster.Count; i++)
                 {
-                    string owner = ownerNames[i];
-                    var slot = slots[owner];
-                    if (slot == null) continue;
+                    if (string.IsNullOrEmpty(roster[i].Name)) continue;
+                    map[roster[i].Name] = roster[i].Trait ?? "";
+                }
+            }
+            return map;
+        }
 
-                    bool ownerReserved = false;
-                    double ownerReservedUntilUT = 0.0;
-                    if (!slot.OwnerPermanentlyGone
-                        && reservations.TryGetValue(owner, out var res)
-                        && res != null
-                        && !res.IsPermanent)
+        /// <summary>
+        /// Per-recording crew end-states, flattened and sorted (kerbal name ordinal, then
+        /// EndUT ascending). Skips recordings where <c>CrewEndStatesResolved == false</c>
+        /// (end-states still pending) or where the dictionary is null (nothing committed
+        /// yet).
+        /// </summary>
+        internal static List<CrewEndStateEntry> BuildEndStates(
+            IReadOnlyList<Recording> committedRecordings)
+        {
+            var endStates = new List<CrewEndStateEntry>();
+            if (committedRecordings == null) return endStates;
+
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec == null) continue;
+                if (!rec.CrewEndStatesResolved) continue;
+                if (rec.CrewEndStates == null) continue;
+                foreach (var kvp in rec.CrewEndStates)
+                {
+                    if (string.IsNullOrEmpty(kvp.Key)) continue;
+                    endStates.Add(new CrewEndStateEntry
                     {
-                        ownerReserved = true;
-                        ownerReservedUntilUT = res.ReservedUntilUT;
-                    }
-
-                    int activeIdx = activeChainIndexOf(slot);
-                    var chainMembers = new List<ChainMember>();
-                    if (slot.Chain != null)
-                    {
-                        for (int c = 0; c < slot.Chain.Count; c++)
-                        {
-                            string name = slot.Chain[c];
-                            if (string.IsNullOrEmpty(name)) continue;
-
-                            // Retired wins before active: ComputeRetiredSet only marks
-                            // !isReserved names, so the two are mutually exclusive by
-                            // construction — ordering here is defensive.
-                            ChainMemberStatus status;
-                            if (retiredSet.Contains(name))
-                                status = ChainMemberStatus.Retired;
-                            else if (activeIdx >= 0 && activeIdx < slot.Chain.Count && c == activeIdx)
-                                status = ChainMemberStatus.Active;
-                            else
-                                status = ChainMemberStatus.Displaced;
-
-                            chainMembers.Add(new ChainMember
-                            {
-                                Name = name,
-                                ChainIndex = c,
-                                Status = status
-                            });
-                            seenInChain.Add(name);
-                        }
-                    }
-
-                    vm.Topology.Add(new SlotTopologyEntry
-                    {
-                        OwnerName = owner,
-                        OwnerTrait = slot.OwnerTrait,
-                        OwnerPermanentlyGone = slot.OwnerPermanentlyGone,
-                        OwnerReserved = ownerReserved,
-                        OwnerReservedUntilUT = ownerReservedUntilUT,
-                        Chain = chainMembers
+                        KerbalName = kvp.Key,
+                        RecordingName = rec.VesselName ?? "",
+                        RecordingId = rec.RecordingId ?? "",
+                        EndUT = rec.EndUT,
+                        EndState = kvp.Value
                     });
                 }
             }
 
-            if (retiredSet.Count > 0)
+            endStates.Sort((a, b) =>
             {
-                var orphans = new List<string>();
-                foreach (var name in retiredSet)
-                {
-                    if (!seenInChain.Contains(name)) orphans.Add(name);
-                }
-                orphans.Sort(StringComparer.Ordinal);
-                vm.OrphanRetired = orphans;
-            }
-
-            // Per-recording crew end-states. Skip recordings where
-            // CrewEndStatesResolved==false (end-states still pending) or where the dict is
-            // null (nothing committed yet). Group ordinally by kerbal name, then
-            // chronologically by EndUT within a group so each kerbal's mission history reads
-            // forward in time.
-            if (committedRecordings != null)
-            {
-                for (int i = 0; i < committedRecordings.Count; i++)
-                {
-                    var rec = committedRecordings[i];
-                    if (rec == null) continue;
-                    if (!rec.CrewEndStatesResolved) continue;
-                    if (rec.CrewEndStates == null) continue;
-                    foreach (var kvp in rec.CrewEndStates)
-                    {
-                        if (string.IsNullOrEmpty(kvp.Key)) continue;
-                        vm.EndStates.Add(new CrewEndStateEntry
-                        {
-                            KerbalName = kvp.Key,
-                            RecordingName = rec.VesselName ?? "",
-                            RecordingId = rec.RecordingId ?? "",
-                            EndUT = rec.EndUT,
-                            EndState = kvp.Value
-                        });
-                    }
-                }
-
-                vm.EndStates.Sort((a, b) =>
-                {
-                    int n = StringComparer.Ordinal.Compare(a.KerbalName, b.KerbalName);
-                    if (n != 0) return n;
-                    return a.EndUT.CompareTo(b.EndUT);
-                });
-            }
-
-            ParsekLog.Verbose("UI",
-                $"KerbalsWindow: built VM \u2014 topology={vm.Topology.Count} " +
-                $"orphans={vm.OrphanRetired.Count} " +
-                $"endStates={vm.EndStates.Count}");
-
-            return vm;
+                int n = StringComparer.Ordinal.Compare(a.KerbalName, b.KerbalName);
+                if (n != 0) return n;
+                return a.EndUT.CompareTo(b.EndUT);
+            });
+            return endStates;
         }
     }
 }

@@ -15,6 +15,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, and a snapshot-less recording can be attributed to the wrong stand-in [FILED 2026-09-15 with the Kerbals-window rebuild. Both are PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
+
+**What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
+the two things its row model could not answer off existing data.
+
+1. **`Since` is `-` for four of the six statuses.** A loss is dated by the flight whose end
+   state is Dead, and a reservation by the kerbal's latest recorded flight (the flight that
+   created the hold). Retirement, stand-in placement and a live crew assignment have no
+   recorded start anywhere: `ComputeRetiredSet` rebuilds the retired set from scratch every
+   walk, `KerbalSlot.Chain` stores names with no UT, and a roster assignment is a live KSP
+   fact with no history. The column shows `-` rather than a number that would be a guess.
+   **Fix (if wanted):** persist a UT beside each chain entry and each retirement, which is a
+   `KERBAL_SLOTS` shape change and therefore a schema-generation bump - not worth it for one
+   column, which is why it is filed rather than done.
+
+2. **The "as &lt;stand-in&gt;" fallback is time-blind.** The primary source is per-flight
+   truth - the recording's own raw crew, through the new
+   `KerbalsModule.RawRecordingCrewByRecordingId` - but raw crew comes from the recording's
+   `VesselSnapshot`, and the load-time sweep can null it. The fallback is then
+   `CrewReservationManager.CrewReplacements`, which answers the CURRENT stand-in, so on an
+   old flight it can name a kerbal who did not fly it. Chosen deliberately over silence (the
+   cell would otherwise read `-` on exactly the flights a stand-in is most likely to have
+   flown), and the reverse-map in `PopulateCrewEndStates` has the same blindness by
+   construction. **Fix (if wanted):** persist the flown crew names per recording beside
+   `CREW_END_STATES` instead of reverse-mapping them to the owner - a schema change, and it
+   would also let the Flights tab file a stand-in's flights under the stand-in if that ever
+   becomes the wanted reading (it is not today: operator ruling 2026-09-15 keeps the
+   grouping per owner).
+
+Neither blocks anything. Both are recorded because the window now has columns whose blanks
+are visible, where the old outline simply said nothing.
+
 ## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows]
 
 **What is true.**
@@ -276,7 +308,8 @@ window:
 | Structure window | 280 312 426 817 916 1105 | 284 316 430 812 911 1100 | **+4** cols 0-2, **-5** cols 3-5 | Event 387 header vs 378 cell (**-9**) |
 | Missions window, Recordings tab | 10 (merged 62) 76 285 379 473 587 671 795 859 923 1017 1081 1175 | 14 + 38, 77 280 374 468 582 666 790 854 918 1012 1076 1170 | toggle / `#` exact, **-5** cols 2-12 | Name 205 header vs 199 cell |
 | Missions window, Missions and vessels tab | 10 (merged 62) 76 521 630 754 868 957 1081 1175 | 10 + 34, 68 520 629 753 867 956 1080 1174 | toggle / `#` **-4**, Name **-8**, **-1** cols 3-9 | Name 441 header vs 448 cell |
-| Kerbals, Timeline, Settings, Test Runner | no column-header row at all (indented outlines / forms) | - | n/a | - |
+| Timeline, Settings, Test Runner | no column-header row at all (indented outlines / forms) | - | n/a | - |
+| Kerbals, both tabs | NOT MEASURED HERE: this window had no column-header row when the census ran. REBUILT 2026-09-15 as two column tables on the shared inset (`docs/dev/design-gui-kerbals-window.md`), so it is born aligned - its two rows in `TableRowInsetAlignmentTests` keep it that way and the flown dumps read **0** | - | **0** | - |
 
 **Cause.** KSP's skin reports box / label / button / toggle / textField margin L4/R4 and
 box padding L4/R4 (logged every draw by `RecordingsTableUI` as `Rec table skin margins`).

@@ -78,6 +78,44 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The Kerbals window was rebuilt as two column tables, and its Roster tab now lists
+  every kerbal instead of only the ones Parsek created a slot for.** Before this, on a
+  110-recording career, that tab drew exactly ONE row - because a slot only exists where
+  the ledger built a replacement chain, so Bill, Bob and Val were simply absent from a
+  window called "Roster State". Both tabs were also indented outlines with the flight
+  times printed as raw seconds (`Recovered at UT 2053805`), which is not a date anyone
+  reads.
+
+  The tabs are now named **Roster** and **Flights**, and both are column tables whose
+  header and cells share one inset, so every value sits under its own heading:
+
+  - **Roster** has one row per kerbal the game shows you, plus a row for every Parsek
+    stand-in or retiree the stock roster has dropped. The columns are the kerbal and
+    trait, what he is doing now, when that started, and how his last flight ended. The
+    status is one of `Available`, `Assigned (vessel name)`, `Reserved until <date>`
+    (`Reserved until recovery` when there is no return date yet, `Reserved for <kerbal>
+    until <date>` when a stand-in is being held for someone else's slot), `Stand-in for
+    <kerbal>`, `Retired` or `Lost`. Kerbals with nothing to report - available, no
+    reservation, no stand-in, no recorded flight - are collected behind one closed row,
+    `Available, no recorded flights (N)`, so the tab reads as "what needs my attention"
+    rather than as a roster dump. A row whose slot has stand-ins still expands to the
+    same replacement chain as before, and a stand-in now gets its own row saying whose
+    slot it is covering.
+  - **Flights** keeps the per-kerbal grouping, and the group header now always carries
+    the summary it used to show only when folded: `Jebediah Kerman [Pilot] - 2 flights:
+    1 recovered, 1 aboard`. Each row is a date (the calendar form the Timeline uses, not
+    raw seconds), the mission the flight belongs to (the recording name and id moved into
+    the hover text), the outcome as a word - `Recovered`, `Lost`, `Still aboard`, or
+    `Outcome unknown`, whose hover says "The flight has no recorded ending." - and a crew
+    note reading `as <kerbal>` when a stand-in flew that seat. Clicking a row still
+    scrolls the Timeline to that flight.
+
+  The window's first-open width went from 410 to 700 px and its minimum from 280 to 520,
+  which is what the columns need; the two tabs' seam tokens (`roster`, `outcomes`) are
+  unchanged, so nothing that drives the window by name moved. The empty-state line that
+  used to say "No reserved crew, stand-ins, or retired kerbals." on a career with four
+  kerbals in it is gone. Design: `docs/dev/design-gui-kerbals-window.md`.
+
 - **Unticking a recording's playback box now hides that flight everywhere, not just in
   the world.** The tick box at the left of every row in the Recordings tab promised that
   "the flight stays recorded but no ghost appears" - and it hid the ghost you fly past,

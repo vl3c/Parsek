@@ -455,6 +455,34 @@ sliders, any non-default preset, `Archived` ON, the countdown label, every disab
 
 ### 3.4 Parsek - Kerbals
 
+**REBUILT 2026-09-15.** Both tabs are now COLUMN TABLES, the tabs are named `Roster` and
+`Flights`, and the row model, the status vocabulary, the sizing numbers and the
+`op=expand window=kerbals` seam row live in their own authority:
+**`docs/dev/design-gui-kerbals-window.md`**. Everything below the divider is the 2026-09-11
+measurement of the PRE-rebuild window, kept because the captures it cites are the "before"
+half of that document's section 8.
+
+Purpose (unchanged): read-only. What each kerbal is doing now, and how every recorded flight
+a kerbal took ended. No reserve / unreserve / swap / clear control; its only mutations are
+three transient fold states.
+
+Hosts (unchanged): FLIGHT and SPACECENTER. Basic-HIDDEN at the launcher (decision
+`UI/UiComplexityMode.cs:181`), force-closed on an Advanced -> Basic switch, so it has **no
+Basic picture by construction**.
+
+What the rebuild changed against the rows below: two indented outlines became two column
+tables sharing one inset (`ParsekUI.GetTableRowStyle` / `GetTableBodyBoxStyle`, zero
+header-vs-cell delta); the Roster tab lists EVERY visible kerbal rather than only
+ledger-created slots, with plain available kerbals behind one fold row; the status words
+changed to `Available` / `Assigned (<vessel>)` / `Reserved ...` / `Stand-in for <owner>` /
+`Retired` / `Lost`; raw `UT n` stamps became calendar dates; the `Unlinked Retired` tail is
+gone (a retiree with no slot is now an ordinary row); and `DefaultWindowWidth` went 410 ->
+700 with `MinWindowWidth` 280 -> 520.
+
+---
+
+*The 2026-09-11 measurement of the pre-rebuild window follows.*
+
 Purpose: read-only. Who fills each crew slot now, and how every recorded flight a kerbal took
 ended. It has no reserve / unreserve / swap / clear control and mutates nothing but two
 transient fold sets (`UI/KerbalsWindowUI.cs:64`, `:70`); `CrewReservationManager` is not
