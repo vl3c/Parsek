@@ -241,6 +241,30 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: twelve rewind / Re-Fly cells from the audit's T3 (weak or misleading)
+  register now let the production term they name decide the verdict.** Each ran the
+  right code but could not see the branch its name claimed. The legacy-marker
+  structural-mutation cell excluded its branch point by lineage, so the conservative
+  null-baseline skip was never the reason it passed; the in-place slot-lookup fallback
+  used a Landed terminal, which never requires slot-aware classification, so the
+  in-place exemption from the abort could not fire; a carve-out ordering cell ran with
+  the competing chain-head gate disarmed; the idempotent re-apply hit an empty-list
+  early-out and never reached the duplicate guard its comment named; a Discard cell
+  asserted a predicate that stays true for a recording the prune removed from the
+  store; two spawn cells left the terminal null, so the effective-leaf rule and the
+  passed tree context were never consulted; a dialog headline was pinned only up to
+  the vessel name, and a classifier-fallback cell asserted a false that a hardcoded
+  false also produces; two crew-loss fixture cells compared a derivation against
+  itself; and the abort-before-dispatch cell asserted only that the run did not reach
+  its last line. The fixtures are now armed so the named term is the sole
+  discriminator, with three new sibling cells carrying the mirror direction (an
+  Orbiting in-place continuation, a non-debris recording of the same chain shape, and
+  a different-pid child resolvable only through the passed tree context), and the two
+  fixture cells read the injected recording and the RP quicksave sidecar rather than
+  re-deriving what the fixture wrote. No production code changed; no log text changed;
+  nothing a player sees changes. Each cell was re-checked by breaking the named
+  production line on purpose and confirming it goes red.
+
 - **Tests: the seven worst tests in the suite now test what their names say.** The test
   quality audit read every one of the ~23,400 unit tests and found seven that could not
   fail: each did the work the production code does inside the test body and then checked

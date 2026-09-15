@@ -1230,6 +1230,13 @@ namespace Parsek.Tests
                 Id = "bp_legacy",
                 Type = BranchPointType.Breakup,
                 UT = 200.0,
+                ChildRecordingIds = new List<string>(),
+                // In the Re-Fly target's lineage and after the resolved
+                // cutoff, so the structural type, UT and lineage terms all
+                // pass. The null baseline is then the ONLY term that keeps
+                // the gate shut: treating the null list as an empty set
+                // would match this BP and seal the slot.
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             InstallTree("tree_legacy",
                 new List<Recording> { rec },
@@ -2290,6 +2297,50 @@ namespace Parsek.Tests
                 marker, provisional, scenario, preserveMarker: false);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[ERROR][Supersede]")
+                && l.Contains("Site B-1 slot lookup failed"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE][Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("in-place continuation: using v0.9 terminalKind classifier"));
+        }
+
+        [Fact]
+        public void InPlaceContinuationSlotLookupFailure_OrbitingTerminal_ExemptFromSlotAwareAbort()
+        {
+            // Mirror of the Landed cell above. A Landed terminal leaves
+            // RequiresSlotAwareMergeClassification false, so the abort gate
+            // could never have thrown for it and the in-place exemption was
+            // unwitnessed. Orbiting is the one stable terminal that DOES
+            // require slot-aware classification, so here the
+            // !IsInPlaceContinuation conjunct is the sole term standing
+            // between this fixture and an InvalidOperationException.
+            var provisional = AddProvisional("rec_origin", "tree_1",
+                TerminalState.Orbiting, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            Assert.True(SupersedeCommit.RequiresSlotAwareMergeClassification(provisional));
+            var marker = Marker("rec_origin", "rec_origin", supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_other",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec_origin",
+                        Controllable = true
+                    }
+                }
+            });
+
+            SupersedeCommit.FlipMergeStateAndClearTransient(
+                marker, provisional, scenario, preserveMarker: false);
+
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[ERROR][Supersede]")
                 && l.Contains("Site B-1 slot lookup failed"));
@@ -4177,17 +4228,34 @@ namespace Parsek.Tests
         [Fact]
         public void IsPreRewindCarveOut_DebrisDoesNotMatchChainHead_StillReturnsDebrisReason()
         {
-            // Predicate ordering test: a debris recording whose StartUT is
-            // strictly pre-rewind AND whose EndUT happens to be at rewindUT
-            // matches both predicates' type-agnostic UT tests. The
-            // implementation checks the debris case FIRST (per the plan's
-            // code block), so the debris reason wins. This confirms the
-            // ordering — a future refactor that flipped the order would
-            // mis-tag this recording as a chain head.
+            // Type-discrimination test, with the competing gate ARMED: the
+            // fixture satisfies every chain-head term (a committed TIP is
+            // reachable, marker.SupersedeTargetId names it, the recording
+            // shares TIP's ChainId + ChainBranch at a lower ChainIndex, and
+            // its actual EndUT is at rewindUT) as well as the debris terms.
+            // It is `rec.IsDebris` alone - not block order - that decides
+            // which reason comes back: the debris branch gates on IsDebris
+            // and the chain-head branch on !IsDebris, so the two are
+            // mutually exclusive by type. The sibling cell below drives the
+            // same chain shape with IsDebris=false and must get
+            // PreRewindChainHead; dropping the IsDebris conjunct from the
+            // debris branch reds that sibling.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_boundary",
+                IsDebris = false,
+                ChainId = "chain_boundary",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            RecordingStore.AddCommittedInternal(tip);
             var marker = new ReFlySessionMarker
             {
                 RewindPointUT = 34.0,
                 InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_boundary",
                 PreSessionBranchPointIds = new List<string>(),
             };
             var debrisAtBoundary = new Recording
@@ -4195,6 +4263,9 @@ namespace Parsek.Tests
                 RecordingId = "rec_debris_at_boundary",
                 IsDebris = true,
                 ParentAnchorRecordingId = "rec_origin_carveout",
+                ChainId = "chain_boundary",
+                ChainBranch = 0,
+                ChainIndex = 0,
                 ExplicitStartUT = 20.0, // < 34.0 - 0.05
                 ExplicitEndUT = 34.0,  // == rewindUT
             };
@@ -4205,6 +4276,52 @@ namespace Parsek.Tests
 
             Assert.True(result);
             Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindDebris, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NonDebrisWithSameChainShape_ReturnsChainHeadReason()
+        {
+            // Mirror of the cell above with the ONLY difference being
+            // IsDebris=false (and the parent anchor the debris branch also
+            // requires). Same chain shape, same UT window, same marker: the
+            // reason must be PreRewindChainHead. This is the direction that
+            // reds when the debris branch stops gating on rec.IsDebris.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_boundary_mirror",
+                IsDebris = false,
+                ChainId = "chain_boundary_mirror",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            RecordingStore.AddCommittedInternal(tip);
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_boundary_mirror",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var headAtBoundary = new Recording
+            {
+                RecordingId = "rec_head_at_boundary",
+                IsDebris = false,
+                ParentAnchorRecordingId = "rec_origin_carveout",
+                ChainId = "chain_boundary_mirror",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                ExplicitStartUT = 20.0,
+                ExplicitEndUT = 34.0,
+            };
+            StampActualBounds(headAtBoundary, 20.0, 34.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                headAtBoundary, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
         }
 
         [Fact]

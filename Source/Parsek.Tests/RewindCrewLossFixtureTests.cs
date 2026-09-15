@@ -318,6 +318,20 @@ namespace Parsek.Tests
             Assert.NotEqual(
                 ScenarioWriter.DeriveVesselPersistentId(RewindCrewLossFixture.PodRecordingId),
                 ScenarioWriter.DeriveRootPartPersistentId(RewindCrewLossFixture.PodRecordingId));
+
+            // The two assertions above are one-sided: BuildRewindPoint builds
+            // the map keys with DeriveVesselPersistentId itself, so they hold
+            // by construction. Compare the map key against the pid the
+            // INJECTED recording actually carries (ScenarioWriter.BuildRecording
+            // has its own StableHashToUint call site) - the B9 mirror of this
+            // is RewindB9FixtureTests.Inject_TreeCarriesCrashedBoosterSibling.
+            uint podPid = ScenarioWriter.DeriveVesselPersistentId(
+                RewindCrewLossFixture.PodRecordingId);
+            Assert.Equal(RewindCrewLossFixture.PodSlotIndex, rp.PidSlotMap[podPid]);
+            Assert.Equal(
+                podPid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                RecordingNode(RewindCrewLossFixture.PodRecordingId)
+                    .GetValue("vesselPersistentId"));
         }
 
         [Fact]
@@ -328,9 +342,29 @@ namespace Parsek.Tests
             // differs from the RP-stamped VESSEL pid, and QuickloadResumeMatchGuard
             // rejects the re-fly candidate - presenting exactly like a product defect.
             var pod = RecordingNode(RewindCrewLossFixture.PodRecordingId);
-            Assert.Equal(
-                ScenarioWriter.DeriveVesselLaunchGuid(RewindCrewLossFixture.PodRecordingId),
-                pod.GetValue("recordedVesselGuid"));
+            string podGuid = ScenarioWriter.DeriveVesselLaunchGuid(
+                RewindCrewLossFixture.PodRecordingId);
+            Assert.Equal(podGuid, pod.GetValue("recordedVesselGuid"));
+
+            // One-sided on its own: the fixture authored the guid with that
+            // same derivation. The trap is a DISAGREEMENT between the
+            // recording guid and the RP quicksave sidecar's VESSEL pid - the
+            // pair QuickloadResumeMatchGuard actually compares - so read the
+            // sidecar too, as RewindB9FixtureTests
+            // .Inject_RpSidecarVesselGuidsAgreeWithRecordedVesselGuid does.
+            List<string> sidecarPids = WithInjectedSave(path =>
+            {
+                string sidecar = Path.Combine(
+                    Path.GetDirectoryName(path),
+                    RecordingPaths.BuildRewindPointRelativePath(
+                        RewindCrewLossFixture.RewindPointId));
+                ConfigNode game = ConfigNode.Load(sidecar).GetNode("GAME");
+                return game.GetNode("FLIGHTSTATE").GetNodes("VESSEL")
+                    .Select(v => v.GetValue("pid")).ToList();
+            });
+            Assert.Contains(podGuid, sidecarPids);
+            Assert.False(VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                pod.GetValue("recordedVesselGuid"), podGuid));
         }
 
         [Fact]

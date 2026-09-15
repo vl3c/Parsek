@@ -1080,6 +1080,61 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `ResolveSubjectSciencePatch_ScientificValueFromCap`. The composition itself is in-game
     work). Both deletions leave a comment at the site naming the twins.
 
+- `testfix-t1t2`, seventh PR (2026-09-16): the FIRST slice of Medium T3 rows opens the
+  T3 (weak / misleading) wave (`work/phase-b-slice-medium-t3-01.txt`, 20 ids: 12
+  `rewind-refly`, 8 `recording-tree`). Every T3 row already runs the production line;
+  the work is making the named term the DECIDING one. Each fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - The twelve `rewind-refly` ids, all strengthened, no production change:
+    F-rewind-refly-001-02 (the legacy marker's BP now carries `ParentRecordingIds` in
+    the Re-Fly target's lineage, so the null baseline is the only term that can keep the
+    gate shut - previously lineage excluded it either way);
+    F-rewind-refly-002-02 (new mirror cell
+    `InPlaceContinuationSlotLookupFailure_OrbitingTerminal_ExemptFromSlotAwareAbort`:
+    Landed never sets `RequiresSlotAwareMergeClassification`, so the original cell could
+    not witness the in-place exemption from the abort; Orbiting is the one terminal that
+    does);
+    F-rewind-refly-003-01 (the competing chain-head gate is ARMED - committed TIP,
+    `SupersedeTargetId`, shared `ChainId`/`ChainBranch` at a lower `ChainIndex` - and a
+    new mirror cell drives the identical shape with `IsDebris=false` and must get
+    `PreRewindChainHead`. The comment's block-ORDER rationale was false: the two
+    branches gate on `IsDebris` and `!IsDebris` and are mutually exclusive by type, so
+    the comment now says that instead);
+    F-rewind-refly-004-03 (the supersede relation is re-staged between passes, as the
+    cross-`LoadScene` `.sfs` restore does, so the third pass actually reaches the
+    `seenRetiredIds` duplicate guard the comment named instead of stopping at the
+    empty-list early-out);
+    F-rewind-refly-007-03 (`IsUnfinishedFlight` admits a recording whose slot anchor
+    cannot resolve, so it stays true for a pruned origin; the cell now asserts store
+    membership and RP survival, which IS the row's visibility gate).
+  - The spawn and dialog half: F-rewind-refly-010-01 and -010-02 (both cells left
+    `TerminalStateValue` null, so `hasSpawnableTerminal` collapsed `effectiveLeaf` and
+    the plain `ChildBranchPointId` gate answered before `IsEffectiveLeafForVessel` or
+    the passed tree context was consulted; both now carry a spawnable terminal, and
+    -010-02 gains the positive sibling
+    `ShouldSpawn_DifferentPidChildInPendingTreeContextOnly_SpawnsAsEffectiveLeaf` - the
+    only direction in which the passed context can change the verdict, since the
+    same-PID shape answers False whether or not the context resolves);
+    F-rewind-refly-012-01 (the whole headline, formatted duration and closing tag
+    included, instead of the `MyShip - ` prefix an empty duration also satisfies);
+    F-rewind-refly-012-02 (the same throwing-classifier route is driven a second time
+    with a SEALING preview, so the fallback's return value is discriminated rather than
+    matching a hardcoded `false`);
+    F-rewind-refly-017-01 (the before-dispatch half is now witnessed by
+    `Assert.DoesNotContain` over the first three dispatch targets' own log lines; the
+    trailing `PatchAll complete` line is absent for a relocated guard too).
+  - The two `sut=test-infrastructure` fixture rows, strengthened against the OTHER side
+    of the derivation: F-rewind-refly-016-03 (the RP map key is compared against the
+    `vesselPersistentId` the INJECTED recording carries, since
+    `ScenarioWriter.BuildRecording` has its own `StableHashToUint` call site) and
+    F-rewind-refly-016-04 (the cell loads `Parsek/RewindPoints/rp_cl_root.sfs` and
+    asserts the pod slot's VESSEL `pid` equals the recording's `recordedVesselGuid` -
+    the pair `QuickloadResumeMatchGuard` compares - mirroring
+    `RewindB9FixtureTests.Inject_RpSidecarVesselGuidsAgreeWithRecordedVesselGuid`).
+    Their mutation patches are over `Source/Parsek.Tests/Generators/ScenarioWriter.cs`,
+    the code under test for these two rows.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

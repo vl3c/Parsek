@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/MergeDialog.ReFlyDiscard.cs b/Source/Parsek/MergeDialog.ReFlyDiscard.cs
+index 7e14046d5..6da00cb8b 100644
+--- a/Source/Parsek/MergeDialog.ReFlyDiscard.cs
++++ b/Source/Parsek/MergeDialog.ReFlyDiscard.cs
+@@ -183,6 +183,9 @@ namespace Parsek
+                     {
+                         marker.ActiveReFlyRecordingId,
+                     };
++                    // MUTATION: over-broad attempt-id set also claims the origin.
++                    if (!string.IsNullOrEmpty(marker.OriginChildRecordingId))
++                        single.Add(marker.OriginChildRecordingId);
+                     summary.AttemptIds = single;
+                     summary.RemovedCommitted = RemoveCommittedAttemptRecordings(single);
+                 }

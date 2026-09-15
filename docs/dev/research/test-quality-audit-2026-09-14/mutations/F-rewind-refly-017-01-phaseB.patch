@@ -1,0 +1,25 @@
+diff --git a/Source/Parsek/GameActions/KspStatePatcher.cs b/Source/Parsek/GameActions/KspStatePatcher.cs
+index 8d15fb3f3..e32878a17 100644
+--- a/Source/Parsek/GameActions/KspStatePatcher.cs
++++ b/Source/Parsek/GameActions/KspStatePatcher.cs
+@@ -77,6 +77,10 @@ namespace Parsek
+                 // false unless the abort test seam is forced, so the normal path logs and
+                 // proceeds with NO behavior change. Inert (returns false fast) when not
+                 // armed.
++                // MUTATION: guard relocated BELOW the first dispatch calls.
++                PatchScience(science, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
++                PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt, unaffordableTechDrops);
++                PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
+                 if (RunRewindReadbackGuard(science, funds, reputation, authoritativeReduction))
+                 {
+                     ParsekLog.Warn(Tag,
+@@ -86,9 +90,6 @@ namespace Parsek
+                     return;
+                 }
+ 
+-                PatchScience(science, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
+-                PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt, unaffordableTechDrops);
+-                PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
+                 PatchReputation(reputation, authoritativeReduction);
+                 PatchFacilities(facilities);
+                 PatchMilestones(milestones, authoritativeRepeatableRecordState);

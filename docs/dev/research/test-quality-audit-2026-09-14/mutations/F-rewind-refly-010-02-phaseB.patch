@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 3057033f3..3a01384ab 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -8561,7 +8561,8 @@ namespace Parsek
+             if (rec == null || string.IsNullOrEmpty(rec.RecordingId) || !rec.IsTreeRecording)
+                 return false;
+ 
+-            if (treeContext != null)
++            // MUTATION: the passed tree context is ignored.
++            if (false)
+             {
+                 bool sameTreeId = !string.IsNullOrEmpty(treeContext.Id) && treeContext.Id == rec.TreeId;
+                 bool containsRecording = treeContext.Recordings != null

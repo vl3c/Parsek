@@ -635,7 +635,12 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSpawn_NonLeafWithSamePidChild_ReturnsFalse()
         {
-            // True non-leaf: branch point has a same-PID continuation child
+            // True non-leaf: branch point has a same-PID continuation child.
+            // The spawnable terminal is what makes this cell about the
+            // continuation-child rule: with a null terminal
+            // hasSpawnableTerminal is false, effectiveLeaf collapses at that
+            // conjunct, and the plain ChildBranchPointId gate answers before
+            // IsEffectiveLeafForVessel is ever consulted.
             var tree = new RecordingTree
             {
                 Id = "tree-1",
@@ -648,6 +653,7 @@ namespace Parsek.Tests
                 TreeId = "tree-1",
                 VesselPersistentId = 100,
                 VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Splashed,
                 ChildBranchPointId = "bp-decouple"
             };
             var continuationRec = new Recording
@@ -680,6 +686,12 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSpawn_NonLeafWithSamePidChildInPendingTreeContext_ReturnsFalse()
         {
+            // Same shape as the committed-tree cell above, except the tree is
+            // NEVER added to RecordingStore.CommittedTrees, so the passed
+            // context is the only handle IsEffectiveLeafForVessel can resolve
+            // through. The spawnable terminal keeps effectiveLeaf from
+            // collapsing before that resolution happens. The positive sibling
+            // below is the cell that reds when the passed context is ignored.
             var tree = new RecordingTree
             {
                 Id = "tree-1",
@@ -692,6 +704,7 @@ namespace Parsek.Tests
                 TreeId = "tree-1",
                 VesselPersistentId = 100,
                 VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Splashed,
                 ChildBranchPointId = "bp-decouple"
             };
             var continuationRec = new Recording
@@ -718,6 +731,57 @@ namespace Parsek.Tests
 
             Assert.False(needsSpawn);
             Assert.Contains("non-leaf tree recording", reason);
+        }
+
+        [Fact]
+        public void ShouldSpawn_DifferentPidChildInPendingTreeContextOnly_SpawnsAsEffectiveLeaf()
+        {
+            // Mirror of the cell above: identical fixture except the branch
+            // point's only child carries a DIFFERENT vessel pid, so the parent
+            // is the effective leaf for its own vessel and must spawn. The
+            // tree is deliberately absent from RecordingStore.CommittedTrees,
+            // so the verdict can only be reached through the passed context -
+            // ignoring the treeContext argument turns this back into a
+            // "non-leaf tree recording" refusal.
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "TestTree",
+                RootRecordingId = "parent-rec"
+            };
+            var parentRec = new Recording
+            {
+                RecordingId = "parent-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 100,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Splashed,
+                ChildBranchPointId = "bp-decouple"
+            };
+            var debrisRec = new Recording
+            {
+                RecordingId = "debris-rec",
+                TreeId = "tree-1",
+                VesselPersistentId = 200, // different pid - not a continuation
+                ParentBranchPointId = "bp-decouple"
+            };
+            var bp = new BranchPoint
+            {
+                Id = "bp-decouple",
+                Type = BranchPointType.JointBreak,
+                UT = 50.0
+            };
+            bp.ParentRecordingIds.Add("parent-rec");
+            bp.ChildRecordingIds.Add("debris-rec");
+            tree.Recordings["parent-rec"] = parentRec;
+            tree.Recordings["debris-rec"] = debrisRec;
+            tree.BranchPoints.Add(bp);
+            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t?.Id == "tree-1");
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                parentRec, isActiveChainMember: false, isChainLooping: false, tree);
+
+            Assert.True(needsSpawn);
         }
 
         [Fact]
