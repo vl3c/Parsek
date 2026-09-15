@@ -44,8 +44,22 @@ the two things its row model could not answer off existing data.
    becomes the wanted reading (it is not today: operator ruling 2026-09-15 keeps the
    grouping per owner).
 
-Neither blocks anything. Both are recorded because the window now has columns whose blanks
-are visible, where the old outline simply said nothing.
+3. **The `as <stand-in>` crew note has NO picture.** Five census lanes flew the rebuild on
+   2026-09-15 and every Crew cell in every capture reads `-`, for a structural reason:
+   both crewed fixtures reserve their owners BECAUSE the owners are still aboard, so no
+   committed flight anywhere was flown BY a stand-in. The note's logic carries six unit
+   cells (raw crew, owner-aboard, out-of-chain crewmate, the replacement fallback,
+   raw-beats-map, no-slot); what is missing is a fixture where a stand-in flew.
+   Unphotographed with it: `Lost`, `Retired`, and the `Reserved for <owner> until <date>`
+   form (it needs a reserved stand-in with a finite return UT).
+4. **`GUI-8-census-empty-states` photographs the fold CLOSED.** Its roster capture now
+   reads one row, `Available, no recorded flights (4)`, which is the honest new picture but
+   not a picture of the four rows behind it. One `op=expand key=all` step plus a second
+   capture would pay it; GUI-5 already has that pair on a career host, so it is worth a
+   cent, not a flight of its own.
+
+Neither of the first two blocks anything. All four are recorded because the window now has
+columns whose blanks are visible, where the old outline simply said nothing.
 
 ## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows]
 

@@ -49,16 +49,28 @@ tier = "operator"
 # photograph the main window's mode diff. A Basic capture here would add a seventh PNG that
 # says nothing this lane is about.
 #
-# FLOWN 2026-09-15. Reading run `2026-09-15_1559`, PASS on attempt 1, 60 s wall, all steps
-# met, 6 PNGs + 6 dumps every one `patched=17/17`. It measured the window's header-vs-cell
-# delta at ZERO on both tabs (Roster header cells x=284/478/702/786 against row cells at the
-# same four, Flights 284/368/582/696), three reserved slots each reading
-# `Reserved until recovery` with a dated `Since`, three stand-in rows reading
-# `Stand-in for <owner>`, and `Jane Kerman`'s own row expanding to her slot's chain. It also
-# found TWO defects, both fixed before the re-flight: the compact date clipped an 80 px
-# column (now 130), and this lane's own `unfolded` Flights capture was FOLDED because the
-# bulk `key=none` before it collapses both tabs (an `op=expand key=all` now precedes it).
-# Re-flight: `2026-09-15_1615`.
+# FLOWN 2026-09-15, TWICE. Reading run `2026-09-15_1559` (PASS attempt 1, 60 s) and, after
+# the two defects it found were fixed, re-flight `2026-09-15_1616` (PASS attempt 1, 58 s,
+# all steps met, 6 PNGs + 6 dumps every one `patched=17/17`, every verifier PASS or REPORT).
+#
+# WHAT THE RE-FLIGHT MEASURED, which is what this lane exists for: three reserved slots each
+# reading `Reserved until recovery` with a dated `Since` (`Y1, D01, 02:29`) and
+# `Kerbal X #2 - Still aboard` as the last flight; three stand-in rows reading
+# `Stand-in for Bill Kerman` / `for Bob Kerman` / `for Valentina Kerman`; `Jebediah Kerman`
+# as the one plain `Available` row behind `Available, no recorded flights (1)`; three flight
+# groups each `5 flights: 4 aboard, 1 unknown` over 15 dated rows; and the named-key capture
+# showing ONE expansion on the STAND-IN's own row. Header-vs-cell delta ZERO on both tabs
+# (Roster cells x=284/478/702/836 header and body alike, Flights 284/418/632/746).
+#
+# WHAT THE FIRST RUN FOUND, both fixed before the re-flight: the compact date clipped an
+# 80 px column (now 130, which moved the window's first-open width to 760), and this lane's
+# own `unfolded` Flights capture was FOLDED, because the bulk `key=none` that sets up the
+# single-chain Roster picture collapses BOTH tabs - an `op=expand key=all` now precedes it.
+#
+# WHAT IT STILL CANNOT PHOTOGRAPH: the `as <stand-in>` crew note. This corpus reserves its
+# owners because they are still ABOARD, so no committed flight anywhere was flown BY a
+# stand-in and every Crew cell reads `-`. The note's logic is covered by six unit cells; a
+# picture needs a fixture that does not exist.
 description = "GUI census: the rebuilt Kerbals window over a crewed corpus - the Roster tab closed, fully expanded and with one stand-in row's replacement chain open, and the Flights tab unfolded and folded, over a fixture with three reserved slots, three stand-ins and twenty-four crewed recordings."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "kerbals", "GUI-11", "pending-operator"]

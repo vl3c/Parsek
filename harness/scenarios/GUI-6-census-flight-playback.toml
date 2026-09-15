@@ -97,6 +97,16 @@ tier = "operator"
 #     `op=rect` it currently sequences before every label"; that branch does not exist, so
 #     the TS capture is left unrouted rather than faked.
 #
+# RE-FLOWN 2026-09-15 with the Kerbals-window rebuild: `2026-09-15_1618`, PASS on attempt 1,
+# 79 s, every step met and every dump `patched=17/17`. It gave the rebuilt window its FIRST
+# picture of the live-crew column, and in the FLIGHT scene: `play-kerbals-roster-flight-advanced`
+# reads `Jebediah Kerman [Pilot] / Assigned (mk1-capsule) / - / -` over
+# `Available, no recorded flights (3)`, where the pre-rebuild capture of the same frame read
+# `No reserved crew, stand-ins, or retired kerbals.` on a save with four kerbals in it. On a
+# host with 243 injected ghost recordings that is also the `GhostMapPresence.IsGhostMapVessel`
+# guard holding: no ghost's recorded crew read as a live assignment. The outcomes tab reads the
+# new empty line, `No recorded flights with crew yet.`.
+#
 # FLOWN 2026-09-11: reading run `2026-09-11_1556`, PASS on attempt 1, 74 s wall, all 70 steps
 # met, 12 PNGs + 12 dumps (every dump `patched=17/17`), every verifier PASS or REPORT,
 # `expectations mismatches=0` including the 243-recording floor. Every

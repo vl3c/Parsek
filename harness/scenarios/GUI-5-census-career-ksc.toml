@@ -112,6 +112,15 @@ tier = "operator"
 # `cek-main-tooltip-career-advanced` hashes identical to `cek-main-advanced` and its main-window
 # pixels are identical too. Filed as GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT; the
 # label is kept because the run id cites it.
+# RE-FLOWN 2026-09-15 with the Kerbals-window rebuild: `2026-09-15_1615`, PASS on attempt 1,
+# 88 s, 18 PNGs + 18 dumps (every one `patched=17/17`), every verifier PASS or REPORT. The
+# three Kerbals captures read: `Debwig Kerman [Pilot] / Stand-in for Jebediah Kerman / - / -`
+# and `Jebediah Kerman [Pilot] / Reserved until recovery / Y1, D01, 00:05 / Jumping Flea -
+# Still aboard` with `Available, no recorded flights (3)` closed under them; the expanded
+# twin lists Bill / Bob / Valentina dimmed plus both rows' chain line; and the Flights tab
+# reads `Jebediah Kerman [Pilot] - 2 flights: 1 recovered, 1 aboard` over two dated rows.
+# Header-vs-cell delta ZERO on both tabs. An earlier round (`2026-09-15_1557`, also PASS)
+# measured the date clipping that moved the two date columns to 130 px.
 description = "GUI census wave 2, the populated career host: photograph all four Career State tabs, both Kerbals tabs, all four Timeline filter modes and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "career", "GUI-5", "pending-operator"]

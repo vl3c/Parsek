@@ -2265,6 +2265,16 @@ lives in Live-proven above.
 
 ### The GUI census, wave 2: populated hosts, flight states and empty states (6)
 
+RE-FLOWN, three of the six, on 2026-09-15 with the Kerbals-window column-table rebuild, all
+PASS on attempt 1 against one pinned DLL: GUI-5 `2026-09-15_1615` (88 s, 18 PNGs - it gained
+a third Kerbals capture, the Roster tab with its folds open), GUI-8 `_1617` (66 s) and GUI-6
+`_1618` (79 s). What they measured is in `docs/dev/design-gui-kerbals-window.md` section 8;
+the short version is that the Roster tab's old `No reserved crew, stand-ins, or retired
+kerbals.` on a save with four kerbals in it is gone (GUI-8 now reads
+`Available, no recorded flights (4)`), and GUI-6 gave the live-crew column its first picture
+in the FLIGHT scene (`Assigned (mk1-capsule)`) over a 243-ghost corpus, which is also the
+ghost-map guard holding.
+
 LANDED AND FLOWN 2026-09-11 on branch `gui-census-lanes`, all six PASS ON ATTEMPT 1, all six
 on COMMITTED fixtures. The reading runs, in lane order: `2026-09-11_1548` (80 s, 14 PNG + 14
 dumps), `_1551` (67 s, 16 + 16), `_1553` (66 s, 17 + 17), `_1556` (74 s, 12 + 12), `_1559`
@@ -2360,8 +2370,8 @@ the hidden window and this lane restores everything before it quits.
 
 ### The Kerbals-window census lane, GUI-11 (1)
 
-AUTHORED 2026-09-15 with the Kerbals-window rebuild (both tabs became column tables with a
-fold over the plain-kerbal bucket). The two lanes that already photograph those tabs cannot
+AUTHORED AND FLOWN 2026-09-15 with the Kerbals-window rebuild (both tabs became column
+tables with a fold over the plain-kerbal bucket). The two lanes that already photograph those tabs cannot
 show what the fold is FOR - `GUI-5-census-career-ksc` has one slot and two flights,
 `GUI-8-census-empty-states` has neither - so this lane opens them over
 `fixtures/saves/bdock-recorded`, the only committed save with more than one kerbal slot:
@@ -2372,7 +2382,7 @@ the rebuild.
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| GUI-11-census-kerbals-crewed | operator (census class; `pending-operator`) | The rebuilt Kerbals window over a CREWED corpus: the Roster tab closed, fully expanded (`op=expand key=all`) and with one STAND-IN row's replacement chain open (`key=roster:Jane Kerman`), and the Flights tab unfolded and folded to its bucket-summary headers (`key=none`). Six PNGs with a `.gui.json` dump each; the closed/open pairs are the deliverable, and the two named keys are what prove the expand row drives one row rather than a tab. Gated on its own seam records only (two describe echoes, four expand payloads, the negative `op=dialog`, one capture, every dump at `patched=17/17`), the GUI-1 discipline. | D14 `sandbox`, `scene-ksc` |
+| GUI-11-census-kerbals-crewed | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-15**, twice: reading run `2026-09-15_1559` (PASS attempt 1, 60 s) and re-flight `2026-09-15_1616` (PASS attempt 1, 58 s) after the two defects the first round found were fixed - a compact date clipping an 80 px column (now 130, window 700 -> 760) and this lane's own `unfolded` Flights capture drawing FOLDED because the bulk expand keys are per WINDOW, not per tab. The re-flight measured three reserved slots (`Reserved until recovery`, `Since Y1, D01, 02:29`, last flight `Kerbal X #2 - Still aboard`), three `Stand-in for <owner>` rows, `Jebediah Kerman` as the one plain row behind `Available, no recorded flights (1)`, three groups of `5 flights: 4 aboard, 1 unknown` over 15 dated rows, and header-vs-cell delta ZERO on both tabs. Still NO PICTURE: the `as <stand-in>` crew note (this corpus reserves its owners because they are aboard, so no committed flight was flown by a stand-in). The rebuilt Kerbals window over a CREWED corpus: the Roster tab closed, fully expanded (`op=expand key=all`) and with one STAND-IN row's replacement chain open (`key=roster:Jane Kerman`), and the Flights tab unfolded and folded to its bucket-summary headers (`key=none`). Six PNGs with a `.gui.json` dump each; the closed/open pairs are the deliverable, and the two named keys are what prove the expand row drives one row rather than a tab. Gated on its own seam records only (two describe echoes, four expand payloads, the negative `op=dialog`, one capture, every dump at `patched=17/17`), the GUI-1 discipline. | D14 `sandbox`, `scene-ksc` |
 
 ### The GS-2/GS-3 orbital-deploy lane, all three LIVE-PROVEN (3)
 

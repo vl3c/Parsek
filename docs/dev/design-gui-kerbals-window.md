@@ -215,17 +215,41 @@ fail-soft with a Verbose line naming the exception type: the headless xUnit host
 
 ## 8. What the captures show
 
+Five lanes flew the rebuild on 2026-09-15, every one PASS on attempt 1 against the
+DEPLOYED-hash-pinned build `4763698...` (GUI-5 `_1615` 88 s, GUI-11 `_1616` 58 s, GUI-8
+`_1617` 66 s, GUI-6 `_1618` 79 s; the first pair `_1557` / `_1559` is the round that found
+the two defects the second commit fixes).
+
 | Label | Lane, run | Reads |
 |---|---|---|
-| `cek-kerbals-roster-advanced` (BEFORE) | GUI-5, `2026-09-11_1553` | ONE row: `> Jebediah Kerman [Pilot] - reserved  (1)` on a career with four stock kerbals and a stand-in |
-| `cek-kerbals-outcomes-advanced` (BEFORE) | GUI-5, `2026-09-11_1553` | `v <b>Jebediah Kerman</b>` plus two rows, `Jumping Flea - Recovered at UT 342` / `- Aboard at UT 348` |
-| `cek-kerbals-roster-advanced` (AFTER) | GUI-5, `2026-09-15_1745` | Jeb `Reserved until Y1, D1` with his `Since` and `Last flight` cells, Debwig Kerman as `Stand-in for Jebediah Kerman`, the other stock kerbals behind `Available, no recorded flights (4)` |
-| `cek-kerbals-roster-expanded-advanced` (NEW) | GUI-5, `2026-09-15_1745` | the same with every fold open: the four plain kerbals listed dimmed and Debwig drawn as Jeb's chain member |
-| `cek-kerbals-outcomes-advanced` (AFTER) | GUI-5, `2026-09-15_1745` | `Jebediah Kerman [Pilot] - 2 flights: 1 recovered, 1 aboard` over two dated rows |
-| `bdk-kerbals-*` (6) | GUI-11, `2026-09-15_1802` | the crewed corpus: three reserved slots, three stand-in rows, per-kerbal flight groups, and the stand-in chain view |
+| `cek-kerbals-roster-advanced` BEFORE | GUI-5, `2026-09-11_1553` | ONE row on a career with four stock kerbals: `> Jebediah Kerman [Pilot] - deceased  (1)` (the reserved form on the wave-2 re-read) |
+| `cek-kerbals-outcomes-advanced` BEFORE | GUI-5, `2026-09-11_1553` | `v <b>Jebediah Kerman</b>` over `Jumping Flea - Recovered at UT 342` / `- Aboard at UT 348` |
+| `cek-kerbals-roster-advanced` AFTER | GUI-5, `2026-09-15_1615` | `Debwig Kerman [Pilot] / Stand-in for Jebediah Kerman / - / -` and `Jebediah Kerman [Pilot] / Reserved until recovery / Y1, D01, 00:05 / Jumping Flea - Still aboard`, with `Available, no recorded flights (3)` closed under them |
+| `cek-kerbals-roster-expanded-advanced` NEW | GUI-5, `2026-09-15_1615` | the same with every fold open: both rows' chain line `(branch) Debwig Kerman (active)`, and Bill / Bob / Valentina listed dimmed as `Available / - / -` |
+| `cek-kerbals-outcomes-advanced` AFTER | GUI-5, `2026-09-15_1615` | `Jebediah Kerman [Pilot] - 2 flights: 1 recovered, 1 aboard` over `Y1, D01, 00:05 | Jumping Flea | Recovered | -` and the `Still aboard` twin |
+| `bdk-kerbals-roster-collapsed-advanced` | GUI-11, `2026-09-15_1616` | the crewed corpus: Bill / Bob / Valentina each `Reserved until recovery`, `Y1, D01, 02:29`, `Kerbal X #2 - Still aboard`; Jane / Sizon / Kathdan each `Stand-in for <owner>`; `Available, no recorded flights (1)` |
+| `bdk-kerbals-roster-expanded-advanced` | GUI-11, `2026-09-15_1616` | all six chains drawn plus Jebediah Kerman listed as the one plain `Available` row |
+| `bdk-kerbals-roster-standin-chain-advanced` | GUI-11, `2026-09-15_1616` | ONE expansion, on the STAND-IN's own row: `(open) Jane Kerman [Engineer]` over `(branch) Jane Kerman (active)` |
+| `bdk-kerbals-flights-unfolded-advanced` | GUI-11, `2026-09-15_1616` | three groups, 15 rows, e.g. `Y1, D01, 00:03 | Kerbal X | Still aboard | -` and `Y1, D01, 02:29 | Kerbal X #2 | Outcome unknown | -` |
+| `bdk-kerbals-flights-folded-advanced` | GUI-11, `2026-09-15_1616` | the three headers alone: `Bill Kerman [Engineer] - 5 flights: 4 aboard, 1 unknown` and its two twins |
+| `fs-kerbals-roster-fresh-advanced` | GUI-8, `2026-09-15_1617` | a fresh science save: the column header row plus ONE fold row, `Available, no recorded flights (4)` - where the pre-rebuild window claimed `No reserved crew, stand-ins, or retired kerbals.` on a roster of four |
+| `fs-kerbals-outcomes-empty-advanced` | GUI-8, `2026-09-15_1617` | `No recorded flights with crew yet.` |
+| `play-kerbals-roster-flight-advanced` | GUI-6, `2026-09-15_1618` | the FLIGHT scene, and the first picture of the live-crew column: `Jebediah Kerman [Pilot] / Assigned (mk1-capsule) / - / -` over `Available, no recorded flights (3)` - on a host with 243 injected ghost recordings, so it also shows the `IsGhostMapVessel` guard holding (no ghost crew reads as an assignment) |
 
-Header-vs-cell delta measured off the dumps: **0 px on both tabs**, which is what the shared
-inset buys and what `TableRowInsetAlignmentTests`' two new rows keep true.
+Header-vs-cell delta measured off the dumps: **0 px on both tabs**, in both scenes. Roster
+header cells at x=284 / 478 / 702 / 836 against body cells at the same four, widths
+190 / 220 / 130 / expanding; Flights 284 / 418 / 632 / 746, widths 130 / 210 / 110 /
+expanding. That is what the shared inset buys and what `TableRowInsetAlignmentTests`' two
+new rows keep true.
+
+NO PICTURE YET: the `as <stand-in>` crew note. Both crewed hosts reserve their owners
+because the owners are still ABOARD, so no committed flight in any committed fixture was
+flown BY a stand-in - every Crew cell in the readings above is `-`. The note's logic is
+covered by six unit cells (raw crew, owner-aboard, out-of-chain crewmate, the replacement
+fallback, raw-beats-map, no-slot); a photograph needs a fixture where a stand-in flew, and
+none exists. Also unphotographed: `Lost`, `Retired`, `Assigned` beside a reservation on one
+host, and the `Reserved for <owner> until <date>` form (it needs a reserved stand-in with a
+finite return UT).
 
 ## 9. Residue
 
