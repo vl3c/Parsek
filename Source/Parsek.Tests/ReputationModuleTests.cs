@@ -1156,9 +1156,17 @@ namespace Parsek.Tests
             float repAfterStep3 = module.GetRunningRep();
 
             // Key assertions from design doc:
-            // 1. B's milestone effective rep is different from A's was (different running rep at evaluation)
+            // 1. B's milestone effective rep is different from A's was (different running
+            //    rep at evaluation). The CROSS-ORDER comparison is the cell's whole subject
+            //    and until the 2026-09-16 audit it was missing: with only "> 0" on each
+            //    walk, a flat curve (every multiplier 1.0) or a no-op reorder passed, and
+            //    the +/-5 total window absorbed the equal totals. The same milestone earns
+            //    15 nominal in both walks; only the running rep it is evaluated against
+            //    differs (0 in walk 3, post-contract in walk 1).
             Assert.True(milestoneB.EffectiveRep > 0f,
                 "B's milestone should have positive effective rep");
+            Assert.NotEqual(milestoneAEffective, milestoneB.EffectiveRep);
+            Assert.NotEqual(contractAEffective, contractA2.EffectiveRep);
             // 2. A's duplicate milestone contributes zero
             Assert.Equal(0f, milestoneA2.EffectiveRep);
             // 3. Contract still contributes, but at different running rep

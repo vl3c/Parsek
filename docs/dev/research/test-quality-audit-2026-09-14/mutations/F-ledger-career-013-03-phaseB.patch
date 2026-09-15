@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/GameAction.cs b/Source/Parsek/GameActions/GameAction.cs
+index 834f5d132..637a7a2cd 100644
+--- a/Source/Parsek/GameActions/GameAction.cs
++++ b/Source/Parsek/GameActions/GameAction.cs
+@@ -970,7 +970,7 @@ namespace Parsek
+         public void SerializeInto(ConfigNode parent)
+         {
+             ConfigNode node = parent.AddNode("GAME_ACTION");
+-            node.AddValue("ut", UT.ToString("R", IC));
++            node.AddValue("ut", UT.ToString("R"));
+             node.AddValue("type", ((int)Type).ToString(IC));
+ 
+             // Rewind-to-Staging (design section 5.6) — every action has an ActionId.

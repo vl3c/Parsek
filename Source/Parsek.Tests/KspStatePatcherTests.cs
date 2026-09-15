@@ -449,14 +449,17 @@ namespace Parsek.Tests
                 l.Contains("PatchTechTree: ResearchAndDevelopment.Instance is null"));
         }
 
+        // RENAMED 2026-09-16 (test-quality audit). This cell was called
+        // PatchTechTree_IncludesUtCutoffAndBaselineUtInAvailableLog, but the applied-node
+        // Info log that carries utCutoff / baselineUt is unreachable headlessly: the
+        // null-target return fires first, and deleting those two fields from that Info log
+        // left the cell green. What it can prove is the rewind-context OVERLOAD's skip: the
+        // context arguments are accepted, the no-target return still wins, and nothing that
+        // belongs to the applied-node log is emitted. The Info log's own fields are pinned
+        // in-game, where ResearchAndDevelopment.Instance and RnDTechTree exist.
         [Fact]
-        public void PatchTechTree_IncludesUtCutoffAndBaselineUtInAvailableLog()
+        public void PatchTechTree_NullTargetWithRewindContext_SkipsBeforeTheAvailableLog()
         {
-            // PatchTechTree's Info log must surface the rewind context (cutoff UT + selected
-            // baseline UT) so log readers can cross-check against ledger actions. The skip
-            // path short-circuits before that Info log fires, so we also verify the label
-            // formatting via the nullable-context skip path: the "no target set" Verbose log
-            // proves the formatting helpers are reached safely with null inputs.
             KspStatePatcher.PatchTechTree(
                 targetTechIds: null,
                 utCutoff: 49.42,
@@ -465,6 +468,10 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[KspStatePatcher]") &&
                 l.Contains("PatchTechTree: no target tech set supplied"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchTechTree: available="));
+            Assert.DoesNotContain(logLines, l => l.Contains("utCutoff="));
         }
 
         [Fact]
@@ -941,8 +948,13 @@ namespace Parsek.Tests
         // PatchAll — suppression flags
         // ================================================================
 
+        // RENAMED 2026-09-16 (test-quality audit): the cell reads both flags only BEFORE and
+        // AFTER PatchAll, so the "Sets" half was never witnessed - a PatchAll that suppressed
+        // nothing passed. The set-at-entry half is pinned by
+        // SuppressionGuard_ResourcesAndReplay_SetsBothFlagsInsideTheScope below, which is the
+        // guard PatchAll's using statement opens.
         [Fact]
-        public void PatchAll_SetsSuppressFlagsAndRestores()
+        public void PatchAll_RestoresSuppressionFlags()
         {
             // Verify flags are clean before
             Assert.False(GameStateRecorder.SuppressResourceEvents);
@@ -963,6 +975,25 @@ namespace Parsek.Tests
             // Should have logged completion
             Assert.Contains(logLines, l =>
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
+        }
+
+        // The other half: the flags are actually SET for the duration of the scope. PatchAll
+        // opens exactly this guard, so deleting either assignment reds here instead of
+        // shipping a patch pass that re-enters the recorder through its own writes.
+        [Fact]
+        public void SuppressionGuard_ResourcesAndReplay_SetsBothFlagsInsideTheScope()
+        {
+            Assert.False(GameStateRecorder.SuppressResourceEvents);
+            Assert.False(GameStateRecorder.IsReplayingActions);
+
+            using (SuppressionGuard.ResourcesAndReplay())
+            {
+                Assert.True(GameStateRecorder.SuppressResourceEvents);
+                Assert.True(GameStateRecorder.IsReplayingActions);
+            }
+
+            Assert.False(GameStateRecorder.SuppressResourceEvents);
+            Assert.False(GameStateRecorder.IsReplayingActions);
         }
 
         [Fact]

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/SuppressionGuard.cs b/Source/Parsek/SuppressionGuard.cs
+index e148ab037..189c4ad6e 100644
+--- a/Source/Parsek/SuppressionGuard.cs
++++ b/Source/Parsek/SuppressionGuard.cs
+@@ -36,8 +36,6 @@ namespace Parsek
+         /// <summary>Suppresses resource events and marks replay mode for the scope of a using block.</summary>
+         internal static SuppressionGuard ResourcesAndReplay()
+         {
+-            GameStateRecorder.SuppressResourceEvents = true;
+-            GameStateRecorder.IsReplayingActions = true;
+             return new SuppressionGuard(crew: false, resource: true, replay: true);
+         }
+ 

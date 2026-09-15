@@ -967,7 +967,33 @@ namespace Parsek.Tests
                 SubjectMaxValue = 99.99f
             };
 
-            var result = RoundTrip(original);
+            // The InvariantCulture half of the name needs a comma-decimal host, or dropping
+            // the IC specifier changes nothing on an en-US CI runner and only the dev
+            // ro-RO machine ever sees it. Serialize under de-DE, assert the RAW node text
+            // carries dots, then read back - same shape as
+            // ResourceManifestSerializationTests.LocaleSafety.
+            var savedCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            GameAction result;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+
+                var parent = new ConfigNode("ROOT");
+                original.SerializeInto(parent);
+                var node = parent.GetNode("GAME_ACTION");
+                Assert.NotNull(node);
+
+                Assert.DoesNotContain(",", node.GetValue("ut"));
+                Assert.DoesNotContain(",", node.GetValue("scienceAwarded"));
+                Assert.DoesNotContain(",", node.GetValue("transmitScalar"));
+                Assert.DoesNotContain(",", node.GetValue("subjectMaxValue"));
+
+                result = GameAction.DeserializeFrom(node);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = savedCulture;
+            }
 
             Assert.Equal(original.UT, result.UT);
             Assert.Equal(original.ScienceAwarded, result.ScienceAwarded);
@@ -1579,13 +1605,29 @@ namespace Parsek.Tests
             node.AddValue("type", "9999"); // not a defined GameActionType
             node.AddValue("routeId", "route-future");
 
+            // The Warn is the whole mitigation for a save written by a newer build, so it
+            // is asserted rather than assumed: without the sink this cell passed with the
+            // ParsekLog.Warn deleted. And the contract is "keeps the DEFAULT type", which
+            // is stricter than "not 9999".
+            var logLines = new List<string>();
             GameAction result = null;
-            var ex = Record.Exception(() => result = GameAction.DeserializeFrom(node));
-            Assert.Null(ex);
+            try
+            {
+                ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+                var ex = Record.Exception(() => result = GameAction.DeserializeFrom(node));
+                Assert.Null(ex);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+
             Assert.NotNull(result);
-            // RouteCargoPickedUp (29) is the highest DEFINED id; 9999 is unknown,
-            // so the type field stays at its default and the row is harmless.
-            Assert.NotEqual((GameActionType)9999, result.Type);
+            Assert.Equal(default(GameActionType), result.Type);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameAction]") &&
+                l.Contains("Unknown action type id '9999'"));
         }
 
         [Fact]
