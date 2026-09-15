@@ -14,8 +14,14 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
 
+        // One cell installs a KerbalsModule on LedgerOrchestrator. Without this save/restore
+        // pair the module outlives the class and every later test in the Sequential collection
+        // runs against it.
+        private readonly KerbalsModule priorKerbalsModule;
+
         public KerbalReservationTests()
         {
+            priorKerbalsModule = LedgerOrchestrator.Kerbals;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -32,6 +38,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             GameStateStore.ResetForTesting();
+            LedgerOrchestrator.SetKerbalsForTesting(priorKerbalsModule);
         }
 
         /// <summary>

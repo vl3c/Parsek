@@ -1,7 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using Xunit;
 
 namespace Parsek.Tests
@@ -276,18 +275,16 @@ namespace Parsek.Tests
             return File.ReadAllText(path);
         }
 
-        // Strip line comments (XML doc comments included - they start with //) so the change's own
-        // notes, which name the pre-change shapes deliberately, do not satisfy or trip a scan.
+        // Strip comments (XML doc comments and /* */ blocks included) so the change's own notes,
+        // which name the pre-change shapes deliberately, do not satisfy or trip a scan. The
+        // shared helper is literal-aware in BOTH directions the hand-rolled line split got
+        // wrong: a `//` inside a string literal no longer truncates the rest of that line (a
+        // consumer whose call sat after such a literal was invisible to the sweep), and a
+        // `/* */` block is now blanked instead of read as code. String literals themselves are
+        // kept - two cells above pin production log-message text.
         private static string StripComments(string source)
         {
-            var sb = new StringBuilder(source.Length);
-            foreach (string line in source.Split('\n'))
-            {
-                int idx = line.IndexOf("//", StringComparison.Ordinal);
-                sb.Append(idx >= 0 ? line.Substring(0, idx) : line);
-                sb.Append('\n');
-            }
-            return sb.ToString();
+            return SourceScanText.StripCSharpComments(source);
         }
     }
 }

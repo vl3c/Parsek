@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Parsek;
@@ -28,11 +28,15 @@ namespace Parsek.Tests.Rendering
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
             SmoothingPipeline.ResetForTesting();
+            // One cell installs a rotation-period seam; clearing it on BOTH ends keeps it from
+            // answering NaN for every body in the rest of the Sequential collection.
+            TrajectoryMath.FrameTransform.ResetForTesting();
         }
 
         public void Dispose()
         {
             SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             if (Directory.Exists(tempDir))

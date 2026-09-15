@@ -10,6 +10,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
+  Four source-text wiring gates were scanning raw file text, so a call left behind only as a
+  comment - or the same call text inside a nearby log message - kept the gate green after the
+  real call was deleted: the route-orchestrator tick hook, the three render-union seams, the
+  watch-entry consumer sweep and the Missions partner-journey toggle now scan comment-stripped
+  (and, where no log literal is pinned, literal-masked) source, the render-union seam slices the
+  method's brace-matched body instead of a fixed 4000-character window, and the Missions gates
+  anchor their proximity windows to the enclosing method body plus carry a comment-only decoy
+  cell. Two test classes installed a static test hook and never put it back (a rotation-period
+  seam that then answered NaN for every body, and a KerbalsModule on the ledger orchestrator),
+  leaking into every later test in the Sequential collection; both now restore what they found
+  in Dispose. Each repair carries a mutation or leak-check proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No player-visible change.
+
 - **Automated testing: five fixes to the new hover / point / open-everything support,
   found by reviewing it.** Pointing at a control by its label and then moving the mouse
   there - the exact pairing the feature was built for - was refused before a run even

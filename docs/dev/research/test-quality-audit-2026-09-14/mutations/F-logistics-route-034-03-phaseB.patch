@@ -1,0 +1,19 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 91263671c..6c281bd5a 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -1,4 +1,4 @@
+-using System;
++﻿using System;
+ using System.Collections;
+ using System.Collections.Generic;
+ using System.Diagnostics;
+@@ -1001,7 +1001,7 @@ namespace Parsek
+ 
+             try
+             {
+-                RouteOrchestrator.Tick(currentUT);
++                // RouteOrchestrator.Tick(currentUT);
+             }
+             catch (Exception ex)
+             {
