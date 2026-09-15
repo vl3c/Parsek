@@ -158,9 +158,18 @@ namespace Parsek.Tests
             // The distance-based clearance at that range is ~2.42 m, so the
             // visual floor should be ~285.52 m instead of the old 283.6 m
             // (terrain + 0.5 m) last-frame floor.
+            //
+            // Both numbers are pinned as LITERALS. The old expectation was
+            // 283.1 + clearance, computed from the very call under test, so any
+            // clearance the ramp returned satisfied it and the repro's own figure was
+            // never checked. The ramp itself (bubble floor, bubble edge, visual range,
+            // midpoint lerp) is pinned by Bug156Tests.ComputeTerrainClearance_*; what
+            // this cell owns is the repro's measured visual floor.
             double clearance = ParsekFlight.ComputeTerrainClearance(18621.0);
+            Assert.Equal(2.42, clearance, 2);
+
             double result = TerrainCorrector.ClampAltitude(283.8, 283.1, clearance);
-            Assert.Equal(283.1 + clearance, result, 3);
+            Assert.Equal(285.52, result, 2);
         }
 
         [Fact]

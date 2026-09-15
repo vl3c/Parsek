@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 4068c7e92..85808b39c 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -8915,7 +8915,8 @@ namespace Parsek
+             int cachedPartCount,
+             int currentPartCount)
+         {
+-            return moduleCachesDirty || cachedPartCount != currentPartCount;
++            // MUTANT: the part-count invalidation derivation drops the shrink case.
++            return moduleCachesDirty || cachedPartCount > currentPartCount;
+         }
+ 
+         internal static bool ShouldEvaluatePostSwitchManifestDiff(

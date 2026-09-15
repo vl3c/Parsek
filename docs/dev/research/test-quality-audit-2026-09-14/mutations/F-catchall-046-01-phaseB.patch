@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/Reaim/ArrivalHoldPlanner.cs b/Source/Parsek/Reaim/ArrivalHoldPlanner.cs
+index f32f66759..5f9f33225 100644
+--- a/Source/Parsek/Reaim/ArrivalHoldPlanner.cs
++++ b/Source/Parsek/Reaim/ArrivalHoldPlanner.cs
+@@ -221,6 +221,10 @@ namespace Parsek.Reaim
+             if (!(w > 0.0) || double.IsInfinity(w))
+                 return ArrivalHoldResult.None;  // already aligned (w == 0) or degenerate: no hold
+ 
++            // MUTANT: the single-period rotation hold is dropped (fail-closed to faithful).
++            if (!isStationHold)
++                return ArrivalHoldResult.None;
++
+             ArrivalHoldResult single = ArrivalHoldResult.None;
+             single.HoldSeconds = w;
+             single.HoldAtUT = recordedArrivalUT;
