@@ -53,6 +53,8 @@ namespace Parsek.Tests
                 { "LegKeyPrefix", TestCommandUiState.LegKeyPrefix },
                 { "DigestKeyPrefix", TestCommandUiState.DigestKeyPrefix },
                 { "RowKeyPrefix", TestCommandUiState.RowKeyPrefix },
+                { "RosterKeyPrefix", TestCommandUiState.RosterKeyPrefix },
+                { "FlightsKeyPrefix", TestCommandUiState.FlightsKeyPrefix },
             };
 
         [Fact]
@@ -67,7 +69,8 @@ namespace Parsek.Tests
             Dictionary<string, List<string>> wired = ParseExpandSetPrefixes(code);
 
             foreach (string window in new[] { TestCommandUiAction.MissionsWindow,
-                                              TestCommandUiAction.LogisticsWindow })
+                                              TestCommandUiAction.LogisticsWindow,
+                                              TestCommandUiAction.KerbalsWindow })
             {
                 string[] parsed = TestCommandUiState.ExpandPrefixesFor(window);
                 Assert.True(wired.ContainsKey(window),
@@ -132,6 +135,7 @@ namespace Parsek.Tests
                 { "LogisticsWindow", TestCommandUiAction.LogisticsWindow },
                 { "TimelineWindow", TestCommandUiAction.TimelineWindow },
                 { "SettingsWindow", TestCommandUiAction.SettingsWindow },
+                { "KerbalsWindow", TestCommandUiAction.KerbalsWindow },
             };
             var result = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             string current = null;

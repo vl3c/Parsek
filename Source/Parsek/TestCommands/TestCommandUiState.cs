@@ -103,6 +103,8 @@ namespace Parsek.TestCommands
         internal const string LegKeyPrefix = "leg";
         internal const string DigestKeyPrefix = "digest";
         internal const string RowKeyPrefix = "row";
+        internal const string RosterKeyPrefix = "roster";
+        internal const string FlightsKeyPrefix = "flights";
 
         private static readonly string[] MissionsExpandPrefixes = new[]
         {
@@ -111,10 +113,20 @@ namespace Parsek.TestCommands
 
         private static readonly string[] LogisticsExpandPrefixes = new[] { RowKeyPrefix };
 
+        // The Kerbals window keeps one expansion set per TAB, so it takes one prefix per
+        // tab rather than one for the whole window: `roster:` drives a Roster row's
+        // replacement-chain view plus that tab's plain-kerbal fold row (keyed
+        // KerbalsWindowUI.PlainBucketKey), `flights:` drives a Flights group's fold.
+        private static readonly string[] KerbalsExpandPrefixes = new[]
+        {
+            RosterKeyPrefix, FlightsKeyPrefix,
+        };
+
         /// <summary>The windows whose expansion state this op drives, comma-joined for the
         /// reject message.</summary>
         internal static string ExpandableWindowNames =>
-            TestCommandUiAction.MissionsWindow + "," + TestCommandUiAction.LogisticsWindow;
+            TestCommandUiAction.MissionsWindow + "," + TestCommandUiAction.LogisticsWindow
+            + "," + TestCommandUiAction.KerbalsWindow;
 
         /// <summary>The key prefixes a window accepts, or null when the window keeps no
         /// expansion state this op can drive.</summary>
@@ -122,6 +134,7 @@ namespace Parsek.TestCommands
         {
             if (window == TestCommandUiAction.MissionsWindow) return MissionsExpandPrefixes;
             if (window == TestCommandUiAction.LogisticsWindow) return LogisticsExpandPrefixes;
+            if (window == TestCommandUiAction.KerbalsWindow) return KerbalsExpandPrefixes;
             return null;
         }
 

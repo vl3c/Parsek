@@ -15,6 +15,71 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
+
+**What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
+the two things its row model could not answer off existing data.
+
+1. **`Since` is `-` for four of the six statuses.** A loss is dated by the flight whose end
+   state is Dead, and a reservation by the kerbal's latest recorded flight (the flight that
+   created the hold). Retirement, stand-in placement and a live crew assignment have no
+   recorded start anywhere: `ComputeRetiredSet` rebuilds the retired set from scratch every
+   walk, `KerbalSlot.Chain` stores names with no UT, and a roster assignment is a live KSP
+   fact with no history. The column shows `-` rather than a number that would be a guess.
+   **Fix (if wanted):** persist a UT beside each chain entry and each retirement, which is a
+   `KERBAL_SLOTS` shape change and therefore a schema-generation bump - not worth it for one
+   column, which is why it is filed rather than done.
+
+2. **The "as &lt;stand-in&gt;" fallback is time-blind.** The primary source is per-flight
+   truth - the recording's own raw crew, through the new
+   `KerbalsModule.RawRecordingCrewByRecordingId` - but raw crew comes from the recording's
+   `VesselSnapshot`, and the load-time sweep can null it. The fallback is then
+   `CrewReservationManager.CrewReplacements`, which answers the CURRENT stand-in, so on an
+   old flight it can name a kerbal who did not fly it. Chosen deliberately over silence (the
+   cell would otherwise read `-` on exactly the flights a stand-in is most likely to have
+   flown), and the reverse-map in `PopulateCrewEndStates` has the same blindness by
+   construction. **Fix (if wanted):** persist the flown crew names per recording beside
+   `CREW_END_STATES` instead of reverse-mapping them to the owner - a schema change, and it
+   would also let the Flights tab file a stand-in's flights under the stand-in if that ever
+   becomes the wanted reading (it is not today: operator ruling 2026-09-15 keeps the
+   grouping per owner).
+
+3. **The `as <stand-in>` crew note has NO picture.** Five census lanes flew the rebuild on
+   2026-09-15 and every Crew cell in every capture reads `-`, for a structural reason:
+   both crewed fixtures reserve their owners BECAUSE the owners are still aboard, so no
+   committed flight anywhere was flown BY a stand-in. The note's logic carries six unit
+   cells (raw crew, owner-aboard, out-of-chain crewmate, the replacement fallback,
+   raw-beats-map, no-slot); what is missing is a fixture where a stand-in flew.
+   Unphotographed with it: `Lost`, `Retired`, and the `Reserved for <owner> until <date>`
+   form (it needs a reserved stand-in with a finite return UT).
+4. **`GUI-8-census-empty-states` photographs the fold CLOSED.** Its roster capture now
+   reads one row, `Available, no recorded flights (4)`, which is the honest new picture but
+   not a picture of the four rows behind it. One `op=expand key=all` step plus a second
+   capture would pay it; GUI-5 already has that pair on a career host, so it is worth a
+   cent, not a flight of its own.
+
+5. **A stand-in's own flight is filed under the OWNER, always - and can fill the owner's
+   `Last flight` cell with a flight he never took.** The producer is
+   `KerbalsModule.ReverseMapCrewNames` (`Source/Parsek/KerbalsModule.cs:479-507`), called
+   from `PopulateCrewEndStates` before `Recording.CrewEndStates` is written: it walks the
+   recorded crew list and maps EVERY name that appears as a `CrewReplacements` value - then,
+   failing that, every name found in any `KerbalSlot.Chain` via
+   `TryReverseMapCrewNameFromSlots` - back to the slot owner. There is no per-flight test of
+   any kind: the mapping is a pure name lookup, so a stand-in who flew a whole mission of
+   his OWN gets it filed under the kerbal he covers, counted in that kerbal's bucket
+   summary, and - if it is the latest-ending one - printed in that kerbal's Roster `Last
+   flight` cell. His own Flights group does not carry it at all. The `as <stand-in>` crew
+   note (item 2) is a label on the owner's row, not a fix.
+   **Fix:** persist the flown crew per recording (a `CREW_FLOWN` node beside
+   `CREW_END_STATES`, or a per-entry `flownBy` key) and key the end states by who actually
+   flew, so `ReverseMapCrewNames` stops being the only answer. That is a schema-generation
+   bump and re-harvests every stamped fixture, which is why the Kerbals rebuild recorded it
+   rather than doing it; the reading-side workaround (item 2's `RawRecordingCrewByRecordingId`)
+   already exists and is what the crew note uses.
+
+Neither of the first two blocks anything. All five are recorded because the window now has
+columns whose blanks are visible, where the old outline simply said nothing.
+
 ## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows]
 
 **What is true.**
@@ -314,7 +379,8 @@ window:
 | Structure window | 280 312 426 817 916 1105 | 284 316 430 812 911 1100 | **+4** cols 0-2, **-5** cols 3-5 | Event 387 header vs 378 cell (**-9**) |
 | Missions window, Recordings tab | 10 (merged 62) 76 285 379 473 587 671 795 859 923 1017 1081 1175 | 14 + 38, 77 280 374 468 582 666 790 854 918 1012 1076 1170 | toggle / `#` exact, **-5** cols 2-12 | Name 205 header vs 199 cell |
 | Missions window, Missions and vessels tab | 10 (merged 62) 76 521 630 754 868 957 1081 1175 | 10 + 34, 68 520 629 753 867 956 1080 1174 | toggle / `#` **-4**, Name **-8**, **-1** cols 3-9 | Name 441 header vs 448 cell |
-| Kerbals, Timeline, Settings, Test Runner | no column-header row at all (indented outlines / forms) | - | n/a | - |
+| Timeline, Settings, Test Runner | no column-header row at all (indented outlines / forms) | - | n/a | - |
+| Kerbals, both tabs | NOT MEASURED HERE: this window had no column-header row when the census ran. REBUILT 2026-09-15 as two column tables on the shared inset (`docs/dev/design-gui-kerbals-window.md`), so it is born aligned - its two rows in `TableRowInsetAlignmentTests` keep it that way and the flown dumps read **0** | - | **0** | - |
 
 **Cause.** KSP's skin reports box / label / button / toggle / textField margin L4/R4 and
 box padding L4/R4 (logged every draw by `RecordingsTableUI` as `Rec table skin margins`).

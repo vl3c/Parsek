@@ -1,0 +1,220 @@
+schema = 1
+id = "GUI-11-census-kerbals-crewed"
+tier = "operator"
+# THE KERBALS WINDOW OVER A CREWED CORPUS. The 2026-09-15 rebuild turned both tabs into
+# column tables with a fold over the plain-kerbal bucket, and the two lanes that already
+# photograph them cannot show what that is FOR: `GUI-5-census-career-ksc` has one slot and
+# two flights, `GUI-8-census-empty-states` has neither. This lane opens the same two tabs
+# over a fixture whose ledger produced THREE reserved slots, three stand-ins and
+# twenty-four crewed recordings, so the reserved / stand-in / lost rows and the per-kerbal flight
+# groups have a picture with rows in them.
+#
+# WHY THIS FIXTURE. Read off `fixtures/saves/bdock-recorded/persistent.sfs`:
+#   - `KERBAL_SLOTS` carries three SLOT nodes - `Bill Kerman [Engineer]` covered by
+#     `Jane Kerman`, `Bob Kerman [Scientist]` by `Sizon Kerman`, `Valentina Kerman [Pilot]`
+#     by `Kathdan Kerman` - which is the only committed save with more than one slot and
+#     the only one with a stand-in per slot;
+#   - `CREW_REPLACEMENTS` carries the matching three `original` / `replacement` entries, so
+#     the Flights tab's "as <stand-in>" column has its fallback source present as well as
+#     its primary one (each recording's own raw crew);
+#   - twenty-four `crewEndStatesResolved = True` recordings with `CREW_END_STATES` entries
+#     naming those three kerbals across states 0 and 3 (Aboard and Unknown), so the flight
+#     groups draw rows AND their bucket summaries are non-trivial;
+#   - it is vessel-less at the Space Center for census purposes and is already flown by
+#     `GUI-4-census-missions-docked`, `RH-1` and `H39-logistics-isolated-bdock`, so its
+#     load surface is gated elsewhere and its analyzer row needs no exemption.
+#
+# WHAT IT PHOTOGRAPHS (6 PNGs, each with a `<label>.gui.json` dump beside it): the Roster
+# tab closed, fully expanded, and with ONE owner row's replacement chain open; the
+# Flights tab with every group unfolded and with every group folded to its header line.
+# The closed/open pairs are the point - the fold is the "minimal, need-to-know" ruling made
+# visible, and a reviewer reads it as a diff.
+#
+# `op=expand window=kerbals` IS NEW WITH THIS PR. Its two prefixes are per TAB: `roster:`
+# drives a row's replacement-chain view plus that tab's plain-kerbal fold row, `flights:`
+# a per-kerbal group fold. `key=all` / `key=none` walk BOTH sets, which is why the folded
+# Flights capture below is taken after a `key=none` that also re-collapses the Roster tab -
+# stated here because a reviewer would otherwise read the next Roster capture as a
+# regression. `roster:Bill Kerman` is a NAMED key on purpose: it is committed fixture data
+# (an owner with a stand-in), and it proves the chain view hangs off ONE row rather than
+# off the whole tab.
+#
+# THE NAMED KEY WAS `roster:Jane Kerman` ON THE FIRST TWO FLIGHTS, and that is a review
+# finding rather than an edit of taste: the chain describes ONE slot and that slot belongs
+# to the owner, so a stand-in row expanding into a chain containing itself was wrong. Only
+# the owner's row is expandable now, so `roster:Jane Kerman` is no longer an offered key
+# and the step would answer `changed=0`. The capture it produced is relabelled to match
+# what it is a picture of.
+#
+# `op=open window=main` FIRST IS A PRECONDITION (the settle for a non-`main` `open` /
+# `rect` refuses while the host's `showUI` is false), and `scene = "spacecenter"` is passed
+# EXPLICITLY so the boot route is a property of the spec rather than of the fixture's
+# vessel count.
+#
+# NO BASIC PASS. The Kerbals launcher is Basic-HIDDEN (`UI/UiComplexityMode.cs:181`), so
+# Basic has no picture of this window by construction and `GUI-1` / `GUI-5` already
+# photograph the main window's mode diff. A Basic capture here would add a seventh PNG that
+# says nothing this lane is about.
+#
+# FLOWN 2026-09-15, TWICE. Reading run `2026-09-15_1559` (PASS attempt 1, 60 s) and, after
+# the two defects it found were fixed, re-flight `2026-09-15_1616` (PASS attempt 1, 58 s,
+# all steps met, 6 PNGs + 6 dumps every one `patched=17/17`, every verifier PASS or REPORT).
+#
+# WHAT THE RE-FLIGHT MEASURED, which is what this lane exists for: three reserved slots each
+# reading `Reserved until recovery` with a dated `Since` (`Y1, D01, 02:29`) and
+# `Kerbal X #2 - Still aboard` as the last flight; three stand-in rows reading
+# `Stand-in for Bill Kerman` / `for Bob Kerman` / `for Valentina Kerman`; `Jebediah Kerman`
+# as the one plain `Available` row behind `Available, no recorded flights (1)`; three flight
+# groups each `5 flights: 4 aboard, 1 unknown` over 15 dated rows; and the named-key capture
+# showing ONE expansion on the STAND-IN's own row. Header-vs-cell delta ZERO on both tabs
+# (Roster cells x=284/478/702/836 header and body alike, Flights 284/418/632/746).
+#
+# WHAT THAT READING BOUGHT, and what this lane now measures instead. Two of its numbers were
+# the defect: the fifteen Flights rows were FIVE PER KERBAL for what this corpus records as
+# TWO MISSIONS - four of them at the identical `Y1, D01, 02:29` with the identical mission
+# name, and one of them `Outcome unknown` for a two-point mid-mission segment - and the
+# stand-in row was expandable. The row unit is the MISSION now, so the expected reading is
+# TWO rows per kerbal (`Kerbal X`, then `Kerbal X #2`), each dated by its first segment
+# START, each carrying the mission's FINAL outcome, with the segment count and the ordered
+# per-segment outcomes in the outcome cell's hover text; and the three group headers count
+# missions (`2 missions: ...`). The stand-in rows have no fold arrow.
+#
+# WHAT THE FIRST RUN FOUND, both fixed before the re-flight: the compact date clipped an
+# 80 px column (now 130, which moved the window's first-open width to 760), and this lane's
+# own `unfolded` Flights capture was FOLDED, because the bulk `key=none` that sets up the
+# single-chain Roster picture collapses BOTH tabs - an `op=expand key=all` now precedes it.
+#
+# WHAT IT STILL CANNOT PHOTOGRAPH: the `as <stand-in>` crew note. This corpus reserves its
+# owners because they are still ABOARD, so no committed flight anywhere was flown BY a
+# stand-in and every Crew cell reads `-`. The note's logic is covered by six unit cells; a
+# picture needs a fixture that does not exist.
+description = "GUI census: the rebuilt Kerbals window over a crewed corpus - the Roster tab closed, fully expanded and with one owner row's replacement chain open, and the Flights tab unfolded (one row per mission) and folded, over a fixture with three reserved slots, three stand-ins and twenty-four crewed recordings."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "kerbals", "GUI-11", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot, explicitly to the Space Center ---
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- Advanced, and the main window as the open precondition ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- the Kerbals window, the subject. Commanded far larger than its own 760x400
+  # first-open size so a capture shows every row rather than the first screenful.
+  { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+
+  # THE DEFAULT ROSTER FORM: chains collapsed, plain available kerbals behind their one
+  # fold row. This is what the player meets on opening the window.
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "roster" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-collapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-collapsed-advanced" }, expect = "OK" },
+
+  # EVERYTHING OPEN: the plain bucket listed and all three slots' chains drawn.
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-expanded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-expanded-advanced" }, expect = "OK" },
+
+  # ONE OWNER ROW'S CHAIN, and nothing else: `key=none` first so the picture carries a
+  # single expansion, then the named key. `changed=` on the pair says how much the bulk
+  # collapse had to undo, which is the in-run check that the previous capture was open.
+  # The key is the SLOT OWNER: a stand-in's row is not expandable (the chain belongs to the
+  # slot, and the slot belongs to the owner), so `roster:Jane Kerman` - what the first two
+  # flights used - is no longer an offered key.
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "none" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "roster:Bill Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-owner-chain-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-owner-chain-advanced" }, expect = "OK" },
+
+  # THE FLIGHTS TAB WITH EVERY GROUP OPEN, so the per-flight rows (date, mission, outcome
+  # word, "as <stand-in>") are the picture. The `key=all` is REQUIRED and not redundant
+  # with the tab's own default: the two `key=none` steps above collapsed BOTH tabs' sets,
+  # and the first flight of this lane (`2026-09-15_1559`) photographed three folded
+  # headers under the label `unfolded` because of exactly that. The bulk keys are
+  # per-window, not per-tab - stated here and in the header.
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-flights-unfolded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-flights-unfolded-advanced" }, expect = "OK" },
+
+  # AND FOLDED TO THE HEADER LINES: the bucket summary is the header whether or not a
+  # group is folded (the ruling), so this capture is the summaries alone.
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "none" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-flights-folded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-flights-folded-advanced" }, expect = "OK" },
+
+  # ONE NAMED GROUP BACK OPEN, to prove the per-kerbal key drives one group rather than
+  # the tab. No capture: the picture it would produce is between two this lane already has.
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "flights:Bill Kerman" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
+
+  # The negative dialog assertion: no Parsek modal stands over this census.
+  { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY, the GUI-3 discipline: this lane opens one window over a crewed corpus and
+# photographs it. It drives no dock, no crew action and no rewind, so no D5 / D9 / D12
+# value is EXERCISED here even though the corpus carries the results of all three;
+# `GUI-4-census-missions-docked`, `RH-1` and `H39-logistics-isolated-bdock` are the lanes
+# that claim on this same host.
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+# This lane's OWN seam records only, the GUI-1 discipline.
+required = [
+  # --- describe echoes, in step order ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  # --- the expansions. `state=` carries the direction, which is what makes the captures
+  # either side of them a diff rather than two pictures of the same thing.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=none state=false changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=roster:Bill Kerman state=true changed=1 expanded=1 total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=flights:Bill Kerman state=true changed=1 expanded=1 total=[0-9]+",
+  # --- the negative dialog assertion (see the header) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
+  # --- one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=bdk-kerbals-roster-collapsed-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-collapsed-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-expanded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-owner-chain-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-flights-unfolded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-flights-folded-advanced .*patched=17/17",
+]
+# EMPTY, the census host decision: a LAYOUT review does not gate on a host's own cold-load
+# surface, and this fixture's load is gated where it is attributable (`GUI-4`, `RH-1`,
+# `H39-logistics-isolated-bdock`).
+forbidden = []
+
+[runtime]
+# 6 captures and 6 dumps, about 20 single-phase UI ops, and a cold load of a 24-recording
+# sandbox corpus. Sized off GUI-5's MEASURED 66 s for 17 captures plus 17 dumps on a
+# 15-action career; this lane is smaller on every axis. Generous rather than tight because
+# the PRODUCT is the images and a KILLED run leaves none of them.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, like every other committed spec.
+bugId = ""

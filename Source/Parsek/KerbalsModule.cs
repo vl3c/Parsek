@@ -178,6 +178,31 @@ namespace Parsek
             return new List<string>(retiredKerbals);
         }
 
+        /// <summary>
+        /// Recording id -> the crew names the recorder actually wrote into that
+        /// recording's snapshot, as PrePass cached them. A read-only view of the walk's
+        /// own <c>rawRecordingCrew</c>, exposed for the Kerbals window's "as
+        /// &lt;stand-in&gt;" column: <c>PopulateCrewEndStates</c> reverse-maps a stand-in's
+        /// name back to the owner before writing <c>CrewEndStates</c>, so the owner-keyed
+        /// end states alone cannot say WHO flew a given flight, and this is the per-flight
+        /// record that can. Rebuilt every walk (cleared in <see cref="Reset"/>), so a
+        /// recording whose snapshot the load-time sweep dropped is simply absent - the
+        /// window then falls back to <c>CrewReservationManager.CrewReplacements</c>.
+        /// <para>Snapshot copy, safe to enumerate while the module recalculates.</para>
+        /// </summary>
+        internal IReadOnlyDictionary<string, IReadOnlyCollection<string>>
+            RawRecordingCrewByRecordingId
+        {
+            get
+            {
+                var copy = new Dictionary<string, IReadOnlyCollection<string>>(
+                    rawRecordingCrew.Count, System.StringComparer.Ordinal);
+                foreach (var kvp in rawRecordingCrew)
+                    copy[kvp.Key] = new List<string>(kvp.Value);
+                return copy;
+            }
+        }
+
         // ────────────────────────────────────────────────────────
         // IResourceModule implementation
         // ────────────────────────────────────────────────────────
