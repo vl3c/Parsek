@@ -4513,7 +4513,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsTerminalMapPresenceRegion(
+        internal static bool IsTerminalMapPresenceRegion(
             IPlaybackTrajectory traj,
             double currentUT)
         {
@@ -11056,17 +11056,28 @@ namespace Parsek
             vesselNode.SetValue("prst", "True", true);
             vesselNode.SetValue("cln", "False", true);
 
-            // Defensive: ensure sub-nodes that SpaceTracking.buildVesselsList and other
-            // KSP internals assume exist. CreateVesselNode adds ACTIONGROUPS but omits
-            // these three. Missing nodes can cause NREs in tracking station code paths.
+            EnsureDefensiveVesselNodes(vesselNode);
+
+            return vesselNode;
+        }
+
+        /// <summary>
+        /// Adds the sub-nodes that SpaceTracking.buildVesselsList and other KSP internals
+        /// assume exist on a VESSEL node. ProtoVessel.CreateVesselNode adds ACTIONGROUPS
+        /// but omits these three, and a missing node can NRE inside tracking-station code
+        /// paths. Idempotent: an already-present node is left alone. Split out of
+        /// the ghost ProtoVessel node builder so the insertion can be driven headlessly.
+        /// </summary>
+        internal static void EnsureDefensiveVesselNodes(ConfigNode vesselNode)
+        {
+            if (vesselNode == null) return;
+
             if (vesselNode.GetNode("FLIGHTPLAN") == null)
                 vesselNode.AddNode("FLIGHTPLAN");
             if (vesselNode.GetNode("CTRLSTATE") == null)
                 vesselNode.AddNode("CTRLSTATE");
             if (vesselNode.GetNode("VESSELMODULES") == null)
                 vesselNode.AddNode("VESSELMODULES");
-
-            return vesselNode;
         }
 
         /// <summary>

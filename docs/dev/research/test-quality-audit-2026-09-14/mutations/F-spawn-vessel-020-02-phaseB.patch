@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekPlaybackPolicy.cs b/Source/Parsek/ParsekPlaybackPolicy.cs
+index 99ebc47f5..6cb903e6e 100644
+--- a/Source/Parsek/ParsekPlaybackPolicy.cs
++++ b/Source/Parsek/ParsekPlaybackPolicy.cs
+@@ -284,7 +284,6 @@ namespace Parsek
+             if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                     rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
+             {
+-                rec.SpawnAbandoned = true;
+                 return SpawnDeathDisposition.Abandon;
+             }
+ 

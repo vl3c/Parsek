@@ -329,20 +329,11 @@ namespace Parsek.Tests
 
         #region Log assertions
 
-        [Fact]
-        public void RegeneratePartIdentities_MultipleParts_LogNotEmpty()
-        {
-            var snapshot = Generators.VesselSnapshotBuilder.FleaRocket("Flea", "Jeb", 500000).Build();
-            uint nextPid = 7000;
-            uint nextUid = 8000;
-
-            VesselSnapshotOps.RegeneratePartIdentities(
-                snapshot, () => nextPid++, () => nextUid++, 1111, 5);
-
-            // RegeneratePartIdentities is called by RegenerateVesselIdentity which logs;
-            // the method itself doesn't log (caller responsibility). Verify no crash.
-            Assert.Equal(3, snapshot.GetNodes("PART").Length);
-        }
+        // RegeneratePartIdentities_MultipleParts_LogNotEmpty was deleted: its only
+        // assertion was the generator fixture's PART count, which holds whether or
+        // not the method did anything, and the log it was named for is the caller's.
+        // RegeneratePartIdentities_MultipleParts_EachGetsUniqueIds (above) pins what
+        // the method actually does.
 
         [Fact]
         public void ApplyPostSpawnStabilization_NullVessel_NoLog()

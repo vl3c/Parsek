@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..f45085703 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -7187,8 +7187,7 @@ namespace Parsek
+             {
+                 double duration = state.currentTrackSection.endUT - state.currentTrackSection.startUT;
+                 if (duration > 0)
+-                    state.currentTrackSection.sampleRateHz =
+-                        (float)(state.currentTrackSection.frames.Count / duration);
++                    state.currentTrackSection.sampleRateHz = 0f;
+             }
+ 
+             int frameCount = state.currentTrackSection.frames?.Count ?? 0;

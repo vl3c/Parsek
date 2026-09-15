@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index e0d742cb5..f6bf534ff 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -13203,7 +13203,7 @@ namespace Parsek
+             if (evt.Trajectory == null || evt.Trajectory.IsDebris)
+             {
+                 if (evt.Trajectory?.IsDebris == true)
+-                    ParsekLog.VerboseRateLimited("Policy", $"skip-map-debris-{evt.Index}",
++                    ParsekLog.VerboseRateLimited("Policy", $"skip-map-debris-{evt.Index}-{System.Guid.NewGuid()}",
+                         $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory?.VesselName}\" - debris",
+                         3.0);
+                 return;

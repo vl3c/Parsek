@@ -254,11 +254,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecoupledPartIds_DuplicateDecouple_TracksFirstOnly()
+        public void DecoupledPartIds_SetIsTheDedupSurfaceExposedPerVessel()
         {
-            // Tests the dedup mechanism: once a part PID is in decoupledPartIds,
-            // subsequent joint breaks for that part should be skipped.
-            // This mirrors FlightRecorder's dedup via decoupledPartIds.Contains().
+            // What this pins: the per-vessel decoupledPartIds set the loaded state
+            // exposes is the surface OnBackgroundPartJointBreak dedups against, and a
+            // repeat add is a no-op on it. What it CANNOT pin: the guard itself
+            // (BackgroundRecorder.OnBackgroundPartJointBreak) - reaching it needs a
+            // live PartJoint with a Child Part, a Vessel and an attachJoint, none of
+            // which exist headlessly. The in-game BackgroundRecording category is the
+            // detector for the guard.
             var tree = MakeTree((100, "rec_bg1"));
             var bgRecorder = new BackgroundRecorder(tree);
             bgRecorder.InjectLoadedStateForTesting(100, "rec_bg1");

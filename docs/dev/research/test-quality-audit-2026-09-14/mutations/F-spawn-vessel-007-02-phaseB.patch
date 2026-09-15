@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 3057033f3..37a8558af 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -585,8 +585,7 @@ namespace Parsek
+                     lightApplied++;
+                 }
+ 
+-                ApplySnapshotRoboticBaseline(
+-                    state, pid, baseline, ref servoApplied, ref servoSkipped);
++                // mutation: snapshot robotic baselines are not applied
+             }
+ 
+             string summary =

@@ -299,19 +299,19 @@ namespace Parsek.Tests
                 SpawnDeathCount = 2 // will become 3 after increment
             };
 
-            // Simulate the vessel-gone check incrementing and hitting the cap
+            // The vessel-gone check increments, then hands the recording to the
+            // production disposition - the same call RunSpawnDeathChecks makes.
             rec.SpawnDeathCount++;
-            bool shouldAbandon = VesselSpawner.ShouldAbandonSpawnDeathLoop(
-                rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles);
+            ParsekPlaybackPolicy.SpawnDeathDisposition disposition =
+                ParsekPlaybackPolicy.ApplySpawnDeathDisposition(rec, out uint priorPid);
 
-            Assert.True(shouldAbandon);
-
-            // Apply abandon state
-            rec.VesselSpawned = true;
-            rec.SpawnAbandoned = true;
-
-            Assert.True(rec.VesselSpawned);
+            Assert.Equal(ParsekPlaybackPolicy.SpawnDeathDisposition.Abandon, disposition);
+            Assert.Equal(42u, priorPid);
+            // Abandon marks the recording and leaves the spawn bookkeeping alone
+            // (the vessel identity is kept for the log line and for diagnostics).
             Assert.True(rec.SpawnAbandoned);
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(42u, rec.SpawnedVesselPersistentId);
             Assert.Equal(3, rec.SpawnDeathCount);
         }
 

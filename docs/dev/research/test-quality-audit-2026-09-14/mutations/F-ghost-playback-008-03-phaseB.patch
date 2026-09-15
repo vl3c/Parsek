@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index e0d742cb5..7b803e77a 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -11072,8 +11072,6 @@ namespace Parsek
+         {
+             if (vesselNode == null) return;
+ 
+-            if (vesselNode.GetNode("FLIGHTPLAN") == null)
+-                vesselNode.AddNode("FLIGHTPLAN");
+             if (vesselNode.GetNode("CTRLSTATE") == null)
+                 vesselNode.AddNode("CTRLSTATE");
+             if (vesselNode.GetNode("VESSELMODULES") == null)

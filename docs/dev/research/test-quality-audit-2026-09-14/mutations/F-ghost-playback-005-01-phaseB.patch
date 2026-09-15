@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs b/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+index d116e3973..4766c365e 100644
+--- a/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
++++ b/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+@@ -1538,11 +1538,7 @@ namespace Parsek.Display
+             if (string.IsNullOrEmpty(id)) return;
+ 
+             long hash = ComputeContentHash(rec);
+-            if (polylineCache.TryGetValue(id, out var existing)
+-                && existing.contentHash == hash)
+-            {
+-                return; // cache hit
+-            }
++            // mutation: no cache-hit early return
+ 
+             // Stale Vectrosity objects on a rebuild: destroy every leg's line
+             // before overwriting so the GameObjects do not leak.

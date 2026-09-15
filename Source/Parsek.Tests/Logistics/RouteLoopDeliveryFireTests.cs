@@ -341,18 +341,35 @@ namespace Parsek.Tests.Logistics
             Assert.Null(route.CurrentCycleStartUT);
         }
 
-        // catches: Career KSC funds debit not flowing through the delivery row
-        // on a loop-route cycle.
+        // catches: a career KSC loop crossing skipping EmitDispatchDebit's
+        // career-KSC funds arm - the arm that recomputes Route.KscDispatchFundsCost
+        // and stamps the debited row - and the delivery half not carrying the cost
+        // onto the delivered row.
+        //
+        // The cost VALUE on a headless run is 0.0: ComputeDispatchFundsCostForRoute
+        // prices the ERS basis through PartLoader / PartResourceLibrary, neither of
+        // which exists here. So the discriminator is the WRITE, not the amount: the
+        // route field is seeded with a sentinel the production arm must overwrite.
+        // The delivered row's own funds field (RouteOrchestrator.cs:4449) sits after
+        // the live-Vessel resolution both loop seams stand in for and is pinned by
+        // RouteOrchestratorDeliveryTests.HappyPath_KscCareer_FullFill_EmitsActionAndDebitsFunds.
         [Fact]
         public void Crossing_CareerKsc_DebitedRowCarriesFundsCost()
         {
             var route = BuildLoopRoute(isKscOrigin: true);
+            route.KscDispatchFundsCost = -1.0; // sentinel: only the career-KSC arm clears it
             RouteStore.AddRoute(route);
             InstallUnitResolver(BuildUnit());
             InstallFakeDeliveryApplier(fundsCostIfCareerKsc: 555.0);
             var env = new EligibleEnv { IsCareer = true };
 
             RouteOrchestrator.Tick(1150.0, env);
+
+            // The production career-KSC arm ran and rewrote the persisted cost.
+            Assert.Equal(0.0, route.KscDispatchFundsCost);
+
+            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.Equal((float)route.KscDispatchFundsCost, debited.RouteKscFundsCost);
 
             var delivered = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDelivered);
             Assert.Equal(555f, delivered.RouteKscFundsCost);

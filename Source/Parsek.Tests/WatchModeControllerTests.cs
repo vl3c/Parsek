@@ -298,6 +298,16 @@ namespace Parsek.Tests
                 Assert.Equal(float.MaxValue, (float)holdUntilField.GetValue(controller));
                 Assert.True(engine.ghostStates.ContainsKey(0));
                 Assert.True(engine.ghostStates.ContainsKey(1));
+
+                // The transfer above declines on the ghost==null deferral before the
+                // target choice matters, so also assert the choice: this breakup
+                // branch offers NO watch target at all (#321 - a different-PID child
+                // never inherits the watch after a breakup).
+                Assert.Equal(-1, GhostPlaybackLogic.FindNextWatchTarget(
+                    root,
+                    RecordingStore.CommittedRecordings,
+                    RecordingStore.CommittedTrees,
+                    _ => true));
             }
             finally
             {
@@ -307,6 +317,41 @@ namespace Parsek.Tests
                 RecordingStore.ResetForTesting();
                 ParsekLog.SuppressLogging = false;
             }
+        }
+
+        // The debris exclusion on its own, on the branch type that DOES allow a
+        // different-PID fallback (a breakup branch is blocked one rule earlier, so it
+        // cannot witness this term). Control arm: the same child, not flagged debris,
+        // IS chosen - so the -1 above comes from the debris flag and nothing else.
+        [Fact]
+        public void FindNextWatchTarget_UndockBranchDebrisOnlyChild_ReturnsNoTarget()
+        {
+            var branchPoint = new BranchPoint
+            {
+                Id = "bp-undock",
+                Type = BranchPointType.Undock,
+                ChildRecordingIds = new List<string> { "child" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-undock",
+                TreeName = "UndockTree",
+                BranchPoints = new List<BranchPoint> { branchPoint }
+            };
+            var trees = new List<RecordingTree> { tree };
+
+            var root = MakeRecording("root", 100, treeId: tree.Id, childBranchPointId: branchPoint.Id);
+            var debrisChild = MakeRecording("child", 200, treeId: tree.Id, isDebris: true);
+            var committed = new List<Recording> { root, debrisChild };
+
+            Assert.Equal(-1, GhostPlaybackLogic.FindNextWatchTarget(
+                root, committed, trees, _ => true));
+
+            var liveChild = MakeRecording("child", 200, treeId: tree.Id, isDebris: false);
+            var committedLive = new List<Recording> { root, liveChild };
+
+            Assert.Equal(1, GhostPlaybackLogic.FindNextWatchTarget(
+                root, committedLive, trees, _ => true));
         }
 
         [Fact]

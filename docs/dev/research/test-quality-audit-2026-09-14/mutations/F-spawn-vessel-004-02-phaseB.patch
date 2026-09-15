@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..b43120fbf 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -2672,8 +2672,6 @@ namespace Parsek
+         /// </summary>
+         internal void RetireDestroyedBackgroundEntry(uint pid, string recordingId, double terminalUT)
+         {
+-            tree.BackgroundMap.Remove(pid);
+-            onRailsStates.Remove(pid);
+             loadedStates.Remove(pid);
+             railsSpanPartStates.Remove(pid);
+             finalizationCaches.Remove(pid);
