@@ -536,5 +536,32 @@ namespace Parsek.Tests
             Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
                 new GameAction { Type = (GameActionType)999, RecordingId = "rec_1" }));
         }
+
+        // The CREDIT leg of the strategy currency exchange, the mirror of
+        // SupersedeTombstoneEligibility_StrategyScienceDebit_IsEligibleWhenTagged. Both
+        // legs are listed EXPLICITLY because the default PRESERVES unknown types: a
+        // superseded branch's exchange credit surviving a re-fly merge keeps crediting
+        // science for a flight the merge deleted.
+        [Fact]
+        public void SupersedeTombstoneEligibility_StrategyScienceCredit_IsEligibleWhenTagged()
+        {
+            Assert.True(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction
+                {
+                    Type = GameActionType.StrategyScienceCredit,
+                    RecordingId = "rec_1",
+                    UT = 8599.87,
+                    Cost = 45f
+                }));
+
+            // Null scope is the ordinary KSC-door row: never tombstoned (section 7.41).
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction
+                {
+                    Type = GameActionType.StrategyScienceCredit,
+                    RecordingId = null,
+                    Cost = 45f
+                }));
+        }
     }
 }

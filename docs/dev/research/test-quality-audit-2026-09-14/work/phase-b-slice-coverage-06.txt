@@ -1,0 +1,12 @@
+C-legacy-bugfix-002-01	recording	Source/Parsek/RecordingStore.cs:972	direct	CommitTree_CommitsEveryTreeRecording
+C-legacy-bugfix-011-01	recording	Source/Parsek/EnvironmentDetector.cs:135	direct	IsHeightFromTerrainValid_NaNOrNegative_ReturnsFalse
+C-legacy-bugfix-015-01	recording	Source/Parsek/TimeJumpManager.cs:408	direct	CreateTimeJumpEvent_DetailsValuesRoundTrip
+C-logistics-route-002-01	recording	Source/Parsek/Logistics/RouteAnalysisEngine.cs:1134	direct	IsSupportedMidTreeDockedOrigin_GrappleOriginWindow_False
+C-mission-groups-014-01	recording	Source/Parsek/UI/RecordingsTableUI.cs:6377	direct	SortedIndices_DistinctGroups_RemapsEachRecordingToItsOwnGroup
+C-recorder-events-003-01	recording	Source/Parsek/FlightRecorder.cs:4832	direct	RoboticTransition_MovingSignalFalse_PositionJump_StartsAndKeepsMoving
+C-recorder-events-004-01	recording	Source/Parsek/BackgroundRecorder.cs:6743	direct	ClassifyBackgroundRelativeFrameContract_GhostCandidateWithCurrentCandidate_IsRecorded
+C-recorder-events-021-01	recording	Source/Parsek/FlightRecorder.cs:297	direct	FlightRecorder_JointBreakSignal_SetsPendingThenConsumeClearsIt
+C-recording-tree-001-01	recording	Source/Parsek/RecordingOptimizer.cs:2133	direct	CanAutoMerge_EvaAtmoToSurface_DifferentVesselPids_ReturnsFalse
+C-recording-tree-001-02	recording	Source/Parsek/RecordingOptimizer.cs:177	direct	CanAutoSplit_FirstHalfTooShort_ReturnsFalse
+C-recording-tree-008-01	recording	Source/Parsek/SessionMerger.cs:794	direct	ResolveOverlaps_ZeroDurationSection_Dropped
+C-recording-tree-009-01	recording	Source/Parsek/SessionMerger.cs:1734	direct	MergePartEvents_SameUtSamePartSameTypeDifferentModuleIndex_BothKept

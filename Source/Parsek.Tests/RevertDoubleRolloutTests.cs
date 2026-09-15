@@ -433,21 +433,53 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Idempotency: running the repair twice on the same ledger must not
-        /// drop additional rows or emit a second collapse log.
+        /// Idempotency over a ledger that actually HAS work to do: the
+        /// production duplicate cluster is seeded directly (bypassing the
+        /// write-time gate), so pass one collapses it and pass two must be a
+        /// true no-op - no further rows dropped and no second collapse log.
+        /// Seeding two legitimately distinct rollouts instead would leave
+        /// nothing to collapse and a repair pass that did nothing at all would
+        /// pass.
         /// </summary>
         [Fact]
-        public void RepairDuplicateRolloutActions_Idempotent()
+        public void RepairDuplicateRolloutActions_SecondPassOverACollapsedClusterIsANoOp()
         {
-            RecordRollout(ut: 100.0, cost: 5000.0, pid: 1u);
-            RecordRollout(ut: 200.0, cost: 6000.0, pid: 2u);
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtFirst,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 18,
+                DedupKey = $"rollout:{ProductionUtFirst.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtSecond,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 19,
+                DedupKey = $"rollout:{ProductionUtSecond.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+            });
+            Assert.Equal(2, CountUnadoptedRollouts());
 
             int firstPass = Ledger.RepairDuplicateRolloutActions();
+            Assert.Equal(1, firstPass);
+            Assert.Equal(1, CountUnadoptedRollouts());
+
+            int ledgerCountAfterFirstPass = Ledger.Actions.Count;
             int secondPass = Ledger.RepairDuplicateRolloutActions();
 
-            Assert.Equal(0, firstPass);
             Assert.Equal(0, secondPass);
-            Assert.Equal(2, CountUnadoptedRollouts());
+            Assert.Equal(1, CountUnadoptedRollouts());
+            Assert.Equal(ledgerCountAfterFirstPass, Ledger.Actions.Count);
+
+            // Exactly ONE collapse summary across both passes: the no-op pass
+            // must stay silent, or a healthy ledger reads as a repaired one.
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[Ledger]") &&
+                l.Contains("RepairDuplicateRolloutActions: collapsed")));
         }
 
         /// <summary>

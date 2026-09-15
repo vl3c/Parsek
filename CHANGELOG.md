@@ -37,6 +37,41 @@ _(unreleased — entries accumulate here per commit)_
   asymmetry found and filed rather than changed: only the global window's footer tells
   the player that the results file auto-updates, though both windows export it.
 
+- **Developer tooling: the GUI census now produces a page that BEHAVES like
+  Parsek's GUI.** `harness/tools/gui_mirror.py` turns the census artifacts into one
+  self-contained HTML file in which every window is laid out from the captured
+  IMGUI control rects, so column widths, insets and row strides are the game's to
+  the pixel; the colours AND the tab-bar label positions are measured out of the
+  PNGs, because the control-tree dump records a style NAME and not a colour (the
+  blue clickable rows, the dimmed ones and the status tints exist only in the
+  pixels) and a selection grid reports neither where its items sit nor how their
+  text is aligned (the Kerbals
+  bar centres its two labels, the Career bar left-aligns its four); and the tabs,
+  launchers, folds and pickers are clickable, switching to the capture of that
+  state. Nothing about a window is written into the generator - not a label, not a
+  tooltip, not a column width - so the page cannot drift from the game: there is
+  nothing to update when a window changes, only a census to re-fly (a unit cell
+  renders a synthetic capture and then asserts the generator's own source does not
+  contain the strings the page showed). A click with no capture behind it flashes
+  the control and says `no capture for this state yet` rather than inventing a
+  screen; each rail header folds its own window's captures away and Compare shows
+  the window selected there; KSP's rich-text subset is translated on a whitelist
+  rather than shown as tags or handed the run of the page; the captured frame can be put beside the rendering, or under it as thin
+  per-control outlines, so a layout check never stacks text on text; and the left rail lists every state that has a capture next to every
+  state the command seam knows and nothing photographed. Which window, tab,
+  complexity mode and scene each capture IS comes from that run's KSP.log rather
+  than from the label, which is also the only record of a stock modal's title and
+  buttons, since a `PopupDialog` is invisible to the tree dump. Passing several
+  runs of one lane at once adds a Compare view: the earliest capture of a
+  (fixture, window, tab, state, mode, scene) key beside the latest, drawn by the
+  same renderer, with the CHANGELOG entries and struck `GUI-*` todo entries that
+  name that window quoted beside them and the node, row and header-to-cell numbers
+  MEASURED off the two dumps. Over the present 192 captures that pairs 15 keys -
+  the Recordings-tab and Structure and Career alignment fixes, the Kerbals rebuild,
+  Spawn Control, and the flight main window. The page is not committed (it is about
+  15 MB of inlined PNG); the generator, its tests and
+  `docs/dev/design-gui-mirror.md` are.
+
 - **Automated testing: the GUI census can finally photograph a modal, and six of the
   21 Parsek dialogs now have a picture.** The census had a read-only dialog report
   (`UiAction op=dialog`) and no way to put a modal on screen: all six wave-2 lanes
@@ -268,6 +303,62 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: the final slice of the audit's Medium T1 register - fourteen catch-all and
+  legacy-bugfix cells - now reaches the production line each name claims, closing that
+  register.** Eleven cells
+  rebuilt a production expression in the test body and then checked their own arithmetic:
+  the atomic Re-Fly marker write (retargeted onto the two version counters the critical
+  section must and must not move, since no production change can raise a save event
+  headlessly), the rollout-duplicate repair's idempotency (which seeded two legitimately
+  distinct rollouts, so there was nothing to collapse), the dock-chain crew-exclusion walk
+  (whose branch-1 sibling carried no EVA kerbal, leaving the branch skip dead in the
+  fixture), the duplicate-blocker recovery latch, and the copy-rewind-save no-op (which
+  asserted a field that starts null instead of the budget the early return protects).
+  Four more re-pointed at real production entry points: the cross-save tree-contamination
+  cell now drives the actual load path instead of calling `List.Clear` itself, the
+  revert-detection counter is read from production rather than re-implemented (and the
+  re-implementation had the rule wrong - in-flight and pending marker trees must not
+  count), and the two in-place Re-Fly no-op cells now seed the fork where a removed guard
+  would actually attach it. One cell whose production expression no longer exists was
+  rewritten against the line that shipped instead, and one that claimed a log it never
+  checked was renamed to the field-default claim it can make headlessly. Three
+  hide-policy cells were deleted outright: they emitted the Warn and the toast themselves,
+  and the shipped predicate has a behavioural twin plus two source gates in the same file.
+  Three production helpers were extracted so guards could be called without a running
+  game: `VesselSpawner.ShouldEnterDuplicateBlockerRecovery` (the once-per-recording
+  recovery latch, the live-blocker requirement and the same-spawn discriminator that
+  `CheckSpawnCollisions` composed inline), `ParsekScenario.CountSavedCommittedRecordingNodes`
+  (the OnLoad revert-detection count, marker trees excluded) and
+  `GhostPlaybackLogic.ShouldSuppressGhostsInView` (the map-view carve-out on the
+  high-warp ghost suppression). Each call site passes the same inputs in the same order,
+  and no log line changed. Every fixed cell was re-checked by breaking the production line
+  on purpose and confirming it goes red. Nothing a player sees changes.
+- **Tests: twelve more priority-2 recording coverage gaps from the unit-test quality
+  audit are closed.** Ten rows were new coverage and two turned out to be guarded
+  already, so ten new cells landed with no production change and none is obsolete. On the
+  recorder: a servo whose module reports no moving flag while its position keeps advancing
+  is proved to still record its motion, which is the whole inferred-motion half of the
+  robotic poll and had no cell at all; a background vessel's relative-frame anchor label is
+  proved to follow the anchor's own source in both directions, so the one dispatch no cell
+  reached cannot be inverted green; and the pending joint-break flag is proved to be a
+  one-shot - armed, consumed once, then silent - since a consume that never clears repeats
+  an undock branch on the next frame. On recording structure: two EVA recordings of
+  DIFFERENT vessels are proved not to merge across the atmosphere/surface boundary; the
+  five-second floor is proved to guard the FIRST half of an auto-split as well as the
+  second (the two split predicates hold independent copies of that floor, so the covered
+  one protected nothing); a zero-length track section is proved to be dropped rather than
+  merged into output; and two engine modules on the same part firing at the same instant
+  are proved to stay two events instead of collapsing to one. Elsewhere: the time-jump
+  event's stored details are parsed back and compared value by value, so a transposed
+  latitude and longitude no longer passes a key-token check; a grappled origin window is
+  proved to stay a stop rather than being lifted as a supply-route origin; and the
+  terrain-height validity gate - which had zero tests and feeds four recorder call sites -
+  is pinned for NaN, negative and zero. The two already-guarded rows are the tree commit
+  dropping its child recordings (eleven existing cells red on it) and the recordings-table
+  group tree keying by display row (the duplicate-index cell reds on it), so no duplicate
+  cell was written for either. Every cell was proved by breaking the production line on
+  purpose and confirming it goes red alone. Nothing a player sees changes.
+
 - **Tests: the seven worst tests in the suite now test what their names say.** The test
   quality audit read every one of the ~23,400 unit tests and found seven that could not
   fail: each did the work the production code does inside the test body and then checked
@@ -284,6 +375,44 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: a fifth slice of twenty trajectory, map-render, harness-seam, mission-group,
+  wiring-gate, analyzer and logging cells from the audit's T1 (vacuous) register now
+  reaches the production line their names claim.** A sidecar cap check asserted only that
+  the reason mentioned "spline", which the stream-length branch below it also produces, so
+  the per-block cap was unguarded; it now pins the cap wording and value. An anchor
+  tie-break varied two fields at once, so the source comparison it is named for never
+  decided anything; both candidates now carry the same ghost index and the mirror list
+  order is run too. A loiter-compression cell put a 24,000x semi-major-axis step next to
+  the body change it claims to pin; the second segment now carries the SAME axis, so only
+  the body guard can end the run. A re-aim adapter cell never read the span it is named
+  for; it now reads both, over the null AND the empty assembled list. A group-tree remap
+  cell used a full permutation, over which the mutation it names is a no-op; it now uses a
+  filtered, reordered view across three groups. An analyzer determinism cell compared two
+  in-process runs that share one insertion order; it now pins the emitted meta-finding
+  order directly. Two crash-coalesce cells asserted that a returned field equals the
+  argument it was handed and that an untouched coalescer is idle; they now assert the child
+  wiring the call actually derives, including the EVA kerbal-by-pid branch in both
+  directions. A Re-Fly reconcile cell asserted a false that every exit of the method
+  returns; it now pins the ABSENCE of the fall-through log lines. Two production changes,
+  Five production changes, all behaviour-identical and all called by the original site:
+  the recorder's growth-rate update (with its zero-elapsed division guard) is extracted as
+  `FlightRecorder.ComputeGrowthRate`, called verbatim by both commit paths, so the NaN
+  guard can be driven; the in-game runner's per-test reset is
+  `InGameTestRunner.ResetLiveStatus`, whose scene-history flag is the whole difference
+  between the implicit pre-run reset and the explicit wipe; the Missions chapter checkbox
+  writes through `MissionChapters.ApplyChapterToggle`; the re-aim builder's shifted
+  parking-conic end and its frame-mismatch guard are
+  `MissionLoopUnitBuilder.ComputeDescentParkingConicEndUT`; and
+  `ShadowRenderDriver.WarnSpineAssemblerFallback` is widened from private to internal so
+  the one-shot per-pid warn set is written by its real writer instead of being asserted
+  empty. Two command-seam culture cells, which swapped the OS culture over fields that are
+  all integers (identical in every culture), now also pin the format provider the payload
+  builder passes by reading the production method body with comments blanked out. One cell
+  that simulated the relative-anchor retire branch in its own body became a source gate
+  over the three real call sites. One cell is left deferred with its reason: the loop-anchor
+  resolver reaches FlightGlobals with no injected lookup seam, so headless xUnit can only
+  observe every possible outcome. No log text changed. Each fixed cell was re-checked by breaking the named
+  production line on purpose and confirming it goes red. Nothing a player sees changes.
 - **Tests: a fourth slice of twenty recorder-event, ghost-playback, spawn, logistics and
   map-render cells from the audit's T1 (vacuous) register now reaches the production line
   their names claim.** Seven cells replayed production inline and now call it. Five TEXTURE
@@ -439,6 +568,44 @@ _(unreleased — entries accumulate here per commit)_
   the cell goes red. One cell whose arithmetic was true for every input was removed;
   the ledger cutoff tests own that contract, and its one unique assertion survives as
   its own cell. Nothing a player sees changes.
+
+- **Tests: a third twelve priority-2 career and recording coverage gaps from the
+  unit-test quality audit are closed.** Nine rows were new coverage, two turned out to be
+  guarded already, and one is obsolete, so nine new cells landed. On the career ledger: the
+  career-start funds seed is driven with TWO baselines inside the one-second career-start
+  window (the real save shape after a rewind, added latest-first) and proved to take the
+  earliest one, so a first-wins or last-wins slip that would seed the wrong opening balance
+  now reds; the strategy science CREDIT leg gets the mirror of its covered debit cell in the
+  merge-tombstone matrix, so the credit falling through to the preserve-unknown default (and
+  surviving a re-fly merge for a flight the merge deleted) is caught; a corrupted route
+  manifest is read back with three differently malformed entries beside one valid line and
+  proved to warn-and-skip each bad entry without losing the good one, which is the whole
+  difference between a slightly short ledger and a silently dropped cargo manifest; one
+  headless `PatchAll` call is pinned as a witness for all seven patcher delegations through
+  their distinct null-singleton skip lines, so dropping one (the milestones call, which no
+  other cell observed) reds; re-accepting a contract id that is still active is proved to put
+  the LATEST accept's deadline and penalty on the books, so the synthetic expiry cannot fire
+  early for a stale penalty; and a chain segment whose recorded parent is not its immediate
+  predecessor is proved to keep its commit window at its own start rather than widening back
+  to a stranger's end. Off the ledger: a terminal re-stamp on a ghost-only stable chain tip
+  is proved to KEEP its crew end states when the admission predicate declines, since
+  re-inferring there turns Aboard into Dead and reserves a live kerbal forever; a parallel
+  branch-1 EVA sibling is proved not to strip its kerbal from the branch-0 vessel spawn; and
+  the launch-guid backstop is pinned in both directions - an empty source never blanks the
+  field and a captured guid is never overwritten. The two already-covered rows are the
+  source-agnostic rep-penalty timing window (its mutant reds
+  `TombstoneEligibilityTests.RepPenalty_PairedWithDeathAtExactUTBoundary_Eligible`) and the
+  recovery point-delta fallback (its mutant reds
+  `LedgerOrchestratorTests.CreateVesselCostActions_PairedRecoveryEventPreferredOverPointDelta`);
+  both were found by running the mutant against every class that reaches the method, and the
+  duplicate cells were dropped. The obsolete row is the rewind read-back guard's production
+  abort opt-in, retired in the same-day commit that made the guard warn-and-proceed only, so
+  there is no operand left to mutate. One row's named mutant turned out to be equivalent -
+  the chain-gap lookup key is re-derived downstream, so the conjunct is doubly enforced - and
+  its cell is proved against the refactor-shaped mutant that unifies the two key sources
+  instead. Each landed cell carries a mutation proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No production change, no
+  player-visible change.
 
 - **Tests: a second twelve priority-2 career-risk coverage gaps from the unit-test
   quality audit are closed.** Ten rows were new coverage and two turned out to be guarded

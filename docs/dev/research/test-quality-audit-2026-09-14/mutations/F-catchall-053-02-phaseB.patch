@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/VesselSpawner.cs b/Source/Parsek/VesselSpawner.cs
+index fde611e8e..ccd9ad229 100644
+--- a/Source/Parsek/VesselSpawner.cs
++++ b/Source/Parsek/VesselSpawner.cs
+@@ -2556,7 +2556,6 @@ namespace Parsek
+         {
+             if (rec == null) return false;
+             // Recovery-loop latch: one recovery per recording, ever.
+-            if (rec.DuplicateBlockerRecovered) return false;
+             if (!blockerVesselLoaded) return false;
+             return ShouldRecoverBlockerVessel(rec, blockerName, resolvedRecordingName, blockerPid);
+         }

@@ -245,15 +245,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NoOp_WhenBothSourcesHaveNoSave()
+        public void NoOp_WhenBothSourcesHaveNoSave_LeavesTheRootBudgetUntouched()
         {
+            // The root starts with a null RewindSaveFileName, so asserting only
+            // that it is still null holds with or without the empty-save early
+            // return. The budget is what the return actually protects: a
+            // capture with no rewind save still carries reserved and pre-launch
+            // figures, and copying those onto the root would give the R button
+            // a budget for a rewind point that does not exist.
             var tree = MakeTree();
             var capture = MakeCaptureAtStop(rewindSave: null);
+            Assert.NotEqual(0, capture.RewindReservedFunds);
+            Assert.NotEqual(0, capture.PreLaunchFunds);
 
             ParsekFlight.CopyRewindSaveToRoot(tree, capture, recorderFallbackSave: null);
 
             var root = tree.Recordings[tree.RootRecordingId];
             Assert.Null(root.RewindSaveFileName);
+            Assert.Equal(0, root.RewindReservedFunds);
+            Assert.Equal(0, root.RewindReservedScience);
+            Assert.Equal(0, root.RewindReservedRep);
+            Assert.Equal(0, root.PreLaunchFunds);
+            Assert.Equal(0, root.PreLaunchScience);
+            Assert.Equal(0, root.PreLaunchReputation);
         }
 
         [Fact]

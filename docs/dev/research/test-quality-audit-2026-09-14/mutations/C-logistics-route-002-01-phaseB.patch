@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/Logistics/RouteAnalysisEngine.cs b/Source/Parsek/Logistics/RouteAnalysisEngine.cs
+index 7bb18e001..58a5258a0 100644
+--- a/Source/Parsek/Logistics/RouteAnalysisEngine.cs
++++ b/Source/Parsek/Logistics/RouteAnalysisEngine.cs
+@@ -1131,8 +1131,7 @@ namespace Parsek.Logistics
+             // Claw-producer composition: the P2b lift is a DOCK-origin shape.
+             // A grapple window reaching index 0 is cargo-bearing (an empty one
+             // was already dropped as a structural non-stop) and stays a STOP.
+-            if (originWindow.TransferKind != RouteConnectionKind.DockingPort)
+-                return false;
++            // MUTANT: the TransferKind != DockingPort guard removed
+             if (double.IsNaN(originWindow.UndockUT) || double.IsInfinity(originWindow.UndockUT)
+                 || originWindow.UndockUT < originWindow.DockUT)
+                 return false;

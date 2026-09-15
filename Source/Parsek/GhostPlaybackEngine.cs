@@ -1087,8 +1087,8 @@ namespace Parsek
             // In map view, keep ghosts positioned so map markers draw at the correct
             // location even during high warp (#290). The mesh is invisible at orbital
             // distances anyway — only the icon+text matters.
-            bool suppressGhosts = !ctx.mapViewEnabled
-                && GhostPlaybackLogic.ShouldSuppressGhosts(ctx.warpRate);
+            bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhostsInView(
+                ctx.mapViewEnabled, ctx.warpRate);
             bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(ctx.warpRate);
             RebuildAutoLoopLaunchScheduleCache(trajectories, ctx.autoLoopIntervalSeconds);
 

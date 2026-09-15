@@ -126,119 +126,17 @@ namespace Parsek.Tests
             Assert.Equal(newName, members[0].VesselName);
         }
 
-        [Fact]
-        public void Hide_UnfinishedFlight_WarnsAndDoesNotFlip()
-        {
-            // Regression: hiding an Unfinished Flight row must refuse the
-            // toggle (Hidden stays false) and route a clear ScreenMessages
-            // toast + Warn log line, so the player cannot silently sweep
-            // the re-fly opportunity out of view. Guards the inline policy
-            // wired in DrawRecordingRow's hide branch.
-            var rec = MakeCrashedUnfinished("rec_uf2", "bp_uf2", "Debris");
-            RecordingStore.AddCommittedInternal(rec);
-            InstallScenarioWithRp("bp_uf2", "rp_uf2", rec.RecordingId);
-
-            Assert.False(rec.Hidden, "precondition");
-
-            // The DrawRecordingRow policy: when inside the Unfinished Flights
-            // virtual group (unfinishedFlightRowDepth > 0) and the recording
-            // classifies as unfinished, refuse the flip and toast.
-            bool insideVirtualGroup = true;
-            bool policyAllowsHide =
-                !(insideVirtualGroup && EffectiveState.IsUnfinishedFlight(rec));
-            if (policyAllowsHide)
-            {
-                rec.Hidden = true;
-            }
-            else
-            {
-                ParsekLog.Warn("UnfinishedFlights",
-                    $"Hide refused for Unfinished Flight rec={rec.RecordingId} " +
-                    $"vessel='{rec.VesselName}': rewind access must remain visible (design §7.33)");
-                ParsekLog.ScreenMessage(
-                    $"Cannot hide '{rec.VesselName}' — it is an Unfinished Flight. " +
-                    "Re-fly the rewind point or merge as Immutable to clear it from the list.",
-                    4f);
-            }
-
-            Assert.False(rec.Hidden, "Unfinished Flight hide must not flip the field");
-            Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("Hide refused"));
-            Assert.Contains(screenMessages, m =>
-                m.Contains("Cannot hide") && m.Contains("Unfinished Flight"));
-        }
-
-        [Fact]
-        public void Hide_NonUnfinishedRecording_FlipsNormally()
-        {
-            // Positive control: a regular (non-unfinished) recording's hide
-            // toggle must pass through unchanged even when the caller uses
-            // the same helper logic. The gate is IsUnfinishedFlight alone,
-            // so a non-unfinished recording always allows the toggle.
-            var rec = new Recording
-            {
-                RecordingId = "rec_regular",
-                VesselName = "Regular",
-                MergeState = MergeState.Immutable,
-                TerminalStateValue = TerminalState.Landed,
-            };
-            RecordingStore.AddCommittedInternal(rec);
-            ParsekScenario.SetInstanceForTesting(new ParsekScenario
-            {
-                RewindPoints = new List<RewindPoint>(),
-                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
-            });
-
-            Assert.False(EffectiveState.IsUnfinishedFlight(rec));
-
-            bool policyAllowsHide = !EffectiveState.IsUnfinishedFlight(rec);
-            if (policyAllowsHide) rec.Hidden = true;
-
-            Assert.True(rec.Hidden, "regular recording hide must flip");
-        }
-
-        [Fact]
-        public void Hide_NormalListUnfinishedFlight_RefusesWithoutVirtualGroup()
-        {
-            // Follow-up to the PR #504 review: with the depth gate removed,
-            // an Unfinished Flight recording that appears in the normal
-            // Recordings list (not under the virtual "Unfinished Flights"
-            // group) must also refuse the hide toggle. Before the follow-up,
-            // the gate was `unfinishedFlightRowDepth > 0 &&
-            // IsUnfinishedFlight(rec)` which let normal-list rows bypass the
-            // refuse path. This test pins the classifier-only gate.
-            var rec = MakeCrashedUnfinished("rec_uf_normal", "bp_uf_normal", "Booster");
-            RecordingStore.AddCommittedInternal(rec);
-            InstallScenarioWithRp("bp_uf_normal", "rp_uf_normal", rec.RecordingId);
-
-            Assert.True(EffectiveState.IsUnfinishedFlight(rec),
-                "precondition: recording must classify as unfinished");
-            Assert.False(rec.Hidden, "precondition");
-
-            // Simulate the DrawRecordingRow hide branch for a row rendered
-            // outside the virtual group: the classifier alone must block.
-            bool policyAllowsHide = !EffectiveState.IsUnfinishedFlight(rec);
-            if (policyAllowsHide)
-            {
-                rec.Hidden = true;
-            }
-            else
-            {
-                ParsekLog.Warn("UnfinishedFlights",
-                    $"Hide refused for Unfinished Flight rec={rec.RecordingId} " +
-                    $"vessel='{rec.VesselName}': rewind access must remain visible (design §7.33)");
-                ParsekLog.ScreenMessage(
-                    $"Cannot hide '{rec.VesselName}' — it is an Unfinished Flight. " +
-                    "Re-fly the rewind point or merge as Immutable to clear it from the list.",
-                    4f);
-            }
-
-            Assert.False(rec.Hidden, "normal-list Unfinished Flight hide must not flip the field");
-            Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("Hide refused"));
-            Assert.Contains(screenMessages, m =>
-                m.Contains("Cannot hide") && m.Contains("Unfinished Flight"));
-        }
+        // Hide_UnfinishedFlight_WarnsAndDoesNotFlip, Hide_NonUnfinishedRecording_FlipsNormally
+        // and Hide_NormalListUnfinishedFlight_RefusesWithoutVirtualGroup were deleted here
+        // (audit F-catchall-036-01). All three rebuilt the hide policy expression in the test
+        // body and emitted the Warn plus the ScreenMessage themselves, so they asserted
+        // test-authored output; the expression they modelled (depth AND classifier) is not the
+        // shipped one either, which gates on DIRECTION through
+        // RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight. The shipped predicate is
+        // covered behaviourally by ArchiveRefusal_AppliesToHidingOnly below (all four
+        // requestedHidden / isUnfinishedFlight combinations) and at wiring level by
+        // Hide_PolicyGate_IsClassifierOnly_NoDepthCheck and
+        // TheGroupHideAllScanRedsWhenTheRoutingExistsOnlyInAComment in this same file.
 
         [Fact]
         public void Hide_PolicyGate_IsClassifierOnly_NoDepthCheck()

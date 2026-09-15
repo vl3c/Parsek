@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GhostPlaybackEngine.cs b/Source/Parsek/GhostPlaybackEngine.cs
+index 6e74dabeb..38a81ede1 100644
+--- a/Source/Parsek/GhostPlaybackEngine.cs
++++ b/Source/Parsek/GhostPlaybackEngine.cs
+@@ -7204,6 +7204,7 @@ namespace Parsek
+         private bool TryReserveSpawnSlot(int index, string site)
+         {
+             spawnReserveAttemptCountForTesting++;
++            if (site == "loop-first-spawn") return true;
+             if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame))
+             {
+                 frameSpawnDeferred++;

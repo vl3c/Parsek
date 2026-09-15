@@ -335,24 +335,32 @@ namespace Parsek.Tests
         public void SortedIndices_RemapsCorrectly()
         {
             // Bug caught: using row index instead of sortedIndices[row] would
-            // assign recordings to wrong groups when sort order differs from list order
+            // assign recordings to wrong groups when sort order differs from list order.
+            // Each recording is in a DIFFERENT group, and the view is both reordered AND
+            // filtered (the GB row is hidden), which is what makes the remap falsifiable:
+            // over a full permutation `ri = row` visits the same (index, recording) pairs
+            // and cannot be told apart. With this fixture `ri = row` would read GA and GB
+            // and never reach GC.
             var committed = new List<Recording>
             {
-                MakeRec("Second", groups: new List<string> { "G" }),
-                MakeRec("First",  groups: new List<string> { "G" })
+                MakeRec("First",  groups: new List<string> { "GA" }),
+                MakeRec("Second", groups: new List<string> { "GB" }),
+                MakeRec("Third",  groups: new List<string> { "GC" })
             };
-            // Reverse order: show index 1 first, then index 0
-            var sorted = new int[] { 1, 0 };
+            var sorted = new int[] { 2, 0 };
             var emptyGroups = new List<string>();
 
             ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
-            // Both indices should be in the group regardless of sort order
-            Assert.True(grpToRecs.ContainsKey("G"));
-            Assert.Contains(0, grpToRecs["G"]);
-            Assert.Contains(1, grpToRecs["G"]);
+            // Every shown row lands under ITS OWN recording's group, at its committed index.
+            Assert.True(grpToRecs.ContainsKey("GA"));
+            Assert.Equal(new List<int> { 0 }, grpToRecs["GA"]);
+            Assert.True(grpToRecs.ContainsKey("GC"));
+            Assert.Equal(new List<int> { 2 }, grpToRecs["GC"]);
+            // The filtered-out row contributes nothing.
+            Assert.False(grpToRecs.ContainsKey("GB"));
         }
 
         [Fact]

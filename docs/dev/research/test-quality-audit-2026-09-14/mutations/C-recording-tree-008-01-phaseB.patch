@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/SessionMerger.cs b/Source/Parsek/SessionMerger.cs
+index 5cbc07a7f..0aae4064f 100644
+--- a/Source/Parsek/SessionMerger.cs
++++ b/Source/Parsek/SessionMerger.cs
+@@ -791,7 +791,8 @@ namespace Parsek
+                 TrackSection current = sorted[i];
+ 
+                 // Skip sections with zero or negative duration
+-                if (current.endUT <= current.startUT)
++                // MUTANT: the zero-duration skip disabled
++                if (false && current.endUT <= current.startUT)
+                 {
+                     ParsekLog.Verbose(Tag,
+                         $"ResolveOverlaps: skipping zero-duration section at ut={current.startUT.ToString("F2", ic)} " +

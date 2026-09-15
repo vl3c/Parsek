@@ -1,0 +1,12 @@
+C-rewind-refly-006-01	career	Source/Parsek/GameActions/LedgerOrchestrator.cs:2269	direct	TwoInitialBaselines_SelectsEarliestUtSeed
+C-rewind-refly-016-01	career	Source/Parsek/GameActions/TombstoneEligibility.cs:196	direct	RepPenalty_SourceAgnostic_TimingArm_PairsWithinInclusiveWindow
+C-rewind-refly-016-02	career	Source/Parsek/GameActions/TombstoneEligibility.cs:78	direct	SupersedeTombstoneEligibility_StrategyScienceCredit_IsEligibleWhenTagged
+C-rewind-refly-017-01	career	Source/Parsek/GameActions/KspStatePatcher.cs:3693	direct	Runner_FlaggedAndProdOptInAbort_ReturnsTrue
+C-ledger-career-003-02	career	Source/Parsek/GameActions/LedgerOrchestrator.cs:1451	direct	CreateVesselCostActions_RecoveredWithNonPositivePairedEvent_NoFallbackRecovery
+C-ledger-career-004-02	career	Source/Parsek/GameActions/LedgerOrchestrator.cs:7110	direct	ResolveStandaloneCommitWindowStartUt_PredecessorIndexMismatch_LeavesSubsetAtOwnStart
+C-ledger-career-013-01	career	Source/Parsek/GameActions/GameAction.cs:1954	direct	Deserialize_RouteManifest_MalformedEntries_WarnAndSkipWithoutLosingValidOnes
+C-ledger-career-018-01	career	Source/Parsek/GameActions/KspStatePatcher.cs:89	direct	PatchAll_InvokesEveryPatcher_DistinctSandboxSkipLines
+C-ledger-career-027-01	career	Source/Parsek/GameActions/ContractsModule.cs:244	direct	PrePass_DuplicateActiveAccept_TracksTheLatestAccept
+C-ledger-career-034-01	career	Source/Parsek/KerbalsModule.cs:745	direct	StampTerminalState_AdmissionPredicateDeclines_KeepsEndStatesAndLogs
+C-catchall-021-01	recording	Source/Parsek/VesselSpawner.cs:3143	direct	BuildExcludeCrewSet_Branch1EvaSibling_IsNotExcluded
+C-ledger-career-036-01	recording	Source/Parsek/Recording.cs:683	direct	AdoptRecordedVesselGuidIfEmpty_NullEmptyExistingGuid_NoOpOrAdopts

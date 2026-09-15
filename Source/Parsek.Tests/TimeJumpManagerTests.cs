@@ -731,6 +731,36 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Every details VALUE round-trips under InvariantCulture, not just the key
+        /// tokens: a transposed or dropped format argument would corrupt every stored
+        /// TIME_JUMP SegmentEvent and CreateTimeJumpEvent_FieldsCorrect would stay green.
+        /// </summary>
+        [Fact]
+        public void CreateTimeJumpEvent_DetailsValuesRoundTrip()
+        {
+            var evt = TimeJumpManager.CreateTimeJumpEvent(
+                1000.25, 2000.5, -0.0972, -74.5575, 67.0, 100.5f, 200.3f, 50.1f);
+
+            var parsed = new Dictionary<string, string>();
+            foreach (string pair in evt.details.Split(';'))
+            {
+                int eq = pair.IndexOf('=');
+                Assert.True(eq > 0, "malformed details pair: " + pair);
+                parsed[pair.Substring(0, eq)] = pair.Substring(eq + 1);
+            }
+
+            Assert.Equal(8, parsed.Count);
+            Assert.Equal(1000.25, double.Parse(parsed["preUT"], ic));
+            Assert.Equal(2000.5, double.Parse(parsed["postUT"], ic));
+            Assert.Equal(-0.0972, double.Parse(parsed["lat"], ic));
+            Assert.Equal(-74.5575, double.Parse(parsed["lon"], ic));
+            Assert.Equal(67.0, double.Parse(parsed["alt"], ic));
+            Assert.Equal(100.5f, float.Parse(parsed["vx"], ic));
+            Assert.Equal(200.3f, float.Parse(parsed["vy"], ic));
+            Assert.Equal(50.1f, float.Parse(parsed["vz"], ic));
+        }
+
+        /// <summary>
         /// CreateTimeJumpEvent logs the event creation.
         /// Guards: diagnostic logging for TIME_JUMP events.
         /// </summary>

@@ -1,0 +1,24 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..5ea740e68 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -4976,16 +4976,9 @@ namespace Parsek
+             if (branchType == BranchPointType.EVA && !string.IsNullOrEmpty(evaCrewName))
+             {
+                 uint kerbalPid = evaVesselPid != 0 ? evaVesselPid : activeVesselPid;
+-                if (kerbalPid == activeVesselPid)
+-                {
+-                    activeChild.EvaCrewName = evaCrewName;
+-                    activeChild.ParentRecordingId = backgroundChildId;
+-                }
+-                else
+-                {
+-                    backgroundChild.EvaCrewName = evaCrewName;
+-                    backgroundChild.ParentRecordingId = activeChildId;
+-                }
++                // MUTANT: kerbal always assumed to be the active child
++                activeChild.EvaCrewName = evaCrewName;
++                activeChild.ParentRecordingId = backgroundChildId;
+             }
+ 
+             return (bp, activeChild, backgroundChild);

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..927ac32d4 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -25797,8 +25797,7 @@ namespace Parsek
+                 }
+ 
+                 if (ghost.activeSelf) ghost.SetActive(false);
+-                if (retireSignalState != null)
+-                    retireSignalState.anchorRetiredThisFrame = true;
++                // MUTANT: retire flag never set on this branch
+                 long missingAnchorKey = RelativeAnchorResolution.DedupeKey(recIdx, anchorVesselId);
+                 if (loggedAnchorNotFound.Add(missingAnchorKey))
+                     ParsekLog.Warn("Anchor",

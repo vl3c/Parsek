@@ -1343,6 +1343,45 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.IsChainLooping("chain-disabled-loop"));
         }
 
+        [Fact]
+        public void BuildExcludeCrewSet_Branch1EvaSibling_IsNotExcluded()
+        {
+            // V(0) -> V(1) on branch 0, plus an EVA segment on BRANCH 1 at a higher chain
+            // index - the parallel-continuation shape (ghost-only, never spawned). The
+            // crew-exclusion walk skips branch > 0 siblings entirely, so the branch-0 tip
+            // keeps its crew. Without the skip that branch-1 kerbal reads as "still on
+            // EVA after every vessel segment" and is stripped from the spawned vessel.
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Vessel1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "branch-chain";
+            rec1.ChainIndex = 0;
+            rec1.ChainBranch = 0;
+            rec1.RecordingId = "seg0";
+            RecordingStore.CommitRecordingDirect(rec1);
+
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "Vessel2");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "branch-chain";
+            rec2.ChainIndex = 1;
+            rec2.ChainBranch = 0;
+            rec2.RecordingId = "seg1";
+            RecordingStore.CommitRecordingDirect(rec2);
+
+            var evaBranch1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "EVA Bill");
+            Assert.NotNull(evaBranch1);
+            evaBranch1.ChainId = "branch-chain";
+            evaBranch1.ChainIndex = 2;   // past every branch-0 vessel segment
+            evaBranch1.ChainBranch = 1;
+            evaBranch1.EvaCrewName = "Bill Kerman";
+            evaBranch1.RecordingId = "seg2-branch1";
+            RecordingStore.CommitRecordingDirect(evaBranch1);
+
+            var branch0Tip = RecordingStore.CommittedRecordings[1];
+            var excludeSet = VesselSpawner.BuildExcludeCrewSet(branch0Tip);
+
+            Assert.Null(excludeSet);
+        }
+
         #endregion
     }
 }

@@ -156,8 +156,8 @@ namespace Parsek.Tests
         [Fact]
         public void DuplicateBlockerRecovered_PreventsSecondRecoveryCheck()
         {
-            // Simulates the guard in CheckSpawnCollisions: once DuplicateBlockerRecovered
-            // is set, the recovery check is not entered regardless of match.
+            // The real guard, not a copy of it: VesselSpawner.ShouldEnterDuplicateBlockerRecovery
+            // is the predicate CheckSpawnCollisions calls, so a removed latch reds here.
             var rec = new Recording
             {
                 DuplicateBlockerRecovered = true,
@@ -166,10 +166,28 @@ namespace Parsek.Tests
                 VesselName = "Aeris 4A",
             };
 
-            // Even with a matching PID + name, the guard prevents entry
-            bool wouldRecover = !rec.DuplicateBlockerRecovered
-                && VesselSpawner.ShouldRecoverBlockerVessel(rec, "Aeris 4A", "Aeris 4A", blockerPid: 12345);
-            Assert.False(wouldRecover);
+            // Everything else about this blocker is a perfect match, so the latch is
+            // the only thing standing between it and a second recovery.
+            Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
+                rec, blockerVesselLoaded: true, blockerName: "Aeris 4A",
+                resolvedRecordingName: "Aeris 4A", blockerPid: 12345));
+
+            // Positive control: clear the latch and the same inputs DO enter recovery,
+            // so the refusal above is the latch rather than a dead predicate.
+            rec.DuplicateBlockerRecovered = false;
+            Assert.True(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
+                rec, blockerVesselLoaded: true, blockerName: "Aeris 4A",
+                resolvedRecordingName: "Aeris 4A", blockerPid: 12345));
+
+            // An unloaded (or absent) blocker cannot be recovered: the call site passes
+            // false here for a null blockerVessel.
+            Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
+                rec, blockerVesselLoaded: false, blockerName: "Aeris 4A",
+                resolvedRecordingName: "Aeris 4A", blockerPid: 12345));
+
+            Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
+                null, blockerVesselLoaded: true, blockerName: "Aeris 4A",
+                resolvedRecordingName: "Aeris 4A", blockerPid: 12345));
         }
 
         // ────────────────────────────────────────────────────────────

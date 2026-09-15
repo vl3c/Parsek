@@ -353,5 +353,33 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region AdoptRecordedVesselGuidIfEmpty (launch-identity backstop)
+
+        // The launch-identity backstop (FlightRecorder / ParsekFlight) forwards a live
+        // vessel guid onto a recording that has none. Both halves of the no-op contract
+        // matter: an empty source must never blank the field, and a captured guid must
+        // never be overwritten - a clobbered guid makes VesselLaunchIdentity answer
+        // "different launch" for the recording's own flight.
+        [Fact]
+        public void AdoptRecordedVesselGuidIfEmpty_NullEmptyExistingGuid_NoOpOrAdopts()
+        {
+            var rec = new Recording();
+            Assert.Null(rec.RecordedVesselGuid);
+
+            Assert.False(rec.AdoptRecordedVesselGuidIfEmpty(null));
+            Assert.False(rec.AdoptRecordedVesselGuidIfEmpty(""));
+            Assert.Null(rec.RecordedVesselGuid);
+
+            // Empty field: adopts.
+            Assert.True(rec.AdoptRecordedVesselGuidIfEmpty("11111111-1111-1111-1111-111111111111"));
+            Assert.Equal("11111111-1111-1111-1111-111111111111", rec.RecordedVesselGuid);
+
+            // Already captured: a different source is refused, field unchanged.
+            Assert.False(rec.AdoptRecordedVesselGuidIfEmpty("22222222-2222-2222-2222-222222222222"));
+            Assert.Equal("11111111-1111-1111-1111-111111111111", rec.RecordedVesselGuid);
+        }
+
+        #endregion
     }
 }

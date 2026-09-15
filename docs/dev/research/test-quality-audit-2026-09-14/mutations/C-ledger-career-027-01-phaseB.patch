@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/ContractsModule.cs b/Source/Parsek/GameActions/ContractsModule.cs
+index 68f3052d0..c5294c3c0 100644
+--- a/Source/Parsek/GameActions/ContractsModule.cs
++++ b/Source/Parsek/GameActions/ContractsModule.cs
+@@ -240,7 +240,7 @@ namespace Parsek
+                         {
+                             activeAcceptUT[id] = action.UT;
+                             prepassExplicitResolutionUT.Remove(id);
+-                            if (!double.IsNaN(action.DeadlineUT))
++                            if (!double.IsNaN(action.DeadlineUT) && !tracked.ContainsKey(id))
+                                 tracked[id] = action;
+                         }
+                         break;

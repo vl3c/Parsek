@@ -546,18 +546,23 @@ namespace Parsek.Tests
         [Fact]
         public void InGameTestInfo_PerSceneHistory_SurvivesTopLevelStatusReset()
         {
-            // Simulate the implicit pre-run reset: caller clears top-level Status
-            // but should NOT touch ResultsByScene — that's what keeps the
-            // cross-scene accumulation working.
+            // The implicit pre-run reset clears the top-level Status but must NOT touch
+            // ResultsByScene - that is what keeps the cross-scene accumulation working.
+            // The cell drives the production per-test rule (ResetLiveStatus, the helper
+            // ResetResults / ResetCategory call) rather than replaying its three
+            // assignments inline: a ResetResults that started clearing the scene history
+            // could not red an inline replay.
             var t = MakeTest("Cat", "Alpha");
             StampResult(t, GameScenes.SPACECENTER, TestStatus.Passed, durationMs: 5.2f);
             t.Status = TestStatus.Passed;
+            t.ErrorMessage = "stale";
             t.DurationMs = 5.2f;
 
-            // Mimic ResetResults' effect on this one test.
-            t.Status = TestStatus.NotRun;
-            t.ErrorMessage = null;
-            t.DurationMs = 0;
+            InGameTestRunner.ResetLiveStatus(t, clearSceneHistory: false);
+
+            Assert.Equal(TestStatus.NotRun, t.Status);
+            Assert.Null(t.ErrorMessage);
+            Assert.Equal(0f, t.DurationMs);
 
             Assert.Single(t.ResultsByScene);
             Assert.True(t.ResultsByScene.ContainsKey(GameScenes.SPACECENTER));
@@ -567,17 +572,15 @@ namespace Parsek.Tests
         [Fact]
         public void InGameTestInfo_PerSceneHistory_ClearedByFullWipe()
         {
-            // Simulate ClearAllSceneHistory: both top-level AND the scene dict get
-            // cleared. This is what the explicit Reset button triggers so the next
-            // auto-export produces a clean file.
+            // ClearAllSceneHistory clears both the top-level fields AND the scene dict.
+            // This is what the explicit Reset button triggers so the next auto-export
+            // produces a clean file. Driven through the same production helper, with the
+            // history flag SET - the one input that separates the two reset controls.
             var t = MakeTest("Cat", "Alpha");
             StampResult(t, GameScenes.SPACECENTER, TestStatus.Failed, err: "old");
             StampResult(t, GameScenes.FLIGHT, TestStatus.Passed);
 
-            t.Status = TestStatus.NotRun;
-            t.ErrorMessage = null;
-            t.DurationMs = 0;
-            t.ResultsByScene.Clear();
+            InGameTestRunner.ResetLiveStatus(t, clearSceneHistory: true);
 
             Assert.Empty(t.ResultsByScene);
             Assert.Equal(TestStatus.NotRun, t.Status);

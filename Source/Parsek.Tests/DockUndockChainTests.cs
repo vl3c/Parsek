@@ -236,8 +236,17 @@ namespace Parsek.Tests
 
         #region BuildExcludeCrewSet with dock chains
 
+        /// <summary>
+        /// Dock-chain shape of the crew-exclusion walk. Two kerbals must
+        /// survive the walk for different reasons: Bill is on EVA on the
+        /// BRANCH 1 station continuation past the branch-0 tip (the branch
+        /// skip), and Jeb EVA'd on branch 0 BEFORE the final vessel segment
+        /// (he boarded back). The positive control at the end adds a branch-0
+        /// EVA past the tip and shows the same call does build a set, so the
+        /// null above is a decision rather than a dead walk.
+        /// </summary>
         [Fact]
-        public void BuildExcludeCrewSet_DockChain_SkipsBranch1()
+        public void BuildExcludeCrewSet_DockChain_Branch1EvaSiblingIsNotExcluded()
         {
             // V(0) -> docked V(1) -> undocked V(2) with branch 1 continuation
             var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Vessel Approach");
@@ -264,19 +273,53 @@ namespace Parsek.Tests
             rec3.RecordingId = "seg2";
             RecordingStore.CommitRecordingDirect(rec3);
 
-            // Branch 1: station continuation (ghost-only)
-            var rec4 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Station");
+            // Branch 0: Jeb EVA'd at index 1 and boarded back before the
+            // final vessel segment at index 2, so he is not excluded.
+            var evaBoarded = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 250), "EVA Jeb");
+            Assert.NotNull(evaBoarded);
+            evaBoarded.ChainId = "dock-crew";
+            evaBoarded.ChainIndex = 1;
+            evaBoarded.ChainBranch = 0;
+            evaBoarded.EvaCrewName = "Jebediah Kerman";
+            evaBoarded.RecordingId = "seg1-eva";
+            RecordingStore.CommitRecordingDirect(evaBoarded);
+
+            // Branch 1: station continuation (ghost-only) carrying an EVA
+            // kerbal PAST the branch-0 tip. Only the branch > 0 skip keeps
+            // Bill out of the exclude set; without it he reads as "still on
+            // EVA after every vessel segment" and is stripped from the
+            // spawned branch-0 vessel.
+            var rec4 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Station EVA Bill");
             Assert.NotNull(rec4);
             rec4.ChainId = "dock-crew";
-            rec4.ChainIndex = 2;
+            rec4.ChainIndex = 3;
             rec4.ChainBranch = 1;
+            rec4.EvaCrewName = "Bill Kerman";
             rec4.RecordingId = "station";
             RecordingStore.CommitRecordingDirect(rec4);
 
-            // Final vessel segment (branch 0) — no EVA, no exclusions
+            // Final vessel segment (branch 0, index 2): nobody is excluded.
             var finalSeg = RecordingStore.CommittedRecordings[2];
+            Assert.Equal("seg2", finalSeg.RecordingId);
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(finalSeg);
             Assert.Null(excludeSet);
+
+            // Positive control: the same walk over the same chain DOES exclude
+            // a branch-0 EVA past the tip, so the null above is not vacuous.
+            var evaStillOut = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 350), "EVA Val");
+            Assert.NotNull(evaStillOut);
+            evaStillOut.ChainId = "dock-crew";
+            evaStillOut.ChainIndex = 3;
+            evaStillOut.ChainBranch = 0;
+            evaStillOut.EvaCrewName = "Valentina Kerman";
+            evaStillOut.RecordingId = "seg3-eva";
+            RecordingStore.CommitRecordingDirect(evaStillOut);
+
+            var excludeSetWithBranch0Eva = VesselSpawner.BuildExcludeCrewSet(finalSeg);
+            Assert.NotNull(excludeSetWithBranch0Eva);
+            Assert.Contains("Valentina Kerman", excludeSetWithBranch0Eva);
+            Assert.DoesNotContain("Bill Kerman", excludeSetWithBranch0Eva);
+            Assert.DoesNotContain("Jebediah Kerman", excludeSetWithBranch0Eva);
         }
 
         #endregion

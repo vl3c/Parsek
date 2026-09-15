@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/PannotationsSidecarBinary.cs b/Source/Parsek/PannotationsSidecarBinary.cs
+index d90aba48c..ac0123f1d 100644
+--- a/Source/Parsek/PannotationsSidecarBinary.cs
++++ b/Source/Parsek/PannotationsSidecarBinary.cs
+@@ -679,11 +679,6 @@ namespace Parsek
+                 failureReason = $"invalid {fieldName} count: {count} (negative)";
+                 return false;
+             }
+-            if (count > perBlockCap)
+-            {
+-                failureReason = $"invalid {fieldName} count: {count} (exceeds cap {perBlockCap})";
+-                return false;
+-            }
+             long requiredBytes = (long)count * (long)minBytesPerEntry;
+             long remaining = stream.Length - stream.Position;
+             if (requiredBytes > remaining)

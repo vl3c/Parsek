@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..1cbc1677f 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -2449,7 +2449,7 @@ namespace Parsek
+                 if (!IsInitialResourceBaseline(candidate))
+                     continue;
+ 
+-                if (initialBaseline == null || candidate.ut < initialBaseline.ut)
++                if (initialBaseline == null || candidate.ut > initialBaseline.ut)
+                     initialBaseline = candidate;
+             }
+ 

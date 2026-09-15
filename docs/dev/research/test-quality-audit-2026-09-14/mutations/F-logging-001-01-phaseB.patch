@@ -1,0 +1,24 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index bf1e687b9..a6e1bed30 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -9987,16 +9987,9 @@ namespace Parsek
+             gr.totalPoints = totalPoints;
+             gr.totalEvents = totalEvents;
+             gr.elapsedSeconds = currentUT - startUT;
+-            if (gr.elapsedSeconds > 0)
+-            {
+-                gr.pointsPerSecond = gr.totalPoints / gr.elapsedSeconds;
+-                gr.eventsPerSecond = gr.totalEvents / gr.elapsedSeconds;
+-            }
+-            else
+-            {
+-                gr.pointsPerSecond = 0;
+-                gr.eventsPerSecond = 0;
+-            }
++            // MUTANT: zero-elapsed guard deleted
++            gr.pointsPerSecond = gr.totalPoints / gr.elapsedSeconds;
++            gr.eventsPerSecond = gr.totalEvents / gr.elapsedSeconds;
+             gr.estimatedFinalBytes = (long)(gr.totalPoints * avgBytesPerPoint + gr.totalEvents * 40);
+             return gr;
+         }

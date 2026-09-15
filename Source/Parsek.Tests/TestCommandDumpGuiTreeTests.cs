@@ -301,6 +301,20 @@ namespace Parsek.Tests
         {
             // The harness parses this line; a ro-RO / de-DE host must not print a group
             // separator or a comma decimal into it.
+            //
+            // The culture swap alone cannot witness that: every payload value here is an int
+            // or a long formatted with a plain ToString, and integer default formatting is
+            // IDENTICAL in every .NET culture, so this cell passed just as happily against a
+            // CurrentCulture-formatted production site. The invariance is therefore pinned
+            // where a culture COULD bite - the format provider the builder passes - by
+            // reading the production source with comments blanked out, so a comment naming
+            // InvariantCulture cannot stand in for the code.
+            string body = TestCommandSourceGate.BuildPayloadBody("TestCommandDumpGuiTree.cs");
+            Assert.Contains("CultureInfo ic = CultureInfo.InvariantCulture;", body);
+            Assert.DoesNotContain("CultureInfo.CurrentCulture", body);
+            // Every numeric field goes through that provider; none takes the bare overload.
+            Assert.DoesNotContain(".ToString()", body);
+
             using (new CultureSwap("de-DE"))
             {
                 List<KeyValuePair<string, string>> payload =

@@ -88,10 +88,29 @@ namespace Parsek.Tests
         [Fact]
         public void Adapter_NullOrEmptyAssembled_FallsBackToInnerSpan()
         {
-            var rec = WrappedRecording();
-            IPlaybackTrajectory adapter = new ReaimedTrajectory(rec, null);
-            Assert.False(adapter.HasOrbitSegments);
-            Assert.Empty(adapter.OrbitSegments);
+            // The named behaviour is the SPAN fallback, so the span is what has to be read: with no
+            // assembled segments the adapter must present the wrapped recording's own span. The
+            // recording is given a non-zero, non-degenerate span so a stubbed 0.0 / 0.0 fallback cannot
+            // pass. Both halves of the `assembledSegments ?? new List<>()` coalesce are covered: the
+            // null list and the empty list.
+            var rec = new Recording { RecordingId = "rec-reaim", VesselName = "Duna Lander" };
+            rec.OrbitSegments.Add(Seg("Kerbin", 20, 80));
+            rec.Points.Add(new TrajectoryPoint { ut = 20, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 80, bodyName = "Kerbin" });
+            Assert.True(rec.StartUT > 0.0);
+            Assert.True(rec.EndUT > rec.StartUT);
+
+            IPlaybackTrajectory nullAssembled = new ReaimedTrajectory(rec, null);
+            Assert.False(nullAssembled.HasOrbitSegments);
+            Assert.Empty(nullAssembled.OrbitSegments);
+            Assert.Equal(rec.StartUT, nullAssembled.StartUT, 3);
+            Assert.Equal(rec.EndUT, nullAssembled.EndUT, 3);
+
+            IPlaybackTrajectory emptyAssembled = new ReaimedTrajectory(rec, new List<OrbitSegment>());
+            Assert.False(emptyAssembled.HasOrbitSegments);
+            Assert.Empty(emptyAssembled.OrbitSegments);
+            Assert.Equal(rec.StartUT, emptyAssembled.StartUT, 3);
+            Assert.Equal(rec.EndUT, emptyAssembled.EndUT, 3);
         }
     }
 }

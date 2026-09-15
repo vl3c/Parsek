@@ -795,52 +795,95 @@ namespace Parsek.Tests
         {
             // Legacy in-place sessions wrote ActiveReFlyRecordingId == OriginChildRecordingId
             // and origin is already in tree.Recordings by construction.
-            const string treeId = "tree-legacy";
-            const string originId = "rec-legacy-origin";
-            var origin = new Recording
+            // Assert.False(attached) alone cannot tell this guard apart: EVERY exit of the
+            // method except the attach returns false, so a deleted InPlaceContinuation guard
+            // would fall through to the committed-lookup miss and still answer false. What the
+            // deeper path cannot do silently is stay quiet - it always logs, either the
+            // "absent from committed list but present in tree.Recordings" hydration Verbose or
+            // the "missing from BOTH" Warn - so the guard is pinned by the ABSENCE of both.
+            try
             {
-                RecordingId = originId, TreeId = treeId, VesselPersistentId = 300u,
-            };
-            var tree = new RecordingTree
+                RecordingStore.SuppressLogging = true;
+                RecordingStore.ResetForTesting();
+                logLines.Clear();
+
+                const string treeId = "tree-legacy";
+                const string originId = "rec-legacy-origin";
+                var origin = new Recording
+                {
+                    RecordingId = originId, TreeId = treeId, VesselPersistentId = 300u,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = originId, ActiveRecordingId = originId,
+                };
+                tree.AddOrReplaceRecording(origin);
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-legacy",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = originId,
+                    OriginChildRecordingId = originId,
+                    InPlaceContinuation = false, // legacy path predates the flag
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.False(attached);
+                Assert.DoesNotContain(logLines,
+                    l => l.Contains("ReconcileInPlaceForkIntoTreeIfNeeded"));
+            }
+            finally
             {
-                Id = treeId, RootRecordingId = originId, ActiveRecordingId = originId,
-            };
-            tree.AddOrReplaceRecording(origin);
-
-            var marker = new ReFlySessionMarker
-            {
-                SessionId = "sess-legacy",
-                TreeId = treeId,
-                ActiveReFlyRecordingId = originId,
-                OriginChildRecordingId = originId,
-                InPlaceContinuation = false, // legacy path predates the flag
-            };
-
-            bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
-
-            Assert.False(attached);
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
         }
 
         [Fact]
         public void ReconcileInPlaceForkIntoTreeIfNeeded_NotInPlaceMarker_NoOp()
         {
-            const string treeId = "tree-non-inplace";
-            var tree = new RecordingTree
+            try
             {
-                Id = treeId, RootRecordingId = "rec-root", ActiveRecordingId = "rec-root",
-            };
-            var marker = new ReFlySessionMarker
+                RecordingStore.SuppressLogging = true;
+                RecordingStore.ResetForTesting();
+
+                const string treeId = "tree-non-inplace";
+                const string forkId = "rec-placeholder";
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = "rec-root", ActiveRecordingId = "rec-root",
+                };
+                // The fork EXISTS in the committed list: everything after the
+                // InPlaceContinuation guard would attach it, so the flag is the only
+                // reason nothing happens. With the fork absent from both places (the
+                // fixture this cell used to carry) the guard-removed path lands on the
+                // missing-from-BOTH branch, which also returns false.
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = forkId, TreeId = treeId, VesselPersistentId = 501u,
+                });
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = "rec-origin",
+                    InPlaceContinuation = false,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.False(attached);
+                Assert.False(tree.Recordings.ContainsKey(forkId));
+            }
+            finally
             {
-                SessionId = "sess",
-                TreeId = treeId,
-                ActiveReFlyRecordingId = "rec-placeholder",
-                OriginChildRecordingId = "rec-origin",
-                InPlaceContinuation = false,
-            };
-
-            bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
-
-            Assert.False(attached);
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
         }
 
         [Fact]
@@ -966,23 +1009,43 @@ namespace Parsek.Tests
         [Fact]
         public void ReconcileInPlaceForkIntoTreeIfNeeded_TreeIdMismatch_NoOp()
         {
-            const string forkId = "rec-fork-mismatch";
-            var tree = new RecordingTree
+            try
             {
-                Id = "tree-loaded", RootRecordingId = "rec-other", ActiveRecordingId = "rec-other",
-            };
-            var marker = new ReFlySessionMarker
+                RecordingStore.SuppressLogging = true;
+                RecordingStore.ResetForTesting();
+
+                const string forkId = "rec-fork-mismatch";
+                var tree = new RecordingTree
+                {
+                    Id = "tree-loaded", RootRecordingId = "rec-other", ActiveRecordingId = "rec-other",
+                };
+                // Fork present and resolvable, marker pinned to a DIFFERENT tree: the
+                // tree-id guard is the only thing keeping it out of this tree. A fork
+                // that exists nowhere would make the cell green with the guard deleted.
+                RecordingStore.AddCommittedInternal(new Recording
+                {
+                    RecordingId = forkId, TreeId = "tree-other", VesselPersistentId = 502u,
+                });
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess",
+                    TreeId = "tree-other",
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = "rec-origin",
+                    InPlaceContinuation = true,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.False(attached);
+                Assert.False(tree.Recordings.ContainsKey(forkId));
+            }
+            finally
             {
-                SessionId = "sess",
-                TreeId = "tree-other",
-                ActiveReFlyRecordingId = forkId,
-                OriginChildRecordingId = "rec-origin",
-                InPlaceContinuation = true,
-            };
-
-            bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
-
-            Assert.False(attached);
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
         }
 
         /// <summary>

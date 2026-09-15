@@ -254,6 +254,50 @@ dirs / 2 GiB), and a 20-PNG census is not small. The sheet lives inside that
 directory, so pruning takes the page with the pictures; the V3 `_contact.html`
 survives and then points at images that are gone.
 
+### The GUI mirror (`tools/gui_mirror.py`)
+
+The third page a census can produce, and the only one that is not a list of
+pictures: ONE self-contained HTML file that BEHAVES like Parsek's GUI. Windows are
+laid out from the captured control rects, so column widths, insets and row strides
+are the game's to the pixel; the colours are sampled out of the PNGs (the dump
+records a style NAME and not a colour, so the blue clickable rows and the dimmed
+ones exist only in the pixels); tabs, launchers, folds and pickers are clickable
+and switch to the capture of that state.
+
+```
+python tools/gui_mirror.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out gui-mirror.html --index gui-mirror-index.json
+```
+
+Nothing about a window is written into the generator - not a label, not a tooltip,
+not a column width. Everything is read from `<label>.gui.json`, the matching
+`<label>.png`, that run's `KSP.log` (which is where the window / tab / complexity
+mode / scene of each capture comes from, and the only record of a stock modal's
+title and buttons) and the lane's `fixture.saveTemplate`. So the page CANNOT drift
+from the game: there is nothing to update when a window changes, only a census to
+re-fly.
+
+**A click with no capture behind it flashes the control and says
+`no capture for this state yet`.** That is the whole interaction contract. A click
+resolves by ranking the captures that EXIST - the plain state before a named one,
+the first tab before a later one - and refuses when nothing matches; the page never
+fabricates a screen, because a plausible fabrication sends a reader to fix a bug
+that is not there while a gap sends them to fly a lane. The left rail lists every
+window and state that HAS a capture with its dataset, and every state the seam
+knows with none, greyed; each window header folds its own list.
+
+Pass several runs of the same lane at once and the page grows a **Compare** view:
+BEFORE is the earliest capture of a
+`(fixture, window, tab, state, mode, scene)` key, AFTER the latest, drawn side by
+side by the same renderer, with the CHANGELOG entries and struck `GUI-*` todo
+entries that name that window printed beside them and the node / row / header-to-cell
+numbers measured off the two dumps.
+
+The page is NOT committed (it is 15 MB of inlined PNG); the generator, its tests
+(`lib/test_gui_mirror.py`) and `docs/dev/design-gui-mirror.md` are. Regenerate
+after a census. It writes wherever `--out` says and claims no path inside a shots
+directory, so it collides with neither `index.html`, `<runId>_contact.html` nor
+`gui-tree-index.html`.
+
 ### Running a GUI census end to end
 
 TEN FLOWN CENSUS LANES, in four waves, all `tier = "operator"` and all flown on request

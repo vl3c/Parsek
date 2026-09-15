@@ -2320,6 +2320,32 @@ has a search / filter bar and the global one does not, which is exactly 3 GUI-tr
 between the two windows at every state (4217 vs 4214 idle, 473 vs 470 collapsed, 479 vs 476
 with one category expanded). `design-gui-inventory.md` section 3.11 owns that table.
 
+## GUI-MIRROR-THREE-STATES-LEAVE-A-FOLD-CLICK-AMBIGUOUS: in the GUI mirror a fold control can only be resolved where the census photographed exactly two states of that tab, so the Logistics folds flash instead of toggling
+
+FILED 2026-09-15 with the mirror (`harness/tools/gui_mirror.py`,
+`docs/dev/design-gui-mirror.md` section 2). A fold control carries a glyph, not a
+word, so no label token can match it. The mirror therefore toggles a fold only when
+the current tab has exactly ONE other single-token state on the selected dataset -
+unambiguous, and correct for the Recordings tab (collapsed/expanded) and both
+Kerbals tabs (collapsed/expanded, folded/unfolded). Logistics on
+`interbody-route-recorded` has THREE (`collapsed`, `expanded`, `linkpicker`), so a
+fold there is refused with `no capture for this state yet` naming the row. That is
+the honest answer and not a defect - the page must not guess which capture a click
+leads to - but it is a gap a reader will hit.
+
+Two ways out, neither taken: photograph one fold at a time so a state name says
+which row is open (the census would grow by a capture per fold, and the label
+grammar already supports it), or have the seam dump the fold's OWN identity
+alongside the control so the mirror can match a row to a state without a label
+convention. Decide when someone actually wants to drive a fold in the mirror rather
+than read it.
+
+Same shape, lower cost: a window whose tab bar is NOT a selection grid (the
+Timeline draws four separate buttons) has no `textValue` for the mirror to read, so
+its tab chips fall back to the seam token (`rewindff` rather than `Rewind / FF`).
+Clicking them works - the text match finds them - only the chip label is the
+automation name. Fixable by deriving the name from whichever control token-matched.
+
 ## GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH: the Missions and Logistics windows are laid out wider than the harness profile's screen, so their census captures leave their right-hand columns off screen
 
 MEASURED 2026-09-10 off the window sources rather than off an image (the lanes have never

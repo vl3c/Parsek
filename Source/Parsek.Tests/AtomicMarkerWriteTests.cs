@@ -486,103 +486,83 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Blocker 3: the ordering test alone does not prove atomicity — it
-        /// checks the four checkpoints fire in order, but not that no save
-        /// handler fires BETWEEN the provisional-add (end of phase 1) and the
-        /// marker-write (start of phase 2).
+        /// Blocker 3: the ordering cell above proves the four checkpoints fire
+        /// in order, but not that the critical section is free of side effects.
         ///
         /// <para>
-        /// This test subscribes an <c>onGameStateSave</c> handler before the
-        /// atomic block and tracks whether the handler fires while we are
-        /// inside the critical section (between CheckpointA:AfterProvisional
-        /// and CheckpointB:AfterMarker). Because <c>AtomicMarkerWrite</c> is a
-        /// pure synchronous method with no yield/await/IEnumerator and makes
-        /// no KSP state-save calls, the handler must never fire inside that
-        /// window — any future regression that introduces a save-side-effect
-        /// mid-critical-section trips the assertion.
+        /// This cell watches the two observable version counters across the
+        /// window between CheckpointA:AfterProvisional and
+        /// CheckpointB:AfterMarker:
+        /// <see cref="RecordingStore.StateVersion"/> (bumped by every committed
+        /// list mutation) must NOT move inside the window, and
+        /// <see cref="ParsekScenario.SupersedeStateVersion"/> - the signal that
+        /// wakes ERS / route readers - must bump exactly once and only AFTER
+        /// the marker field is installed. A reader woken by a supersede bump
+        /// taken in phase 1 would read a null marker, which is the regression
+        /// this pins.
         /// </para>
         /// </summary>
         [Fact]
-        public void Phase1And2_NoOnSaveBetween()
+        public void Phase1And2_NoStoreOrSupersedeVersionSideEffectInsideCriticalSection()
         {
-            MakeScenario();
+            var scenario = MakeScenario();
             var (rp, slot) = MakeRpAndSlot();
 
-            // Tracker flipped by the handler if it ever fires inside the
-            // critical section. Starts false; AtomicMarkerWrite has no code
-            // path that should flip it.
-            bool onSaveFiredBetweenPhases = false;
-            bool insideCritical = false;
+            int storeVersionAfterProvisional = -1;
+            int storeVersionBeforeMarker = -1;
+            int storeVersionAfterMarker = -1;
+            int supersedeAfterProvisional = -1;
+            int supersedeBeforeMarker = -1;
+            int supersedeAfterMarker = -1;
+            bool markerNullAfterProvisional = false;
+            bool markerNullBeforeMarker = false;
+            int committedCountAfterProvisional = -1;
 
-            EventData<ConfigNode>.OnEvent onSave = _ =>
+            RewindInvoker.CheckpointHookForTesting = tag =>
             {
-                if (insideCritical)
-                    onSaveFiredBetweenPhases = true;
+                if (tag == "CheckpointA:AfterProvisional")
+                {
+                    storeVersionAfterProvisional = RecordingStore.StateVersion;
+                    supersedeAfterProvisional = scenario.SupersedeStateVersion;
+                    markerNullAfterProvisional = scenario.ActiveReFlySessionMarker == null;
+                    committedCountAfterProvisional = RecordingStore.CommittedRecordings.Count;
+                }
+                else if (tag == "CheckpointB:BeforeMarker")
+                {
+                    storeVersionBeforeMarker = RecordingStore.StateVersion;
+                    supersedeBeforeMarker = scenario.SupersedeStateVersion;
+                    markerNullBeforeMarker = scenario.ActiveReFlySessionMarker == null;
+                }
+                else if (tag == "CheckpointB:AfterMarker")
+                {
+                    storeVersionAfterMarker = RecordingStore.StateVersion;
+                    supersedeAfterMarker = scenario.SupersedeStateVersion;
+                }
             };
 
-            // Subscribe BEFORE the atomic block. GameEvents may be null in
-            // some unit-test harnesses (no Unity runtime); guard defensively
-            // so the test still asserts the invariant even if the subscription
-            // cannot be wired.
-            bool subscribed = false;
-            try
-            {
-                if (GameEvents.onGameStateSave != null)
-                {
-                    GameEvents.onGameStateSave.Add(onSave);
-                    subscribed = true;
-                }
-            }
-            catch
-            {
-                // Fall through — the invariant still holds and the checkpoint
-                // hook below exercises the key asserts regardless.
-            }
+            RewindInvoker.AtomicMarkerWrite(rp, slot, MakeStripResult(), "sess_atomic");
 
-            try
-            {
-                RewindInvoker.CheckpointHookForTesting = tag =>
-                {
-                    // Window: after the provisional is committed to the list
-                    // (end of phase 1) up to just before the marker write
-                    // completes (end of phase 2). If any save fires inside
-                    // this window, the handler flips the tracker.
-                    if (tag == "CheckpointA:AfterProvisional")
-                        insideCritical = true;
-                    else if (tag == "CheckpointB:AfterMarker")
-                        insideCritical = false;
-                };
+            // Phase 1 landed the provisional before the window opened.
+            Assert.Equal(1, committedCountAfterProvisional);
+            Assert.True(markerNullAfterProvisional,
+                "marker was already installed at CheckpointA:AfterProvisional - phase 2 leaked into phase 1");
+            Assert.True(markerNullBeforeMarker,
+                "marker was already installed at CheckpointB:BeforeMarker - the marker write is not the phase-2 step");
 
-                RewindInvoker.AtomicMarkerWrite(rp, slot, MakeStripResult(), "sess_atomic");
+            // No committed-list mutation anywhere inside the critical section.
+            Assert.NotEqual(-1, storeVersionAfterProvisional);
+            Assert.Equal(storeVersionAfterProvisional, storeVersionBeforeMarker);
+            Assert.Equal(storeVersionAfterProvisional, storeVersionAfterMarker);
 
-                // Primary invariant: the handler did not fire between phase 1
-                // and phase 2. True by construction for the current code path;
-                // the assertion guards against future regressions that insert
-                // a save-triggering side effect into the critical section.
-                Assert.False(onSaveFiredBetweenPhases,
-                    "onGameStateSave fired between CheckpointA:AfterProvisional and " +
-                    "CheckpointB:AfterMarker — atomicity invariant broken");
+            // The reader wake-up signal fires exactly once, and strictly after
+            // the marker field is readable.
+            Assert.Equal(supersedeAfterProvisional, supersedeBeforeMarker);
+            Assert.Equal(supersedeAfterProvisional + 1, supersedeAfterMarker);
 
-                // And the critical-section guard is cleanly closed — no
-                // leftover 'insideCritical == true' after the method returns.
-                Assert.False(insideCritical,
-                    "insideCritical flag still set after AtomicMarkerWrite returned " +
-                    "— CheckpointB:AfterMarker may have been skipped");
-
-                // Post-block sanity: the atomic pair landed.
-                Assert.Single(RecordingStore.CommittedRecordings);
-                Assert.NotNull(ParsekScenario.Instance.ActiveReFlySessionMarker);
-                Assert.Equal("sess_atomic",
-                    ParsekScenario.Instance.ActiveReFlySessionMarker.SessionId);
-            }
-            finally
-            {
-                if (subscribed)
-                {
-                    try { GameEvents.onGameStateSave.Remove(onSave); }
-                    catch { /* swallow unsubscribe errors in test teardown */ }
-                }
-            }
+            // Post-block: the atomic pair landed.
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal("sess_atomic", scenario.ActiveReFlySessionMarker.SessionId);
         }
 
         // ---------- In-place continuation vs new-recording paths (item 11) -----

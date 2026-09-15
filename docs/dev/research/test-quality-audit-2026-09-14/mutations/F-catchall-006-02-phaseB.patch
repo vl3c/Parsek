@@ -1,0 +1,20 @@
+diff --git a/Source/Parsek/RewindInvoker.cs b/Source/Parsek/RewindInvoker.cs
+index ad7f0e20d..819cb8ca4 100644
+--- a/Source/Parsek/RewindInvoker.cs
++++ b/Source/Parsek/RewindInvoker.cs
+@@ -2173,6 +2173,7 @@ namespace Parsek
+                 {
+                     addedToPendingTree = true;
+                 }
++                scenario.BumpSupersedeStateVersion();
+                 CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
+ 
+                 marker = new ReFlySessionMarker
+@@ -2198,7 +2199,6 @@ namespace Parsek
+ 
+                 CheckpointHookForTesting?.Invoke("CheckpointB:BeforeMarker");
+                 scenario.ActiveReFlySessionMarker = marker;
+-                scenario.BumpSupersedeStateVersion();
+                 // Re-enable the Esc-menu Revert button (KSP grays it out
+                 // because the loaded vessel is mid-flight, not PRELAUNCH;
+                 // see ReFlyRevertButtonGate doc-comment).

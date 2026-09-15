@@ -468,5 +468,45 @@ namespace Parsek.Tests
             Assert.Equal(KerbalEndState.Recovered, rec.CrewEndStates["Jebediah Kerman"]);
             Assert.Equal(KerbalEndState.Recovered, Recalc(rec).Single().KerbalEndStateField);
         }
+
+        [Fact]
+        public void StampTerminalState_AdmissionPredicateDeclines_KeepsEndStatesAndLogs()
+        {
+            // The OTHER half of the refusal: a start crew source EXISTS (ghost visual
+            // snapshot) but the admission predicate declines - no VesselSnapshot, no EVA
+            // name, no chain handoff, and SubOrbital is outside the ghost-visual-only
+            // admission set (Destroyed / Recovered). Admitting anyway would re-infer
+            // Aboard -> Dead through InferCrewEndState, which reads "absent from the end
+            // snapshot" as EVA'd-and-lost, permanently reserving a live kerbal on a
+            // ghost-only stable chain tip (the #432 hazard).
+            var rec = new Recording
+            {
+                RecordingId = "ghost-only-stable-tip",
+                VesselName = "Station",
+                GhostVisualSnapshot = CrewSnapshot("Val Kerman"),
+                VesselSnapshot = null,
+                TerminalStateValue = TerminalState.Orbiting,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 900.0,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Val Kerman", KerbalEndState.Aboard }
+                },
+                CrewEndStatesResolved = true,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            ClearLog();
+
+            Assert.False(rec.StampTerminalState(TerminalState.SubOrbital, "test-admission-declines"));
+
+            Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates["Val Kerman"]);
+            Assert.True(rec.CrewEndStatesResolved);
+            Assert.False(SawInvalidation());
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains(InvalidationKey)
+                && l.Contains("not re-derivable")
+                && l.Contains("Orbiting->SubOrbital"));
+        }
     }
 }

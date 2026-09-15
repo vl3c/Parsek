@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/GameActions/TombstoneEligibility.cs b/Source/Parsek/GameActions/TombstoneEligibility.cs
+index f7bcefd0e..75eb4cfc1 100644
+--- a/Source/Parsek/GameActions/TombstoneEligibility.cs
++++ b/Source/Parsek/GameActions/TombstoneEligibility.cs
+@@ -192,12 +192,6 @@ namespace Parsek
+                     return true;
+                 }
+ 
+-                double delta = Math.Abs(other.UT - candidate.UT);
+-                if (delta <= BundledRepUtWindow)
+-                {
+-                    pairedDeathAction = other;
+-                    return true;
+-                }
+             }
+             return false;
+         }
