@@ -1379,11 +1379,18 @@ namespace Parsek
                     break;
                 }
 
-                ParsekLog.VerboseRateLimited("Supersede",
-                    $"switchhop|{current.RecordingId}|{childTip.RecordingId}",
-                    "SwitchContinuationWalk: hop from=" +
-                    $"{current.RecordingId ?? "<no-id>"} to={childTip.RecordingId} " +
-                    $"bp={childBpId} hop={hops + 1}");
+                // ParsekLog.VerboseRateLimited checks IsVerboseEnabled INSIDE the call,
+                // but the key and message are interpolated at the CALL SITE, and this
+                // walker is now reached from per-slot / per-frame readers. Build
+                // neither string when verbose is off.
+                if (ParsekLog.IsVerboseEnabled)
+                {
+                    ParsekLog.VerboseRateLimited("Supersede",
+                        $"switchhop|{current.RecordingId}|{childTip.RecordingId}",
+                        "SwitchContinuationWalk: hop from=" +
+                        $"{current.RecordingId ?? "<no-id>"} to={childTip.RecordingId} " +
+                        $"bp={childBpId} hop={hops + 1}");
+                }
 
                 current = childTip;
                 hopCount++;
@@ -1402,6 +1409,8 @@ namespace Parsek
 
         private static void LogSwitchWalkStop(string fromId, string childBpId, string reason)
         {
+            // Same call-site interpolation guard as the hop line above.
+            if (!ParsekLog.IsVerboseEnabled) return;
             ParsekLog.VerboseRateLimited("Supersede",
                 $"switchstop|{fromId}|{childBpId}|{reason}",
                 "SwitchContinuationWalk: stop from=" +

@@ -1671,7 +1671,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsHardSafetyTerminal(Recording rec)
+        internal static bool IsHardSafetyTerminal(Recording rec)
         {
             // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: hard-safety gate; the bare chain
             // walk would miss a Recovered / Docked / Boarded terminal stamped on a
@@ -2233,7 +2233,7 @@ namespace Parsek
                 out slotListIndex);
         }
 
-        private static bool RequiresSlotAwareMergeClassification(Recording rec)
+        internal static bool RequiresSlotAwareMergeClassification(Recording rec)
         {
             if (rec == null) return false;
             // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: the slot-aware precondition must

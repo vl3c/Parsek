@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -323,6 +324,209 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // Review follow-up 1: the SIBLING walker (IsInSupersedeForwardTrail),
+        // reached through ResolveRewindPointSlotIndexForRecording. The target is a
+        // MID-TRAIL fork, so the composite-tip comparison cannot answer it and the
+        // BFS must make the switch hop itself. Kills both mutants: a ChainId-only
+        // cheap-exit gate and a hop reverted to the bare chain walk each leave the
+        // BFS unable to leave rec_origin (it has neither a ChainId nor a supersede
+        // edge of its own), and the lookup returns -1.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void SlotMembership_MidTrailForkBehindASwitchContinuation_ResolvesItsSlot()
+        {
+            var tree = BuildTree(originTerminal: null, segmentTerminal: TerminalState.SubOrbital);
+            var fork1 = Rec("rec_fork1", TerminalState.SubOrbital);
+            var fork2 = Rec("rec_fork2", TerminalState.Orbiting);
+            AddToTree(tree, fork1, fork2);
+            var rp = InstallScenario();
+
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation
+                {
+                    OldRecordingId = "rec_segment", NewRecordingId = "rec_fork1",
+                },
+                new RecordingSupersedeRelation
+                {
+                    OldRecordingId = "rec_fork1", NewRecordingId = "rec_fork2",
+                },
+            };
+
+            // Guard the premise: the composite tip is fork2, so the fork1 lookup
+            // below cannot be answered by the composite comparison and must fall
+            // through to the forward-trail BFS.
+            Assert.Equal("rec_fork2",
+                EffectiveState.EffectiveTipRecordingId("rec_origin", supersedes));
+
+            Assert.Equal(1, EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                rp, tree.Recordings["rec_fork1"], supersedes));
+        }
+
+        // ------------------------------------------------------------------
+        // Review follow-up 2: the tree-context fallback lookup. CommitTree runs the
+        // promotion pass before the tree reaches CommittedTrees AND before its
+        // recordings reach CommittedRecordings, so the id lookup inside the tip walk
+        // must fall back to the pending tree's own dictionary. This fixture
+        // registers NOTHING in the store.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void CommitTree_RecordingsOnlyInThePendingTree_StillPromotesTheContinuationTip()
+        {
+            var tree = BuildPendingOnlyTree();
+            var rp = InstallScenario();
+
+            // The premise: nothing here is in the committed store yet, so the
+            // null-context walk cannot resolve past rec_origin at all.
+            Assert.Null(EffectiveState.FindCommittedRecordingByIdRaw("rec_origin"));
+            Assert.Equal("rec_origin",
+                EffectiveState.EffectiveTipRecordingId("rec_origin", NoSupersedes));
+            // With the pending tree as context the same walk reaches the segment.
+            Assert.Equal("rec_segment", EffectiveState.EffectiveTipRecordingId(
+                "rec_origin", NoSupersedes, recById: null, treeContext: tree));
+
+            logLines.Clear();
+            RecordingStore.CommitTree(tree);
+
+            Assert.Equal(MergeState.CommittedProvisional,
+                tree.Recordings["rec_segment"].MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("CommitTree promoted chain-tip rec=rec_segment"));
+            Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
+        }
+
+        // ------------------------------------------------------------------
+        // Review follow-up 6: the belt-and-braces hop cap. The visited set makes the
+        // walk cycle-safe; this pins the acyclic-but-enormous stop.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void MoreSwitchHopsThanTheCap_StopsAtTheCapAndWarns()
+        {
+            int chainLength = EffectiveState.MaxSwitchContinuationHops + 3;
+            var tree = new RecordingTree
+            {
+                Id = TreeId,
+                TreeName = "long switch chain",
+                RootRecordingId = "rec_0",
+            };
+            var recs = new List<Recording>();
+            for (int i = 0; i <= chainLength; i++)
+            {
+                recs.Add(Rec(Id(i), null,
+                    parentBranchPointId: i == 0 ? null : Bp(i - 1),
+                    childBranchPointId: i == chainLength ? null : Bp(i)));
+            }
+            recs[chainLength].TerminalStateValue = TerminalState.Orbiting;
+            AddToTree(tree, recs.ToArray());
+            for (int i = 0; i < chainLength; i++)
+                tree.BranchPoints.Add(SwitchBp(Bp(i), Id(i), Id(i + 1)));
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            logLines.Clear();
+            // ONE pass of the walker stops exactly at the cap, short of the real
+            // terminal, and says so.
+            Recording capped = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(
+                tree.Recordings["rec_0"], tree);
+            Assert.Equal(Id(EffectiveState.MaxSwitchContinuationHops), capped.RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("SwitchContinuationWalk: hop cap "
+                    + EffectiveState.MaxSwitchContinuationHops.ToString(CultureInfo.InvariantCulture)
+                    + " reached"));
+
+            // The composite walker calls the walk again from wherever the cap left
+            // it, so the cap bounds one pass, never the answer: it still resolves
+            // the real tip, and its own visited set bounds the outer loop.
+            Assert.Equal(Id(chainLength),
+                EffectiveState.EffectiveTipRecordingId("rec_0", NoSupersedes));
+        }
+
+        private static string Id(int i) => "rec_" + i.ToString(CultureInfo.InvariantCulture);
+
+        private static string Bp(int i) => "bp_" + i.ToString(CultureInfo.InvariantCulture);
+
+        // ------------------------------------------------------------------
+        // Review follow-up 3: the live terminal reads the first pass left on the
+        // plain walk. The seal confirmation is PLAYER-FACING - it is the dialog that
+        // asks for approval of a permanent, undoable action, and TrySeal applies to
+        // the hopped tip.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void SealConfirmationText_NamesTheContinuationTerminal_NotUnknown()
+        {
+            var tree = BuildTree(originTerminal: null, segmentTerminal: TerminalState.Orbiting);
+            InstallScenario();
+            var origin = tree.Recordings["rec_origin"];
+            origin.VesselName = "Probe One";
+            origin.ExplicitEndUT = 150.0;
+
+            string body = UnfinishedFlightSealHandler.BuildConfirmationBody(origin);
+
+            Assert.Contains("(Orbiting at UT 150.0)", body);
+            Assert.DoesNotContain("Unknown", body);
+        }
+
+        [Fact]
+        public void SealConfirmationText_RealDownstreamSplit_StillReadsTheOrigin()
+        {
+            var tree = BuildTree(
+                originTerminal: null,
+                segmentTerminal: TerminalState.Orbiting,
+                switchBpType: BranchPointType.Dock);
+            InstallScenario();
+            var origin = tree.Recordings["rec_origin"];
+            origin.VesselName = "Probe One";
+
+            Assert.Contains("(Unknown at UT",
+                UnfinishedFlightSealHandler.BuildConfirmationBody(origin));
+        }
+
+        // ------------------------------------------------------------------
+        // Review follow-up: one towards-safety cell per gate the audit moved onto
+        // the hopping walk, so reverting any of them reds.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void SafetyGate_ContinuationDestroyed_ReadsAsATerminalFailure()
+        {
+            var tree = BuildTree(originTerminal: null, segmentTerminal: TerminalState.Destroyed);
+            InstallScenario();
+            Assert.True(SupersedeCommit.IsTerminalFailureReFlyOutcome(
+                tree.Recordings["rec_origin"]));
+        }
+
+        [Fact]
+        public void SafetyGate_ContinuationRecovered_ReadsAsHardSafety()
+        {
+            var tree = BuildTree(originTerminal: null, segmentTerminal: TerminalState.Recovered);
+            InstallScenario();
+            Assert.True(SupersedeCommit.IsHardSafetyTerminal(tree.Recordings["rec_origin"]));
+        }
+
+        [Fact]
+        public void SafetyGate_ContinuationOrbiting_RequiresSlotAwareClassification()
+        {
+            var tree = BuildTree(originTerminal: null, segmentTerminal: TerminalState.Orbiting);
+            InstallScenario();
+            Assert.True(SupersedeCommit.RequiresSlotAwareMergeClassification(
+                tree.Recordings["rec_origin"]));
+        }
+
+        [Fact]
+        public void StashShape_ContinuationSubOrbital_IsAStashCandidate()
+        {
+            var tree = BuildTree(originTerminal: null, segmentTerminal: TerminalState.SubOrbital);
+            InstallScenario();
+            Assert.True(UnfinishedFlightClassifier.IsPotentialManualStashShape(
+                tree.Recordings["rec_origin"]));
+        }
+
+        // ------------------------------------------------------------------
         // Fixtures (same measured GS-3 shape the switch-walk suite uses).
         // ------------------------------------------------------------------
 
@@ -364,6 +568,43 @@ namespace Parsek.Tests
 
             if (registerCommittedTree)
                 RecordingStore.AddCommittedTreeForTesting(tree);
+            return tree;
+        }
+
+        /// <summary>
+        /// The same shape as <see cref="BuildTree"/>, but NOTHING is registered in
+        /// RecordingStore: neither the tree nor its recordings. That is the state
+        /// CommitTree's promotion pass actually runs in.
+        /// </summary>
+        private static RecordingTree BuildPendingOnlyTree()
+        {
+            var tree = new RecordingTree
+            {
+                Id = TreeId,
+                TreeName = "pending tipwalk tree",
+                RootRecordingId = "rec_focus",
+            };
+
+            var focus = Rec("rec_focus", TerminalState.Orbiting, childBranchPointId: RpBpId);
+            var origin = Rec("rec_origin", null,
+                parentBranchPointId: RpBpId, childBranchPointId: SwitchBpId);
+            var segment = Rec("rec_segment", TerminalState.Orbiting,
+                parentBranchPointId: SwitchBpId);
+            foreach (var rec in new[] { focus, origin, segment })
+            {
+                rec.TreeId = tree.Id;
+                tree.AddOrReplaceRecording(rec);
+            }
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = RpBpId,
+                UT = 100.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec_focus" },
+                ChildRecordingIds = new List<string> { "rec_focus", "rec_origin" },
+            });
+            tree.BranchPoints.Add(SwitchBp(SwitchBpId, "rec_origin", "rec_segment"));
             return tree;
         }
 

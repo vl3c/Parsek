@@ -783,7 +783,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsPotentialManualStashShape(Recording rec)
+        internal static bool IsPotentialManualStashShape(Recording rec)
         {
             if (rec == null) return false;
             if (rec.MergeState != MergeState.Immutable

@@ -3111,29 +3111,46 @@ must read that tree's branch points. The sibling walker `IsInSupersedeForwardTra
 the same hop so slot membership still reaches the tip the composite walker returns. The
 walk logs every hop and every stop under `[Supersede] SwitchContinuationWalk:`.
 
-**Caller audit (every remaining `ResolveChainTerminalRecording` site).** HOPPED, because
-the question is "how did this flight END" and the bare walk reads no terminal at all
-when it lives on the continuation segment: `UnfinishedFlightClassifier` :477 (the manual
-stash terminal read, which pairs with the `TryQualify` reject immediately above it) and
-:793 `IsPotentialManualStashShape` (mirrors the candidate-shape gate, which already
-hops); `RecordingStore` :1290 `ShouldAutoSealStableEvaCommitSlot` and :1310
-`AutoSealStableEvaCommitSlot` (the decision to CLOSE a slot, and the line that logs
-which terminal it was taken on); `SupersedeCommit` `IsTerminalFailureReFlyOutcome`,
-`IsHardSafetyTerminal`, `RequiresSlotAwareMergeClassification` and
-`DescribeTerminalForLogs` (safety gates that FAIL OPEN on a missing terminal - a
-Recovered / Docked / Boarded conclusion stamped on a switch segment would have let a
-re-fly through). LEFT ON THE PLAIN CHAIN WALK, with reasons: `SupersedeCommit`
-`CollectRecordingIdsForSafetyGate` enumerates CHAIN LINEAGE ids for a science/action
-scan, not a terminal, and its own `AddMatchingChainRecordingIds` pass owns membership -
-a hop would add an id from a different lineage; `MergeDialog.Commit`
-`CollectActiveReFlyParentChainTerminalTipIds` compares chain-tip IDENTITIES against
-`activeChainIds` to suppress old futures, so hopping would name a recording outside the
-chain it is comparing; the three in-game cells
+**Caller audit (every `ResolveChainTerminalRecording` site in the tree; line refs are
+post-fix HEAD).** HOPPED, because the question is "how did this flight END" and the bare
+walk reads no terminal at all when the terminal lives on the continuation segment:
+`UnfinishedFlightClassifier` :480 (the manual-stash terminal read, which pairs with the
+`TryQualify` reject immediately above it) and :799 `IsPotentialManualStashShape` (mirrors
+the candidate-shape gate at :739, which already hops); `RecordingStore` :1300
+`ShouldAutoSealStableEvaCommitSlot` and :1323 `AutoSealStableEvaCommitSlot` (the decision
+to CLOSE a slot, and the line that logs which terminal it was taken on);
+`UnfinishedFlightSealHandler` :131 (the `Sealed slot=... terminal=` log, which must name
+the terminal the seal at :77 was actually applied to, since that seal flips the slot's
+EFFECTIVE TIP) and :211 `BuildConfirmationBody` - **PLAYER-FACING**, the `Seal "X"
+({terminal} at UT ...)?` dialog that asks for approval of a permanent, undoable action,
+and which on a switch-continued slot read `Unknown` while the seal it authorises applies
+to the hopped tip; `UnfinishedFlightStashHandler` :98 (the `Stashed ... terminal=` log,
+same argument as the seal log - the stash demoted the hopping tip two lines above);
+`SupersedeCommit` `IsTerminalFailureReFlyOutcome`, `IsHardSafetyTerminal`,
+`RequiresSlotAwareMergeClassification` and `DescribeTerminalForLogs` (safety gates that
+FAIL OPEN on a missing terminal - a Recovered / Docked / Boarded conclusion stamped on a
+switch segment would have let a re-fly through). LEFT ON THE PLAIN CHAIN WALK, with
+reasons: `SupersedeCommit` `CollectRecordingIdsForSafetyGate` enumerates CHAIN LINEAGE
+ids for a science/action scan, not a terminal, and its own `AddMatchingChainRecordingIds`
+pass owns membership - a hop would add an id from a different lineage;
+`MergeDialog.Commit` `CollectActiveReFlyParentChainTerminalTipIds` compares chain-tip
+IDENTITIES against `activeChainIds` to suppress old futures, so hopping would name a
+recording outside the chain it is comparing; the three in-game cells
 (`MergeNonFocusReFlyToOrbitImmutableTest`, `MergeReFlyStructuralMutationAutoSealsTest`,
 `MergeReFlyToSubOrbitalKeepsSlotOpenTest`) each build their own chain in-test with no
 switch continuation in it, so the two walks are identical there by construction.
 `Display/GhostTrajectoryPolylineRenderer` / `GhostPlaybackLogic.WatchMode` /
 `RecordingsTableUI` mention the walker in comments only and call nothing.
+
+**One accepted direction change, in `SupersedeCommit.RequiresSlotAwareMergeClassification`
+(review note).** Its "parent Orbiting, continuation child still OPEN (no terminal)" case
+is reachable during the `isPrediction` mid-flight preview, and it now falls back to the
+v0.9 `TerminalKindClassifier` instead of requiring slot-aware classification - fail-closed
+became fail-open for that one preview shape. Accepted rather than gated: the preview is
+read-only (it seals nothing, writes no MergeState and commits no supersede row), the
+real merge re-runs the gate once the continuation carries a terminal, and the alternative
+- treating a terminal-less tip as Orbiting - would assert a conclusion the recorder has
+not made. If the preview is ever given a write, this case gets a gate first.
 
 **Mirror directions, all pinned in
 `Source/Parsek.Tests/SwitchContinuationTipWalkAgreementTests.cs`:** a real downstream
@@ -3146,6 +3163,27 @@ The agreement cell asserts that the qualify walk, `EffectiveTipRecordingId` and
 named the origin. Promotion is covered end to end: CommitTree now promotes the
 continuation tip (`CommitTree promoted chain-tip rec=... head=...`), the slot reads
 OPEN, the RewindPoint refuses to reap, and sealing the continuation tip closes the slot.
+
+**Review follow-up cells (2026-09-15), each added because a mutant survived the first
+pass.** The SIBLING walker `IsInSupersedeForwardTrail` is driven through
+`ResolveRewindPointSlotIndexForRecording` against a MID-TRAIL fork
+(origin -switch-> segment -supersede-> fork1 -supersede-> fork2, asking for fork1, which
+the composite-tip comparison cannot answer) - that kills both the ChainId-only cheap-exit
+gate and a hop reverted to the bare chain walk, each verified by applying the mutant. The
+tree-context fallback lookup is driven by a CommitTree fixture that registers NOTHING in
+`RecordingStore`, which is the state the promotion pass actually runs in; deleting the
+fallback reds it. The `MaxSwitchContinuationHops` cap is pinned on a 67-long switch chain
+(one pass stops at the cap and warns; the composite walker then resumes from there, so
+the cap bounds a pass and never the answer). The player-facing seal text is asserted both
+ways: `(Orbiting at UT 150.0)` through a continuation, `(Unknown at UT ...)` when the
+downstream branch point is a real Dock. One towards-safety cell per moved
+`SupersedeCommit` gate (continuation Destroyed / Recovered / Orbiting) plus the stash
+shape (continuation SubOrbital) means reverting any of those hops now reds the suite.
+`UnfinishedFlightSealHandler.BuildConfirmationBody` was extracted from `ShowConfirmation`
+so the dialog text can be asserted headless; `IsHardSafetyTerminal`,
+`RequiresSlotAwareMergeClassification` and `IsPotentialManualStashShape` widened from
+`private` to `internal static` under the house rule for pure predicates.
+
 ## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
 
 The log line that names the mechanism, from the CEN-7 runlog seven milliseconds after

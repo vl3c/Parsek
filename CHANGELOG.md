@@ -698,9 +698,14 @@ _(unreleased — entries accumulate here per commit)_
   all). Nothing in play had been seen to hit the disagreement, but on paper it goes both
   ways: a row could be offered and then read as closed, or the promotion that keeps the
   row alive could be written to a recording the qualify side never looks at. Both
-  questions now walk the same path. A real split - an undock, a dock, an EVA, a
-  breakup - still ends the walk exactly where it did, and a switch point with more than
-  one thing hanging off it is left alone rather than guessed at.
+  questions now walk the same path. The confirmation box that asks before sealing such a
+  flight is part of this: it used to say "Unknown" where the flight's ending belongs, and
+  now names the real ending, so the one dialog that asks approval for something permanent
+  describes what it is about to close. The same correction reaches the seal and stash log
+  lines and four internal safety checks that read a flight's ending and, finding none,
+  used to wave a re-fly through. A real split - an undock, a dock, an EVA, a breakup -
+  still ends the walk exactly where it did, and a switch point with more than one thing
+  hanging off it is left alone rather than guessed at.
 
 - **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
   where the edit was quietly thrown away.** That screen used to show a "Parsek" section
