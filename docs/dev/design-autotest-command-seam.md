@@ -2485,6 +2485,26 @@ because the commit nulls the recorder and takes the count with it.
 | `GloopsStart` | ERROR | `no-flight-instance` | `ParsekFlight.Instance` absent for a frame around a scene teardown (the `StartRecording` row) |
 | `GloopsStop` | OK | `committed=true`, `points=<n>`, `recordingId=<id>` | the take was committed as a ghost-only recording |
 | `GloopsStop` | OK | `committed=false`, `points=<n>`, `dropped=too-short` | THE SUB-2-POINT DROP. Not a refusal - see above |
+
+**What `points=` means, and it is deliberately two different things.** On a COMMIT it is
+the committed recording's own `Points.Count`; on a DROP it is the RECORDER COUNT BEFORE
+THE CALL, because the drop leaves no recording to read. Neither is "the number the < 2
+rule was applied to", and describing it that way would be wrong in both directions:
+production can ADD a sample after the pre-call reading (`FinalizeRecordingState` takes a
+boundary sample when the vessel is on rails at stop time) and REMOVE several before the
+second test (`CreateRecordingFromFlightData` trims leading stationary points and re-applies
+`< 2` to what is left), so a pre-call 1 can commit and a pre-call 5 can drop.
+
+**`dropped=too-short` is on the LOG LINE as well as in the payload.** A spec's
+`logContracts` are regexes over `KSP.log`, the seam's exec diagnostic carries no payload and
+the response file is never scanned, so a token that lived only in the payload could not be
+gated by the lane whose subject it is. The applier prints it on the drop branch of its own
+`gloopsstop` Info line.
+
+Note also that the production Warn a lane gates
+(`StopGloopsRecording: not enough points (< 2)`) is written by the `ParsekFlight` CALLER
+after the factory returns null, so it covers BOTH factory refusals - the raw `< 2` test and
+the post-trim one.
 | `GloopsStop` | REJECTED | `no-gloops-recorder` | nothing to stop (production: `StopGloopsRecording: no Gloops recorder`) |
 | `GloopsStop` | ERROR | `no-flight-instance` | as above |
 
@@ -2533,13 +2553,19 @@ as reading-run specs and neither armed.
 >   `sub-2-point-drop` is `RecordingStore.CreateRecordingFromFlightData` refusing to build
 >   a `Recording` from fewer than two trajectory points, after which
 >   `ParsekFlight.CommitGloopsRecorderData` warns `StopGloopsRecording: not enough points
->   (< 2)` and discards. The Gloops stop is its only SEAM-REACHABLE producer, re-derived
->   from the full caller set rather than assumed (todo
->   `D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE`): in always-tree mode a tree commit
->   never passes through that factory at all - it appends through
->   `TryAppendCapturedToTree`, which KEEPS a 1-point recording - so no `StartRecording`
->   lane can produce this drop however short its take, and the factory's other remaining
->   callers are abnormal split-edge aborts no seam verb can provoke on demand. Two stale
+>   (< 2)` and discards. The Gloops stop is the only seam VERB whose SUBJECT is that
+>   drop - deliberately NOT "the only producer" - re-derived from the full caller set
+>   rather than assumed (todo `D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE`): in
+>   always-tree mode a tree commit never passes through that factory at all (it appends
+>   through `TryAppendCapturedToTree`, which KEEPS a 1-point recording), so no
+>   `StartRecording` lane can produce this drop however short its take; the remaining
+>   split-edge callers are abnormal aborts no seam verb can provoke on demand; and the
+>   DOCK/UNDOCK CHAIN-SEGMENT PATH is live and reaches the same factory
+>   (`ParsekFlight.HandleDockUndockCommitRestart`, all four branches ->
+>   `ChainSegmentManager.CommitDockUndockSegment` -> `CommitSegmentCore`), with no
+>   always-tree guard anywhere on that chain - it logs `CommitSegmentCore`'s own Verbose
+>   "segment too short" rather than the Gloops Warn a lane gates, so the two are
+>   distinguishable in a log. Two stale
 >   comments fall out of the same derivation and are corrected in this change: S0.5 and
 >   S0.6 each attributed a possible count to "the stationary-pod sub-2-point-drop",
 >   wording that predates always-tree mode and describes a path their own commits no

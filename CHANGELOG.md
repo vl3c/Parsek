@@ -23,8 +23,8 @@ _(unreleased — entries accumulate here per commit)_
   the verb answers successfully and says the take was dropped for being under two
   points. Two new test scenarios use the pair - one records and stops a real take, the
   other deliberately produces a take too short to keep and checks that Parsek refuses
-  it - closing the last two recording-lifecycle coverage cells that had no automated
-  producer at all.
+  it - closing two recording-lifecycle coverage cells that no automated test could
+  reach before.
 
 - **Developer tooling: the source tree now has a module dependency map with four
   ways to look at it, and a boundary check that reports without failing anything.**

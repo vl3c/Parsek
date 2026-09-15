@@ -1760,9 +1760,22 @@ reading flight).**
   `GL-2-gloops-sub-2-point-drop` (claims both; `samplingDensity=0` and ADJACENT steps, so
   the take cannot reach two points, with the drop gated on four independently-failing
   tokens).
-- The registry comment now names Gloops as the drop's only seam-reachable producer, and the
-  stale S0.5 / S0.6 "stationary-pod sub-2-point-drop" remarks named below are CORRECTED in
-  the same change.
+- SCOPE, corrected in review and carried into every doc that states it: the Gloops stop is
+  the only seam VERB whose SUBJECT is the drop, NOT the only producer. The census above
+  called `CommitDockUndockSegment` "not proven dead", and it is not: `ParsekFlight
+  .HandleDockUndockCommitRestart` reaches `ChainSegmentManager.CommitDockUndockSegment` ->
+  `CommitSegmentCore` -> the factory on all FOUR of its branches (dock initiator, dock
+  target, undock stay, undock switch) with no always-tree guard anywhere on that chain. A
+  docking lane could meet the same refusal incidentally; it would log `CommitSegmentCore`'s
+  own Verbose "segment too short" rather than the Gloops Warn GL-2 gates, so the two are
+  distinguishable in a log.
+- `points=` in the stop payload is the committed recording's `Points.Count` on a commit and
+  the RECORDER COUNT BEFORE THE CALL on a drop. It is deliberately NOT "the number the < 2
+  rule was applied to": `FinalizeRecordingState` can ADD a boundary sample at stop when the
+  vessel is on rails, and the factory TRIMS leading stationary points before re-applying the
+  test, so a pre-call 1 can commit and a pre-call 5 can drop.
+- The registry comment now names Gloops with that scope, and the stale S0.5 / S0.6
+  "stationary-pod sub-2-point-drop" remarks named below are CORRECTED in the same change.
 
 **Still OPEN: the `stop-on-switch` half (B3).** A registry PR must still redefine it as
 `switch-backgrounds-recording` and claim it on CI-1 with the `Transitioned to background

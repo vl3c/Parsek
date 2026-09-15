@@ -21,9 +21,21 @@ namespace Parsek.TestCommands
     /// both can no-op behind a guard that only writes a Warn, so the verdict has to come
     /// from a before/after comparison. Three samples carry it: whether a recorder existed,
     /// whether an active vessel existed, and which recording <c>LastGloopsRecording</c>
-    /// named. The point count is sampled before the call too, because the commit nulls the
-    /// recorder and takes the count with it - and that count is the number the production
-    /// &lt; 2 rule was applied to, which is the whole content of the drop.
+    /// named.
+    /// </para>
+    ///
+    /// <para>
+    /// WHICH POINT COUNT <c>points=</c> REPORTS, and it is deliberately not one number.
+    /// On a COMMIT it is the committed recording's own <c>Points.Count</c>; on a DROP it is
+    /// the RECORDER COUNT BEFORE THE CALL, because the drop nulls the recorder and leaves
+    /// no recording to read. The pre-call count is NOT "the number the &lt; 2 rule was
+    /// applied to" and must not be described as one: production can still ADD a sample
+    /// after it (<c>FlightRecorder.FinalizeRecordingState</c> takes a boundary sample when
+    /// the vessel is on rails at stop time) and can still REMOVE several
+    /// (<c>RecordingStore.CreateRecordingFromFlightData</c> trims leading stationary points
+    /// and re-applies the &lt; 2 test to what is left), so a pre-call 1 can commit and a
+    /// pre-call 5 can drop. What the two reported numbers are good for is describing the
+    /// outcome that HAPPENED, not predicting it.
     /// </para>
     /// </summary>
     public partial class ParsekTestCommandAddon
@@ -84,7 +96,11 @@ namespace Parsek.TestCommands
             // that went on to commit.
             FlightRecorder recorder = flight.GloopsRecorderForUI;
             bool hadRecorder = recorder != null;
-            int points = recorder?.Recording?.Count ?? 0;
+            // The recorder count BEFORE the call. Reported only on a DROP, where the
+            // recorder is gone and there is no recording to read instead; a commit reports
+            // the committed recording's own count below. See the class header for why this
+            // number is not the one the < 2 rule was applied to.
+            int pointsBefore = recorder?.Recording?.Count ?? 0;
             string beforeId = flight.LastGloopsRecording?.RecordingId;
 
             flight.StopGloopsRecording();
@@ -104,8 +120,19 @@ namespace Parsek.TestCommands
             }
 
             bool committed = outcome == TestCommandGloopsVerbs.StopOutcome.Committed;
+            int points = committed
+                ? (flight.LastGloopsRecording?.Points?.Count ?? 0)
+                : pointsBefore;
+
+            // The DROP token is on the LOG LINE as well as in the payload, and that is
+            // load-bearing rather than tidy: a spec's logContracts are regexes over
+            // KSP.log, the seam's own exec diagnostic carries no payload, and the response
+            // file is not scanned - so a `dropped=too-short` that lived only in the payload
+            // could not be gated by the lane whose whole subject it is.
             ParsekLog.Info(Tag, $"gloopsstop committed={Bool(committed)} points={Int(points)} "
-                + $"recordingId={(committed ? afterId : string.Empty)}");
+                + (committed
+                    ? $"recordingId={afterId}"
+                    : $"dropped={TestCommandGloopsVerbs.DroppedTooShort}"));
             SetExecResult("OK",
                 TestCommandGloopsVerbs.BuildStopPayload(outcome, points, afterId), null);
         }

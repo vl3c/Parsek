@@ -216,39 +216,97 @@ namespace Parsek.Tests
         }
 
         // ----- Applier source gate (the B4 no-Gloops-change ruling) -----
+        //
+        // AN ALLOWLIST, NOT A BLOCKLIST, and the distinction is the whole value of these
+        // cells. The first draft named four forbidden members and asserted the two wanted
+        // ones were present, which three one-line mutants walked straight past:
+        // `recorder.ForceStop()`, `flight.GloopsRecorderForUI.Recording.Clear()` and
+        // `RecordingStore.DeleteRecordingFull(0)` all changed Gloops state while naming
+        // nothing on the list. Each was pasted into a SCRATCH COPY of the applier
+        // and run through the cells below (2026-09-15): under the blocklist all three
+        // PASSED; under the derivations below `ForceStop` and `Clear` red on the two-hop
+        // member scan and `DeleteRecordingFull` reds on the empty store-call set. The
+        // mutants were removed from the scratch copy afterwards; the committed applier
+        // never carried them. The two-hop shape is why `.Recording.Clear()` is caught at
+        // all: the name scan wants a "(" right after the Gloops name and a chained call
+        // does not have one.
+
+        /// <summary>Members the applier is allowed to call on `ParsekFlight` - exactly the
+        /// two the Gloops window's primary button calls.</summary>
+        private static readonly string[] AllowedGloopsCalls =
+        {
+            "StartGloopsRecording",
+            "StopGloopsRecording",
+        };
 
         [Fact]
-        public void TheApplierDrivesOnlyTheTwoExistingGloopsEntryPoints()
+        public void TheApplierCallsExactlyTheTwoExistingGloopsEntryPointsAndNoOther()
         {
             string src = ReadApplierSource();
 
-            // The two production calls the Gloops window's primary button makes.
-            Assert.Contains("StartGloopsRecording()", src);
-            Assert.Contains("StopGloopsRecording()", src);
+            // Every `.SomethingGloopsSomething(` call site in the file, as a SET compared
+            // against the allowlist. A new Gloops member wired in reds here by NAME,
+            // whether or not anyone thought to forbid it.
+            var called = new SortedSet<string>(
+                Regex.Matches(src, @"\.(\w*Gloops\w*)\s*\(")
+                    .Cast<Match>().Select(m => m.Groups[1].Value),
+                StringComparer.Ordinal);
 
-            // And NOTHING else that mutates Gloops state. Discard and Preview are real
-            // ParsekFlight members one keystroke away from being wired here; the ruling is
-            // that this pair stays the lifecycle + drop producer and does not grow into a
-            // verb per button.
-            foreach (string forbidden in new[]
-                     {
-                         "DiscardGloopsInProgress",
-                         "DiscardLastGloopsRecording",
-                         "PreviewGloopsRecording",
-                         "CommitGloopsRecording",
-                     })
-            {
-                Assert.DoesNotContain(forbidden, src);
-            }
+            Assert.Equal(
+                new SortedSet<string>(AllowedGloopsCalls, StringComparer.Ordinal),
+                called);
         }
 
         [Fact]
-        public void TheApplierReadsGloopsStateAndNeverWritesIt()
+        public void TheApplierOnlyReadsCountOffTheRecorderAndTheRecording()
         {
-            // The observation surface: every Gloops member the applier touches beyond the
-            // two calls above must be a READ. Derived from the source rather than asserted
-            // in prose, because "it only reads" is exactly the claim a later edit breaks
-            // silently.
+            // The mutant class the name scan above cannot see, in both of its shapes: a
+            // call on the `recorder` LOCAL, whose own members carry no "Gloops" in their
+            // spelling (`recorder.ForceStop()`), and a call reached THROUGH a Gloops
+            // accessor rather than on it (`flight.GloopsRecorderForUI.Recording.Clear()` -
+            // the name scan misses it because no "(" follows the Gloops name).
+            //
+            // Derived in two hops. Hop one: every member reached off the `recorder` local
+            // or off a Gloops-named accessor. Hop two: every member reached off THOSE.
+            string src = ReadApplierSource();
+
+            var firstHop = new SortedSet<string>(
+                Regex.Matches(src, @"(?:\brecorder\b|\.\w*Gloops\w*)\s*\??\.\s*(\w+)")
+                    .Cast<Match>().Select(m => m.Groups[1].Value),
+                StringComparer.Ordinal);
+            Assert.Equal(
+                new SortedSet<string>(
+                    new[] { "Points", "Recording", "RecordingId" }, StringComparer.Ordinal),
+                firstHop);
+
+            var secondHop = new SortedSet<string>(
+                Regex.Matches(src, @"\.(?:Recording|Points)\s*\??\.\s*(\w+)")
+                    .Cast<Match>().Select(m => m.Groups[1].Value),
+                StringComparer.Ordinal);
+            Assert.Equal(
+                new SortedSet<string>(new[] { "Count" }, StringComparer.Ordinal),
+                secondHop);
+        }
+
+        [Fact]
+        public void TheApplierCallsNoRecordingStoreMutator()
+        {
+            // The third mutant class: reaching PAST ParsekFlight into the store, where
+            // `RecordingStore.DeleteGhostOnlyRecording(...)` would undo a Gloops take with
+            // no Gloops-named member and no `recorder` local in sight. The applier's job is
+            // to drive two ParsekFlight methods and report; it calls into no other Parsek
+            // subsystem at all, so the allowlist here is EMPTY rather than curated.
+            string src = ReadApplierSource();
+            var storeCalls = Regex.Matches(src, @"\bRecordingStore\s*\.\s*(\w+)")
+                .Cast<Match>().Select(m => m.Groups[1].Value).ToList();
+            Assert.Empty(storeCalls);
+        }
+
+        [Fact]
+        public void TheApplierWritesNoGloopsField()
+        {
+            // The assignment half, kept from the first draft because it covers what a call
+            // scan cannot: a field or property SET rather than an invocation.
             string src = ReadApplierSource();
             var assignments = Regex.Matches(src, @"\.(\w*Gloops\w*)\s*=[^=]")
                 .Cast<Match>().Select(m => m.Groups[1].Value).ToList();

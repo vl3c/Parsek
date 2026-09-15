@@ -385,15 +385,19 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     the argument that kept InvokeRewindToLaunch separate from InvokeRewind.
     #   `sub-2-point-drop` is a finalized recording with fewer than two trajectory
     #     points, which RecordingStore.CreateRecordingFromFlightData refuses to build.
-    #     The Gloops stop is its ONLY seam-reachable producer, re-derived from the full
-    #     caller set rather than assumed (todo
+    #     The Gloops stop is the only seam VERB whose SUBJECT is that drop - not "the
+    #     only producer", re-derived from the full caller set rather than assumed (todo
     #     D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): in always-tree mode a tree
-    #     commit never passes through that factory at all - it appends through
-    #     TryAppendCapturedToTree, which KEEPS a 1-point recording - and the factory's
-    #     other remaining callers are abnormal split-edge aborts no seam verb can
-    #     provoke on demand. The S0.5 / S0.6 headers that called the same outcome a
-    #     TOLERATED accident of a stationary-pod start/stop predate always-tree mode and
-    #     are corrected in the same change.
+    #     commit never passes through that factory at all (it appends through
+    #     TryAppendCapturedToTree, which KEEPS a 1-point recording), the remaining
+    #     split-edge callers are abnormal aborts no seam verb can provoke on demand, and
+    #     the dock/undock chain-segment path IS live and reaches the same factory
+    #     (ParsekFlight.HandleDockUndockCommitRestart ->
+    #     ChainSegmentManager.CommitDockUndockSegment -> CommitSegmentCore) with no
+    #     always-tree guard on that chain - it logs its own "segment too short" rather
+    #     than the Gloops Warn a lane gates. The S0.5 / S0.6 headers that called the same
+    #     outcome a TOLERATED accident of a stationary-pod start/stop predate always-tree
+    #     mode and are corrected in the same change.
     # BOTH SINGLE-PHASE and neither is a DEFERRED_SEAM_VERB: the recorder attaches to
     # the physics-frame patch INSIDE FlightRecorder.StartRecording, and the stop half
     # stops / builds / commits / nulls inside one synchronous call, so each read-back is

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace Parsek.TestCommands
 {
@@ -245,13 +245,18 @@ namespace Parsek.TestCommands
             //     that kept InvokeRewindToLaunch separate from InvokeRewind.
             //   D1 `sub-2-point-drop` is a finalized recording with fewer than two
             //     trajectory points, which RecordingStore.CreateRecordingFromFlightData
-            //     refuses to build. The Gloops stop is its only SEAM-REACHABLE producer,
-            //     re-derived from the full caller set rather than assumed (todo
+            //     refuses to build. The Gloops stop is the only seam VERB whose SUBJECT is
+            //     that drop - deliberately not "the only producer", re-derived from the full
+            //     caller set rather than assumed (todo
             //     D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): in always-tree mode a tree
-            //     commit never passes through that factory at all - it appends through
-            //     TryAppendCapturedToTree, which KEEPS a 1-point recording - and the other
-            //     remaining callers are abnormal split-edge aborts no seam verb can provoke
-            //     on demand.
+            //     commit never passes through that factory at all (it appends through
+            //     TryAppendCapturedToTree, which KEEPS a 1-point recording), the remaining
+            //     split-edge callers are abnormal aborts no seam verb can provoke on demand,
+            //     and the dock/undock chain-segment path IS live and reaches the same
+            //     factory (ParsekFlight.HandleDockUndockCommitRestart ->
+            //     ChainSegmentManager.CommitDockUndockSegment -> CommitSegmentCore), with no
+            //     always-tree guard on that chain - it just logs its own "segment too short"
+            //     rather than the Gloops Warn a lane gates.
             // BOTH SINGLE-PHASE, and neither is a borderline call: the recorder attaches
             // to the physics-frame patch INSIDE FlightRecorder.StartRecording, and the
             // stop half stops / builds / commits / nulls inside one synchronous call, so

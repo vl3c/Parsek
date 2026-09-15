@@ -460,9 +460,11 @@ owning todo entry. All OPEN; none applied.
    `GLOOPS-STANDALONE-WINDDOWN` / GUI-P13 stay open. BUILT on branch `gloops-seam-verbs`:
    the ADDITIVE no-arg pair `GloopsStart` / `GloopsStop` (36 -> 38 implemented, reserved
    unchanged at 5; both `RequiresFlight`, both single-phase), the registry comment naming
-   Gloops as the drop's only seam-reachable producer (re-derived from the full caller set -
-   a tree commit never passes through `CreateRecordingFromFlightData` and KEEPS a 1-point
-   recording), the two stale S0.5 / S0.6 remarks corrected, and two READING-RUN lanes:
+   Gloops as the only seam VERB whose SUBJECT is the drop (re-derived from the full caller
+   set: a tree commit never passes through `CreateRecordingFromFlightData` and KEEPS a
+   1-point recording, but the dock/undock chain-segment path IS live and reaches the same
+   factory, so the wording is scoped to the verb rather than claiming sole production), the
+   two stale S0.5 / S0.6 remarks corrected, and two READING-RUN lanes:
    `GL-1-gloops-manual-lifecycle` and `GL-2-gloops-sub-2-point-drop`. NEITHER IS ARMED and
    neither has flown - the operator arms them after the reading runs. Memo s3; todo
    D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.

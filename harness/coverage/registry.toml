@@ -45,8 +45,8 @@ schema = 1
 # Approach -> Surface* log token).
 #
 # "manual-gloops" and "sub-2-point-drop" (both long-standing values, CLAIMED
-# 2026-09-15 by GL-1 / GL-2): the GLOOPS recorder is the only seam-reachable
-# producer of either, and of the drop it is the only producer at all.
+# 2026-09-15 by GL-1 / GL-2): the GLOOPS recorder is the only producer of
+# "manual-gloops", and the only SEAM VERB whose subject is the drop.
 #   "manual-gloops" is the MANUAL, career-invisible recorder - a parallel
 #   FlightRecorder whose take commits IsGhostOnly with looping off. It is NOT the
 #   auto-record tree StartRecording drives, so no auto-record lane covers it, and
@@ -58,12 +58,19 @@ schema = 1
 #   always-tree mode a tree commit never passes through that factory - it appends
 #   through TryAppendCapturedToTree, which KEEPS a 1-point recording - so no
 #   StartRecording lane can produce this drop however short its take. The factory's
-#   remaining callers are the Gloops commit and a set of abnormal split-edge aborts
-#   no seam verb can provoke on demand, which leaves the Gloops stop as the only
-#   seam-reachable producer. S0.5 and S0.6 each attributed a possible count to "the
-#   stationary-pod sub-2-point-drop", wording that predates always-tree mode and
-#   describes a path their own commits no longer take; both are corrected in the
-#   same change as this claim.
+#   remaining callers are: the Gloops commit (this claim's subject), a set of
+#   abnormal split-edge aborts no seam verb can provoke on demand, AND the
+#   dock/undock chain-segment path, which is live - ParsekFlight
+#   .HandleDockUndockCommitRestart (all four branches: dock initiator, dock target,
+#   undock stay, undock switch) -> ChainSegmentManager.CommitDockUndockSegment ->
+#   CommitSegmentCore -> the factory, with no always-tree guard anywhere on that
+#   chain. So the honest scope is "the only seam VERB whose SUBJECT is the drop",
+#   not "the only producer": a docking lane could reach the same refusal
+#   incidentally, and would log CommitSegmentCore's own "segment too short" Verbose
+#   rather than the Gloops Warn GL-2 gates.
+#   S0.5 and S0.6 each attributed a possible count to "the stationary-pod
+#   sub-2-point-drop", wording that predates always-tree mode and describes a path
+#   their own commits no longer take; both are corrected in the same change.
 values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch",
           "manual-gloops", "stop-on-switch", "commit-revert-merge", "commit-scene-exit",
           "commit-abort", "commit-in-foreign-soi", "commit-landed-foreign-body",

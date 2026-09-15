@@ -19,6 +19,13 @@ namespace Parsek.TestCommands
     /// points, which <c>RecordingStore.CreateRecordingFromFlightData</c> refuses to
     /// build). Its three buttons live in one window whose open flag is only ever
     /// written by a player click, so the entire path was seam-unreachable.
+    ///
+    /// <para>SCOPED HONESTLY on the second cell: this pair is the only seam VERB whose
+    /// SUBJECT is the drop, not the only producer of it. The dock/undock chain-segment
+    /// path reaches the same factory and is live - <c>ParsekFlight
+    /// .HandleDockUndockCommitRestart</c> -&gt; <c>ChainSegmentManager
+    /// .CommitDockUndockSegment</c> -&gt; <c>CommitSegmentCore</c>, no always-tree guard
+    /// on that chain - and logs its own "segment too short" instead.</para>
     /// </para>
     ///
     /// <para>
@@ -31,7 +38,9 @@ namespace Parsek.TestCommands
     /// and <c>CommitGloopsRecorderData</c> logs
     /// <c>StopGloopsRecording: not enough points (&lt; 2)</c> and discards - so it
     /// terminates OK with <c>committed=false</c>, and the production log line is what a
-    /// lane gates on.
+    /// lane gates on. That one Warn covers BOTH of the factory's refusals (the raw
+    /// &lt; 2 test and the post-trim one), because it is written by the ParsekFlight
+    /// caller after the factory returns null rather than at either test.
     /// </para>
     ///
     /// <para>
@@ -166,11 +175,18 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// GloopsStop OK payload. <c>committed</c> is the split; <c>points</c> is the
-        /// recorder's point count sampled BEFORE the call (the commit nulls the recorder,
-        /// so it is unreadable afterwards) and is the number the &lt; 2 drop rule was
-        /// applied to; <c>recordingId</c> is present only on a commit, and
-        /// <c>dropped=too-short</c> only on a drop.
+        /// GloopsStop OK payload. <c>committed</c> is the split; <c>recordingId</c> is
+        /// present only on a commit and <c>dropped=too-short</c> only on a drop.
+        ///
+        /// <para><c>points</c> is supplied by the caller and means two different things by
+        /// design: on a COMMIT, the committed recording's own <c>Points.Count</c>; on a
+        /// DROP, the RECORDER COUNT BEFORE THE CALL, because the drop leaves no recording
+        /// to read. Neither is "the number the &lt; 2 rule was applied to" - production can
+        /// ADD a boundary sample after the pre-call reading
+        /// (<c>FlightRecorder.FinalizeRecordingState</c> when the vessel is on rails at
+        /// stop time) and can REMOVE several before the second test
+        /// (<c>CreateRecordingFromFlightData</c> trims leading stationary points), so a
+        /// pre-call 1 can commit and a pre-call 5 can drop.</para>
         /// </summary>
         internal static List<KeyValuePair<string, string>> BuildStopPayload(
             StopOutcome outcome, int points, string recordingId)

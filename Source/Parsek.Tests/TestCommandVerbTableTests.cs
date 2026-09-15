@@ -1,4 +1,4 @@
-﻿using Parsek.TestCommands;
+using Parsek.TestCommands;
 using Xunit;
 
 namespace Parsek.Tests

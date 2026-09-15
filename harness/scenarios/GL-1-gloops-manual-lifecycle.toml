@@ -21,7 +21,13 @@ tier = "operator"
 # RecordingState round trips, each bounded below by run.py's 0.25 s poll. If the take
 # lands under two points, CommitGloopsRecorderData drops it and the store stays empty,
 # which is GL-2's subject rather than a defect. The operator reads the produced
-# `gloopsstop committed=` / `points=` payload and THEN arms the commit token below.
+# `gloopsstop committed=` / `points=` line and THEN arms the commit token below.
+# READ `points=` CAREFULLY when arming: on a COMMIT it is the committed recording's own
+# Points.Count, on a DROP it is the recorder count BEFORE the call. Neither is the number
+# the < 2 rule was applied to - production can ADD a boundary sample at stop when the
+# vessel is on rails (FlightRecorder.FinalizeRecordingState) and REMOVE leading stationary
+# points before the second test (CreateRecordingFromFlightData), which on a PAD POD is not
+# hypothetical: every point it has is stationary.
 #
 # Second reading-run unknown: the REC log rules stay SUPPRESSED here. hlib's
 # spec_expects_live_recording keys on a StartRecording step, and this lane has none, so
