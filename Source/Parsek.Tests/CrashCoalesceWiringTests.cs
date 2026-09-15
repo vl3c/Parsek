@@ -230,16 +230,17 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Undock/EVA bypass verification
+        #region Undock/EVA split data derived by BuildSplitBranchData
+
+        // The old pair of cells here asserted that bp.Type equals the BranchPointType handed in
+        // (a verbatim copy of the argument) and that a freshly constructed coalescer nobody fed
+        // has no pending breakup. Both are tautologies, and the claimed "bypass" property is not
+        // observable from this call at all. What IS derived by the call - and what a broken
+        // undock / EVA split would corrupt - is the child wiring, so that is what is asserted.
 
         [Fact]
-        public void UndockSplit_BypassesCoalescer_CoalescerStaysIdle()
+        public void UndockSplit_DerivesChildWiringFromTheSplit()
         {
-            // Verify that undock splits use BranchPointType.Undock directly
-            // and do NOT go through the coalescer
-            var coalescer = new CrashCoalescer();
-
-            // Simulate an undock: BuildSplitBranchData with Undock type
             var (bp, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
                 parentRecordingId: "parent1",
                 treeId: "tree1",
@@ -248,18 +249,43 @@ namespace Parsek.Tests
                 activeVesselPid: 1000,
                 activeVesselName: "Ship",
                 backgroundVesselPid: 2000,
-                backgroundVesselName: "Stage");
+                backgroundVesselName: "Stage",
+                parentGeneration: 3);
 
-            // Undock creates branch directly, coalescer is not involved
             Assert.Equal(BranchPointType.Undock, bp.Type);
-            Assert.False(coalescer.HasPendingBreakup);
+
+            // The branch point names the parent and exactly the two children it built.
+            Assert.Equal(new List<string> { "parent1" }, bp.ParentRecordingIds);
+            Assert.Equal(2, bp.ChildRecordingIds.Count);
+            Assert.Contains(activeChild.RecordingId, bp.ChildRecordingIds);
+            Assert.Contains(bgChild.RecordingId, bp.ChildRecordingIds);
+            Assert.NotEqual(activeChild.RecordingId, bgChild.RecordingId);
+
+            // Both children hang off this branch point, at the branch UT, in the same tree.
+            Assert.Equal(bp.Id, activeChild.ParentBranchPointId);
+            Assert.Equal(bp.Id, bgChild.ParentBranchPointId);
+            Assert.Equal(100.0, activeChild.ExplicitStartUT, 3);
+            Assert.Equal(100.0, bgChild.ExplicitStartUT, 3);
+            Assert.Equal("tree1", activeChild.TreeId);
+            Assert.Equal("tree1", bgChild.TreeId);
+
+            // The active child continues the same logical vessel (parent generation); the
+            // background spinoff is one generation deeper.
+            Assert.Equal(3, activeChild.Generation);
+            Assert.Equal(4, bgChild.Generation);
+            Assert.Equal(1000u, activeChild.VesselPersistentId);
+            Assert.Equal(2000u, bgChild.VesselPersistentId);
+
+            // An undock carries no EVA wiring.
+            Assert.Null(activeChild.EvaCrewName);
+            Assert.Null(bgChild.EvaCrewName);
         }
 
         [Fact]
-        public void EvaSplit_BypassesCoalescer_CoalescerStaysIdle()
+        public void EvaSplit_KerbalChildIsPickedByPid_BothDirections()
         {
-            var coalescer = new CrashCoalescer();
-
+            // The kerbal is the ACTIVE vessel: the active child carries the crew name and
+            // points its ParentRecordingId at the ship child.
             var (bp, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
                 parentRecordingId: "parent1",
                 treeId: "tree1",
@@ -273,7 +299,27 @@ namespace Parsek.Tests
                 evaVesselPid: 1000);
 
             Assert.Equal(BranchPointType.EVA, bp.Type);
-            Assert.False(coalescer.HasPendingBreakup);
+            Assert.Equal("Jeb", activeChild.EvaCrewName);
+            Assert.Equal(bgChild.RecordingId, activeChild.ParentRecordingId);
+            Assert.Null(bgChild.EvaCrewName);
+
+            // Mirror direction: the kerbal is the BACKGROUND vessel (an EVA from a vessel the
+            // player is not flying), so the background child is the one that gets wired.
+            var (_, activeChild2, bgChild2) = ParsekFlight.BuildSplitBranchData(
+                parentRecordingId: "parent1",
+                treeId: "tree1",
+                branchUT: 100.0,
+                branchType: BranchPointType.EVA,
+                activeVesselPid: 1000,
+                activeVesselName: "Ship",
+                backgroundVesselPid: 2000,
+                backgroundVesselName: "KerbalEVA",
+                evaCrewName: "Bill",
+                evaVesselPid: 2000);
+
+            Assert.Equal("Bill", bgChild2.EvaCrewName);
+            Assert.Equal(activeChild2.RecordingId, bgChild2.ParentRecordingId);
+            Assert.Null(activeChild2.EvaCrewName);
         }
 
         #endregion

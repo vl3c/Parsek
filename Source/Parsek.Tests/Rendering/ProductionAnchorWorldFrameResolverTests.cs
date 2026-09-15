@@ -175,13 +175,33 @@ namespace Parsek.Tests.Rendering
         [Fact]
         public void RelativeBoundary_AdjacentNotRelative_ReturnsFalse()
         {
-            // Both sections ABSOLUTE → adjacent is also Absolute, not
+            // Both sections ABSOLUTE -> adjacent is also Absolute, not
             // Relative. The frame-mismatch guard rejects.
-            var rec = MakeAbsoluteOnly("rec-not-rel");
-            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
-                resolver.TryResolveRelativeBoundaryWorldPos(
+            // False alone cannot witness THIS guard: the unguarded fall-through also
+            // answers false (empty frames -> chain unresolved). What the fall-through
+            // cannot do is stay silent, so the discriminator is the ABSENCE of the
+            // Pipeline-Anchor chain-unresolved line that every deeper exit emits. The
+            // call is driven directly rather than through the three-exception helper,
+            // which would swallow a Unity throw from the deeper path as a pass.
+            var capturedLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => capturedLines.Add(line);
+            try
+            {
+                var rec = MakeAbsoluteOnly("rec-not-rel");
+                bool ok = resolver.TryResolveRelativeBoundaryWorldPos(
                     rec, sectionIndex: 1, side: AnchorSide.Start,
-                    boundaryUT: 100, out w));
+                    boundaryUT: 100, out Vector3d _);
+
+                Assert.False(ok);
+                Assert.DoesNotContain(capturedLines,
+                    l => l.Contains("[Pipeline-Anchor]") && l.Contains("rec-not-rel"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
         }
 
         [Fact]
@@ -488,13 +508,18 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void Loop_AnchorPidPositive_GuardExitsCleanly()
+        public void Loop_AnchorPidPositive_DoesNotThrowUnhandled_NoBehaviourWitnessed()
         {
-            // Even with a non-zero PID the resolver must early-return false
-            // (no live vessel) or fall through to FlightGlobals lookup that
-            // throws SecurityException. Either outcome counts as the guard
-            // chain reaching the live API surface — the production code is
-            // covered.
+            // DEFERRED (test-quality audit F-map-render-012-01): this cell witnesses no
+            // behaviour and cannot be made to. Past the pid != 0 guard the resolver calls
+            // TryFindVesselByPid -> FlightGlobals, and there is no injected vessel-lookup
+            // seam, so headless xUnit can only observe "false, or one of three Unity
+            // exceptions" - which is every possible outcome. Renamed to say so rather than
+            // to keep claiming a guard. A positive loop-anchor resolve (and the
+            // live-anchor transform-vs-CoM frame choice) is witnessed by the in-game
+            // Pipeline-Anchor / loop-playback categories, which have a live Vessel; making
+            // it a unit test needs an injected lookup seam on the resolver, which is a
+            // production change beyond this row.
             var rec = new Recording { RecordingId = "rec-loop-pos", LoopAnchorVesselId = 12345u };
             AssertReturnsFalseOrSecurityException((out Vector3d w) =>
                 resolver.TryResolveLoopAnchorWorldPos(

@@ -257,6 +257,44 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: a fifth slice of twenty trajectory, map-render, harness-seam, mission-group,
+  wiring-gate, analyzer and logging cells from the audit's T1 (vacuous) register now
+  reaches the production line their names claim.** A sidecar cap check asserted only that
+  the reason mentioned "spline", which the stream-length branch below it also produces, so
+  the per-block cap was unguarded; it now pins the cap wording and value. An anchor
+  tie-break varied two fields at once, so the source comparison it is named for never
+  decided anything; both candidates now carry the same ghost index and the mirror list
+  order is run too. A loiter-compression cell put a 24,000x semi-major-axis step next to
+  the body change it claims to pin; the second segment now carries the SAME axis, so only
+  the body guard can end the run. A re-aim adapter cell never read the span it is named
+  for; it now reads both, over the null AND the empty assembled list. A group-tree remap
+  cell used a full permutation, over which the mutation it names is a no-op; it now uses a
+  filtered, reordered view across three groups. An analyzer determinism cell compared two
+  in-process runs that share one insertion order; it now pins the emitted meta-finding
+  order directly. Two crash-coalesce cells asserted that a returned field equals the
+  argument it was handed and that an untouched coalescer is idle; they now assert the child
+  wiring the call actually derives, including the EVA kerbal-by-pid branch in both
+  directions. A Re-Fly reconcile cell asserted a false that every exit of the method
+  returns; it now pins the ABSENCE of the fall-through log lines. Two production changes,
+  Five production changes, all behaviour-identical and all called by the original site:
+  the recorder's growth-rate update (with its zero-elapsed division guard) is extracted as
+  `FlightRecorder.ComputeGrowthRate`, called verbatim by both commit paths, so the NaN
+  guard can be driven; the in-game runner's per-test reset is
+  `InGameTestRunner.ResetLiveStatus`, whose scene-history flag is the whole difference
+  between the implicit pre-run reset and the explicit wipe; the Missions chapter checkbox
+  writes through `MissionChapters.ApplyChapterToggle`; the re-aim builder's shifted
+  parking-conic end and its frame-mismatch guard are
+  `MissionLoopUnitBuilder.ComputeDescentParkingConicEndUT`; and
+  `ShadowRenderDriver.WarnSpineAssemblerFallback` is widened from private to internal so
+  the one-shot per-pid warn set is written by its real writer instead of being asserted
+  empty. Two command-seam culture cells, which swapped the OS culture over fields that are
+  all integers (identical in every culture), now also pin the format provider the payload
+  builder passes by reading the production method body with comments blanked out. One cell
+  that simulated the relative-anchor retire branch in its own body became a source gate
+  over the three real call sites. One cell is left deferred with its reason: the loop-anchor
+  resolver reaches FlightGlobals with no injected lookup seam, so headless xUnit can only
+  observe every possible outcome. No log text changed. Each fixed cell was re-checked by breaking the named
+  production line on purpose and confirming it goes red. Nothing a player sees changes.
 - **Tests: a fourth slice of twenty recorder-event, ghost-playback, spawn, logistics and
   map-render cells from the audit's T1 (vacuous) register now reaches the production line
   their names claim.** Seven cells replayed production inline and now call it. Five TEXTURE

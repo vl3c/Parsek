@@ -1081,13 +1081,32 @@ namespace Parsek.InGameTests
         {
             foreach (var t in allTests)
             {
-                t.Status = TestStatus.NotRun;
-                t.ErrorMessage = null;
-                t.DurationMs = 0;
+                ResetLiveStatus(t, clearSceneHistory: false);
             }
             Passed = 0;
             Failed = 0;
             Skipped = 0;
+        }
+
+        /// <summary>
+        /// The per-test half of the three reset controls: clears the live (top-level)
+        /// Status / ErrorMessage / DurationMs, and the per-scene
+        /// <see cref="InGameTestInfo.ResultsByScene"/> history ONLY when
+        /// <paramref name="clearSceneHistory"/> is set. That flag is the whole difference
+        /// between the implicit pre-run reset (<see cref="ResetResults"/> /
+        /// <see cref="ResetCategory"/>, which must preserve the history so a Run All in
+        /// scene A followed by one in scene B accumulates both) and the explicit
+        /// <see cref="ClearAllSceneHistory"/> wipe. internal static so xUnit can drive the
+        /// real rule without a MonoBehaviour host.
+        /// </summary>
+        internal static void ResetLiveStatus(InGameTestInfo t, bool clearSceneHistory)
+        {
+            if (t == null) return;
+            t.Status = TestStatus.NotRun;
+            t.ErrorMessage = null;
+            t.DurationMs = 0;
+            if (clearSceneHistory)
+                t.ResultsByScene.Clear();
         }
 
         /// <summary>
@@ -1099,9 +1118,7 @@ namespace Parsek.InGameTests
             foreach (var t in allTests)
             {
                 if (t.Category != category) continue;
-                t.Status = TestStatus.NotRun;
-                t.ErrorMessage = null;
-                t.DurationMs = 0;
+                ResetLiveStatus(t, clearSceneHistory: false);
             }
             RecountResults();
         }
@@ -1116,10 +1133,7 @@ namespace Parsek.InGameTests
         {
             foreach (var t in allTests)
             {
-                t.Status = TestStatus.NotRun;
-                t.ErrorMessage = null;
-                t.DurationMs = 0;
-                t.ResultsByScene.Clear();
+                ResetLiveStatus(t, clearSceneHistory: true);
             }
             Passed = 0;
             Failed = 0;

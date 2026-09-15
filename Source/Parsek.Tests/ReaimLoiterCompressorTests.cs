@@ -136,15 +136,24 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeCuts_BodyChange_EndsRun()
         {
-            // Kerbin loiter then a Sun arc: the SOI change ends the run; only the Kerbin loiter is cut.
+            // Kerbin loiter followed by a contiguous Sun segment carrying the SAME semiMajorAxis, so the
+            // 5% a-step guard cannot end the run and the bodyName guard is the ONLY term left that can.
+            // The Sun segment lasts many of its OWN (much shorter) periods, so it is a loiter in its own
+            // right and produces its own cut: two runs, two cuts. Merge the two (delete the bodyName
+            // guard) and the whole span becomes one Kerbin-period run with a single cut at UT 0.
+            double sunT = ReaimLoiterCompressor.OrbitalPeriod(LkoA, MuSun);
+            Assert.True(sunT > 0.0 && sunT < 10.0);       // ~3.4 s: the Sun segment spans ~29 of them
             var segs = new List<OrbitSegment>
             {
                 Seg("Kerbin", 0.0, 100000.0, LkoA),                 // loiter
-                Seg("Sun", 100000.0, 100001.0, 1.7e10),             // brief Sun arc (not a loiter)
+                Seg("Sun", 100000.0, 100100.0, LkoA),               // same sma, different body -> new run
             };
             var cuts = ReaimLoiterCompressor.ComputeCuts(segs, Mu, keepRevs: 1);
-            Assert.Single(cuts);
+            Assert.Equal(2, cuts.Count);
             Assert.Equal(0.0, cuts[0].StartUT, 3);
+            Assert.Equal((long)Math.Floor(100000.0 / LkoT + 1e-6) - 1, (long)Math.Round(cuts[0].LengthSeconds / LkoT));
+            Assert.Equal(100000.0, cuts[1].StartUT, 3);  // the Sun run is cut on its OWN period
+            Assert.Equal((long)Math.Floor(100.0 / sunT + 1e-6) - 1, (long)Math.Round(cuts[1].LengthSeconds / sunT));
         }
 
         [Fact]

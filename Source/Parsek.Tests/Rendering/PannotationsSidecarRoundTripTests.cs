@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using Parsek;
@@ -530,11 +531,16 @@ namespace Parsek.Tests.Rendering
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             bool ok = PannotationsSidecarBinary.TryRead(path, probe, out _, out _, out string reason);
             Assert.False(ok);
-            // Either the per-block cap or the stream-length check fires —
-            // both are acceptable rejections; both reasons contain enough
-            // for a developer to diagnose. Just confirm rejection happens
-            // (not throw, not silent-accept).
+            // The per-block cap must be the branch that rejects. The
+            // stream-length check would also reject this input, but with a
+            // "would need N bytes" reason, so pinning the cap wording (and
+            // the cap value) is the only assertion the stream-length branch
+            // cannot produce: deleting the cap branch reds this cell.
             Assert.Contains("spline", reason);
+            Assert.Contains(
+                "exceeds cap " + PannotationsSidecarBinary.MaxSplineEntries.ToString(CultureInfo.InvariantCulture),
+                reason);
+            Assert.DoesNotContain("would need", reason);
         }
 
         // --- existing tests resume ---

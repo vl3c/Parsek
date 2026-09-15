@@ -332,32 +332,64 @@ namespace Parsek.Tests.Analyzer
                 && x.Level == VerdictLevel.Fail);
         }
 
-        // Guards: determinism - applying to two identical reports yields identical
-        // sorted finding sets (meta-finding order is deterministic).
+        // Guards: the deterministic ORDER the meta-findings are emitted in. Two identical
+        // in-process runs share one insertion order and one hash seed, so comparing two runs
+        // proves nothing; the ordering the determinism guarantee rests on is the SortedKeys
+        // walk, so the assertion reads the emitted sequence directly. The entries are inserted
+        // in an order that is NOT the (ruleId, target, sectionIndex, digest) ordinal order, so
+        // emitting over raw Dictionary key order produces a different sequence.
         [Fact]
-        public void Apply_IsDeterministic()
+        public void Apply_EmitsMetaFindingsInSortedKeyOrder()
         {
-            List<string> Run()
+            var findings = new List<Finding>();
+            var entries = new List<BaselineEntry>();
+
+            // Two live findings that share one key -> one multi-match WARN per key. The two
+            // multi-match keys are inserted zzz-first so the ordinal walk has to reorder them.
+            foreach (string target in new[] { "zzzMulti", "aaaMulti" })
             {
-                var findings = new List<Finding>();
-                var entries = new List<BaselineEntry>();
-                for (int i = 0; i < 3; i++)
-                {
-                    var f = F("INV2-NO-DOUBLE-COVER", VerdictLevel.Fail, "rec" + i, i,
-                        "INV2 overlap recording=rec" + i + " a=[1,2] b=[1,2]");
-                    findings.Add(f);
-                    entries.Add(EntryFor(f, VerdictLevel.Fail));
-                }
-                // Add two stale entries whose sorted emission order must be stable.
-                entries.Add(new BaselineEntry("INV5", "zzz", 0, "d1", VerdictLevel.Fail, "r"));
-                entries.Add(new BaselineEntry("INV5", "aaa", 0, "d2", VerdictLevel.Fail, "r"));
-                var report = Report(findings.ToArray());
-                BaselineFilter.Apply(report, Baseline(entries.ToArray()), BaselineMode.Apply, true, null);
-                return ReportWriter.SortFindings(report.Findings)
-                    .Select(x => x.RuleId + "|" + x.Target + "|" + x.SectionIndex + "|" + x.Baselined).ToList();
+                var f = F("INV2-NO-DOUBLE-COVER", VerdictLevel.Fail, target, 0,
+                    "INV2 overlap recording=" + target + " a=[1,2] b=[1,2]");
+                findings.Add(f);
+                findings.Add(F("INV2-NO-DOUBLE-COVER", VerdictLevel.Fail, target, 0,
+                    "INV2 overlap recording=" + target + " a=[3,4] b=[3,4]"));
+                entries.Add(EntryFor(f, VerdictLevel.Fail));
             }
 
-            Assert.Equal(Run(), Run());
+            // Three entries that match nothing -> one STALE-ENTRY INFO each, again inserted
+            // in reverse ordinal order.
+            entries.Add(new BaselineEntry("INV5", "zzzStale", 0, "d1", VerdictLevel.Fail, "r"));
+            entries.Add(new BaselineEntry("INV5", "mmmStale", 0, "d2", VerdictLevel.Fail, "r"));
+            entries.Add(new BaselineEntry("INV5", "aaaStale", 0, "d3", VerdictLevel.Fail, "r"));
+
+            var report = Report(findings.ToArray());
+            BaselineFilter.Apply(report, Baseline(entries.ToArray()), BaselineMode.Apply, true, null);
+
+            List<string> multi = report.Findings
+                .Where(x => x.RuleId == BaselineFilter.MultiMatchRuleId)
+                .Select(x => x.Target).ToList();
+            Assert.Equal(new List<string> { "aaaMulti", "zzzMulti" }, multi);
+
+            List<string> stale = report.Findings
+                .Where(x => x.RuleId == BaselineFilter.StaleEntryRuleId)
+                .Select(x => x.Target).ToList();
+            Assert.Equal(new List<string> { "aaaStale", "mmmStale", "zzzStale" }, stale);
+
+            // The whole projection is still stable across two identical runs.
+            Assert.Equal(Project(report), Project(RunAgain(findings, entries)));
+        }
+
+        private static AnalysisReport RunAgain(List<Finding> findings, List<BaselineEntry> entries)
+        {
+            var report = Report(findings.Select(f => F(f.RuleId, f.Level, f.Target, f.SectionIndex, f.Message)).ToArray());
+            BaselineFilter.Apply(report, Baseline(entries.ToArray()), BaselineMode.Apply, true, null);
+            return report;
+        }
+
+        private static List<string> Project(AnalysisReport report)
+        {
+            return ReportWriter.SortFindings(report.Findings)
+                .Select(x => x.RuleId + "|" + x.Target + "|" + x.SectionIndex + "|" + x.Baselined).ToList();
         }
     }
 }

@@ -1,0 +1,22 @@
+diff --git a/Source/Parsek/Analyzer/BaselineFilter.cs b/Source/Parsek/Analyzer/BaselineFilter.cs
+index 46374cf56..460dc2ac6 100644
+--- a/Source/Parsek/Analyzer/BaselineFilter.cs
++++ b/Source/Parsek/Analyzer/BaselineFilter.cs
+@@ -259,7 +259,7 @@ namespace Parsek.Analyzer
+             // Multi-match WARNs, deterministic order (a surplus non-baselined match
+             // can red the run, so this is WARN, not INFO).
+             int multiMatch = 0;
+-            foreach (BaselineKey key in SortedKeys(matchCount.Keys))
++            foreach (BaselineKey key in matchCount.Keys) // MUTANT: raw dictionary order
+             {
+                 int count = matchCount[key];
+                 if (count <= 1)
+@@ -277,7 +277,7 @@ namespace Parsek.Analyzer
+ 
+             // Stale entries (matched nothing), deterministic order.
+             int stale = 0;
+-            foreach (BaselineKey key in SortedKeys(index.Keys))
++            foreach (BaselineKey key in index.Keys) // MUTANT: raw dictionary order
+             {
+                 if (seenEntries.Contains(key))
+                     continue;
