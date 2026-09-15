@@ -3591,6 +3591,12 @@ do not drag each other down). `ResolveOwnedLegOverlap` is FAIL-CLOSED when a spa
 ownership without a span is a broken publish contract the single feeder cannot produce, and the
 safe direction is the one that cannot put a second identical line over a live ghost mesh.
 
+REVIEWER'S NOTE, recorded rather than acted on: `LegSpansOverlap` is STRICT on both ends, so an
+owned span of ZERO duration overlaps nothing and would stand no route leg down - fail-OPEN in that
+one direction, which is the same property the pre-existing PAINT arm has and the same reason the
+strictness exists (adjacent legs of one recording share an endpoint UT exactly). Theoretical: a
+real leg carries at least two samples, so its span is never zero.
+
 MIRRORS CHECKED, each with a cell in `RouteLineOwnershipSpanArbitrationTests`: a ONE-LEG member
 still reads `skippedOwned=1 ownedLegs=1` (H59's armed census pin does not move - the two
 granularities agree there); a member with NO ghost slot is untouched (`ownedLegs=0`); ownership
@@ -5019,7 +5025,7 @@ crossing, `OnPhysicsFrame` early-returns on `isOnRails`, so that section could n
 frame and closed payload-free at the next boundary, while the new SOI's orbit segment went into
 the flat `OrbitSegments` list and was later promoted to an `OrbitalCheckpoint` section over the
 byte-equal span by `OrbitSegmentCheckpointBridge`. The fix routes the frame through
-`ResolveSoiBoundarySectionFrame` (`FlightRecorder.cs:5700`), which answers `OrbitalCheckpoint` /
+`ResolveSoiBoundarySectionFrame` (`FlightRecorder.cs:5699`), which answers `OrbitalCheckpoint` /
 `TrackSectionSource.Checkpoint` while on rails, so `AddOrbitSegmentToCurrentTrackSection` can
 attach the new SOI's segment to THAT section and nothing is synthesized alongside it.
 
