@@ -1,0 +1,339 @@
+{
+ "batch_id": "recording-tree-030",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 80,
+ "files": [
+  {
+   "file": "ChainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DecideOnVesselSwitch_SameVessel_ReturnsNone",
+       "line": 39
+      },
+      {
+       "method": "DecideOnVesselSwitch_SameVessel_EvaFlags_StillNone",
+       "line": 46
+      },
+      {
+       "method": "DecideOnVesselSwitch_EvaToEva_StartedAsEva_ReturnsContinueOnEva",
+       "line": 54
+      },
+      {
+       "method": "DecideOnVesselSwitch_EvaToVessel_StartedAsEva_ReturnsChainToVessel",
+       "line": 61
+      },
+      {
+       "method": "DecideOnVesselSwitch_VesselToOther_ReturnsTransitionToBackground",
+       "line": 68
+      },
+      {
+       "method": "DecideOnVesselSwitch_VesselToEva_NotStartedAsEva_ReturnsTransitionToBackground",
+       "line": 75
+      },
+      {
+       "method": "ShouldRefreshSnapshot_Force_ReturnsTrue",
+       "line": 86
+      },
+      {
+       "method": "ShouldRefreshSnapshot_NeverRefreshed_ReturnsTrue",
+       "line": 92
+      },
+      {
+       "method": "ShouldRefreshSnapshot_IntervalNotPassed_ReturnsFalse",
+       "line": 98
+      },
+      {
+       "method": "ShouldRefreshSnapshot_IntervalPassed_ReturnsTrue",
+       "line": 104
+      },
+      {
+       "method": "ShouldRefreshSnapshot_ExactInterval_ReturnsTrue",
+       "line": 110
+      },
+      {
+       "method": "CreateRecordingFromFlightData_NullPoints_ReturnsNull",
+       "line": 120
+      },
+      {
+       "method": "CreateRecordingFromFlightData_OnePoint_ReturnsNull",
+       "line": 127
+      },
+      {
+       "method": "CreateRecordingFromFlightData_TwoPoints_CreatesRecording",
+       "line": 134
+      },
+      {
+       "method": "CreateRecordingFromFlightData_CustomId_UsesIt",
+       "line": 143
+      },
+      {
+       "method": "CreateRecordingFromFlightData_NullId_GeneratesId",
+       "line": 151
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithOrbitSegments_PreservesThem",
+       "line": 159
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithPartEvents_PreservesThem",
+       "line": 168
+      },
+      {
+       "method": "CommitRecordingDirect_NullRecording_DoesNothing",
+       "line": 181
+      },
+      {
+       "method": "CommitRecordingDirect_AddsToCommitted",
+       "line": 188
+      },
+      {
+       "method": "Clear_RemovesAll",
+       "line": 198
+      },
+      {
+       "method": "ClearCommitted_OnlyClearsCommitted",
+       "line": 214
+      },
+      {
+       "method": "ValidateChains_ValidChain_PreservesFields",
+       "line": 230
+      },
+      {
+       "method": "ValidateChains_GapInIndices_DegradesToStandalone",
+       "line": 253
+      },
+      {
+       "method": "ValidateChains_DuplicateIndices_DegradesToStandalone",
+       "line": 277
+      },
+      {
+       "method": "ValidateChains_NonMonotonicUT_DegradesToStandalone",
+       "line": 298
+      },
+      {
+       "method": "ValidateChains_MixedValidAndInvalid_OnlyInvalidDegraded",
+       "line": 322
+      },
+      {
+       "method": "ValidateChains_StandaloneRecordings_Unaffected",
+       "line": 356
+      },
+      {
+       "method": "ValidateChains_SingleSegmentChain_Valid",
+       "line": 369
+      },
+      {
+       "method": "ValidateChains_EqualStartUT_Valid",
+       "line": 384
+      },
+      {
+       "method": "ValidateChains_StartsAtIndex1_Degraded",
+       "line": 406
+      },
+      {
+       "method": "ValidateChains_NoCommittedRecordings_NoError",
+       "line": 431
+      },
+      {
+       "method": "IsChainMidSegment_MidSegment_ReturnsTrue",
+       "line": 441
+      },
+      {
+       "method": "IsChainMidSegment_LastSegment_ReturnsFalse",
+       "line": 459
+      },
+      {
+       "method": "IsChainMidSegment_Standalone_ReturnsFalse",
+       "line": 477
+      },
+      {
+       "method": "IsChainMidSegment_NullChainId_ReturnsFalse",
+       "line": 487
+      },
+      {
+       "method": "IsChainMidSegment_EmptyChainId_ReturnsFalse",
+       "line": 494
+      },
+      {
+       "method": "IsChainMidSegment_NegativeChainIndex_ReturnsFalse",
+       "line": 501
+      },
+      {
+       "method": "IsChainMidSegment_SingleSegmentChain_ReturnsFalse",
+       "line": 508
+      },
+      {
+       "method": "IsChainMidSegment_ThreeSegments_MiddleIsTrue",
+       "line": 520
+      },
+      {
+       "method": "GetChainEndUT_ReturnsMaxEndUT",
+       "line": 541
+      },
+      {
+       "method": "GetChainEndUT_Standalone_ReturnsOwnEndUT",
+       "line": 563
+      },
+      {
+       "method": "GetChainEndUT_NullChainId_ReturnsOwnEndUT",
+       "line": 574
+      },
+      {
+       "method": "GetChainEndUT_SingleSegmentChain_ReturnsOwnEndUT",
+       "line": 582
+      },
+      {
+       "method": "GetChainEndUT_ThreeSegments_AllReturnLastEndUT",
+       "line": 595
+      },
+      {
+       "method": "GetChainPredecessorIndex_TwoSegmentChain_ReturnsIndexOfPredecessor",
+       "line": 616
+      },
+      {
+       "method": "GetChainPredecessorIndex_ChainHead_ReturnsNegativeOne",
+       "line": 634
+      },
+      {
+       "method": "GetChainPredecessorIndex_Standalone_ReturnsNegativeOne",
+       "line": 646
+      },
+      {
+       "method": "GetChainPredecessorIndex_NonZeroBranch_ReturnsNegativeOne",
+       "line": 653
+      },
+      {
+       "method": "GetChainPredecessorIndex_GapInChainIndex_ReturnsNegativeOne",
+       "line": 675
+      },
+      {
+       "method": "IsChainSeamSuccessor_PredecessorHasGhostAndAtSeamUT_ReturnsTrue",
+       "line": 695
+      },
+      {
+       "method": "IsChainSeamSuccessor_PredecessorMissingGhostState_ReturnsFalse",
+       "line": 707
+      },
+      {
+       "method": "IsChainSeamSuccessor_BeforeSuccessorSeamUT_ReturnsFalse",
+       "line": 717
+      },
+      {
+       "method": "IsChainSeamSuccessor_PredecessorWithWidenedEndUT_StillFiresAtSeam",
+       "line": 727
+      },
+      {
+       "method": "IsChainSeamSuccessor_UnwidenedRecording_StillFiresAtSeam",
+       "line": 742
+      },
+      {
+       "method": "BuildExcludeCrewSet_ChainWithBoarding_ReturnsNull_CrewBoardedBack",
+       "line": 767
+      },
+      {
+       "method": "BuildExcludeCrewSet_ChainEvaExit_ExcludesCrewStillOnEva",
+       "line": 801
+      },
+      {
+       "method": "BuildExcludeCrewSet_LegacyParentChild_ExcludesChildCrew",
+       "line": 829
+      },
+      {
+       "method": "BuildExcludeCrewSet_ChainEvaSegment_ReturnsNull_NeverExcludesOwnCrew",
+       "line": 850
+      },
+      {
+       "method": "BuildExcludeCrewSet_Standalone_ReturnsNull",
+       "line": 877
+      },
+      {
+       "method": "BuildExcludeCrewSet_EmptyRecordingId_ReturnsNull",
+       "line": 891
+      },
+      {
+       "method": "BuildExcludeCrewSet_MultiEvaChain_OnlyExcludesUnboarded",
+       "line": 898
+      },
+      {
+       "method": "BuildExcludeCrewSet_ChainVesselNoEva_ReturnsNull",
+       "line": 942
+      },
+      {
+       "method": "BuildExcludeCrewSet_LegacyMultipleChildren_ExcludesAll",
+       "line": 964
+      },
+      {
+       "method": "Recording_StartUT_EndUT_WithPoints",
+       "line": 997
+      },
+      {
+       "method": "ApplyPersistenceArtifacts_CopiesChainFields",
+       "line": 1006
+      },
+      {
+       "method": "ApplyPersistenceArtifacts_CopiesAllFields",
+       "line": 1023
+      },
+      {
+       "method": "ApplyPersistenceArtifacts_NullSource_DoesNothing",
+       "line": 1053
+      },
+      {
+       "method": "RecordingBuilder_ChainFields_InV2Build",
+       "line": 1065
+      },
+      {
+       "method": "RecordingBuilder_ChainFields_InV3Metadata",
+       "line": 1080
+      },
+      {
+       "method": "RecordingBuilder_NoChain_OmitsChainFields",
+       "line": 1096
+      },
+      {
+       "method": "RecordingBuilder_EvaFields",
+       "line": 1109
+      },
+      {
+       "method": "RecordingBuilder_GetRecordingId_GeneratesIfNotSet",
+       "line": 1124
+      },
+      {
+       "method": "RecordingBuilder_GetRecordingId_UsesExplicit",
+       "line": 1134
+      },
+      {
+       "method": "EvaBoardChain_BuildsThreeLinkedSegments",
+       "line": 1147
+      },
+      {
+       "method": "EvaWalkChain_BuildsTwoLinkedSegments",
+       "line": 1189
+      },
+      {
+       "method": "IsChainMidSegment_ReturnsFalse_WhenOnlyOneSegmentCommitted",
+       "line": 1246
+      },
+      {
+       "method": "ContinuationAppendedPoints_ExtendEndUT",
+       "line": 1269
+      },
+      {
+       "method": "IsChainLooping_LoopEnabled_ReturnsTrue",
+       "line": 1302
+      },
+      {
+       "method": "IsChainLooping_DisabledLoopSegment_StillLooping",
+       "line": 1323
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

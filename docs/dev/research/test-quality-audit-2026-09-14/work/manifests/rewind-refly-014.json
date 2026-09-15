@@ -1,0 +1,270 @@
+{
+ "batch_id": "rewind-refly-014",
+ "cluster": "rewind-refly",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "ReFlyConclusionRouteTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_NoMarker_LeavesForSweep",
+       "line": 133
+      },
+      {
+       "method": "Classify_NothingRetired_LeavesForSweep",
+       "line": 143
+      },
+      {
+       "method": "Classify_RetiredIdDoesNotMatchTheMissingId_LeavesForSweep",
+       "line": 156
+      },
+      {
+       "method": "Classify_RetiredProvisionalThatWouldValidate_LeavesForSweep",
+       "line": 166
+      },
+      {
+       "method": "Classify_RetiredEmptyProvisional_TakesTheNoOpConclusion",
+       "line": 180
+      },
+      {
+       "method": "ClassifyProvisionalPrune_SplitsOnIdentityThenPayload",
+       "line": 198
+      },
+      {
+       "method": "ClassifyProvisionalPrune_NoMarker_IsNeverTheProvisional",
+       "line": 207
+      },
+      {
+       "method": "Retirement_TryTake_IsSingleShotAndSessionScoped",
+       "line": 217
+      },
+      {
+       "method": "PruneZeroPointLeaves_RetiresTheSessionProvisionalAndHandsItOver",
+       "line": 242
+      },
+      {
+       "method": "PruneZeroPointLeaves_KeepsAProvisionalTheMergeWouldAccept",
+       "line": 273
+      },
+      {
+       "method": "ZeroPointAndSupersedePayload_AreNowMutuallyExclusive",
+       "line": 314
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_KeepGuardStillFiresForTheProvisional",
+       "line": 342
+      },
+      {
+       "method": "PruneZeroPointLeaves_KeepingTheProvisionalAlsoDropsAnyStaleHandOver",
+       "line": 369
+      },
+      {
+       "method": "PruneZeroPointLeaves_OrdinaryEmptyLeafIsUntouchedByTheGuard",
+       "line": 409
+      },
+      {
+       "method": "ConcludeRetiredProvisional_TakesTheNamedRefusalAndClearsTheSession",
+       "line": 430
+      },
+      {
+       "method": "ConcludeRetiredProvisional_RefusesWhenTheRetiredRecordingWouldValidate",
+       "line": 478
+      },
+      {
+       "method": "TryCommitReFlySupersede_RetiredProvisional_ConcludesInSession",
+       "line": 503
+      },
+      {
+       "method": "TryCommitReFlySupersede_UnexplainedAbsence_StillLeavesTheMarkerForTheSweep",
+       "line": 527
+      },
+      {
+       "method": "DescribeSupersedePayload_SeparatesFlightPayloadFromTheReFlyAnchor",
+       "line": 544
+      },
+      {
+       "method": "ClearActiveReFlySessionMarker_DropsTheHandOverNote",
+       "line": 578
+      },
+      {
+       "method": "ClearActiveReFlySessionMarker_ANoteFromAnEndedSessionIsNotAdoptableByASameIdMarker",
+       "line": 597
+      },
+      {
+       "method": "ClearActiveReFlySessionMarker_WithNoNote_IsSilentAndIdempotent",
+       "line": 618
+      },
+      {
+       "method": "MergeInterruptionRecoverySkipGuard_AcceptedTargetProceeds",
+       "line": 641
+      },
+      {
+       "method": "MergeInterruptionRecoverySkipGuard_PayloadWithoutTerminalStateStillSkips",
+       "line": 653
+      },
+      {
+       "method": "MergeInterruptionRecoverySkipGuard_EmptyProvisionalSkipsOnThePayloadClause",
+       "line": 668
+      },
+      {
+       "method": "MergeInterruptionRecoverySkipGuard_NullProvisionalSkipsRatherThanThrows",
+       "line": 679
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RewindToLaunchLeadTimeSeconds_DefaultsTo15Seconds",
+       "line": 59
+      },
+      {
+       "method": "PreProcessRewindSave_AdjustsUT_ByLeadTime",
+       "line": 65
+      },
+      {
+       "method": "PreProcessRewindSave_ClampsUT_AtZero",
+       "line": 87
+      },
+      {
+       "method": "PreProcessRewindSave_StripsNamedVessel_LeavesOthers",
+       "line": 101
+      },
+      {
+       "method": "PreProcessRewindSave_MultipleNames_StripsAllMatching",
+       "line": 123
+      },
+      {
+       "method": "PreProcessRewindSave_NoMatchingVessel_StripsZero",
+       "line": 145
+      },
+      {
+       "method": "PreProcessRewindSave_MissingFlightState_LogsWarning",
+       "line": 158
+      },
+      {
+       "method": "PreProcessRewindSave_MissingUT_LogsWarning",
+       "line": 171
+      },
+      {
+       "method": "PreProcessRewindSave_InvalidUT_LogsWarning",
+       "line": 185
+      },
+      {
+       "method": "PreProcessRewindSave_WithPids_StripsByPersistentId",
+       "line": 198
+      },
+      {
+       "method": "PreProcessRewindSave_WithPids_PidOnlyMatch_DifferentName_Strips",
+       "line": 220
+      },
+      {
+       "method": "PreProcessRewindSave_WithPids_NoPidField_SkipsGracefully",
+       "line": 239
+      },
+      {
+       "method": "PreProcessRewindSave_WithPids_EmptyPidSet_StillStripsByName",
+       "line": 255
+      },
+      {
+       "method": "PreProcessRewindSave_GameWrapper_HandlesCorrectly",
+       "line": 273
+      },
+      {
+       "method": "PreProcessRewindSave_LocaleSafe_ParsesAndWritesInvariant",
+       "line": 291
+      },
+      {
+       "method": "ResetForTesting_ClearsRewindAdjustedUT",
+       "line": 313
+      },
+      {
+       "method": "CreateAndCommit_WithRewindFields_PreservesRewindData",
+       "line": 336
+      },
+      {
+       "method": "CreateAndCommit_WithoutRewindFields_HasNullSaveName",
+       "line": 367
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_CopiesAllRewindFields",
+       "line": 387
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_NullSource_DoesNotThrow",
+       "line": 407
+      },
+      {
+       "method": "CanRewind_HasPendingTree_ReturnsFalse",
+       "line": 423
+      },
+      {
+       "method": "PreProcessRewindSave_LogsUTBeforeAndAfter",
+       "line": 441
+      },
+      {
+       "method": "PreProcessRewindSave_LogsVesselStrippedCount",
+       "line": 462
+      },
+      {
+       "method": "RewindFields_SurviveSerializationRoundTrip",
+       "line": 483
+      },
+      {
+       "method": "RewindFields_MissingInNode_DefaultGracefully",
+       "line": 506
+      },
+      {
+       "method": "RewindFields_NullSaveName_SkipsAllFields",
+       "line": 522
+      },
+      {
+       "method": "RewindFields_LocaleSafe_NoCommasInOutput",
+       "line": 539
+      },
+      {
+       "method": "InitiateRewind_SetsBaselineFromPreLaunch",
+       "line": 568
+      },
+      {
+       "method": "ResetForTesting_ClearsBaselineFields",
+       "line": 592
+      },
+      {
+       "method": "FullCommittedCost_SignConvention_NegativeMeansEarned",
+       "line": 604
+      },
+      {
+       "method": "UTFlow_PreProcessToRewindAdjustedUT_EndToEnd",
+       "line": 633
+      },
+      {
+       "method": "UTFlow_IsSetInCoroutine_NotBeforeSceneTransition",
+       "line": 664
+      },
+      {
+       "method": "ResourceCorrection_ResetsToBaseline_NotAbsoluteTarget",
+       "line": 701
+      },
+      {
+       "method": "PreProcessRewindSave_DuplicateVesselNames_StripsAll",
+       "line": 730
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

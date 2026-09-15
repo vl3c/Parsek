@@ -1,0 +1,306 @@
+{
+ "batch_id": "ledger-career-036",
+ "cluster": "ledger-career",
+ "tier": "B",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "CrewManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AdoptStartCrewIfEmpty_AdoptsWhenEmpty",
+       "line": 50
+      },
+      {
+       "method": "AdoptStartCrewIfEmpty_DoesNotOverwriteExisting",
+       "line": 64
+      },
+      {
+       "method": "AdoptStartCrewIfEmpty_NullOrEmptySource_NoOp",
+       "line": 76
+      },
+      {
+       "method": "AdoptStartLocationIfEmpty_AdoptsWhenEmpty",
+       "line": 85
+      },
+      {
+       "method": "AdoptStartLocationIfEmpty_DoesNotOverwriteExisting",
+       "line": 99
+      },
+      {
+       "method": "AdoptStartLocationIfEmpty_PerFieldIndependent_MidFlightChildAdoptsBodyNotLaunchSite",
+       "line": 112
+      },
+      {
+       "method": "AdoptStartLocationIfEmpty_AllNullSource_NoOp",
+       "line": 130
+      },
+      {
+       "method": "ExtractCrewManifest_NullInput_ReturnsNull",
+       "line": 143
+      },
+      {
+       "method": "ExtractCrewManifest_NoCrew_ReturnsNull",
+       "line": 151
+      },
+      {
+       "method": "ExtractCrewManifest_SingleCrew_WithResolver",
+       "line": 163
+      },
+      {
+       "method": "ExtractCrewManifest_MultipleCrew_SameTraitSummed",
+       "line": 176
+      },
+      {
+       "method": "ExtractCrewManifest_MultipleCrew_DifferentTraits",
+       "line": 189
+      },
+      {
+       "method": "ExtractCrewManifest_DefaultResolver_FallbackToPilot",
+       "line": 212
+      },
+      {
+       "method": "ExtractCrewManifest_EmptyCrewValue_Skipped",
+       "line": 226
+      },
+      {
+       "method": "ExtractCrewManifest_MultiplePartsWithCrew",
+       "line": 241
+      },
+      {
+       "method": "ExtractCrewManifest_NoParts_ReturnsNull",
+       "line": 260
+      },
+      {
+       "method": "ComputeCrewDelta_BothNull_ReturnsNull",
+       "line": 274
+      },
+      {
+       "method": "ComputeCrewDelta_NormalTransfer",
+       "line": 282
+      },
+      {
+       "method": "ComputeCrewDelta_StartNull",
+       "line": 303
+      },
+      {
+       "method": "ComputeCrewDelta_EndNull",
+       "line": 319
+      },
+      {
+       "method": "ComputeCrewDelta_Unchanged",
+       "line": 335
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CrewAutoAssignPatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DecideSlotAction_NullOrEmptyName_ReturnsKeep",
+       "line": 64
+      },
+      {
+       "method": "DecideSlotAction_NullKerbalsModule_ReturnsKeep",
+       "line": 79
+      },
+      {
+       "method": "DecideSlotAction_UnreservedKerbal_ReturnsKeep",
+       "line": 90
+      },
+      {
+       "method": "DecideSlotAction_ReservedWithStandIn_ReturnsSwap",
+       "line": 108
+      },
+      {
+       "method": "DecideSlotAction_ReservedNoStandIn_ReturnsClear",
+       "line": 125
+      },
+      {
+       "method": "DecideSlotAction_ReservedNullReplacements_ReturnsClear",
+       "line": 142
+      },
+      {
+       "method": "DecideSlotAction_MultipleCrew_CorrectlyClassifiesEach",
+       "line": 158
+      },
+      {
+       "method": "DecideSlotAction_ReservedWithEmptyStandInName_ReturnsClear",
+       "line": 186
+      },
+      {
+       "method": "DecideStandInPlacement_AvailableNotInManifest_Places",
+       "line": 212
+      },
+      {
+       "method": "DecideStandInPlacement_AssignedStandIn_ClearsNotAvailable",
+       "line": 223
+      },
+      {
+       "method": "DecideStandInPlacement_DeadOrMissingStandIn_ClearsNotAvailable",
+       "line": 237
+      },
+      {
+       "method": "DecideStandInPlacement_NotInRoster_ClearsNotInRoster",
+       "line": 249
+      },
+      {
+       "method": "DecideStandInPlacement_AlreadyInManifest_ClearsAlreadyInManifest",
+       "line": 260
+      },
+      {
+       "method": "DecideStandInPlacement_AssignedWinsOverManifestPresence",
+       "line": 271
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KerbalRecoveryStraddleGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AllRowsPostRewind_IsTheOrdinaryCase_AndEverythingIsInScope",
+       "line": 43
+      },
+      {
+       "method": "AKeptRowIsDroppedFromTheActionSet_ButTheRunContinues",
+       "line": 61
+      },
+      {
+       "method": "AKerbalWithEvenOneKeptRowIsNotRecoverable_ThoughTheirOtherRowsStillAre",
+       "line": 84
+      },
+      {
+       "method": "EveryRowStraddling_SkipsAndNamesTheKeptIdsTheKerbalsAndTheCutoff",
+       "line": 110
+      },
+      {
+       "method": "AnEmptySubtreeKeepsItsOwnDistinctSkipText",
+       "line": 142
+      },
+      {
+       "method": "ANullRowListIsTheEmptyCase_NotAThrow",
+       "line": 159
+      },
+      {
+       "method": "RowsWithNoIdOrNoNameNeitherThrowNorCountAsSubjects",
+       "line": 171
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ScienceSpendingOrderingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Spending_AfterEarning_WithSufficientBalance_Deducts",
+       "line": 99
+      },
+      {
+       "method": "Spending_BeforeTheEarningThatFundsIt_IsRefused_AndBalanceIsKept",
+       "line": 128
+      },
+      {
+       "method": "SortActions_AtEqualUT_PlacesEarningBeforeSpending",
+       "line": 166
+      },
+      {
+       "method": "Spending_AtSameUTAsTheEarning_IsAffordable_ViaTheTiebreak",
+       "line": 184
+      },
+      {
+       "method": "Spending_OneTickBeforeTheEarning_IsRefused_TheTiebreakIsUTBound",
+       "line": 211
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CareerSaveParserFixtureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "C2Fixture_Roster_ParsesAllFifteenKerbals",
+       "line": 83
+      },
+      {
+       "method": "C2Fixture_TechNodes_FiveNodesAndFortyFivePartPurchases",
+       "line": 115
+      },
+      {
+       "method": "C2Fixture_StrategySystem_PresentWithAnEmptyStrategiesBlock",
+       "line": 147
+      },
+      {
+       "method": "C2Fixture_NewFacetsDoNotDisturbTheExistingOnes",
+       "line": 163
+      },
+      {
+       "method": "FreshCareerFixture_Roster_CarriesTheFiveTemplateKerbals",
+       "line": 181
+      },
+      {
+       "method": "FreshCareerFixture_TechTree_OneStartNodeWithElevenParts",
+       "line": 203
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KerbalHirePatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "KerbalHirePatch_AllowsHireWhenNotCommitted_NoDialogLogAndReturnsTrue",
+       "line": 66
+      },
+      {
+       "method": "KerbalHirePatch_BlocksWhenCommitted_LogsAndReturnsFalse",
+       "line": 80
+      },
+      {
+       "method": "KerbalHirePatch_BypassesWhenReplayingActions_LogsAndReturnsTrue",
+       "line": 101
+      },
+      {
+       "method": "KerbalHirePatch_PredicateUsesCommittedKerbalHireNames_NotReservations",
+       "line": 121
+      },
+      {
+       "method": "AstronautComplexHireRecruitPatch_TargetsStockHireRecruitBeforeUiMutation",
+       "line": 148
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,331 @@
+{
+ "batch_id": "rewind-refly-006",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 78,
+ "files": [
+  {
+   "file": "RewindUtCutoffTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Milestone_CutoffFiltersLaterMilestone",
+       "line": 379
+      },
+      {
+       "method": "ContractComplete_CutoffFiltersLaterCompletion",
+       "line": 393
+      },
+      {
+       "method": "FundsEarning_CutoffFiltersLater",
+       "line": 406
+      },
+      {
+       "method": "FundsSpending_CutoffFiltersLaterSpending",
+       "line": 419
+      },
+      {
+       "method": "ScienceEarning_CutoffFiltersLater",
+       "line": 435
+      },
+      {
+       "method": "ReputationEarning_CutoffFiltersLater",
+       "line": 448
+      },
+      {
+       "method": "ContractAccept_AdvanceCutoff",
+       "line": 469
+      },
+      {
+       "method": "ContractFail_PenaltyCutoff",
+       "line": 482
+      },
+      {
+       "method": "ContractCancel_PenaltyCutoff",
+       "line": 496
+      },
+      {
+       "method": "FacilityUpgrade_CutoffFiltersLater",
+       "line": 509
+      },
+      {
+       "method": "KerbalHire_CutoffFiltersLater",
+       "line": 523
+      },
+      {
+       "method": "StrategyActivate_CutoffFiltersLater",
+       "line": 536
+      },
+      {
+       "method": "KerbalAssignment_IsFilteredDespiteNoResourceImpact",
+       "line": 549
+      },
+      {
+       "method": "NullCutoff_WalksEverything",
+       "line": 587
+      },
+      {
+       "method": "CutoffZero_OnlySeedsSurvive",
+       "line": 602
+      },
+      {
+       "method": "CutoffZero_KeepsCareerStateAtCutoffButProjectsCrewReservations",
+       "line": 618
+      },
+      {
+       "method": "MidTimelineCutoff_ProjectsPreAndPostCutoffCrewReservations",
+       "line": 654
+      },
+      {
+       "method": "CutoffZero_DistinctFromNull",
+       "line": 704
+      },
+      {
+       "method": "CutoffNegative_OnlySeedsSurvive",
+       "line": 723
+      },
+      {
+       "method": "CutoffPastAll_MatchesNullBehavior",
+       "line": 739
+      },
+      {
+       "method": "FundsSeed_SurvivesNegativeCutoff",
+       "line": 763
+      },
+      {
+       "method": "ScienceSeed_SurvivesNegativeCutoff",
+       "line": 773
+      },
+      {
+       "method": "ReputationSeed_SurvivesNegativeCutoff",
+       "line": 783
+      },
+      {
+       "method": "TwoPass_SameCutoff_IdenticalResult",
+       "line": 797
+      },
+      {
+       "method": "TwoPass_NoRewindContextState_SecondCallUnaffected",
+       "line": 822
+      },
+      {
+       "method": "PostRewindFlightLoadFollowup_AfterRewind_UsesCurrentUtCutoff",
+       "line": 851
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_HappyPath_ReturnsTrue",
+       "line": 878
+      },
+      {
+       "method": "CurrentUtCutoffSupportedScene_AcceptsFlightAndSpaceCenterOnly",
+       "line": 884
+      },
+      {
+       "method": "CurrentTimelineUtForLedgerRecalc_UsesTestingProvider",
+       "line": 893
+      },
+      {
+       "method": "CurrentTimelineUtForLedgerRecalc_WhenPlanetariumUnavailable_UsesTimelineTip",
+       "line": 901
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsRevert",
+       "line": 909
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsNonFlightScene",
+       "line": 915
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsPlanetariumNotReady",
+       "line": 921
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsPendingTree",
+       "line": 927
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsQuickloadRestore",
+       "line": 933
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsVesselSwitchRestore",
+       "line": 940
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsLiveRecorder",
+       "line": 947
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsActiveUncommittedTree",
+       "line": 953
+      },
+      {
+       "method": "PostRewindFlightLoadCurrentUtCutoffDecision_RejectsMissingFutureLedgerActions",
+       "line": 960
+      },
+      {
+       "method": "LiveTimelineEventCurrentUtCutoff_FiltersFutureReward",
+       "line": 967
+      },
+      {
+       "method": "LiveTimelineEventCurrentUtCutoff_UsesFullWalkAtTimelineTip",
+       "line": 985
+      },
+      {
+       "method": "CurrentTimelineIfFutureActions_FiltersFutureReward",
+       "line": 1003
+      },
+      {
+       "method": "CurrentTimelineIfFutureActions_UsesFullWalkAtTimelineTip",
+       "line": 1023
+      },
+      {
+       "method": "CurrentTimelineIfFutureActions_NotReadyClock_ReplaysFullLedger",
+       "line": 1042
+      },
+      {
+       "method": "TryGetNextActionUTAfter_IgnoresSeedsAndReturnsEarliestFutureAction",
+       "line": 1068
+      },
+      {
+       "method": "Mixed_PrePassAndWalkBothFiltered",
+       "line": 1088
+      },
+      {
+       "method": "TimeJumpRecalculate_UsesTargetUtCutoff",
+       "line": 1106
+      },
+      {
+       "method": "Mixed_SpendingAfterCutoffReservesProjectedHeadroom",
+       "line": 1125
+      },
+      {
+       "method": "CutoffProjection_DoesNotLeakFutureContractLogs",
+       "line": 1142
+      },
+      {
+       "method": "Log_AlwaysIncludesCutoffFields_ForNullCall",
+       "line": 1160
+      },
+      {
+       "method": "Log_AlwaysIncludesCutoffFields_ForNumericCall",
+       "line": 1170
+      },
+      {
+       "method": "Log_RecalcEngineAlsoLogsCutoff",
+       "line": 1182
+      },
+      {
+       "method": "DirectEngine_AllThreeSeedTypesSurviveCutoff",
+       "line": 1212
+      },
+      {
+       "method": "DirectEngine_CutoffProjection_UsesProjectionCloneInsteadOfRegisteredModule",
+       "line": 1247
+      },
+      {
+       "method": "DeadlineExpiredBeforeCutoff_SyntheticFailFires",
+       "line": 1275
+      },
+      {
+       "method": "DeadlineNotYetExpiredUnderCutoff_NoSyntheticFail",
+       "line": 1313
+      },
+      {
+       "method": "DeadlineExpiredButCutoffIsEarlier_NoSyntheticFail",
+       "line": 1338
+      },
+      {
+       "method": "NullCutoff_DeadlineSynthPreservesLastActionUtHeuristic",
+       "line": 1359
+      },
+      {
+       "method": "ExplicitFailTakesPrecedence_NoDoubleSynthesisUnderCutoff",
+       "line": 1386
+      },
+      {
+       "method": "CanAffordScienceSpending_PostRewindFutureEarningFiltered",
+       "line": 1428
+      },
+      {
+       "method": "CanAffordScienceSpending_PastEarningStillCounts",
+       "line": 1452
+      },
+      {
+       "method": "CanAffordFundsSpending_PostRewindFutureEarningFiltered",
+       "line": 1473
+      },
+      {
+       "method": "CanAffordFundsSpending_PastEarningStillCounts",
+       "line": 1495
+      },
+      {
+       "method": "CanAffordScienceSpending_FutureSpendingReservesCurrentHeadroom",
+       "line": 1514
+      },
+      {
+       "method": "CanAffordScienceSpending_FutureEarningBeforeFutureSpendingPreservesCurrentHeadroom",
+       "line": 1539
+      },
+      {
+       "method": "CanAffordFundsSpending_FutureSpendingReservesCurrentHeadroom",
+       "line": 1564
+      },
+      {
+       "method": "CanAffordFundsSpending_FutureEarningBeforeFutureSpendingPreservesCurrentHeadroom",
+       "line": 1579
+      },
+      {
+       "method": "CanAffordFundsSpending_FutureDeadlinePenaltyAfterLastActionReservesCurrentHeadroom",
+       "line": 1595
+      },
+      {
+       "method": "CanAffordScienceSpending_NullSeam_FallsBackToPlanetarium",
+       "line": 1615
+      },
+      {
+       "method": "BaselineZeroScienceAndRep_AreSeededBeforeFutureTimelineValues",
+       "line": 1631
+      },
+      {
+       "method": "ZeroFundsInitialBaseline_DoesNotSealFundsBeforeFundingLoads",
+       "line": 1666
+      },
+      {
+       "method": "ExistingZeroFundsSeed_IsRepairedFromInitialBaseline",
+       "line": 1686
+      },
+      {
+       "method": "LaterBaselineWithTimelineActions_IsNotPromotedToInitialSeed",
+       "line": 1705
+      },
+      {
+       "method": "RouteRecoveryCredit_CutoffBeforeCredit_UnCreditsExactlyTheCreditAmount",
+       "line": 1748
+      },
+      {
+       "method": "RouteCargoDebit_CutoffBeforeDebit_RestoresGross_OptionASymmetry",
+       "line": 1771
+      },
+      {
+       "method": "RouteRecoveryCredit_CutoffBetweenDebitAndCredit_DropsCreditKeepsGrossSpending",
+       "line": 1792
+      },
+      {
+       "method": "RouteRecoveryCredit_LiveEventRecalcAtCreditUT_FloorIncludesCredit",
+       "line": 1829
+      },
+      {
+       "method": "RouteRecoveryCredit_CutoffBeforeCredit_LowersReservationFloor",
+       "line": 1856
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

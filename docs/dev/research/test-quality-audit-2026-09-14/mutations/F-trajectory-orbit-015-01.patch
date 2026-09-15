@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index f2bb10cbf..4ce6e07ef 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -9512,7 +9512,7 @@ namespace Parsek
+                     // ReferenceTransform ("Control From Here") which is not the surface
+                     // pose contract.
+                     pose = new AnchorPose(
+-                        (Vector3d)liveAnchor.transform.position,
++                        liveAnchor.GetWorldPos3D(), // MUTATION-T1: reintroduce CoM-as-live-anchor
+                         liveAnchor.transform.rotation,
+                         -1,
+                         candidate.RecordingId);

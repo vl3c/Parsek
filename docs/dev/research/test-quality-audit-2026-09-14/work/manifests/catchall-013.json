@@ -1,0 +1,218 @@
+{
+ "batch_id": "catchall-013",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "UndockBgChildEmptySectionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "UndockChildShape_BothCodecDefencesAvailable",
+       "line": 161
+      },
+      {
+       "method": "DamagedFlatList_HealsOnLoad",
+       "line": 187
+      },
+      {
+       "method": "AllSectionsPayloadFree_StillReportsNoPayload",
+       "line": 204
+      },
+      {
+       "method": "RelativeSectionWithoutBodyFixedFrames_StillRefusesSubstitution",
+       "line": 224
+      },
+      {
+       "method": "Classify_PayloadFreeSection_Discarded",
+       "line": 248
+      },
+      {
+       "method": "Classify_LongPayloadFreeSection_PersistsAndIsCoveredElsewhere",
+       "line": 269
+      },
+      {
+       "method": "Classify_SingleFrameAbsoluteFinalization_Persists",
+       "line": 300
+      },
+      {
+       "method": "Classify_SeedOnlyRelativeTransient_Discarded",
+       "line": 316
+      },
+      {
+       "method": "Classify_BoundarySeam_PersistsEvenWhenPayloadFree",
+       "line": 332
+      },
+      {
+       "method": "Classify_BodyFixedOnlyRelativeSection_Persists",
+       "line": 349
+      },
+      {
+       "method": "Classify_CheckpointOnlySection_Persists",
+       "line": 365
+      },
+      {
+       "method": "BackfillRoute_SectionsPresent_TakesBodyFixedSections",
+       "line": 386
+      },
+      {
+       "method": "BackfillRoute_NoSections_FallsBackToFlatPoints",
+       "line": 396
+      },
+      {
+       "method": "BackfillRoute_RelativeBodyFixedOnly_TakesBodyFixedSectionsNotFlat",
+       "line": 412
+      },
+      {
+       "method": "BackfillRoute_RelativeFramesOnly_StaysOnTheSectionWalk",
+       "line": 426
+      },
+      {
+       "method": "BackfillRoute_CheckpointOnlySectionsWithFlatPoints_TakesFlatPoints",
+       "line": 450
+      },
+      {
+       "method": "BackfillRoute_AlreadyComputedOrEmpty_IsNone",
+       "line": 469
+      },
+      {
+       "method": "Walk_RelativeBodyFixedOnly_MeasuresTheBodyFixedChord",
+       "line": 546
+      },
+      {
+       "method": "Walk_MixedSurfaces_UsesBothAndTheEarliestSampleAsReference",
+       "line": 573
+      },
+      {
+       "method": "Walk_RelativeFramesOnly_RefusesAndWritesNothing",
+       "line": 627
+      },
+      {
+       "method": "Inv11_EmptySection_WarnsNamingTheSection",
+       "line": 676
+      },
+      {
+       "method": "Inv11_HealthyRecordings_NoFindings",
+       "line": 694
+      },
+      {
+       "method": "BackfillRoute_CommittedFixtureCorpus_EverySectionedRecordingHasARoute",
+       "line": 745
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PredictedTailMapPresenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ConicRadius_ReproducesTheMeasuredTailGeometry",
+       "line": 101
+      },
+      {
+       "method": "ConicSpanAboveSurface_TrueForTheCoast_FalseForTheDescent",
+       "line": 122
+      },
+      {
+       "method": "ConicSpanAboveSurface_FalseWhenTheSpanSwallowsPeriapsis",
+       "line": 134
+      },
+      {
+       "method": "ConicSpanAboveSurface_FalseWithoutAGravitationalParameter",
+       "line": 145
+      },
+      {
+       "method": "ConicSpanContainsPeriapsis_ClosedAndHyperbolic",
+       "line": 153
+      },
+      {
+       "method": "ConicRadius_HyperbolicBranchIsSaneAtPeriapsis",
+       "line": 166
+      },
+      {
+       "method": "ConicRadius_ExtremeEccentricityNearPeriapsis_IsConvergedOrRefused",
+       "line": 253
+      },
+      {
+       "method": "ConicSpanAboveSurface_NonConvergedSolve_IsNotOrbitOwned",
+       "line": 288
+      },
+      {
+       "method": "MapPresenceChainSegments_HeadWithNoSegments_ResolvesTheTipsSegments",
+       "line": 403
+      },
+      {
+       "method": "MapPresenceChainSegments_RecordingWithItsOwnSegments_NeverConsultsTheTip",
+       "line": 424
+      },
+      {
+       "method": "EffectiveTip_OfTheOptimizerSplitChain_IsTheSegmentBearingTip",
+       "line": 450
+      },
+      {
+       "method": "MapPresenceGhostSource_ChainHead_SeedsFromThePredictedTailNotAStateVector",
+       "line": 465
+      },
+      {
+       "method": "MapPresenceGhostSource_ChainHeadInsideItsOwnSpan_KeepsTheStateVectorPath",
+       "line": 484
+      },
+      {
+       "method": "MapPresenceChainTipMemo_ReResolvesOnASupersedeOnlyBump",
+       "line": 499
+      },
+      {
+       "method": "EndpointAlignedOrbitSeed_FallsBackToTheChainTipsSegments",
+       "line": 595
+      },
+      {
+       "method": "EndpointAlignedOrbitSeed_WithoutChainTipSegments_IsUnchanged",
+       "line": 618
+      },
+      {
+       "method": "OrbitWindowForMapDisplay_PredictedTail_MergesCoastAndDescent",
+       "line": 636
+      },
+      {
+       "method": "OrbitWindowForMapDisplay_MergesAcrossTheRecordedPredictedBoundary",
+       "line": 659
+      },
+      {
+       "method": "OrbitWindowForMapDisplay_DoesNotMergeAGenuinelyDifferentConic",
+       "line": 686
+      },
+      {
+       "method": "OrbitWindowForMapDisplay_ForeignBodyTail_IsNotMerged",
+       "line": 716
+      },
+      {
+       "method": "OrbitWindowForMapDisplay_UtBeforeEverySegment_ReturnsFalse",
+       "line": 738
+      },
+      {
+       "method": "MapMarkerFrameSource_RelativeWithoutBodyFixed_Refuses",
+       "line": 771
+      },
+      {
+       "method": "MapMarkerFrameSource_RelativeWithBodyFixedShadow_UsesTheShadow",
+       "line": 790
+      },
+      {
+       "method": "MapMarkerFrameSource_AbsoluteAndOutOfSection_KeepTheFlatPointsPath",
+       "line": 806
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

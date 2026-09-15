@@ -1,0 +1,190 @@
+{
+ "batch_id": "catchall-048",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 40,
+ "files": [
+  {
+   "file": "UnloadedFuelVesselFixtureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AdjustSnapshotLiquidFuel_NullNode_ReturnsFalseWithReason",
+       "line": 54
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_NoParts_ReturnsFalse",
+       "line": 63
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_NoLiquidFuelResource_ReturnsFalse",
+       "line": 72
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_SmallTank_BumpsAmountAndMaxToMeetFloors",
+       "line": 82
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_LargeExistingTank_PreservesLargerCapacity",
+       "line": 100
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_SetsFlowStateTrue",
+       "line": 117
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_OnlyFirstLiquidFuelTankShaped",
+       "line": 133
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_ZeroFloors_StillSetsAmountAndFlow",
+       "line": 151
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_NegativeFloors_TreatedAsZero",
+       "line": 167
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_Cap_OnLargeTank_ClampsExactAndDoesNotPreserveCapacity",
+       "line": 188
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_Cap_OverridesMinStoredFloor",
+       "line": 207
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_Cap_NegativeTreatedAsZero",
+       "line": 223
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_Cap_BoundsBelowTwicePickup",
+       "line": 237
+      },
+      {
+       "method": "AdjustSnapshotLiquidFuel_Cap_MultiTank_TotalEqualsCap_ZeroesOtherTanks",
+       "line": 254
+      },
+      {
+       "method": "IsReuseExcluded_NullSet_NeverExcludes",
+       "line": 285
+      },
+      {
+       "method": "IsReuseExcluded_EmptySet_NeverExcludes",
+       "line": 291
+      },
+      {
+       "method": "IsReuseExcluded_PidInSet_Excludes",
+       "line": 297
+      },
+      {
+       "method": "IsReuseExcluded_OtherPidNotInSet_NotExcluded",
+       "line": 306
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "HorizonCameraTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldAutoHorizonLock_AtmosphericBody_BelowAtmosphere_ReturnsTrue",
+       "line": 11
+      },
+      {
+       "method": "ShouldAutoHorizonLock_AtmosphericBody_AboveAtmosphere_ReturnsFalse",
+       "line": 18
+      },
+      {
+       "method": "ShouldAutoHorizonLock_AtmosphericBody_AtThreshold_ReturnsFalse",
+       "line": 25
+      },
+      {
+       "method": "ShouldAutoHorizonLock_AirlessBody_Below50km_ReturnsTrue",
+       "line": 32
+      },
+      {
+       "method": "ShouldAutoHorizonLock_AirlessBody_Above50km_ReturnsFalse",
+       "line": 39
+      },
+      {
+       "method": "ShouldAutoHorizonLock_AirlessBody_AtThreshold_ReturnsFalse",
+       "line": 46
+      },
+      {
+       "method": "ShouldAutoHorizonLock_ZeroAltitude_ReturnsTrue",
+       "line": 53
+      },
+      {
+       "method": "ComputeHorizonForward_NormalVelocity_ForwardOnHorizon",
+       "line": 64
+      },
+      {
+       "method": "ComputeHorizonForward_VelocityWithVerticalComponent_ProjectsToHorizon",
+       "line": 77
+      },
+      {
+       "method": "ComputeHorizonForward_NearZeroVelocity_FallsBackToLastForward",
+       "line": 92
+      },
+      {
+       "method": "ComputeHorizonForward_ZeroVelocityAndZeroLastForward_PicksArbitrary",
+       "line": 106
+      },
+      {
+       "method": "ComputeHorizonForward_ArbitraryUpAxis_OutputPerpendicular",
+       "line": 122
+      },
+      {
+       "method": "ComputeHorizonForward_UpAlignedWithRight_FallbackWorks",
+       "line": 138
+      },
+      {
+       "method": "ComputeHorizonForward_PureVerticalVelocity_FallsBackToLastForward",
+       "line": 155
+      },
+      {
+       "method": "ComputeHorizonForward_LastForwardAlignedWithUp_FallsToArbitrary",
+       "line": 169
+      },
+      {
+       "method": "ComputeSurfaceRelativeVelocity_SubtractsBodyRotation",
+       "line": 186
+      },
+      {
+       "method": "ShouldUseSurfaceRelativeWatchHeading_InAtmosphere_True",
+       "line": 199
+      },
+      {
+       "method": "ShouldUseSurfaceRelativeWatchHeading_AboveAtmosphere_False",
+       "line": 206
+      },
+      {
+       "method": "ShouldUseSurfaceRelativeWatchHeading_AirlessBody_False",
+       "line": 213
+      },
+      {
+       "method": "ComputeWatchHorizonBasis_InAtmosphere_BodyRotationDominates_FollowsSurfaceRelativePrograde",
+       "line": 220
+      },
+      {
+       "method": "ComputeWatchHorizonBasis_AboveAtmosphere_PreservesPlaybackHeading",
+       "line": 243
+      },
+      {
+       "method": "ComputeWatchHorizonBasis_InAtmosphere_HeadingVelocityCancels_FallsBackToLastForward",
+       "line": 266
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

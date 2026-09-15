@@ -1,0 +1,267 @@
+{
+ "batch_id": "catchall-051",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "InventoryManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ExtractInventoryManifest_NullInput_ReturnsNull",
+       "line": 71
+      },
+      {
+       "method": "ExtractInventoryManifest_NoInventoryModules_ReturnsNull",
+       "line": 80
+      },
+      {
+       "method": "ExtractInventoryManifest_SingleItem",
+       "line": 95
+      },
+      {
+       "method": "ExtractInventoryManifest_MultipleItems",
+       "line": 112
+      },
+      {
+       "method": "ExtractInventoryManifest_SameItem_MultipleInventories_Summed",
+       "line": 131
+      },
+      {
+       "method": "ExtractInventoryManifest_StackableItem_QuantityRespected",
+       "line": 149
+      },
+      {
+       "method": "ExtractInventoryManifest_EmptyStoredParts_ReturnsNull",
+       "line": 164
+      },
+      {
+       "method": "ExtractInventoryManifest_MissingPartName_Skipped",
+       "line": 178
+      },
+      {
+       "method": "ExtractInventoryManifest_MissingQuantity_DefaultsOne",
+       "line": 194
+      },
+      {
+       "method": "ExtractInventoryManifest_MultipleInventoryModulesOnOnePart",
+       "line": 210
+      },
+      {
+       "method": "ExtractInventoryManifest_TotalInventorySlots_Summed",
+       "line": 227
+      },
+      {
+       "method": "ComputeInventoryDelta_BothNull_ReturnsNull",
+       "line": 247
+      },
+      {
+       "method": "ComputeInventoryDelta_NormalDelivery",
+       "line": 255
+      },
+      {
+       "method": "ComputeInventoryDelta_ItemGained",
+       "line": 274
+      },
+      {
+       "method": "ComputeInventoryDelta_Unchanged",
+       "line": 290
+      },
+      {
+       "method": "ComputeInventoryDelta_StartNull",
+       "line": 309
+      },
+      {
+       "method": "ComputeInventoryDelta_EndNull",
+       "line": 324
+      },
+      {
+       "method": "ComputeInventoryDelta_SlotDelta_Tracked",
+       "line": 339
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CrossTierIntegrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MilestoneEffective_FlowsToFunds",
+       "line": 22
+      },
+      {
+       "method": "DuplicateMilestone_NotCreditedInFunds",
+       "line": 42
+      },
+      {
+       "method": "DoubleRecalculate_Idempotent",
+       "line": 63
+      },
+      {
+       "method": "MilestoneFunds_MakesSpendingUnaffordable",
+       "line": 91
+      },
+      {
+       "method": "ContractComplete_WithStrategyActive_TransformsAreIdentityAfterPhaseE1_5",
+       "line": 140
+      },
+      {
+       "method": "ContractComplete_WithStrategyActive_ScienceReward_StillIdentity",
+       "line": 197
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ComputeStatsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EmptyRecording_AllStatsZero",
+       "line": 12
+      },
+      {
+       "method": "PointsOnly_NoBodyLookup_AltitudeAndSpeedFromPoints",
+       "line": 28
+      },
+      {
+       "method": "PointsWithBodyLookup_DistanceAndRangeComputed",
+       "line": 59
+      },
+      {
+       "method": "OrbitSegment_WithBodyLookup_UpdatesAltitudeSpeedDistance",
+       "line": 91
+      },
+      {
+       "method": "OrbitSegment_NullBodyLookup_SkippedGracefully",
+       "line": 139
+      },
+      {
+       "method": "OrbitSegment_BodyNotFound_SkippedGracefully",
+       "line": 169
+      },
+      {
+       "method": "FleaFlight_MaxAltitudeFromPoints",
+       "line": 199
+      },
+      {
+       "method": "PartEvents_CountIncluded",
+       "line": 219
+      },
+      {
+       "method": "MultipleBodies_PrimaryBodyIsMostFrequent",
+       "line": 234
+      },
+      {
+       "method": "RelativeTrackSections_UseSectionAltitudeMetadata_AndOffsetDistance",
+       "line": 247
+      },
+      {
+       "method": "FormatAltitude_CorrectOutput",
+       "line": 308
+      },
+      {
+       "method": "FormatSpeed_CorrectOutput",
+       "line": 322
+      },
+      {
+       "method": "FormatDistance_CorrectOutput",
+       "line": 338
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "AntennaSpecTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AntennaSpec_ToString_ContainsAllFields",
+       "line": 33
+      },
+      {
+       "method": "AntennaSpec_ToString_NullPartName_ShowsNull",
+       "line": 58
+      },
+      {
+       "method": "ExtractFromSnapshot_WithDataTransmitter_ExtractsSpecs",
+       "line": 77
+      },
+      {
+       "method": "ExtractFromSnapshot_NoDataTransmitter_ReturnsEmpty",
+       "line": 107
+      },
+      {
+       "method": "ExtractFromSnapshot_MultipleAntennas_ExtractsAll",
+       "line": 127
+      },
+      {
+       "method": "ExtractFromSnapshot_NullSnapshot_ReturnsEmpty",
+       "line": 172
+      },
+      {
+       "method": "ExtractFromSnapshot_PartWithNoModules_Skipped",
+       "line": 186
+      },
+      {
+       "method": "ExtractFromSnapshot_MissingFields_DefaultsToZero",
+       "line": 203
+      },
+      {
+       "method": "ExtractFromSnapshot_NoParts_ReturnsEmpty",
+       "line": 226
+      },
+      {
+       "method": "ExtractFromSnapshot_PartWithMixedModules_ExtractsOnlyTransmitter",
+       "line": 244
+      },
+      {
+       "method": "ExtractFromSnapshot_WithAntennaType_ExtractsType",
+       "line": 272
+      },
+      {
+       "method": "ExtractFromSnapshot_MissingAntennaType_DefaultsEmpty",
+       "line": 298
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "OnFlightReadyOrderingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnFlightReady_ResetCalledBeforeRestoreCoroutine",
+       "line": 51
+      },
+      {
+       "method": "PhaseSequence_DocumentsExpectedOrder",
+       "line": 135
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

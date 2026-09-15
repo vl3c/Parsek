@@ -1,0 +1,339 @@
+{
+ "batch_id": "ledger-career-009",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 80,
+ "files": [
+  {
+   "file": "LedgerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AddAction_AppendsToList",
+       "line": 48
+      },
+      {
+       "method": "AddAction_NullAction_Skipped",
+       "line": 67
+      },
+      {
+       "method": "AddActions_BatchAppend",
+       "line": 77
+      },
+      {
+       "method": "AddActions_NullCollection_Skipped",
+       "line": 94
+      },
+      {
+       "method": "Clear_RemovesAllActions",
+       "line": 104
+      },
+      {
+       "method": "SaveAndLoad_RoundTrip",
+       "line": 121
+      },
+      {
+       "method": "SaveAndLoad_RouteRecoveryCredited_SurvivesLedgerPersistencePath",
+       "line": 242
+      },
+      {
+       "method": "LoadFromFile_PreResetLedgerVersion_IsRejected",
+       "line": 295
+      },
+      {
+       "method": "Reconcile_PrunesOrphanedEarnings",
+       "line": 336
+      },
+      {
+       "method": "Reconcile_KeepsValidEarnings",
+       "line": 360
+      },
+      {
+       "method": "Reconcile_ColdLoadMaxUtZero_KeepsTaggedStrategyScienceDebit",
+       "line": 384
+      },
+      {
+       "method": "Reconcile_StrategyScienceDebitTaggedToADeletedRecording_IsStillPruned",
+       "line": 413
+      },
+      {
+       "method": "Reconcile_MaxUtBounded_KeepsBothLegsOfAQueryFamilyConversion",
+       "line": 433
+      },
+      {
+       "method": "ClearRecordingTagForRecording_KeepsRowsAndDropsOnlyTheTag",
+       "line": 481
+      },
+      {
+       "method": "ClearRecordingTagForRecordings_ClearsAcrossASetOfIds",
+       "line": 525
+      },
+      {
+       "method": "ClearRecordingTagForRecording_UntaggedRowIsOutOfSupersedeScope",
+       "line": 561
+      },
+      {
+       "method": "ClearRecordingTagForRecording_NullOrEmptyOrUnmatchedInputs_AreNoOp",
+       "line": 585
+      },
+      {
+       "method": "RetagActionsForRecordingRewrite_RemapsAllMatchingActions_SurvivesReconcile",
+       "line": 609
+      },
+      {
+       "method": "RetagActionsForRecordingRewrite_NullOrEmptyInputs_AreNoOp",
+       "line": 658
+      },
+      {
+       "method": "RetagActionsForRecordingRewrite_SameOldAndNewId_AreNoOp",
+       "line": 677
+      },
+      {
+       "method": "RetagActionsForRecordingRewrite_LeavesUnrelatedActionsUntouched",
+       "line": 694
+      },
+      {
+       "method": "Reconcile_PrunesFutureSpendings",
+       "line": 731
+      },
+      {
+       "method": "Reconcile_PreserveFutureTimelineActions_KeepsFutureSpendings",
+       "line": 756
+      },
+      {
+       "method": "Reconcile_KeepsCurrentSpendings",
+       "line": 787
+      },
+      {
+       "method": "Reconcile_BoundaryUT_Kept",
+       "line": 804
+      },
+      {
+       "method": "Reconcile_SpendingWithInvalidRecordingId_Pruned",
+       "line": 822
+      },
+      {
+       "method": "Reconcile_PreserveFutureTimelineActions_StillPrunesInvalidRecordingId",
+       "line": 844
+      },
+      {
+       "method": "Reconcile_SpendingWithValidRecordingId_Kept",
+       "line": 879
+      },
+      {
+       "method": "Reconcile_SpendingWithNullRecordingId_SurvivesWhenInRange",
+       "line": 900
+      },
+      {
+       "method": "Reconcile_SpendingWithInvalidRecordingIdAndOutOfRangeUT_CountedAsUtPrune",
+       "line": 927
+      },
+      {
+       "method": "Reconcile_SpendingWithNoRecordingId_PrunedByUT",
+       "line": 952
+      },
+      {
+       "method": "Reconcile_ContractAcceptWithValidRecordingIdAfterMaxUt_Pruned",
+       "line": 988
+      },
+      {
+       "method": "Reconcile_FutureContractAcceptAndCompleteWithValidRecordingId_PrunesBoth",
+       "line": 1013
+      },
+      {
+       "method": "Reconcile_PreserveFutureTimelineActions_KeepsFutureContractLifecycle",
+       "line": 1053
+      },
+      {
+       "method": "Reconcile_FutureContractResolutionWithValidRecordingId_PrunedByMaxUt",
+       "line": 1094
+      },
+      {
+       "method": "Reconcile_ContractResolutionWithInvalidRecordingId_PrunedByRecordingId",
+       "line": 1123
+      },
+      {
+       "method": "Reconcile_ContractLifecycleRowsAtMaxUt_AreKept",
+       "line": 1159
+      },
+      {
+       "method": "Reconcile_ContractAcceptInRange_KeepsValidRecordingAndKscRows",
+       "line": 1192
+      },
+      {
+       "method": "Reconcile_FutureContractAccept_NullRecordingId_PrunedAsLifecycle",
+       "line": 1228
+      },
+      {
+       "method": "Reconcile_FundsInitial_AlwaysKept",
+       "line": 1255
+      },
+      {
+       "method": "Reconcile_MixedActions_CorrectPruning",
+       "line": 1273
+      },
+      {
+       "method": "SeedInitialFunds_CreatesAction",
+       "line": 1314
+      },
+      {
+       "method": "SeedInitialFunds_NoDuplicate",
+       "line": 1328
+      },
+      {
+       "method": "LoadFromFile_EmptyFile_ReturnsEmpty",
+       "line": 1347
+      },
+      {
+       "method": "LoadFromFile_CorruptFile_LogsWarning",
+       "line": 1364
+      },
+      {
+       "method": "LoadFromFile_MissingFile_EmptyLedger",
+       "line": 1379
+      },
+      {
+       "method": "LoadFromFile_BadVersion_LogsWarning",
+       "line": 1392
+      },
+      {
+       "method": "SaveToFile_SafeWrite_AtomicRename",
+       "line": 1412
+      },
+      {
+       "method": "SaveToFile_OverwritesExistingFile",
+       "line": 1437
+      },
+      {
+       "method": "SaveToFile_NullPath_ReturnsFalse",
+       "line": 1466
+      },
+      {
+       "method": "Reconcile_LogsEarningPruning",
+       "line": 1482
+      },
+      {
+       "method": "Reconcile_LogsSpendingPruning",
+       "line": 1502
+      },
+      {
+       "method": "Reconcile_NullValidIds_LogsWarning",
+       "line": 1518
+      },
+      {
+       "method": "BuildLedgerRelativePath_ReturnsCorrectPath",
+       "line": 1531
+      },
+      {
+       "method": "SeedInitialScience_CreatesActionOnce",
+       "line": 1546
+      },
+      {
+       "method": "SeedInitialReputation_CreatesActionOnce",
+       "line": 1562
+      },
+      {
+       "method": "Reconcile_PreservesSeedActions",
+       "line": 1578
+      },
+      {
+       "method": "Reconcile_KeepsNullRecordingIdEarnings",
+       "line": 1600
+      },
+      {
+       "method": "Reconcile_StillPrunesOrphanedNonNullEarnings",
+       "line": 1619
+      },
+      {
+       "method": "SeedInitialFunds_UpdatesStalZeroSeed",
+       "line": 1652
+      },
+      {
+       "method": "SeedInitialFunds_StaleZeroRepair_BumpsStateVersion",
+       "line": 1665
+      },
+      {
+       "method": "SeedInitialFunds_DoesNotUpdateNonZeroSeed",
+       "line": 1688
+      },
+      {
+       "method": "SeedInitialScience_SecondCallIsNoOpWithWarn",
+       "line": 1712
+      },
+      {
+       "method": "SeedInitialReputation_SecondCallIsNoOpWithWarn",
+       "line": 1726
+      },
+      {
+       "method": "SeedInitialReputation_DoesNotUpdateNonZeroSeed",
+       "line": 1740
+      },
+      {
+       "method": "Seeding_OneResource_DoesNotBlockOthers",
+       "line": 1753
+      },
+      {
+       "method": "StaleSeeds_FundsCorrectsIndependently_ScienceAndRepRemainSticky",
+       "line": 1771
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_RemovesUntaggedScienceAfterCutoff",
+       "line": 1805
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_RemovesUntaggedMilestoneAfterCutoff",
+       "line": 1824
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_KeepsUntaggedActionAtCutoff",
+       "line": 1842
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_KeepsRecordingTaggedActionAfterCutoff",
+       "line": 1859
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_KeepsSeedActionsRegardlessOfUT",
+       "line": 1878
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_MixedBatch_RemovesOnlyUntaggedOrphans",
+       "line": 1893
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_Inclusive_RemovesAtCutoffRollout",
+       "line": 1916
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_Inclusive_KeepsPreLaunchKscActionBelowCutoff",
+       "line": 1932
+      },
+      {
+       "method": "GetLatestUntaggedVesselBuildUT_PicksMaxUntaggedRollout",
+       "line": 1947
+      },
+      {
+       "method": "GetLatestUntaggedVesselBuildUT_NoRollout_ReturnsNaN",
+       "line": 1963
+      },
+      {
+       "method": "PruneOrphanActionsAfterUT_NoMatches_ReturnsZero",
+       "line": 1972
+      },
+      {
+       "method": "TruncateActionsForTesting_BumpsStateVersionSoTheElsCacheCannotServeRemovedRows",
+       "line": 1999
+      },
+      {
+       "method": "TruncateActionsForTesting_DoesNotBumpWhenItRemovesNothing",
+       "line": 2032
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,235 @@
+{
+ "batch_id": "ledger-career-008",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "GameStateEventTests.cs",
+   "ranges": [
+    {
+     "start": 1283,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GameStateBaseline_MissingNodes_DeserializesCleanly",
+       "line": 1283
+      },
+      {
+       "method": "CrewEntry_SerializationRoundtrip",
+       "line": 1303
+      },
+      {
+       "method": "CrewEntry_NullFields_DefaultToEmpty",
+       "line": 1323
+      },
+      {
+       "method": "GetDisplayCategory_ReturnsExpected",
+       "line": 1361
+      },
+      {
+       "method": "GetDisplayDescription_TechResearched_WithCost",
+       "line": 1367
+      },
+      {
+       "method": "GetDisplayDescription_TechResearched_NoCost",
+       "line": 1381
+      },
+      {
+       "method": "GetDisplayDescription_PartPurchased_WithCost",
+       "line": 1395
+      },
+      {
+       "method": "GetDisplayDescription_CrewHired_WithTrait",
+       "line": 1409
+      },
+      {
+       "method": "GetDisplayDescription_CrewStatusChanged",
+       "line": 1423
+      },
+      {
+       "method": "GetDisplayDescription_FacilityUpgraded_WithLevels",
+       "line": 1438
+      },
+      {
+       "method": "GetDisplayDescription_ContractAccepted",
+       "line": 1454
+      },
+      {
+       "method": "GetDisplayDescription_ContractAccepted_NoTitle",
+       "line": 1468
+      },
+      {
+       "method": "GetDisplayDescription_BuildingDestroyed",
+       "line": 1482
+      },
+      {
+       "method": "GetDisplayDescription_CrewRemoved_WithTrait",
+       "line": 1495
+      },
+      {
+       "method": "GetDisplayDescription_FacilityDowngraded",
+       "line": 1509
+      },
+      {
+       "method": "GetDisplayDescription_BuildingRepaired",
+       "line": 1524
+      },
+      {
+       "method": "GetDisplayDescription_FundsChanged_PositiveDelta",
+       "line": 1537
+      },
+      {
+       "method": "GetDisplayDescription_FundsChanged_NegativeDelta",
+       "line": 1553
+      },
+      {
+       "method": "GetDisplayDescription_ScienceChanged",
+       "line": 1567
+      },
+      {
+       "method": "GetDisplayDescription_ReputationChanged",
+       "line": 1581
+      },
+      {
+       "method": "GetDisplayDescription_ContractVerbs",
+       "line": 1600
+      },
+      {
+       "method": "ExtractDetailField_BasicExtraction",
+       "line": 1614
+      },
+      {
+       "method": "ExtractDetailField_NotFound_ReturnsNull",
+       "line": 1621
+      },
+      {
+       "method": "ExtractDetailField_MiddleField",
+       "line": 1629
+      },
+      {
+       "method": "IsMilestoneFilteredEvent_CorrectlyFilters",
+       "line": 1651
+      },
+      {
+       "method": "GetUncommittedEventCount_CountsEventsAfterLastMilestone",
+       "line": 1661
+      },
+      {
+       "method": "GetUncommittedEventCount_ZeroWhenAllCommitted",
+       "line": 1701
+      },
+      {
+       "method": "GetUncommittedEventCount_AllUncommittedWhenNoMilestones",
+       "line": 1716
+      },
+      {
+       "method": "GetUncommittedEventCount_IgnoresHiddenTaggedEvents",
+       "line": 1737
+      },
+      {
+       "method": "CommitScienceSubjects_AddsNew",
+       "line": 1770
+      },
+      {
+       "method": "CommitScienceSubjects_MaxWins",
+       "line": 1792
+      },
+      {
+       "method": "CommitScienceSubjects_LowerValueIgnored",
+       "line": 1815
+      },
+      {
+       "method": "CommitScienceSubjects_NullOrEmpty_NoOp",
+       "line": 1838
+      },
+      {
+       "method": "TryGetCommittedSubjectScience_MissingKey_ReturnsFalse",
+       "line": 1850
+      },
+      {
+       "method": "ClearScienceSubjects_RemovesAll",
+       "line": 1859
+      },
+      {
+       "method": "CommitScienceSubjects_MultipleEntriesSameSubject_MaxWins",
+       "line": 1875
+      },
+      {
+       "method": "ResetForTesting_ClearsScienceSubjects",
+       "line": 1896
+      },
+      {
+       "method": "ScienceSubjects_SerializeDeserialize_RoundTrip",
+       "line": 1908
+      },
+      {
+       "method": "ScienceSubjects_DeserializeFrom_MissingNode_NoOp",
+       "line": 1937
+      },
+      {
+       "method": "ScienceSubjects_DeserializeFrom_MalformedEntries_Skipped",
+       "line": 1948
+      },
+      {
+       "method": "ScienceSubjects_SerializeEmpty_NoNode",
+       "line": 1983
+      },
+      {
+       "method": "SuppressResourceEvents_PreventsAccumulation",
+       "line": 1995
+      },
+      {
+       "method": "PendingScienceSubjects_ClearedByRecordingStoreReset",
+       "line": 2029
+      },
+      {
+       "method": "RecordOriginalScience_TracksFirstValueOnly",
+       "line": 2041
+      },
+      {
+       "method": "ClearScienceSubjects_ClearsOriginalsAndCommitted",
+       "line": 2058
+      },
+      {
+       "method": "ResetForTesting_ClearsOriginalScienceValues",
+       "line": 2078
+      },
+      {
+       "method": "OriginalScience_SerializeDeserialize_RoundTrip",
+       "line": 2088
+      },
+      {
+       "method": "OriginalScience_DeserializeFrom_NoOriginalsNode_NoOp",
+       "line": 2129
+      },
+      {
+       "method": "Serialize_CreatesNode_WhenOnlyOriginalsExist",
+       "line": 2147
+      },
+      {
+       "method": "CreateMilestoneEvent_PopulatesFieldsCorrectly",
+       "line": 2168
+      },
+      {
+       "method": "CreateMilestoneEvent_NullId_DefaultsToEmpty",
+       "line": 2179
+      },
+      {
+       "method": "CreateMilestoneEvent_ConvertsToMilestoneAchievement",
+       "line": 2188
+      },
+      {
+       "method": "MilestoneAchieved_DisplayDescription_ShowsAchieved",
+       "line": 2203
+      },
+      {
+       "method": "MilestoneAchieved_DisplayCategory_IsMilestone",
+       "line": 2216
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

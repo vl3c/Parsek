@@ -1,0 +1,266 @@
+{
+ "batch_id": "catchall-031",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "InterpolatePointsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NormalCase_TargetBetweenTwoPoints_ReturnsTrueWithCorrectT",
+       "line": 58
+      },
+      {
+       "method": "NormalCase_QuarterWayThroughSegment_CorrectT",
+       "line": 78
+      },
+      {
+       "method": "NormalCase_TargetInThirdSegment_SelectsCorrectPair",
+       "line": 97
+      },
+      {
+       "method": "NormalCase_TargetExactlyAtPoint_TIsZero",
+       "line": 117
+      },
+      {
+       "method": "BeforeFirstPoint_ReturnsFalse_BeforeSetToFirst",
+       "line": 142
+      },
+      {
+       "method": "AfterLastPoint_ReturnsTrueWithClampedT",
+       "line": 161
+      },
+      {
+       "method": "EmptyList_ReturnsFalse",
+       "line": 185
+      },
+      {
+       "method": "NullList_ReturnsFalse",
+       "line": 201
+      },
+      {
+       "method": "SinglePoint_ReturnsFalse_BeforeSetToOnlyPoint",
+       "line": 217
+      },
+      {
+       "method": "DegenerateSegment_IdenticalUT_TIsZero",
+       "line": 236
+      },
+      {
+       "method": "CachedIndex_SequentialPlayback_UpdatesCache",
+       "line": 267
+      },
+      {
+       "method": "CachedIndex_JumpBackward_StillFindsCorrectSegment",
+       "line": 296
+      },
+      {
+       "method": "CachedIndex_OutOfRange_FallsBackGracefully",
+       "line": 316
+      },
+      {
+       "method": "LargeUT_MaintainsPrecision",
+       "line": 339
+      },
+      {
+       "method": "SmallButValidSegment_Interpolates",
+       "line": 358
+      },
+      {
+       "method": "TinySegmentBelowThreshold_TreatedAsDegenerate",
+       "line": 377
+      },
+      {
+       "method": "InterpolatedPoints_PreserveBodyNameAndCoordinates",
+       "line": 407
+      },
+      {
+       "method": "TwoPoints_TargetAtStart_TIsZero",
+       "line": 449
+      },
+      {
+       "method": "TwoPoints_TargetAtEnd_TIsOne",
+       "line": 474
+      },
+      {
+       "method": "BracketPointAtUT_EmptyList_ReturnsNull",
+       "line": 495
+      },
+      {
+       "method": "BracketPointAtUT_NullList_ReturnsNull",
+       "line": 503
+      },
+      {
+       "method": "BracketPointAtUT_BeforeStart_ReturnsNull",
+       "line": 510
+      },
+      {
+       "method": "BracketPointAtUT_MidRange_ReturnsBracketPoint",
+       "line": 522
+      },
+      {
+       "method": "BracketPointAtUT_ExactPoint_ReturnsThatPoint",
+       "line": 539
+      },
+      {
+       "method": "BracketPointAtUT_PastEnd_ReturnsLastPoint",
+       "line": 555
+      },
+      {
+       "method": "BracketPointAtUT_SinglePoint_ReturnsNull",
+       "line": 571
+      },
+      {
+       "method": "BracketPointAtUT_PreservesBodyName",
+       "line": 583
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FlagEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FlagEvent_SerializationRoundTrip",
+       "line": 22
+      },
+      {
+       "method": "FlagEvent_EmptyRecording_NoFlagEvents",
+       "line": 90
+      },
+      {
+       "method": "FlagEvent_SpecialCharactersInText",
+       "line": 104
+      },
+      {
+       "method": "RecordingBuilder_AddFlagEvent_ProducesConfigNode",
+       "line": 137
+      },
+      {
+       "method": "RecordingBuilder_FlagEvent_InTrajectoryNode",
+       "line": 163
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithFlagEvents_Preserved",
+       "line": 178
+      },
+      {
+       "method": "CreateRecordingFromFlightData_FlagEvents_RetimeBeforeTrim",
+       "line": 196
+      },
+      {
+       "method": "FlagEvent_ToString_FormatsReadably",
+       "line": 223
+      },
+      {
+       "method": "Recording_FlagEvents_DefaultsToEmptyList",
+       "line": 242
+      },
+      {
+       "method": "FlagEvent_MultipleFlags_AllSerialized",
+       "line": 250
+      },
+      {
+       "method": "ShouldRecordFlagEvent_NullPlacedBy_ReturnsFalse",
+       "line": 284
+      },
+      {
+       "method": "ShouldRecordFlagEvent_EmptyPlacedBy_ReturnsFalse",
+       "line": 290
+      },
+      {
+       "method": "ShouldRecordFlagEvent_NullVessel_ReturnsFalse",
+       "line": 296
+      },
+      {
+       "method": "CrewContainsKerbalNamed_MatchingCrewMember_ReturnsTrue",
+       "line": 302
+      },
+      {
+       "method": "CrewContainsKerbalNamed_NullCrew_ReturnsFalse",
+       "line": 310
+      },
+      {
+       "method": "CrewContainsKerbalNamed_NullEntry_Ignored",
+       "line": 316
+      },
+      {
+       "method": "CrewContainsKerbalNamed_MissingCrewMember_ReturnsFalse",
+       "line": 325
+      },
+      {
+       "method": "ResolveBackgroundFlagOwnerPid_MatchingCrew_ReturnsPid",
+       "line": 333
+      },
+      {
+       "method": "ResolveBackgroundFlagOwnerPid_NoMatch_ReturnsZero",
+       "line": 353
+      },
+      {
+       "method": "ResolveBackgroundFlagOwnerPid_NullOrEmptyPlacedBy_ReturnsZero",
+       "line": 371
+      },
+      {
+       "method": "ResolveBackgroundFlagOwnerPid_NullArgs_ReturnsZero",
+       "line": 384
+      },
+      {
+       "method": "ResolveBackgroundFlagOwnerPid_ZeroPidEntry_Skipped",
+       "line": 397
+      },
+      {
+       "method": "ResolveBackgroundFlagOwnerPid_FirstMatchWins",
+       "line": 418
+      },
+      {
+       "method": "ResolveBackgroundFlagOwnerPid_NullCrewFromLookup_Skipped",
+       "line": 434
+      },
+      {
+       "method": "AppendFlagEventToTreeRecording_AddsEventAndMarksDirty",
+       "line": 453
+      },
+      {
+       "method": "AppendFlagEventToTreeRecording_KeepsStableUtOrder",
+       "line": 469
+      },
+      {
+       "method": "AppendFlagEventToTreeRecording_NullRecording_NoThrow",
+       "line": 489
+      },
+      {
+       "method": "FormatPlaqueWithDate_AppendsDateToText",
+       "line": 495
+      },
+      {
+       "method": "FormatPlaqueWithDate_EmptyText_ReturnsDateOnly",
+       "line": 502
+      },
+      {
+       "method": "FormatPlaqueWithDate_NullText_ReturnsDateOnly",
+       "line": 509
+      },
+      {
+       "method": "FormatPlaqueWithDate_EmptyDate_ReturnsOriginalText",
+       "line": 516
+      },
+      {
+       "method": "FormatPlaqueWithDate_BothEmpty_ReturnsEmpty",
+       "line": 523
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

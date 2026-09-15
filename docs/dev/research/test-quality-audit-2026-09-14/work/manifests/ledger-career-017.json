@@ -1,0 +1,275 @@
+{
+ "batch_id": "ledger-career-017",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 64,
+ "files": [
+  {
+   "file": "ReputationModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ApplyReputationCurve_ZeroNominal_NoChange",
+       "line": 121
+      },
+      {
+       "method": "ApplyReputationCurve_PositiveNominal_GainCurve",
+       "line": 130
+      },
+      {
+       "method": "ApplyReputationCurve_NegativeNominal_LossCurve",
+       "line": 143
+      },
+      {
+       "method": "GainCurve_AtHighRep_DiminishedReturns",
+       "line": 156
+      },
+      {
+       "method": "GainCurve_AtNegativeRep_AmplifiedReturns",
+       "line": 168
+      },
+      {
+       "method": "LossCurve_AtHighRep_AmplifiedLoss",
+       "line": 179
+      },
+      {
+       "method": "LossCurve_AtNegativeRep_DiminishedLoss",
+       "line": 191
+      },
+      {
+       "method": "ApplyReputationCurve_FractionalNominal",
+       "line": 210
+      },
+      {
+       "method": "ApplyReputationCurve_IntegerAward_ReproducesStocksPool",
+       "line": 234
+      },
+      {
+       "method": "ApplyReputationCurve_StrategyConverterYield_ReproducesTheMeasuredPoolMove",
+       "line": 249
+      },
+      {
+       "method": "ProcessRepEarning_StrategySource_AppliesTheCurveLikeAnyNominalEarning",
+       "line": 275
+      },
+      {
+       "method": "ApplyReputationCurve_StrategyConverterDiversion_ReproducesTheMeasuredPoolMove",
+       "line": 306
+      },
+      {
+       "method": "ProcessRepPenalty_StrategyConverterSource_AppliesTheCurveLikeAnyNominalPenalty",
+       "line": 342
+      },
+      {
+       "method": "ApplyReputationCurve_HighRep_ReproducesStocksMeasuredPool",
+       "line": 380
+      },
+      {
+       "method": "ApplyReputationCurve_IntegerAward_AppliesAResidualStep_MutationGuard",
+       "line": 411
+      },
+      {
+       "method": "ApplyReputationCurve_NegativeIntegerAward_ReproducesStocksPool",
+       "line": 427
+      },
+      {
+       "method": "ApplyReputationCurve_SubUnitNominal_IsBitIdenticalToThePreFixFormula",
+       "line": 438
+      },
+      {
+       "method": "ApplyReputationCurve_NonIntegerAboveOne_SizesTheResidualFromTheActual",
+       "line": 452
+      },
+      {
+       "method": "ApplyReputationCurve_LargeNominal_ManySteps",
+       "line": 477
+      },
+      {
+       "method": "AdditionCurve_AtZeroTime_ReturnsNearOne",
+       "line": 492
+      },
+      {
+       "method": "AdditionCurve_AtPositiveOne_ReturnsNearZero",
+       "line": 500
+      },
+      {
+       "method": "AdditionCurve_AtNegativeOne_ReturnsNearTwo",
+       "line": 508
+      },
+      {
+       "method": "SubtractionCurve_AtZeroTime_ReturnsNearOne",
+       "line": 516
+      },
+      {
+       "method": "SubtractionCurve_AtPositiveOne_ReturnsNearTwo",
+       "line": 524
+      },
+      {
+       "method": "SubtractionCurve_AtNegativeOne_ReturnsNearZero",
+       "line": 532
+      },
+      {
+       "method": "CubicHermite_AtEndpoints",
+       "line": 544
+      },
+      {
+       "method": "ProcessAction_RepEarning_SetsEffectiveRep",
+       "line": 557
+      },
+      {
+       "method": "ProcessAction_RepPenalty_SetsNegativeEffectiveRep",
+       "line": 573
+      },
+      {
+       "method": "ProcessAction_RepPenalty_StrategySource_BypassesCurve",
+       "line": 588
+      },
+      {
+       "method": "ProcessAction_RepPenalty_KerbalDeathSource_BypassesCurve",
+       "line": 648
+      },
+      {
+       "method": "ProcessAction_RepPenalty_KerbalDeathInsideSeed_IsSkipped",
+       "line": 667
+      },
+      {
+       "method": "ProcessAction_RepPenalty_KerbalDeathInsideSeedAtLaterUT_IsStillSkipped",
+       "line": 688
+      },
+      {
+       "method": "ProcessAction_RepPenalty_KerbalDeathOutsideSeedAtEarlyUT_IsApplied",
+       "line": 703
+      },
+      {
+       "method": "ProcessAction_RepPenalty_KerbalDeathWithoutStamp_IsApplied",
+       "line": 717
+      },
+      {
+       "method": "ProcessAction_RepPenalty_NonKerbalDeathStampedInsideSeed_StillApplies",
+       "line": 732
+      },
+      {
+       "method": "ProcessAction_RepPenalty_NonStrategySource_AppliesCurveAtHighRep",
+       "line": 747
+      },
+      {
+       "method": "ProcessAction_Milestone_EffectiveTrue_AppliesGainCurve",
+       "line": 769
+      },
+      {
+       "method": "ProcessAction_Milestone_EffectiveFalse_ZeroRep",
+       "line": 782
+      },
+      {
+       "method": "ProcessAction_Milestone_ZeroRepAwarded_NoChange",
+       "line": 794
+      },
+      {
+       "method": "ProcessAction_ContractComplete_EffectiveTrue_AppliesGainCurve",
+       "line": 809
+      },
+      {
+       "method": "ProcessAction_ContractComplete_EffectiveFalse_ZeroRep",
+       "line": 821
+      },
+      {
+       "method": "ProcessAction_ContractFail_AppliesLossCurve",
+       "line": 837
+      },
+      {
+       "method": "ProcessAction_ContractCancel_AppliesLossCurve",
+       "line": 848
+      },
+      {
+       "method": "ProcessAction_ContractFail_ZeroPenalty_NoChange",
+       "line": 859
+      },
+      {
+       "method": "ProcessAction_IgnoresNonRepActions",
+       "line": 883
+      },
+      {
+       "method": "Reset_ClearsRunningRep",
+       "line": 897
+      },
+      {
+       "method": "DesignDoc_6_7_RetroactiveReorderingChangesEffectiveRepPerEvent",
+       "line": 913
+      },
+      {
+       "method": "MultipleEvents_RunningRepAccumulates",
+       "line": 978
+      },
+      {
+       "method": "Integration_EngineDispatchesRepActionsToModule",
+       "line": 1001
+      },
+      {
+       "method": "RepEarning_LogsEffective",
+       "line": 1026
+      },
+      {
+       "method": "RepPenalty_LogsEffective",
+       "line": 1038
+      },
+      {
+       "method": "MilestoneRep_Effective_LogsDetails",
+       "line": 1050
+      },
+      {
+       "method": "MilestoneRep_NotEffective_LogsSkipped",
+       "line": 1063
+      },
+      {
+       "method": "ContractComplete_NotEffective_LogsSkipped",
+       "line": 1075
+      },
+      {
+       "method": "Reset_LogsPreviousValue",
+       "line": 1087
+      },
+      {
+       "method": "ReputationInitial_SeedsRunningRep",
+       "line": 1105
+      },
+      {
+       "method": "ReputationInitial_PlusEarnings_Accumulates",
+       "line": 1120
+      },
+      {
+       "method": "HasSeed_FalseBeforeAnyAction",
+       "line": 1148
+      },
+      {
+       "method": "HasSeed_TrueAfterReputationInitial",
+       "line": 1154
+      },
+      {
+       "method": "HasSeed_FalseAfterReset",
+       "line": 1166
+      },
+      {
+       "method": "HasSeed_FalseWithOnlyEarnings",
+       "line": 1180
+      },
+      {
+       "method": "MilestoneRep_SameActionRecalculated_RateLimitedToOneLine",
+       "line": 1197
+      },
+      {
+       "method": "MilestoneRep_DistinctActionsSamePair_LogSeparately",
+       "line": 1219
+      },
+      {
+       "method": "MilestoneRep_NullRecordingId_StillKeysOnActionId",
+       "line": 1247
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

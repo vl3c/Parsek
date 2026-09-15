@@ -1,0 +1,123 @@
+{
+ "batch_id": "trajectory-orbit-003",
+ "cluster": "trajectory-orbit",
+ "tier": "A1",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "RelativeAnchorResolverTests.cs",
+   "ranges": [
+    {
+     "start": 29,
+     "end": 1136,
+     "methods": [
+      {
+       "method": "WarnUnresolved_LogLineDistinguishesFocusFromAnchor",
+       "line": 29
+      },
+      {
+       "method": "LiveLaunchMatchedAnchor_BindsToLivePose_WhenDelegateReturnsPose",
+       "line": 95
+      },
+      {
+       "method": "LiveLaunchMatchedAnchor_FallsBackToRecorded_WhenDelegateReturnsNull",
+       "line": 151
+      },
+      {
+       "method": "LiveLaunchMatchedAnchor_NullDelegate_Unchanged",
+       "line": 193
+      },
+      {
+       "method": "TryResolveAnchorPose_EmptyAnchorRecordingId_ReturnsFalseWithReason",
+       "line": 224
+      },
+      {
+       "method": "TryResolveAnchorPose_MissingAnchorRecording_ReturnsFalseWithReason",
+       "line": 248
+      },
+      {
+       "method": "TryResolveAnchorPose_V11RelativeSectionMissingAnchorRecordingId_DoesNotUseLegacyPid",
+       "line": 270
+      },
+      {
+       "method": "TryResolveAnchorPose_SingleLinkRelativeToAbsolute_ComposesPoseFromRecordedData",
+       "line": 310
+      },
+      {
+       "method": "TryResolveAnchorPose_SingleFrameRelativeSectionCoversSectionInterval",
+       "line": 351
+      },
+      {
+       "method": "TryResolveAnchorPose_SingleFrameAbsoluteSectionCoversSectionInterval",
+       "line": 390
+      },
+      {
+       "method": "TryResolveAnchorPose_AbsoluteSectionFrameGap_UsesFlatFallbackCoverage",
+       "line": 428
+      },
+      {
+       "method": "TryResolveAnchorPose_AnchorSectionGap_UsesLocalFlatPointFallback",
+       "line": 484
+      },
+      {
+       "method": "TryResolveAnchorPose_AnchorSectionGap_WideGapFailsClosed",
+       "line": 528
+      },
+      {
+       "method": "TryResolveAnchorPose_AnchorSectionGap_WithoutLocalFlatBracketFailsClosed",
+       "line": 570
+      },
+      {
+       "method": "TryResolveAnchorPose_RelativeAnchorSectionGap_UsesBodyFixedPrimaryFallback",
+       "line": 609
+      },
+      {
+       "method": "TryResolveAnchorPose_RelativeAnchorSectionGap_NonFiniteShadowUTFailsClosed",
+       "line": 650
+      },
+      {
+       "method": "TryResolveAnchorPose_RelativeAnchorSectionGap_WithoutBodyFixedPrimaryFailsClosed",
+       "line": 688
+      },
+      {
+       "method": "TryResolveAnchorPose_EndPlusTinyEpsilon_UsesResolverSectionSeamTolerance",
+       "line": 723
+      },
+      {
+       "method": "TryResolveAnchorPose_AnchorOnePhysicsTickPastTerminalSection_ClampsToFinalPlayableFrameAndLogs",
+       "line": 758
+      },
+      {
+       "method": "TryResolveAnchorPose_RelativeTerminalClamp_ReentersRelativeAnchorUnderVisitedGuard",
+       "line": 801
+      },
+      {
+       "method": "TryResolveAnchorPose_TerminalClampThresholdBoundary_PassesThenFailsClosed",
+       "line": 861
+      },
+      {
+       "method": "TryResolveAnchorPose_AnchorPastTerminalClampWindow_FailsClosed",
+       "line": 912
+      },
+      {
+       "method": "TryResolveAnchorPose_SameChainSuccessorAtTerminalEdge_WinsBeforePredecessorClamp",
+       "line": 946
+      },
+      {
+       "method": "TryResolveAnchorPose_TwoLinkRelativeChain_ComposesThroughRecordedAnchors",
+       "line": 1000
+      },
+      {
+       "method": "TryResolveAnchorPose_AnchorPastOptimizerSplit_UsesSameChainSuccessor",
+       "line": 1038
+      },
+      {
+       "method": "TryResolveAnchorPose_AnchorPastOptimizerSplit_PendingSuccessorOverridesStaleFocusTree",
+       "line": 1096
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

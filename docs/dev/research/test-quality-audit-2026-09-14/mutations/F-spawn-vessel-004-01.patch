@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index f2bb10cbf..02677c0ed 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -6980,7 +6980,7 @@ namespace Parsek
+                 && treeRecBackstop != null)
+             {
+                 bool backstopChanged = false;
+-                if (treeRecBackstop.AdoptControllersIfEmpty(pendingStartControllers))
++                if (false && treeRecBackstop.AdoptControllersIfEmpty(pendingStartControllers)) // MUTATION-T1: controllers backstop stubbed out
+                 {
+                     backstopChanged = true;
+                     ParsekLog.Verbose("Recorder",

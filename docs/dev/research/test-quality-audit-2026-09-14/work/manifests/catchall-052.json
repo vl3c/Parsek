@@ -1,0 +1,264 @@
+{
+ "batch_id": "catchall-052",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 53,
+ "files": [
+  {
+   "file": "SegmentPhasePersistenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyFromValues_MatchesSegmentPhaseVocabulary",
+       "line": 26
+      },
+      {
+       "method": "ApplyFinalSegmentPhaseFromCapture_UsesActiveRowNotCaptureId",
+       "line": 45
+      },
+      {
+       "method": "ApplyFinalSegmentPhaseFromCapture_NoCapturePhase_PreservesExistingTag",
+       "line": 71
+      },
+      {
+       "method": "ApplyFinalSegmentPhaseFromCapture_CommittedChainSegment_PreservesExistingTag",
+       "line": 95
+      },
+      {
+       "method": "ApplyFinalSegmentPhaseFromCapture_NonActiveOptimizerRow_PreservesExistingTag",
+       "line": 122
+      },
+      {
+       "method": "FinalizeIndividualRecording_ForceStopNoCapture_AppliesTerminalOrbitPhase",
+       "line": 157
+      },
+      {
+       "method": "FinalizeIndividualRecording_PreExistingTerminalState_StillAppliesEndpointPhase",
+       "line": 180
+      },
+      {
+       "method": "FinalizeIndividualRecording_RelativeEndpointWithStaleBodyTags_PreservesAndLogs",
+       "line": 202
+      },
+      {
+       "method": "ApplyFinalEndpointSegmentPhase_CommittedChainSegment_PreservesExistingTag",
+       "line": 262
+      },
+      {
+       "method": "ApplyFinalEndpointSegmentPhase_NonActiveOptimizerRow_PreservesExistingTag",
+       "line": 287
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PositionFormatTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Start_LaunchSiteAndBody",
+       "line": 10
+      },
+      {
+       "method": "Start_LaunchSiteOnly",
+       "line": 22
+      },
+      {
+       "method": "Start_Eva_WithParentVessel",
+       "line": 29
+      },
+      {
+       "method": "Start_Eva_NoParent_FallsBackToLocation",
+       "line": 36
+      },
+      {
+       "method": "Start_Eva_NoParent_BodyOnly",
+       "line": 48
+      },
+      {
+       "method": "Start_SituationBiomeBody",
+       "line": 59
+      },
+      {
+       "method": "Start_SituationAndBody_NoBiome",
+       "line": 71
+      },
+      {
+       "method": "Start_BiomeAndBody_NoSituation",
+       "line": 82
+      },
+      {
+       "method": "Start_BodyOnly",
+       "line": 93
+      },
+      {
+       "method": "Start_Empty_ReturnsDash",
+       "line": 100
+      },
+      {
+       "method": "End_Orbiting",
+       "line": 108
+      },
+      {
+       "method": "End_Orbiting_NoBody",
+       "line": 119
+      },
+      {
+       "method": "End_Docked",
+       "line": 126
+      },
+      {
+       "method": "End_Landed_BiomeAndBody",
+       "line": 137
+      },
+      {
+       "method": "End_Landed_FallsBackToStartBody",
+       "line": 149
+      },
+      {
+       "method": "End_Splashed_BodyOnly",
+       "line": 161
+      },
+      {
+       "method": "End_Destroyed",
+       "line": 172
+      },
+      {
+       "method": "End_SubOrbital_NoBody",
+       "line": 183
+      },
+      {
+       "method": "End_Boarded_WithParentVessel",
+       "line": 190
+      },
+      {
+       "method": "End_Boarded_NoParent",
+       "line": 197
+      },
+      {
+       "method": "End_NoTerminalState_WithSegmentPhase_ShowsBodyPhase",
+       "line": 204
+      },
+      {
+       "method": "End_NoTerminalState_WithCrossBodySegmentPhase_ShowsBodyPathPhase",
+       "line": 215
+      },
+      {
+       "method": "End_NoTerminalState_WithCrossBodyTrackSections_ShowsBodyPathPhase",
+       "line": 234
+      },
+      {
+       "method": "End_NoTerminalState_WithRelativeShadowTrackSection_DoesNotDoubleCountBodyPath",
+       "line": 266
+      },
+      {
+       "method": "End_NoTerminalState_MixedEvaAtmoSurface_ShowsBodyOnly",
+       "line": 295
+      },
+      {
+       "method": "End_NoTerminalState_WithLastPoint_ShowsBody",
+       "line": 323
+      },
+      {
+       "method": "End_NoTerminalState_NoData_ReturnsDash",
+       "line": 334
+      },
+      {
+       "method": "End_Recovered",
+       "line": 340
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "InventoryManifestSerializationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RoundTrip_BothStartAndEnd",
+       "line": 30
+      },
+      {
+       "method": "RoundTrip_StartOnly",
+       "line": 72
+      },
+      {
+       "method": "RoundTrip_NullBoth_NoNodeWritten",
+       "line": 96
+      },
+      {
+       "method": "RoundTrip_ViaTree",
+       "line": 110
+      },
+      {
+       "method": "InventorySlots_RoundTrip",
+       "line": 137
+      },
+      {
+       "method": "RoundTrip_EndOnly",
+       "line": 173
+      },
+      {
+       "method": "RoundTrip_EmptyDicts_NoNodeWritten",
+       "line": 196
+      },
+      {
+       "method": "RoundTrip_AsymmetricKeys",
+       "line": 210
+      },
+      {
+       "method": "MalformedItem_Skipped",
+       "line": 243
+      },
+      {
+       "method": "LegacyRecording_NoNode_NullFields",
+       "line": 266
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SoiSeamDoubleEmitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnRailsSoiCrossing_EmitsNoFramelessSection",
+       "line": 129
+      },
+      {
+       "method": "OnRailsSoiCrossing_PostSeamSectionCarriesTheNewSoiSegment",
+       "line": 149
+      },
+      {
+       "method": "OnRailsSoiCrossing_ReadPathEnsure_IsInv2Clean",
+       "line": 167
+      },
+      {
+       "method": "LegacyFramelessShellBesideCheckpoint_StillFailsInv2OnTheReadPath",
+       "line": 187
+      },
+      {
+       "method": "ResolveSoiBoundarySectionFrame_FollowsRailsState",
+       "line": 229
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

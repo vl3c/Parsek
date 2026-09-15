@@ -1,0 +1,256 @@
+{
+ "batch_id": "ledger-career-034",
+ "cluster": "ledger-career",
+ "tier": "B",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "CrewEndStateTerminalStampInvalidationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ForkLatchedUnknown_ThenStampedRecovered_ReInfersAndTheKerbalFrees",
+       "line": 133
+      },
+      {
+       "method": "LatchedUnknown_WithoutTheStamp_StaysReservedForever",
+       "line": 183
+      },
+      {
+       "method": "RawFieldAssignmentBypassingTheSeam_ReproducesTheLatch",
+       "line": 198
+      },
+      {
+       "method": "ForkLatchedUnknown_ThenStampedLanded_StaysBenign",
+       "line": 218
+      },
+      {
+       "method": "EndStatesInferredAgainstLanded_ThenRecoveredRestamp_ReInfersAndFrees",
+       "line": 240
+      },
+      {
+       "method": "EndStatesInferredAgainstLanded_ThenDestroyedOverride_ReInfersDead",
+       "line": 265
+      },
+      {
+       "method": "RestampingTheSameTerminal_DoesNotClear",
+       "line": 284
+      },
+      {
+       "method": "RecordingWithNoCrewEndStates_StampIsANoOp",
+       "line": 301
+      },
+      {
+       "method": "StampingNullTerminal_KeepsTheExistingEndStates",
+       "line": 328
+      },
+      {
+       "method": "EndStatesThatCouldNotBeReDerived_AreKeptNotDropped",
+       "line": 348
+      },
+      {
+       "method": "GhostOnlyConversionAfterTheStamp_CannotStrandTheRecordingUnresolved",
+       "line": 379
+      },
+      {
+       "method": "MarkDestroyedAtTerminal_RoutesThroughTheSeam",
+       "line": 401
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KerbalDeathRepPenaltyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OneDeadCrewAndOneVesselLossEvent_EmitsOneRow",
+       "line": 41
+      },
+      {
+       "method": "TwoDeadCrew_StillEmitsExactlyOneRow",
+       "line": 58
+      },
+      {
+       "method": "MixedCrew_CountsOnlyTheDead",
+       "line": 74
+      },
+      {
+       "method": "DeadCrewWithNoEvent_EmitsNothingAndNamesTheReason",
+       "line": 89
+      },
+      {
+       "method": "NoDeadCrewButAVesselLossEvent_EmitsNothing",
+       "line": 105
+      },
+      {
+       "method": "EmptyOrNullCrew_EmitsNothing",
+       "line": 121
+      },
+      {
+       "method": "NullEventList_EmitsNothing",
+       "line": 136
+      },
+      {
+       "method": "EventTaggedToAnotherRecording_IsNotAttributed",
+       "line": 148
+      },
+      {
+       "method": "UntaggedEvent_IsNotAttributed",
+       "line": 161
+      },
+      {
+       "method": "ReputationEventUnderAnotherReason_IsNotAVesselLoss",
+       "line": 177
+      },
+      {
+       "method": "NonLossDelta_IsNotAPenalty",
+       "line": 200
+      },
+      {
+       "method": "TwoVesselLossEvents_TakesTheOneNearestTheDeathUT",
+       "line": 222
+      },
+      {
+       "method": "EquidistantVesselLossEvents_TakeTheFirstListed",
+       "line": 242
+      },
+      {
+       "method": "CountDeadCrew_CountsDeadOnly",
+       "line": 263
+      },
+      {
+       "method": "IsRecordingScopedVesselLoss_RejectsEmptyRecordingId",
+       "line": 274
+      },
+      {
+       "method": "IsInsideReputationSeed_PreExistingSeed_IsOutside",
+       "line": 289
+      },
+      {
+       "method": "IsInsideReputationSeed_LivePoolSeedThisCommit_IsInside",
+       "line": 297
+      },
+      {
+       "method": "IsInsideReputationSeed_CareerBaselineSeedThisCommit_IsOutside",
+       "line": 305
+      },
+      {
+       "method": "IsInsideReputationSeed_RefusalFallbackSeedThisCommit_IsOutside",
+       "line": 316
+      },
+      {
+       "method": "IsInsideReputationSeed_SeedNotYetCaptured_IsInside",
+       "line": 325
+      },
+      {
+       "method": "IsInsideReputationSeed_CoversEveryOrigin",
+       "line": 334
+      },
+      {
+       "method": "CareerStartSeedInvalidatesInsideStamps_RefusalFallback_Flips",
+       "line": 362
+      },
+      {
+       "method": "CareerStartSeedInvalidatesInsideStamps_CareerBaseline_Flips",
+       "line": 370
+      },
+      {
+       "method": "CareerStartSeedInvalidatesInsideStamps_LivePool_DoesNotFlip",
+       "line": 380
+      },
+      {
+       "method": "CareerStartSeedInvalidatesInsideStamps_NoSeedCreated_DoesNotFlip",
+       "line": 391
+      },
+      {
+       "method": "CareerStartSeedInvalidatesInsideStamps_CoversEveryOrigin",
+       "line": 402
+      },
+      {
+       "method": "InsideSeedAndReStamp_NeverBothTrueForOneOrigin",
+       "line": 427
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RecalculationFuzzer.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GameActionType_EnumValueCount_Locked",
+       "line": 34
+      },
+      {
+       "method": "DeterministicLedgerFuzzer_PrePassMutationMatchesSecondSortDecision",
+       "line": 40
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LedgerRecoveryKerbalExperienceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Gate_ForwardsOnlyWhenUntaggedAndNothingCanStillClaimIt",
+       "line": 115
+      },
+      {
+       "method": "Forward_WritesAScopedRowCorrelatedToTheRecoveredRecording",
+       "line": 138
+      },
+      {
+       "method": "Forward_ScopesTheRowToTheSameRecordingTheRecoveryFundsRowUses",
+       "line": 169
+      },
+      {
+       "method": "Forward_TwoCrewProduceTwoRowsAtTheSameUt",
+       "line": 200
+      },
+      {
+       "method": "GetActionKey_KerbalExperienceIsKeyedByKerbalName",
+       "line": 231
+      },
+      {
+       "method": "Forward_RefusesWhenNoRecordingCorrelates",
+       "line": 255
+      },
+      {
+       "method": "Forward_RefusesAnEventWithNoCareerEntries",
+       "line": 277
+      },
+      {
+       "method": "Forward_EmptyBatchIsANoOp",
+       "line": 296
+      },
+      {
+       "method": "Forward_IsIdempotentAcrossARepeatedBurst",
+       "line": 306
+      },
+      {
+       "method": "ForwardedRow_IsScopedAndThereforeTombstoneEligible",
+       "line": 331
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

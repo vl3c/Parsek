@@ -1,0 +1,292 @@
+{
+ "batch_id": "catchall-039",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "AutoLoopTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LoopTimeUnit_SaveLoad_RoundTrip_Auto",
+       "line": 55
+      },
+      {
+       "method": "LoopTimeUnit_SaveLoad_RoundTrip_Hour",
+       "line": 74
+      },
+      {
+       "method": "LoopTimeUnit_Load_MissingKey_DefaultsSec",
+       "line": 91
+      },
+      {
+       "method": "LoopTimeUnit_Save_DefaultSec_NotWritten",
+       "line": 102
+      },
+      {
+       "method": "ResolveLoopInterval_AutoMode_ReturnsGlobalValue",
+       "line": 118
+      },
+      {
+       "method": "ResolveLoopInterval_AutoMode_NegativeGlobal_ClampsToMin",
+       "line": 126
+      },
+      {
+       "method": "ResolveLoopInterval_AutoMode_NaN_ReturnsDefault",
+       "line": 137
+      },
+      {
+       "method": "ResolveLoopInterval_ManualMode_ReturnsRecordingValue",
+       "line": 145
+      },
+      {
+       "method": "ResolveLoopInterval_ManualMode_NegativeClampsToMin",
+       "line": 153
+      },
+      {
+       "method": "ResolveLoopInterval_ManualMode_PeriodShorterThanDuration_Preserved",
+       "line": 173
+      },
+      {
+       "method": "ResolveLoopInterval_ManualMode_BelowMin_Clamps",
+       "line": 182
+      },
+      {
+       "method": "ResolveLoopInterval_ManualMode_Zero_Clamps",
+       "line": 190
+      },
+      {
+       "method": "ResolveLoopInterval_NullRec_ReturnsDefault",
+       "line": 198
+      },
+      {
+       "method": "ShouldUseGlobalAutoLaunchQueue_RequiresEnabledAutoLoopingTrajectory",
+       "line": 205
+      },
+      {
+       "method": "TryResolveAutoLoopLaunchSchedule_OrdersQueueByEffectiveStartAndUsesGlobalCadence",
+       "line": 227
+      },
+      {
+       "method": "UnitLabel_AllValues",
+       "line": 284
+      },
+      {
+       "method": "UnitSuffix_AllValues",
+       "line": 294
+      },
+      {
+       "method": "CycleRecordingUnit_FullCycle",
+       "line": 300
+      },
+      {
+       "method": "CycleDisplayUnit_FullCycle_NoAuto",
+       "line": 310
+      },
+      {
+       "method": "ConvertFromSeconds_AllUnits",
+       "line": 323
+      },
+      {
+       "method": "ConvertToSeconds_AllUnits",
+       "line": 332
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_CopiesLoopTimeUnit",
+       "line": 340
+      },
+      {
+       "method": "FormatLoopValue_Formatting",
+       "line": 362
+      },
+      {
+       "method": "TryParseLoopInput_UnitRules",
+       "line": 380
+      },
+      {
+       "method": "ResolveLoopInterval_AutoMode_Independent_Of_Duration",
+       "line": 391
+      },
+      {
+       "method": "ResolveLoopInterval_AutoMode_Infinity_ReturnsDefault",
+       "line": 404
+      },
+      {
+       "method": "ResolveLoopInterval_ManualMode_NaN_ReturnsDefault",
+       "line": 412
+      },
+      {
+       "method": "ResolveLoopInterval_ManualMode_Infinity_ReturnsDefault",
+       "line": 421
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestBatchIsolationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_FlightWithVessel_IsInMemoryAndDisk",
+       "line": 21
+      },
+      {
+       "method": "Classify_FlightNoVessel_IsDiskOnly",
+       "line": 29
+      },
+      {
+       "method": "Classify_TrackStation_IsInMemoryAndDisk",
+       "line": 37
+      },
+      {
+       "method": "Classify_SpaceCenter_IsDiskOnly",
+       "line": 45
+      },
+      {
+       "method": "Classify_Editor_IsDiskOnly",
+       "line": 53
+      },
+      {
+       "method": "Classify_MainMenu_IsNone",
+       "line": 61
+      },
+      {
+       "method": "Classify_NoGame_IsNone",
+       "line": 69
+      },
+      {
+       "method": "Classify_NoSaveFolder_IsNone",
+       "line": 77
+      },
+      {
+       "method": "ShouldRunFinalBatchRestore_TruthTable",
+       "line": 96
+      },
+      {
+       "method": "AlertMessage_NamesSlotAndScene",
+       "line": 106
+      },
+      {
+       "method": "AlertMessage_DiskReverted_TellsPlayerToReload",
+       "line": 120
+      },
+      {
+       "method": "AlertMessage_DiskPartial_TellsPlayerManualRecovery",
+       "line": 132
+      },
+      {
+       "method": "AlertMessage_NullSlotAndFailure_DoesNotThrow",
+       "line": 144
+      },
+      {
+       "method": "CaptureBaseline_CapturesBeforeWritingMarker",
+       "line": 174
+      },
+      {
+       "method": "WriteMarker_BuildsMarkerBeforeDurableSave",
+       "line": 199
+      },
+      {
+       "method": "WriteMarker_CarriesParsekSnapshotDir",
+       "line": 223
+      },
+      {
+       "method": "CrashReconcile_RevertsSidecarsAndForcesColdReload_BeforeSchedulingDeferredReload",
+       "line": 241
+      },
+      {
+       "method": "CrashReconcile_ColdReloadPrep_ResetsLedgerAndInitialLoadFlag",
+       "line": 272
+      },
+      {
+       "method": "CrashReconcile_DeferredReload_SweepsArtifactsAfterReload",
+       "line": 291
+      },
+      {
+       "method": "CrashReconcile_CoreWrappedInDefensiveTryCatch",
+       "line": 321
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FullCareerTimelineTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FullMunLandingTimeline",
+       "line": 187
+      },
+      {
+       "method": "RetroactiveCommit_RecomputesPriority",
+       "line": 270
+      },
+      {
+       "method": "DoubleRecalculate_IsIdempotent",
+       "line": 323
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ScenarioAutoCommitResourcesAppliedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SafetyNetAutoCommit_AdvancesRecordingIndexes",
+       "line": 149
+      },
+      {
+       "method": "SceneExitAutoMerge_AdvancesRecordingIndexes",
+       "line": 169
+      },
+      {
+       "method": "OutsideFlightAutoCommit_AdvancesRecordingIndexes",
+       "line": 185
+      },
+      {
+       "method": "AutoCommit_DoesNotTouchMilestoneReplayIndexes",
+       "line": 205
+      },
+      {
+       "method": "AutoCommit_LeavesEmptyPointRecordingsUnadvanced",
+       "line": 239
+      },
+      {
+       "method": "AutoCommit_NoPendingTree_CommitIsNoop_IndexAdvanceStillRuns",
+       "line": 263
+      },
+      {
+       "method": "DiscardPendingTreeAndRecalculate_RemovesPendingTreeAndRunsPatch",
+       "line": 285
+      },
+      {
+       "method": "DiscardPendingTreeAndRecalculate_WithoutPendingTree_IsSilentNoOp",
+       "line": 309
+      },
+      {
+       "method": "AutoCommit_CommitOrderingIsCommitThenMark",
+       "line": 325
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

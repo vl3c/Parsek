@@ -1,0 +1,215 @@
+{
+ "batch_id": "recording-tree-017",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "StartDockedOriginBindingTests.cs",
+   "ranges": [
+    {
+     "start": 50,
+     "end": 932,
+     "methods": [
+      {
+       "method": "NoVesselTypeAuthorityRemains_TheDepotPredicateIsGone",
+       "line": 50
+      },
+      {
+       "method": "IsValidCargoOwnerVesselType_MatchesTheDesignDocRejectSet",
+       "line": 79
+      },
+      {
+       "method": "IsValidCargoOwnerVesselType_UnknownTypeSentinel_Rejects",
+       "line": 90
+      },
+      {
+       "method": "PairAdmission_AdmitsEveryPairOfCargoOwners_WhateverTheTypes",
+       "line": 102
+      },
+      {
+       "method": "PairAdmission_InvalidCargoOwnerOnEitherSide_Rejects",
+       "line": 121
+      },
+      {
+       "method": "PairAdmission_MissingHalfInfoOrZeroRoot_ReadsHalfIdentityMissing",
+       "line": 136
+      },
+      {
+       "method": "PairAdmission_BothHalvesNameTheSameCraft_ReadsHalfIdentityMissing",
+       "line": 155
+      },
+      {
+       "method": "PairAdmission_InvalidCargoOwnerBeatsEverythingElse",
+       "line": 166
+      },
+      {
+       "method": "SeamSplit_CutsTheSeamEdgeIntoExactlyTwoHalves",
+       "line": 202
+      },
+      {
+       "method": "SeamSplit_IsSymmetricAcrossTheSeam",
+       "line": 211
+      },
+      {
+       "method": "SeamSplit_NonAdjacentParts_FailClosed",
+       "line": 222
+      },
+      {
+       "method": "SeamSplit_MissingOrDegenerateInputs_FailClosed",
+       "line": 234
+      },
+      {
+       "method": "SeamSplit_DisconnectedPart_FailsClosedRatherThanLosingIt",
+       "line": 244
+      },
+      {
+       "method": "Resolver_TwoSeamsBetweenTheSameTwoCraft_CollapseToOnePair",
+       "line": 270
+      },
+      {
+       "method": "Resolver_TwoDifferentPartners_ReadsAmbiguous",
+       "line": 287
+      },
+      {
+       "method": "Resolver_AllZeroRoots_ReadsPartnerPidZero",
+       "line": 301
+      },
+      {
+       "method": "Resolver_EvaAndPrelaunchShortCircuitBeforeTheCandidateWalk",
+       "line": 315
+      },
+      {
+       "method": "Producer_CapturedPair_LeavesTheOriginSlotsEmptyAndAnnouncesThePair",
+       "line": 350
+      },
+      {
+       "method": "Producer_CapturedPairIsNotAnOriginForRouteAnalysis",
+       "line": 393
+      },
+      {
+       "method": "Producer_UnusableSeamPair_AnnouncesAtInfo_KeyedOnSCANNEDSeamsNotAcceptedCandidates",
+       "line": 409
+      },
+      {
+       "method": "Producer_NoSeamsAtAll_StaysQuiet_TheOrdinaryUndockedStart",
+       "line": 435
+      },
+      {
+       "method": "Producer_PrelaunchHost_TakesItsOwnSkip_EvenWithSeamsScanned",
+       "line": 451
+      },
+      {
+       "method": "Binding_ActiveIsHalfA_OriginIsHalfB",
+       "line": 471
+      },
+      {
+       "method": "Binding_ActiveIsHalfB_OriginIsHalfA",
+       "line": 480
+      },
+      {
+       "method": "Binding_ActiveSideOwnsPartsOfBothHalves_RefusesToBind",
+       "line": 492
+      },
+      {
+       "method": "Binding_UnrelatedSeamSplit_RefusesToBind",
+       "line": 504
+      },
+      {
+       "method": "Binding_ActiveSideMatchesNeitherHalf_RefusesToBind",
+       "line": 517
+      },
+      {
+       "method": "Binding_NoCapturedPartSets_ReadsNoPairPending",
+       "line": 530
+      },
+      {
+       "method": "Binding_PartSetDrift_StillBinds_OverlapNotEquality",
+       "line": 545
+      },
+      {
+       "method": "Pickup_CargoWentUp_ReadsGain",
+       "line": 575
+      },
+      {
+       "method": "Pickup_NewResourceAppeared_ReadsGain",
+       "line": 585
+      },
+      {
+       "method": "Pickup_Unchanged_ReadsCarried_AndCarriedDoesNotValidate",
+       "line": 595
+      },
+      {
+       "method": "Pickup_PureDeliveryUndock_IsNotAPickup",
+       "line": 613
+      },
+      {
+       "method": "Pickup_CargoWentDown_ReadsCarried_NotGain",
+       "line": 628
+      },
+      {
+       "method": "Pickup_TransportLeavesEmpty_ReadsNone",
+       "line": 639
+      },
+      {
+       "method": "Pickup_ElectricChargeAndIntakeAirAreNotCargo",
+       "line": 654
+      },
+      {
+       "method": "Pickup_MissingStartManifest_CannotReadAGain_FallsToCarried",
+       "line": 667
+      },
+      {
+       "method": "Pickup_MissingUndockManifest_IsUnevaluable",
+       "line": 681
+      },
+      {
+       "method": "Pickup_RelayWindow1_ResourceAndInventoryBothRose_ReadsGain",
+       "line": 719
+      },
+      {
+       "method": "Pickup_InventoryOnlyGain_WithZeroResourceDelta_ReadsGain",
+       "line": 733
+      },
+      {
+       "method": "Pickup_InventoryLostButResourceGained_ReadsGain",
+       "line": 748
+      },
+      {
+       "method": "Pickup_ResourceLostButInventoryGained_ReadsGain",
+       "line": 763
+      },
+      {
+       "method": "Pickup_BothKindsWentDown_IsNotValidated",
+       "line": 774
+      },
+      {
+       "method": "Pickup_InventoryOnlyTransport_LeavesEmpty_ReadsNone",
+       "line": 788
+      },
+      {
+       "method": "Pickup_NullStartInventory_CannotReadAnInventoryGain",
+       "line": 797
+      },
+      {
+       "method": "Bind_WithNoStartManifestsAtAll_DoesNotValidate",
+       "line": 828
+      },
+      {
+       "method": "Pickup_ItemsWithNoIdentityCannotInventADelta",
+       "line": 850
+      },
+      {
+       "method": "PickupDelta_GrammarIsWhitespaceFree_AndCarriesBothKinds",
+       "line": 864
+      },
+      {
+       "method": "Bind_InventoryOnlyPickup_ValidatesThroughTheWholeBinder",
+       "line": 892
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

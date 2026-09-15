@@ -1,0 +1,143 @@
+{
+ "batch_id": "trajectory-orbit-009",
+ "cluster": "trajectory-orbit",
+ "tier": "A",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "BallisticExtrapolatorKeplerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CircularOrbit_RadiusIsConstantOverAFullPeriod",
+       "line": 64
+      },
+      {
+       "method": "CircularOrbit_PeriodMatchesClosedForm",
+       "line": 80
+      },
+      {
+       "method": "CircularOrbit_MeanMotionMatchesClosedForm",
+       "line": 91
+      },
+      {
+       "method": "CircularOrbit_SpeedMatchesVisVivaAndVelocityIsPerpendicularToRadius",
+       "line": 105
+      },
+      {
+       "method": "EccentricOrbit_ApsisRadiiMatchClosedForm",
+       "line": 136
+      },
+      {
+       "method": "EccentricOrbit_MeanAnomalyAdvancesLinearlyWithTime",
+       "line": 158
+      },
+      {
+       "method": "EccentricOrbit_KeplerEquationSolutionIsSelfConsistent",
+       "line": 192
+      },
+      {
+       "method": "EccentricOrbit_EnergyAndAngularMomentumAreConservedOverOnePeriod",
+       "line": 232
+      },
+      {
+       "method": "EccentricOrbit_RadiusMatchesTheConicEquation",
+       "line": 259
+      },
+      {
+       "method": "TryCreate_RecoversClassicalElementsFromTheStateVector",
+       "line": 290
+      },
+      {
+       "method": "GetStateAtUT_AtEpochReproducesTheConstructionStateVector",
+       "line": 325
+      },
+      {
+       "method": "GetPositionAtUT_AgreesExactlyWithGetStateAtUT",
+       "line": 339
+      },
+      {
+       "method": "GetStateAtUT_IsPeriodicWithThePeriod",
+       "line": 360
+      },
+      {
+       "method": "NearCircularOrbit_StaysEllipticAndKeepsItsApsisSeparation",
+       "line": 380
+      },
+      {
+       "method": "HyperbolicOrbit_ExposesOpenOrbitElements",
+       "line": 404
+      },
+      {
+       "method": "HyperbolicOrbit_ConservesEnergyAndAngularMomentumAlongTheArc",
+       "line": 425
+      },
+      {
+       "method": "HyperbolicOrbit_MeanAnomalyIsUnboundedRatherThanWrapped",
+       "line": 453
+      },
+      {
+       "method": "HyperbolicOrbit_StateAtEpochReproducesTheConstructionStateVector",
+       "line": 476
+      },
+      {
+       "method": "ParabolicStateVector_IsRejectedRatherThanPropagated",
+       "line": 493
+      },
+      {
+       "method": "DegenerateStateVectors_AreRejected",
+       "line": 505
+      },
+      {
+       "method": "GetMeanMotionAndMeanAnomaly_DegradeToZeroWithoutAGravitationalParameter",
+       "line": 523
+      },
+      {
+       "method": "TryCreateFromSegment_DerivesPeriodAndApsesFromTheElements",
+       "line": 563
+      },
+      {
+       "method": "TryCreateFromSegment_RejectsUnusableElements",
+       "line": 587
+      },
+      {
+       "method": "TwoBodyOrbit_ConvertsDegreeSegmentElementsToTheRadiansCore",
+       "line": 605
+      },
+      {
+       "method": "NanEccentricitySegment_IsDeclinedInsteadOfThrowingOutOfTheHyperbolicSolver",
+       "line": 671
+      },
+      {
+       "method": "HyperbolicOrbit_NonFinitePropagationUT_YieldsNaNStateInsteadOfThrowing",
+       "line": 707
+      },
+      {
+       "method": "OpenOrbitWithAPositiveSemiMajorAxis_YieldsNaNStateInsteadOfThrowing",
+       "line": 737
+      },
+      {
+       "method": "TryCreateFromSegment_RejectsANonFiniteValueInAnyElement",
+       "line": 773
+      },
+      {
+       "method": "TryCreateFromSegment_RejectsEccentricityAndParabolicClauses_IndependentlyOfTheSemiMajorAxisSign",
+       "line": 820
+      },
+      {
+       "method": "TryCreateFromSegment_RejectsShapesTheConicEquationCannotExpress",
+       "line": 845
+      },
+      {
+       "method": "TryCreateFromSegment_StillAcceptsAGenuineHyperbolaAndMatchesClosedForm",
+       "line": 878
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

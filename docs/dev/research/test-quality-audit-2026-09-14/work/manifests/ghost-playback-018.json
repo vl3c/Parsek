@@ -1,0 +1,266 @@
+{
+ "batch_id": "ghost-playback-018",
+ "cluster": "ghost-playback",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "GhostMapEndpointTailTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldOverrideVisibleSegmentWithEndpointTail_StaleEndpointSegment_ReturnsTrue",
+       "line": 35
+      },
+      {
+       "method": "ShouldOverrideVisibleSegmentWithEndpointTail_LoopMemberInWindow_NeverOverrides",
+       "line": 53
+      },
+      {
+       "method": "ShouldOverrideVisibleSegmentWithEndpointTail_LegitimateInWindowCheckpoint_ReturnsFalse",
+       "line": 78
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_EndpointTailOverridesStaleVisibleSegmentDespiteLargeDrift",
+       "line": 96
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_TransferMemberDescentContinuation_RetiresCleanlyNoEndpointTailNoSegment",
+       "line": 148
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_HistoricalTailDeclines_KeepsVisibleSegment",
+       "line": 189
+      },
+      {
+       "method": "ResolveTrackingStationGhostSource_HistoricalTailDeclines_LogsTailDetailOnSegmentPath",
+       "line": 233
+      },
+      {
+       "method": "ResolveTrackingStationGhostSource_EndpointTail_LogsTailAccepted",
+       "line": 272
+      },
+      {
+       "method": "ResolveTrackingStationGhostSource_NonTerminalSegment_LogsTailBypass",
+       "line": 304
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_TerminalOrbitBackedSegmentDoesNotChooseEndpointTail",
+       "line": 338
+      },
+      {
+       "method": "TryGetVisibleOrbitBoundsForGhostVessel_EndpointTailUsesStoredBoundsBeforeCommittedSegments",
+       "line": 378
+      },
+      {
+       "method": "TryGetVisibleOrbitBoundsForGhostVessel_LoopShifted_CoalescesEquivalentArcWindowAcrossSegments",
+       "line": 406
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PlaybackTrajectoryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Recording_ImplementsIPlaybackTrajectory",
+       "line": 35
+      },
+      {
+       "method": "Recording_PointsProperty_ReturnsSameList",
+       "line": 43
+      },
+      {
+       "method": "Recording_OrbitSegmentsProperty_ReturnsSameList",
+       "line": 53
+      },
+      {
+       "method": "Recording_TrackSectionsProperty_ReturnsSameList",
+       "line": 61
+      },
+      {
+       "method": "Recording_StartUT_ComputedFromPoints",
+       "line": 69
+      },
+      {
+       "method": "Recording_EndUT_ComputedFromPoints",
+       "line": 89
+      },
+      {
+       "method": "Recording_StartEndUT_NoPoints_ReturnsZero",
+       "line": 109
+      },
+      {
+       "method": "Recording_OrbitSegmentsExtendBoundsBeyondPoints",
+       "line": 118
+      },
+      {
+       "method": "Recording_TrackSectionsExtendBoundsBeyondPoints",
+       "line": 142
+      },
+      {
+       "method": "Recording_EmptyTrackSectionsDoNotOverridePointBounds",
+       "line": 187
+      },
+      {
+       "method": "Recording_RecordingFormatVersion_Matches",
+       "line": 212
+      },
+      {
+       "method": "Recording_PartEventsProperty_ReturnsSameList",
+       "line": 221
+      },
+      {
+       "method": "Recording_FlagEventsProperty_ReturnsSameList",
+       "line": 231
+      },
+      {
+       "method": "Recording_GhostVisualSnapshot_Matches",
+       "line": 241
+      },
+      {
+       "method": "Recording_VesselSnapshot_Matches",
+       "line": 251
+      },
+      {
+       "method": "Recording_VesselName_Matches",
+       "line": 261
+      },
+      {
+       "method": "Recording_LoopPlayback_Matches",
+       "line": 269
+      },
+      {
+       "method": "Recording_LoopIntervalSeconds_Matches",
+       "line": 277
+      },
+      {
+       "method": "Recording_LoopTimeUnit_Matches",
+       "line": 285
+      },
+      {
+       "method": "Recording_LoopAnchorVesselId_Matches",
+       "line": 293
+      },
+      {
+       "method": "Recording_TerminalStateValue_Null_Default",
+       "line": 301
+      },
+      {
+       "method": "Recording_TerminalStateValue_Destroyed",
+       "line": 309
+      },
+      {
+       "method": "Recording_SurfacePos_Null_Default",
+       "line": 317
+      },
+      {
+       "method": "Recording_SurfacePos_Populated",
+       "line": 325
+      },
+      {
+       "method": "Recording_PlaybackEnabled_DefaultTrue",
+       "line": 340
+      },
+      {
+       "method": "Recording_PlaybackEnabled_Disabled",
+       "line": 348
+      },
+      {
+       "method": "Recording_IsDebris_DefaultFalse",
+       "line": 356
+      },
+      {
+       "method": "Recording_IsDebris_True",
+       "line": 364
+      },
+      {
+       "method": "MockTrajectory_ImplementsIPlaybackTrajectory",
+       "line": 380
+      },
+      {
+       "method": "MockTrajectory_StartEndUT_FromPoints",
+       "line": 387
+      },
+      {
+       "method": "MockTrajectory_EmptyPoints_ZeroStartEnd",
+       "line": 396
+      },
+      {
+       "method": "MockTrajectory_AllProperties_Settable",
+       "line": 405
+      },
+      {
+       "method": "MockTrajectory_FluentBuilder_Chainable",
+       "line": 439
+      },
+      {
+       "method": "TrajectoryPlaybackFlags_DefaultValues",
+       "line": 461
+      },
+      {
+       "method": "TrajectoryPlaybackFlags_AllFieldsSettable",
+       "line": 479
+      },
+      {
+       "method": "FrameContext_DefaultValues",
+       "line": 519
+      },
+      {
+       "method": "FrameContext_AllFieldsSettable",
+       "line": 532
+      },
+      {
+       "method": "GhostLifecycleEvent_CanConstruct",
+       "line": 569
+      },
+      {
+       "method": "PlaybackCompletedEvent_ExtendsGhostLifecycleEvent",
+       "line": 590
+      },
+      {
+       "method": "LoopRestartedEvent_AllFields",
+       "line": 617
+      },
+      {
+       "method": "OverlapExpiredEvent_AllFields",
+       "line": 636
+      },
+      {
+       "method": "CameraActionEvent_AllFields",
+       "line": 653
+      },
+      {
+       "method": "CameraActionType_AllValues_Exist",
+       "line": 679
+      },
+      {
+       "method": "Recording_ExplicitStartUT_UsedWhenNoPoints",
+       "line": 697
+      },
+      {
+       "method": "Recording_ExplicitUT_ExtendsActualBoundsWithoutShrinking",
+       "line": 710
+      },
+      {
+       "method": "Recording_ExplicitUT_InsideActualBounds_DoesNotShrinkThem",
+       "line": 731
+      },
+      {
+       "method": "Recording_NoPointsNoExplicit_ReturnsZero",
+       "line": 753
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

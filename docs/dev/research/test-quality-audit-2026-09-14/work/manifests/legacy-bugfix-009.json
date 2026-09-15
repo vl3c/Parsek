@@ -1,0 +1,139 @@
+{
+ "batch_id": "legacy-bugfix-009",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 30,
+ "files": [
+  {
+   "file": "Bug585InPlaceContinuationRestoreTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveInPlaceContinuationTarget_NullMarker_ReturnsNoSwap",
+       "line": 49
+      },
+      {
+       "method": "ResolveInPlaceContinuationTarget_PlaceholderPattern_ReturnsNoSwap",
+       "line": 60
+      },
+      {
+       "method": "ResolveInPlaceContinuationTarget_AlreadyPointingAtMarker_ReturnsNoSwap",
+       "line": 79
+      },
+      {
+       "method": "ResolveInPlaceContinuationTarget_TreeIdMismatch_ReturnsNoSwap",
+       "line": 99
+      },
+      {
+       "method": "ResolveInPlaceContinuationTarget_MarkerRecordingMissingFromTree_ReturnsNoSwap",
+       "line": 117
+      },
+      {
+       "method": "ResolveInPlaceContinuationTarget_InPlaceMarker_SwapsTarget",
+       "line": 136
+      },
+      {
+       "method": "ResolveInPlaceContinuationTarget_MarkerFieldsEmpty_ReturnsNoSwap",
+       "line": 163
+      },
+      {
+       "method": "ResolveInPlaceContinuationTarget_NullResolver_ReturnsNoSwap",
+       "line": 180
+      },
+      {
+       "method": "ResolveInPlaceContinuationTarget_EmptyMarkerTreeId_AllowsSwap",
+       "line": 197
+      },
+      {
+       "method": "IsInPlaceContinuationArrival_NullMarker_ReturnsFalse",
+       "line": 233
+      },
+      {
+       "method": "IsInPlaceContinuationArrival_PlaceholderPattern_ReturnsFalse",
+       "line": 245
+      },
+      {
+       "method": "IsInPlaceContinuationArrival_PidMatchesMarkerRecording_ReturnsTrue",
+       "line": 262
+      },
+      {
+       "method": "IsInPlaceContinuationArrival_PidDoesNotMatch_ReturnsFalse",
+       "line": 283
+      },
+      {
+       "method": "IsInPlaceContinuationArrival_ZeroNewPid_ReturnsFalse",
+       "line": 304
+      },
+      {
+       "method": "IsInPlaceContinuationArrival_ForkModeMarker_ReturnsTrue",
+       "line": 322
+      },
+      {
+       "method": "IsInPlaceContinuationArrival_ForkModeMarkerWithoutFlag_ReturnsFalse",
+       "line": 346
+      },
+      {
+       "method": "MergeDialog_InPlaceContinuationActiveLeaf_RendersCanPersistTrue",
+       "line": 369
+      },
+      {
+       "method": "RebuildBackgroundMap_AfterSwapping_ActiveRecordingId_ExcludesSwappedTarget",
+       "line": 434
+      },
+      {
+       "method": "RebuildBackgroundMap_InPlaceContinuation_ExcludesOldRecordingWithSameActivePid",
+       "line": 481
+      },
+      {
+       "method": "RebuildBackgroundMap_DestroyedRecording_NotInBackgroundMap",
+       "line": 530
+      },
+      {
+       "method": "ReconcileInPlaceForkIntoTreeIfNeeded_ForkMissingFromTree_AttachesFromCommittedList",
+       "line": 581
+      },
+      {
+       "method": "ReconcileInPlaceForkIntoTreeIfNeeded_ForkInstanceDivergesFromCommittedList_ConvergesToCommittedInstance",
+       "line": 666
+      },
+      {
+       "method": "ReconcileInPlaceForkIntoTreeIfNeeded_ForkAlreadyAttached_NoOp",
+       "line": 742
+      },
+      {
+       "method": "ReconcileInPlaceForkIntoTreeIfNeeded_LegacyInPlaceShape_NoOp",
+       "line": 794
+      },
+      {
+       "method": "ReconcileInPlaceForkIntoTreeIfNeeded_NotInPlaceMarker_NoOp",
+       "line": 825
+      },
+      {
+       "method": "ReconcileInPlaceForkIntoTreeIfNeeded_ForkMissingFromCommittedList_LogsWarn",
+       "line": 847
+      },
+      {
+       "method": "ReconcileInPlaceForkIntoTreeIfNeeded_ForkInTreeButNotCommittedList_LogsVerboseNotWarn",
+       "line": 906
+      },
+      {
+       "method": "ReconcileInPlaceForkIntoTreeIfNeeded_TreeIdMismatch_NoOp",
+       "line": 967
+      },
+      {
+       "method": "EnsureForkAttachedToTree_RebuildsBackgroundMap",
+       "line": 998
+      },
+      {
+       "method": "EnsureForkAttachedToTree_AlreadyAttached_NoOp_NoLog",
+       "line": 1035
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

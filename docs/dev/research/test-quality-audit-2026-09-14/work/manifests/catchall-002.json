@@ -1,0 +1,91 @@
+{
+ "batch_id": "catchall-002",
+ "cluster": "catchall",
+ "tier": "A1",
+ "expected_methods": 18,
+ "files": [
+  {
+   "file": "SyntheticRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 3375,
+     "end": 4049,
+     "methods": [
+      {
+       "method": "ScenarioWriter_InjectIntoSave_ReplacesExistingParsekScenario",
+       "line": 3375
+      },
+      {
+       "method": "ScenarioWriter_InjectIntoSave_Idempotent",
+       "line": 3400
+      },
+      {
+       "method": "ScenarioWriter_InjectIntoSave_HandlesVariousWhitespace",
+       "line": 3425
+      },
+      {
+       "method": "VesselSnapshotBuilder_DeterministicPid",
+       "line": 3459
+      },
+      {
+       "method": "SerializeTrajectory_RoundTrip_PreservesData",
+       "line": 3471
+      },
+      {
+       "method": "SerializeTrajectory_SaveToFile_WritesExpectedContent",
+       "line": 3553
+      },
+      {
+       "method": "RecordingBuilder_BuildV3Metadata_HasNoInlineData",
+       "line": 3622
+      },
+      {
+       "method": "RecordingBuilder_WithLoopPlayback_WritesLoopMetadata",
+       "line": 3650
+      },
+      {
+       "method": "RecordingBuilder_BuildTrajectoryNode_HasBulkData",
+       "line": 3669
+      },
+      {
+       "method": "RecordingBuilder_WithCustomFormatVersion_PreservesVersion",
+       "line": 3690
+      },
+      {
+       "method": "ScenarioWriter_V3Format_ProducesTreeNodes",
+       "line": 3706
+      },
+      {
+       "method": "LightShowcaseRecordings_BuildExpectedShape",
+       "line": 3721
+      },
+      {
+       "method": "DeployableShowcaseRecordings_BuildExpectedShape",
+       "line": 3745
+      },
+      {
+       "method": "GearShowcaseRecordings_BuildExpectedShape",
+       "line": 3783
+      },
+      {
+       "method": "CargoBayShowcaseRecordings_BuildExpectedShape",
+       "line": 3812
+      },
+      {
+       "method": "EngineShowcaseRecordings_BuildExpectedShape",
+       "line": 3845
+      },
+      {
+       "method": "EngineShowcaseRecordings_AllEntriesFollowExpectedEventProfiles",
+       "line": 3922
+      },
+      {
+       "method": "EngineShowcaseRecordings_KickbackMatchesThumperSrbProfile",
+       "line": 4009
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

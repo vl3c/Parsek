@@ -1,0 +1,234 @@
+{
+ "batch_id": "catchall-012",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "PredecessorWindowPickupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OpenWindow_TransportGainedBeforeThisRecordingStarted_Validates",
+       "line": 137
+      },
+      {
+       "method": "CompleteWindow_UndockedBeforeThisRecordingStarted_Validates",
+       "line": 152
+      },
+      {
+       "method": "CompleteWindow_ThatClosesAfterThisRecordingStarted_IsRefused",
+       "line": 166
+      },
+      {
+       "method": "Window_DockedAfterThisRecordingStarted_IsRefused",
+       "line": 178
+      },
+      {
+       "method": "UnknownRecordingStartUT_RefusesRatherThanAdmittingEverything",
+       "line": 188
+      },
+      {
+       "method": "NoWindows_AndNoDockUT_ReadAsNoWindows",
+       "line": 198
+      },
+      {
+       "method": "OnlyTheLATESTWindowIsEVALUATED_NoCherryPicking",
+       "line": 213
+      },
+      {
+       "method": "WindowWithADifferentPARTNER_IsNotEvidence",
+       "line": 235
+      },
+      {
+       "method": "PartnerRootFlightIdMismatch_RefusesEvenWhenThePartPidsOverLAP",
+       "line": 251
+      },
+      {
+       "method": "UnknownRootFlightIdOnEitherSide_DegradesToThePartPidOverlap",
+       "line": 264
+      },
+      {
+       "method": "OpenWindow_TransportPartSetDrifted_RefusesRatherThanDifferenceTwoScopes",
+       "line": 279
+      },
+      {
+       "method": "CompleteWindow_NeedsNoPartSetEqualityCheck",
+       "line": 291
+      },
+      {
+       "method": "PureDeliveryAcrossThePredecessorWindow_IsNotAPickup",
+       "line": 309
+      },
+      {
+       "method": "NothingMovedAcrossThePredecessorWindow_IsNotAPickup",
+       "line": 322
+      },
+      {
+       "method": "InventoryRiseAcrossThePredecessorWindow_ValidatesLikeAResource",
+       "line": 331
+      },
+      {
+       "method": "NoBaselineAndNoEndManifest_ReadUnmeasurable_NeverValidating",
+       "line": 346
+      },
+      {
+       "method": "MissingDockBaseline_CannotFabricateARise",
+       "line": 365
+      },
+      {
+       "method": "Walk_FollowsTheParentBranchPoint_TheSwitchContinuationEdge",
+       "line": 400
+      },
+      {
+       "method": "Walk_RefusesAPredecessorFromADIFFERENTLAUNCH",
+       "line": 424
+      },
+      {
+       "method": "Walk_RefusesACHAINPredecessorFromADIFFERENTLAUNCH",
+       "line": 446
+      },
+      {
+       "method": "Walk_FallsBackToParentRecordingIdThenToTheChainPredecessor",
+       "line": 466
+      },
+      {
+       "method": "Walk_TheTreeROOTHasNoPredecessor",
+       "line": 493
+      },
+      {
+       "method": "Walk_ASelfReferencingParentEdgeIsNotAPredecessor",
+       "line": 508
+      },
+      {
+       "method": "Walk_AChainSegmentZeroLooksNoFurtherBack",
+       "line": 518
+      },
+      {
+       "method": "Bind_LoadedYesterday_UndockedToday_ValidatesAndBecomesAnOrigin",
+       "line": 598
+      },
+      {
+       "method": "Bind_WithNoPredecessorEvidence_StillStampsTheUnvalidatedCarried",
+       "line": 632
+      },
+      {
+       "method": "Bind_APredecessorDELIVERYWindowDoesNotValidate",
+       "line": 651
+      },
+      {
+       "method": "Bind_AWITNESSEDDockThatMovedNothing_IsNotRescuedByAPredecessorWindow",
+       "line": 668
+      },
+      {
+       "method": "Bind_AnInRecordingGainKeepsItsOwnSpelling",
+       "line": 696
+      },
+      {
+       "method": "Bind_APredecessorWindowNamingADifferentPartnerDoesNotValidate",
+       "line": 713
+      },
+      {
+       "method": "EndpointRootPartUId_SurvivesACodecRoundTripAndADeepClone",
+       "line": 734
+      },
+      {
+       "method": "RootPartFlightId_IsReadFromTheSnapshotsOwnRootIndex",
+       "line": 781
+      },
+      {
+       "method": "GainFromPredecessorWindow_IsAValidatingPickupKind",
+       "line": 811
+      },
+      {
+       "method": "PickupKind_SurvivesTheProofCodecUnderItsOwnName",
+       "line": 829
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PendingScienceSubjectsClearTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NotifyLedgerTreeCommitted_SingleRecording_SubjectsReadThenCleared",
+       "line": 96
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_MultiRecording_DoesNotDuplicateSingleRecordingSubjects",
+       "line": 129
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_MultiRecording_RoutesMixedTaggedScienceWithoutDroppingEarlierSegments",
+       "line": 174
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_SingleRecording_SkipsPreStartUntaggedScience",
+       "line": 241
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_SingleRecording_SkipsPreStartTaggedScience",
+       "line": 286
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_SingleRecording_RoutesAllSubjects",
+       "line": 331
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_TaggedSubjectOutsideWindow_ReRoutesByCaptureUt_NoCredit",
+       "line": 366
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_TaggedSubjectBeyondAllWindows_KeepsTagAttribution_BugACredit",
+       "line": 407
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_ChainedTaggedSubjectInSuccessorGapWindow_KeepsTagAttribution_BugACredit",
+       "line": 453
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_TaggedSubjectImplausibleCaptureUt_NoWarn_TagRoutingUnchanged",
+       "line": 509
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_OrchestratorThrows_RetainsPendingScience",
+       "line": 540
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_PostSciencePersistThrow_DoesNotRetainPendingScience",
+       "line": 595
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_UnrelatedSuccess_DoesNotWipeEarlierRetainedScience",
+       "line": 652
+      },
+      {
+       "method": "FinalizeScopedPendingScienceCommit_UnrelatedSuccess_DoesNotWipeEarlierRetainedScience",
+       "line": 730
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_SecondRecordingThrows_LogsPartiallyRetainedPendingScience",
+       "line": 807
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_NullTree_NoOp",
+       "line": 896
+      },
+      {
+       "method": "NotifyLedgerTreeCommitted_EmptyList_Silent",
+       "line": 908
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

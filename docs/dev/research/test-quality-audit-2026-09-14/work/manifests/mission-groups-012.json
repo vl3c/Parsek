@@ -1,0 +1,269 @@
+{
+ "batch_id": "mission-groups-012",
+ "cluster": "mission-groups",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "MissionCrossTreeDockTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FindLinks_MatchesForeignDockClaim",
+       "line": 183
+      },
+      {
+       "method": "FindLinks_ConclusiveGuidMismatch_Declines",
+       "line": 202
+      },
+      {
+       "method": "FindLinks_ControllerSide_HasNoLinks",
+       "line": 215
+      },
+      {
+       "method": "FindLinks_BoardClaim_Offered",
+       "line": 227
+      },
+      {
+       "method": "FindLinks_ZeroTargetPid_Skipped",
+       "line": 238
+      },
+      {
+       "method": "Journey_FollowsDockedStretch_ThenPartnerOffshoot",
+       "line": 253
+      },
+      {
+       "method": "Journey_NeverUndocked_FollowsLineToEnd",
+       "line": 264
+      },
+      {
+       "method": "Journey_PartnerSurvivedAsMergedStack_FollowsContinuingStack",
+       "line": 275
+      },
+      {
+       "method": "Journey_SpansEnvSplitChain",
+       "line": 289
+      },
+      {
+       "method": "JourneyWindows_SharedLineStartsAtDock_OffshootWhole",
+       "line": 314
+      },
+      {
+       "method": "JourneySelectableKeys_CoverDockedStretchAndOffshoot_NotPreDock",
+       "line": 337
+      },
+      {
+       "method": "IncludedJourneyRenderWindows_ExcludingDockedStretch_KeepsOffshootOnly",
+       "line": 361
+      },
+      {
+       "method": "MergeForeignMemberWindows_AddsDockedStretchAndOffshootMembers",
+       "line": 386
+      },
+      {
+       "method": "MergeForeignMemberWindows_StaleLink_CountsStale_AddsNothing",
+       "line": 415
+      },
+      {
+       "method": "MergeForeignMemberWindows_DuplicateIndex_FirstClaimantWins",
+       "line": 436
+      },
+      {
+       "method": "LoopUnit_CrossTree_MembersFromBothTrees_ShareOneSpan",
+       "line": 471
+      },
+      {
+       "method": "LoopUnit_CrossTree_WithoutLink_KeepsOwnTreeOnly",
+       "line": 497
+      },
+      {
+       "method": "LoopUnit_CrossTree_PeriodicityFailsClosed_WithLoggedReason",
+       "line": 535
+      },
+      {
+       "method": "FindLinks_DebrisPidCollision_Declined",
+       "line": 554
+      },
+      {
+       "method": "Journey_Redock_SoloStretchIsNotOffered_TwoRunsOnForeignLine",
+       "line": 569
+      },
+      {
+       "method": "BuildSignature_FoldsLinkState_AndForeignTreeTopology",
+       "line": 616
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionEventDigestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Digest_IsOrderedByUT",
+       "line": 171
+      },
+      {
+       "method": "Digest_ControllerTree_NamesThePartnerAndItsMission",
+       "line": 187
+      },
+      {
+       "method": "Digest_ControllerTree_UndockRowNamesTheDepartingVessel",
+       "line": 204
+      },
+      {
+       "method": "Digest_MultipleRoots_EachGetsItsOwnLaunchRow",
+       "line": 218
+      },
+      {
+       "method": "Digest_SameTreeRecoveredDock_IsNamedOnceWithNoCrossMissionGoTo",
+       "line": 231
+      },
+      {
+       "method": "Digest_PartnerTree_ShowsTheDockItNeverRecorded",
+       "line": 253
+      },
+      {
+       "method": "Digest_NoMatch_UsesTheGenericUnrecordedText",
+       "line": 280
+      },
+      {
+       "method": "Digest_UnstampedZero_EmitsAVerbOnlyRow",
+       "line": 295
+      },
+      {
+       "method": "Digest_TwoParentMerge_NamesTheOtherParentWithoutAMissionSuffix",
+       "line": 309
+      },
+      {
+       "method": "Digest_VisibilityFlaggedNodes_AreSkippedOnBothSides",
+       "line": 322
+      },
+      {
+       "method": "Digest_EmptyTreeAndNullInputs_ProduceAnEmptyDigest",
+       "line": 338
+      },
+      {
+       "method": "Digest_DebrisOnlyUndock_EmitsNoRow",
+       "line": 359
+      },
+      {
+       "method": "Digest_GapRow_AppearsOnlyForAnIncludedLinkPastTheThreshold",
+       "line": 389
+      },
+      {
+       "method": "Digest_TerminalLeaf_EmitsItsVerdictRow_ExceptDockedAndBoarded",
+       "line": 425
+      },
+      {
+       "method": "Digest_EmitsTheGrepStableSummaryLine",
+       "line": 447
+      },
+      {
+       "method": "Digest_SuppressLogging_SilencesTheSummary",
+       "line": 461
+      },
+      {
+       "method": "FormatRowText_PhrasesEveryRowShape",
+       "line": 483
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionStructureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_SuppressLogging_SilencesBuildMissionStructureLine",
+       "line": 99
+      },
+      {
+       "method": "Build_DisplayMirrorSuppressFlagPair_SilencesLineAndRestoresFlags",
+       "line": 134
+      },
+      {
+       "method": "SingleVesselRun_LinksEnvSplitLegsInChainIndexOrder",
+       "line": 164
+      },
+      {
+       "method": "Run_OrdersByChainIndex_NotInsertionOrder",
+       "line": 185
+      },
+      {
+       "method": "Fork_ControlledSeparation_ProducesTwoBranchChildren",
+       "line": 205
+      },
+      {
+       "method": "Debris_IsExcludedFromLegs_AndDoesNotBecomeAChild",
+       "line": 234
+      },
+      {
+       "method": "SameTreeMerge_DockBack_GivesChildTwoBranchParents",
+       "line": 258
+      },
+      {
+       "method": "ForeignDock_IsSingleParent",
+       "line": 288
+      },
+      {
+       "method": "DisconnectedContinuation_IsASeparateRoot",
+       "line": 312
+      },
+      {
+       "method": "ParallelBranch_IsSeparateRun_NotLinkedIntoPrimary",
+       "line": 332
+      },
+      {
+       "method": "Fork_ChildBranchContinuesAsItsOwnRun",
+       "line": 355
+      },
+      {
+       "method": "Output_IsDeterministic_RegardlessOfInsertionOrder",
+       "line": 382
+      },
+      {
+       "method": "ContinuesAsVessel_And_OffshootFlags_AreSetCorrectly",
+       "line": 423
+      },
+      {
+       "method": "ThroughLine_CollapsesVesselChain_AndHangsOffshoots",
+       "line": 455
+      },
+      {
+       "method": "BranchContinuation_IsMarkedOnFirstChild_OfFork",
+       "line": 493
+      },
+      {
+       "method": "UndockFork_ContinuationFollowsActiveChild_NotGuidTiebreak",
+       "line": 517
+      },
+      {
+       "method": "Eva_ActiveChildIsKerbal_ShipStillContinues",
+       "line": 549
+      },
+      {
+       "method": "SameTreeDock_MergedChild_ContinuesBothParents",
+       "line": 577
+      },
+      {
+       "method": "EmptyOrNullTree_ReturnsEmptyStructure",
+       "line": 600
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

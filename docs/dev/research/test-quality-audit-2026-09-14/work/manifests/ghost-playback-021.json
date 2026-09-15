@@ -1,0 +1,154 @@
+{
+ "batch_id": "ghost-playback-021",
+ "cluster": "ghost-playback",
+ "tier": "B",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "GhostMapSoiGapStateVectorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldConsumeCheckpointStateVectorForExistingGhost_PrefersCoveringSegment",
+       "line": 39
+      },
+      {
+       "method": "HasOrbitSegmentStartingAfter_DetectsMidRecordingGapVsTerminal",
+       "line": 54
+      },
+      {
+       "method": "EndpointTailAllowedInTrackingStationUpdate_SuppressedForLoopMembers",
+       "line": 83
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_SoiGapCheckpointFallbackAccepted_ReturnsMunStateVectorSource",
+       "line": 92
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_NormalCheckpointStateVectorStillRejects",
+       "line": 125
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_SoiGapCheckpointFallbackRejectsBodyMismatch",
+       "line": 156
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_SoiGapCheckpointFallbackRejectsOutsidePlaybackWindow",
+       "line": 188
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_SameBodyGapIsNotSoiRecovery",
+       "line": 223
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_UsesActualNextSegmentBodyOverStaleExpectedBody",
+       "line": 251
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_CurrentSegmentWinsOverCheckpointFallback",
+       "line": 279
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PlaybackEnabledScopeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_PlaybackDisabledPastEnd_ReturnsTrue",
+       "line": 76
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_PlaybackEnabledPastEnd_ReturnsFalse",
+       "line": 90
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_NoRenderableData_ReturnsFalse",
+       "line": 106
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_OrbitOnlyPastEnd_ReturnsTrue",
+       "line": 123
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_OrbitOnlyBeforeEnd_ReturnsFalse",
+       "line": 149
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_SurfaceOnlyPastEnd_ReturnsTrue",
+       "line": 171
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_AtExactEndUT_ReturnsFalse",
+       "line": 190
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_JustPastEnd_ReturnsTrue",
+       "line": 207
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_BeforeEnd_ReturnsFalse",
+       "line": 223
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_PastChainEffectiveEnd_ReturnsTrue",
+       "line": 237
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_AlreadyFired_ReturnsFalse",
+       "line": 253
+      },
+      {
+       "method": "ShouldFireHiddenPastEndCompletion_NullTrajectory_ReturnsFalse",
+       "line": 267
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_ChainFullyDisabled_StillSpawns",
+       "line": 282
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_ChainLooping_ReasonIsChainLooping",
+       "line": 298
+      },
+      {
+       "method": "IsChainLooping_DisabledLoopSegment_StillReturnsTrue",
+       "line": 315
+      },
+      {
+       "method": "IsKscStructurallyEligible_KerbinWithPoints_True",
+       "line": 347
+      },
+      {
+       "method": "IsKscStructurallyEligible_NonKerbin_False",
+       "line": 354
+      },
+      {
+       "method": "IsKscStructurallyEligible_TooFewPoints_False",
+       "line": 363
+      },
+      {
+       "method": "IsKscStructurallyEligible_IgnoresPlaybackEnabled",
+       "line": 371
+      },
+      {
+       "method": "ShouldShowInKSC_EqualsStructuralAndEnabled",
+       "line": 386
+      },
+      {
+       "method": "ShouldSpawnAtKscEnd_VisibilityHidden_StillSpawns",
+       "line": 411
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

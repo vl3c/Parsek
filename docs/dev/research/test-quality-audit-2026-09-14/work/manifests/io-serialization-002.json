@@ -1,0 +1,155 @@
+{
+ "batch_id": "io-serialization-002",
+ "cluster": "io-serialization",
+ "tier": "A",
+ "expected_methods": 34,
+ "files": [
+  {
+   "file": "GuiTreeFunnelTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EveryFunnelResolvesAgainstTheShippedIMGUIModule",
+       "line": 41
+      },
+      {
+       "method": "NoFunnelIsAnUnpatchableInternalCall",
+       "line": 53
+      },
+      {
+       "method": "EveryFunnelHasADistinctPinnedWireName",
+       "line": 70
+      },
+      {
+       "method": "WireNamesAreUniqueSoTheFunnelReportIsUnambiguous",
+       "line": 77
+      },
+      {
+       "method": "FunnelCountMatchesTheEnumSoHitsIsFullyAddressable",
+       "line": 85
+      },
+      {
+       "method": "PatchParameterNamesAndTypesMatchTheirTargets",
+       "line": 106
+      },
+      {
+       "method": "NoGuiTreePatchClassIsDiscoverableByTheAssemblySweep",
+       "line": 180
+      },
+      {
+       "method": "TheApplierTableCoversExactlyTheFunnelEnum",
+       "line": 208
+      },
+      {
+       "method": "TheGuiDepthGuardMemberResolvesWithItsDeclaredSignature",
+       "line": 247
+      },
+      {
+       "method": "TheGuiDepthGuardMemberIsAnInternalCall",
+       "line": 269
+      },
+      {
+       "method": "TheLayoutGroupFunnelsAreTheLargeGUILayoutUtilityPair",
+       "line": 287
+      },
+      {
+       "method": "LabelsBecomeSafeFilenames",
+       "line": 329
+      },
+      {
+       "method": "OverlongLabelsAreTruncated",
+       "line": 335
+      },
+      {
+       "method": "ArmingIsRefusedFromInsideAGuiPass",
+       "line": 344
+      },
+      {
+       "method": "GuiDepthDecidesInsideAGuiPassAndAnUnreadableDepthFallsBackToOutside",
+       "line": 371
+      },
+      {
+       "method": "TheUnavailableGuiDepthSentinelIsOnTheFallbackSideOfThePredicate",
+       "line": 378
+      },
+      {
+       "method": "TheOutputSuffixAndDirectoryAreThePinnedHarvestContract",
+       "line": 386
+      },
+      {
+       "method": "TheLogPathIsNormalised_AndFallsBackToTheRawStringWhenItCannotBe",
+       "line": 395
+      },
+      {
+       "method": "TheGiveUpTripsAtTheBudgetAndNotBefore",
+       "line": 437
+      },
+      {
+       "method": "AnUnreadableFrameClockIsNotATimeout",
+       "line": 446
+      },
+      {
+       "method": "ANonPositiveBudgetDisablesTheGiveUpOutright",
+       "line": 459
+      },
+      {
+       "method": "TheBudgetIsWellPastTheLiveCellsOwnWaitAfterArming",
+       "line": 465
+      },
+      {
+       "method": "DisarmingAThrownArmLeavesNothingForThePumpToOwn",
+       "line": 504
+      },
+      {
+       "method": "TheSeamsRepeatOfTheDisarmIsANoOp",
+       "line": 520
+      },
+      {
+       "method": "TheReasonTokenIsOneGrepStableSpelling",
+       "line": 536
+      },
+      {
+       "method": "AFunnelWeAlreadyOwnIsSkippedRatherThanPatchedTwice",
+       "line": 555
+      },
+      {
+       "method": "AFunnelWeDoNotOwnIsPatched",
+       "line": 562
+      },
+      {
+       "method": "AnUnresolvedTargetIsNeverPatchedWhateverTheOwnershipReadingSays",
+       "line": 571
+      },
+      {
+       "method": "AThrowingUnpatchLeavesTheInterceptionsReportedAsStillInstalled",
+       "line": 580
+      },
+      {
+       "method": "AManagedProbeBindsThroughTheCheapDelegatePath",
+       "line": 624
+      },
+      {
+       "method": "TheInvokeWrapperIsAWorkingProbeAndNotJustANonNull",
+       "line": 635
+      },
+      {
+       "method": "ARefusedDelegateBindingFallsBackToInvokeRatherThanToNothing",
+       "line": 643
+      },
+      {
+       "method": "AnUnresolvedMemberBindsNothingAndSaysSo",
+       "line": 656
+      },
+      {
+       "method": "TheRealClipCountMemberBindsBySomePathOnThisHost",
+       "line": 672
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

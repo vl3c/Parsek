@@ -1,0 +1,143 @@
+{
+ "batch_id": "legacy-bugfix-008",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "MilestoneRewardCaptureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildMilestoneDetail_FormatsAsExpected",
+       "line": 60
+      },
+      {
+       "method": "BuildMilestoneDetail_ZeroRewards_ParsesToZero",
+       "line": 71
+      },
+      {
+       "method": "ConvertMilestoneAchieved_ParsesRealRewardValues",
+       "line": 89
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_UpdatesStoredEventInPlace",
+       "line": 107
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_UpdatesLedgerActionForKscMilestone",
+       "line": 152
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_WithScienceReward_UpdatesLedgerAction",
+       "line": 187
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_AllThreeRewards_UpdatesAllFields",
+       "line": 219
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_UnknownNode_LogsAndNoOp",
+       "line": 247
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_NullNode_NoThrow",
+       "line": 264
+      },
+      {
+       "method": "ResetForTesting_ClearsPendingMilestoneEventById",
+       "line": 271
+      },
+      {
+       "method": "RoutePostfix_AfterReset_IgnoresFormerStalePendingEntry",
+       "line": 287
+      },
+      {
+       "method": "RegisterAndEnrich_TaggedEvent_PatchesStoredDetailEndToEnd",
+       "line": 340
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_StoredSlotMissing_LogsDefensiveWarn",
+       "line": 377
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_CachedRecordingIdMismatch_WarnsThenRegisterPendingSeamSucceeds",
+       "line": 401
+      },
+      {
+       "method": "EnrichPendingMilestoneRewards_ByIdNotReference_HandlesAliasedNodeInstance",
+       "line": 458
+      },
+      {
+       "method": "EmitStandaloneProgressReward_AppendsMilestoneEventWithRewards",
+       "line": 495
+      },
+      {
+       "method": "EmitStandaloneProgressReward_DoesNotPopulatePendingMap",
+       "line": 511
+      },
+      {
+       "method": "EmitStandaloneProgressReward_ConvertsToMilestoneActionWithRewards",
+       "line": 524
+      },
+      {
+       "method": "EmitStandaloneProgressReward_LogsEmissionWithFundsAmount",
+       "line": 542
+      },
+      {
+       "method": "EmitStandaloneProgressReward_NullNode_NoThrowAndNoEvent",
+       "line": 556
+      },
+      {
+       "method": "EmitStandaloneProgressReward_DuringActionReplay_Suppressed",
+       "line": 568
+      },
+      {
+       "method": "RoutePostfix_NoPendingEntry_EmitsStandaloneMilestoneEvent",
+       "line": 597
+      },
+      {
+       "method": "RoutePostfix_PendingEntry_EnrichesInPlaceWithoutAppending",
+       "line": 623
+      },
+      {
+       "method": "ReconcileEarningsWindow_StandaloneMilestonePairsCleanly_NoMismatchWarn",
+       "line": 667
+      },
+      {
+       "method": "EmitStandaloneProgressReward_RepeatedRecordHits_CoalesceIntoOneAction_PreservingTotal",
+       "line": 737
+      },
+      {
+       "method": "EmitStandaloneProgressReward_DistinctRecordNodes_DoNotCoalesceTogether",
+       "line": 794
+      },
+      {
+       "method": "EmitStandaloneProgressReward_NonRecordMilestone_DoesNotCoalesce",
+       "line": 811
+      },
+      {
+       "method": "EmitStandaloneProgressReward_ManyRecordBreaks_LedgerStaysBounded",
+       "line": 826
+      },
+      {
+       "method": "AddEvent_Ref_PreservesExplicitLegacyEpochOnCallerAndStore",
+       "line": 887
+      },
+      {
+       "method": "Emit_Ref_PropagatesRecordingIdToCaller_AndPreservesLegacyEpoch",
+       "line": 905
+      },
+      {
+       "method": "RegisterPendingMilestoneEvent_CachesTaggedEvent_WithoutExplicitMirror",
+       "line": 940
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

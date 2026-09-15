@@ -1,0 +1,51 @@
+{
+ "batch_id": "ledger-career-016",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 8,
+ "files": [
+  {
+   "file": "LedgerStateFuzzerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ModuleRegistration_MirrorsProductionTierOrder",
+       "line": 197
+      },
+      {
+       "method": "Fuzz_AllPoolsAndModuleTotalsStayFinite",
+       "line": 231
+      },
+      {
+       "method": "Fuzz_EqualUtPermutation_ProducesIdenticalState",
+       "line": 301
+      },
+      {
+       "method": "Fuzz_DoubleRecalculate_IsIdempotent",
+       "line": 340
+      },
+      {
+       "method": "Fuzz_SeedRowsSurviveEveryCutoff",
+       "line": 372
+      },
+      {
+       "method": "Fuzz_Els_IsOrderPreservingSubsetAntitoneInTombstonesAndMonotoneUnderAppend",
+       "line": 416
+      },
+      {
+       "method": "SyntheticContractFail_CollidingDeadlines_ResolveDeterministically",
+       "line": 568
+      },
+      {
+       "method": "Generator_CoversEveryNonSeedActionType",
+       "line": 788
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

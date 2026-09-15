@@ -1,0 +1,307 @@
+{
+ "batch_id": "recorder-events-012",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 72,
+ "files": [
+  {
+   "file": "ZoneRenderingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyDistance_WithinFullFidelityRange_ReturnsPhysics",
+       "line": 32
+      },
+      {
+       "method": "ClassifyDistance_AtFullFidelityBoundary_ReturnsVisual",
+       "line": 42
+      },
+      {
+       "method": "ClassifyDistance_WithPreviousVisual_HoldsVisualUntilRestoreBand",
+       "line": 50
+      },
+      {
+       "method": "ClassifyDistance_Hysteresis_SuppressesPhysicsVisualChatter",
+       "line": 66
+      },
+      {
+       "method": "ClassifyDistance_InVisualRange_ReturnsVisual",
+       "line": 89
+      },
+      {
+       "method": "ClassifyDistance_AtVisualBoundary_ReturnsBeyond",
+       "line": 98
+      },
+      {
+       "method": "ClassifyDistance_FarBeyond_ReturnsBeyond",
+       "line": 104
+      },
+      {
+       "method": "DetectZoneTransition_SameZone_ReturnsFalse",
+       "line": 115
+      },
+      {
+       "method": "DetectZoneTransition_PhysicsToVisual_ReturnsOutward",
+       "line": 124
+      },
+      {
+       "method": "DetectZoneTransition_VisualToBeyond_ReturnsOutward",
+       "line": 133
+      },
+      {
+       "method": "DetectZoneTransition_PhysicsToBeyond_ReturnsOutward",
+       "line": 142
+      },
+      {
+       "method": "DetectZoneTransition_BeyondToVisual_ReturnsInward",
+       "line": 151
+      },
+      {
+       "method": "DetectZoneTransition_VisualToPhysics_ReturnsInward",
+       "line": 160
+      },
+      {
+       "method": "DetectZoneTransition_BeyondToPhysics_ReturnsInward",
+       "line": 169
+      },
+      {
+       "method": "GetZoneRenderingPolicy_Physics_FullRendering",
+       "line": 182
+      },
+      {
+       "method": "GetZoneRenderingPolicy_Visual_MeshAndPartEvents",
+       "line": 192
+      },
+      {
+       "method": "GetZoneRenderingPolicy_Beyond_EverythingSkipped",
+       "line": 202
+      },
+      {
+       "method": "ShouldForceWatchedFullFidelity_WatchedWithinCutoff_ReturnsTrue",
+       "line": 216
+      },
+      {
+       "method": "ShouldForceWatchedFullFidelity_AtCutoff_ReturnsFalse",
+       "line": 223
+      },
+      {
+       "method": "ShouldForceWatchedFullFidelity_NotWatched_ReturnsFalse",
+       "line": 230
+      },
+      {
+       "method": "ShouldForceWatchProtectedFullFidelity_OrbitTail_ReturnsFalse",
+       "line": 237
+      },
+      {
+       "method": "ShouldAllowWarpZoneHideExemption_WatchProtectedOrbitTail_ReturnsFalse",
+       "line": 245
+      },
+      {
+       "method": "ShouldForceWatchedFullFidelity_InvalidDistance_ReturnsFalse",
+       "line": 256
+      },
+      {
+       "method": "ResolveUnresolvedRelativeSectionDistanceFallback_RelativeSection_ReturnsMaxValue",
+       "line": 266
+      },
+      {
+       "method": "TryGetAbsoluteSectionPlaybackFrames_AbsoluteSection_UsesSectionFrames",
+       "line": 285
+      },
+      {
+       "method": "TryGetAbsoluteSectionPlaybackFrames_RelativeSection_ReturnsFalse",
+       "line": 309
+      },
+      {
+       "method": "TryGetAbsoluteSectionPlaybackFrames_AbsoluteSectionWithoutFrames_ReturnsFalse",
+       "line": 327
+      },
+      {
+       "method": "TryGetAbsoluteSectionPlaybackFramesForPlayback_AppendsNextbodyFixedFrameWhenSectionEndIsUnbracketed",
+       "line": 348
+      },
+      {
+       "method": "TryGetAbsoluteSectionPlaybackFramesForPlayback_UsesRelativeBodyFixedPrimaryOnly",
+       "line": 392
+      },
+      {
+       "method": "TryGetAbsoluteSectionPlaybackFramesForPlayback_DoesNotBridgeAcrossBodyChange",
+       "line": 439
+      },
+      {
+       "method": "ApplyWatchedFullFidelityOverride_Forced_ClearsAllSuppression",
+       "line": 479
+      },
+      {
+       "method": "ApplyDistanceLodPolicy_ReducedTier_SuppressesEventsFx_AndReducesFidelity",
+       "line": 492
+      },
+      {
+       "method": "ApplyDistanceLodPolicy_PastOldCutoffInFullFidelity_KeepsFullFidelityAndFx",
+       "line": 507
+      },
+      {
+       "method": "ApplyDistanceLodPolicy_HystereticVisualZone_KeepsReducedFidelityInsideBoundary",
+       "line": 535
+      },
+      {
+       "method": "ApplyDistanceLodPolicy_HiddenTier_HidesMesh_AndSuppressesEverything",
+       "line": 555
+      },
+      {
+       "method": "ApplyDistanceLodPolicy_ForcedFullFidelity_OverridesReducedTier",
+       "line": 569
+      },
+      {
+       "method": "IsProtectedGhost_WatchedGhost_ReturnsTrue",
+       "line": 583
+      },
+      {
+       "method": "IsProtectedGhost_UnwatchedGhost_ReturnsFalse",
+       "line": 590
+      },
+      {
+       "method": "IsProtectedGhost_ExactCycleMatch_ReturnsTrue",
+       "line": 597
+      },
+      {
+       "method": "IsProtectedGhost_DifferentCycle_ReturnsFalse",
+       "line": 605
+      },
+      {
+       "method": "IsWatchProtectedRecording_ExactWatchedRecording_ReturnsTrue",
+       "line": 613
+      },
+      {
+       "method": "IsWatchProtectedRecording_DebrisOfWatchedVesselContinuation_ReturnsTrue",
+       "line": 627
+      },
+      {
+       "method": "IsWatchProtectedRecording_DebrisOfDifferentVessel_ReturnsFalse",
+       "line": 659
+      },
+      {
+       "method": "IsWatchProtectedRecording_RecursiveDebrisDescendantOfWatchedLineage_ReturnsTrue",
+       "line": 691
+      },
+      {
+       "method": "Issue316_IsWatchProtectedRecording_ArchivedSplitLineageFallsBackToBranchAncestry",
+       "line": 748
+      },
+      {
+       "method": "Issue316_ComputeWatchLineageProtectionUntilUT_ExtendsThroughLateDebris",
+       "line": 828
+      },
+      {
+       "method": "Issue316_ComputeWatchLineageProtectionUntilUT_AfterLateDebrisEnds_ReturnsNaN",
+       "line": 912
+      },
+      {
+       "method": "ShouldApplyWarpZoneHideExemption_BeyondOrbitalGhost_ReturnsTrue",
+       "line": 958
+      },
+      {
+       "method": "ShouldApplyWarpZoneHideExemption_HiddenTierVisualGhost_ReturnsFalse",
+       "line": 968
+      },
+      {
+       "method": "EvaluateLoopedGhostSpawn_WithinFullFidelityRange_FullFidelity",
+       "line": 982
+      },
+      {
+       "method": "EvaluateLoopedGhostSpawn_BetweenFullFidelityAndSimplified_Simplified",
+       "line": 996
+      },
+      {
+       "method": "EvaluateLoopedGhostSpawn_AtSimplifiedBoundary_NotSpawned",
+       "line": 1004
+      },
+      {
+       "method": "EvaluateLoopedGhostSpawn_FarAway_NotSpawned",
+       "line": 1012
+      },
+      {
+       "method": "EvaluateLoopedGhostSpawn_AtFullFidelityBoundary_Simplified",
+       "line": 1019
+      },
+      {
+       "method": "ShouldRenderMesh_InPhysicsZone_ReturnsTrue",
+       "line": 1033
+      },
+      {
+       "method": "ShouldRenderMesh_InVisualZone_ReturnsTrue",
+       "line": 1039
+      },
+      {
+       "method": "ShouldRenderMesh_InBeyondZone_ReturnsFalse",
+       "line": 1045
+      },
+      {
+       "method": "ShouldRenderPartEvents_InPhysicsZone_ReturnsTrue",
+       "line": 1056
+      },
+      {
+       "method": "ShouldRenderPartEvents_InVisualZone_ReturnsFalse",
+       "line": 1062
+      },
+      {
+       "method": "ShouldRenderPartEvents_InBeyondZone_ReturnsFalse",
+       "line": 1068
+      },
+      {
+       "method": "LogZoneTransition_EmitsLogWithZoneTag",
+       "line": 1078
+      },
+      {
+       "method": "LogZoneTransition_BeyondTransition_EmitsLog",
+       "line": 1091
+      },
+      {
+       "method": "LogZoneTransition_InwardTransition_EmitsLog",
+       "line": 1104
+      },
+      {
+       "method": "LogZoneTransition_UnresolvedDistance_EmitsUnresolvedInsteadOfMaxValue",
+       "line": 1116
+      },
+      {
+       "method": "LogLoopedGhostSpawnDecision_Suppressed_EmitsLog",
+       "line": 1133
+      },
+      {
+       "method": "LogLoopedGhostSpawnDecision_SimplifiedSpawn_EmitsLog",
+       "line": 1146
+      },
+      {
+       "method": "LogLoopedGhostSpawnDecision_FullFidelity_EmitsLog",
+       "line": 1159
+      },
+      {
+       "method": "GhostPlaybackState_DefaultZone_IsPhysics",
+       "line": 1175
+      },
+      {
+       "method": "ZoneBoundaries_CorrectValues",
+       "line": 1186
+      },
+      {
+       "method": "ZoneAndLoopSpawn_ConsistentAtBoundaries",
+       "line": 1202
+      },
+      {
+       "method": "ZoneAndLoopSpawn_BeyondVisualRange_BothSuppress",
+       "line": 1226
+      },
+      {
+       "method": "ZoneAndLoopSpawn_InPhysicsBubble_BothFull",
+       "line": 1238
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

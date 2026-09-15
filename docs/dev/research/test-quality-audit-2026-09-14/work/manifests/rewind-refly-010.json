@@ -1,0 +1,207 @@
+{
+ "batch_id": "rewind-refly-010",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "RewindTimelineTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldSkipTimelinePlaybackForPendingReFlyInvoke_ReturnsPendingState",
+       "line": 31
+      },
+      {
+       "method": "ShouldSpawn_NormalRecording_ReturnsTrue",
+       "line": 40
+      },
+      {
+       "method": "ShouldSpawn_NoSnapshot_ReturnsFalse",
+       "line": 57
+      },
+      {
+       "method": "ShouldSpawn_AlreadySpawned_ReturnsFalse",
+       "line": 74
+      },
+      {
+       "method": "ShouldSpawn_VesselDestroyed_ReturnsFalse",
+       "line": 91
+      },
+      {
+       "method": "ShouldSpawn_DestroyedWithoutSnapshot_ReturnsDestroyedReason",
+       "line": 108
+      },
+      {
+       "method": "ShouldSpawn_BranchGreaterThanZero_ReturnsFalse",
+       "line": 129
+      },
+      {
+       "method": "ShouldSpawn_BranchZero_Allowed",
+       "line": 145
+      },
+      {
+       "method": "ShouldSpawn_ActiveChainMember_ReturnsFalse",
+       "line": 164
+      },
+      {
+       "method": "ShouldSpawn_NotActiveChainMember_Allowed",
+       "line": 180
+      },
+      {
+       "method": "ShouldSpawn_ChainLooping_ReturnsFalse",
+       "line": 199
+      },
+      {
+       "method": "ShouldSpawn_NonLeafWithChildBranch_ReturnsFalse",
+       "line": 219
+      },
+      {
+       "method": "ShouldSpawn_LeafRecording_Allowed",
+       "line": 235
+      },
+      {
+       "method": "ShouldSpawn_Destroyed_ReturnsFalse",
+       "line": 254
+      },
+      {
+       "method": "ShouldSpawn_Recovered_ReturnsFalse",
+       "line": 270
+      },
+      {
+       "method": "ShouldSpawn_Docked_ReturnsFalse",
+       "line": 286
+      },
+      {
+       "method": "ShouldSpawn_Boarded_ReturnsFalse",
+       "line": 302
+      },
+      {
+       "method": "ShouldSpawn_Landed_Allowed",
+       "line": 318
+      },
+      {
+       "method": "ShouldSpawn_Orbiting_Allowed",
+       "line": 334
+      },
+      {
+       "method": "ShouldSpawn_SubOrbital_ReturnsFalse",
+       "line": 349
+      },
+      {
+       "method": "ShouldSpawn_Splashed_Allowed",
+       "line": 366
+      },
+      {
+       "method": "ShouldSpawn_NullTerminalState_Allowed",
+       "line": 381
+      },
+      {
+       "method": "ShouldSpawn_NonZeroPid_ReturnsFalse",
+       "line": 400
+      },
+      {
+       "method": "ShouldSpawn_ZeroPid_Allowed",
+       "line": 417
+      },
+      {
+       "method": "ShouldSpawn_MultipleGuardsTriggered_FirstWins",
+       "line": 436
+      },
+      {
+       "method": "ShouldSpawn_BranchBeforeTerminal_BranchWins",
+       "line": 456
+      },
+      {
+       "method": "CanRewind_AlreadyRewinding_ReturnsFalse",
+       "line": 478
+      },
+      {
+       "method": "CanRewind_NoSaveFile_ReturnsFalse",
+       "line": 489
+      },
+      {
+       "method": "CanRewind_EmptySaveFileName_ReturnsFalse",
+       "line": 499
+      },
+      {
+       "method": "CanRewind_RecordingInProgress_ReturnsFalse",
+       "line": 509
+      },
+      {
+       "method": "CanRewind_PendingTree_ReturnsFalse",
+       "line": 519
+      },
+      {
+       "method": "CanRewind_PriorityOrder_AlreadyRewindingFirst",
+       "line": 532
+      },
+      {
+       "method": "ResetAllPlaybackState_ClearsSpawnedVesselPersistentId",
+       "line": 550
+      },
+      {
+       "method": "ResetAllPlaybackState_EnablesReSpawn",
+       "line": 569
+      },
+      {
+       "method": "Revert_PidResetToZero_AllowsReSpawn",
+       "line": 594
+      },
+      {
+       "method": "Revert_PidStillSet_BlocksReSpawn",
+       "line": 613
+      },
+      {
+       "method": "ShouldSpawn_NonLeafWithSamePidChild_ReturnsFalse",
+       "line": 636
+      },
+      {
+       "method": "ShouldSpawn_NonLeafWithSamePidChildInPendingTreeContext_ReturnsFalse",
+       "line": 681
+      },
+      {
+       "method": "ShouldSpawn_EffectiveLeaf_BreakupDebrisOnly_ReturnsTrue",
+       "line": 724
+      },
+      {
+       "method": "ShouldSpawn_EffectiveLeaf_BreakupDebrisOnlyInPendingTreeContext_ReturnsTrue",
+       "line": 771
+      },
+      {
+       "method": "ShouldSpawn_PostRewindSameRecordingProtection_ReturnsFalse",
+       "line": 827
+      },
+      {
+       "method": "PlainRewindLoad_ClearsLoadedActiveReFlyMarker",
+       "line": 853
+      },
+      {
+       "method": "PlainRewindLoad_WithoutActiveReFlyMarker_IsNoOp",
+       "line": 902
+      },
+      {
+       "method": "HandleRewindOnLoad_SuppressesSourceOnly_FutureSameTreeSpawnAllowed",
+       "line": 941
+      },
+      {
+       "method": "MarkRewoundTreeRecordingsAsGhostOnly_StandaloneRecording_MarksByPidMatch",
+       "line": 1039
+      },
+      {
+       "method": "MarkRewoundTreeRecordingsAsGhostOnly_AlreadyMarked_ReturnsRetainedSource",
+       "line": 1087
+      },
+      {
+       "method": "ResetAllPlaybackState_ClearsSpawnSuppressedByRewind",
+       "line": 1127
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

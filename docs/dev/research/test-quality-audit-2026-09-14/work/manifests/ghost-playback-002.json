@@ -1,0 +1,287 @@
+{
+ "batch_id": "ghost-playback-002",
+ "cluster": "ghost-playback",
+ "tier": "A1",
+ "expected_methods": 67,
+ "files": [
+  {
+   "file": "GhostPlaybackEngineTests.cs",
+   "ranges": [
+    {
+     "start": 1589,
+     "end": 3112,
+     "methods": [
+      {
+       "method": "PositionLoadedGhostAtPlaybackUT_ParentAnchoredDebrisBodyFixedCovered_UsesBodyFixedPrimary",
+       "line": 1589
+      },
+      {
+       "method": "TryPositionRelativeSectionAtPlaybackUT_LoopAnchoredDebrisChainWithoutBodyFixed_UsesRelativePositioner",
+       "line": 1632
+      },
+      {
+       "method": "TryHandleCoverageRetired_LoopAnchoredDebrisChainWithoutBodyFixed_DoesNotRetireBeforePositioning",
+       "line": 1660
+      },
+      {
+       "method": "PositionLoopAtPlaybackUT_ParentAnchoredDebrisOutsideCoverage_RetiresBeforeLoopPositioner",
+       "line": 1694
+      },
+      {
+       "method": "PositionLoopAtPlaybackUT_ParentAnchoredDebrisInsideCoverage_BodyFixedVisualMissing_Retires",
+       "line": 1726
+      },
+      {
+       "method": "PositionLoopAtPlaybackUT_LoopAnchoredDebrisChainWithoutBodyFixed_UsesRecordedRelativePositioner",
+       "line": 1756
+      },
+      {
+       "method": "PositionLoopAtPlaybackUT_LoopAnchoredDebrisChainChildRelativeGap_UsesBodyFixedPrimary",
+       "line": 1785
+      },
+      {
+       "method": "PositionLoopAtPlaybackUT_LoopAnchoredDebrisChainChildRelativeGapWithoutBodyFixed_Retires",
+       "line": 1828
+      },
+      {
+       "method": "PositionLoopAtPlaybackUT_TopLevelRelativeAnchorRetired_FallsBackToBodyFixed",
+       "line": 1870
+      },
+      {
+       "method": "PositionLoopAtPlaybackUT_ParentAnchoredChildAbsoluteSection_UsesAbsoluteLoopNotBodyFixed",
+       "line": 1911
+      },
+      {
+       "method": "PositionLoopAtPlaybackUT_TopLevelRelativeAnchorRetired_NoBodyFixed_StaysRetired",
+       "line": 1944
+      },
+      {
+       "method": "IsInterpolationResultValid_BodyNameNull_TreatsAsFailure",
+       "line": 1980
+      },
+      {
+       "method": "IsInterpolationResultValid_BodyNamePopulated_TreatsAsSuccess",
+       "line": 2002
+      },
+      {
+       "method": "CoverageRetiredHelper_StateNull_DoesNotReserveSpawnOrLoadVisuals",
+       "line": 2012
+      },
+      {
+       "method": "CoverageRetiredHelper_DirectWatch_EmitsExitWatch",
+       "line": 2042
+      },
+      {
+       "method": "CoverageRetiredHelper_LineageProtectedSibling_DoesNotEmitExitWatch",
+       "line": 2067
+      },
+      {
+       "method": "CoverageRetiredCycle_WatchingDifferentOverlapCycle_DoesNotExitWatch",
+       "line": 2099
+      },
+      {
+       "method": "CoverageRetiredCycle_WatchingSameOverlapCycle_ExitsWatch",
+       "line": 2116
+      },
+      {
+       "method": "CoverageRetiredCycle_NonLoopWatch_ExitsWatch",
+       "line": 2133
+      },
+      {
+       "method": "CoverageRetiredCycle_ExplosionHoldSentinel_DoesNotExitWatch",
+       "line": 2150
+      },
+      {
+       "method": "InterpolateAndPositionRelativeContract_UsesRelativeSectionPlaybackTarget",
+       "line": 2167
+      },
+      {
+       "method": "EffectiveLoopStartUT_NaN_ReturnsStartUT",
+       "line": 2371
+      },
+      {
+       "method": "EffectiveLoopStartUT_ValidValue_ReturnsLoopStartUT",
+       "line": 2379
+      },
+      {
+       "method": "EffectiveLoopStartUT_BelowStartUT_ReturnsStartUT",
+       "line": 2387
+      },
+      {
+       "method": "EffectiveLoopStartUT_AtEndUT_ReturnsStartUT",
+       "line": 2395
+      },
+      {
+       "method": "EffectiveLoopStartUT_InvertedRange_FallsBackToFullRange",
+       "line": 2404
+      },
+      {
+       "method": "EffectiveLoopEndUT_NaN_ReturnsEndUT",
+       "line": 2418
+      },
+      {
+       "method": "EffectiveLoopEndUT_ValidValue_ReturnsLoopEndUT",
+       "line": 2426
+      },
+      {
+       "method": "EffectiveLoopEndUT_AboveEndUT_ReturnsEndUT",
+       "line": 2434
+      },
+      {
+       "method": "EffectiveLoopEndUT_AtStartUT_ReturnsEndUT",
+       "line": 2442
+      },
+      {
+       "method": "EffectiveLoopEndUT_InvertedRange_FallsBackToFullRange",
+       "line": 2451
+      },
+      {
+       "method": "EffectiveLoopDuration_NoSubrange_EqualsFullRange",
+       "line": 2464
+      },
+      {
+       "method": "EffectiveLoopDuration_WithSubrange_EqualsSubrange",
+       "line": 2472
+      },
+      {
+       "method": "ResolveLoopPlaybackEndpointUT_WithSubrange_UsesEffectiveLoopEnd",
+       "line": 2485
+      },
+      {
+       "method": "EffectiveLoopDuration_SubrangeAndFullRange_OverlapDecisionDiffers",
+       "line": 2495
+      },
+      {
+       "method": "EffectiveLoopDuration_SubrangeAndHybridRange_OverlapDecisionDiffers",
+       "line": 2513
+      },
+      {
+       "method": "EffectiveLoopDuration_SubrangeChangesOverlapCycleBoundsComparedToHybridRange",
+       "line": 2532
+      },
+      {
+       "method": "ShouldLoopPlayback_LoopRangeTooShort_ReturnsFalse",
+       "line": 2562
+      },
+      {
+       "method": "ShouldLoopPlayback_ValidLoopRange_ReturnsTrue",
+       "line": 2572
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_NullTrajectory_ReturnsFalse",
+       "line": 2589
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_BeforeStartUT_ReturnsFalse",
+       "line": 2600
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_TooShortDuration_ReturnsFalse",
+       "line": 2612
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_PeriodLongerThanDuration_HasPauseWindow",
+       "line": 2628
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_JustPastBoundaryWithinEpsilon_StaysInPlayback",
+       "line": 2645
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_PeriodEqualsDuration_NoPauseWindow",
+       "line": 2661
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_PeriodShorterThanDuration_OverlapCycles",
+       "line": 2680
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_NegativeInterval_DefensivelyClamped_NoThrow",
+       "line": 2698
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_FirstCycle_MidTrajectory",
+       "line": 2720
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_SecondCycle_Start",
+       "line": 2738
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_PhaseOffset_ShiftsElapsed",
+       "line": 2756
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_NoPhaseOffset_NoLogOutput",
+       "line": 2779
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_CycleIndexNeverNegative",
+       "line": 2797
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_RecIdxMinus1_SkipsPhaseOffset",
+       "line": 2814
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_WithLoopRange_StaysWithinRange",
+       "line": 2841
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_WithLoopRange_SecondCycle",
+       "line": 2862
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_WithLoopRange_PauseWindow",
+       "line": 2882
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_WithLoopRange_BeforeLoopStart_ReturnsFalse",
+       "line": 2903
+      },
+      {
+       "method": "TryComputeLoopPlaybackUT_AutoQueueUsesCachedLaunchSchedule",
+       "line": 2919
+      },
+      {
+       "method": "GetLoopIntervalSeconds_AutoMode_ReturnsGlobalValue",
+       "line": 2954
+      },
+      {
+       "method": "GetLoopIntervalSeconds_ManualMode_ReturnsRecordingValue",
+       "line": 2963
+      },
+      {
+       "method": "GetLoopIntervalSeconds_AutoQueueUsesCachedCadence",
+       "line": 2972
+      },
+      {
+       "method": "GetLoopIntervalSeconds_NullTrajectory_ReturnsDefault",
+       "line": 2991
+      },
+      {
+       "method": "ReindexAfterDelete_ShiftsGhostStatesDown",
+       "line": 3007
+      },
+      {
+       "method": "ReindexAfterDelete_ShiftsOverlapGhostsDown",
+       "line": 3023
+      },
+      {
+       "method": "ReindexAfterDelete_ShiftsLoopPhaseOffsetsDown",
+       "line": 3038
+      },
+      {
+       "method": "ReindexAfterDelete_ShiftsSetsDown",
+       "line": 3056
+      },
+      {
+       "method": "ReindexAfterDelete_DropsRemovedIndexFromSets",
+       "line": 3072
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,288 @@
+{
+ "batch_id": "catchall-049",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "BoosterStagingSplitTriggerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveDeferredSplitCheckTrigger_JointBreakWinsWhenBothSignalsArePresent",
+       "line": 11
+      },
+      {
+       "method": "ResolveDeferredSplitCheckTrigger_DecoupleCreatedVesselsStartFallbackCheck",
+       "line": 23
+      },
+      {
+       "method": "ResolveDeferredSplitCheckTrigger_SuppressesNewCheckWhileSplitAlreadyPending",
+       "line": 35
+      },
+      {
+       "method": "ResolveDeferredSplitCheckTrigger_DoesNotStartWhenRecorderIsInactive",
+       "line": 47
+      },
+      {
+       "method": "ShouldCaptureDecoupleCreatedVessel_MatchesRecordedVessel",
+       "line": 59
+      },
+      {
+       "method": "ShouldCaptureDecoupleCreatedVessel_IgnoresUnrelatedVessel",
+       "line": 69
+      },
+      {
+       "method": "ShouldCaptureDecoupleCreatedVessel_IgnoresMissingRecordedPid",
+       "line": 79
+      },
+      {
+       "method": "TrySelectDecouplePartOriginSeed_MatchesRootPartPid",
+       "line": 89
+      },
+      {
+       "method": "TrySelectDecouplePartOriginSeed_IgnoresMissingRootPartPid",
+       "line": 117
+      },
+      {
+       "method": "TrySelectDecouplePartOriginSeed_FallsBackWhenSeedMissing",
+       "line": 136
+      },
+      {
+       "method": "ShouldUseUndockPartOriginSeed_OnlyWhenUndockedPartIsRoot",
+       "line": 152
+      },
+      {
+       "method": "ResolveDeferredSplitBranchUT_PrefersCapturedDecoupleSeedUT",
+       "line": 172
+      },
+      {
+       "method": "ResolveDeferredSplitBranchUT_UsesExactTriggerUTWhenNoCapturedSeedExists",
+       "line": 191
+      },
+      {
+       "method": "ResolveDeferredSplitBranchUT_FallsBackToDeferredCheckUTWithoutExactSignals",
+       "line": 203
+      },
+      {
+       "method": "ShouldPreferLiveBreakupChildSeed_ControlledLiveChildResidualBeyondTolerance_ReturnsTrue",
+       "line": 215
+      },
+      {
+       "method": "ShouldPreferLiveBreakupChildSeed_DirectSeedMissBeyondTolerance_ReturnsTrue",
+       "line": 229
+      },
+      {
+       "method": "ShouldPreferLiveBreakupChildSeed_DistanceAndResidualWithinTolerance_KeepsCapturedSeed",
+       "line": 243
+      },
+      {
+       "method": "ShouldPreferLiveBreakupChildSeed_DebrisOrMissingLiveVessel_KeepsCapturedSeed",
+       "line": 257
+      },
+      {
+       "method": "ComputeBreakupSeedPropagatedResidualMeters_RawTravelMatchesVelocity_ReturnsZeroResidual",
+       "line": 277
+      },
+      {
+       "method": "ComputeBreakupSeedPropagatedResidualMeters_AlongTrackCorrectAltitudeMiss_ReturnsResidual",
+       "line": 290
+      },
+      {
+       "method": "ComputeBreakupSeedPropagatedResidualMeters_BeyondCoalescerWindow_ReturnsNaN",
+       "line": 303
+      },
+      {
+       "method": "PrepareRecorderStartCollections_NullCaches_CreateFreshCachesAndRequestSubscription",
+       "line": 316
+      },
+      {
+       "method": "PrepareRecorderStartCollections_ExistingCaches_AreClearedAndReused",
+       "line": 337
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DockStampDecouplingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StampPid_NormalDock_ReturnsPartnerPid",
+       "line": 25
+      },
+      {
+       "method": "StampPid_ZeroPartner_ReturnsZero",
+       "line": 34
+      },
+      {
+       "method": "StampPid_SelfPartner_ReturnsZero",
+       "line": 41
+      },
+      {
+       "method": "StampPid_EvaGrab_Suppressed",
+       "line": 51
+      },
+      {
+       "method": "Build_PartnerWithoutRouteEligibility_StampsBranchPointOnly",
+       "line": 63
+      },
+      {
+       "method": "Build_PartnerWithRouteEligibility_MatchesLegacyOutput",
+       "line": 81
+      },
+      {
+       "method": "Build_DivergentPids_PartnerWinsTheStamp",
+       "line": 99
+      },
+      {
+       "method": "Build_LegacyCallerWithoutPartner_FallsBackToGatedPid",
+       "line": 120
+      },
+      {
+       "method": "Build_NoPidsAtAll_StampsZero",
+       "line": 138
+      },
+      {
+       "method": "Build_BoardWithPartner_StampsBranchPointNeverRoute",
+       "line": 153
+      },
+      {
+       "method": "SpawnSuppression_RouteIneligibleDock_StillSuppresses",
+       "line": 176
+      },
+      {
+       "method": "SpawnSuppression_LegacyCallerWithoutStamp_FallsBackToRoutePid",
+       "line": 194
+      },
+      {
+       "method": "SpawnSuppression_PartnerSurvivedAsMergedVessel_ReturnsZero",
+       "line": 211
+      },
+      {
+       "method": "SpawnSuppression_NoPartner_ReturnsZero",
+       "line": 220
+      },
+      {
+       "method": "SpawnSuppression_NonDockBranch_ReturnsZero",
+       "line": 227
+      },
+      {
+       "method": "SpawnSuppression_EvaGrab_SuppressesNothing",
+       "line": 243
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LogSpamRateLimitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GhostMapSourceResolve_StablePendingDecision_EmitsOncePerOperation",
+       "line": 56
+      },
+      {
+       "method": "GhostMapSourceResolve_DifferentOperations_TrackedIndependently",
+       "line": 83
+      },
+      {
+       "method": "GhostMapSourceResolve_DifferentRecordings_TrackedIndependently",
+       "line": 106
+      },
+      {
+       "method": "GhostMapSourceResolve_DecisionFlip_ReemitsWithSuppressedCount",
+       "line": 132
+      },
+      {
+       "method": "BuildSpawnSuppressedSummary_OrdersReasonsByDescendingCount",
+       "line": 166
+      },
+      {
+       "method": "BuildSpawnSuppressedSummary_TieBrokenByOrdinalReason",
+       "line": 184
+      },
+      {
+       "method": "BuildSpawnSuppressedSummary_NoReasons_TotalOnly",
+       "line": 198
+      },
+      {
+       "method": "SpawnSuppressedSummary_ManyFramesLargeList_CollapsesViaRateLimit",
+       "line": 216
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PlaytestFollowupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AppendCapturedDataToRecording_SourceNonNull_MarksTargetDirty",
+       "line": 48
+      },
+      {
+       "method": "AppendCapturedDataToRecording_NullSource_DoesNotMarkDirty",
+       "line": 73
+      },
+      {
+       "method": "AppendCapturedDataToRecording_PreservesExistingPoints",
+       "line": 93
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_FlagNotSet_ReturnsFalse",
+       "line": 115
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_FlagSetButNeverStamped_ReturnsFalse",
+       "line": 123
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_SameFrame_ReturnsTrue",
+       "line": 132
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_WithinMaxAge_ReturnsTrue",
+       "line": 141
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_JustPastMaxAge_ReturnsFalse",
+       "line": 155
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_EvaLeakageScenario_ReturnsFalse",
+       "line": 164
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_NegativeAge_ReturnsFalse",
+       "line": 177
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_MaxAgeConstantValue",
+       "line": 187
+      },
+      {
+       "method": "Bug273_MethodBody_ContainsMarkFilesDirtyCall",
+       "line": 229
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

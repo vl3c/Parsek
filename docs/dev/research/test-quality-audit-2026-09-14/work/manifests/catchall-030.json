@@ -1,0 +1,269 @@
+{
+ "batch_id": "catchall-030",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "AutoRecordDecisionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_RecordingInProgress_SkipsAlreadyRecording",
+       "line": 10
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_NonActiveVessel_SkipsInactiveVessel",
+       "line": 26
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_PrelaunchAndEnabled_StartsFromPrelaunch",
+       "line": 42
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_PrelaunchButDisabled_SkipsDisabled",
+       "line": 58
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_LandedBelowSettleThreshold_SkipsBounce",
+       "line": 74
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_LandedWithoutSeededSettleTime_SkipsBounce",
+       "line": 90
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_SettledLandedAndEnabled_StartsFromSettledLanded",
+       "line": 106
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_SettledLandedButDisabled_SkipsDisabled",
+       "line": 122
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_OtherTransition_SkipsNotLaunchTransition",
+       "line": 138
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_TimeJumpTransient_SkipsAutoStart",
+       "line": 154
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_TimeJumpTransient_NonActiveVessel_StillReportsTransient",
+       "line": 170
+      },
+      {
+       "method": "EvaluateAutoRecordLaunchDecision_AlreadyRecording_TakesPrecedenceOverTimeJumpTransient",
+       "line": 191
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_RecordingInProgress_SkipsAlreadyRecording",
+       "line": 210
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_TimeJumpTransient_SkipsBeforePadCheck",
+       "line": 223
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_AlreadyRecording_TakesPrecedenceOverTimeJumpTransient",
+       "line": 239
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_NoActiveVessel_SkipsNoActiveVessel",
+       "line": 252
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_NotPrelaunch_SkipsNotOnPad",
+       "line": 265
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_PrelaunchButDisabled_SkipsDisabled",
+       "line": 279
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_PrelaunchStagingAndEnabled_Starts",
+       "line": 292
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_TimeJumpTransient_TakesPrecedenceOverNoActiveVessel",
+       "line": 308
+      },
+      {
+       "method": "EvaluateAutoRecordStagingDecision_TimeJumpTransient_TakesPrecedenceOverNotOnPad",
+       "line": 323
+      },
+      {
+       "method": "ShouldQueueAutoRecordOnEva_RequiresSourceVesselAndEnabledSetting",
+       "line": 340
+      },
+      {
+       "method": "ShouldStartDeferredAutoRecordEva_RequiresPendingIdleActiveEva",
+       "line": 358
+      },
+      {
+       "method": "ShouldShowStartRecordingScreenMessage_RequiresFreshUnsuppressedStart",
+       "line": 379
+      },
+      {
+       "method": "LaunchAutoRecord_UsesCustomToastWithoutGenericStartToast",
+       "line": 392
+      },
+      {
+       "method": "PostSwitchFreshAutoRecord_UsesCustomToastWithoutGenericStartToast",
+       "line": 404
+      },
+      {
+       "method": "EvaFromPadAutoRecord_UsesCustomToastWithoutGenericStartToast",
+       "line": 416
+      },
+      {
+       "method": "ShouldIgnoreFlightReadyReset_LiveRecorderWithoutPendingRestore_ReturnsTrue",
+       "line": 428
+      },
+      {
+       "method": "ShouldIgnoreFlightReadyReset_RestoreOrMissingLiveState_ReturnsFalse",
+       "line": 445
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ArrivalRestitchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Rotation_IdenticalDirections_IsZero",
+       "line": 37
+      },
+      {
+       "method": "Rotation_QuarterTurnPrograde_IsPlus90",
+       "line": 48
+      },
+      {
+       "method": "Rotation_QuarterTurnRetrograde_IsMinus90",
+       "line": 61
+      },
+      {
+       "method": "Rotation_Antipodal_IsHalfTurn",
+       "line": 70
+      },
+      {
+       "method": "Rotation_MagnitudesIrrelevant_OnlyBearingsCount",
+       "line": 79
+      },
+      {
+       "method": "Rotation_ReportsOutOfPlaneLatitudes",
+       "line": 89
+      },
+      {
+       "method": "Rotation_NaNComponent_Declines",
+       "line": 105
+      },
+      {
+       "method": "Rotation_ZeroVector_Declines",
+       "line": 114
+      },
+      {
+       "method": "Rotation_NearPolarEntry_Declines",
+       "line": 122
+      },
+      {
+       "method": "VelocityResidual_PerfectlyRotatedVelocity_IsZero",
+       "line": 135
+      },
+      {
+       "method": "VelocityResidual_ReportsTheKink",
+       "line": 145
+      },
+      {
+       "method": "Offset_PositiveRotation_IsProportionalWait",
+       "line": 159
+      },
+      {
+       "method": "Offset_NegativeRotation_WrapsIntoForwardWait",
+       "line": 167
+      },
+      {
+       "method": "Offset_ZeroRotation_IsZero",
+       "line": 175
+      },
+      {
+       "method": "Offset_DegenerateInputs_FallBackToZero",
+       "line": 186
+      },
+      {
+       "method": "Offset_AlwaysInOneRotationWindow",
+       "line": 192
+      },
+      {
+       "method": "Connectivity_RotatedDeorbitPoint_MeetsSiteAtOffsetTrigger",
+       "line": 228
+      },
+      {
+       "method": "Connectivity_NegativeTheta_AlsoMeets",
+       "line": 242
+      },
+      {
+       "method": "Connectivity_ComposesWithP4LoiterCuts",
+       "line": 252
+      },
+      {
+       "method": "Connectivity_ZeroOffset_IsShippedBehavior",
+       "line": 286
+      },
+      {
+       "method": "RecordedSiteInvariant_DescentHeadAtTrigger_IsRecordedDeorbit",
+       "line": 297
+      },
+      {
+       "method": "RecordedSiteInvariant_LoiterHeadReachesConicEndAtTrigger",
+       "line": 315
+      },
+      {
+       "method": "Offset_NaN_SanitizedToShippedBehavior_NeverHidesDescent",
+       "line": 331
+      },
+      {
+       "method": "Assembler_RotatesOnlyTheArrivalChain",
+       "line": 364
+      },
+      {
+       "method": "Assembler_RotationComposesWithCaptureShift",
+       "line": 397
+      },
+      {
+       "method": "Assembler_ZeroRotation_ByteIdenticalToShippedPath",
+       "line": 420
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EvaBoundaryMergeRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MergeInto_ContinuousEvaBoundary_V3Roundtrip_PointsAndOrbitSegmentsStable",
+       "line": 59
+      },
+      {
+       "method": "CanMergeContinuousEvaAtmoSurfaceBoundary_OrbitalPhasePair_IsNotAllowed",
+       "line": 222
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

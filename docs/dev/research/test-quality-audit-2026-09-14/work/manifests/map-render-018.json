@@ -1,0 +1,146 @@
+{
+ "batch_id": "map-render-018",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 29,
+ "files": [
+  {
+   "file": "MapRender/FailClosedClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_SingleLevelCrossSoiTransfer_IsSupported_NotFailClosed",
+       "line": 68
+      },
+      {
+       "method": "Classify_SingleLevelCrossSoiTransfer_LiveSelfReferentialSun_IsSupported",
+       "line": 83
+      },
+      {
+       "method": "Classify_KerbinMunTour_IsSupported_NotNested",
+       "line": 106
+      },
+      {
+       "method": "Classify_JoolMoonTour_IsFailClosed_NestedSoi",
+       "line": 118
+      },
+      {
+       "method": "Classify_KerbinTwoMoonsTour_IsFailClosed_NestedSoi",
+       "line": 135
+      },
+      {
+       "method": "Classify_StationArrivalAnchor_IsFailClosed_MovingTargetStation_HighestPrecedence",
+       "line": 155
+      },
+      {
+       "method": "Classify_NullOrSingleBody_IsSupported",
+       "line": 171
+      },
+      {
+       "method": "Classify_NullReferenceDelegate_IsSupported_NotNested",
+       "line": 181
+      },
+      {
+       "method": "ClassifyCrossSoiChainForTesting_MultiHop_IsCrossSoiChain",
+       "line": 194
+      },
+      {
+       "method": "ClassifyCrossSoiChainForTesting_SingleHop_IsSupported",
+       "line": 207
+      },
+      {
+       "method": "CountBodyChanges_CountsAdjacentDistinctRuns",
+       "line": 219
+      },
+      {
+       "method": "ReasonToken_AreGrepStableLowercase",
+       "line": 227
+      },
+      {
+       "method": "FailClosedToFaithful_EventTokenIsStable",
+       "line": 242
+      },
+      {
+       "method": "BuildFailClosedDetails_NestedSoi_NamesProducerAndProvenanceAndPayload",
+       "line": 248
+      },
+      {
+       "method": "BuildFailClosedDetails_Station_NamesProducer_NoSubtreePayload",
+       "line": 267
+      },
+      {
+       "method": "EmitFailClosedToFaithful_RecordsTraceOnce_OnChange",
+       "line": 279
+      },
+      {
+       "method": "ShouldEmitFailClosedOnChange_DirectPredicate_TrueRepeatFalse_ChangeTrue",
+       "line": 315
+      },
+      {
+       "method": "ShouldEmitFailClosedOnChange_Disabled_NeverEmits",
+       "line": 343
+      },
+      {
+       "method": "EmitFailClosedToFaithful_SupportedDecision_EmitsNothing",
+       "line": 360
+      },
+      {
+       "method": "EmitFailClosedToFaithful_TracingDisabled_EmitsNothing_FreeInNormalPlay",
+       "line": 384
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/RenderSessionStateLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RebuildFromMarker_LogsStartAndComplete_BookendPair",
+       "line": 111
+      },
+      {
+       "method": "Anchor_EpsilonMagnitude_AlwaysLoggedAsMeters",
+       "line": 143
+      },
+      {
+       "method": "LiveReadFrozen_LogsAnchorUTAndPosOnce",
+       "line": 172
+      },
+      {
+       "method": "EpsilonExceedsBubbleRadius_EmitsWarn",
+       "line": 211
+      },
+      {
+       "method": "Clear_LogsReason",
+       "line": 250
+      },
+      {
+       "method": "OrphanMarker_LogsWarn_NotInfo",
+       "line": 261
+      },
+      {
+       "method": "InPlaceContinuationMissingParentBranchPoint_LogsVerboseNotWarn",
+       "line": 291
+      },
+      {
+       "method": "InPlaceContinuationRootReFly_RunsAnchorPropagator",
+       "line": 319
+      },
+      {
+       "method": "InPlaceContinuationForkShape_RootReFly_PropagatesBreakupEdgeToChild",
+       "line": 359
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

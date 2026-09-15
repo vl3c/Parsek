@@ -147,7 +147,7 @@ id = "GS-8-kerbalx-zone-round-trip"
 #     iteration-order change would red this lane (a false negative, never a false
 #     pass), and `Mesh torn down` on its per-index key stays the safe witness.
 # =====================================================================================
-tier = "operator"
+tier = "nightly"
 description = "Zone round trip: staged Kerbal X ascent with a longer core burn, committed, Rewound-to-Launch, replayed UNWATCHED past the 120 km visual range from a pad watcher (Visual->Beyond transition, mesh torn down), then WATCHED late so the render reference re-centres on the ghost (visuals rebuilt, Beyond->Physics), with the ghost-lifecycle balance holding across the round trip."
 instanceProfile = "stock-minimal"
 tags = ["GS8", "rewind-to-launch", "watch-mode", "ghost-render", "zone-transitions", "ghost-lifecycle"]

@@ -1,0 +1,280 @@
+{
+ "batch_id": "logistics-route-033",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "Logistics/RouteCadenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClampCadenceMultiplier_FloorsAtOne",
+       "line": 54
+      },
+      {
+       "method": "StepMultiplier_MinusAtFloor_StaysOne",
+       "line": 66
+      },
+      {
+       "method": "StepMultiplier_PlusAndMinus_AdjustByOne",
+       "line": 72
+      },
+      {
+       "method": "DeriveDispatchInterval_IsMultiplierTimesSpan",
+       "line": 84
+      },
+      {
+       "method": "DeriveDispatchInterval_ClampsMultiplier",
+       "line": 94
+      },
+      {
+       "method": "DeriveDispatchInterval_NonPositiveSpan_ReturnsSpan",
+       "line": 103
+      },
+      {
+       "method": "ApplyMultiplier_RaisesN_RecomputesInterval_AndLogs",
+       "line": 116
+      },
+      {
+       "method": "ApplyMultiplier_SubFloor_ClampsToOne",
+       "line": 132
+      },
+      {
+       "method": "ApplyMultiplier_SameN_NoOp_ReturnsFalse",
+       "line": 146
+      },
+      {
+       "method": "ApplyMultiplier_NullRoute_ReturnsFalse",
+       "line": 158
+      },
+      {
+       "method": "ApplyMultiplier_NChanges_RebasesLastObservedLoopCycleIndex",
+       "line": 174
+      },
+      {
+       "method": "ApplyMultiplier_SameN_DoesNotRebase",
+       "line": 196
+      },
+      {
+       "method": "ParseAndSnapInterval_CeilsToNextMultiple",
+       "line": 223
+      },
+      {
+       "method": "ParseAndSnapInterval_ParsesUnitSuffix",
+       "line": 245
+      },
+      {
+       "method": "ParseAndSnapInterval_UnitWithoutNumber_Rejects",
+       "line": 258
+      },
+      {
+       "method": "ParseAndSnapInterval_BelowOneSpan_FloorsAtOne",
+       "line": 271
+      },
+      {
+       "method": "ParseAndSnapInterval_Garbage_Rejects",
+       "line": 289
+      },
+      {
+       "method": "ParseAndSnapInterval_CommaNotTreatedAsDecimal_Rejects",
+       "line": 304
+      },
+      {
+       "method": "ParseAndSnapInterval_BadSpan_Rejects",
+       "line": 318
+      },
+      {
+       "method": "ParseAndSnapInterval_FeedsApplyMultiplier_RoundTrip",
+       "line": 329
+      },
+      {
+       "method": "CadenceChangeThenNextCrossing_FiresExactlyOnce",
+       "line": 351
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteCountdownEmitterDriftGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Flat_CadenceEqualsSpan_CountdownMatchesFirstFire",
+       "line": 176
+      },
+      {
+       "method": "Flat_CadenceExceedsSpan_ParkedTail_CountdownMatchesFirstFire",
+       "line": 193
+      },
+      {
+       "method": "MultiStop_PerStopOffsets_CountdownMatchesFirstFire",
+       "line": 211
+      },
+      {
+       "method": "SubMinCadence_ClampMirrored_CountdownMatchesFirstFire",
+       "line": 227
+      },
+      {
+       "method": "Flat_DenseNowUTSweep_CountdownAlwaysMatchesFirstFire",
+       "line": 249
+      },
+      {
+       "method": "ScheduledUnit_CountdownDeclines_WhileEmitterStillFires",
+       "line": 276
+      },
+      {
+       "method": "LoiterCutsUnit_CountdownDeclines_WhileEmitterStillFires",
+       "line": 302
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RouteOriginProofForwardingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StopFlush_ForwardsTheProofOntoTheTreeRecording",
+       "line": 62
+      },
+      {
+       "method": "AdoptedProofIsADeepClone_NotTheCaptureInstance",
+       "line": 82
+      },
+      {
+       "method": "NullSourceProof_DoesNotClobberAnAdoptedProof",
+       "line": 98
+      },
+      {
+       "method": "SecondProof_DoesNotOverwriteTheFirst_OriginIsABirthFact",
+       "line": 118
+      },
+      {
+       "method": "AppendCapturedData_AlsoForwards_SoTheSplitAndMergePathsAreCovered",
+       "line": 147
+      },
+      {
+       "method": "ForwardedProof_RoundTripsThroughTheCodec",
+       "line": 162
+      },
+      {
+       "method": "ForwardedProof_SurvivesTheTreeRecordCodec_TheScenarioSaveLoadPath",
+       "line": 189
+      },
+      {
+       "method": "ARecordingWithNoProof_RoundTripsWithNoProofNode",
+       "line": 219
+      },
+      {
+       "method": "PidLessProof_StillPassesTheDockedOriginGate",
+       "line": 234
+      },
+      {
+       "method": "PendingPair_RoundTripsThroughTheCodec_AndStaysANonOrigin",
+       "line": 246
+      },
+      {
+       "method": "NoProofAnywhere_LeavesTheSlotNullAndTheGateClosed",
+       "line": 306
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LiveDeliveryMultiModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SlotAddress_None_IsInvalid",
+       "line": 45
+      },
+      {
+       "method": "SlotAddress_DefaultValue_IsInvalid",
+       "line": 58
+      },
+      {
+       "method": "SlotAddress_DefaultValue_NotEqualToConstructedZeroAddress",
+       "line": 69
+      },
+      {
+       "method": "SlotAddress_SameSlotIndexDifferentModule_AreDistinctKeys",
+       "line": 79
+      },
+      {
+       "method": "SlotAddress_ToString_IsGrepStable",
+       "line": 97
+      },
+      {
+       "method": "UnloadedScan_NullModuleValues_ReturnsMinusOne",
+       "line": 128
+      },
+      {
+       "method": "UnloadedScan_MissingInventorySlots_FallsBackToNineSlots",
+       "line": 138
+      },
+      {
+       "method": "UnloadedScan_SmallerPrefabFallback_NoPhantomSlots",
+       "line": 157
+      },
+      {
+       "method": "UnloadedScan_UnparseableInventorySlots_UsesFallback",
+       "line": 174
+      },
+      {
+       "method": "UnloadedScan_NegativeInventorySlots_UsesFallback",
+       "line": 187
+      },
+      {
+       "method": "UnloadedScan_OccupiedSlots_SkippedToFirstFree",
+       "line": 201
+      },
+      {
+       "method": "UnloadedScan_FullModule_ReturnsMinusOne",
+       "line": 215
+      },
+      {
+       "method": "UnloadedScan_ConsumedSlotOnOtherModule_DoesNotBlock",
+       "line": 229
+      },
+      {
+       "method": "UnloadedScan_FirstModuleFull_SecondModuleProvidesSlot",
+       "line": 253
+      },
+      {
+       "method": "UnloadedStoredPartNode_OverridesSlotIndexAndQuantity",
+       "line": 285
+      },
+      {
+       "method": "UnloadedStoredPartNode_AppendsWithoutDisturbingExisting",
+       "line": 303
+      },
+      {
+       "method": "WriteInventory_LogsModuleQualifiedAddressAndOutcome",
+       "line": 329
+      },
+      {
+       "method": "WriteInventory_NoneAddress_IsSilentNoOp",
+       "line": 357
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

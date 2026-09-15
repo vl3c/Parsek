@@ -1,0 +1,207 @@
+{
+ "batch_id": "logistics-route-012",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "Logistics/LogisticsHoldPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DescribeHold_None_ReturnsNull",
+       "line": 39
+      },
+      {
+       "method": "DescribeHold_OriginShortResource",
+       "line": 47
+      },
+      {
+       "method": "DescribeHold_OriginMissingStoredPart",
+       "line": 59
+      },
+      {
+       "method": "DescribeHold_OriginStoredPartStateDiffers",
+       "line": 86
+      },
+      {
+       "method": "DescribeHold_OriginUnresolved",
+       "line": 101
+      },
+      {
+       "method": "DescribeHold_PickupSourceShort_NamesSourceVesselAndResource",
+       "line": 116
+      },
+      {
+       "method": "DescribeHold_PickupSourcePartialShort_NamesTheMissingAmount",
+       "line": 132
+      },
+      {
+       "method": "StatusCellText_PickupSourcePartialShort_NamesTheMissingAmount",
+       "line": 146
+      },
+      {
+       "method": "DescribeHold_OriginPartialShort_NamesTheMissingAmount",
+       "line": 159
+      },
+      {
+       "method": "DescribeHold_UnknownShortfall_KeepsThePreExistingWording",
+       "line": 173
+      },
+      {
+       "method": "DescribeHold_ShortfallAmount_IsInvariantUnderAForeignCulture",
+       "line": 190
+      },
+      {
+       "method": "DescribeHold_PickupSourceInventoryShort_NamesSource",
+       "line": 213
+      },
+      {
+       "method": "DescribeHold_PickupSourceReserved_NamesVesselResourceAndRoute",
+       "line": 233
+      },
+      {
+       "method": "DescribeHold_PickupSourceReserved_DegradedShapes",
+       "line": 252
+      },
+      {
+       "method": "DescribeHold_PickupSourceUnresolved",
+       "line": 278
+      },
+      {
+       "method": "DescribeHold_PickupSourceShort_UnnamedSource",
+       "line": 291
+      },
+      {
+       "method": "DescribeHold_FundsShort_NamesShortfall",
+       "line": 302
+      },
+      {
+       "method": "DescribeHold_DestinationFull_Named",
+       "line": 315
+      },
+      {
+       "method": "DescribeHold_DestinationFull_StoredPart",
+       "line": 326
+      },
+      {
+       "method": "DescribeHold_DestinationFull_Unnamed",
+       "line": 343
+      },
+      {
+       "method": "DescribeHold_EndpointLost_OriginVsStop",
+       "line": 355
+      },
+      {
+       "method": "DescribeHold_LegacyPrefixedTokens",
+       "line": 379
+      },
+      {
+       "method": "DescribeHold_SourcesStale",
+       "line": 409
+      },
+      {
+       "method": "DescribeHold_UnknownKindOrToken_FallsBack",
+       "line": 422
+      },
+      {
+       "method": "ShouldDisplayHold_StatusGate",
+       "line": 446
+      },
+      {
+       "method": "FormatHoldDetailLine_AppendsAge",
+       "line": 484
+      },
+      {
+       "method": "FormatHoldDetailLine_OmitsNegativeAge",
+       "line": 494
+      },
+      {
+       "method": "StatusCellTooltip_AppendsHoldAfterEnumName",
+       "line": 519
+      },
+      {
+       "method": "DescribeHold_WaitingForPartner_NamesPartner",
+       "line": 537
+      },
+      {
+       "method": "DescribeHold_WaitingForPartner_NoToken_GenericClause",
+       "line": 547
+      },
+      {
+       "method": "ShouldDisplayHold_WaitingForPartner_ShowsOnActive",
+       "line": 561
+      },
+      {
+       "method": "StatusCellText_None_ReturnsNull",
+       "line": 577
+      },
+      {
+       "method": "StatusCellText_Funds_BothShapes",
+       "line": 586
+      },
+      {
+       "method": "StatusCellText_OriginShort_BothTokenShapes",
+       "line": 597
+      },
+      {
+       "method": "StatusCellText_PickupSourceShort_NamesVessel",
+       "line": 609
+      },
+      {
+       "method": "StatusCellText_ReservedPickupSource_NamesRoute",
+       "line": 627
+      },
+      {
+       "method": "StatusCellText_InventoryAndUnresolvedTokens",
+       "line": 642
+      },
+      {
+       "method": "StatusCellText_DestinationFull_BothShapes",
+       "line": 661
+      },
+      {
+       "method": "LooksLikeIdentityHash_Shapes",
+       "line": 678
+      },
+      {
+       "method": "OpaqueInventoryTails_MarkerRendersGeneric",
+       "line": 699
+      },
+      {
+       "method": "FormatPartialDeliveryLine_Shapes",
+       "line": 717
+      },
+      {
+       "method": "StatusCellText_EndpointLost_OriginVsDestination",
+       "line": 732
+      },
+      {
+       "method": "StatusCellText_SourcesStaleAndPartner",
+       "line": 742
+      },
+      {
+       "method": "StatusCellText_UnknownKind_FallbackNeverBlank",
+       "line": 755
+      },
+      {
+       "method": "StatusCellText_LongName_TruncatedWithFullTooltip",
+       "line": 767
+      },
+      {
+       "method": "TruncateForCell_PassthroughAndCap",
+       "line": 786
+      },
+      {
+       "method": "AllHoldStrings_ArePlainAscii",
+       "line": 804
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,151 @@
+{
+ "batch_id": "rewind-refly-008",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 33,
+ "files": [
+  {
+   "file": "SupersedeCommitTombstoneTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CommitTombstones_SupersededSubtreeKerbalDeath_Tombstoned",
+       "line": 294
+      },
+      {
+       "method": "CommitTombstones_BundledRepPenalty_Tombstoned",
+       "line": 322
+      },
+      {
+       "method": "CommitTombstones_UnbundledRepPenalty_Tombstoned",
+       "line": 342
+      },
+      {
+       "method": "CommitTombstones_SupersededSubtreeContract_Tombstoned",
+       "line": 361
+      },
+      {
+       "method": "CommitTombstones_TombstonedContractScope_OnlyIncludesRetiredContractIds",
+       "line": 378
+      },
+      {
+       "method": "CommitTombstones_ParentSubtreeMilestone_Tombstoned",
+       "line": 404
+      },
+      {
+       "method": "CommitTombstones_PreservesRolloutBuildCost",
+       "line": 421
+      },
+      {
+       "method": "CommitTombstones_ScienceAndContractOldBranch_DoNotBlockRetryReplay",
+       "line": 446
+      },
+      {
+       "method": "CommitTombstones_RecalculatesModulesFromPostTombstoneELS",
+       "line": 480
+      },
+      {
+       "method": "CommitTombstones_NonTechTombstone_DoesNotPatchTechTree",
+       "line": 512
+      },
+      {
+       "method": "CommitTombstones_NonTechTombstone_WithPriorTechTombstone_DoesNotPatchTechTree",
+       "line": 535
+      },
+      {
+       "method": "CommitTombstones_TombstonedScienceSpending_NotSeededFromLatestTechBaseline",
+       "line": 572
+      },
+      {
+       "method": "CommitTombstones_TombstonedFacilityDefaultScope_OnlyIncludesRetiredFacilityIds",
+       "line": 601
+      },
+      {
+       "method": "CommitTombstones_NullScopedAction_NotTombstoned",
+       "line": 630
+      },
+      {
+       "method": "CommitTombstones_KerbalRescueInOldBranch_RemovedFromELS",
+       "line": 649
+      },
+      {
+       "method": "TryEnsureKerbalsModuleForTombstoneRosterCleanup_NotInitialized_InitializesBeforeQueue",
+       "line": 683
+      },
+      {
+       "method": "TryEnsureKerbalsModuleForTombstoneRosterCleanup_InitializedButMissing_WarnsAndSkips",
+       "line": 699
+      },
+      {
+       "method": "CommitTombstones_AlreadyTombstoned_Idempotent",
+       "line": 717
+      },
+      {
+       "method": "CommitTombstones_LogsCounters",
+       "line": 751
+      },
+      {
+       "method": "CommitTombstones_KerbalDeathAndItsRepPenalty_BothTombstoned",
+       "line": 792
+      },
+      {
+       "method": "CommitTombstones_EmptySubtree_LogsZeroes",
+       "line": 817
+      },
+      {
+       "method": "CommitTombstones_EmptySubtree_BumpsTombstoneStateVersion",
+       "line": 835
+      },
+      {
+       "method": "CommitTombstones_KerbalDeathInTip_TombstonedWithChainOrigin",
+       "line": 851
+      },
+      {
+       "method": "CommitTombstones_BumpsTombstoneStateVersion_InvalidatesELSCache",
+       "line": 896
+      },
+      {
+       "method": "IsPreRewindAttributedAction_StrictlyBeforeCutoff_True",
+       "line": 938
+      },
+      {
+       "method": "IsPreRewindAttributedAction_AtCutoff_False_MirrorsSplitterRetag",
+       "line": 945
+      },
+      {
+       "method": "IsPreRewindAttributedAction_NaNCutoffOrNaNActionUT_False",
+       "line": 954
+      },
+      {
+       "method": "ComputeTombstoneRewindCutoffUT_FieldPreference",
+       "line": 969
+      },
+      {
+       "method": "ComputeTombstoneRewindCutoffUT_CarriesNoEpsilon_UnlikePreRewindCutoff",
+       "line": 984
+      },
+      {
+       "method": "CommitTombstones_PreRewindPayoutAttributedToOriginChild_NotTombstoned",
+       "line": 1000
+      },
+      {
+       "method": "CommitTombstones_LegacyMarkerWithoutRewindUT_GuardInert",
+       "line": 1038
+      },
+      {
+       "method": "CommitTombstones_PreRewindKerbalDeath_SurvivesTheMerge",
+       "line": 1061
+      },
+      {
+       "method": "MidSessionRecoveryPayout_TaggedByThePicker_SurvivesTheMergeIntoTheEls",
+       "line": 1088
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

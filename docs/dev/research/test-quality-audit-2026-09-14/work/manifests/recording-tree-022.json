@@ -1,0 +1,187 @@
+{
+ "batch_id": "recording-tree-022",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "RecordingOptimizerSplitAtUTTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SplitAtUT_OriginSpansSplitUT_SplitsHeadAndTail",
+       "line": 151
+      },
+      {
+       "method": "SplitAtUT_OriginEntirelyPreSplitUT_ReturnsNull",
+       "line": 175
+      },
+      {
+       "method": "SplitAtUT_OriginEntirelyPostSplitUT_ReturnsNull",
+       "line": 199
+      },
+      {
+       "method": "SplitAtUT_NaNSplitUT_ReturnsNull",
+       "line": 219
+      },
+      {
+       "method": "SplitAtUT_NullOriginalRecording_ReturnsNullWithoutCrash",
+       "line": 239
+      },
+      {
+       "method": "SplitAtUT_OrbitSegmentStraddlesSplitUT_TailClonesIntoTip",
+       "line": 256
+      },
+      {
+       "method": "SplitAtUT_MultipleOrbitSegmentsAcrossSplitUT_PartitionsCorrectly",
+       "line": 344
+      },
+      {
+       "method": "SplitAtUT_OrbitSegmentStraddlesSplitUT_PreservesIsPredictedFlag",
+       "line": 431
+      },
+      {
+       "method": "SplitAtUT_TailClonesHyperbolicOrbitSegment_PreservesKeplerElements",
+       "line": 481
+      },
+      {
+       "method": "SplitAtUT_TailClonesParabolicOrbitSegment_PreservesKeplerElements",
+       "line": 555
+      },
+      {
+       "method": "SplitAtUT_StraddleSectionCheckpointsPartitionedByUT",
+       "line": 677
+      },
+      {
+       "method": "SplitAtUT_StraddleSectionCheckpointsPartition_PreservesNonStraddlingCheckpoints",
+       "line": 744
+      },
+      {
+       "method": "SplitAtUT_StraddleSectionWithNullCheckpoints_PreservesNullOnBothHalves",
+       "line": 803
+      },
+      {
+       "method": "SplitAtUT_SplitUTAlignsToTrackSectionBoundary_NoSyntheticInsert",
+       "line": 841
+      },
+      {
+       "method": "SplitAtUT_SplitUTMidSection_InsertsSyntheticBoundary",
+       "line": 863
+      },
+      {
+       "method": "SplitAtUT_BoundarySeamOnStraddlingSection_LogsOverride",
+       "line": 898
+      },
+      {
+       "method": "SplitAtUT_V13TailBodyFixedFramesUnderMinimum_ReturnsNull",
+       "line": 946
+      },
+      {
+       "method": "SplitAtUT_SplitUTPastAllSectionStartUTs_ReturnsNullWithoutCrash",
+       "line": 1019
+      },
+      {
+       "method": "SplitAtUT_NullTrackSectionsList_ReturnsNullWithoutCrash",
+       "line": 1074
+      },
+      {
+       "method": "SplitAtUT_EnsureMutatedThenGapFallbackHits_RestoresPreEnsureState",
+       "line": 1098
+      },
+      {
+       "method": "SplitAtUT_RoboticPoseBeforeSplit_TipGetsMotionStoppedSeedAtSplitUT",
+       "line": 1182
+      },
+      {
+       "method": "SplitAtUT_RoboticMidStrokeAtSplit_TipSeedCarriesLastSampledPose",
+       "line": 1211
+      },
+      {
+       "method": "SplitAtUT_TwoServosOnOneVessel_EachModuleIndexGetsItsOwnSeed",
+       "line": 1234
+      },
+      {
+       "method": "SplitAtUT_RealRoboticEventAtBoundary_SeedSuppressedByDedupe",
+       "line": 1259
+      },
+      {
+       "method": "SplitAtUT_RoboticPlusPermanentSeed_PermanentSeedsStillPrecedeTransient",
+       "line": 1278
+      },
+      {
+       "method": "BuildTransientStateSeeds_RoboticEventsAfterSplitUT_Ignored",
+       "line": 1302
+      },
+      {
+       "method": "BuildTransientStateSeeds_RoboticZeroPose_StillEmitsSeed",
+       "line": 1319
+      },
+      {
+       "method": "BuildTransientStateSeeds_RoboticAndEngineSameKey_BothFamiliesSeeded",
+       "line": 1338
+      },
+      {
+       "method": "BuildTransientStateSeeds_ActiveThenInactiveBeforeSplit_SeedsInactiveDirection",
+       "line": 1395
+      },
+      {
+       "method": "BuildTransientStateSeeds_InactiveOnlyBeforeSplit_StillSeeds",
+       "line": 1418
+      },
+      {
+       "method": "BuildTransientStateSeeds_InactiveSeedsSurviveIntoTheTip",
+       "line": 1433
+      },
+      {
+       "method": "BuildTransientStateSeeds_ParachuteDestroyed_NoDuplicateAgainstPermanentForward",
+       "line": 1452
+      },
+      {
+       "method": "SplitAtUT_HeadEndsRepacked_TipSeedsRepacked_AndRendersStowedWithCap",
+       "line": 1484
+      },
+      {
+       "method": "SplitAtUT_HeadEndsCut_TipSeedsCut_AndRendersWithCapHidden",
+       "line": 1515
+      },
+      {
+       "method": "BuildTransientStateSeeds_CutThenRepacked_CollapsesToOneRepackedSeed",
+       "line": 1540
+      },
+      {
+       "method": "SplitAtUT_ParachuteAndRoboticSeeds_BothSurviveOnTheSamePart",
+       "line": 1565
+      },
+      {
+       "method": "BuildTransientStateSeeds_BlinkRateOnly_NoBlinkDisabledSeed",
+       "line": 1582
+      },
+      {
+       "method": "BuildTransientStateSeeds_BlinkDisabledThenRate_SeedsDisabledWithTheRate",
+       "line": 1598
+      },
+      {
+       "method": "BuildTransientStateSeeds_ThermalCold_StaysUnseeded",
+       "line": 1616
+      },
+      {
+       "method": "BuildTransientStateSeeds_InactiveSeedSuppressedByMatchingBoundaryEvent",
+       "line": 1633
+      },
+      {
+       "method": "BuildTransientStateSeeds_InactiveSeedPrecedesTheTipsOwnLaterRedeploy",
+       "line": 1651
+      },
+      {
+       "method": "BuildTransientStateSeeds_OpposingEventExactlyAtTheCutWinsInTheReducer",
+       "line": 1672
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

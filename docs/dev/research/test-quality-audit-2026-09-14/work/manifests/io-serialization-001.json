@@ -1,0 +1,163 @@
+{
+ "batch_id": "io-serialization-001",
+ "cluster": "io-serialization",
+ "tier": "A",
+ "expected_methods": 36,
+ "files": [
+  {
+   "file": "GuiTreeAssemblerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EmptyStreamAssemblesToAnEmptyTree",
+       "line": 50
+      },
+      {
+       "method": "NullStreamIsToleratedRatherThanThrowing",
+       "line": 59
+      },
+      {
+       "method": "WellFormedWindowNestsItsChildren",
+       "line": 66
+      },
+      {
+       "method": "ScrollViewInsideAGroupNestsThreeDeep",
+       "line": 101
+      },
+      {
+       "method": "MissingEndGroupIsRecoveredFromTheClipDepth",
+       "line": 129
+      },
+      {
+       "method": "ClipRecoveryAlsoClosesLayoutGroupsStrandedAboveTheGroup",
+       "line": 155
+      },
+      {
+       "method": "ASiblingGroupClosesTheOpenOneAtTheSameClipDepth",
+       "line": 178
+      },
+      {
+       "method": "ANestedGroupStillNestsRatherThanClosingItsParent",
+       "line": 208
+      },
+      {
+       "method": "ALeafAtTheSameDepthStaysInsideItsContainer",
+       "line": 232
+      },
+      {
+       "method": "ALayoutGroupBeginAtTheSameDepthAlsoStaysInside",
+       "line": 251
+      },
+      {
+       "method": "ASecondWindowIsASiblingEvenWithItsPredecessorsEndMissing",
+       "line": 271
+      },
+      {
+       "method": "MissingEndVerticalIsRecoveredFromRectContainment",
+       "line": 293
+      },
+      {
+       "method": "RectRuleKeepsALayoutGroupOpenForSubPixelDisagreement",
+       "line": 317
+      },
+      {
+       "method": "DegenerateRectNeverTriggersTheLayoutGroupRectRule",
+       "line": 336
+      },
+      {
+       "method": "AnEndForAnOuterContainerClosesTheUnbalancedOnesInside",
+       "line": 353
+      },
+      {
+       "method": "AStrayEndIsCountedAndCollapsesNothing",
+       "line": 373
+      },
+      {
+       "method": "UnclosedContainersAtStreamEndAreCounted",
+       "line": 394
+      },
+      {
+       "method": "UnknownClipDepthFallsBackToExplicitPairingOnly",
+       "line": 410
+      },
+      {
+       "method": "TwoSiblingWindowsBecomeTwoRoots",
+       "line": 432
+      },
+      {
+       "method": "NullEventsAreSkippedWithoutCorruptingTheTree",
+       "line": 453
+      },
+      {
+       "method": "LeafFieldsSurviveIntoTheNode",
+       "line": 470
+      },
+      {
+       "method": "EveryKindHasAPinnedWireName",
+       "line": 508
+      },
+      {
+       "method": "StyleNameClassificationIsTheHonestFallback",
+       "line": 521
+      },
+      {
+       "method": "AnEndClosesTheNearestOpenGroupNotTheOutermost",
+       "line": 535
+      },
+      {
+       "method": "ALayoutGroupEndMatchesItsOwnOrientationNotJustItsKind",
+       "line": 566
+      },
+      {
+       "method": "AnOrientationLessLayoutGroupEndStillMatchesEitherKind",
+       "line": 597
+      },
+      {
+       "method": "MissingEndScrollViewIsRecoveredFromTheClipDepth",
+       "line": 615
+      },
+      {
+       "method": "TheRectRuleClosesOnTheXAxisToo",
+       "line": 642
+      },
+      {
+       "method": "TheClipRuleClosesTwoContainersOnOneEvent",
+       "line": 668
+      },
+      {
+       "method": "TheRectRuleClosesTwoLayoutGroupsOnOneEvent",
+       "line": 694
+      },
+      {
+       "method": "ADegenerateLayoutGroupIsLookedPastToTheNearestUsableAncestor",
+       "line": 717
+      },
+      {
+       "method": "WithNoUsableAncestorRectTheRuleIsCountedInertRatherThanGuessing",
+       "line": 743
+      },
+      {
+       "method": "KnownAndUnknownClipDepthsMixWithoutPoisoningEachOther",
+       "line": 765
+      },
+      {
+       "method": "TheRectSlackIsAnUpperBoundNotJustALowerOne",
+       "line": 791
+      },
+      {
+       "method": "DegeneracyIsDecidedAtExactlyHalfAPixel",
+       "line": 820
+      },
+      {
+       "method": "TheClipContainerPredicateHasExactlyOneDefinition",
+       "line": 829
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

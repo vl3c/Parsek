@@ -1,0 +1,187 @@
+{
+ "batch_id": "mission-groups-006",
+ "cluster": "mission-groups",
+ "tier": "A",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "MissionZeroDriftScheduleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NextJoint_Synthetic_ChainsTheWithinTolWindows_NonUniformNonAccumulating",
+       "line": 68
+      },
+      {
+       "method": "NextJoint_BoundedBestFallback_WhenNoWithinTolInWindow",
+       "line": 106
+      },
+      {
+       "method": "NextJoint_DoesNotReturnTheLaunchAtAfterUT",
+       "line": 122
+      },
+      {
+       "method": "NextJoint_DegenerateDominantPeriod_ReturnsNaN",
+       "line": 134
+      },
+      {
+       "method": "FindNextK_ToleranceBoundary_FlipsWithinTolerance",
+       "line": 150
+      },
+      {
+       "method": "FindNextK_NonPositiveLookahead_ReturnsFalse",
+       "line": 173
+      },
+      {
+       "method": "MunCase_ZeroDrift_NeverWorseThanFixedCadence_AndDoesNotAccumulate",
+       "line": 182
+      },
+      {
+       "method": "Schedule_NCycleResolve_ResidualBoundedNoAccumulation",
+       "line": 226
+      },
+      {
+       "method": "BuildSchedule_MultiDistinctPeriod_BuildsSchedule",
+       "line": 321
+      },
+      {
+       "method": "BuildSchedule_SingleConstraint_NoSchedule",
+       "line": 340
+      },
+      {
+       "method": "BuildSchedule_TidalCollapse_NoSchedule",
+       "line": 352
+      },
+      {
+       "method": "BuildSchedule_Unsupported_NoSchedule",
+       "line": 368
+      },
+      {
+       "method": "BuildSchedule_DegenerateDroppedPeriod_FilteredWithWarn",
+       "line": 384
+      },
+      {
+       "method": "Schedule_ResolveActiveLaunch_ParkedBeforeFirst_ThenResolvesAndExtends",
+       "line": 405
+      },
+      {
+       "method": "Schedule_NextLaunchAfter_TargetsTheNextScheduledRelaunch",
+       "line": 436
+      },
+      {
+       "method": "Schedule_MinIntervalSeconds_ReflectsTheShortestProbeInterval",
+       "line": 447
+      },
+      {
+       "method": "Schedule_MaxIntervalSeconds_ReflectsTheLongestProbeInterval",
+       "line": 457
+      },
+      {
+       "method": "Schedule_MaxIntervalSeconds_DegenerateInputs_NaN",
+       "line": 470
+      },
+      {
+       "method": "Schedule_FutureDatedUT0_FirstLaunchAtOrAfterFloor",
+       "line": 480
+      },
+      {
+       "method": "Schedule_DegenerateInputs_NoFirstLaunch",
+       "line": 493
+      },
+      {
+       "method": "Schedule_FloorUT_NaN_NoFirstLaunch",
+       "line": 502
+      },
+      {
+       "method": "FindNextK_MultipleDistinctDroppedPeriods_WorstIsMax_AllWithinTol",
+       "line": 513
+      },
+      {
+       "method": "FindNextK_FewerTolerancesThanPeriods_MissingToleranceTreatedAsZero",
+       "line": 543
+      },
+      {
+       "method": "Schedule_SafetyCap_ParksWithoutCrash_AndNextLaunchAfterIsNaN",
+       "line": 559
+      },
+      {
+       "method": "Schedule_RepeatedAndDecreasingResolves_StayConsistent",
+       "line": 591
+      },
+      {
+       "method": "SpanClock_Scheduled_ParkedBeforeFirstLaunch",
+       "line": 640
+      },
+      {
+       "method": "SpanClock_Scheduled_RendersDuringSpan_ThenParksInTailBetweenLaunches",
+       "line": 650
+      },
+      {
+       "method": "DecideUnitMemberRender_Scheduled_RenderInSpan_HiddenInTail_UnresolvedBeforeFirst",
+       "line": 682
+      },
+      {
+       "method": "SpanClock_NullSchedule_ByteIdenticalToUniformPath",
+       "line": 701
+      },
+      {
+       "method": "Schedule_Deterministic_TwoIndependentBuildsResolveIdentically",
+       "line": 722
+      },
+      {
+       "method": "SelectAnchorConstraintIndex_PicksTightestBand_ThePadNotTheMun",
+       "line": 770
+      },
+      {
+       "method": "SelectAnchorConstraintIndex_PadPlusStation_PicksThePad",
+       "line": 788
+      },
+      {
+       "method": "Schedule_PadPlusStation_Commensurate_EveryPadWindowAligned",
+       "line": 803
+      },
+      {
+       "method": "Schedule_PadPlusStation_Incommensurate_StationWithinToleranceAtEveryLaunch",
+       "line": 823
+      },
+      {
+       "method": "Schedule_NoThrottle_LaunchesEveryFaithfulWindow_MaxCadence",
+       "line": 859
+      },
+      {
+       "method": "Schedule_PlayerThrottle_SkipsFaithfulWindowsToHonorPeriod",
+       "line": 872
+      },
+      {
+       "method": "LoopUnit_WithSchedule_IsNonOverlapping_Invariant",
+       "line": 890
+      },
+      {
+       "method": "IsTransitedBodyRotation_OnlyNonLaunchBodyRotation",
+       "line": 910
+      },
+      {
+       "method": "ScheduleToleranceSecondsFor_LoosensOnlyTransitedBodyRotation_InLooseMode",
+       "line": 921
+      },
+      {
+       "method": "TryBuildRelaunchSchedule_TransitedBodyRotationMode_TighterIsRarer_DropLtLooseLtTight",
+       "line": 937
+      },
+      {
+       "method": "BuildSchedule_MunPad_LaunchesPinToMunRotationNotKerbinRotation",
+       "line": 982
+      },
+      {
+       "method": "SelectAnchor_MunPadBeatsLooseTransitedKerbinRotation",
+       "line": 1035
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,150 @@
+{
+ "batch_id": "logistics-route-018",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 30,
+ "files": [
+  {
+   "file": "Logistics/RoutePickupSourceGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TwoSources_BothCover_Eligible",
+       "line": 102
+      },
+      {
+       "method": "TwoSources_AShort_HoldsNamingSourceA",
+       "line": 122
+      },
+      {
+       "method": "TwoSources_BShort_HoldsNamingSourceB",
+       "line": 145
+      },
+      {
+       "method": "TwoSources_BothShort_FirstShortByDockUT_NamesEarliest",
+       "line": 168
+      },
+      {
+       "method": "SamePid_TwoWindows_SumAgainstOneTank_Short",
+       "line": 193
+      },
+      {
+       "method": "SamePid_TwoWindows_CollapseToOneGroup",
+       "line": 218
+      },
+      {
+       "method": "DockedOriginPlusPickupSource_DoNotDoubleCount",
+       "line": 242
+      },
+      {
+       "method": "DeliveryOnly_NoPickupSources_ZeroGroups_Eligible",
+       "line": 273
+      },
+      {
+       "method": "NullAndEmptyStops_PassTrivially",
+       "line": 291
+      },
+      {
+       "method": "PickupSourceUnresolved_HoldsWithReason",
+       "line": 311
+      },
+      {
+       "method": "InventoryPickupSource_Short_HoldsNamingSource",
+       "line": 329
+      },
+      {
+       "method": "SamePid_InventoryWindows_Sum",
+       "line": 354
+      },
+      {
+       "method": "Reservations_KeyOnResolvedPid_SumSamePidWindows",
+       "line": 381
+      },
+      {
+       "method": "Reservations_InventoryOnlyAndDeliveryOnly_ReserveNothing",
+       "line": 413
+      },
+      {
+       "method": "Reservations_UnresolvedSource_ReturnsFalse_NoPartialSet",
+       "line": 434
+      },
+      {
+       "method": "Reservations_UnfiredWindowFilter_ExcludesAlreadyFiredWindow",
+       "line": 455
+      },
+      {
+       "method": "IsEscrowCausedShort_TruthTable",
+       "line": 528
+      },
+      {
+       "method": "EscrowShort_EmitsReservedTokenNamingReservingRoute",
+       "line": 552
+      },
+      {
+       "method": "PhysicalShort_WithEscrowWiring_KeepsByteIdenticalSourceToken",
+       "line": 580
+      },
+      {
+       "method": "MixedShort_PhysicallyShort_ClassifiesPhysical",
+       "line": 608
+      },
+      {
+       "method": "EscrowCaused_NoReservingRouteFound_FallsBackToPhysicalToken",
+       "line": 634
+      },
+      {
+       "method": "LegacyResolution_NoRawReader_PhysicalTokenByteIdentical",
+       "line": 656
+      },
+      {
+       "method": "BuildReservedHoldToken_SanitizesColons",
+       "line": 676
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteRewindRedeliveryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Funds_KscCycleReFires_AfterRetire_ChargesFiveThousandOnce",
+       "line": 310
+      },
+      {
+       "method": "Funds_PostRetireLedger_ChargesDebitedRowOnce",
+       "line": 372
+      },
+      {
+       "method": "NonKsc_CycleReFires_NoFundsCharged_CompletedCyclesAdvancesOnce",
+       "line": 403
+      },
+      {
+       "method": "MultiRewind_NoOrphanRouteRowAccumulation",
+       "line": 455
+      },
+      {
+       "method": "RecoveryCreditStraddle_FutureCreditDropped_SingleReflushChargesOnce",
+       "line": 511
+      },
+      {
+       "method": "PhantomAvoidance_DroppedCycleNotReflown_ChargesNothing",
+       "line": 556
+      },
+      {
+       "method": "DedupSuppresses_WhenRowPresent_ThenFires_AfterRetireDropsIt",
+       "line": 589
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

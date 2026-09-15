@@ -1,0 +1,116 @@
+{
+ "batch_id": "harness-seam-024",
+ "cluster": "harness-seam",
+ "tier": "C",
+ "expected_methods": 16,
+ "files": [
+  {
+   "file": "TestCommandMissionMarkTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatMarkMessage_WithUt_IsStable",
+       "line": 21
+      },
+      {
+       "method": "FormatMarkMessage_NoGame_RendersUtNone",
+       "line": 28
+      },
+      {
+       "method": "FormatMarkMessage_NullLabel_EmptyLabel",
+       "line": 35
+      },
+      {
+       "method": "EmitMark_LogsTaggedInfoLine",
+       "line": 42
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandExecutionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ExceptionTerminal_ProducesError_WithExceptionTypeName",
+       "line": 15
+      },
+      {
+       "method": "ExceptionTerminal_NullOrEmptyType_StillError",
+       "line": 26
+      },
+      {
+       "method": "ErrorVerdict_AdvancesQueue",
+       "line": 34
+      },
+      {
+       "method": "TerminalVerdicts_AdvanceQueue",
+       "line": 45
+      },
+      {
+       "method": "PendingVerdict_HoldsHead_DoesNotAdvance",
+       "line": 51
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandSaveGameTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveName_DefaultsToPersistent",
+       "line": 19
+      },
+      {
+       "method": "CanSave_RequiresGameAndFolder",
+       "line": 29
+      },
+      {
+       "method": "BuildPayload_CarriesSavedName",
+       "line": 35
+      },
+      {
+       "method": "BuildPayload_NullNameIsEmptyString",
+       "line": 44
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandEnvGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ExactlyOne_Arms",
+       "line": 16
+      },
+      {
+       "method": "AnythingElse_StaysInert",
+       "line": 31
+      },
+      {
+       "method": "FormatEnvForLog_RendersDistinctly",
+       "line": 41
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

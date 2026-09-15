@@ -1,0 +1,279 @@
+{
+ "batch_id": "ledger-career-004",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 65,
+ "files": [
+  {
+   "file": "LedgerOrchestratorTests.cs",
+   "ranges": [
+    {
+     "start": 1748,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputePendingRecentKscScienceCredit_IgnoresConverterLegsOutsideTheWindow",
+       "line": 1748
+      },
+      {
+       "method": "ComputePendingRecentKscScienceCredit_ConverterLegAloneInventsNothing",
+       "line": 1777
+      },
+      {
+       "method": "ComputePendingUncommittedStrategyScienceDebit_TaggedExchangeNotYetCommitted_ReturnsGap",
+       "line": 1819
+      },
+      {
+       "method": "ComputePendingUncommittedStrategyScienceDebit_DrainsOnceTheCommitLandsTheRow",
+       "line": 1838
+      },
+      {
+       "method": "ComputePendingUncommittedStrategyScienceDebit_OwnerlessKscExchange_CancelsToZero",
+       "line": 1862
+      },
+      {
+       "method": "ComputePendingUncommittedStrategyScienceDebit_IgnoresWrongReasonAndWrongSign",
+       "line": 1889
+      },
+      {
+       "method": "ComputePendingUncommittedStrategyScienceDebit_VisibilityFilterExcludesRetiredTimeline",
+       "line": 1916
+      },
+      {
+       "method": "PendingStrategyScienceDebit_KeepsTheDrawdownGuardFromClampingAnUplift",
+       "line": 1934
+      },
+      {
+       "method": "AdjustSciencePatchTargetForPendingStrategyScienceDebit_HoldsBackTheUncommittedDebit",
+       "line": 1962
+      },
+      {
+       "method": "MigrateOldSaveEvents_ScienceChangedStrategyInput_ProducesNoStrategyScienceDebit",
+       "line": 1993
+      },
+      {
+       "method": "IsMigrationConvertibleEvent_ExcludesOnlyScienceChanged",
+       "line": 2026
+      },
+      {
+       "method": "ExtractCrewFromRecording_NullRecording_ReturnsEmpty",
+       "line": 2043
+      },
+      {
+       "method": "ExtractCrewFromRecording_NoSnapshot_ReturnsEmpty",
+       "line": 2051
+      },
+      {
+       "method": "ExtractCrewFromRecording_WithCrewEndStates_MapsCorrectly",
+       "line": 2061
+      },
+      {
+       "method": "ExtractCrewFromRecording_ReverseMapsStandInNames",
+       "line": 2090
+      },
+      {
+       "method": "PopulateUnpopulatedCrewEndStates_EvaOnlyRecording_PopulatesCrewEndStates",
+       "line": 2119
+      },
+      {
+       "method": "PopulateUnpopulatedCrewEndStates_GhostOnlyChainRecording_UsesFiniteHandoffEndState",
+       "line": 2146
+      },
+      {
+       "method": "NeedsCrewEndStatePopulation_GhostVisualOnly_AdmitsAndLogsInfo",
+       "line": 2184
+      },
+      {
+       "method": "NeedsCrewEndStatePopulation_GhostVisualOnlyCrewless_AdmitsAtVerbose",
+       "line": 2206
+      },
+      {
+       "method": "NeedsCrewEndStatePopulation_GhostVisualOnlyRecovered_Admits",
+       "line": 2227
+      },
+      {
+       "method": "NeedsCrewEndStatePopulation_NoCrewSourceAtAll_ReturnsFalse",
+       "line": 2246
+      },
+      {
+       "method": "NeedsCrewEndStatePopulation_GhostVisualOnlyButResolved_ReturnsFalse",
+       "line": 2256
+      },
+      {
+       "method": "NeedsCrewEndStatePopulation_GhostVisualOnlyIntactTerminal_ReturnsFalse",
+       "line": 2272
+      },
+      {
+       "method": "NeedsCrewEndStatePopulation_VesselSnapshotPresent_AdmitsWithoutGhostVisualLog",
+       "line": 2291
+      },
+      {
+       "method": "PopulateUnpopulatedCrewEndStates_DestroyedVesselGhostVisualOnly_PopulatesDead",
+       "line": 2305
+      },
+      {
+       "method": "PopulateUnpopulatedCrewEndStates_RecoveredVesselGhostVisualOnly_PopulatesRecovered",
+       "line": 2341
+      },
+      {
+       "method": "PopulateUnpopulatedCrewEndStates_CrewlessDestroyedDebris_ResolvesWithoutEntries",
+       "line": 2371
+      },
+      {
+       "method": "MigrateKerbalAssignments_DestroyedVesselGhostVisualOnly_WritesDeadEndState",
+       "line": 2399
+      },
+      {
+       "method": "MigrateKerbalAssignments_EvaOnlyRecording_PopulatesEndStateBeforeActionCreation",
+       "line": 2433
+      },
+      {
+       "method": "MigrateKerbalAssignments_RewritesExistingStandInAction",
+       "line": 2464
+      },
+      {
+       "method": "MigrateKerbalAssignments_RewritesStandInActionFromPersistedSlots",
+       "line": 2515
+      },
+      {
+       "method": "MigrateKerbalAssignments_RewritesExistingGhostOnlyUnknownAction",
+       "line": 2575
+      },
+      {
+       "method": "CreateKerbalAssignmentActions_TouristCrew_SkipsTourists",
+       "line": 2622
+      },
+      {
+       "method": "FindRecordingById_NullId_ReturnsNull",
+       "line": 2671
+      },
+      {
+       "method": "FindRecordingById_ExistingId_ReturnsRecording",
+       "line": 2678
+      },
+      {
+       "method": "FindRecordingById_NonexistentId_ReturnsNull",
+       "line": 2693
+      },
+      {
+       "method": "HasFacilityActionsInRange_EmptyLedger_ReturnsFalse",
+       "line": 2709
+      },
+      {
+       "method": "HasFacilityActionsInRange_FacilityUpgradeInRange_ReturnsTrue",
+       "line": 2715
+      },
+      {
+       "method": "HasFacilityActionsInRange_FacilityDestructionInRange_ReturnsTrue",
+       "line": 2730
+      },
+      {
+       "method": "HasFacilityActionsInRange_FacilityRepairInRange_ReturnsTrue",
+       "line": 2744
+      },
+      {
+       "method": "HasFacilityActionsInRange_ActionOutsideRange_ReturnsFalse",
+       "line": 2758
+      },
+      {
+       "method": "HasFacilityActionsInRange_NonFacilityActionInRange_ReturnsFalse",
+       "line": 2776
+      },
+      {
+       "method": "HasFacilityActionsInRange_BoundaryExclusion_FromUTExcluded",
+       "line": 2792
+      },
+      {
+       "method": "HasFacilityActionsInRange_BoundaryInclusion_ToUTIncluded",
+       "line": 2808
+      },
+      {
+       "method": "BuildChainEndUtMap_EmptyTree_ReturnsEmptyMap",
+       "line": 2828
+      },
+      {
+       "method": "BuildChainEndUtMap_NonChainRecordings_ReturnsEmptyMap",
+       "line": 2838
+      },
+      {
+       "method": "BuildChainEndUtMap_ChainRecordings_MapsAllSegments",
+       "line": 2852
+      },
+      {
+       "method": "AdjustStartUtForChainGap_NullRecording_ReturnsUnchanged",
+       "line": 2878
+      },
+      {
+       "method": "AdjustStartUtForChainGap_NonChainRecording_ReturnsUnchanged",
+       "line": 2885
+      },
+      {
+       "method": "AdjustStartUtForChainGap_ChainIndex0_ReturnsUnchanged",
+       "line": 2894
+      },
+      {
+       "method": "AdjustStartUtForChainGap_ChainContinuation_ExtendsToGap",
+       "line": 2903
+      },
+      {
+       "method": "AdjustStartUtForChainGap_NoGap_ReturnsUnchanged",
+       "line": 2918
+      },
+      {
+       "method": "AdjustStartUtForChainGap_PredecessorAfterStart_ReturnsUnchanged",
+       "line": 2928
+      },
+      {
+       "method": "AdjustStartUtForChainGap_PredecessorMissing_ReturnsUnchanged",
+       "line": 2938
+      },
+      {
+       "method": "AdjustStartUtForChainGap_MultipleChainSegments_ClosesEachGap",
+       "line": 2948
+      },
+      {
+       "method": "AdjustStartUtForChainGap_DifferentChains_IndependentGaps",
+       "line": 2969
+      },
+      {
+       "method": "ResolveStandaloneCommitWindowStartUt_ChainContinuationClosesGapForSubsetRouting",
+       "line": 2985
+      },
+      {
+       "method": "ResolveStandaloneCommitWindowStartUt_MissingParentLeavesSubsetAtOwnStart",
+       "line": 3038
+      },
+      {
+       "method": "EnsureReputationSeed_RefusalFallbackAfterInsideStamp_ReStampsRowOutside",
+       "line": 3134
+      },
+      {
+       "method": "EnsureReputationSeed_CareerBaselineAfterInsideStamp_ReStampsRowOutside",
+       "line": 3163
+      },
+      {
+       "method": "RestampInsideSeedRows_NonCareerStartOrigins_LeaveTheStampAlone",
+       "line": 3191
+      },
+      {
+       "method": "RestampInsideSeedRows_NonKerbalDeathRow_IsLeftAlone",
+       "line": 3229
+      },
+      {
+       "method": "OnRecordingCommitted_BatchOriginWentStaleMidBatch_LaterDeathIsStampedOutside",
+       "line": 3293
+      },
+      {
+       "method": "OnRecordingCommitted_LivePoolBatchOrigin_IsCarriedToEveryRecording",
+       "line": 3343
+      },
+      {
+       "method": "RestampInsideSeedRows_BumpsLedgerStateVersion",
+       "line": 3372
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

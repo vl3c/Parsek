@@ -1,0 +1,211 @@
+{
+ "batch_id": "recorder-events-020",
+ "cluster": "recorder-events",
+ "tier": "B",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "VariantTextureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyVariantProperty_TextureURLKeys_ReturnTexture",
+       "line": 29
+      },
+      {
+       "method": "ClassifyVariantProperty_KnownTextureNames_ReturnTexture",
+       "line": 36
+      },
+      {
+       "method": "ClassifyVariantProperty_ColorKeys_ReturnColor",
+       "line": 44
+      },
+      {
+       "method": "ClassifyVariantProperty_FloatKeys_ReturnFloat",
+       "line": 52
+      },
+      {
+       "method": "ClassifyVariantProperty_SkipKeys_ReturnSkip",
+       "line": 62
+      },
+      {
+       "method": "ClassifyVariantProperty_NullOrEmpty_ReturnsSkip",
+       "line": 70
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_NoFilter_MatchesAll",
+       "line": 81
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_MaterialNameFilter_Matches",
+       "line": 94
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_MaterialNameFilter_DoesNotMatch",
+       "line": 107
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_MaterialNameWithInstanceSuffix_MatchesViaStartsWith",
+       "line": 120
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_TransformNameFilter_Matches",
+       "line": 133
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_TransformNameFilter_DoesNotMatch",
+       "line": 146
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_BothFilters_MustMatchBoth",
+       "line": 159
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_NullMaterialName_FailsWhenFilterSet",
+       "line": 176
+      },
+      {
+       "method": "DoesRendererMatchTextureRule_NullTransformName_FailsWhenFilterSet",
+       "line": 189
+      },
+      {
+       "method": "TextureUrlToShaderProperty_ConvertsCorrectly",
+       "line": 206
+      },
+      {
+       "method": "TextureUrlToShaderProperty_EmptyPrefixURL_ReturnsFallback",
+       "line": 216
+      },
+      {
+       "method": "TryParseKspColor_CommaSeparatedRGBA_Parses",
+       "line": 226
+      },
+      {
+       "method": "TryParseKspColor_CommaSeparatedRGB_DefaultsAlphaToOne",
+       "line": 236
+      },
+      {
+       "method": "TryParseKspColor_NullOrEmpty_ReturnsFalse",
+       "line": 244
+      },
+      {
+       "method": "TryParseKspColor_TooFewComponents_ReturnsFalse",
+       "line": 251
+      },
+      {
+       "method": "TryParseKspColor_InvalidFloatComponents_ReturnsFalse",
+       "line": 260
+      },
+      {
+       "method": "TryGetSelectedVariantTextureRules_NullPrefab_ReturnsFalse",
+       "line": 270
+      },
+      {
+       "method": "TryFindSelectedVariantNode_NullPrefab_ReturnsFalse",
+       "line": 286
+      },
+      {
+       "method": "MatchVariantNode_SnapshotNameMatchesVariant_ReturnsTrue",
+       "line": 323
+      },
+      {
+       "method": "MatchVariantNode_SnapshotNameMatchesVariant_CaseInsensitive",
+       "line": 338
+      },
+      {
+       "method": "MatchVariantNode_SnapshotNameNotInVariants_ReturnsFalse_BaseImplicit",
+       "line": 352
+      },
+      {
+       "method": "MatchVariantNode_EmptySnapshotName_FallsThrough_ReturnsFirstVariant",
+       "line": 369
+      },
+      {
+       "method": "MatchVariantNode_BaseVariantConfigured_MatchesBaseVariant",
+       "line": 384
+      },
+      {
+       "method": "MatchVariantNode_RuntimeNameNotInVariants_StillFallsThrough",
+       "line": 406
+      },
+      {
+       "method": "MatchVariantNode_NoVariantNodes_ReturnsFalse",
+       "line": 423
+      },
+      {
+       "method": "TextureNodeParsing_SingleNodeWithMixedProperties",
+       "line": 440
+      },
+      {
+       "method": "TextureNodeParsing_MultipleNodesWithDifferentMaterialFilters",
+       "line": 469
+      },
+      {
+       "method": "TextureNodeParsing_NoTextureNodes_EmptyResult",
+       "line": 497
+      },
+      {
+       "method": "TextureNodeParsing_ShaderOnly_NoProperties",
+       "line": 510
+      },
+      {
+       "method": "TextureNodeParsing_TransformNameFilter_Extracted",
+       "line": 527
+      },
+      {
+       "method": "ClassifyVariantProperty_UnknownKey_ReturnsSkip",
+       "line": 570
+      },
+      {
+       "method": "ClassifyVariantProperty_ColorInMiddleOfKey_ReturnsColor",
+       "line": 577
+      },
+      {
+       "method": "ClassifyVariantProperty_URLSuffix_CaseMatters",
+       "line": 584
+      },
+      {
+       "method": "ExtractShortTransformName_NullOrEmpty_ReturnsNull",
+       "line": 597
+      },
+      {
+       "method": "ExtractShortTransformName_SimpleNameNoSlash_ReturnsNull",
+       "line": 604
+      },
+      {
+       "method": "ExtractShortTransformName_FullPathWithClone_ExtractsShortName",
+       "line": 612
+      },
+      {
+       "method": "ExtractShortTransformName_FullPathWithoutClone_ExtractsShortName",
+       "line": 620
+      },
+      {
+       "method": "ExtractShortTransformName_SingleSegmentModelPath_ExtractsCorrectly",
+       "line": 628
+      },
+      {
+       "method": "ResolveVariantNameFromSnapshot_NullNode_ReturnsNull",
+       "line": 640
+      },
+      {
+       "method": "ResolveVariantNameFromSnapshot_PartLevelModuleVariantName_Found",
+       "line": 646
+      },
+      {
+       "method": "ResolveVariantNameFromSnapshot_ModuleLevelCurrentVariant_PreferredOverPartLevel",
+       "line": 660
+      },
+      {
+       "method": "ResolveVariantNameFromSnapshot_EmptyModuleAndNoPart_ReturnsNull",
+       "line": 673
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

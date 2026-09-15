@@ -1,0 +1,348 @@
+{
+ "batch_id": "analyzer-004",
+ "cluster": "analyzer",
+ "tier": "C",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "Analyzer/Rules/Inv1UtMonotonicTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MonotonicWithEqualUtSnapshot_NoFindings",
+       "line": 43
+      },
+      {
+       "method": "BackSteppingPoints_Fails",
+       "line": 62
+      },
+      {
+       "method": "BackSteppingSectionFrames_Fails",
+       "line": 82
+      },
+      {
+       "method": "SectionStartAfterEnd_Fails",
+       "line": 105
+      },
+      {
+       "method": "NaNPointUt_Fails",
+       "line": 128
+      },
+      {
+       "method": "NaNSectionStartUt_Fails",
+       "line": 149
+      },
+      {
+       "method": "BackSteppingCheckpoints_Fails",
+       "line": 172
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv3RelativeContractTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RelativeMetreOffsets_WithAnchor_NotFlagged",
+       "line": 36
+      },
+      {
+       "method": "DebrisFrameContractFixture_LoopAnchored_Clean",
+       "line": 68
+      },
+      {
+       "method": "RelativeWithNoAnchor_Fails",
+       "line": 82
+      },
+      {
+       "method": "AbsoluteOutOfRange_Warns_NotFails",
+       "line": 117
+      },
+      {
+       "method": "AbsoluteInRange_NoFindings",
+       "line": 148
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/SaveDirectoryLoaderLedgerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LedgerFile_LoadsRawVerbatim",
+       "line": 79
+      },
+      {
+       "method": "NonFundsSave_ParsedSnapshot_FacetFlagsFalse_NoFault",
+       "line": 102
+      },
+      {
+       "method": "CareerSave_WhenFundingScenarioPresent_IsParsed",
+       "line": 126
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv4PartEventPidTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EventsMatchingSnapshotParts_NoFail",
+       "line": 38
+      },
+      {
+       "method": "EventPidAbsentFromSnapshot_Fails",
+       "line": 58
+      },
+      {
+       "method": "PrefersGhostVisualSnapshot",
+       "line": 82
+      },
+      {
+       "method": "NoSnapshot_InfoOnly_NoCrash",
+       "line": 103
+      },
+      {
+       "method": "SnapshotLoadFailed_InfoPlusWarn",
+       "line": 127
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv7bAnnotationStaleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FreshAnnotation_NoFindings",
+       "line": 94
+      },
+      {
+       "method": "StaleAnnotation_Warns",
+       "line": 106
+      },
+      {
+       "method": "OrphanAnnotation_Warns",
+       "line": 122
+      },
+      {
+       "method": "NullSaveDirectory_NoFindings",
+       "line": 142
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/LoadFaultRuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SfsFault_Fails",
+       "line": 31
+      },
+      {
+       "method": "TreeNodeFault_Fails",
+       "line": 51
+      },
+      {
+       "method": "LedgerFault_Fails",
+       "line": 66
+      },
+      {
+       "method": "TrajectoryAndSnapshotFaults_NotReported",
+       "line": 82
+      },
+      {
+       "method": "MultipleOwnedFaults_EachFails",
+       "line": 95
+      },
+      {
+       "method": "NoFaults_NoFindings_NoThrow",
+       "line": 108
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv10CodecRoundtripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PopulatedRecording_RoundTrips_NoFail",
+       "line": 31
+      },
+      {
+       "method": "ManifestFieldDrift_FailsNamingField",
+       "line": 73
+      },
+      {
+       "method": "NaNOrbitElement_RoundTripsEqual_NoFail",
+       "line": 98
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/Inv8LedgerCareerDiffTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MatchingReconstruction_NoCareerDiffFinding",
+       "line": 39
+      },
+      {
+       "method": "FundsDivergence_Warns_NeverFails",
+       "line": 50
+      },
+      {
+       "method": "CareerNoReconstruction_InfoReconstructionNotAvailable",
+       "line": 64
+      },
+      {
+       "method": "NonCareer_NoCareerDiffFinding",
+       "line": 77
+      },
+      {
+       "method": "NonFundsParsedSnapshot_NoCareerDiffFinding",
+       "line": 92
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/BaselineFilterLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EscalatedNotBaselined_LogsWarnLine",
+       "line": 59
+      },
+      {
+       "method": "ForbidTrip_LogsForbiddenLine",
+       "line": 75
+      },
+      {
+       "method": "MatchSweep_SummaryLogsExactlyOnce",
+       "line": 90
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/LoaderLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Load_EmitsVerboseLoadSummaryLine",
+       "line": 67
+      },
+      {
+       "method": "Load_EmitsWarnLinePerLoadFault",
+       "line": 91
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/AnalyzerModelTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "VerdictLevel_NumericOrder_IsInfoWarnFailStaleAscending",
+       "line": 13
+      },
+      {
+       "method": "AnalyzerModel_Defaults_AreEmptyNotNull",
+       "line": 25
+      },
+      {
+       "method": "Finding_Constructor_AssignsAllFields",
+       "line": 50
+      },
+      {
+       "method": "LoadFault_And_FixtureStamp_Constructors_AssignAllFields",
+       "line": 70
+      },
+      {
+       "method": "SidecarSchema_TupleElements_AreNamed",
+       "line": 86
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/Rules/FixtureStampRuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CurrentGenerationStamp_NoFindings",
+       "line": 33
+      },
+      {
+       "method": "StaleGenerationStamp_StaleFixturePerRecording",
+       "line": 43
+      },
+      {
+       "method": "HarvestedStaleStamp_CarriesReHarvestNote",
+       "line": 68
+      },
+      {
+       "method": "Unstamped_NoFindings",
+       "line": 80
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

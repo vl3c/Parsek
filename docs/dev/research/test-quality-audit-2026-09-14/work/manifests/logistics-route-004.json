@@ -1,0 +1,143 @@
+{
+ "batch_id": "logistics-route-004",
+ "cluster": "logistics-route",
+ "tier": "A1",
+ "expected_methods": 31,
+ "files": [
+  {
+   "file": "Logistics/RouteBuilderTests.cs",
+   "ranges": [
+    {
+     "start": 1293,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_DefaultCadence_IsOne_IntervalEqualsSpan",
+       "line": 1293
+      },
+      {
+       "method": "Build_IntervalAtNxSpan_DerivesCadenceN_AndReDerivesInterval",
+       "line": 1313
+      },
+      {
+       "method": "Build_ClampedUpInterval_DerivesCadenceOne",
+       "line": 1338
+      },
+      {
+       "method": "Build_NonFiniteUndockUT_Rejected_BackingMissionUnresolvable",
+       "line": 1363
+      },
+      {
+       "method": "Build_UndockBeforeRootLaunch_Rejected_BackingMissionUnresolvable",
+       "line": 1383
+      },
+      {
+       "method": "Build_LogsRouteTagOnBuildAndOnReject",
+       "line": 1424
+      },
+      {
+       "method": "BuildRoute_CapturesCreationTreeSnapshot_WholeTree_IncludingPostUndockLeg",
+       "line": 1522
+      },
+      {
+       "method": "BuildRoute_NullTree_CreationSnapshotStaysEmpty_FailOpen",
+       "line": 1548
+      },
+      {
+       "method": "Cre2_CandidateTransitSpanHelper_EqualsCreatedRouteTransitDuration_OnMultiLegTree",
+       "line": 1563
+      },
+      {
+       "method": "Cre2_BuildSummaryBlock_TransitLine_UsesFullRootToUndockSpan_NotLeafSpan",
+       "line": 1592
+      },
+      {
+       "method": "Cre2_BuildSummaryBlock_NullTree_FallsBackToLeafSpan_StillCompiles",
+       "line": 1644
+      },
+      {
+       "method": "Cre4_TreeWithMissingRootRecording_Rejected_RootUnresolvable",
+       "line": 1675
+      },
+      {
+       "method": "Cre4_TreeWithEmptyRootRecordingId_Rejected_RootUnresolvable",
+       "line": 1714
+      },
+      {
+       "method": "Cre4_NullTree_SingleRecording_NotRejected_SourceIsRoot",
+       "line": 1746
+      },
+      {
+       "method": "Cre5_IsDockUTWithinSpan_StrictBounds_RejectsDegenerate",
+       "line": 1777
+      },
+      {
+       "method": "Cre5_DockUTOutsideSpan_Rejected_DockUtOutOfSpan",
+       "line": 1788
+      },
+      {
+       "method": "Cre5_DockUTAtSpanBoundary_Rejected_DockUtOutOfSpan",
+       "line": 1819
+      },
+      {
+       "method": "Cre3_SubTwoXInterval_SnapsToSpan_NeverBelow",
+       "line": 1843
+      },
+      {
+       "method": "BuildRoute_TwoStopAnalysis_BuildsTwoStopsInDockUtOrder",
+       "line": 1947
+      },
+      {
+       "method": "BuildRoute_TwoStopAnalysis_DeliveryOffsetsSetForMultiStop_AscendingByDock",
+       "line": 1977
+      },
+      {
+       "method": "BuildRoute_TwoStopAnalysis_RouteSpanUsesLastStopDock",
+       "line": 2006
+      },
+      {
+       "method": "BuildRoute_SingleStopScalarOnlyAnalysis_StillBuildsOneStop",
+       "line": 2027
+      },
+      {
+       "method": "BuildRoute_CrossRecordingMultiStop_DockMemberRecordingIdCoherentWithLastStop",
+       "line": 2058
+      },
+      {
+       "method": "BuildRoute_SingleStopViaStopsList_MatchesScalarFallback",
+       "line": 2123
+      },
+      {
+       "method": "Build_MidTreeOrigin_SpanIsOriginUndockToDock",
+       "line": 2285
+      },
+      {
+       "method": "Build_MidTreeOrigin_OriginEndpointFromOriginWindow",
+       "line": 2314
+      },
+      {
+       "method": "Build_MidTreeOrigin_ExcludedKeysIncludeStartTrim",
+       "line": 2341
+      },
+      {
+       "method": "Build_MidTreeOrigin_SourceRefsIncludeOriginCarrier",
+       "line": 2371
+      },
+      {
+       "method": "Build_MidTreeOrigin_SpanMismatch_Rejected",
+       "line": 2393
+      },
+      {
+       "method": "Build_MidTreeOrigin_NullTree_Rejected",
+       "line": 2425
+      },
+      {
+       "method": "Build_KscRooted_OriginUndockUTStaysDefault",
+       "line": 2445
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,253 @@
+{
+ "batch_id": "catchall-025",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 53,
+ "files": [
+  {
+   "file": "ReStockPatchFxIndexTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryExtractPartTarget_DecoratedRealName_ExtractsFirstBracketToken",
+       "line": 165
+      },
+      {
+       "method": "TryExtractPartTarget_Malformed_ReturnsFalse",
+       "line": 177
+      },
+      {
+       "method": "SwivelShape_WithWildcardInHasSuffix_IsIndexedNotSkipped",
+       "line": 183
+      },
+      {
+       "method": "WildcardInTargetToken_IsSkipped",
+       "line": 193
+      },
+      {
+       "method": "SwivelShape_ExtractsFreshEffectsNotDeletionNode",
+       "line": 206
+      },
+      {
+       "method": "SwivelShape_ReadsModuleEffectNameThroughMmPrefix",
+       "line": 217
+      },
+      {
+       "method": "RapierShape_NoEngineModuleNodes_EffectNamesEmpty",
+       "line": 227
+      },
+      {
+       "method": "RcsShapes_DefaultRunningName_WithAndWithoutModuleNode",
+       "line": 237
+      },
+      {
+       "method": "DeletionPrefixedEffectNames_AreNotGroupNames",
+       "line": 247
+      },
+      {
+       "method": "ReadPatchValue_AcceptsAssignmentPrefixForms",
+       "line": 269
+      },
+      {
+       "method": "ReadPatchValue_SkipsNonAssignmentForms",
+       "line": 280
+      },
+      {
+       "method": "MergeRule_EffectsLessNodeNeverOverwritesEffectsBearing",
+       "line": 290
+      },
+      {
+       "method": "MergeRule_EffectsBearingNodeReplacesEffectsLess",
+       "line": 301
+      },
+      {
+       "method": "MergeRule_SecondEffectsBearingNode_FirstWinsAndConflictLogged",
+       "line": 311
+      },
+      {
+       "method": "EngineGroupFilter_PatchNamesWin",
+       "line": 328
+      },
+      {
+       "method": "EngineGroupFilter_RapierFallsBackToPristinePerOrdinal",
+       "line": 342
+      },
+      {
+       "method": "EngineGroupFilter_SingleModuleNoSources_ScansAllGroups",
+       "line": 359
+      },
+      {
+       "method": "EngineGroupFilter_MultiModuleNoSources_Skips",
+       "line": 371
+      },
+      {
+       "method": "RcsRunningGroupName_ChainPatchThenPristineThenDefault",
+       "line": 382
+      },
+      {
+       "method": "SwivelShapeEffects_ScanYieldsReStockModelAndSmokePrefab",
+       "line": 429
+      },
+      {
+       "method": "RapierShapeEffects_PristineOrdinalFilter_ScansOnlyThatModesGroups",
+       "line": 445
+      },
+      {
+       "method": "TryGetForPart_BuildsOnceThroughSeams_AndCaches",
+       "line": 468
+      },
+      {
+       "method": "TryGetForPart_AbsentDirectory_PermanentlyEmptyWithOneLogLine",
+       "line": 488
+      },
+      {
+       "method": "IsReStockInstalled_TracksIndexEntries",
+       "line": 499
+      },
+      {
+       "method": "HasAuthoredEffectsFor_FalseForEffectsLessEntry",
+       "line": 512
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "AutoMergeGhostOnlyReachabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SavedPendingMarker_RestoresFinalized_SoItAlwaysQualifiesForFullFidelity",
+       "line": 96
+      },
+      {
+       "method": "SavedActiveMarker_RestoresLimboAtSpaceCenter_AndNowPreservesFidelity",
+       "line": 119
+      },
+      {
+       "method": "SavedActiveMarkerWithoutActiveRecordingId_RestoresLimboVesselSwitch_AlsoPreserved",
+       "line": 145
+      },
+      {
+       "method": "LimboPendingTree_WritesTheActiveMarkerFromANonFlightScene_AndReloadsAsLimbo",
+       "line": 169
+      },
+      {
+       "method": "GhostOnlyAutoCommit_NullsEverySnapshot_AndReportsHowManyItDestroyed",
+       "line": 199
+      },
+      {
+       "method": "LimboTreeAtSpaceCenter_CommitsThroughTheDialogDecisions_AndKeepsItsSnapshots",
+       "line": 226
+      },
+      {
+       "method": "LimboCommitStillGhostOnlysAnUnspawnableShape_AndKeepsItsGhostVisual",
+       "line": 256
+      },
+      {
+       "method": "ReFlyActive_StaysGhostOnly_ForEveryTreeStateIncludingTheFixedOnes",
+       "line": 307
+      },
+      {
+       "method": "PendingLimboTreeFixture_PredictedCommitNumbers_MatchTheSpecs",
+       "line": 339
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EndOfRecordingWalkbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "WalkbackSubdivided_NullTrajectory_ReturnsNotFound",
+       "line": 88
+      },
+      {
+       "method": "WalkbackSubdivided_EmptyTrajectory_ReturnsNotFound",
+       "line": 100
+      },
+      {
+       "method": "WalkbackSubdivided_SinglePointClear_ReturnsThatPoint",
+       "line": 109
+      },
+      {
+       "method": "WalkbackSubdivided_SinglePointOverlaps_ReturnsNotFound",
+       "line": 122
+      },
+      {
+       "method": "WalkbackSubdivided_LastPointClear_ReturnsLastPoint",
+       "line": 132
+      },
+      {
+       "method": "WalkbackSubdivided_100MeterSegment_Uses67SubSteps",
+       "line": 152
+      },
+      {
+       "method": "WalkbackSubdivided_SegmentShorterThanStep_OneSubStep",
+       "line": 174
+      },
+      {
+       "method": "WalkbackSubdivided_SegmentNearStepMeters_CorrectCallCount",
+       "line": 195
+      },
+      {
+       "method": "WalkbackSubdivided_SegmentJustOverStepMeters_IncrementsSubStepCount",
+       "line": 225
+      },
+      {
+       "method": "WalkbackSubdivided_ZeroLengthSegment_ContinuesToNextSegment",
+       "line": 250
+      },
+      {
+       "method": "WalkbackSubdivided_LastPointOverlaps_FindsFirstClearSubStep",
+       "line": 281
+      },
+      {
+       "method": "WalkbackSubdivided_AllOverlap_LogsExhaustion",
+       "line": 310
+      },
+      {
+       "method": "WalkbackSubdivided_LastPointClear_LogsBaseCaseLine",
+       "line": 329
+      },
+      {
+       "method": "WalkbackSubdivided_Clears_LogsSuccessLine",
+       "line": 350
+      },
+      {
+       "method": "WalkbackSubdivided_InterpolatesLatLonLinearly",
+       "line": 374
+      },
+      {
+       "method": "WalkbackSubdivided_InterpolatesAltitudeLinearly",
+       "line": 400
+      },
+      {
+       "method": "WalkbackSubdividedDetailed_InterpolatesUtVelocityAndRotation",
+       "line": 426
+      },
+      {
+       "method": "WalkbackSubdividedDetailed_BodyTransition_LogsTieBreakChoice",
+       "line": 476
+      },
+      {
+       "method": "WalkbackSubdivided_ZeroStepMeters_ClampsToDefault",
+       "line": 526
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

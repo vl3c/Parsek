@@ -1,0 +1,343 @@
+{
+ "batch_id": "ghost-playback-025",
+ "cluster": "ghost-playback",
+ "tier": "C",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "GhostLabelTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeGhostLabelText_NormalChain_ContainsVesselNameAndUT",
+       "line": 36
+      },
+      {
+       "method": "ComputeGhostLabelText_Terminated_ContainsTerminated",
+       "line": 49
+      },
+      {
+       "method": "ComputeGhostLabelText_Blocked_ContainsBlocked",
+       "line": 61
+      },
+      {
+       "method": "ComputeGhostLabelText_NullName_Handles",
+       "line": 73
+      },
+      {
+       "method": "ComputeGhostLabelText_EmptyName_Handles",
+       "line": 82
+      },
+      {
+       "method": "ComputeGhostLabelText_BlockedTakesPriorityOverTerminated",
+       "line": 91
+      },
+      {
+       "method": "ComputeGhostLabelText_LargeUT_FormatsCorrectly",
+       "line": 101
+      },
+      {
+       "method": "GetChainStatusForRecording_NoChains_ReturnsNull",
+       "line": 114
+      },
+      {
+       "method": "GetChainStatusForRecording_EmptyChains_ReturnsNull",
+       "line": 121
+      },
+      {
+       "method": "GetChainStatusForRecording_MatchingChain_ReturnsStatus",
+       "line": 131
+      },
+      {
+       "method": "GetChainStatusForRecording_NoMatchingChain_ReturnsNull",
+       "line": 152
+      },
+      {
+       "method": "GetChainStatusForRecording_TipRecording_ReturnsChainTipStatus",
+       "line": 170
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostOnlyRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsGhostOnly_True_RoundTripViaSaveLoad",
+       "line": 41
+      },
+      {
+       "method": "IsGhostOnly_False_NotSerializedByDefault",
+       "line": 59
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_GhostOnly_ReturnsFalse",
+       "line": 82
+      },
+      {
+       "method": "ShouldSpawnAtRecordingEnd_NotGhostOnly_CanSpawn",
+       "line": 103
+      },
+      {
+       "method": "ApplyPersistenceArtifactsFrom_CopiesIsGhostOnly",
+       "line": 125
+      },
+      {
+       "method": "CommitGloopsRecording_AssignsGloopsGroup",
+       "line": 142
+      },
+      {
+       "method": "CommitGloopsRecording_SetsLoopPlaybackIfPreset",
+       "line": 161
+      },
+      {
+       "method": "CommitGloopsRecorderData_DefaultsToLoopOffAndAutoPeriod",
+       "line": 179
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostOrbitLineCascadeDeleteGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DeletedCascadeSymbols_StayDeleted",
+       "line": 55
+      },
+      {
+       "method": "SurvivingMechanisms_StayWired",
+       "line": 72
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PlaybackScopeTrackerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ForwardPlayCommit_PlayheadPastStart_IsHistorical",
+       "line": 25
+      },
+      {
+       "method": "RewindBeforeStart_ArmsReplayScope_ThenNotHistorical",
+       "line": 35
+      },
+      {
+       "method": "RewindLandingWithinActivationTolerance_ArmsScope",
+       "line": 46
+      },
+      {
+       "method": "PlayheadJustPastTolerance_DoesNotArm_IsHistorical",
+       "line": 57
+      },
+      {
+       "method": "OrbitalExtrapolatedTail_StartBehindPlayhead_IsHistorical",
+       "line": 66
+      },
+      {
+       "method": "NullOrEmptyId_NeverHistorical",
+       "line": 76
+      },
+      {
+       "method": "Reset_ClearsScope",
+       "line": 83
+      },
+      {
+       "method": "RewindToLaterLaunch_EarlierRecordingStaysHistorical",
+       "line": 93
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostMapTargetingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TargetVerification_Accepted_LogsSetAsTargetSuccess",
+       "line": 29
+      },
+      {
+       "method": "TargetVerification_Rejected_DoesNotLogSetAsTargetSuccess",
+       "line": 55
+      },
+      {
+       "method": "TargetVerification_Unavailable_DoesNotLogSetAsTargetSuccess",
+       "line": 81
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostMapWatchHelperTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveWatchAction_InvalidRecording_ReturnsUnavailable",
+       "line": 9
+      },
+      {
+       "method": "ResolveWatchAction_MenuClickOnWatchedGhost_ReturnsStop",
+       "line": 23
+      },
+      {
+       "method": "ResolveWatchAction_DoubleClickOnWatchedGhost_ReturnsRefresh",
+       "line": 37
+      },
+      {
+       "method": "ResolveWatchAction_InactiveGhost_ReturnsNoActiveGhost",
+       "line": 51
+      },
+      {
+       "method": "ResolveWatchAction_DifferentBody_ReturnsDifferentBody",
+       "line": 65
+      },
+      {
+       "method": "ResolveWatchAction_OutOfRangeGhost_ReturnsOutOfRange",
+       "line": 79
+      },
+      {
+       "method": "ResolveWatchAction_ActiveGhostOnSameBodyInRange_ReturnsStart",
+       "line": 93
+      },
+      {
+       "method": "IsWatchActionEnabled_OutOfRange_ReturnsFalse",
+       "line": 107
+      },
+      {
+       "method": "IsWatchActionEnabled_StartAndStop_ReturnTrue",
+       "line": 113
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostIconClickButtonFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsLeftClickFromButtons_Left_ReturnsTrue",
+       "line": 35
+      },
+      {
+       "method": "IsLeftClickFromButtons_Right_ReturnsFalse",
+       "line": 41
+      },
+      {
+       "method": "IsLeftClickFromButtons_Middle_ReturnsFalse",
+       "line": 47
+      },
+      {
+       "method": "IsLeftClickFromButtons_None_ReturnsTrue_DefensiveDefault",
+       "line": 53
+      },
+      {
+       "method": "IsLeftClickFromButtons_LeftPlusRight_ReturnsTrue",
+       "line": 61
+      },
+      {
+       "method": "IsLeftClickFromButtons_Btn4_ReturnsFalse",
+       "line": 71
+      },
+      {
+       "method": "TryPassThroughNonLeftClick_Right_ReturnsTrue_AndLogsVerbosePassThroughUnderGhostMapTag",
+       "line": 77
+      },
+      {
+       "method": "TryPassThroughNonLeftClick_Left_ReturnsFalse_AndDoesNotLog",
+       "line": 92
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "WatchModeCleanupRegressionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ExitWatchModeBeforeTimelineGhostCleanup_WhenWatching_LogsBeforeDestroyAllGhosts",
+       "line": 30
+      },
+      {
+       "method": "ExitWatchModeBeforeTimelineGhostCleanup_WhenNotWatching_LeavesWatchStateAlone",
+       "line": 66
+      },
+      {
+       "method": "SunLateUpdateGuardPatch_MissingTargetWarningLatch_IsPurelyOneShot",
+       "line": 85
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PlaybackDistancePolicyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryResolvePlaybackDistanceReferencePosition_PrefersCameraAnchorOverCamera",
+       "line": 8
+      },
+      {
+       "method": "TryResolvePlaybackDistanceReferencePosition_AnchorOnly_Resolves",
+       "line": 22
+      },
+      {
+       "method": "TryResolvePlaybackDistanceReferencePosition_NoAnchor_FallsBackToCamera",
+       "line": 34
+      },
+      {
+       "method": "TryResolvePlaybackDistanceReferencePosition_InvalidAnchor_FallsBackToCamera",
+       "line": 46
+      },
+      {
+       "method": "TryResolvePlaybackDistanceReferencePosition_BothInvalid_ReturnsFalse",
+       "line": 58
+      },
+      {
+       "method": "TryResolvePlaybackDistanceReferencePosition_BothNull_ReturnsFalse",
+       "line": 70
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

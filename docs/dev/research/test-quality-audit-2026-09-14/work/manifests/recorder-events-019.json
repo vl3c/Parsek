@@ -1,0 +1,214 @@
+{
+ "batch_id": "recorder-events-019",
+ "cluster": "recorder-events",
+ "tier": "A",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "RailsSpanPartStateDiffTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IdenticalStateEmitsNothing",
+       "line": 53
+      },
+      {
+       "method": "ANullSideEmitsNothingRatherThanThrowing",
+       "line": 66
+      },
+      {
+       "method": "TheCloneIsDeepSoLaterMutationOfTheOriginalDoesNotFollowIt",
+       "line": 75
+      },
+      {
+       "method": "AReversibleFamilyEmitsInBothDirections",
+       "line": 103
+      },
+      {
+       "method": "AJettisonedShroudEmitsOnArrivalAndNothingOnDeparture",
+       "line": 136
+      },
+      {
+       "method": "ADeployedFairingEmitsOnArrivalAndNothingOnDeparture",
+       "line": 152
+      },
+      {
+       "method": "BlinkEnableDisableAndRateChangeAreAllDistinguished",
+       "line": 167
+      },
+      {
+       "method": "ABlinkRateThatBarelyMovedEmitsNothing",
+       "line": 189
+      },
+      {
+       "method": "AChuteDeployedAcrossTheSpanEmitsParachuteDeployed",
+       "line": 203
+      },
+      {
+       "method": "ARepackAcrossTheSpanEmitsParachuteRepackedNotParachuteCut",
+       "line": 215
+      },
+      {
+       "method": "AChuteThatDidNotMoveEmitsNothingEvenWhenItIsCut",
+       "line": 229
+      },
+      {
+       "method": "AModuleKeyedDeployableCarriesItsDecodedModuleIndex",
+       "line": 241
+      },
+      {
+       "method": "EveryModuleKeyedDeployableFamilyIsCovered",
+       "line": 254
+      },
+      {
+       "method": "HeatLevelChangesEmitTheMatchingThermalEventIncludingTheReturnToCold",
+       "line": 283
+      },
+      {
+       "method": "AnEngineStillBurningAfterTheRailsSpanReIgnites",
+       "line": 308
+      },
+      {
+       "method": "AnEngineThatStoppedAcrossTheSpanEmitsEngineShutdown",
+       "line": 323
+      },
+      {
+       "method": "AnIdleZeroThrottleEngineIsNotRelitAcrossTheSpan",
+       "line": 335
+      },
+      {
+       "method": "AThrottleMoveBiggerThanTheDeadbandEmitsEngineThrottle",
+       "line": 347
+      },
+      {
+       "method": "AThrottleMoveInsideTheDeadbandEmitsNothing",
+       "line": 362
+      },
+      {
+       "method": "RcsStartAndStopAcrossTheSpanAreBothRecorded",
+       "line": 377
+      },
+      {
+       "method": "ANonEmptyReconcileIsLoggedWithItsCount",
+       "line": 397
+      },
+      {
+       "method": "AnEmptyReconcileLogsNothing",
+       "line": 411
+      },
+      {
+       "method": "EveryEmittedEventCarriesTheReconcileUt",
+       "line": 423
+      },
+      {
+       "method": "TheCloneCopiesEveryFieldIntoADistinctCollectionInstance",
+       "line": 499
+      },
+      {
+       "method": "TheCloneToleratesEveryFieldBeingNull",
+       "line": 526
+      },
+      {
+       "method": "TheReconcilerIsSensitiveToEveryNonExemptField",
+       "line": 542
+      },
+      {
+       "method": "EveryDiffExemptionNamesARealField",
+       "line": 570
+      },
+      {
+       "method": "EveryLoadedStateTeardownAlsoDropsTheRailsSpanSnapshot",
+       "line": 686
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TerminalOrbitLoopSynthesisTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsTerminalOrbitSynthesisSafeForLoopMember_SameBody_ReturnsTrue",
+       "line": 47
+      },
+      {
+       "method": "IsTerminalOrbitSynthesisSafeForLoopMember_CrossBody_ReturnsFalse",
+       "line": 66
+      },
+      {
+       "method": "IsTerminalOrbitSynthesisSafeForLoopMember_NullRecording_ReturnsFalse",
+       "line": 84
+      },
+      {
+       "method": "IsTerminalOrbitSynthesisSafeForLoopMember_EmptyPoints_ReturnsFalse",
+       "line": 95
+      },
+      {
+       "method": "IsTerminalOrbitSynthesisSafeForLoopMember_NullTerminalOrbitBody_ReturnsFalse",
+       "line": 113
+      },
+      {
+       "method": "IsTerminalOrbitSynthesisSafeForLoopMember_NullLastPointBody_ReturnsFalse",
+       "line": 130
+      },
+      {
+       "method": "IsTerminalOrbitSynthesisSafeForLoopMember_ZeroTerminalSma_ReturnsFalse",
+       "line": 150
+      },
+      {
+       "method": "TryResolveEndpointTailForMapPresence_TerminalOrbitSource_AcceptedWhenLoopFlag",
+       "line": 169
+      },
+      {
+       "method": "TryResolveEndpointTailForMapPresence_TerminalOrbitSource_RejectedWithoutFlag",
+       "line": 199
+      },
+      {
+       "method": "TryResolveEndpointTailForMapPresence_TerminalOrbitSourceWithMismatchedPersistedBody_Rejected",
+       "line": 227
+      },
+      {
+       "method": "TryResolveEndpointTailForMapPresence_EndpointSegmentSource_AcceptedRegardlessOfFlag",
+       "line": 254
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_NoSegmentLoopMemberWithTerminalOrbit_AcceptsEndpointTail",
+       "line": 291
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_NoSegmentNonLoopMember_StillRejects",
+       "line": 321
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_NoSegmentCrossBodyLoopMember_StillRejects",
+       "line": 349
+      },
+      {
+       "method": "ResolveMapPresenceGhostSource_NonLoopCallerOnNoSegmentOrbitingRecording_StillReturnsNone",
+       "line": 386
+      },
+      {
+       "method": "TryResolveTerminalFallbackMapOrbitUpdate_NoSegmentLoopMemberAtZeroSegSplit_PassesAcceptFlagThrough",
+       "line": 418
+      },
+      {
+       "method": "TryResolveTerminalFallbackMapOrbitUpdate_NonLoopCallerStillUsesProtoOrbitSeed",
+       "line": 455
+      },
+      {
+       "method": "IsTerminalMapPresenceRegion_NoSegmentLoopMemberAtEffUTNearEnd_ReturnsTrue",
+       "line": 488
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

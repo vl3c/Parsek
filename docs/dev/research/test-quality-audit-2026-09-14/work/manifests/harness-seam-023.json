@@ -1,0 +1,335 @@
+{
+ "batch_id": "harness-seam-023",
+ "cluster": "harness-seam",
+ "tier": "C",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "TestCommandInvokeRewindTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ContextPending_WithinBudget_NoMarker_StillWaiting",
+       "line": 23
+      },
+      {
+       "method": "ContextPending_NoMarker_BudgetExpired_RewindTimeout",
+       "line": 32
+      },
+      {
+       "method": "ContextPending_MarkerPresent_CompleteOk",
+       "line": 44
+      },
+      {
+       "method": "ContextCleared_MarkerPresent_CompleteOk",
+       "line": 54
+      },
+      {
+       "method": "ContextCleared_NoMarker_WithinBudget_RewindFailed",
+       "line": 62
+      },
+      {
+       "method": "ContextCleared_NoMarker_BudgetExpired_RewindTimeout",
+       "line": 72
+      },
+      {
+       "method": "MarkerPresent_WinsOverBudgetExpiry",
+       "line": 80
+      },
+      {
+       "method": "GateRefusalMsg_SurfacesReasonVerbatimBehindPrefix",
+       "line": 89
+      },
+      {
+       "method": "CompletePayload_CarriesRewoundSessionRpSlotActivePid",
+       "line": 97
+      },
+      {
+       "method": "CompletePayload_NullSession_EmptyString",
+       "line": 110
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandChannelIoTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "WholeLineByteCount_AdvancesPastLastNewline_LeavingTornFragment",
+       "line": 20
+      },
+      {
+       "method": "WholeLineByteCount_NoNewline_ConsumesNothing",
+       "line": 29
+      },
+      {
+       "method": "WholeLineByteCount_TrailingNewline_ConsumesAll",
+       "line": 36
+      },
+      {
+       "method": "WholeLineByteCount_CountBoundsScan_IgnoresBytesBeyondCount",
+       "line": 43
+      },
+      {
+       "method": "WholeLineByteCount_NonPositiveCount_IsZero",
+       "line": 54
+      },
+      {
+       "method": "WholeLineByteCount_NullBuffer_IsZero",
+       "line": 61
+      },
+      {
+       "method": "WholeLineByteCount_Crlf_ConsumesThroughLf",
+       "line": 67
+      },
+      {
+       "method": "ShouldRetryAppend_RetriesUntilLastAttempt",
+       "line": 77
+      },
+      {
+       "method": "BackoffMillis_ScalesLinearly_AndFloorsAtOne",
+       "line": 87
+      },
+      {
+       "method": "ChannelFileNames_AreTheFixedContract",
+       "line": 98
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandExportRenderManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Payload_carries_path_manifest_name_and_the_four_counts",
+       "line": 28
+      },
+      {
+       "method": "Payload_never_carries_a_null_path",
+       "line": 46
+      },
+      {
+       "method": "Counts_are_invariant_culture",
+       "line": 56
+      },
+      {
+       "method": "Error_reason_falls_back_when_the_recorder_reported_none",
+       "line": 75
+      },
+      {
+       "method": "Constants_point_at_the_recorder_not_a_second_copy",
+       "line": 86
+      },
+      {
+       "method": "Verb_is_implemented_and_any_scene",
+       "line": 97
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandCodecTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Encode_SpecialChars_ProducesPercentForm",
+       "line": 21
+      },
+      {
+       "method": "Decode_PercentForm_ProducesLiteral",
+       "line": 31
+      },
+      {
+       "method": "EncodeDecode_RoundTrips",
+       "line": 43
+      },
+      {
+       "method": "Encode_ControlChars_AreEscaped",
+       "line": 51
+      },
+      {
+       "method": "Decode_MalformedEscape_Fails",
+       "line": 64
+      },
+      {
+       "method": "Encode_NonAscii_ProducesPureAsciiAndRoundTrips",
+       "line": 76
+      },
+      {
+       "method": "TrySplitToken_SplitsAtFirstEquals",
+       "line": 90
+      },
+      {
+       "method": "TrySplitToken_Malformed_Fails",
+       "line": 101
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "AutorunExitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PerformAutorunExit_PreQuitLine_PrecedesQuitCallback",
+       "line": 33
+      },
+      {
+       "method": "PerformAutorunExit_PreQuitLine_CarriesMechanismAndScene",
+       "line": 49
+      },
+      {
+       "method": "PerformAutorunExit_ThrowingQuit_IsContainedAsError",
+       "line": 64
+      },
+      {
+       "method": "H2Decision_ButtonBatchWithExitArmed_DoesNotQuit",
+       "line": 82
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandResponseFormatTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Format_WithGameLoaded_IncludesUtAndPayload",
+       "line": 18
+      },
+      {
+       "method": "Format_NoGame_OmitsUt",
+       "line": 28
+      },
+      {
+       "method": "Format_RejectMsg_IsPercentEncoded",
+       "line": 39
+      },
+      {
+       "method": "Format_FloatUt_UsesInvariantCulture",
+       "line": 50
+      },
+      {
+       "method": "Format_FieldOrder_IsIdCmdVerdictSeqUtPayloadMsg",
+       "line": 59
+      },
+      {
+       "method": "Format_NoTrailingNewline",
+       "line": 81
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandStartLoopPlaybackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Rejection_classification_is_ordered",
+       "line": 29
+      },
+      {
+       "method": "Relaunch_ut_must_be_finite",
+       "line": 43
+      },
+      {
+       "method": "Complete_payload_carries_both_uts_invariant_culture",
+       "line": 49
+      },
+      {
+       "method": "Complete_payload_null_identity_is_empty_not_null",
+       "line": 69
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandDiagnosticsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Receipt_LogsIdVerbArgs",
+       "line": 32
+      },
+      {
+       "method": "DispatchBranches_EachEmitIdAndReason",
+       "line": 40
+      },
+      {
+       "method": "ExecVerdict_AndResponseAppended_Logged",
+       "line": 55
+      },
+      {
+       "method": "Timeout_LogsDeferredSeconds_InvariantCulture",
+       "line": 65
+      },
+      {
+       "method": "Duplicate_LogsIgnoredWarn",
+       "line": 73
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandRecordingStateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NoFlight_CollapsesToNotRecording_RegardlessOfOtherInputs",
+       "line": 21
+      },
+      {
+       "method": "Flight_Recording_ReportsSnapshotFields",
+       "line": 33
+      },
+      {
+       "method": "Flight_NotRecording_NullTree_EmptyString",
+       "line": 45
+      },
+      {
+       "method": "Payload_HasExactlyTheFourContractKeys_InOrder",
+       "line": 56
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

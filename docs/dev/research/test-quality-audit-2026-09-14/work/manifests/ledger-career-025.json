@@ -1,0 +1,151 @@
+{
+ "batch_id": "ledger-career-025",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 33,
+ "files": [
+  {
+   "file": "StrategyCaptureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildStrategyActivateDetail_FormatsAsExpected",
+       "line": 56
+      },
+      {
+       "method": "BuildStrategyActivateDetail_IncludesSciRepSetup",
+       "line": 82
+      },
+      {
+       "method": "BuildStrategyActivateDetail_UsesInvariantCulture",
+       "line": 101
+      },
+      {
+       "method": "BuildStrategyDeactivateDetail_FormatsAsExpected",
+       "line": 116
+      },
+      {
+       "method": "BuildStrategyActivateDetail_NullInputs_ProduceEmptyFields",
+       "line": 132
+      },
+      {
+       "method": "ConvertStrategyActivated_ReturnsStrategyActivateAction",
+       "line": 151
+      },
+      {
+       "method": "ConvertStrategyActivated_ParsesSciRepSetupFromDetail",
+       "line": 178
+      },
+      {
+       "method": "ConvertStrategyDeactivated_ReturnsStrategyDeactivateAction",
+       "line": 201
+      },
+      {
+       "method": "ConvertStrategyActivated_MissingDetailFields_DefaultToZero",
+       "line": 222
+      },
+      {
+       "method": "ConvertEvents_RoutesStrategyEvents",
+       "line": 246
+      },
+      {
+       "method": "SerializeDeserialize_StrategyActivated_OmitsLegacyEpochOnWrite",
+       "line": 289
+      },
+      {
+       "method": "SerializeDeserialize_StrategyDeactivated_RoundTripsByteExact",
+       "line": 317
+      },
+      {
+       "method": "RoundTrip_StrategyActivatedWithSciRepSetup_SurvivesSaveLoad",
+       "line": 340
+      },
+      {
+       "method": "EnumValues_StrategyActivatedAndDeactivated_AppendedAt20And21",
+       "line": 372
+      },
+      {
+       "method": "ClassifyAction_StrategyActivate_FundsLegPresent",
+       "line": 385
+      },
+      {
+       "method": "ClassifyAction_StrategyActivate_ZeroSetupCost_ShortCircuits",
+       "line": 405
+      },
+      {
+       "method": "ClassifyAction_StrategyDeactivate_NoResourceImpact",
+       "line": 431
+      },
+      {
+       "method": "ReconcileKscAction_StrategyActivate_MatchingStrategySetupDebit_NoWarn",
+       "line": 444
+      },
+      {
+       "method": "BuildStrategyActivateDetail_ConverterRoundTrip_PreservesNumericFields",
+       "line": 479
+      },
+      {
+       "method": "EndToEnd_ActivateDeactivateWalk_PopulatesActiveStrategies",
+       "line": 510
+      },
+      {
+       "method": "EndToEnd_OnKscSpending_StrategyActivated_WritesStrategyActivateAction",
+       "line": 556
+      },
+      {
+       "method": "RecalculateAndPatch_StrategyActivateSetupCostsAffectScienceAndRepBalances",
+       "line": 626
+      },
+      {
+       "method": "EndToEnd_OnKscSpending_StrategyDeactivated_WritesNoResourceAction",
+       "line": 674
+      },
+      {
+       "method": "EnumValue_StrategyScienceDebit_AppendedAt32",
+       "line": 704
+      },
+      {
+       "method": "RoundTrip_StrategyScienceDebit_SurvivesSaveLoad",
+       "line": 712
+      },
+      {
+       "method": "ClassifyAction_StrategyScienceDebit_TransformedSkip",
+       "line": 739
+      },
+      {
+       "method": "ClassifyAction_StrategyConverterFundsSpending_TransformedSkip",
+       "line": 759
+      },
+      {
+       "method": "ClassifyAction_OrdinaryPartPurchaseSpending_StillPairsAgainstItsEvent",
+       "line": 782
+      },
+      {
+       "method": "EndToEnd_OnKscSpending_ScienceChangedStrategyInput_WritesStrategyScienceDebit",
+       "line": 802
+      },
+      {
+       "method": "RecalculateAndPatch_StrategyExchange_FundsCreditAndScienceDebitBothLand",
+       "line": 835
+      },
+      {
+       "method": "DeduplicateAgainstLedger_TwoExchangesSameUtDifferentAmounts_BothSurvive",
+       "line": 918
+      },
+      {
+       "method": "RecorderDoor_ScienceStrategyInput_ForwardsOnlyWhenOwnerless",
+       "line": 972
+      },
+      {
+       "method": "Recorder_OnScienceChanged_ForwardsStrategyInputAfterTheEmit",
+       "line": 982
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

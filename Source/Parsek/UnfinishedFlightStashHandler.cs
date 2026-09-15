@@ -92,7 +92,11 @@ namespace Parsek
             if ((stashedNow || demotedTip) && !object.ReferenceEquals(null, scenario))
                 scenario.BumpSupersedeStateVersionLive();
 
-            Recording terminalTip = EffectiveState.ResolveChainTerminalRecording(rec);
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: same argument as the seal log -
+            // the stash demoted the hopping tip above, so the reported terminal must
+            // come from the same recording.
+            Recording terminalTip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(
+                rec, null);
             string terminal = terminalTip?.TerminalStateValue.HasValue == true
                 ? terminalTip.TerminalStateValue.Value.ToString()
                 : "<none>";

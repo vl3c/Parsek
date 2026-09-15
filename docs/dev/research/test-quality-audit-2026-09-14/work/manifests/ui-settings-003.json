@@ -1,0 +1,314 @@
+{
+ "batch_id": "ui-settings-003",
+ "cluster": "ui-settings",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "FormatVersionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CurrentRecordingFormatVersion_IsV1",
+       "line": 33
+      },
+      {
+       "method": "HistoricalFeatureConstants_CollapseToCurrentV0",
+       "line": 47
+      },
+      {
+       "method": "NewRecording_DefaultsToCurrentSchema",
+       "line": 62
+      },
+      {
+       "method": "RecordingBuilder_EmitsCurrentV0AndSchemaGeneration",
+       "line": 71
+      },
+      {
+       "method": "IsRecordingSchemaCompatible_RejectsNonCurrentSchema",
+       "line": 102
+      },
+      {
+       "method": "LoadRecordingFrom_MissingGeneration_IsRejected",
+       "line": 117
+      },
+      {
+       "method": "RecordingTreeLoad_MetadataRejectedRoot_DropsEntireTree",
+       "line": 133
+      },
+      {
+       "method": "RecordingTreeLoad_MissingTreeGeneration_DropsEntireTree",
+       "line": 174
+      },
+      {
+       "method": "RecordingTreeLoad_MetadataRejectedNonRoot_PrunesDanglingBranchReferences",
+       "line": 199
+      },
+      {
+       "method": "DropFailedSidecarHydrationRecordings_RootFailure_DropsEntireTree",
+       "line": 247
+      },
+      {
+       "method": "LoadRecordingFrom_FutureGeneration_IsRejected",
+       "line": 292
+      },
+      {
+       "method": "IsRecordingSchemaCompatible_LegacyGeneration1_IsRejected",
+       "line": 309
+      },
+      {
+       "method": "IsRecordingSchemaCompatible_PreResetGeneration2_IsRejected",
+       "line": 325
+      },
+      {
+       "method": "IsRecordingSchemaCompatible_PreRenameGeneration3_IsRejected",
+       "line": 340
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TimelineArchivedRowsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ArchivedRecordingIsExcludedByDefault",
+       "line": 76
+      },
+      {
+       "method": "ArchivedRecordingIsIncludedWhenTheFilterIsOff",
+       "line": 93
+      },
+      {
+       "method": "RevealingArchivedRowsLeavesUnarchivedRowsUntouched",
+       "line": 106
+      },
+      {
+       "method": "RevealedArchivedEntriesAreStampedAsArchived",
+       "line": 134
+      },
+      {
+       "method": "UnarchivedEntriesAreNeverStamped",
+       "line": 147
+      },
+      {
+       "method": "CollectorLogsWhetherArchivedRecordingsWereSkippedOrShown",
+       "line": 170
+      },
+      {
+       "method": "ShowArchivedRecordingsIsTheRecordingsTabFilterInverted",
+       "line": 196
+      },
+      {
+       "method": "SettingShowArchivedRecordingsWritesTheSharedFilter",
+       "line": 209
+      },
+      {
+       "method": "ArchiveFilterDefaultsToHidingArchivedRows",
+       "line": 224
+      },
+      {
+       "method": "TimelineRebuildsWhenTheArchiveFilterFlipsUnderAWarmCache",
+       "line": 239
+      },
+      {
+       "method": "TimelineDoesNotRebuildWhenNothingChanged",
+       "line": 250
+      },
+      {
+       "method": "TimelineStillRebuildsOnTheOriginalTriggers",
+       "line": 259
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SettingsWindowHeightFitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FitPassReleasesTheHeightToZero",
+       "line": 20
+      },
+      {
+       "method": "NonFitPassHandsTheStoredRectThroughUntouched",
+       "line": 36
+      },
+      {
+       "method": "FitPassKeepsTheStoredHeightOutOfTheCollapsedReturn",
+       "line": 46
+      },
+      {
+       "method": "FitPassStillHonoursAPositionChangeFromTheSamePass",
+       "line": 60
+      },
+      {
+       "method": "NonFitPassStoresWhateverGuiLayoutReturned",
+       "line": 76
+      },
+      {
+       "method": "NothingIsLoggedWhenNoFitIsInFlight",
+       "line": 87
+      },
+      {
+       "method": "TheFitIsReportedOnlyOnceTheFittedHeightLands",
+       "line": 96
+      },
+      {
+       "method": "AnUnchangedHeightIsReportedOnceTheWaitRunsOut",
+       "line": 113
+      },
+      {
+       "method": "AnAppliedFitWinsOverAnExpiredWait",
+       "line": 122
+      },
+      {
+       "method": "TheFitPassArmsTheReportAgainstThePreFitHeight",
+       "line": 138
+      },
+      {
+       "method": "TheReportLandsOnThePassThatCarriesTheFittedHeightBack",
+       "line": 154
+      },
+      {
+       "method": "TheReportIsDisarmedOnceAndOnlyOnce",
+       "line": 176
+      },
+      {
+       "method": "ASecondRequestReArmsAgainstTheHeightItFindsNow",
+       "line": 196
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TooltipMarqueeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NeedsMarquee_OnlyWhenTheStripCannotShowTheWholeText",
+       "line": 49
+      },
+      {
+       "method": "ScrollKeyFor_IsStableAcrossCountdownTicks_AndDistinctAcrossTexts",
+       "line": 65
+      },
+      {
+       "method": "OffsetFor_NonPositiveInputs_AreZero",
+       "line": 83
+      },
+      {
+       "method": "OffsetFor_LeadingHold_StaysAtZero",
+       "line": 91
+      },
+      {
+       "method": "OffsetFor_ScrollPhase_MovesLinearlyRightToLeft",
+       "line": 100
+      },
+      {
+       "method": "OffsetFor_TrailingHold_ParksAtFullOverflow",
+       "line": 118
+      },
+      {
+       "method": "OffsetFor_WrapsBackToTheStartAfterOneCycle",
+       "line": 126
+      },
+      {
+       "method": "OffsetFor_OffsetNeverExceedsTheOverflow",
+       "line": 137
+      },
+      {
+       "method": "OffsetFor_DegenerateSpeed_DoesNotDivideByZero",
+       "line": 151
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FormatRoundtripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecordingAnchorChainVersion_CollapsesToCurrentV1",
+       "line": 41
+      },
+      {
+       "method": "BinaryV0_RelativeTrackSection_RoundTripsAnchorRecordingIdAndLivePid",
+       "line": 59
+      },
+      {
+       "method": "TextV13_TrackSection_RoundTripsAnchorRecordingIdAndLivePid",
+       "line": 83
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FormatResourceManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BothNull_ReturnsNull",
+       "line": 10
+      },
+      {
+       "method": "StartOnly_ShowsStartFormat",
+       "line": 18
+      },
+      {
+       "method": "BothStartAndEnd_ShowsDeltaFormat",
+       "line": 35
+      },
+      {
+       "method": "SingleResource",
+       "line": 57
+      },
+      {
+       "method": "ManyResources_SortedAlphabetically",
+       "line": 74
+      },
+      {
+       "method": "ResourceGained_PositiveDelta",
+       "line": 96
+      },
+      {
+       "method": "ResourceConsumed_NegativeDelta",
+       "line": 114
+      },
+      {
+       "method": "Unchanged_ZeroDelta",
+       "line": 132
+      },
+      {
+       "method": "EndOnly_ShowsDeltaWithZeroStart",
+       "line": 150
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,264 @@
+{
+ "batch_id": "catchall-042",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 53,
+ "files": [
+  {
+   "file": "InGameFixtureMathTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SceneFloatGridTolerance_AtOrigin_ReturnsFloor",
+       "line": 18
+      },
+      {
+       "method": "SceneFloatGridTolerance_NearOrigin_StaysAtFloor",
+       "line": 26
+      },
+      {
+       "method": "SceneFloatGridTolerance_ScalesWithMagnitude",
+       "line": 36
+      },
+      {
+       "method": "SceneFloatGridTolerance_IsSignAgnostic",
+       "line": 51
+      },
+      {
+       "method": "SceneFloatGridTolerance_NonFinite_DegradesToFloor",
+       "line": 62
+      },
+      {
+       "method": "ToleranceResolvesSignal_LandedContext_Resolves",
+       "line": 74
+      },
+      {
+       "method": "ToleranceResolvesSignal_OrbitalStationContext_Resolves",
+       "line": 84
+      },
+      {
+       "method": "ToleranceResolvesSignal_FarFromOrigin_DoesNotResolve",
+       "line": 96
+      },
+      {
+       "method": "ToleranceResolvesSignal_BoundaryIsInclusive",
+       "line": 107
+      },
+      {
+       "method": "ToleranceResolvesSignal_DegenerateInputs_DoNotResolve",
+       "line": 118
+      },
+      {
+       "method": "ClearanceBudget_SumsReachExtentAndPadding",
+       "line": 128
+      },
+      {
+       "method": "ClearanceBudget_ClampsNegativeAndNaNInputsToZero",
+       "line": 137
+      },
+      {
+       "method": "MaxWalkbackTravel_ExceedsBudgetByHalfTheRunway",
+       "line": 148
+      },
+      {
+       "method": "MaxWalkbackTravel_Station_ScalesWithReach",
+       "line": 162
+      },
+      {
+       "method": "MaxWalkbackTravel_DiscriminatesOvershoot_ForEveryCoveredParent",
+       "line": 175
+      },
+      {
+       "method": "FixtureLength_SmallParent_UsesTheMinimum",
+       "line": 200
+      },
+      {
+       "method": "FixtureLength_LargeParent_GrowsPastTheMinimum",
+       "line": 209
+      },
+      {
+       "method": "FixtureLength_HugeParent_ClampsToTheMaximum",
+       "line": 219
+      },
+      {
+       "method": "FixtureCoversParent_HoldsForEveryParentInsideTheCap",
+       "line": 235
+      },
+      {
+       "method": "FixtureCoversParent_FailsWhenTheRunwayDoesNotFit",
+       "line": 244
+      },
+      {
+       "method": "FixtureCoversParent_BoundaryIsExactlyBudgetPlusRunway",
+       "line": 257
+      },
+      {
+       "method": "PointCount_MinimumLength_MatchesTheStepSpacing",
+       "line": 271
+      },
+      {
+       "method": "PointCount_RoundsPartialStepsUp",
+       "line": 279
+      },
+      {
+       "method": "PointCount_DegenerateInputs_StillYieldASegment",
+       "line": 292
+      },
+      {
+       "method": "PointCount_StepIsCoarserThanTheWalkbackSubStep",
+       "line": 299
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EelooBandWalkTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EelooBandWalk_Window1InclinationSequence_MatchesTheLiveM2Run",
+       "line": 46
+      },
+      {
+       "method": "EelooBandWalk_Window0Inclination_MatchesTheLiveM2Run",
+       "line": 60
+      },
+      {
+       "method": "EelooBandWalk_Window1_ReproducesTheArchivesOnlyEelooAccept",
+       "line": 74
+      },
+      {
+       "method": "EelooBandWalk_ScanGrid_ReproducesTheLoggedDepartureUT",
+       "line": 92
+      },
+      {
+       "method": "EelooBandWalk_FixtureConstants_MatchTheInGameFixture",
+       "line": 106
+      },
+      {
+       "method": "EelooBandWalk_MidBandPick_OpensAtStep0_SoTheseCellsDoNotFireOnTodaysGeometry",
+       "line": 130
+      },
+      {
+       "method": "EelooBandWalk_FivePinnedScanDepartures_OpenTheTiltGateOnlyOutsideTheBaseBand",
+       "line": 149
+      },
+      {
+       "method": "EelooBandWalk_ExactlyFiveOf48ScanDepartures_OpenTheTiltGateOutsideTheBaseBand",
+       "line": 189
+      },
+      {
+       "method": "EelooBandWalk_TheExpansionIsWhatOpensThem_ZeroEccentricityWouldNotReach",
+       "line": 221
+      },
+      {
+       "method": "EelooBandWalk_TheLiveArbiterConfirmedThree_AtTheCandidatesThisModelNames",
+       "line": 247
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "AppendCapturedDataTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Normal_AllDataAppended",
+       "line": 67
+      },
+      {
+       "method": "NullSource_TargetUnchanged",
+       "line": 91
+      },
+      {
+       "method": "EmptySourceLists_TargetUnchanged",
+       "line": 105
+      },
+      {
+       "method": "ExplicitEndUT_SetCorrectly",
+       "line": 123
+      },
+      {
+       "method": "PartEvents_SortedAfterAppend",
+       "line": 137
+      },
+      {
+       "method": "ExplicitEndUT_SetEvenWithNullSource",
+       "line": 161
+      },
+      {
+       "method": "PreExistingTargetData_Preserved",
+       "line": 175
+      },
+      {
+       "method": "FlagEvents_AppendedAndSorted",
+       "line": 203
+      },
+      {
+       "method": "SegmentEvents_AppendedAndSorted",
+       "line": 223
+      },
+      {
+       "method": "LogisticsMetadata_CopiedFromCapture",
+       "line": 243
+      },
+      {
+       "method": "LogisticsMetadata_RouteFieldsOnSourceAreIgnored",
+       "line": 295
+      },
+      {
+       "method": "LogisticsMetadata_StartFirstWinsEndOverwrites",
+       "line": 331
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PostWalkReconciliationIntegrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Integration_StrategyActive_ContractComplete_NoPostWalkWarn",
+       "line": 88
+      },
+      {
+       "method": "Integration_SameUtContractRewards_CoalescedEvent_DoesNotWarn",
+       "line": 145
+      },
+      {
+       "method": "Integration_StrategyActive_ContractComplete_TransformDiverges_Warn",
+       "line": 195
+      },
+      {
+       "method": "Integration_RewindCutoffsFiltersPostWalk",
+       "line": 250
+      },
+      {
+       "method": "Integration_AllTrackersUnavailable_PostWalkSkippedOnce_NoWarn",
+       "line": 289
+      },
+      {
+       "method": "Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs",
+       "line": 331
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,37 @@
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"EmptyStreamAssemblesToAnEmptyTree","line":50,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"NullStreamIsToleratedRatherThanThrowing","line":59,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"WellFormedWindowNestsItsChildren","line":66,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ScrollViewInsideAGroupNestsThreeDeep","line":101,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"MissingEndGroupIsRecoveredFromTheClipDepth","line":129,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ClipRecoveryAlsoClosesLayoutGroupsStrandedAboveTheGroup","line":155,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ASiblingGroupClosesTheOpenOneAtTheSameClipDepth","line":178,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ANestedGroupStillNestsRatherThanClosingItsParent","line":208,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ALeafAtTheSameDepthStaysInsideItsContainer","line":232,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ALayoutGroupBeginAtTheSameDepthAlsoStaysInside","line":251,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ASecondWindowIsASiblingEvenWithItsPredecessorsEndMissing","line":271,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"MissingEndVerticalIsRecoveredFromRectContainment","line":293,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"RectRuleKeepsALayoutGroupOpenForSubPixelDisagreement","line":317,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"DegenerateRectNeverTriggersTheLayoutGroupRectRule","line":336,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"AnEndForAnOuterContainerClosesTheUnbalancedOnesInside","line":353,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"AStrayEndIsCountedAndCollapsesNothing","line":373,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"UnclosedContainersAtStreamEndAreCounted","line":394,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"UnknownClipDepthFallsBackToExplicitPairingOnly","line":410,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"TwoSiblingWindowsBecomeTwoRoots","line":432,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"NullEventsAreSkippedWithoutCorruptingTheTree","line":453,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"LeafFieldsSurviveIntoTheNode","line":470,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"EveryKindHasAPinnedWireName","line":508,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"StyleNameClassificationIsTheHonestFallback","line":521,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"AnEndClosesTheNearestOpenGroupNotTheOutermost","line":535,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ALayoutGroupEndMatchesItsOwnOrientationNotJustItsKind","line":566,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"AnOrientationLessLayoutGroupEndStillMatchesEitherKind","line":597,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"MissingEndScrollViewIsRecoveredFromTheClipDepth","line":615,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"TheRectRuleClosesOnTheXAxisToo","line":642,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"TheClipRuleClosesTwoContainersOnOneEvent","line":668,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"TheRectRuleClosesTwoLayoutGroupsOnOneEvent","line":694,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"ADegenerateLayoutGroupIsLookedPastToTheNearestUsableAncestor","line":717,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"WithNoUsableAncestorRectTheRuleIsCountedInertRatherThanGuessing","line":743,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"KnownAndUnknownClipDepthsMixWithoutPoisoningEachOther","line":765,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"TheRectSlackIsAnUpperBoundNotJustALowerOne","line":791,"verdict":"misleading","category":"T3","falsifiability":"falsifiability: Source/Parsek/GuiTreeModel.cs:39 ContainsWithSlack; make it always return true -> red (the closing case yields AutoClosedByRect=0)","note":"Both cases are derived from LayoutGroupContainmentSlackPx, so the comment claim 'an accidental one reds here' is false: slack 4f->40f leaves this cell green. It pins the relational contract only."}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"DegeneracyIsDecidedAtExactlyHalfAPixel","line":820,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","method":"TheClipContainerPredicateHasExactlyOneDefinition","line":829,"verdict":"ok"}
+{"kind":"finding","id":"F-io-serialization-001-01","file":"Source/Parsek.Tests/GuiTreeAssemblerTests.cs","line":791,"method":"TheRectSlackIsAnUpperBoundNotJustALowerOne","category":"T3","severity":"Low","confidence":"high","falsifiability":"falsifiability: Source/Parsek/GuiTreeModel.cs:219 LayoutGroupContainmentSlackPx 4f->40f; this cell stays GREEN while MissingEndVerticalIsRecoveredFromRectContainment (line 293) goes red","what_it_asserts":"A child rect offset by slack-1 px keeps a LayoutGroup open and one offset by slack+1 px closes it, with both offsets computed from GuiTreeAssembler.LayoutGroupContainmentSlackPx.","why_weak":"The comment at lines 793-797 claims an accidental slack change reds here. Because both sides are derived from the constant, any slack value satisfies both assertions; the cell pins the relational contract, not the value.","proposed_action":"Either add one absolute-value assertion (Assert.Equal(4f, GuiTreeAssembler.LayoutGroupContainmentSlackPx)) or reword the comment to say the value itself is pinned by MissingEndVerticalIsRecoveredFromRectContainment.","effort":"S","july_ref":"none"}
