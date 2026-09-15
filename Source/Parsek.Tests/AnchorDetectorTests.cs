@@ -859,21 +859,43 @@ namespace Parsek.Tests
         [Fact]
         public void FindNearestRecordingAnchor_SourceTieBreakIsDeterministic()
         {
-            var candidates = new List<RecordingAnchorCandidate>
+            // Both candidates carry the SAME ghostIndex, so the source
+            // comparison is the only term that can decide. With a deleted
+            // sourceCompare block the walk falls through to
+            // GhostIndex < GhostIndex, which is false, and the first-seen
+            // candidate wins - which is why both list orders are run: the
+            // winner must be the Live source, not the list position.
+            var ghostFirst = new List<RecordingAnchorCandidate>
             {
                 RecordingCandidate("same", 100.0, source: AnchorCandidateSource.Ghost, ghostIndex: 0),
-                RecordingCandidate("same", 100.0, source: AnchorCandidateSource.Live, ghostIndex: -1)
+                RecordingCandidate("same", 100.0, source: AnchorCandidateSource.Live, ghostIndex: 0)
             };
 
             var result = AnchorDetector.FindNearestRecordingAnchor(
                 "focus",
                 1u,
                 new Vector3d(0, 0, 0),
-                candidates);
+                ghostFirst);
 
             Assert.True(result.found);
             Assert.Equal("same", result.candidate.RecordingId);
             Assert.Equal(AnchorCandidateSource.Live, result.candidate.Source);
+
+            var liveFirst = new List<RecordingAnchorCandidate>
+            {
+                RecordingCandidate("same", 100.0, source: AnchorCandidateSource.Live, ghostIndex: 0),
+                RecordingCandidate("same", 100.0, source: AnchorCandidateSource.Ghost, ghostIndex: 0)
+            };
+
+            var mirrored = AnchorDetector.FindNearestRecordingAnchor(
+                "focus",
+                1u,
+                new Vector3d(0, 0, 0),
+                liveFirst);
+
+            Assert.True(mirrored.found);
+            Assert.Equal("same", mirrored.candidate.RecordingId);
+            Assert.Equal(AnchorCandidateSource.Live, mirrored.candidate.Source);
         }
 
         [Fact]

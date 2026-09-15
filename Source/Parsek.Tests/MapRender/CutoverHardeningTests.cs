@@ -415,12 +415,29 @@ namespace Parsek.Tests
         {
             // The C4 silent-fallback warn is one-shot PER PID, guarded by a HashSet cleared in Reset()
             // (scene switch) + PruneStaleState (ghost retire) so a re-entered scene re-warns the operator
-            // on a still-stale flag toggle. The warn site itself is private (driven only from the Unity
-            // RunFrame), so the live one-shot firing is the in-game test's job; here we lock the seam +
-            // the scene-switch clear (a regression that forgot to clear the set would silence the warn
-            // forever after the first scene). The count is 0 in a fresh fixture and stays 0 after Reset.
+            // on a still-stale flag toggle. The set's only writer is WarnSpineAssemblerFallback, so the
+            // cell drives THAT (it is internal for exactly this reason) rather than reading a count that
+            // is 0 for the whole headless lifetime: over an empty set both the one-shot dedupe and the
+            // scene-switch clear are unfalsifiable. Only the live RunFrame decision that REACHES the warn
+            // stays the in-game test's job.
             Parsek.MapRender.ShadowRenderDriver.Reset();
             Assert.Equal(0, Parsek.MapRender.ShadowRenderDriver.SpineFallbackWarnedPidCountForTesting);
+
+            Parsek.MapRender.ShadowRenderDriver.WarnSpineAssemblerFallback(4001u, "rec-a", 100.0);
+            Assert.Equal(1, Parsek.MapRender.ShadowRenderDriver.SpineFallbackWarnedPidCountForTesting);
+            // One-shot per pid: a second warn for the same pid adds nothing.
+            Parsek.MapRender.ShadowRenderDriver.WarnSpineAssemblerFallback(4001u, "rec-a", 101.0);
+            Assert.Equal(1, Parsek.MapRender.ShadowRenderDriver.SpineFallbackWarnedPidCountForTesting);
+            // A different pid warns on its own.
+            Parsek.MapRender.ShadowRenderDriver.WarnSpineAssemblerFallback(4002u, "rec-b", 102.0);
+            Assert.Equal(2, Parsek.MapRender.ShadowRenderDriver.SpineFallbackWarnedPidCountForTesting);
+
+            // The scene switch clears the set, so a re-entered scene warns the operator again.
+            Parsek.MapRender.ShadowRenderDriver.Reset();
+            Assert.Equal(0, Parsek.MapRender.ShadowRenderDriver.SpineFallbackWarnedPidCountForTesting);
+            Parsek.MapRender.ShadowRenderDriver.WarnSpineAssemblerFallback(4001u, "rec-a", 200.0);
+            Assert.Equal(1, Parsek.MapRender.ShadowRenderDriver.SpineFallbackWarnedPidCountForTesting);
+            Parsek.MapRender.ShadowRenderDriver.Reset();
         }
 
         [Fact]

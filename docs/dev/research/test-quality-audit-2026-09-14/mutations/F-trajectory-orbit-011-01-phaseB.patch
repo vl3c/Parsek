@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/AnchorDetector.cs b/Source/Parsek/AnchorDetector.cs
+index 77343ab70..a3206efef 100644
+--- a/Source/Parsek/AnchorDetector.cs
++++ b/Source/Parsek/AnchorDetector.cs
+@@ -415,9 +415,7 @@ namespace Parsek
+             if (recordingIdCompare != 0)
+                 return recordingIdCompare < 0;
+ 
+-            int sourceCompare = ((int)candidate.Source).CompareTo((int)best.Source);
+-            if (sourceCompare != 0)
+-                return sourceCompare < 0;
++            // MUTANT: source tie-break deleted
+ 
+             return candidate.GhostIndex < best.GhostIndex;
+         }

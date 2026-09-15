@@ -860,6 +860,45 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     (`RecordingStore.RestoreFromSnapshotForTesting`); -034-01 has no mutant by construction
     and is the one deferred row of the twenty.
 
+- `testfix-t1t2`, sixth PR (2026-09-15): the fifth slice of Medium T1 rows
+  (`work/phase-b-slice-medium-t1-05.txt`, 20 ids: 5 trajectory-orbit, 4 map-render,
+  3 harness-seam, 2 mission-groups, 2 wiring-gates, 2 legacy-bugfix, 1 analyzer,
+  1 logging). Each fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  that `git apply --check`s against a clean tree.
+  - Fixed, assertion re-pointed at the branch the name claims: F-map-render-009-02 (the
+    reason must carry `exceeds cap 10000` and NOT `would need`, the only wording the
+    stream-length branch below the cap cannot produce); F-trajectory-orbit-011-01 (both
+    candidates given the same `ghostIndex` so the source comparison is the sole
+    discriminator, plus the mirror list order); F-trajectory-orbit-017-01 (the Sun
+    segment given the SAME `semiMajorAxis` as the Kerbin loiter and a span of many of its
+    OWN periods, so the 5% a-step guard cannot pre-empt the `bodyName` guard; the merged
+    shape is one cut, the split shape two); F-trajectory-orbit-018-01 (the adapter's
+    `StartUT` / `EndUT` are read against a non-zero recorded span, over the null AND the
+    empty assembled list); F-mission-groups-014-01 (a FILTERED, reordered view over three
+    single-group recordings - over a full permutation `ri = row` visits the same pairs and
+    is a no-op); F-analyzer-002-01 (renamed
+    `Apply_EmitsMetaFindingsInSortedKeyOrder`: entries inserted in reverse ordinal order
+    and the emitted MULTI-MATCH / STALE-ENTRY sequences pinned, since two in-process runs
+    share one insertion order); F-wiring-gates-003-01 / -003-02 (the two tautologies -
+    a returned field equal to its own argument, and an untouched coalescer - replaced by
+    the child wiring `BuildSplitBranchData` derives: ids, generations, branch-point
+    parentage, start UT, and the EVA kerbal-by-pid branch in BOTH directions; renamed
+    `UndockSplit_DerivesChildWiringFromTheSplit` and
+    `EvaSplit_KerbalChildIsPickedByPid_BothDirections`); F-legacy-bugfix-009-01 (every
+    exit but the attach returns false, so the guard is pinned by the ABSENCE of the
+    fall-through hydration Verbose / missing-from-BOTH Warn, with the committed store
+    reset so the fixture state is known).
+  - Fixed through a production change, both behaviour-identical: F-logging-001-01 (the
+    growth-rate update with its zero-elapsed division guard is extracted as
+    `FlightRecorder.ComputeGrowthRate`, called verbatim by BOTH commit paths - the block
+    was duplicated - and the cell drives it at `elapsedSeconds == 0` plus a dividing
+    control arm, instead of hand-filling the struct with the answer); F-map-render-015-01
+    (`ShadowRenderDriver.WarnSpineAssemblerFallback` widened private -> internal, so the
+    cell drives the set's REAL and only writer: the per-pid one-shot dedupe, a second
+    pid, the scene-switch clear, and a re-warn after it. Asserting an empty count made
+    both the dedupe and the clear unfalsifiable). No log text changed.
+
 - `testfix-t1t2`, fifth PR (2026-09-15): the fourth slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-04.txt`, 20 ids: 6 recorder-events, 6 ghost-playback,
   5 spawn-vessel, 2 logistics-route, 1 map-render). 16 fixed, 3 deleted in favour of a

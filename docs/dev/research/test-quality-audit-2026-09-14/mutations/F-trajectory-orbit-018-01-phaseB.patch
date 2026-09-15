@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/Reaim/ReaimedTrajectory.cs b/Source/Parsek/Reaim/ReaimedTrajectory.cs
+index 212f33e53..1c7d671a4 100644
+--- a/Source/Parsek/Reaim/ReaimedTrajectory.cs
++++ b/Source/Parsek/Reaim/ReaimedTrajectory.cs
+@@ -78,8 +78,8 @@ namespace Parsek.Reaim
+             }
+             else
+             {
+-                spanStartUT = inner != null ? inner.StartUT : 0.0;
+-                spanEndUT = inner != null ? inner.EndUT : 0.0;
++                spanStartUT = 0.0; // MUTANT: inner-span fallback stubbed
++                spanEndUT = 0.0;
+             }
+         }
+ 

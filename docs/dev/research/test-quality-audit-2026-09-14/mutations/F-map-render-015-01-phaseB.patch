@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MapRender/ShadowRenderDriver.cs b/Source/Parsek/MapRender/ShadowRenderDriver.cs
+index 671deb08b..f6a1574c4 100644
+--- a/Source/Parsek/MapRender/ShadowRenderDriver.cs
++++ b/Source/Parsek/MapRender/ShadowRenderDriver.cs
+@@ -115,7 +115,7 @@ namespace Parsek.MapRender
+             chainByPid.Clear();
+             seedByPid.Clear();
+             tracedPathIntentByPid.Clear();
+-            spineFallbackWarnedPids.Clear();
++            // MUTANT: warned-pid set no longer cleared on scene switch
+         }
+ 
+         /// <summary>The shadow always runs: the Director pipeline is unconditional (8e S4 dropped the
