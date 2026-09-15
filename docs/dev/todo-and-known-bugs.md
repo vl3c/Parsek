@@ -3184,6 +3184,27 @@ so the dialog text can be asserted headless; `IsHardSafetyTerminal`,
 `RequiresSlotAwareMergeClassification` and `IsPotentialManualStashShape` widened from
 `private` to `internal static` under the house rule for pure predicates.
 
+**Live floor (2026-09-15, on the fixed DLL at `c7e60fbec`).** Five lanes, all PASS on
+attempt 1 with analyzer `RED=0`, and the promote / seal / reap tokens present exactly as
+the specs pin them: `RF-1-continuation-stays-open` (`2026-09-15_1542`),
+`RF-9-atmosphere-exit-split-stays-open` (`_1546`), `RF-10-fixed-tip-loads-open`
+(`_1550`), `RF-5-seal-closes-the-slot` (`_1552`), `RF-4-rewind-to-launch-after-merge`
+(`_1553`). **What they prove is NO REGRESSION, not the fix.** Across all five the walk
+logged ZERO `SwitchContinuationWalk: hop` lines and only
+`reason=notSwitchBranchPoint` stops: none of these hosts flies a stock Switch-To, so
+every tip resolved exactly where it did pre-fix, and the fixed path itself remains
+witnessed only by the headless fixture. A lane that actually exercises the hop is still
+owed, and its absence is the residue this entry leaves behind.
+
+**Correction to the first report's reading of RF-9.** It does NOT require the qualify
+line and the promote line to name ONE recording id. The flight shows the qualify subject
+is the Re-Fly FORK provisional (`provisional=rec_79c5d0... qualifies=True slot=0 ...
+classifierReason=crashed`), tied to the promoted recording (`38fe40c4...`) only through
+the `origin=` field on the fork line, with the same `rp=` on both sides. That is the
+lane's normal shape, not a defect and not an instance of this entry's disagreement: the
+two ids differ there because a supersede fork legitimately carries its own id, which is
+a different mechanism from a tip walk stopping short of a continuation segment.
+
 ## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
 
 The log line that names the mechanism, from the CEN-7 runlog seven milliseconds after
