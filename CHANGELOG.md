@@ -276,6 +276,38 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: twenty recording-tree cells from the audit's Medium T3 register (weak or
+  misleading) now turn on the production line their name names.** Ten of them were decided
+  by something other than the guard under test - an empty store, a lone committed record,
+  or an earlier rejection - so deleting that guard left them green: the three degenerate
+  `IsChainMidSegment` cells now face a committed peer at a higher chain index, the
+  chain-end and chain-predecessor cells face an unrelated later recording and a peer at
+  exactly the expected predecessor index, the crew-exclusion cell faces a committed EVA
+  child whose parent id is also empty, the cross-tree debris cell got a resolvable branch
+  point in the OTHER tree so only the tree fence rejects it, the two unfinished-flight
+  cells got rewind points that actually carry a slot for their subject (one of them now
+  also pins the reject REASON, since the old assertion was equally true for a destroyed
+  tip), the ELS pass-through cell got a real supersede relation, and the endpoint cell's
+  orbit segment now ends past the last trajectory point so the persisted phase is the only
+  thing rejecting the orbit fallback. Two cells asserted only a bool where a value was
+  available (the Vector3 / Quaternion parsers now pin the parsed components, so a
+  component swap reds; the crew-replacement save now reads the written pairs back).
+  Two got their missing arm (engine-only and all-zero thrust; a branch point whose SAME-PID
+  child is not the first one, which is the only shape that tells "every child" from "first
+  child"). One sidecar-corruption cell was repurposed: its point count was rejected by the
+  up-front bound gate before the sparse header it was named for was ever read, so it now
+  carries a count of two with one complete sparse point and a truncated second, and asserts
+  the end-of-stream failure plus the surviving point's defaulted body name. One source gate
+  was bounded to the method it guards - run file-wide it was matching a different recorder
+  bind further down the file, so mutating the helper it names changed nothing - and one new
+  gate pins that every direct-forward call site passes the recording id stamped on the
+  event rather than re-reading the live tag. Three cells were renamed to what they prove,
+  each saying in its body what it cannot witness and why (a save-persist seam that
+  short-circuits before the main-menu hard block, a chain-manager cell whose asserted log
+  line is the constructor's, and a suppression cell whose boolean cannot discriminate -
+  its discriminating twin already exists in the same suite). No production code changed and
+  no log text changed; each strengthened cell carries a mutation patch that reds it.
+
 - **Tests: the final slice of the audit's Medium T1 register - fourteen catch-all and
   legacy-bugfix cells - now reaches the production line each name claims, closing that
   register.** Eleven cells

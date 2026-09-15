@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostVisualBuilder.Parsing.cs b/Source/Parsek/GhostVisualBuilder.Parsing.cs
+index 585619218..ec021028d 100644
+--- a/Source/Parsek/GhostVisualBuilder.Parsing.cs
++++ b/Source/Parsek/GhostVisualBuilder.Parsing.cs
+@@ -171,7 +171,7 @@ namespace Parsek
+             if (!float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out y)) return false;
+             if (!float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out z)) return false;
+ 
+-            result = new Vector3(x, y, z);
++            result = new Vector3(x, z, y); // MUTATION: y/z swap
+             return true;
+         }
+ 

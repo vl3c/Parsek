@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/UnfinishedFlightClassifier.cs b/Source/Parsek/UnfinishedFlightClassifier.cs
+index 1046af191..ac51bcaef 100644
+--- a/Source/Parsek/UnfinishedFlightClassifier.cs
++++ b/Source/Parsek/UnfinishedFlightClassifier.cs
+@@ -276,8 +276,10 @@ namespace Parsek
+                 return true;
+             }
+ 
++            // MUTATION: Landed no longer treated as a safe terminal
+             if (terminal.Value != TerminalState.Orbiting
+-                && terminal.Value != TerminalState.SubOrbital)
++                && terminal.Value != TerminalState.SubOrbital
++                && terminal.Value != TerminalState.Landed)
+             {
+                 reason = "stableTerminal";
+                 LogVerdict(false, recId, reason,

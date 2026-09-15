@@ -1070,7 +1070,14 @@ namespace Parsek.Tests
             var origin = Rec("rec_origin", "tree_a");
             origin.VesselPersistentId = 100u;
 
-            var crossTreeDebris = Rec("rec_cross_tree_debris", "tree_b");
+            // The debris carries a RESOLVABLE tree_b Breakup BP whose parent list
+            // names rec_origin, so every other gate in EnqueueDebrisChildren
+            // (IsDebris, anchor match, BP present, BP type, BP parent topology)
+            // passes and the TreeId equality check is the ONLY thing rejecting
+            // it. Without the BP the empty-ParentBranchPointId skip decided and
+            // the cross-tree fence was inert.
+            var crossTreeDebris = Rec("rec_cross_tree_debris", "tree_b",
+                parentBranchPointId: "bp_b_breakup");
             crossTreeDebris.VesselPersistentId = 200u;
             crossTreeDebris.IsDebris = true;
             crossTreeDebris.ParentAnchorRecordingId = "rec_origin";
@@ -1084,7 +1091,12 @@ namespace Parsek.Tests
             {
                 Id = "tree_b",
                 TreeName = "Test_tree_b",
-                BranchPoints = new List<BranchPoint>()
+                BranchPoints = new List<BranchPoint>
+                {
+                    Bp("bp_b_breakup", BranchPointType.Breakup,
+                        parents: new List<string> { "rec_origin" },
+                        children: new List<string> { "rec_cross_tree_debris" })
+                }
             };
             treeB.AddOrReplaceRecording(crossTreeDebris);
             RecordingStore.AddRecordingWithTreeForTesting(crossTreeDebris, "tree_b");

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using Xunit;
 
@@ -868,6 +869,14 @@ namespace Parsek.Tests
             AssertPredicatePinsAllThreeScenarios(GameStateEventType.FacilityUpgraded, "SPH");
         }
 
+        // NAME SCOPE (audit F-recording-tree-033-02): this cell reaches no
+        // production handler - it proves only that the two candidate INPUTS
+        // (the id Emit stamped on the event vs a tag re-resolved at the
+        // decision moment) disagree in the teardown window. The claim that
+        // every production call site passes the stamped id is a source-wiring
+        // property, pinned by
+        // DirectForwardingCallSites_AllPassStampedEventRecordingId below.
+        //
         // --- Review follow-up (Task 5): pin that the live handlers key off
         // evt.recordingId (the value stamped by Emit at capture time) rather than
         // ResolveCurrentRecordingTag() (which is a re-read at the forwarding-decision
@@ -877,7 +886,7 @@ namespace Parsek.Tests
         // call can return the fresh SPACECENTER empty tag and flip the predicate to
         // "forward" — which is exactly what #431 was intended to prevent.
         [Fact]
-        public void DirectForwardingPredicate_UsesEventRecordingId_NotLiveTagResolver()
+        public void DirectForwardingPredicate_StampedIdAndReResolvedTag_Disagree()
         {
             // Arrange: event was captured while the recorder was live on "rec-teardown"
             // (tag stamped by Emit). Then the teardown proceeds and by the time the
@@ -925,6 +934,80 @@ namespace Parsek.Tests
             Assert.True(predicateWithResolvedTag,
                 "Sanity check: re-resolving at decision time would wrongly allow forward, " +
                 "proving the two inputs disagree. Production handlers MUST pass evt.recordingId.");
+        }
+
+        // Source wiring gate for F-recording-tree-033-02: every production call
+        // site of ShouldForwardDirectLedgerEvent must pass the STAMPED event id
+        // (x.recordingId) or a parameter already carrying it - never a fresh
+        // ResolveCurrentRecordingTag() read, which drifts to the new scene's
+        // empty tag during FLIGHT -> KSC teardown and flips the gate to
+        // "forward" (#431). No runtime test can witness this: the sibling cell
+        // above only shows the two inputs disagree.
+        [Fact]
+        public void DirectForwardingCallSites_AllPassStampedEventRecordingId()
+        {
+            const string Call = "ShouldForwardDirectLedgerEvent(";
+            var offenders = new List<string>();
+            int callSites = 0;
+
+            foreach (string file in EnumerateParsekSourceFiles())
+            {
+                string src = StripLineComments(File.ReadAllText(file));
+                int idx = 0;
+                while ((idx = src.IndexOf(Call, idx, StringComparison.Ordinal)) >= 0)
+                {
+                    int argStart = idx + Call.Length;
+                    int comma = src.IndexOf(',', argStart);
+                    int close = src.IndexOf(')', argStart);
+                    int end = comma >= 0 && (close < 0 || comma < close) ? comma : close;
+                    idx = argStart;
+                    if (end < 0) continue;
+
+                    string arg = src.Substring(argStart, end - argStart).Trim();
+                    // The declaration itself ("string recordingTag, bool ...").
+                    if (arg.StartsWith("string ", StringComparison.Ordinal)) continue;
+
+                    callSites++;
+                    bool ok = arg.EndsWith(".recordingId", StringComparison.Ordinal)
+                        || string.Equals(arg, "recordingId", StringComparison.Ordinal)
+                        || string.Equals(arg, "recordingTag", StringComparison.Ordinal);
+                    if (!ok)
+                        offenders.Add(Path.GetFileName(file) + ": " + arg);
+                }
+            }
+
+            Assert.True(callSites >= 15,
+                "Expected the direct-forward gate to be wired at 15+ call sites; found "
+                + callSites + ". A collapsed call-site set means this gate stopped guarding anything.");
+            Assert.True(offenders.Count == 0,
+                "Every ShouldForwardDirectLedgerEvent call site must pass the stamped "
+                + "event recording id, not a re-resolved tag. Offenders: "
+                + string.Join(" | ", offenders));
+        }
+
+        private static IEnumerable<string> EnumerateParsekSourceFiles()
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string dir = Path.Combine(root, "Source", "Parsek");
+            if (!Directory.Exists(dir))
+                dir = Path.Combine(root, "Parsek");
+            Assert.True(Directory.Exists(dir), "Parsek source directory not found at " + dir);
+            return Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+        }
+
+        // Line comments are stripped so a call spelled out inside a fence note
+        // cannot be read as a call site.
+        private static string StripLineComments(string source)
+        {
+            var sb = new System.Text.StringBuilder(source.Length);
+            foreach (string line in source.Split('\n'))
+            {
+                int idx = line.IndexOf("//", StringComparison.Ordinal);
+                sb.Append(idx >= 0 ? line.Substring(0, idx) : line);
+                sb.Append('\n');
+            }
+            return sb.ToString();
         }
     }
 }

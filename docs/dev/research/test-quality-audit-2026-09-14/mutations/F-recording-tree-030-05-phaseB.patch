@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..e92573ce8 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -3708,7 +3708,7 @@ namespace Parsek
+         /// </summary>
+         internal static bool IsChainMidSegment(Recording rec)
+         {
+-            if (string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0) return false;
++            // MUTATION: ChainId/ChainIndex early return deleted
+             // Branch > 0 segments are parallel continuations (ghost-only); they despawn normally
+             if (rec.ChainBranch > 0) return false;
+             for (int i = 0; i < committedRecordings.Count; i++)

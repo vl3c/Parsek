@@ -9,7 +9,8 @@ namespace Parsek.Tests
     {
         private static Recording BuildExactBoundaryBodyTransitionRecording(
             RecordingEndpointPhase endpointPhase,
-            string endpointBodyName)
+            string endpointBodyName,
+            double orbitEndUT = 200.0)
         {
             return new Recording
             {
@@ -24,7 +25,7 @@ namespace Parsek.Tests
                     new OrbitSegment
                     {
                         startUT = 100.0,
-                        endUT = 200.0,
+                        endUT = orbitEndUT,
                         bodyName = "Mun",
                         semiMajorAxis = 250000.0,
                         eccentricity = 0.01,
@@ -104,9 +105,15 @@ namespace Parsek.Tests
         [Fact]
         public void ExactBoundaryEscape_PersistedPointPhaseRejectsOrbitFallback()
         {
+            // The orbit segment ends at 300, PAST the last trajectory point at
+            // 200, so ShouldUseOrbitEndpointByHeuristic would answer true: the
+            // persisted TrajectoryPoint phase is now the only rejecting branch.
+            // With the orbit ending exactly at the point UT the heuristic
+            // answered false on its own and the persisted decision was unwitnessed.
             Recording rec = BuildExactBoundaryBodyTransitionRecording(
                 RecordingEndpointPhase.TrajectoryPoint,
-                "Kerbin");
+                "Kerbin",
+                orbitEndUT: 300.0);
 
             Assert.False(RecordingEndpointResolver.ShouldUseOrbitEndpoint(rec));
             Assert.False(RecordingEndpointResolver.TryGetOrbitEndpointUT(rec, out _));

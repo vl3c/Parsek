@@ -217,9 +217,26 @@ namespace Parsek.Tests
             Assert.NotNull(rec);
             RecordingStore.CommitRecordingDirect(rec);
 
+            // The ONLY half of the name: a stashed pending tree must survive
+            // ClearCommitted (RecordingStore.Clear is the call that also drops
+            // it). Without a pending tree stashed, this cell would only pin the
+            // clearing half, which TreeCommitTests.ClearCommitted_ClearsTreesToo
+            // already covers.
+            var pendingTree = new RecordingTree
+            {
+                Id = "tree_pending",
+                TreeName = "tree_pending",
+                RootRecordingId = "rec-root",
+                ActiveRecordingId = "rec-root",
+            };
+            RecordingStore.StashPendingTree(pendingTree);
+            Assert.True(RecordingStore.HasPendingTree);
+
             RecordingStore.ClearCommitted();
 
             Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Same(pendingTree, RecordingStore.PendingTree);
         }
 
         #endregion
@@ -483,9 +500,27 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
+        // The three degenerate cells below each commit a PEER whose ChainId
+        // string-equals the subject's and whose ChainIndex is higher, so the
+        // successor scan would answer true if the early return at
+        // RecordingStore.cs:3711 were removed. Without the peer the guard is
+        // unwitnessed: an empty store answers false on its own.
+        private Recording CommitChainPeer(string chainId, int chainIndex, double startUT = 400)
+        {
+            var peer = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, startUT), "Peer");
+            Assert.NotNull(peer);
+            peer.ChainId = chainId;
+            peer.ChainIndex = chainIndex;
+            peer.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(peer);
+            return peer;
+        }
+
         [Fact]
         public void IsChainMidSegment_NullChainId_ReturnsFalse()
         {
+            CommitChainPeer(null, 1);
+
             var rec = new Recording { ChainId = null, ChainIndex = 0 };
             Assert.False(RecordingStore.IsChainMidSegment(rec));
         }
@@ -493,6 +528,8 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_EmptyChainId_ReturnsFalse()
         {
+            CommitChainPeer("", 1);
+
             var rec = new Recording { ChainId = "", ChainIndex = 0 };
             Assert.False(RecordingStore.IsChainMidSegment(rec));
         }
@@ -500,6 +537,8 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_NegativeChainIndex_ReturnsFalse()
         {
+            CommitChainPeer("some-chain", 1);
+
             var rec = new Recording { ChainId = "some-chain", ChainIndex = -1 };
             Assert.False(RecordingStore.IsChainMidSegment(rec));
         }
@@ -573,9 +612,17 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainEndUT_NullChainId_ReturnsOwnEndUT()
         {
+            // An UNRELATED committed recording with a null ChainId and a LATER
+            // EndUT: without the null-ChainId guard at RecordingStore.cs:3766 the
+            // max-scan matches it (null == null) and returns 620 instead of the
+            // recording's own end.
+            var other = CommitChainPeer(null, 0, startUT: 600);
+            Assert.True(other.EndUT > 100);
+
             var rec = new Recording();
             rec.Points.AddRange(MakePoints(3, 100));
             Assert.Equal(rec.EndUT, RecordingStore.GetChainEndUT(rec));
+            Assert.NotEqual(other.EndUT, RecordingStore.GetChainEndUT(rec));
         }
 
         [Fact]
@@ -645,6 +692,11 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainPredecessorIndex_Standalone_ReturnsNegativeOne()
         {
+            // The committed null-ChainId peer sits at ChainIndex -1, which is
+            // exactly rec.ChainIndex - 1: with the null-ChainId and
+            // ChainIndex <= 0 guards removed the scan would return its index 0.
+            CommitChainPeer(null, -1);
+
             var rec = new Recording { ChainId = null, ChainIndex = 0 };
             Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(rec));
         }
@@ -890,6 +942,17 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_EmptyRecordingId_ReturnsNull()
         {
+            // A committed EVA child whose ParentRecordingId is ALSO empty: the
+            // legacy parent-child loop matches "" == "" and would return
+            // {"Jeb"} if the empty-RecordingId early return at
+            // VesselSpawner.cs:2582 were removed.
+            var child = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "EVA");
+            Assert.NotNull(child);
+            child.RecordingId = "eva-child";
+            child.ParentRecordingId = "";
+            child.EvaCrewName = "Jeb";
+            RecordingStore.CommitRecordingDirect(child);
+
             var rec = new Recording { RecordingId = "" };
             Assert.Null(VesselSpawner.BuildExcludeCrewSet(rec));
         }

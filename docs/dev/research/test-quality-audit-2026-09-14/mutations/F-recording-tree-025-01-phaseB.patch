@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingFinalizationCacheProducer.cs b/Source/Parsek/RecordingFinalizationCacheProducer.cs
+index 6d0a78cd2..a8c3c2f5a 100644
+--- a/Source/Parsek/RecordingFinalizationCacheProducer.cs
++++ b/Source/Parsek/RecordingFinalizationCacheProducer.cs
+@@ -628,9 +628,7 @@ namespace Parsek
+             HashSet<ulong> activeRcsKeys,
+             Dictionary<ulong, float> lastRcsThrottle)
+         {
+-            if (HasMeaningfulThrottle(activeEngineKeys, lastThrottle))
+-                return true;
+-
++            // MUTATION: engine arm dropped
+             return HasMeaningfulThrottle(activeRcsKeys, lastRcsThrottle);
+         }
+ 
