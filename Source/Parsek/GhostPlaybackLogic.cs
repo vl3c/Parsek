@@ -3572,11 +3572,29 @@ namespace Parsek
                     StopLoopedGhostAudio(info, "muted");
                 return true;
             }
-            if (ReferenceEquals(info.audioSource, null)) return true;
-
-            if (enforcePlaybackCap)
+            if (ShouldEnforceLoopedAudioPlaybackCap(
+                    hasAudioSource: !ReferenceEquals(info.audioSource, null),
+                    enforcePlaybackCap: enforcePlaybackCap))
+            {
                 EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
+            }
             return true;
+        }
+
+        /// <summary>
+        /// Whether a <see cref="SetEngineAudio"/> call that reached the play/stop stage should
+        /// run the looped-audio playback cap. BOTH terms are required: a ghost part with no
+        /// AudioSource has nothing to cap, and a DEFERRED batch member passes
+        /// <c>enforcePlaybackCap: false</c> so the cap runs once after the batch instead of on
+        /// every member. Extracted from the two guards it replaces (byte-identical: the old
+        /// null-source early return did nothing but skip this cap) so the flag is testable
+        /// headlessly - an AudioGhostInfo cannot carry a Unity AudioSource in xUnit, which is
+        /// why the flag used to be unreachable from any cell.
+        /// </summary>
+        internal static bool ShouldEnforceLoopedAudioPlaybackCap(
+            bool hasAudioSource, bool enforcePlaybackCap)
+        {
+            return hasAudioSource && enforcePlaybackCap;
         }
 
         internal static bool CanStartLoopedGhostAudio(bool sourceExists, bool sourceIsActiveAndEnabled)

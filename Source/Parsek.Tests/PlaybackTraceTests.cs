@@ -170,11 +170,29 @@ namespace Parsek.Tests
             // Also seed a trace cursor by emitting a frame.
             PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.5,
                 renderedPos: new Vector3(1, 2, 3));
+            // ...and retire the event into the completed set with a gate-closed frame, so the
+            // completed-event half of the claim has something to clear.
+            PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 100.0,
+                renderedPos: new Vector3(1, 2, 3));
             Assert.Equal(1, PlaybackTrace.CachedRecordingCountForTesting);
+
+            // Preconditions for the TRACE-STATE half of the name: the emitted frame really did
+            // leave a cursor and a completed-event mark behind, so clearing them is observable.
+            Assert.False(double.IsNaN(
+                PlaybackTrace.GetLastTracedEventUTForTesting("rec-reset", 0)));
+            Assert.True(PlaybackTrace.IsEventCompletedForTesting("rec-reset", 0, 10.0));
 
             PlaybackTrace.Reset();
             Assert.Equal(0, PlaybackTrace.CachedRecordingCountForTesting);
             Assert.Null(PlaybackTrace.GetCachedStructuralEventUTsForTesting("rec-reset"));
+
+            // The per-ghost trace cursors and the completed-event set, which the production doc
+            // comment promises Reset also clears so a respawned ghost does not inherit a stale
+            // pose or a stale completed-event set. Nothing read them back before, so deleting
+            // traceStates.Clear() from Reset() left this cell green.
+            Assert.True(double.IsNaN(
+                PlaybackTrace.GetLastTracedEventUTForTesting("rec-reset", 0)));
+            Assert.False(PlaybackTrace.IsEventCompletedForTesting("rec-reset", 0, 10.0));
         }
 
         // ============ End-to-end emission ============
