@@ -10,6 +10,31 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
+  are closed, and the priority-2 register with them.** Eight rows were new coverage and
+  six were guarded already by cells that landed after the audit snapshot, so thirteen new
+  cells landed. Four of the eight needed a production seam, each the smallest hook that
+  leaves the live path behaving as before. On scene exit: a save that throws on the way to
+  the main menu is proved to refuse the transition, and the same throw on the way to the
+  space center to let it continue - the catch was unreachable headless because the
+  existing seam replaces the whole method and a test-built game reads as null to Unity's
+  overloaded equality, so the save step itself became injectable. On revert: the
+  spawned-vessel cleanup arming step moved out of OnLoad behind its collector, and is
+  proved to keep a set a rewind already armed rather than overwrite it with the empty one
+  a post-rewind load collects - the three cells that were there rebuilt the guard
+  condition inside the test, so none could witness it going away. On map presence: the two
+  state-vector removal call sites now share one frame-aware gate, proved to leave a
+  Relative-frame point (whose altitude is an anchor-local offset, not a height) alone while
+  still removing a genuine below-threshold Absolute one. On watch mode: the overlap-loop
+  camera is proved to rebuild its cycle start from the cadence the engine actually launches
+  at rather than the stored loop period, the wrong-loop-phase defect. The four rows that
+  needed no seam pin a rewind retirement whose restored recording vanished (kept, with a
+  warning, instead of silently un-hiding the fork), two walks that must terminate on a
+  corrupt cycle rather than freeze the game (cross-tree chain links, and the
+  preferred-child path walk), and that a terminated ghost chain suppresses only its own
+  tip rather than every later recording of the same vessel. No player-visible change.
+
+
 - **Automated testing: both in-game test runner windows are now photographed in their
   real states, and the one reachable only by Ctrl+Shift+T is reachable by the census for
   the first time.** Two windows carry the title `Parsek - Test Runner`: the one Settings

@@ -624,6 +624,51 @@ uses ut=110. And `ParsekScenario` inherits Unity's overloaded `==`, so a mutant 
 scenario (Unity reports the fake-null as null, which is why `Run` itself uses
 `ReferenceEquals`); the recorded mutant stubs the body unconditionally instead.
 
+**Phase B status, ninth PR (2026-09-16).** The last fourteen priority-2 rows, a mixed
+`direct` / `seam` slice: eight are new coverage (thirteen cells, every mirror included) and
+six are `already-covered`, and none is obsolete. **The priority-2 register is now closed** -
+no `keep` row of priority 2 remains in `coverage-opportunities.csv`, leaving one `deferred`
+priority-2 row and 143 `keep` rows at priority 3 and below. The eight landed rows are
+C-rewind-refly-005-02, C-ghost-playback-012-01, C-recording-tree-034-02,
+C-recording-tree-051-01, C-recording-tree-042-01, C-spawn-vessel-021-01,
+C-recorder-events-008-01 and C-recorder-events-015-02; four of them needed a production
+seam and the other four did not. The seams, all smallest-hook and live-path-neutral:
+`SceneExitInterceptor.PersistentSaveStepForTesting` (an `Action<GameScenes>` invoked
+INSIDE the try, because the existing whole-method seam returns before it and a
+test-constructed `Game` reads as null to Unity's overloaded `==`, so the catch was
+unreachable); `ParsekScenario.ArmRevertCleanupData(collector)` (the revert cleanup arming
+step lifted out of `OnLoad` with the spawned-vessel collector as a delegate);
+`GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame` (one frame-aware gate now shared by
+BOTH state-vector removal call sites, with the `GetAtmosphereDepth` read kept behind the
+frame test so a Relative-frame point still never touches `FlightGlobals`); and
+`WatchModeController.ComputeWatchOverlapPlaybackUT` (the overlap branch of the private
+instance method, as a pure static over the cadence inputs). The six already-covered rows:
+C-ghost-playback-008-01, C-spawn-vessel-020-01, C-catchall-049-01, C-io-serialization-004-01,
+C-recorder-events-026-01 and C-recording-tree-039-01.
+
+Four notes for whoever reads these rows again. First, C-ghost-playback-008-01's proposed
+mutant is EQUIVALENT: `Landed` is refused by three independent gates
+(`IsTerminalStateEligibleForMapPresence`, `IsTerminalStateEligibleForTerminalOrbitMapPresence`
+and `TryResolveTerminalOrbitGhostSeed`), each producing the same `terminal-<state>` reason,
+so admitting it at any one site changes nothing observable - and the proposed cell name
+`ShouldCreate_Landed_Skipped` is a cell that already exists and survives every single-gate
+mutant. The reachable form of the same site (admit `SubOrbital`) reds a committed
+`GhostMapEndpointTailTests` cell, which is what the recorded patch holds. Second,
+C-catchall-049-01 stays SOURCE-SCRAPED on purpose: its mutant reds only
+`PlaytestFollowupTests.Bug273_MethodBody_ContainsMarkFilesDirtyCall`, and the behavioural
+witness the row wants needs the append-plus-dirty pair moved out of
+`SampleContinuationVessel` - which that same scrape cell forbids. Third,
+C-io-serialization-004-01's residual gap is platform, not coverage: the committed
+forced-fallback cell reds the mutant on Windows and short-circuits on the Linux CI host via
+`SharingIsEnforced`; the proposed `ForceReplaceFailureForTesting` seam was NOT added because
+a forced replace failure with nothing locked lets the fallback SUCCEED, so it buys no
+mutation-proved cell. Fourth, two of the landed rows guard walks that do not terminate under
+their mutant: `GhostChainWalker.MergeCrossTreeLinks` and `ParsekFlight`'s preferred-child
+path walk both HANG rather than fail an assertion, so their evidence is the aborted run plus
+a green re-run of the same set with only the new cell excluded - and a two-chain cycle is not
+enough for the first one (the `tipVesselPid == originPid` short-circuit already catches it),
+so that fixture is a 100 -> 200 -> 300 -> 200 loop that excludes the walk origin.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.
