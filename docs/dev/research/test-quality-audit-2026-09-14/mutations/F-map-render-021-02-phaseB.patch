@@ -1,0 +1,10 @@
+--- Source/Parsek.Tests/Rendering/OutlierFlagsSidecarRoundTripTests.cs	2026-09-15 18:39:52.861911700 +0300
++++ /tmp/leak1.cs	2026-09-15 18:39:52.810060800 +0300
+@@ -36,7 +36,6 @@
+         public void Dispose()
+         {
+             SmoothingPipeline.ResetForTesting();
+-            TrajectoryMath.FrameTransform.ResetForTesting();
+             ParsekLog.ResetTestOverrides();
+             ParsekLog.SuppressLogging = true;
+             if (Directory.Exists(tempDir))
