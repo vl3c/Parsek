@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
 index bb9af7e10..78cb34504 100644
 --- a/Source/Parsek/RecordingStore.cs
 +++ b/Source/Parsek/RecordingStore.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections.Generic;
- using System.Diagnostics;
- using System.Globalization;
 @@ -1233,7 +1233,7 @@ namespace Parsek
                  // Demote the qualifying HEAD on first commit. The first-commit guard
                  // keeps a manually-sealed HEAD==tip (Immutable) from being re-opened on a

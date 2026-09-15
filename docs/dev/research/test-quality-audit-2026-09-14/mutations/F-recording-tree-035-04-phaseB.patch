@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/Patches/MapFocusObjectOnSelectPatch.cs b/Source/Parse
 index dc8a4cb86..3a323b4fb 100644
 --- a/Source/Parsek/Patches/MapFocusObjectOnSelectPatch.cs
 +++ b/Source/Parsek/Patches/MapFocusObjectOnSelectPatch.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Globalization;
- using System.Reflection;
- using HarmonyLib;
 @@ -1172,14 +1172,6 @@ namespace Parsek.Patches
              bool targetIsUnloaded,
              bool targetIsSeparateCommittedVessel)

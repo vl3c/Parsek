@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -48,6 +48,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            RecordingPaths.SaveRootOverrideForTesting = null;
             DiscardSidecarReap.ResetForTesting();
         }
 

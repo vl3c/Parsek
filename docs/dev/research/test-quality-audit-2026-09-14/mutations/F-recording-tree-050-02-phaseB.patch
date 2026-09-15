@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/Recording
 index d248a92b8..40412d9bb 100644
 --- a/Source/Parsek/RecordingTreeRecordCodec.cs
 +++ b/Source/Parsek/RecordingTreeRecordCodec.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections.Generic;
- using System.Globalization;
- 
 @@ -812,7 +812,7 @@ namespace Parsek
                      $"LoadRecordingResourceAndState: loaded {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
              }

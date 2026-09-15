@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Reflection;
 using HarmonyLib;
@@ -295,7 +295,7 @@ namespace Parsek.Tests
             // the session's focused pid: only Case A answers SkipDialogSameTarget
             // (the re-click of the vessel the session already owns). The
             // no-session arm answers OpenDialog for the same inputs, so this is
-            // the input where the two paths actually disagree — the priority is
+            // the input where the two paths actually disagree - the priority is
             // witnessed, not assumed.
             var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
                 hasActiveSession: true,
@@ -312,7 +312,7 @@ namespace Parsek.Tests
         public void DecidePreSwitchDialogAction_NoSession_ActiveRecording_UnloadedTarget_OpensDialog()
         {
             // Fails if: predicate fails to fire for out-of-bubble
-            // Switch-To with an active recording — the user's chosen
+            // Switch-To with an active recording - the user's chosen
             // UX gap. Stock would silently scene-reload via
             // FlightDriver.StartAndFocusVessel; the dialog forces the
             // player to commit to Merge or Discard before the reload.
@@ -418,7 +418,7 @@ namespace Parsek.Tests
                 "DiscardPriorAndSwitchTo handler must follow Merge handler");
             string mergeBody = source.Substring(mergeStart, mergeEnd - mergeStart);
 
-            // The new clear line — distinguished from the pre-existing
+            // The new clear line - distinguished from the pre-existing
             // "pre-switch-dialog-merge-no-active-tree" defensive clear
             // by the merge-committed reason.
             Assert.Contains(
@@ -519,7 +519,7 @@ namespace Parsek.Tests
         // handlers without standing up Unity:
         //
         // - Merge path: calls CommitTreeFlight (NOT
-        //   ClearSwitchSegmentSession — no session to clear), invokes
+        //   ClearSwitchSegmentSession - no session to clear), invokes
         //   MergeDialog.OnTreeCommitted so ghost-chain evaluation
         //   picks up the newly committed recordings, and logs the
         //   distinct "merge-chosen-no-session" line.
@@ -603,7 +603,7 @@ namespace Parsek.Tests
             // The handler is the last in this file before the Postfix; find
             // the closing of the method via the next method declaration or
             // class brace. ArmIntentAndSwitchTo is referenced from many
-            // sites — pick the next 'static void' / 'static bool' after the
+            // sites - pick the next 'static void' / 'static bool' after the
             // discard start, or the closing brace.
             int searchFrom = discardStart + 1;
             int nextMethod = source.IndexOf(
@@ -614,7 +614,7 @@ namespace Parsek.Tests
             string discardBody = source.Substring(
                 discardStart, nextMethod - discardStart);
 
-            // (a) Uses AutoDiscardActiveTreeWithMessage — the reason-aware
+            // (a) Uses AutoDiscardActiveTreeWithMessage - the reason-aware
             //     overload of AutoDiscardIdleActiveTree introduced for
             //     this Case B handler (PR #876 round-6 review). Same
             //     teardown body as the idle-on-pad entry point but
@@ -690,7 +690,7 @@ namespace Parsek.Tests
             string coreBody = flightSource.Substring(
                 coreStart, coreEnd - coreStart);
 
-            // ScreenMessage(screenMessage, ...) — parameterized, not a
+            // ScreenMessage(screenMessage, ...) - parameterized, not a
             // literal "Recording discarded - idle on pad".
             Assert.Contains("ScreenMessage(screenMessage", coreBody);
             Assert.DoesNotContain(
@@ -700,7 +700,7 @@ namespace Parsek.Tests
             // Ledger recalc reason is the parameter, not a literal.
             Assert.Contains("ledgerRecalcReason", coreBody);
             // The pre-fix literal must not appear inside the core
-            // anymore — only inside AutoDiscardIdleActiveTree's call
+            // anymore - only inside AutoDiscardIdleActiveTree's call
             // site that supplies the literal.
             int suppressIdx = coreBody.IndexOf(
                 "\"suppressed-scene-exit-discard\"", StringComparison.Ordinal);

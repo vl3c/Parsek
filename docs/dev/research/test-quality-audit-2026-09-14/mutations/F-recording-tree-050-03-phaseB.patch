@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/Recording
 index d248a92b8..0a31a8b27 100644
 --- a/Source/Parsek/RecordingTreeRecordCodec.cs
 +++ b/Source/Parsek/RecordingTreeRecordCodec.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections.Generic;
- using System.Globalization;
- 
 @@ -824,7 +824,7 @@ namespace Parsek
              rec.IsGhostOnly = ParseBoolOr(recNode, "isGhostOnly", rec.IsGhostOnly);
  
