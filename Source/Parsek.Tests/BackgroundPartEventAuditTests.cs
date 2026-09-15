@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
@@ -85,58 +86,46 @@ namespace Parsek.Tests
 
         #region Coverage Audit: Polled Event Types
 
-        // These tests document that BackgroundRecorder's PollPartEvents calls the same
-        // Check* methods as FlightRecorder.OnPhysicsFrame. The underlying static
-        // transition methods are already tested in FlightRecorderExtractedTests and
-        // PartEventTests. Here we verify structural completeness.
+        // This gate reads the parity claim out of the IL of the two poll methods.
 
         [Fact]
         public void PollPartEvents_CoversAllPolledEventTypes_MatchingFlightRecorder()
         {
-            // FlightRecorder.OnPhysicsFrame polls these 17 event types (lines 3866-3882):
-            //   CheckParachuteState, CheckJettisonState, CheckEngineState, CheckRcsState,
-            //   CheckDeployableState, CheckLadderState, CheckAnimationGroupState,
-            //   CheckAeroSurfaceState, CheckControlSurfaceState, CheckRobotArmScannerState,
-            //   CheckAnimateHeatState, CheckAnimateGenericState, CheckLightState,
-            //   CheckGearState, CheckCargoBayState, CheckFairingState, CheckRoboticState
+            // The call SET of BackgroundRecorder.PollPartEvents must equal the call set of
+            // FlightRecorder.PollPartStates, restricted to the Check*State family.
             //
-            // BackgroundRecorder.PollPartEvents calls the same 17 methods (lines 877-893).
-            // This test documents the 1:1 correspondence. If a new Check* method is added
-            // to FlightRecorder, a corresponding call must be added to BackgroundRecorder.
+            // Why the call set and not a name-existence reflection check: deleting a
+            // CheckXState CALL is the actual background part-event recording regression, and
+            // it leaves the method (and therefore its name) on the type, so a name check
+            // cannot see it. Asymmetry fails in BOTH directions - a Check* polled only by the
+            // flight recorder is a background coverage gap, and one polled only in the
+            // background is the mirror of that.
+            Func<string, bool> isPolledCheck = n =>
+                n.StartsWith("Check", StringComparison.Ordinal) &&
+                n.EndsWith("State", StringComparison.Ordinal);
 
-            var flightRecorderPolledMethods = new[]
-            {
-                "CheckParachuteState",
-                "CheckJettisonState",
-                "CheckEngineState",
-                "CheckRcsState",
-                "CheckDeployableState",
-                "CheckLadderState",
-                "CheckAnimationGroupState",
-                "CheckAeroSurfaceState",
-                "CheckControlSurfaceState",
-                "CheckRobotArmScannerState",
-                "CheckAnimateHeatState",
-                "CheckAnimateGenericState",
-                "CheckLightState",
-                "CheckGearState",
-                "CheckCargoBayState",
-                "CheckFairingState",
-                "CheckRoboticState",
-            };
+            var flightPolled = ILCallSet.CalledMethodNames(
+                ILCallSet.Method(typeof(FlightRecorder), "PollPartStates"), isPolledCheck);
+            var backgroundPolled = ILCallSet.CalledMethodNames(
+                ILCallSet.Method(typeof(BackgroundRecorder), "PollPartEvents"), isPolledCheck);
 
-            // Verify each method exists as a private method on BackgroundRecorder
-            var bgType = typeof(BackgroundRecorder);
-            var bgMethods = bgType.GetMethods(
-                System.Reflection.BindingFlags.NonPublic |
-                System.Reflection.BindingFlags.Instance);
-            var bgMethodNames = bgMethods.Select(m => m.Name).ToHashSet();
+            // Floor: an empty set on either side would make the equality below vacuous.
+            Assert.True(flightPolled.Count >= 19,
+                $"FlightRecorder.PollPartStates polls only {flightPolled.Count} Check*State method(s): " +
+                string.Join(", ", flightPolled.OrderBy(n => n)));
+            Assert.True(backgroundPolled.Count >= 19,
+                $"BackgroundRecorder.PollPartEvents polls only {backgroundPolled.Count} Check*State method(s): " +
+                string.Join(", ", backgroundPolled.OrderBy(n => n)));
 
-            foreach (var methodName in flightRecorderPolledMethods)
-            {
-                Assert.True(bgMethodNames.Contains(methodName),
-                    $"BackgroundRecorder is missing polled method: {methodName}");
-            }
+            var missingInBackground = flightPolled.Except(backgroundPolled).OrderBy(n => n).ToList();
+            var missingInFlight = backgroundPolled.Except(flightPolled).OrderBy(n => n).ToList();
+
+            Assert.True(missingInBackground.Count == 0,
+                "BackgroundRecorder.PollPartEvents does not call: " +
+                string.Join(", ", missingInBackground));
+            Assert.True(missingInFlight.Count == 0,
+                "FlightRecorder.PollPartStates does not call: " +
+                string.Join(", ", missingInFlight));
         }
 
         #endregion

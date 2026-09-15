@@ -396,15 +396,25 @@ namespace Parsek.Tests
             // shape after the fix.
 
             var treeRoot = new Recording { RecordingId = "tree-root", Controllers = null };
+            var tree = new RecordingTree { Id = "tree-1", ActiveRecordingId = "tree-root" };
+            tree.Recordings["tree-root"] = treeRoot;
             var recorderStartControllers = new List<ControllerInfo>
             {
                 new ControllerInfo { type = "ProbeCore", partName = "probeStackLarge", partPersistentId = 723919894u },
                 new ControllerInfo { type = "CrewedPod", partName = "mk1pod.v2", partPersistentId = 100u }
             };
 
-            // Simulate the flush-time forward.
-            bool adopted = treeRoot.AdoptControllersIfEmpty(recorderStartControllers);
+            // Drive the production backstop itself: StartRecording hands its just-captured
+            // start identity to FlightRecorder.ApplyStartRecordingTreeBackstop, which is where
+            // the forward onto the active tree recording happens. Nothing here calls
+            // AdoptControllersIfEmpty, so short-circuiting the backstop's controllers limb
+            // reds this cell.
+            bool adopted = FlightRecorder.ApplyStartRecordingTreeBackstop(
+                tree, recorderStartControllers, null, null, null, null, null, null);
             Assert.True(adopted);
+            Assert.NotNull(treeRoot.Controllers);
+            Assert.Equal(2, treeRoot.Controllers.Count);
+            Assert.Equal(723919894u, treeRoot.Controllers[0].partPersistentId);
 
             // Now simulate the BG go-on-rails identity-loss check after the active
             // root has been backgrounded and the recorded controllers all died in

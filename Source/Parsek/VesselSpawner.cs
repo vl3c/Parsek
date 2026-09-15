@@ -3248,6 +3248,21 @@ namespace Parsek
                 return;
             }
 
+            RemoveDuplicateCrewFromSnapshotCore(snapshot, existingCrew);
+        }
+
+        /// <summary>
+        /// Scene-free core of <see cref="RemoveDuplicateCrewFromSnapshot"/>: the holder map
+        /// is the ONLY live-scene input, so with it supplied the extract / find-duplicates /
+        /// PART-node removal / holder-naming Warn / summary Info sequence runs headless.
+        /// Extracted so the removal loop is reachable from a unit test instead of being
+        /// replayed by one. Returns the number of seats vacated.
+        /// </summary>
+        internal static int RemoveDuplicateCrewFromSnapshotCore(
+            ConfigNode snapshot, Dictionary<string, string> existingCrew)
+        {
+            if (snapshot == null || existingCrew == null) return 0;
+
             // Extract crew from the snapshot and find duplicates
             var snapshotCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             var duplicates = FindDuplicateCrew(
@@ -3257,7 +3272,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Spawner",
                     $"Crew dedup: checked {snapshotCrew.Count} crew against {existingCrew.Count} existing — no duplicates");
-                return;
+                return 0;
             }
 
             // Remove duplicates from snapshot parts (same pattern as RemoveSpecificCrewFromSnapshot)
@@ -3297,6 +3312,7 @@ namespace Parsek
             }
 
             ParsekLog.Info("Spawner", DescribeCrewDedupOutcome(snapshotCrew.Count, removedCount));
+            return removedCount;
         }
 
         /// <summary>

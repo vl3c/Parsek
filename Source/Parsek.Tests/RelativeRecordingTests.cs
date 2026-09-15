@@ -168,6 +168,34 @@ namespace Parsek.Tests
                 "values that would be absurd as degrees but are correct as metres.");
         }
 
+        /// <summary>
+        /// The PRODUCER half of the live-anchor contract, read out of the IL of the method
+        /// that builds the pose: FlightRecorder.TryResolveAnchorPoseForCandidate must take the
+        /// live anchor's position from Vessel.transform (the surface-pose frame KSP's
+        /// UpdatePosVel writes the recorded lla from) and must NOT take it from
+        /// Vessel.GetWorldPos3D (the CoM), which is the shipped ~10 m relative-debris drift.
+        /// The math half - what that substitution does to a reconstruction - is the cell
+        /// below, which simulates BOTH anchors and therefore cannot see which one production
+        /// picks. A live Vessel cannot be built headless, so the pick is read from the
+        /// compiled call set rather than driven.
+        /// </summary>
+        [Fact]
+        public void RecorderContract_LiveAnchorPoseIsBuiltFromVesselTransform_NotCoM()
+        {
+            var producer = ILCallSet.Method(
+                typeof(FlightRecorder), "TryResolveAnchorPoseForCandidate");
+
+            Assert.True(
+                ILCallSet.Calls(producer, typeof(UnityEngine.Component), "get_transform"),
+                "The live-anchor pose producer no longer reads Vessel.transform; the recorded " +
+                "lla is vesselTransform-aligned, so any other source shifts every relative offset.");
+            Assert.False(
+                ILCallSet.Calls(producer, typeof(Vessel), "GetWorldPos3D"),
+                "The live-anchor pose producer calls Vessel.GetWorldPos3D (CoM). That is the " +
+                "shipped relative-debris drift: the recorded offset gets shifted by " +
+                "Inverse(R) * (vesselTransform - CoM), about 10 m on a Kerbal X parent.");
+        }
+
         // Regression: pins that the recorder's live anchor position must match the
         // surface-pose frame encoded in the parent's recorded TrajectoryPoint.
         // KSP's UpdatePosVel writes Vessel.latitude/longitude/altitude from
@@ -182,7 +210,7 @@ namespace Parsek.Tests
         // "radial debris appears too far in front" symptom
         // (logs/2026-05-09_1416_radial-booster-still-too-forward-after-pr780-revert/KSP.log:9533/9587).
         [Fact]
-        public void RecorderContract_LiveAnchorPositionMustMatchPlaybackAnchorPosition()
+        public void RelativeOffsetMath_CoMAnchorShiftsPlaybackByTransformMinusCoM()
         {
             // Synthetic Kerbal-X-shaped scenario: parent vesselTransform position
             // (where the recorded lla resolves) and parent CoM differ by ~10 m

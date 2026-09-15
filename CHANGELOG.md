@@ -10,6 +10,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Tests: the seven worst tests in the suite now test what their names say.** The test
+  quality audit read every one of the ~23,400 unit tests and found seven that could not
+  fail: each did the work the production code does inside the test body and then checked
+  its own arithmetic, so the regression the test exists to catch - crew dedup on a spawn
+  snapshot, the parent-continuation rule when a background vessel breaks up, the
+  background part-event poll staying in step with the flight one, the two places a
+  committed recording's snapshot must survive a post-commit mutation, the recorder
+  forwarding the flight's controller identity onto its tree, and the relative-anchor pose
+  that once shipped a ten-metre debris drift - would have slipped through green. All
+  seven now call the real production code: five through a small piece of that code lifted
+  out so it can be called without a running game (behaviour unchanged, the original call
+  site calls the extracted piece), two by reading the compiled code's own list of calls,
+  which sees a deleted call where a name-existence check cannot. Each was re-checked by
+  breaking the production line on purpose and confirming the test goes red. Nothing a
+  player sees changes.
+
 - **Automated testing: five fixes to the new hover / point / open-everything support,
   found by reviewing it.** Pointing at a control by its label and then moving the mouse
   there - the exact pairing the feature was built for - was refused before a run even

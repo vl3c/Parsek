@@ -328,6 +328,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The whole write the EVA-boarding continuation stop (EVA to vessel) applies to
+        /// the committed recording it was extending: bake the continuation data, and
+        /// nothing else.
+        /// <para>
+        /// Bug #95: Do NOT null VesselSnapshot on committed recordings. The next chain
+        /// segment handles spawning, but after revert the snapshot is needed for re-spawn,
+        /// and VesselSnapshot is immutable after commit. Extracted so the preserve is a
+        /// callable contract instead of a comment inside CommitChainSegment, which needs a
+        /// KSP runtime and so is unreachable from a unit test.
+        /// </para>
+        /// </summary>
+        internal static void ApplyBoardingContinuationStop(Recording boardingRec)
+        {
+            if (boardingRec == null) return;
+            BakeContinuationData(boardingRec);
+        }
+
+        /// <summary>
         /// Stops vessel continuation tracking. Clears PID and recording index.
         /// </summary>
         internal void StopContinuation(string reason)
@@ -822,11 +840,8 @@ namespace Parsek
             else if (ContinuationVesselPid != 0)
             {
                 // EVA segment committed during boarding (EVA→V): bake + stop continuation.
-                // Bug #95: Do NOT null VesselSnapshot on committed recordings.
-                // The next chain segment handles spawning, but after revert the snapshot
-                // is needed for re-spawn. VesselSnapshot is immutable after commit.
                 if (TryGetContinuationRecording(out var boardingRec))
-                    BakeContinuationData(boardingRec);
+                    ApplyBoardingContinuationStop(boardingRec);
                 ParsekLog.Verbose("Chain", $"Continuation stopped (boarding): " +
                     $"VesselSnapshot preserved on recording #{ContinuationRecordingIdx} " +
                     $"(snapshot={RecordingStore.CommittedRecordings[ContinuationRecordingIdx].VesselSnapshot != null})");
