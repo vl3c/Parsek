@@ -60,6 +60,24 @@ _(unreleased — entries accumulate here per commit)_
   measurement is in `docs/dev/todo-and-known-bugs.md` under
   `GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT`, which stays open.
 
+- **Automated testing: the manual Gloops recorder can be driven without a mouse.**
+  Parsek's Gloops Flight Recorder - the parallel, ghost-only recorder whose takes the
+  career never sees - could only ever be started and stopped by clicking its window,
+  so no unattended test could reach it. The test-command seam gains two verbs,
+  `GloopsStart` and `GloopsStop`, that call exactly the two methods the window's own
+  button calls. Nothing about the recorder, its window or its commit path changed:
+  the verbs drive what is already there and report what the existing guards decided,
+  so a refusal repeats the reason the recorder itself gives (already recording, no
+  active vessel, the recorder declined, nothing to stop). Stopping a take that is too
+  short to keep is not treated as a failure, because the button does the same thing:
+  the verb answers successfully and says the take was dropped for being under two
+  points. Two new test scenarios use the pair - one records and stops a real take, the
+  other deliberately produces a take too short to keep and checks that Parsek refuses
+  it - closing two recording-lifecycle coverage cells that no automated test could
+  reach before. Both scenarios have flown: the short take commits at three points and
+  the deliberately-too-short one is refused at one, each confirmed by a repeat run and
+  by a control run that was made to expect the wrong number and duly failed.
+
 - **Developer tooling: the source tree now has a module dependency map with four
   ways to look at it, and a boundary check that reports without failing anything.**
   Parsek is a single assembly of roughly 750 files, and until now nothing showed how
@@ -126,7 +144,28 @@ _(unreleased — entries accumulate here per commit)_
   cross-module file pairs that keep changing together, in the checker and in a
   new atlas section. No player-visible behavior changes.
 
+### Fixed
+
+- **A supply route's overview line no longer disappears wholesale while a ghost flies one
+  part of it.** The route line and the ghost trajectory line share the map, and they take
+  turns so the same path is never drawn twice: whichever part of a flight the ghost is
+  currently drawing, the route line leaves alone. That hand-off used to work at the wrong
+  size. The moment the ghost started drawing any part of a flight the route line dropped
+  that flight's ENTIRE path - so on a long delivery, where the ghost is drawing one leg of
+  it, everything before and after that leg vanished from the overview, which is the only
+  thing that draws it. The hand-off is now leg by leg: the ghost keeps the piece it is
+  actually drawing and the route line keeps the rest. On a single-leg flight nothing
+  changes, because there the two answers were already the same.
+
 ### Changed
+
+- **Developer tooling: a test fixture resolver no longer looks for a sibling worktree by
+  name.** `ReflyARecordedFixtureCodecTests` searched for its recorded save in two places:
+  the repository's own `harness/fixtures/saves/`, and a hard-coded sibling checkout that
+  briefly held the fixture while it was in review. The fixture has been in the repository
+  since then, so the second path could never be taken; it is gone, and the resolver keeps
+  its candidate-list shape so a genuinely missing fixture still skips with the path it
+  tried. No player-visible change.
 
 - **The hover-echo strip now says what it is showing, once per distinct text.** The
   bottom "hovered control help text" strip that eleven windows draw logs one line when
@@ -177,6 +216,7 @@ _(unreleased — entries accumulate here per commit)_
   the cell goes red. One cell whose arithmetic was true for every input was removed;
   the ledger cutoff tests own that contract, and its one unique assertion survives as
   its own cell. Nothing a player sees changes.
+
 - **Tests: the five priority-1 data-loss coverage gaps from the unit-test quality audit now
   have cells.** Each guards a path where a wrong answer destroys recorded flights and where
   the suite stayed green with the guard removed. The orphan-file sweep's second pending

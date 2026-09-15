@@ -1077,7 +1077,13 @@ class SpecValidationRejectTests(unittest.TestCase):
         # alone by ONE: the reserved envelope never carried a UI-introspection verb,
         # and it is not a second spelling of CaptureScreenshot - one produces pixels
         # and the other an IMGUI control tree, and a census drives them as a PAIR.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 36)
+        # 38 / 5 after the Gloops pair, an ADDITION again and therefore the first
+        # number moving alone - by TWO, the same signature the GUI-census pair left.
+        # The reserved envelope never carried a ghost-only-recorder verb, and neither
+        # name is a second spelling of StartRecording / StopRecording: those own the
+        # auto-record tree that commits into the career, these own the parallel
+        # ghost-only recorder behind the Gloops window's primary button.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 38)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1102,6 +1108,37 @@ class SpecValidationRejectTests(unittest.TestCase):
                          cs_initializer_literals(text, "ImplementedVerbs"),
                          "hlib.IMPLEMENTED_SEAM_VERBS must equal the C# "
                          "ImplementedVerbs initializer as an ORDERED list")
+
+    def test_the_gloops_pair_is_implemented_and_is_not_a_second_recorder_pair(self):
+        """The Gloops pair (P2, 2026-09-15). ADDITIVE (never in the reserved envelope)
+        and it must COEXIST with StartRecording / StopRecording rather than replace
+        them: the two pairs drive DIFFERENT recorders (the auto-record tree that
+        commits into the career vs the parallel ghost-only recorder behind the Gloops
+        window's primary button), and a spec's wire token has to say which one it
+        used."""
+        for verb in ("GloopsStart", "GloopsStop"):
+            self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+            self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+            # SINGLE-phase: the recorder attaches to the physics-frame patch inside
+            # FlightRecorder.StartRecording and the stop half commits synchronously, so
+            # neither verb may claim a deferred budget it would never spend.
+            self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+            # World-mutating on the tail axis ("ghost-only" is not "harmless": a
+            # committed take is a real row with its own .prec sidecar), `recording` on
+            # the post-mission axis (its verdict is a Parsek claim, not a kerbal's
+            # physical in-world state). The two axes disagree by design.
+            self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                             hlib.SEAM_VERB_TAIL_ROLE[verb])
+            self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                             hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertIn("StartRecording", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertIn("StopRecording", hlib.IMPLEMENTED_SEAM_VERBS)
+        # Its refusal vocabulary is mapped, so a refusal names a driver-* subkind
+        # instead of collapsing into the coarse driver-verdict-mismatch. All four are
+        # GATE-class: the verbs take no args, so there is no arg fault they can have.
+        for reason in ("gloops-already-recording", "gloops-no-active-vessel",
+                       "gloops-start-blocked", "no-gloops-recorder"):
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_is_implemented_and_is_not_a_second_timejump(self):
         """RF-12 phase 4. WarpToUT is ADDITIVE (never in the reserved envelope) and
@@ -9364,6 +9401,14 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # produces ARE the deliverable rather than a verdict to calibrate.
         "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0548`, PASS on attempt 1, 96 s wall, every step met, 46 harvested files (22 PNG + 22 `<label>.gui.json` + the `GuiTree` cell's own `parsek-guitree-probe.gui.json` + KSP.log). The one thing that reading had to settle is the step both 2026-09-10 attempts died on: `UiAction op=rect window=settings` now reads back `rect=270,8,400,718` in Advanced and `rect=270,8,400,700` in Basic - WIDTH held at the commanded 400 in both modes while the Advanced height grew 18 px over its 700 floor, which is exactly the floor semantics the fix shipped. PRIOR (2026-09-10, `_2255` and attempt 2 `_2256`): both INVALID on that ONE step and nothing else, at 375x718 against a commanded 360x700 when the width half was still a two-sided check. The `GuiTree` batch read `total=1 passed=1 failed=0 skipped=0` on all three runs and the pin is now WHOLE off the reading run - the id has LEFT IngameBatchWiringGroupTests.INTERIM_PIN_IDS, which is what 'a whole pin belongs to a run that READ a verdict' was waiting for - and all 22 dumps read `patched=17/17`, the reading that closed GUITREE-INTERCEPTION-LAYER-NEVER-RUN. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. The reading run proved that a third time: the row read REPORT with `verdictStatus=PARSEK-FAIL red=1 topRule=INV2-NO-DOUBLE-COVER failNonBaselined=7`, gating=false, and the chain ran on to a PASS. (The STAGED host reads FAIL=7 over four recordings where the offline reading of the un-staged `c1` read FAIL=25 over seven - staging is not a copy; both are RED=1, which is all this declaration turns on.) No human call is outstanding.",
         "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0551`, PASS on attempt 1, 57 s wall, all 29 steps met, 9 harvested files (4 PNG + 4 `<label>.gui.json` + KSP.log). The step this lane existed to re-read is the one its first flight died on, and it is now an ASSERTION rather than a failure: `op=open window=spawncontrol` answered `uiaction error reason=window-self-closed window=spawncontrol frames=1` under `expect = ERROR` with that reason pinned as a log contract, so the lane now TESTS that Real Spawn Control force-closes itself on a candidate-less host (`SpawnControlUI.DrawIfOpen`, `reason=zero-candidates candidates=0`) instead of photographing empty scenery under that window's name. PRIOR (2026-09-10, `_2259` and attempt 2 `_2300`): both INVALID on that one step. The first draft of this row also had the HAZARD backwards and the correction stands: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, periapsis 69.55 km above the GROUND, so it cannot impact on this orbit at all - and the lane flew in 57 s at 1x. The PICTURE of Real Spawn Control is still owed to a GUI-3 lane on a committed candidate host (GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST); a re-stage cannot pay it, because the host is operator-local by construction. No human call is outstanding.",
+        # THE TWO GLOOPS LANES, 2026-09-15 (package P2). Operator-tier by the
+        # CALIBRATION discipline, not by debt: both are first flights of a subject
+        # whose key quantity - how many trajectory points a motionless PRELAUNCH pod
+        # accrues between two seam steps - is DERIVED from the density preset's max
+        # sample interval rather than measured, and the derivation is what the reading
+        # run is for. Neither owes outstanding HUMAN work; what each owes is a flight.
+        "GL-1-gloops-manual-lifecycle.toml": "tier=operator by the calibration discipline; NEVER FLOWN. First driven run of the MANUAL Gloops (ghost-only) recorder, which had no seam producer at all before the GloopsStart / GloopsStop pair. Its ONE derived quantity is deliberately ungated: whether eight inert RecordingState round trips at samplingDensity=2 (High, 1.0 s max interval) let a stationary pod reach TWO points, which is what separates a committed take from GL-2's drop. The lane therefore requires only the production start line and both seam terminals, with `gloopsstop committed=` matched outcome-agnostically and count ranged 0..1; arming the commit token and tightening the count is the operator call AFTER the reading run. A second reading question is recorded in its header rather than assumed: the REC log rules stay suppressed because spec_expects_live_recording keys on a StartRecording step this lane does not have.",
+        "GL-2-gloops-sub-2-point-drop.toml": "tier=operator by the calibration discipline; NEVER FLOWN. The mirror of GL-1 on the same knob - samplingDensity=0 (Low, 8.0 s max interval) with the stop step ADJACENT to the start - so the take cannot reach two points and CommitGloopsRecorderData must refuse it. That refusal IS gated (the production `not enough points (< 2)` Warn, the seam `committed=false`, the `dropped=too-short` payload token, count pinned 0..0), because it is deterministic by construction rather than derived: S0.5 and S0.6 already name the same drop in their headers and WIDEN their assertions to tolerate it, which is the evidence it happens and the reason nothing gated it until now. The reading-run question left open is narrower and is about the VALIDATOR, not the product: whether validate-ksp-log treats a designed refusal Warn on the WRN surface as an unexpected one.",
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 

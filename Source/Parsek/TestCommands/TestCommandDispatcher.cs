@@ -217,6 +217,20 @@ namespace Parsek.TestCommands
         void CaptureScreenshot(ParsedCommand cmd);
         void UiAction(ParsedCommand cmd);
         void DumpGuiTree(ParsedCommand cmd);
+
+        // ----- The Gloops pair (the manual ghost-only recorder; additive) -----
+        // Distinct from StartRecording / StopRecording above: those drive the AUTO-RECORD
+        // tree that commits into the career, these drive the PARALLEL ghost-only recorder
+        // behind the Gloops window's primary button. They are the only seam VERB whose
+        // SUBJECT is a sub-2-point commit drop - NOT the only producer of one: the
+        // dock/undock chain path (ParsekFlight.HandleDockUndockCommitRestart ->
+        // ChainSegmentManager.CommitDockUndockSegment -> CommitSegmentCore) reaches the
+        // same factory with no always-tree guard, and logs its own "segment too short"
+        // instead. (That literal carries an EM DASH before "aborting"
+        // (ChainSegmentManager.cs:659), so anything citing the whole line as a regex must
+        // not pin it as ASCII.)
+        void GloopsStart(ParsedCommand cmd);
+        void GloopsStop(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -401,6 +415,19 @@ namespace Parsek.TestCommands
                 // PARSEK's windows and needs a save behind them, while this one records
                 // whatever drew.
                 ["DumpGuiTree"] = VerbSceneRequirement.AnyScene,
+                // The Gloops pair. RequiresFlight, and here it is a HARD precondition
+                // rather than a convenience: the ghost-only recorder samples the ACTIVE
+                // VESSEL from the flight-scene physics-frame patch, and
+                // ParsekFlight.Instance - which owns both entry points - exists in no
+                // other scene. RequiresFlight (a DEFER) for every other FLIGHT-only
+                // verb's reason: the wrong-scene case is overwhelmingly a scene still
+                // settling in from the previous step, and the budget still bounds a
+                // genuinely wrong-scene spec. The pair's REAL refusals (already
+                // recording, no active vessel, a start the recorder refused, a stop with
+                // no recorder) are executor-side and typed REJECTED - each one a
+                // read-back of an EXISTING Gloops guard's decision, never a new rule.
+                ["GloopsStart"] = VerbSceneRequirement.RequiresFlight,
+                ["GloopsStop"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
