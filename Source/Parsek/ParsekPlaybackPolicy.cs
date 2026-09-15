@@ -227,10 +227,10 @@ namespace Parsek
                     continue;
                 }
 
-                if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
-                        rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
+                uint oldPid;
+                SpawnDeathDisposition disposition = ApplySpawnDeathDisposition(rec, out oldPid);
+                if (disposition == SpawnDeathDisposition.Abandon)
                 {
-                    rec.SpawnAbandoned = true;
                     abandoned++;
                     ParsekLog.Warn("Policy",
                         $"Spawn-death loop abandoned: #{i} \"{rec.VesselName}\" " +
@@ -239,10 +239,6 @@ namespace Parsek
                 }
                 else
                 {
-                    uint oldPid = rec.SpawnedVesselPersistentId;
-                    rec.VesselSpawned = false;
-                    rec.SpawnedVesselPersistentId = 0;
-                    rec.SpawnAttempts = 0;
                     ParsekLog.Info("Policy",
                         $"Spawn-death detected: #{i} \"{rec.VesselName}\" " +
                         $"pid={oldPid} deathCount={rec.SpawnDeathCount} — reset for re-spawn");
@@ -255,6 +251,47 @@ namespace Parsek
             if (skippedTimelineInactive > 0)
                 ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-timeline-inactive",
                     $"RunSpawnDeathChecks: skipped {skippedTimelineInactive} timeline-inactive recording(s)");
+        }
+
+        /// <summary>
+        /// What <see cref="RunSpawnDeathChecks"/> did with one recording whose spawned
+        /// vessel went missing since the last frame.
+        /// </summary>
+        internal enum SpawnDeathDisposition
+        {
+            /// <summary>Death count reached the cap: the recording is marked abandoned
+            /// and no further spawn is attempted.</summary>
+            Abandon,
+
+            /// <summary>Under the cap: the spawn bookkeeping is cleared so the recording
+            /// is eligible for a fresh spawn attempt.</summary>
+            ResetForRespawn,
+        }
+
+        /// <summary>
+        /// Applies the per-recording spawn-death disposition: abandon at/above
+        /// <see cref="VesselSpawner.MaxSpawnDeathCycles"/>, otherwise reset the spawn
+        /// bookkeeping for a retry. <paramref name="priorSpawnedPid"/> returns the pid the
+        /// recording carried on entry (the reset branch clears it, and the caller's log line
+        /// names it). The caller owns the counters and the log lines; this owns the state.
+        /// </summary>
+        internal static SpawnDeathDisposition ApplySpawnDeathDisposition(
+            Recording rec, out uint priorSpawnedPid)
+        {
+            priorSpawnedPid = rec != null ? rec.SpawnedVesselPersistentId : 0u;
+            if (rec == null) return SpawnDeathDisposition.ResetForRespawn;
+
+            if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                    rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
+            {
+                rec.SpawnAbandoned = true;
+                return SpawnDeathDisposition.Abandon;
+            }
+
+            rec.VesselSpawned = false;
+            rec.SpawnedVesselPersistentId = 0;
+            rec.SpawnAttempts = 0;
+            return SpawnDeathDisposition.ResetForRespawn;
         }
 
         /// <summary>

@@ -406,38 +406,10 @@ namespace Parsek.Tests
             Assert.Equal(treeId, bgChild.TreeId);
         }
 
-        [Fact]
-        public void TreeCreation_BackgroundMap_PopulatedCorrectly()
-        {
-            // Simulate what CreateSplitBranch does: add bgChild to BackgroundMap
-            var tree = new RecordingTree
-            {
-                Id = "tree_test",
-                TreeName = "Test",
-                RootRecordingId = "root_rec",
-                ActiveRecordingId = null
-            };
-
-            var (bp, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
-                parentRecordingId: "root_rec",
-                treeId: tree.Id,
-                branchUT: 500.0,
-                branchType: BranchPointType.Undock,
-                activeVesselPid: 100,
-                activeVesselName: "Ship A",
-                backgroundVesselPid: 200,
-                backgroundVesselName: "Ship B");
-
-            tree.Recordings[activeChild.RecordingId] = activeChild;
-            tree.Recordings[bgChild.RecordingId] = bgChild;
-            tree.BranchPoints.Add(bp);
-            tree.ActiveRecordingId = activeChild.RecordingId;
-            tree.BackgroundMap[bgChild.VesselPersistentId] = bgChild.RecordingId;
-
-            Assert.True(tree.BackgroundMap.ContainsKey(200));
-            Assert.Equal(bgChild.RecordingId, tree.BackgroundMap[200]);
-            Assert.False(tree.BackgroundMap.ContainsKey(100)); // active child not in background
-        }
+        // TreeCreation_BackgroundMap_PopulatedCorrectly was deleted: it wrote the
+        // BackgroundMap entry by hand and asserted it back, so no production
+        // population path ran. TreeCreation_RebuildBackgroundMap_MatchesManualSetup
+        // below makes the same claims against the real RebuildBackgroundMap.
 
         [Fact]
         public void TreeCreation_RebuildBackgroundMap_MatchesManualSetup()

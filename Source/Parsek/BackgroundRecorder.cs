@@ -2670,7 +2670,7 @@ namespace Parsek
         /// immediately before.
         /// </para>
         /// </summary>
-        private void RetireDestroyedBackgroundEntry(uint pid, string recordingId, double terminalUT)
+        internal void RetireDestroyedBackgroundEntry(uint pid, string recordingId, double terminalUT)
         {
             tree.BackgroundMap.Remove(pid);
             onRailsStates.Remove(pid);

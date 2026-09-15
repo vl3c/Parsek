@@ -450,10 +450,11 @@ namespace Parsek.Tests
             texNode.AddValue("color", "1.0, 0.5, 0.0, 1.0");
             texNode.AddValue("_Shininess", "0.4");
 
-            var textureNodes = variantNode.GetNodes("TEXTURE");
-            Assert.Single(textureNodes);
+            Assert.Single(variantNode.GetNodes("TEXTURE"));
 
-            var rule = ParseTextureRule(textureNodes[0]);
+            var rules = GhostVisualBuilder.ParseVariantTextureRules(variantNode);
+            Assert.Single(rules);
+            var rule = rules[0];
 
             Assert.Equal("FuelTankMat", rule.materialName);
             Assert.Equal("KSP/Bumped Specular", rule.shaderName);
@@ -480,11 +481,11 @@ namespace Parsek.Tests
             tex2.AddValue("mainTextureURL", "Squad/Parts/nozzle_tex");
             tex2.AddValue("_Shininess", "0.8");
 
-            var textureNodes = variantNode.GetNodes("TEXTURE");
-            Assert.Equal(2, textureNodes.Length);
+            var rules = GhostVisualBuilder.ParseVariantTextureRules(variantNode);
+            Assert.Equal(2, rules.Count);
 
-            var rule1 = ParseTextureRule(textureNodes[0]);
-            var rule2 = ParseTextureRule(textureNodes[1]);
+            var rule1 = rules[0];
+            var rule2 = rules[1];
 
             Assert.Equal("BodyMat", rule1.materialName);
             Assert.Single(rule1.properties);
@@ -502,8 +503,9 @@ namespace Parsek.Tests
             var gameObjects = variantNode.AddNode("GAMEOBJECTS");
             gameObjects.AddValue("SomeMesh", "true");
 
-            var textureNodes = variantNode.GetNodes("TEXTURE");
-            Assert.Empty(textureNodes);
+            Assert.Empty(variantNode.GetNodes("TEXTURE"));
+            // No TEXTURE node means no rule list at all - the caller's false return.
+            Assert.Null(GhostVisualBuilder.ParseVariantTextureRules(variantNode));
         }
 
         [Fact]
@@ -515,8 +517,7 @@ namespace Parsek.Tests
             var texNode = variantNode.AddNode("TEXTURE");
             texNode.AddValue("shader", "KSP/Specular");
 
-            var textureNodes = variantNode.GetNodes("TEXTURE");
-            var rule = ParseTextureRule(textureNodes[0]);
+            var rule = GhostVisualBuilder.ParseVariantTextureRules(variantNode)[0];
 
             Assert.Equal("KSP/Specular", rule.shaderName);
             Assert.Null(rule.materialName);
@@ -526,40 +527,16 @@ namespace Parsek.Tests
         [Fact]
         public void TextureNodeParsing_TransformNameFilter_Extracted()
         {
-            var texNode = new ConfigNode("TEXTURE");
+            var variantNode = new ConfigNode("VARIANT");
+            variantNode.AddValue("name", "Nozzle");
+
+            var texNode = variantNode.AddNode("TEXTURE");
             texNode.AddValue("transformName", "nozzle_mesh");
             texNode.AddValue("mainTextureURL", "Squad/nozzle_alt");
 
-            var rule = ParseTextureRule(texNode);
+            var rule = GhostVisualBuilder.ParseVariantTextureRules(variantNode)[0];
             Assert.Equal("nozzle_mesh", rule.transformName);
             Assert.Single(rule.properties);
-        }
-
-        private static VariantTextureRule ParseTextureRule(ConfigNode texNode)
-        {
-            var rule = new VariantTextureRule
-            {
-                materialName = texNode.GetValue("materialName"),
-                shaderName = texNode.GetValue("shader"),
-                transformName = texNode.GetValue("transformName"),
-                properties = new List<(string key, string value)>()
-            };
-
-            for (int v = 0; v < texNode.values.Count; v++)
-            {
-                var val = texNode.values[v];
-                if (val == null || string.IsNullOrEmpty(val.name))
-                    continue;
-
-                string key = val.name.Trim();
-                if (key == "shader" || key == "materialName" || key == "transformName")
-                    continue;
-
-                string value = val.value != null ? val.value.Trim() : "";
-                rule.properties.Add((key, value));
-            }
-
-            return rule;
         }
 
         #endregion

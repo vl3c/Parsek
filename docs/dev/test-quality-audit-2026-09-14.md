@@ -876,6 +876,64 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     (`RecordingStore.RestoreFromSnapshotForTesting`); -034-01 has no mutant by construction
     and is the one deferred row of the twenty.
 
+- `testfix-t1t2`, fifth PR (2026-09-15): the fourth slice of Medium T1 rows
+  (`work/phase-b-slice-medium-t1-04.txt`, 20 ids: 6 recorder-events, 6 ghost-playback,
+  5 spawn-vessel, 2 logistics-route, 1 map-render). 16 fixed, 3 deleted in favour of a
+  named twin, 1 deferred. Each fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch`.
+  - Production replay replaced by a call (five files touched, all behaviour-identical):
+    F-recorder-events-020-01 (`GhostVisualBuilder.ParseVariantTextureRules` extracted;
+    the test-local `ParseTextureRule` copy deleted and all five `TextureNodeParsing_*`
+    cells pointed at it); F-ghost-playback-008-02
+    (`ParsekFlight.TryStampChainMapOrbit` - same three-term comparison, same field
+    writes, same early-out); F-ghost-playback-008-03
+    (`GhostMapPresence.EnsureDefensiveVesselNodes`); F-spawn-vessel-020-02
+    (`ParsekPlaybackPolicy.ApplySpawnDeathDisposition` + `SpawnDeathDisposition`, with
+    the counters and both log lines kept at the call site);
+    F-spawn-vessel-004-02 (`BackgroundRecorder.RetireDestroyedBackgroundEntry` widened
+    to internal - visibility only - and the cell seeds the pid INTO `BackgroundMap`
+    first, so the retirement drains a real entry); F-recorder-events-019-01
+    (`GhostMapPresence.IsTerminalMapPresenceRegion` widened to internal and asserted
+    both inside and outside the activation region); F-ghost-playback-024-01 (60 real
+    `HandleFlightGhostCreatedMapPresence` events instead of a retyped rate key - the
+    other two cells in that class keep their inline mirrors, the overlap sites they
+    name being Unity-only).
+  - Fixture over-determination removed: F-recorder-events-010-01 (three frames over a
+    ten-second section pin the 0.3 Hz formula; the zero-frame degenerate case is its
+    own cell); F-spawn-vessel-007-02 (asserts the baseline was REACHED -
+    `hasSnapshotBaseline` / `spawnValue` / `currentValue` / the `servos=1` summary -
+    before asserting the park); F-spawn-vessel-007-03 (arms the rotor first and asserts
+    the restored count and the parked value); F-ghost-playback-005-01 (reads
+    `BuildInvocationCountForTesting`; the build log is rate-limited and matches on both
+    paths); F-ghost-playback-002-01 (renamed: a negative phase offset DEFERS the
+    schedule, so the cell pins `false` + no cycle rather than the unreachable
+    `cycleIndex < 0` clamp); F-recorder-events-022-01 (renamed: asserts the flag VALUE
+    and the caller's UT, so a pass-through stub fails; the two-vessel half of the section-12
+    contract needs live `Vessel`s and stays with the in-game batch);
+    F-map-render-009-01 (a stale `<path>.tmp` is pre-created and the safe-write must
+    consume it); F-ghost-playback-011-01 (the hold cell keeps its claim - its transfer
+    declines on the ghost-null guard one step earlier - and a new sibling
+    `FindNextWatchTarget_UndockBranchDebrisOnlyChild_ReturnsNoTarget` pins the debris
+    exclusion with a non-debris control arm, the breakup branch being blocked by the
+    #321 rule before `IsDebris` is read); F-logistics-route-008-01 (the delivered row's
+    funds field sits after the live-Vessel resolution both loop seams stand in for, and
+    the cost is PartLoader-priced, so the cell pins the production career-KSC arm
+    through a `KscDispatchFundsCost` sentinel the arm must overwrite - the mutant is
+    that write, not the row field the register named).
+  - Deleted in favour of a twin: F-recorder-events-021-01
+    (`TreeCreation_BackgroundMap_PopulatedCorrectly`; twin
+    `TreeCreation_RebuildBackgroundMap_MatchesManualSetup` drives the real
+    `RebuildBackgroundMap`), F-logistics-route-020-01
+    (`SupersededRecovery_ExcludedByElsInput`; twin `RecoveryFromDifferentTree_Excluded`
+    passes the unwanted row in instead of pre-filtering it), F-spawn-vessel-019-01
+    (`RegeneratePartIdentities_MultipleParts_LogNotEmpty`; twin
+    `RegeneratePartIdentities_MultipleParts_EachGetsUniqueIds`).
+  - Deferred: F-recorder-events-024-02. `OnBackgroundPartJointBreak`'s dedup guard needs
+    a live `PartJoint` carrying a Child `Part` with a `Vessel` and an `attachJoint`; the
+    cell is renamed to the set-level claim it can make and names the in-game
+    BackgroundRecording category as the detector.
+
 - `testfix-t1t2`, fourth PR (2026-09-15): the third slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-03.txt`, 20 ids: 16 ledger-career, 4 recorder-events).
   18 fixed, 2 deleted (twin named), 0 deferred. Every fixed row has a proof row in

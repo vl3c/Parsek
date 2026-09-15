@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index e0d742cb5..9a7dc27b3 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -4517,10 +4517,7 @@ namespace Parsek
+             IPlaybackTrajectory traj,
+             double currentUT)
+         {
+-            if (traj == null)
+-                return false;
+-            return IsTerminalStateEligibleForTerminalOrbitMapPresence(traj.TerminalStateValue)
+-                && currentUT >= PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
++            return false;
+         }
+ 
+         /// <summary>

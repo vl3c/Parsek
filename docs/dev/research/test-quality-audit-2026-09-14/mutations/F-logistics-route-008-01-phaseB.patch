@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Logistics/RouteOrchestrator.cs b/Source/Parsek/Logistics/RouteOrchestrator.cs
+index c70f9af33..16577107f 100644
+--- a/Source/Parsek/Logistics/RouteOrchestrator.cs
++++ b/Source/Parsek/Logistics/RouteOrchestrator.cs
+@@ -3494,7 +3494,7 @@ namespace Parsek.Logistics
+                 // precision here. The ledger-row cast below is the only float
+                 // truncation, intentional because GameAction defines the field
+                 // as float.
+-                route.KscDispatchFundsCost = computedCost;
++                // mutation: the career-KSC arm no longer writes the cost
+             }
+ 
+             // Physical origin debit half (M1, design D11/D12). Runs BEFORE the

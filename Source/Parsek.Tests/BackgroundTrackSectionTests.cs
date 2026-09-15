@@ -1171,9 +1171,37 @@ namespace Parsek.Tests
             bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
                 pid, recId, SegmentEnvironment.Atmospheric, 1000.0);
 
+            // Three frames across the ten-second section: the close computes
+            // frames / duration, so the rate is 3 / 10 = 0.3 Hz. Without real
+            // frames the field keeps its struct default and any formula passes.
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(
+                pid, new TrajectoryPoint { ut = 1000.0, bodyName = "Kerbin" });
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(
+                pid, new TrajectoryPoint { ut = 1005.0, bodyName = "Kerbin" });
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(
+                pid, new TrajectoryPoint { ut = 1010.0, bodyName = "Kerbin" });
+
             bgRecorder.FinalizeAllForCommit(1010.0);
 
-            // With 0 frames over 10 seconds, sampleRateHz should be 0 (no frames to compute from)
+            var section = tree.Recordings[recId].TrackSections[0];
+            Assert.Equal(3, section.frames.Count);
+            Assert.Equal(0.3f, section.sampleRateHz, 0.001f);
+        }
+
+        [Fact]
+        public void ClosedSection_NoFrames_SampleRateStaysZero()
+        {
+            uint pid = 951;
+            string recId = "rec_rate_degenerate";
+            var tree = MakeTree(pid, recId);
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 1000.0);
+
+            bgRecorder.FinalizeAllForCommit(1010.0);
+
+            // With 0 frames over 10 seconds there is nothing to compute from.
             var section = tree.Recordings[recId].TrackSections[0];
             Assert.Equal(0f, section.sampleRateHz);
         }

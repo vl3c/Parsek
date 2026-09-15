@@ -212,20 +212,28 @@ namespace Parsek.Tests
         // ----- §12 contract: simultaneous calls share physics-frame UT -----
 
         [Fact]
-        public void ApplyStructuralEventFlag_SamePhysicsClock_TwoVessels_ProduceMatchingUT()
+        public void ApplyStructuralEventFlag_TwoPointsFromOneEventUT_KeepUtAndCarryTheFlag()
         {
             // §12: "Both vessels' snapshots are taken from the same physics state".
-            // The helper takes a TrajectoryPoint with .ut already set; the caller
-            // (AppendStructuralEventSnapshot) feeds the same eventUT to both
-            // vessels' BuildTrajectoryPoint call. Pin that two flagged points
-            // built from the same eventUT carry identical UTs.
-            var ptA = MakePoint(ut: 12345.6);
-            var ptB = MakePoint(ut: 12345.6);
+            // The two-vessel half of that contract (AppendStructuralEventSnapshot
+            // feeding ONE eventUT to every involved vessel) needs live Vessel
+            // instances and is covered by the in-game batch; what is pinned here is
+            // the helper's own share of it: the flag is set and the caller's eventUT
+            // survives, so two points built from one eventUT stay aligned. Asserting
+            // the literal UT and the flag VALUE (not just that the two agree) is what
+            // makes a pass-through stub of the helper fail.
+            const double eventUT = 12345.6;
+            var ptA = MakePoint(ut: eventUT);
+            var ptB = MakePoint(ut: eventUT);
 
             TrajectoryPoint flaggedA = FlightRecorder.ApplyStructuralEventFlag(ptA);
             TrajectoryPoint flaggedB = FlightRecorder.ApplyStructuralEventFlag(ptB);
 
-            Assert.Equal(flaggedA.ut, flaggedB.ut);
+            Assert.Equal(eventUT, flaggedA.ut);
+            Assert.Equal(eventUT, flaggedB.ut);
+            Assert.Equal(
+                (byte)TrajectoryPointFlags.StructuralEventSnapshot,
+                (byte)(flaggedA.flags & (byte)TrajectoryPointFlags.StructuralEventSnapshot));
             Assert.Equal(flaggedA.flags, flaggedB.flags);
         }
 

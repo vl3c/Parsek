@@ -1,0 +1,25 @@
+diff --git a/Source/Parsek/GhostVisualBuilder.Variants.cs b/Source/Parsek/GhostVisualBuilder.Variants.cs
+index d622eff07..5cd3347d3 100644
+--- a/Source/Parsek/GhostVisualBuilder.Variants.cs
++++ b/Source/Parsek/GhostVisualBuilder.Variants.cs
+@@ -268,20 +268,6 @@ namespace Parsek
+                     properties = new List<(string key, string value)>()
+                 };
+ 
+-                for (int v = 0; v < texNode.values.Count; v++)
+-                {
+-                    var val = texNode.values[v];
+-                    if (val == null || string.IsNullOrEmpty(val.name))
+-                        continue;
+-
+-                    string key = val.name.Trim();
+-                    if (key == "shader" || key == "materialName" || key == "transformName")
+-                        continue;
+-
+-                    string value = val.value != null ? val.value.Trim() : "";
+-                    rule.properties.Add((key, value));
+-                }
+-
+                 rules.Add(rule);
+             }
+ 

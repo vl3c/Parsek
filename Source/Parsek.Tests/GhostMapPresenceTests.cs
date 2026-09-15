@@ -878,7 +878,9 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Segment change detection: same body+SMA means no change.
+        /// Segment change detection: same body+SMA+eccentricity means no change, so
+        /// UpdateChainGhostOrbitIfNeeded's early-out fires and the map orbit is not
+        /// rewritten. Driven through the production stamp, not a copy of it.
         /// </summary>
         [Fact]
         public void GhostChain_OrbitTracking_SameValues_NoChange()
@@ -886,12 +888,22 @@ namespace Parsek.Tests
             var chain = new GhostChain
             {
                 LastMapOrbitBodyName = "Kerbin",
-                LastMapOrbitSma = 700000
+                LastMapOrbitSma = 700000,
+                LastMapOrbitEcc = 0.01
             };
-            // Simulating the check in UpdateChainGhostOrbitIfNeeded
-            bool changed = (chain.LastMapOrbitBodyName != "Kerbin"
-                || chain.LastMapOrbitSma != 700000);
+            var sameSegment = new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000,
+                eccentricity = 0.01
+            };
+
+            bool changed = ParsekFlight.TryStampChainMapOrbit(chain, sameSegment);
+
             Assert.False(changed);
+            Assert.Equal("Kerbin", chain.LastMapOrbitBodyName);
+            Assert.Equal(700000, chain.LastMapOrbitSma);
+            Assert.Equal(0.01, chain.LastMapOrbitEcc);
         }
 
         /// <summary>
@@ -991,13 +1003,9 @@ namespace Parsek.Tests
             var vesselNode = new ConfigNode("VESSEL");
             vesselNode.AddNode("ACTIONGROUPS");
 
-            // Apply the same defensive logic as BuildAndLoadGhostProtoVesselCore
-            if (vesselNode.GetNode("FLIGHTPLAN") == null)
-                vesselNode.AddNode("FLIGHTPLAN");
-            if (vesselNode.GetNode("CTRLSTATE") == null)
-                vesselNode.AddNode("CTRLSTATE");
-            if (vesselNode.GetNode("VESSELMODULES") == null)
-                vesselNode.AddNode("VESSELMODULES");
+            // The production insertion, called the way BuildAndLoadGhostProtoVesselCore
+            // calls it - not a copy of it written in the test body.
+            GhostMapPresence.EnsureDefensiveVesselNodes(vesselNode);
 
             Assert.NotNull(vesselNode.GetNode("ACTIONGROUPS"));
             Assert.NotNull(vesselNode.GetNode("FLIGHTPLAN"));

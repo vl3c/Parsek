@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.WatchMode.cs b/Source/Parsek/GhostPlaybackLogic.WatchMode.cs
+index b1f59cf70..476052c0d 100644
+--- a/Source/Parsek/GhostPlaybackLogic.WatchMode.cs
++++ b/Source/Parsek/GhostPlaybackLogic.WatchMode.cs
+@@ -555,7 +555,6 @@ namespace Parsek
+                                 // actually continues. Non-breakup branches may still fall
+                                 // back to the first active non-debris child.
+                                 if (allowDifferentPidFallback
+-                                    && !resolved.IsDebris
+                                     && fallbackIdx < 0)
+                                 {
+                                     fallbackIdx = resolvedIdx;
