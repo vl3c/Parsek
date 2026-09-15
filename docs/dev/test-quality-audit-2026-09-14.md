@@ -410,8 +410,9 @@ re-grepped there):
   chose, which is the one thing the floor exists to prevent. The intent is pinned by name in
   `AdaptiveSamplingTests.HighFidelityWindow_UsesConfiguredMinIntervalBackstop`
   (`Source/Parsek.Tests/AdaptiveSamplingTests.cs:431-455`). Full production caller set of the
-  two-arg helper is three sites - the five-arg overload's tail (`FlightRecorder.cs:1012`, itself
-  called only from `FlightRecorder.cs:9088`), `BackgroundRecorder.cs:2164`, and
+  two-arg helper is three sites - the five-arg overload's tail (`FlightRecorder.cs:1012`; the overload is
+  also called from `BackgroundRecorder.cs:2157`, but that call is gated on a debris tier and never
+  reaches the tail, so the tail is reached only from `FlightRecorder.cs:9088`), `BackgroundRecorder.cs:2164`, and
   `BackgroundRecorder.cs:4916` - and none of them wants a sub-preset floor. The identity body is a
   named seam, not a dropped branch.
 - **T7-2 not-a-bug, and the mirror premise holds at the single caller.** The only production caller
@@ -419,12 +420,13 @@ re-grepped there):
   computed at `:2156-2165` by a branch on the same flag: high fidelity substitutes the configured
   foreground minimum for the coarser proximity interval, exactly as the comment at `:2145-2148`
   says. So fidelity IS folded in by the caller and a second fold would be a double count. Walked in
-  both directions the result is also cadence-stable: every motion floor reaching the helper is
-  `>= configuredMin` (`ProximitySamplingCadence.ResolveSampleInterval` floors at
-  `MinimumSampleIntervalSeconds = 0.02f` and clamps to `configuredMin`;
-  `ProximityRateSelector.GetSampleInterval` returns 0.2 / 0.5 / 2.0 / `double.MaxValue`), so the
-  `Math.Min` at `:4919` resolves to the foreground floor in both fidelity states - which is what
-  `BackgroundAttitudeSamplingTests` pins. If the caller's branch is ever removed the discard becomes
+  both directions: on the debris-tier path the motion floor is `ProximitySamplingCadence.ResolveSampleInterval`,
+  which floors at `MinimumSampleIntervalSeconds = 0.02f` and clamps to `configuredMin`, so the `Math.Min`
+  at `:4919` resolves to the foreground floor there. On the non-fidelity, non-debris branch the raw
+  `proximityInterval` is passed (`:2165`, `ProximityRateSelector.DockingInterval = 0.2`, no clamp against
+  `configuredMin`), so at the Low preset (`configuredMin = 0.5`) the attitude floor is the proximity
+  floor 0.2, not the foreground floor. That is the designed non-fidelity cadence, not a fidelity
+  question: the flag is honoured on the branch that carries it, and the discard is a no-op on the other. If the caller's branch is ever removed the discard becomes
   a defect, so the contract pin (C-recorder-events-028-01) stays worth having.
 - **T7-3 not-a-bug: `minInterval = 0` is unreachable in any shipped configuration.** It is a
   documented opt-out (`TrajectoryMath.cs:40`, "Set minInterval = 0 to disable the floor") exercised
@@ -448,7 +450,8 @@ re-grepped there):
   (`Source/Parsek.Tests/TestCommandMapViewVerbsTests.cs:155-167`). The enum member doc at
   `:21-24` contradicts it with the word REJECTED. No committed spec currently pins the refusal
   branch - every `EnterMapView` / `ExitMapView` step in `harness/scenarios/*.toml` is
-  `expect = "OK"` (B32, GUI-6, GUI-9, H59, RF-7M) - so the consequence is authorship, not a red
+  `expect = "OK"` (all ten specs that drive either verb: B32, GUI-6, GUI-9, H59, RF-7M, RF-8, V26M, V27M, V3C, V6M;
+  grep for a non-OK expect within three lines of either verb returns nothing) - so the consequence is authorship, not a red
   lane: a spec author reading the enum doc writes `expect = "REJECTED"` for a stock-declined toggle
   and the lane mismatches against the ERROR the seam actually emits. Filed as TQ-1.
 
