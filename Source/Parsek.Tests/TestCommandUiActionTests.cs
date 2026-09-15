@@ -54,6 +54,8 @@ namespace Parsek.Tests
         [InlineData("picker", 11)]
         [InlineData("dialog", 12)]
         [InlineData("playback", 13)]
+        [InlineData("raise", 14)]
+        [InlineData("dismiss", 15)]
         public void EveryOpToken_Parses_AndRoundTrips(string raw, int expectedOp)
         {
             Assert.True(TestCommandUiAction.TryParseOp(raw, out UiActionOp op, out string r));
@@ -82,6 +84,8 @@ namespace Parsek.Tests
             Assert.Equal(11, (int)UiActionOp.Picker);
             Assert.Equal(12, (int)UiActionOp.Dialog);
             Assert.Equal(13, (int)UiActionOp.Playback);
+            Assert.Equal(14, (int)UiActionOp.Raise);
+            Assert.Equal(15, (int)UiActionOp.Dismiss);
         }
 
         [Theory]
@@ -102,9 +106,9 @@ namespace Parsek.Tests
             foreach (string token in new[] { "open", "close", "tab", "complexity", "rect",
                                             "describe", "pointer", "find", "expand",
                                             "target", "picker", "dialog",
-                                            "playback" })
+                                            "playback", "raise", "dismiss" })
                 Assert.Contains(token, listed.Split(','));
-            Assert.Equal(13, listed.Split(',').Length);
+            Assert.Equal(15, listed.Split(',').Length);
         }
 
         [Theory]
@@ -121,6 +125,8 @@ namespace Parsek.Tests
         [InlineData(7, false)]   // pointer - screen space, no window in the grammar
         [InlineData(12, false)]  // dialog - a uGUI popup no table row can name
         [InlineData(13, false)]  // playback - drives a field on the Recording, not a window
+        [InlineData(14, false)]  // raise - a uGUI popup; it takes popup=, not window=
+        [InlineData(15, false)]  // dismiss - the same
         public void OpNeedsWindow_MatchesTheOpsThatNameOne(int op, bool needs)
         {
             Assert.Equal(needs, TestCommandUiAction.OpNeedsWindow((UiActionOp)op));
@@ -510,6 +516,9 @@ namespace Parsek.Tests
         [InlineData(10, true)]    // target
         [InlineData(11, true)]    // picker
         [InlineData(12, false)]   // dialog - read-only, it writes nothing
+        [InlineData(13, true)]    // playback - changes drawn state through the Recording
+        [InlineData(14, true)]    // raise - a uGUI popup exists as a surface next frame
+        [InlineData(15, true)]    // dismiss - DismissPopup destroys through Unity
         public void OpIsTwoPhase_IsEveryOpThatChangesDrawnState(int op, bool twoPhase)
         {
             // The set is pinned rather than counted, because each membership is its own
@@ -535,6 +544,14 @@ namespace Parsek.Tests
             // so each holds the head for one frame and reads its own effect back. Only
             // `dialog` is single-phase, and only because it writes nothing at all. What the
             // settle CHECKS still differs per op, which is SettleChecksHostShowUi's job.
+            //
+            // `raise` and `dismiss` are in it for the `open` reason exactly, not by
+            // analogy: a PopupDialog is instantiated through uGUI, so the frame after the
+            // spawn is the first in which it exists as a drawn surface - and the settle's
+            // name comparison is the ONLY thing separating "the production spawn site ran"
+            // from "its own guard returned silently", which every one of those spawn sites
+            // can do. Dismissal is the mirror: DismissPopup destroys through Unity, so an
+            // immediate read-back still finds the popup standing.
             Assert.Equal(twoPhase, TestCommandUiAction.OpIsTwoPhase((UiActionOp)op));
         }
 

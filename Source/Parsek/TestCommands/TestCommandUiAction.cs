@@ -70,6 +70,18 @@ namespace Parsek.TestCommands
         /// RecordingId is save-specific. Names no window: it drives a field on the
         /// Recording, not on a window host.</summary>
         Playback = 13,
+
+        /// <summary><c>op=raise popup=&lt;name&gt;</c>: call one dialog's own production
+        /// spawn site and LEAVE THE MODAL STANDING, so <c>op=dialog</c> can report it and
+        /// <c>CaptureScreenshot</c> can photograph it. The closed set and what each raise
+        /// needs from the host live in <see cref="TestCommandUiDialogRaise"/>.</summary>
+        Raise = 14,
+
+        /// <summary><c>op=dismiss popup=&lt;name&gt; [press=&lt;button&gt;]</c>: take a
+        /// raised modal down - by <c>PopupDialog.DismissPopup</c> (the default, because
+        /// most of these confirms mutate the save) or by pressing one allowed
+        /// button.</summary>
+        Dismiss = 15,
     }
 
     /// <summary>What one settle poll of a TWO-PHASE <c>UiAction</c> op concludes.</summary>
@@ -214,6 +226,8 @@ namespace Parsek.TestCommands
         internal const string PickerOpToken = "picker";
         internal const string DialogOpToken = "dialog";
         internal const string PlaybackOpToken = "playback";
+        internal const string RaiseOpToken = "raise";
+        internal const string DismissOpToken = "dismiss";
 
         /// <summary>The <c>recording=</c>-less spelling the payload and the log line echo
         /// for an ALL-recordings flip. A sentinel token rather than an empty value, the
@@ -554,7 +568,8 @@ namespace Parsek.TestCommands
         {
             OpenOpToken, CloseOpToken, TabOpToken, ComplexityOpToken, RectOpToken,
             DescribeOpToken, PointerOpToken, FindOpToken, ExpandOpToken, TargetOpToken,
-            PickerOpToken, DialogOpToken, PlaybackOpToken,
+            PickerOpToken, DialogOpToken, PlaybackOpToken, RaiseOpToken,
+            DismissOpToken,
         });
 
         /// <summary>A window's tab tokens, comma-joined, or the empty string when it has
@@ -590,6 +605,8 @@ namespace Parsek.TestCommands
                 case PickerOpToken: op = UiActionOp.Picker; break;
                 case DialogOpToken: op = UiActionOp.Dialog; break;
                 case PlaybackOpToken: op = UiActionOp.Playback; break;
+                case RaiseOpToken: op = UiActionOp.Raise; break;
+                case DismissOpToken: op = UiActionOp.Dismiss; break;
                 default:
                     rejectReason = OpArgInvalidReason;
                     return false;
@@ -616,6 +633,8 @@ namespace Parsek.TestCommands
                 case UiActionOp.Picker: return PickerOpToken;
                 case UiActionOp.Dialog: return DialogOpToken;
                 case UiActionOp.Playback: return PlaybackOpToken;
+                case UiActionOp.Raise: return RaiseOpToken;
+                case UiActionOp.Dismiss: return DismissOpToken;
                 default: return string.Empty;
             }
         }
@@ -629,9 +648,11 @@ namespace Parsek.TestCommands
         /// added here and not there is a spec the harness validates as legal and the seam
         /// then REJECTS after a whole KSP boot.</para>
         ///
-        /// <para><c>pointer</c> and <c>dialog</c> are deliberately absent: the pointer moves
-        /// in SCREEN space with no window in the grammar at all, and the dialog report is
-        /// about a uGUI popup no window table row can name.</para>
+        /// <para><c>pointer</c>, <c>dialog</c>, <c>raise</c> and <c>dismiss</c> are
+        /// deliberately absent: the pointer moves in SCREEN space with no window in the
+        /// grammar at all, and the other three are about uGUI <c>PopupDialog</c>s, which no
+        /// window table row can name - they take <c>popup=</c> instead
+        /// (<c>TestCommandUiDialogRaise.PopupArg</c>).</para>
         /// </summary>
         internal static bool OpNeedsWindow(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Close
@@ -681,6 +702,14 @@ namespace Parsek.TestCommands
         /// from the complexity latch (which the applier drives synchronously in
         /// <c>Update</c>, before any draw), not from a draw.</para>
         ///
+        /// <para><c>raise</c> and <c>dismiss</c> are here for the <c>open</c> reason
+        /// exactly: a <c>PopupDialog</c> is instantiated through uGUI, so the frame after
+        /// the spawn is the first in which it exists as a drawn surface, and the settle is
+        /// what separates "the production spawn site ran" from "its own guard returned
+        /// silently" - every one of those spawn sites has such a guard. Dismissal is the
+        /// mirror: <c>DismissPopup</c> destroys through Unity, so an immediate read-back
+        /// would still find the popup.</para>
+        ///
         /// <para><c>playback</c> is here for the SAME reason <c>expand</c> is, and not for
         /// the <c>open</c> one: it changes DRAWN state (the tick box, and with it every
         /// ghost, map icon and orbit line the flag gates), so the read-back is only a
@@ -694,7 +723,8 @@ namespace Parsek.TestCommands
             => op == UiActionOp.Open || op == UiActionOp.Rect
                || op == UiActionOp.Pointer || op == UiActionOp.Find
                || op == UiActionOp.Expand || op == UiActionOp.Target
-               || op == UiActionOp.Picker || op == UiActionOp.Playback;
+               || op == UiActionOp.Picker || op == UiActionOp.Playback
+               || op == UiActionOp.Raise || op == UiActionOp.Dismiss;
 
         /// <summary>
         /// Whether a SETTLED two-phase op's read-back must additionally be refused when the

@@ -14,6 +14,22 @@ tier = "operator"
 # `Ready (has recording)` after `StopRecording`. `PREVIEWING` is left unphotographed and
 # named below.
 #
+# THE HOVER HALF IS A MEASURED REFUTATION, not a gap. Run `2026-09-15_1520` flew this
+# lane with `focus=true nudge=true` on both hover moves and the strip STILL read empty
+# (`tooltip=-` on both answers), with every mechanism confirmed applied: the foreground was
+# taken (`fgOutcome=attached` on the first move after a plain SetForegroundWindow was
+# refused, `fgOutcome=already` on the second), `fg=true` afterwards, and the relative
+# SendInput pair accepted. What the run MEASURED, and it is the discriminator the todo
+# entry asked for: inside a Parsek OnGUI Repaint, `Event.current.mousePosition` reads
+# `eventLocal=-8.0,-8.0` -> `eventScreen=0.0,0.0` on EVERY probe, while
+# `Input.mousePosition` in the same pass reads the landed point (133,558 -> GUI y 162
+# against a commanded 133,161). So Unity's POLLED position follows a warped cursor and the
+# position IMGUI computes its hit test from does not move at all - it stays at screen
+# origin. Neither foreground nor a synthetic WM_MOUSEMOVE changes that, which retires both
+# candidates the entry pre-registered. The flags stay in AS MEASURED (the answer reports
+# what they did, and a future candidate has to be compared against this reading), and the
+# two hover labels stay as they are, with their run ids citing them.
+#
 # TWO: THE TWO HOVER ECHOES, which are the reason the pointer op exists - AND THE HALF THIS
 # LANE DID NOT GET. MEASURED 2026-09-11: the cursor lands on both targets and NEITHER echo
 # paints, so `b1-main-tooltip-timeline-advanced` and `b1-main-disabledecho-spawncontrol-
@@ -147,7 +163,19 @@ steps = [
   # `text=Real Spawn Control` misses the exact rung and PREFIX-matches the live label, so
   # the spec never has to guess the count in the parentheses.
   { cmd = "UiAction", args = { op = "find", window = "main", text = "Real Spawn Control" }, label = "findspawn", expect = "OK" },
-  { cmd = "UiAction", args = { op = "pointer", x = "${findspawn.cx}", y = "${findspawn.cy}" }, expect = "OK" },
+  # `focus=true nudge=true` is the GUI-10 answer to
+  # GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT, which measured this exact capture
+  # photographing an un-hovered window: the cursor read back within 1 px and IMGUI painted
+  # no hover, no GUI.tooltip and no disabled-hover echo, with the hover dump hashing
+  # IDENTICAL to `b1-main-idle-advanced`. `focus` brings the game window to the foreground
+  # before the move, so it owns the input queue when the move lands; `nudge` sends one
+  # relative SendInput (+1,0)/(-1,0) pair after it, so the window receives a real
+  # WM_MOUSEMOVE rather than only a new cursor position - SetCursorPos WARPS the cursor,
+  # and Unity's per-frame position sample follows a warp while the mouse EVENT stream does
+  # not. Both default false, so every other lane in the suite is byte-identical; the
+  # answer reports which was applied (`fgOutcome=`, `fg=`) and what the strip then read
+  # (`tooltip=`).
+  { cmd = "UiAction", args = { op = "pointer", x = "${findspawn.cx}", y = "${findspawn.cy}", focus = "true", nudge = "true" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "b1-main-disabledecho-spawncontrol-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "b1-main-disabledecho-spawncontrol-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
@@ -157,7 +185,7 @@ steps = [
   # disabled reason. `Timeline` has no gate in either mode and its tooltip is a fixed
   # literal, so the capture is about the strip's layout and not about the host.
   { cmd = "UiAction", args = { op = "find", window = "main", text = "Timeline" }, label = "findtl", expect = "OK" },
-  { cmd = "UiAction", args = { op = "pointer", x = "${findtl.cx}", y = "${findtl.cy}" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", x = "${findtl.cx}", y = "${findtl.cy}", focus = "true", nudge = "true" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "b1-main-tooltip-timeline-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "b1-main-tooltip-timeline-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
@@ -253,6 +281,31 @@ required = [
   # --- and that the cursor actually landed, twice, with two parks after them ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=true via=",
+  # --- BOTH FLAGS WERE APPLIED, and this line is where a reader sees which rung answered
+  # and what the strip then read. `fgOutcome=` names the foreground ladder's rung and
+  # `tooltip=` is the hover-echo strip's text as of the settled frame.
+  #
+  # RUN 2026-09-15_1520 READ `tooltip=-` ON BOTH HOVER MOVES WITH BOTH FLAGS APPLIED, so
+  # the pair is a REFUTATION and not a fix: see the header. The pattern therefore pins
+  # that the flags were applied and does NOT pin a non-empty tooltip - pinning a reading
+  # the product does not produce would red this lane forever on a claim nothing in it can
+  # satisfy.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=\\w+ frames=[0-9]+ focus=true nudge=(true|false) fgOutcome=(already|direct|attached|refused|no-window) fg=(true|false) tooltip=",
+  # The foreground really was taken, by one rung or the other. Run `_1520` read BOTH on
+  # the same flight: `attached` on the first move (a plain SetForegroundWindow refused)
+  # and `already` on the second, which is what makes the refutation airtight - the window
+  # owned the input queue either way.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer focus=true (took the foreground|was a no-op)",
+  # The synthetic move really was sent, so "no mouse event reached the window" is not the
+  # explanation either.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer nudge=true sent a relative \\(\\+1,0\\)/\\(-1,0\\) SendInput pair",
+  # --- THE MEASUREMENT THAT REPLACED THE GUESS. The probe reports, from inside a Parsek
+  # OnGUI Repaint, what IMGUI's own mouse position reads beside `Input.mousePosition` in
+  # the same pass. Run `_1520` read `eventScreen=0.0,0.0` on every probe while `input=`
+  # tracked the commanded point - so the two pipelines genuinely disagree, and a hover is
+  # decided by the one that does not move. That is the whole content of
+  # GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT's remaining half.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] tooltip echo strip pointer probe eventLocal=[0-9.-]+,[0-9.-]+ eventScreen=[0-9.-]+,[0-9.-]+ input=[0-9.-]+,[0-9.-]+ inputGuiY=[0-9.-]+ screenH=720 frame=[0-9]+ text=",
   # --- the state machine moved, which is what makes the three status captures a sequence
   # rather than three pictures of the same thing.
   #

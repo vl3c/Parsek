@@ -228,6 +228,24 @@ namespace Parsek
             {
                 float shiftX = AdvanceScroll(text);
                 nowrapScrollStyle.contentOffset = new Vector2(-shiftX, 0f);
+
+                // OBSERVABILITY ONLY, and repaint-only for the same reason the text is
+                // read live: during Layout this value is empty or one frame stale, so
+                // latching it there would report a hover one frame after it ended. See
+                // TooltipEchoStripLatch for why the line is keyed by text and capped.
+                TooltipEchoStripLatch.Observe(text, Time.frameCount);
+                if (TooltipEchoStripLatch.ProbeArmed)
+                {
+                    // Event.current.mousePosition is WINDOW-LOCAL inside a GUI.Window
+                    // callback, so its screen-space conversion goes with it: a
+                    // window-local point and Input.mousePosition are not comparable.
+                    Vector2 local = Event.current.mousePosition;
+                    Vector2 onScreen = GUIUtility.GUIToScreenPoint(local);
+                    Vector3 rawInput = Input.mousePosition;
+                    TooltipEchoStripLatch.SampleMousePositionProbe(
+                        local.x, local.y, onScreen.x, onScreen.y,
+                        rawInput.x, rawInput.y, Screen.height, Time.frameCount);
+                }
             }
 
             GUILayout.Space(spacing);

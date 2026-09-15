@@ -578,7 +578,12 @@ namespace Parsek
             }
         }
 
-        private static void ShowSaveFailedPopup()
+        // INTERNAL, not private, for exactly one automation reader: `UiAction op=raise
+        // popup=savefailed` calls it so the GUI census has a picture of this dialog. The
+        // alternative was reflection from the seam, which would have made the method
+        // silently un-renameable. No production caller changes and no new player-facing
+        // surface: the only other call site is still the failed-save path above.
+        internal static void ShowSaveFailedPopup()
         {
             try
             {
