@@ -1880,8 +1880,9 @@ namespace Parsek.Tests
         {
             // The inferred-motion arm of 'movingNow = movingSignal || inferredMoving':
             // a servo whose module reports no moving flag while its position still
-            // advances must still record. Every other cell here passes movingSignal:true,
-            // so the inferred term is otherwise unreached.
+            // advances must still record. The other cells that pass movingSignal:false do
+            // so at an unchanged position, where nothing can be inferred, so this is the
+            // only cell that reaches the inferred-moving branch.
             ulong key = FlightRecorder.EncodeEngineKey(300, 0);
             var moving = new HashSet<ulong>();
             var positions = new Dictionary<ulong, float>();

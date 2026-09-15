@@ -1,31 +1,14 @@
-diff --git a/Source/Parsek.Tests/SessionMergerTests.cs b/Source/Parsek.Tests/SessionMergerTests.cs
-index 07cd90d7f..d4bf64e77 100644
---- a/Source/Parsek.Tests/SessionMergerTests.cs
-+++ b/Source/Parsek.Tests/SessionMergerTests.cs
-@@ -845,6 +866,26 @@ namespace Parsek.Tests
-             Assert.Equal(2, result.Count);
-         }
+diff --git a/Source/Parsek/SessionMerger.cs b/Source/Parsek/SessionMerger.cs
+index 5cbc07a7f..c75f7d750 100644
+--- a/Source/Parsek/SessionMerger.cs
++++ b/Source/Parsek/SessionMerger.cs
+@@ -1730,8 +1730,8 @@ namespace Parsek
+                 string key = string.Concat(
+                     e.ut.ToString("R", ic), "|",
+                     e.partPersistentId.ToString(ic), "|",
++                    // MUTANT: the moduleIndex component of the dedup key dropped
+                     ((int)e.eventType).ToString(ic), "|",
+-                    e.moduleIndex.ToString(ic), "|",
+                     e.value.ToString("R", ic));
  
-+        [Fact]
-+        public void MergePartEvents_SameUtSamePartSameTypeDifferentModuleIndex_BothKept()
-+        {
-+            // The moduleIndex component of the dedup key: one part carries up to 256
-+            // engine modules (key = pid<<8 | moduleIndex), so two modules igniting at
-+            // the same UT on the same part are distinct events. The other dedup cells
-+            // vary only ut, pid and eventType.
-+            var a = MakePartEvent(100.0, 42, PartEventType.EngineIgnited);
-+            a.moduleIndex = 0;
-+            var b = MakePartEvent(100.0, 42, PartEventType.EngineIgnited);
-+            b.moduleIndex = 1;
-+
-+            var result = SessionMerger.MergePartEvents(
-+                new List<PartEvent> { a }, new List<PartEvent> { b });
-+
-+            Assert.Equal(2, result.Count);
-+            Assert.Contains(result, e => e.moduleIndex == 0);
-+            Assert.Contains(result, e => e.moduleIndex == 1);
-+        }
-+
-         #endregion
- 
-         #region PartEvent ordering
+                 if (seen.Add(key))

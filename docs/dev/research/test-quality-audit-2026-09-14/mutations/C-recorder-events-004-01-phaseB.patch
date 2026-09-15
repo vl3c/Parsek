@@ -1,39 +1,14 @@
-diff --git a/Source/Parsek.Tests/BackgroundRecorderTests.cs b/Source/Parsek.Tests/BackgroundRecorderTests.cs
-index 51b399157..dc51f508b 100644
---- a/Source/Parsek.Tests/BackgroundRecorderTests.cs
-+++ b/Source/Parsek.Tests/BackgroundRecorderTests.cs
-@@ -173,6 +173,34 @@ namespace Parsek.Tests
-             Assert.Equal("recorded", frameContract);
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..8b73d45e8 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -6775,7 +6775,8 @@ namespace Parsek
+                     : "recorded";
+             }
+ 
+-            return source == AnchorCandidateSource.Live ? "live" : "recorded";
++            // MUTANT: the trailing source dispatch inverted to Ghost-live else recorded
++            return source == AnchorCandidateSource.Ghost ? "live" : "recorded";
          }
  
-+        [Fact]
-+        public void ClassifyBackgroundRelativeFrameContract_GhostCandidateWithCurrentCandidate_IsRecorded()
-+        {
-+            // The trailing source dispatch: an unrecognized label with a current
-+            // candidate falls through to the AnchorCandidateSource, and only a Live
-+            // source may label the frame live. Every other cell here either uses a
-+            // recognized label or hasCurrentAnchorCandidate:false, so the Ghost arm
-+            // is otherwise unreached and the ternary can be inverted suite-green.
-+            string ghostContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
-+                "ghost-candidate",
-+                AnchorCandidateSource.Ghost,
-+                hasCurrentAnchorCandidate: true,
-+                activeReFlyParentMatch: false,
-+                hasPreReFlyAnchorSnapshot: false);
-+
-+            Assert.Equal("recorded", ghostContract);
-+
-+            // Mirror direction: the same shape with a Live source labels live.
-+            string liveContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
-+                "ghost-candidate",
-+                AnchorCandidateSource.Live,
-+                hasCurrentAnchorCandidate: true,
-+                activeReFlyParentMatch: false,
-+                hasPreReFlyAnchorSnapshot: false);
-+
-+            Assert.Equal("live", liveContract);
-+        }
-+
-         [Fact]
-         public void IsActiveReFlyParentMatch_RequiresActiveIdAndParentMatch()
-         {
+         internal static bool IsActiveReFlyParentMatch(

@@ -241,8 +241,8 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
-- **Tests: a fourth twelve priority-2 recording-risk coverage gaps from the unit-test
-  quality audit are closed.** Ten rows were new coverage and two turned out to be guarded
+- **Tests: twelve more priority-2 recording coverage gaps from the unit-test quality
+  audit are closed.** Ten rows were new coverage and two turned out to be guarded
   already, so ten new cells landed with no production change and none is obsolete. On the
   recorder: a servo whose module reports no moving flag while its position keeps advancing
   is proved to still record its motion, which is the whole inferred-motion half of the

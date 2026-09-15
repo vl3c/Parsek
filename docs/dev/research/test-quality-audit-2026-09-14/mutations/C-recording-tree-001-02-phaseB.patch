@@ -1,23 +1,14 @@
-diff --git a/Source/Parsek.Tests/RecordingOptimizerTests.cs b/Source/Parsek.Tests/RecordingOptimizerTests.cs
-index 9a72a134c..28f4260c3 100644
---- a/Source/Parsek.Tests/RecordingOptimizerTests.cs
-+++ b/Source/Parsek.Tests/RecordingOptimizerTests.cs
-@@ -784,6 +803,18 @@ namespace Parsek.Tests
-             Assert.False(RecordingOptimizer.CanAutoSplit(rec, 1));
-         }
+diff --git a/Source/Parsek/RecordingOptimizer.cs b/Source/Parsek/RecordingOptimizer.cs
+index 3bec5cc89..f1c272432 100644
+--- a/Source/Parsek/RecordingOptimizer.cs
++++ b/Source/Parsek/RecordingOptimizer.cs
+@@ -174,7 +174,8 @@ namespace Parsek
+             double splitUT = rec.TrackSections[sectionIndex].startUT;
+             double firstHalfDuration = splitUT - rec.StartUT;
+             double secondHalfDuration = rec.EndUT - splitUT;
+-            if (firstHalfDuration < 5.0 || secondHalfDuration < 5.0) return false;
++            // MUTANT: the firstHalfDuration clause of the 5s floor dropped
++            if (secondHalfDuration < 5.0) return false;
  
-+        [Fact]
-+        public void CanAutoSplit_FirstHalfTooShort_ReturnsFalse()
-+        {
-+            // First half only 3s. CanAutoSplit holds its OWN copy of the 5 s floor
-+            // (CanAutoSplitIgnoringGhostTriggers has a second, independent copy), and
-+            // CanAutoSplit_HalfTooShort only shrinks the SECOND half, so the
-+            // firstHalfDuration arm is otherwise unguarded here.
-+            var rec = MakeRecordingWithSections(17000, 17003, 17060,
-+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.ExoPropulsive);
-+            Assert.False(RecordingOptimizer.CanAutoSplit(rec, 1));
-+        }
-+
-         [Fact]
-         public void CanAutoSplit_SingleSection_ReturnsFalse()
-         {
+             return true;
+         }
