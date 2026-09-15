@@ -10,6 +10,33 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: both in-game test runner windows are now photographed in their
+  real states, and the one reachable only by Ctrl+Shift+T is reachable by the census for
+  the first time.** Two windows carry the title `Parsek - Test Runner`: the one Settings
+  opens and a separate global one the Ctrl+Shift+T shortcut owns in every scene. The
+  census had a single picture of the first (idle, which for that window means all 113
+  categories expanded) and none at all of the second, whose open flag was a private field
+  on its own MonoBehaviour. Three automation-only seam additions close that. The global
+  window becomes a twelfth window-table row, reached through its own singleton and exempt
+  from the hidden-host read-back refusal because its draw is outside the Parsek toolbar
+  surface's visibility gate. The expand op learns both windows' category folds, which
+  makes the COLLAPSED category list photographable for the first time - both windows open
+  with every fold already open, so that state existed in no capture. And a new op runs one
+  in-game test category through the runner a WINDOW owns, which is the only way a results
+  capture can be honest: each runner window builds its own test runner with its own
+  discovery, so the existing batch verb drives a third runner and leaves both windows'
+  tables reading "not run" under a label claiming results. The new lane flies seven
+  captures with a control-tree dump each over a committed career at the Space Center
+  (PASS on its first run): four states of the Settings-launched window (idle, everything
+  collapsed, one category expanded, and real results after a real one-test batch - the
+  summary line moved to `1 passed` and the category header to `1/1`) and three of the
+  global one. The dumps also measured what separates the twins: exactly three controls at
+  every state, the search bar one has and the other does not. Player-facing behaviour is
+  unchanged - the ops live behind the automation command seam, and the production edits
+  are accessors plus one window-id literal named once instead of twice. One honest
+  asymmetry found and filed rather than changed: only the global window's footer tells
+  the player that the results file auto-updates, though both windows export it.
+
 - **Developer tooling: the GUI census now produces a page that BEHAVES like
   Parsek's GUI.** `harness/tools/gui_mirror.py` turns the census artifacts into one
   self-contained HTML file in which every window is laid out from the captured
@@ -308,6 +335,28 @@ _(unreleased — entries accumulate here per commit)_
   one. The only production change is that read-only accessor: no behavior, no log text
   and nothing a player sees changes. Each strengthened cell was re-checked by breaking
   the named production line on purpose and confirming it goes red.
+- **Tests: twelve more priority-2 recording-tree and rewind coverage gaps from the
+  unit-test quality audit are closed.** Eleven rows were new coverage, one was guarded
+  already, and none is obsolete, so eleven new cells landed with no production change. On
+  the recording tree: the quickload resume path is proved to report NO tail environment
+  when the last track section carries neither frames, checkpoints nor duration (only the
+  positive arm was pinned, and the negative arm is what makes the resume skip the
+  environment resync); a pending tree belonging to a DIFFERENT tree id is proved not to be
+  kept over the loaded one after a stale-epoch hydration failure; a trajectory sidecar long
+  enough to clear the header-length gate but carrying the wrong magic is proved to be
+  rejected as a magic mismatch, which no fixture reached because every short file failed on
+  length first; checkpoints that touch a split UT exactly are proved to land wholly in their
+  owning half instead of emitting a zero-length clone into the other; a pre-flag saved
+  surface position with rotation fields is proved to load as a recorded rotation, and the
+  save side is proved to persist a live call site's implicit rotation as recorded in both
+  directions; the switch-continuation resolver is proved to refuse a child whose vessel id
+  differs from the focused vessel, and to terminate on a cyclic tree instead of recursing
+  until the stack overflows. On rewind: the pre-rewind carve-out is proved not to fire for a
+  same-chain sibling on a different branch, nor when the supersede target cannot be resolved
+  to a committed recording; and the post-load supersede re-apply is proved to do nothing when
+  the rewound owner is no longer committed. The already-guarded row is the recording loader's
+  isDebris default, which `RecordingFieldExtensionTests.BackwardCompat_NoIsDebris_DefaultsFalse`
+  and four fixture cells already red on, so no duplicate cell was written for it.
 
 - **Tests: twelve rewind / Re-Fly cells from the audit's T3 (weak or misleading)
   register now let the production term they name decide the verdict.** Each ran the

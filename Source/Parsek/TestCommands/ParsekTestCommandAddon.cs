@@ -204,11 +204,24 @@ namespace Parsek.TestCommands
         /// never launches a second batch concurrent with an in-flight M-A2 command-seam
         /// RunTests batch. The two runners share the campaign-isolation baseline
         /// machinery, so overlapping an autorun batch with a seam batch could corrupt the
-        /// save under test. True while this addon's owned RunTests runner is running;
-        /// null-safe and false when the seam never ran a batch (or is unarmed).
+        /// save under test. True while ANY batch THIS SEAM started is running: the owned
+        /// RunTests runner, or - since `UiAction op=run` (GUI-12) - the SETTINGS-launched
+        /// runner WINDOW's own runner, which that op dispatches on. The global shortcut's
+        /// runner is deliberately not read here: the fire gate ORs its own
+        /// `runner.IsRunning` in already, and it is the same object.
+        /// Null-safe and false when the seam never ran a batch (or is unarmed).
         /// </summary>
-        internal static bool CommandRunnerIsRunningForGating =>
-            instance != null && instance.ownedRunner != null && instance.ownedRunner.IsRunning;
+        internal static bool CommandRunnerIsRunningForGating
+        {
+            get
+            {
+                if (instance != null && instance.ownedRunner != null
+                    && instance.ownedRunner.IsRunning)
+                    return true;
+                InGameTestRunner windowRunner = SettingsTestRunnerWindowRunner();
+                return windowRunner != null && windowRunner.IsRunning;
+            }
+        }
 
         void Awake()
         {
@@ -1156,14 +1169,34 @@ namespace Parsek.TestCommands
         }
 
         // A command must never execute while ANY in-game test batch runs: the addon's own
-        // RunTests runner OR the interactive Ctrl+Shift+T shortcut runner (F5). The two runners
-        // share the campaign-isolation baseline machinery, so overlapping a command with either
-        // batch could corrupt the save under test.
+        // RunTests runner, the interactive Ctrl+Shift+T shortcut runner (F5), OR the
+        // SETTINGS-launched runner window's. All three share the campaign-isolation baseline
+        // machinery, so overlapping a command with any of their batches could corrupt the
+        // save under test.
+        //
+        // The third was added with `UiAction op=run` (GUI-12), which dispatches a batch on
+        // whichever runner window it names: before that, the Settings-launched window's
+        // runner was reachable only by a human clicking Run in a window an unattended run
+        // never opened, so its absence here was unreachable rather than wrong. It is
+        // reachable now, and a gate that knew only two of the three runners would let the
+        // next command execute in the middle of the batch this seam itself started.
         private bool IsBatchRunning()
         {
             if (ownedRunner != null && ownedRunner.IsRunning) return true;
             InGameTestRunner shortcutRunner = TestRunnerShortcut.ActiveRunnerForGating;
-            return shortcutRunner != null && shortcutRunner.IsRunning;
+            if (shortcutRunner != null && shortcutRunner.IsRunning) return true;
+            InGameTestRunner windowRunner = SettingsTestRunnerWindowRunner();
+            return windowRunner != null && windowRunner.IsRunning;
+        }
+
+        /// <summary>The SETTINGS-launched test-runner window's own runner, or null when
+        /// ParsekUI has no host in this scene or the window has never drawn. Reached through
+        /// ParsekUI.ActiveInstance exactly as every UiAction row does.</summary>
+        private static InGameTestRunner SettingsTestRunnerWindowRunner()
+        {
+            ParsekUI ui = ParsekUI.ActiveInstance;
+            TestRunnerUI window = ui != null ? ui.GetTestRunnerUI() : null;
+            return window != null ? window.RunnerForTesting : null;
         }
 
         private static TestCommandScene MapScene(GameScenes scene)

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index bf1e687b9..d7a5feb7f 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -684,7 +684,7 @@ namespace Parsek
+             }
+ 
+             env = default(SegmentEnvironment);
+-            return false;
++            return true;
+         }
+ 
+         public double RewindReservedFunds { get; private set; }

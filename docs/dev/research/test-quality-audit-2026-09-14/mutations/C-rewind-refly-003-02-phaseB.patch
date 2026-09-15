@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/SupersedeCommit.cs b/Source/Parsek/SupersedeCommit.cs
+index 00b958c1d..f1dfc44cd 100644
+--- a/Source/Parsek/SupersedeCommit.cs
++++ b/Source/Parsek/SupersedeCommit.cs
+@@ -645,8 +645,7 @@ namespace Parsek
+             {
+                 Recording tip = preResolvedTip
+                     ?? FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId);
+-                if (tip != null
+-                    && !string.IsNullOrEmpty(tip.ChainId)
++                if (!string.IsNullOrEmpty(tip.ChainId)
+                     && string.Equals(rec.ChainId, tip.ChainId, StringComparison.Ordinal)
+                     && rec.ChainBranch == tip.ChainBranch
+                     && rec.ChainIndex < tip.ChainIndex)

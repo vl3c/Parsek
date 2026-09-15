@@ -123,6 +123,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryProbe_WrongMagicLongEnough_ReturnsFalseWithMagicMismatch()
+        {
+            // Long enough to clear the header-length gate, so the magic
+            // comparison is the only thing left that can reject the file.
+            string path = Path.Combine(tempDir, "wrong-magic-long-enough.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("XSK0"));
+                for (int i = 0; i < 12; i++)
+                    writer.Write((byte)0x00);
+            }
+
+            Assert.False(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
+            Assert.Equal("binary magic mismatch", probe.FailureReason);
+        }
+
+        [Fact]
         public void Read_UsesCurrentProbeVersion_AndBackfillsMissingRecordingId()
         {
             var original = BuildSimpleFlatFixture();

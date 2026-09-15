@@ -871,6 +871,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReapplyRewindSupersedeDropAfterLoad_NoOp_WhenOwnerNotCommitted()
+        {
+            // The replay-target id survives LoadScene, but the owner may have
+            // been deleted post-load. Without a committed owner there is no
+            // authority to drop rows against, so the pass must no-op.
+            var owner = MakeRec("ghost-owner", startUT: 6.5);
+            var b = MakeRec("B", startUT: 31.5);
+            // Only B is committed - the owner is deliberately NOT installed.
+            InstallCommittedTreeForTesting("tree-owner-gone", b);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("ghost-owner", "B")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(owner.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(6.5);
+            RecordingStore.SetRewindReplayTargetScope(owner);
+
+            int dropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+
+            Assert.Equal(0, dropped);
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.Contains(logLines, l =>
+                l.Contains("ReapplyRewindSupersedeDropAfterLoad: skipped")
+                && l.Contains("ghost-owner"));
+        }
+
+        [Fact]
         public void LiveRollback_CreatedUTFallsBackToRewindAdjustedUT_WhenClockUnavailable()
         {
             var a = MakeRec("A", startUT: 6.5);

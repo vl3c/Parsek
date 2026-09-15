@@ -207,7 +207,7 @@ count = { min = 21, max = 21 }
 [expectations.logContracts]
 required = [
   # --- the host booted where the lane expects and nothing was standing at the start.
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
 
   # --- THE SIX RAISES, each naming its live MultiOptionDialog and its title. The raise

@@ -212,11 +212,11 @@ allowedAnomalies = []
 # also the record that the two flight-only windows really drew in flight.
 required = [
   # --- Advanced: main alone, then the flight-only window that draws, then the shared one ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,gloops",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,gloops",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
   # --- Basic: the main window alone, which is this pass's whole subject ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=12 open=1 openWindows=main",
   # --- the Real Spawn Control auto-close, which is an ASSERTION and not a note. The step
   # above declares `expect = "ERROR"`, and a seam ERROR carries only
   # `msg=window-self-closed window=spawncontrol` on the WIRE, which never reaches KSP.log -

@@ -274,13 +274,13 @@ allowedAnomalies = []
 # This lane's OWN seam records only, the GUI-1 discipline.
 required = [
   # --- describe echoes, in step order ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,career",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,timeline",
   # --- the hover pair: the control was resolved by TEXT, and the cursor landed on it ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=main text=Career ctrl=\\w+ match=\\w+ matches=[0-9]+ rect=",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=",

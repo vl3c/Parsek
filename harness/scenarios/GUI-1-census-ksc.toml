@@ -66,8 +66,13 @@ tier = "operator"
 # argument is in the `[expectations.analyzer]` block at the bottom; the findings
 # themselves stay filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER.
 #
-# WINDOW COVERAGE. Nine windows are drawn at the Space Center (`ParsekKSC.OnGUI`):
+# WINDOW COVERAGE. Nine windows are drawn at the Space Center by `ParsekKSC.OnGUI`:
 # main, missions, timeline, kerbals, career, logistics, structure, settings, testrunner.
+# A TENTH is reachable there and is NOT this lane's: `testrunnerglobal`, the global
+# Ctrl+Shift+T runner, which draws from its own MonoBehaviour outside that host's showUI
+# gate and is photographed by GUI-12-census-testrunners together with the states of the
+# Settings-launched one. That is also why every `describe` echo below reads `windows=12`:
+# the count is the seam's whole TABLE, not the scene's drawn set.
 # The two flight-only windows - spawncontrol and gloops - belong to GUI-2; asking for
 # either here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
 # scene without them. Twelve of the captures are TABS: missions x2, timeline x4 (its
@@ -413,21 +418,21 @@ allowedAnomalies = []
 # the remedy for a red here is a HOST where the probe draws - never a looser pin.
 required = [
   # --- Advanced pass: main alone, then one per window opened ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,career",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,logistics",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,structure",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,settings",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,testrunner",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,structure",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunner",
   # --- Basic pass: the mode switch itself, then the windows Basic still offers ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,logistics",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,settings",
   # --- and one capture, proving the write-and-settle path end to end ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ksc-main-advanced",
   # --- every dump, each pinning the arm-time funnel reading for its own frame ---

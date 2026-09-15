@@ -178,6 +178,47 @@ namespace Parsek
             testRunnerWindowHasInputLock = false;
         }
 
+        /// <summary>
+        /// The runner this window owns, or null before its first draw (created lazily in
+        /// <see cref="DrawIfOpen"/>). Two automation-only readers: the addon's safe-point
+        /// gate ORs its batch state into <c>IsBatchRunning</c> (a command must never run
+        /// mid-batch, whoever started the batch), and <c>UiAction op=run
+        /// window=testrunner</c> runs a category through it - the only way a capture shows
+        /// THIS window's results table populated, since the addon's <c>RunTests</c> runner
+        /// is a separate instance holding its own <c>InGameTestInfo</c> objects.
+        /// </summary>
+        internal InGameTestRunner RunnerForTesting => testRunner;
+
+        /// <summary>
+        /// Every category key this window's fold set can carry, in the window's own drawn
+        /// order (the UNFILTERED cache, so a live search query cannot narrow what
+        /// <c>key=all</c> reaches), for <c>UiAction op=expand window=testrunner
+        /// key=category:&lt;name&gt;</c>. Empty before the first draw, when the runner and
+        /// therefore the discovery do not exist yet.
+        /// </summary>
+        internal List<string> EnumerateCategoryExpandKeysForTesting()
+        {
+            var keys = new List<string>();
+            if (cachedTestGroups == null) return keys;
+            foreach (var group in cachedTestGroups) keys.Add(group.Key);
+            return keys;
+        }
+
+        /// <summary>
+        /// Expands or collapses one category fold, the category header button's own body.
+        /// Returns whether the set CHANGED (the op's <c>changed=</c>).
+        /// </summary>
+        internal bool SetCategoryExpandedForTesting(string category, bool expanded)
+        {
+            if (string.IsNullOrEmpty(category)) return false;
+            return expanded
+                ? expandedTestCategories.Add(category)
+                : expandedTestCategories.Remove(category);
+        }
+
+        /// <summary>How many category folds are open (the op's <c>expanded=</c>).</summary>
+        internal int ExpandedCategoryCountForTesting => expandedTestCategories.Count;
+
         internal bool IsMouseOverOpenWindow(Vector2 mousePosition)
         {
             return ParsekUI.IsPointerOverOpenWindow(

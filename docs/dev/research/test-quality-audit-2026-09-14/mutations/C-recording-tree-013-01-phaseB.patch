@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/TrajectorySidecarBinary.cs b/Source/Parsek/TrajectorySidecarBinary.cs
+index 61c19dd2c..e5fa41b00 100644
+--- a/Source/Parsek/TrajectorySidecarBinary.cs
++++ b/Source/Parsek/TrajectorySidecarBinary.cs
+@@ -113,11 +113,7 @@ namespace Parsek
+ 
+                     for (int i = 0; i < Magic.Length; i++)
+                     {
+-                        if (reader.ReadByte() != Magic[i])
+-                        {
+-                            probe.FailureReason = "binary magic mismatch";
+-                            return false;
+-                        }
++                        reader.ReadByte();
+                     }
+ 
+                     int formatVersion = reader.ReadInt32();
