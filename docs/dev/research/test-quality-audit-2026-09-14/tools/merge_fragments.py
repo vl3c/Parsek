@@ -3,7 +3,8 @@
 
 Outputs:
   test-inventory.csv        D1 with verdict/register_id filled from method rows
-  findings.csv              D2 candidate findings (all finding rows)
+  findings.csv              D2 candidate findings (all finding rows, fragment order)
+  issue-register.csv        the same rows sorted High > Medium > Low, july_ref from --july-refs
   coverage-proposals.csv    D3 candidates
 """
 
@@ -28,6 +29,8 @@ def main():
     ap.add_argument("--inventory", required=True)
     ap.add_argument("--fragments", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--july-refs", default=None,
+                    help="JSONL of {id, july_ref}; fills july_ref on findings and dupe_of_july_id on coverage rows")
     args = ap.parse_args()
 
     method_rows = {}
@@ -73,8 +76,29 @@ def main():
         for r in rows:
             w.writerow(r)
 
+    refs = {}
+    if args.july_refs and os.path.exists(args.july_refs):
+        with open(args.july_refs, encoding="utf-8") as fh:
+            for raw in fh:
+                if raw.strip():
+                    rec = json.loads(raw)
+                    refs[rec["id"]] = rec["july_ref"]
+    sev_rank = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+    for f in findings:
+        f["july_ref"] = refs.get(f["id"], f.get("july_ref") or "none")
+        f.setdefault("merged", "")
+    for c in coverage:
+        if c.get("cand_id") in refs:
+            c["dupe_of_july_id"] = refs[c["cand_id"]]
     if findings:
         ffields = sorted({k for f in findings for k in f.keys()})
+        ordered = sorted(findings, key=lambda f: (sev_rank.get(f.get("severity"), 9),
+                                                   f.get("category", ""), f.get("id", "")))
+        with open(os.path.join(args.out, "issue-register.csv"), "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=ffields, extrasaction="ignore")
+            w.writeheader()
+            for f in ordered:
+                w.writerow(f)
         with open(os.path.join(args.out, "findings.csv"), "w", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=ffields, extrasaction="ignore")
             w.writeheader()
