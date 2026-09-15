@@ -2151,6 +2151,38 @@ namespace Parsek
                 return true;
             }
 
+            // BELT AND BRACES, ahead of the live-pool read and ahead of the deferral
+            // reasons below so it names itself when it fires. A milestone row that still
+            // carries all-zero rewards has not been enriched yet
+            // (GameStateRecorder.OnProgressComplete emits BuildMilestoneDetail(0, 0, 0)
+            // and the AwardProgressPatch postfix fills it in afterwards), which means
+            // stock has not applied that award to its pools either. Reading the live pool
+            // now would seed the PRE-award figure, and every row stamped inside it would
+            // be zeroed by the walk once enriched - the reconstruction short by the award,
+            // persisted, and never flipped back.
+            //
+            // The milestone door defers its own recalc one frame so this should not be
+            // reachable from there (ShouldDeferKscRecalcOneFrame); this guard covers a
+            // SYNCHRONOUS recalc arriving from any other producer inside the same window,
+            // and the no-frame-host fallback.
+            //
+            // It only ever refuses the LIVE-POOL branch: the career-start branches above
+            // have already returned, so the answer here is "defer", never "seed something
+            // else". A mode whose milestones legitimately award nothing therefore just
+            // keeps deferring a seed that would patch nothing anyway, and the first real
+            // reputation row still reaches the refusal branch above.
+            int unenrichedMilestones = CountUnenrichedMilestoneRows();
+            if (unenrichedMilestones > 0)
+            {
+                origin = ReputationSeedOrigin.NotYetCaptured;
+                ParsekLog.Verbose(Tag,
+                    "EnsureInitialReputationSeed: deferring the reputation seed - " +
+                    unenrichedMilestones.ToString(CultureInfo.InvariantCulture) +
+                    " milestone row(s) still carry zero rewards, so stock has not applied " +
+                    "the award yet and the live pool is the PRE-award figure");
+                return false;
+            }
+
             bool noReputationInstance = global::Reputation.Instance == null;
             if (noReputationInstance
                 || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
@@ -2297,9 +2329,47 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Flips every KerbalDeath <see cref="GameActionType.ReputationPenalty"/> row that
-        /// is stamped INSIDE the reputation seed back to OUTSIDE, because the seed this
-        /// call just created carries a career-start value that cannot contain those deaths.
+        /// How many <see cref="GameActionType.MilestoneAchievement"/> rows in the ledger
+        /// still carry all-zero rewards, i.e. have not been enriched by the
+        /// AwardProgressPatch postfix yet.
+        ///
+        /// <para>
+        /// ALL THREE fields, not just reputation. A row awaiting enrichment is the exact
+        /// shape <c>BuildMilestoneDetail(0, 0, 0)</c> produces, and requiring all three to
+        /// be zero is what keeps a genuine rep-free-but-funds-paying milestone from
+        /// reading as pending forever. A milestone that really awards nothing at all is
+        /// indistinguishable from a pending one and is treated as pending; the only cost
+        /// is a seed that keeps deferring, in a mode where that seed would patch nothing.
+        /// </para>
+        /// </summary>
+        internal static int CountUnenrichedMilestoneRows()
+        {
+            var actions = Ledger.Actions;
+            int pending = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (action.Type != GameActionType.MilestoneAchievement) continue;
+                if (action.MilestoneRepAwarded != 0f) continue;
+                if (action.MilestoneFundsAwarded != 0f) continue;
+                if (action.MilestoneScienceAwarded != 0f) continue;
+                pending++;
+            }
+
+            return pending;
+        }
+
+        /// <summary>True when any milestone row is still awaiting enrichment.</summary>
+        internal static bool HasUnenrichedMilestoneRow()
+        {
+            return CountUnenrichedMilestoneRows() > 0;
+        }
+
+        /// <summary>
+        /// Flips every reputation-affecting row that is stamped INSIDE the reputation seed
+        /// back to OUTSIDE, because the seed this call just created carries a career-start
+        /// value that cannot contain any of them.
         ///
         /// <para>
         /// The stamp a producer writes is an assumption about how the seed WILL be
@@ -3944,8 +4014,82 @@ namespace Parsek
             // transformed rewards.
             ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
 
-            RecalculateAndPatchForLiveTimelineEvent(evt.ut, "ksc-spending");
+            // THE MILESTONE ROW'S RECALC IS DEFERRED ONE FRAME. Everything else on this
+            // door recalculates inline, exactly as before.
+            //
+            // Decompiled ordering: ProgressNode.Complete() raises OnProgressComplete
+            // BEFORE every subclass calls AwardProgressStandard (CelestialBodyOrbit,
+            // CelestialBodyReturn, CelestialBodyLanding), so this whole handler runs while
+            // the reward is still unapplied. GameStateRecorder.OnProgressComplete
+            // therefore emits the event with BuildMilestoneDetail(0, 0, 0) and the
+            // AwardProgressPatch postfix fills the real amounts in place afterwards
+            // (EnrichPendingMilestoneRewards). An INLINE recalc here runs inside that
+            // window: the seed's own ensure would read Reputation.Instance BEFORE the
+            // award landed, take the live-pool branch on the PRE-award figure, and the
+            // enriched row - stamped inside that figure - would be zeroed by the walk for
+            // good. Deferring one frame puts the read after both the award and the
+            // enrichment.
+            //
+            // Same host and same fallback as the strategy door: if no frame host exists
+            // the recalc runs inline rather than being lost, and if the defer never fires
+            // (scene exit) the row still stands in the ledger and the next natural recalc
+            // picks it up. The seed simply stays uncaptured until then, which is the safe
+            // direction - an uncaptured seed patches nothing.
+            var deferHost = DeferOneFrameForTesting
+                ?? (WarpToTimeConsumer.Instance != null
+                    ? (Action<Action>)WarpToTimeConsumer.RunNextFrame
+                    : null);
+            if (ShouldDeferKscRecalcOneFrame(action.Type, deferHost != null))
+            {
+                double deferredUt = evt.ut;
+                ParsekLog.Verbose(Tag,
+                    $"OnKscSpending: deferring the recalc one frame for {action.Type} - " +
+                    "the reward is applied after this handler returns");
+                deferHost(() => RecalculateAndPatchForLiveTimelineEvent(deferredUt, "ksc-spending"));
+            }
+            else
+            {
+                RecalculateAndPatchForLiveTimelineEvent(evt.ut, "ksc-spending");
+            }
         }
+
+        /// <summary>
+        /// <summary>
+        /// Test-only one-frame defer host. Non-null replaces
+        /// <c>WarpToTimeConsumer.RunNextFrame</c> in <see cref="OnKscSpending"/> so a test
+        /// can prove the recalc really is postponed rather than asserting about the
+        /// predicate alone - the real host is a MonoBehaviour singleton and cannot exist
+        /// headless, which would otherwise leave the deferral's CALL SITE unpinned.
+        /// Cleared by <c>ResetForTesting</c>.
+        /// </summary>
+        internal static Action<Action> DeferOneFrameForTesting;
+
+        /// <summary>
+        /// Pure: true when <see cref="OnKscSpending"/> must postpone its tail recalc to the
+        /// next frame instead of running it inline.
+        ///
+        /// <para>
+        /// Exactly one row type qualifies, and it qualifies because of a decompiled
+        /// ordering rather than a preference. <c>ProgressNode.Complete()</c> raises
+        /// <c>OnProgressComplete</c> before the subclass calls
+        /// <c>AwardProgressStandard</c>, so a milestone row reaches the ledger carrying
+        /// zero rewards and is enriched in place moments later; a recalc inside that
+        /// window reads pools that have not taken the award. Contract outcomes and
+        /// StrategyActivate carry their real amounts at the door and are unaffected, as
+        /// are the tech / facility / hire rows that move no reputation at all.
+        /// </para>
+        ///
+        /// <para>
+        /// With no frame host the answer is false: running the recalc inline is worse than
+        /// correct but losing it entirely is worse still, and the seed guard
+        /// (<see cref="HasUnenrichedMilestoneRow"/>) is the belt that covers that braces.
+        /// </para>
+        /// </summary>
+        internal static bool ShouldDeferKscRecalcOneFrame(GameActionType type, bool hasFrameHost)
+        {
+            return type == GameActionType.MilestoneAchievement && hasFrameHost;
+        }
+
 
         /// <summary>
         /// The QUERY-FAMILY strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
@@ -6721,6 +6865,7 @@ namespace Parsek
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
             OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
+            DeferOneFrameForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 

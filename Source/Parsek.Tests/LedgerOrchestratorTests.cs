@@ -3305,15 +3305,23 @@ namespace Parsek.Tests
         }
 
         // READ THIS BEFORE THE CELLS BELOW. Every one of these entry points ends in a
-        // recalc, and in a headless ledger that recalc reaches
-        // EnsureInitialReputationSeed's REFUSAL branch (the row it just added is
-        // reputation history and no baseline is installed), which seeds career start 0
-        // and calls RestampInsideSeedRowsAgainstCareerStartSeed - flipping the stamp
-        // straight back out. That is the fix working end to end, not a failure: a
-        // career-start seed contains no award, so the row must apply. The stamp is
-        // therefore asserted on the producer's own Info line, which is what the mutation
-        // deletes, and the flipped end state is asserted alongside it so the whole
-        // sequence is stated rather than half of it.
+        // recalc, and for the rows in THIS section - contract outcomes, strategy legs, and
+        // a commit's already-enriched milestone - that recalc reaches
+        // EnsureInitialReputationSeed's REFUSAL branch in a headless ledger (the row it
+        // just added carries a non-zero reputation amount, so it reads as reputation
+        // history, and no baseline is installed). The branch seeds career start 0 and
+        // calls RestampInsideSeedRowsAgainstCareerStartSeed, flipping the stamp straight
+        // back out. That is the fix working end to end, not a failure: a career-start seed
+        // contains no award, so the row must apply. The stamp is therefore asserted on the
+        // producer's own Info line, which is what the mutation deletes, and the flipped end
+        // state is asserted alongside it so the whole sequence is stated rather than half
+        // of it.
+        //
+        // A MILESTONE ROW STRAIGHT OFF THE DOOR IS THE EXCEPTION and has its own section
+        // below: it carries rep=0 until the AwardProgressPatch postfix enriches it, so
+        // ActionTouchesReputationBudget does NOT see reputation history and the refusal
+        // branch does not fire. The seed is deferred there instead, by the guard that
+        // exists for exactly that window.
 
         // KILLS: deleting step 3e's StampReputationRowsAgainstSeed call in
         // OnRecordingCommitted. The recording's milestone row is converted at step 1,
@@ -3499,6 +3507,214 @@ namespace Parsek.Tests
             Assert.NotNull(row);
             Assert.False(row.InsideReputationSeed);
             Assert.DoesNotContain(logLines, l => l.Contains("Reputation seed stamp:"));
+        }
+
+        // ================================================================
+        // The milestone door's pre-award window
+        //
+        // Decompiled ProgressNode.Complete() raises OnProgressComplete BEFORE every
+        // subclass calls AwardProgressStandard, so GameStateRecorder.OnProgressComplete
+        // emits BuildMilestoneDetail(0, 0, 0) and the AwardProgressPatch postfix enriches
+        // the row in place afterwards. Anything that reads a live pool inside that window
+        // reads the PRE-award figure. Two guards close it: the door defers its own recalc
+        // one frame, and EnsureInitialReputationSeed refuses a live-pool read while any
+        // milestone row is still unenriched.
+        // ================================================================
+
+        private static GameStateEvent UnenrichedMilestoneEvent(
+            double ut = 90.0, string milestoneId = "Kerbin/Landing")
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                // Exactly what the handler emits before the reward lands.
+                detail = GameStateRecorder.BuildMilestoneDetail(0.0, 0f, 0.0)
+            };
+        }
+
+        // THE REPRO. A milestone row reaches the door carrying zero rewards; nothing may
+        // seed the career's reputation from the live pool while it does, because stock has
+        // not applied the award yet. Headless there is no frame host, so the door's recalc
+        // runs INLINE - which is precisely the path the seed guard exists to cover - and
+        // the run must end with the seed DEFERRED, naming its reason.
+        [Fact]
+        public void OnKscSpending_UnenrichedMilestone_DefersTheSeedInsteadOfReadingThePool()
+        {
+            LedgerOrchestrator.OnKscSpending(UnenrichedMilestoneEvent());
+
+            var row = FindLedgerRow(GameActionType.MilestoneAchievement);
+            Assert.NotNull(row);
+            Assert.Equal(0f, row.MilestoneRepAwarded);
+
+            Assert.Null(FindLedgerRow(GameActionType.ReputationInitial));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("deferring the reputation seed") &&
+                l.Contains("milestone row(s) still carry zero rewards") &&
+                l.Contains("the live pool is the PRE-award figure"));
+        }
+
+        // THE OTHER HALF. Once the postfix has enriched the row, the window is shut: the
+        // next ensure no longer names the pending-milestone reason, the seed is created
+        // (career start, through the refusal branch this ledger reaches), and the enriched
+        // row is NOT left stamped inside it - so the award is applied exactly once.
+        [Fact]
+        public void EnsureReputationSeed_AfterEnrichment_SeedsAndLeavesTheRowOutside()
+        {
+            LedgerOrchestrator.OnKscSpending(UnenrichedMilestoneEvent());
+            var row = FindLedgerRow(GameActionType.MilestoneAchievement);
+            Assert.NotNull(row);
+            Assert.True(row.InsideReputationSeed);
+
+            // What AwardProgressPatch's postfix does moments later.
+            row.MilestoneFundsAwarded = 800f;
+            row.MilestoneRepAwarded = 1f;
+            logLines.Clear();
+
+            var origin = LedgerOrchestrator.EnsureReputationSeedForCommit();
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("milestone row(s) still carry zero rewards"));
+            Assert.Equal(ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback, origin);
+            Assert.NotNull(FindLedgerRow(GameActionType.ReputationInitial));
+            Assert.False(row.InsideReputationSeed);
+        }
+
+        // THE DEFERRAL ITSELF, at its call site rather than at its predicate. The real
+        // host is a MonoBehaviour singleton that cannot exist headless, so the seam stands
+        // in for it: with a host present the milestone door must hand its recalc to the
+        // host and return WITHOUT recalculating, and the handed-over action must be the
+        // recalc. Deleting the deferral reds the first half; deferring nothing reds the
+        // second.
+        [Fact]
+        public void OnKscSpending_UnenrichedMilestone_HandsTheRecalcToTheFrameHost()
+        {
+            Action deferred = null;
+            LedgerOrchestrator.DeferOneFrameForTesting = a => deferred = a;
+            try
+            {
+                LedgerOrchestrator.OnKscSpending(UnenrichedMilestoneEvent());
+
+                Assert.NotNull(deferred);
+                Assert.Contains(logLines, l =>
+                    l.Contains("OnKscSpending: deferring the recalc one frame for " +
+                              "MilestoneAchievement"));
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[RecalcEngine]") && l.Contains("Recalculate complete"));
+
+                deferred();
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecalcEngine]") && l.Contains("Recalculate complete"));
+            }
+            finally
+            {
+                LedgerOrchestrator.DeferOneFrameForTesting = null;
+            }
+        }
+
+        // A non-milestone row still recalculates inline through the same host-aware path -
+        // the deferral must not leak onto the rest of the door.
+        [Fact]
+        public void OnKscSpending_NonMilestoneRow_StillRecalculatesInline()
+        {
+            Action deferred = null;
+            LedgerOrchestrator.DeferOneFrameForTesting = a => deferred = a;
+            try
+            {
+                LedgerOrchestrator.OnKscSpending(new GameStateEvent
+                {
+                    ut = 500.0,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "mk1pod",
+                    detail = "cost=600"
+                });
+
+                Assert.Null(deferred);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecalcEngine]") && l.Contains("Recalculate complete"));
+            }
+            finally
+            {
+                LedgerOrchestrator.DeferOneFrameForTesting = null;
+            }
+        }
+
+        // The pending predicate needs ALL THREE reward fields at zero. A milestone that
+        // pays funds but no reputation is fully enriched and must not read as pending, or
+        // the seed would defer for the life of the save.
+        [Fact]
+        public void CountUnenrichedMilestoneRows_CountsOnlyTheAllZeroRows()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 10.0,
+                MilestoneId = "pending"
+            });
+            Assert.Equal(1, LedgerOrchestrator.CountUnenrichedMilestoneRows());
+            Assert.True(LedgerOrchestrator.HasUnenrichedMilestoneRow());
+
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 20.0,
+                MilestoneId = "funds-only",
+                MilestoneFundsAwarded = 800f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 30.0,
+                MilestoneId = "science-only",
+                MilestoneScienceAwarded = 5f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 40.0,
+                MilestoneId = "rep-only",
+                MilestoneRepAwarded = 1f
+            });
+            Assert.Equal(1, LedgerOrchestrator.CountUnenrichedMilestoneRows());
+
+            // And a non-milestone row is never counted, whatever it carries.
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                UT = 50.0,
+                FundsAwarded = 0f
+            });
+            Assert.Equal(1, LedgerOrchestrator.CountUnenrichedMilestoneRows());
+        }
+
+        // Only the milestone row defers, and only when there is a frame host to defer to -
+        // losing the recalc entirely would be worse than running it early, which is what
+        // the seed guard is there to absorb.
+        [Fact]
+        public void ShouldDeferKscRecalcOneFrame_IsMilestoneOnlyAndNeedsAHost()
+        {
+            Assert.True(LedgerOrchestrator.ShouldDeferKscRecalcOneFrame(
+                GameActionType.MilestoneAchievement, hasFrameHost: true));
+            Assert.False(LedgerOrchestrator.ShouldDeferKscRecalcOneFrame(
+                GameActionType.MilestoneAchievement, hasFrameHost: false));
+
+            foreach (GameActionType other in new[]
+            {
+                GameActionType.ContractComplete,
+                GameActionType.ContractFail,
+                GameActionType.ContractCancel,
+                GameActionType.StrategyActivate,
+                GameActionType.FundsSpending,
+                GameActionType.ReputationEarning
+            })
+            {
+                Assert.False(LedgerOrchestrator.ShouldDeferKscRecalcOneFrame(
+                    other, hasFrameHost: true),
+                    other + " carries its real amounts at the door and must recalc inline");
+            }
         }
 
         // ================================================================

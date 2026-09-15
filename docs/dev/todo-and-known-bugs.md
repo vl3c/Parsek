@@ -2492,26 +2492,53 @@ common `GAME_ACTION` header (same key, same node, so rows written by the 2026-09
 build read back byte-identically); a row written before the flag existed carries no key,
 reads false and applies as before.
 
-THE TWO LIVE-WRITE DOORS STAMP BUT NEVER SEED, and the first cut of this fix got that
-wrong. `OnKscSpending` and `OnStrategyCurrencyConversion` originally ensured the seed
-before their row reached the ledger, by analogy with step 3c-post. That is unsafe for
-two of the four sources those doors carry, because the GameEvent fires BEFORE the pool
-moves: decompiled `ProgressNode.Complete()` raises `OnProgressComplete` before every
-subclass calls `AwardProgressStandard` (CelestialBodyOrbit, CelestialBodyReturn,
-CelestialBodyLanding), and `Reputation.AddReputation` raises `OnCurrencyModified`
-(Reputation.cs:76) before assigning `rep` (:109-117). A first-capture seed read inside
-such a handler would be the PRE-award pool; the row would be stamped inside a value that
-does not contain it, `EnrichPendingMilestoneRewards` would fill the award in place, the
-walk would zero it and the reconstruction would come out SHORT by the award - silently,
-because the stamp logs Info where the refusal branch used to WARN. Contract outcomes and
-`StrategyActivate` are ordered the other way round, but the door cannot tell them apart
-from the action alone. So `StampLiveWriteRowAgainstSeed` is READ-ONLY with respect to
-the seed: the seed's creation point is exactly where it was before this change (the
-door's own tail recalc), and the row is stamped by the commit path's rule - no seed yet
-means `NotYetCaptured`, a seed that already exists means `PreExisting` and stamps
-nothing. A later career-start capture flips the row back out through the existing
-re-stamp. This is what keeps "the seed VALUE is untouched" true at the doors as well as
-on the commit path.
+THE LIVE-WRITE DOORS: TWO CORRECTIONS, BOTH FROM REVIEW, BOTH ABOUT THE SAME PRE-AWARD
+WINDOW. `OnKscSpending` and `OnStrategyCurrencyConversion` write rows outside a commit,
+and a milestone row reaches them BEFORE stock has paid the award. Decompiled
+`ProgressNode.Complete()` raises `OnProgressComplete` before every subclass calls
+`AwardProgressStandard` (CelestialBodyOrbit, CelestialBodyReturn, CelestialBodyLanding),
+so `GameStateRecorder.OnProgressComplete` emits `BuildMilestoneDetail(0, 0, 0)`
+(Handlers.cs:709-712) and the AwardProgressPatch postfix enriches the row in place
+afterwards (`EnrichPendingMilestoneRewards`, :905-925). `Reputation.AddReputation` has
+the same shape, raising `OnCurrencyModified` (Reputation.cs:76) before assigning `rep`
+(:109-117).
+
+FIRST CORRECTION: the doors STAMP, they never SEED. An earlier cut ensured the seed
+inside the handler; a first-capture read there is the PRE-award pool.
+`StampLiveWriteRowAgainstSeed` is read-only with respect to the seed and stamps by the
+commit path's rule - no seed yet means `NotYetCaptured`, an existing seed means
+`PreExisting` and stamps nothing - so the seed's creation point stays where it always
+was and "the seed VALUE is untouched" holds at the doors too.
+
+SECOND CORRECTION: that was not enough, because the door's own TAIL RECALC is inside the
+same window. `RecalculateAndPatchForLiveTimelineEvent` -> `RecalculateAndPatch` ->
+`RecalculateAndPatchCore` -> `SeedInitialResourceBalances` runs synchronously inside
+`OnProgressComplete`, and the refusal branch does NOT catch it: `ActionTouchesReputationBudget`
+reads `MilestoneRepAwarded != 0f` and the row carries rep=0 at that instant. On a
+mid-career first seed with `Reputation.Instance` non-null, the ensure took the live-pool
+branch on the PRE-award figure, the row stayed stamped inside, got enriched, was zeroed
+by the walk, and the reconstruction was left short by the award - persisted
+`insideRepSeed=True` and never flipped. Two guards close it:
+
+1. `OnKscSpending` defers its tail recalc ONE FRAME for a `MilestoneAchievement` row
+   only (`ShouldDeferKscRecalcOneFrame`), through the repo's one-frame defer host
+   `WarpToTimeConsumer.RunNextFrame` - the same host and the same fallback the strategy
+   door already used. Every other row on that door still recalculates inline. With no
+   frame host the recalc runs inline rather than being lost; if the defer never fires
+   (scene exit) the row still stands in the ledger and the next natural recalc picks it
+   up, with the seed simply staying uncaptured until then - an uncaptured seed patches
+   nothing, which is the safe direction.
+2. `EnsureInitialReputationSeed` refuses a LIVE-POOL read outright while any milestone
+   row still carries all-zero rewards (`CountUnenrichedMilestoneRows`), returning
+   `NotYetCaptured` with a Verbose line naming the reason. It sits ahead of the
+   Instance-null / pool-~0 deferrals so it names itself when it fires, and it only ever
+   refuses the live-pool branch - the career-start branches have already returned. That
+   covers a synchronous recalc arriving from any other producer inside the window, and
+   the no-frame-host fallback. All THREE reward fields must be zero, so a milestone that
+   pays funds but no reputation is not mistaken for a pending one.
+
+`OnStrategyCurrencyConversion` needed neither: its recalc was already deferred one frame
+for its own reason (the query has not finished applying its legs).
 
 ONE PREDICATE WAS DELIBERATELY NOT WIDENED: the `InsideReputationSeed` skip inside
 `LedgerHasReputationTimelineActions` stays scoped to KerbalDeath rows. That predicate

@@ -720,12 +720,18 @@ _(unreleased — entries accumulate here per commit)_
   reads earlier than the first reading still counts normally. When the starting
   reputation later turns out to come from the career's own beginning instead of the
   live pool, everything marked is unmarked again and counted as usual. Awards that
-  happen at the Space Center rather than in flight are marked the same way, but the
-  moment the starting reputation is read is deliberately left exactly where it was:
-  the game announces a progress milestone before it pays it out, so reading the
-  reputation while the announcement is still being handled would read the figure from
-  just before the award and lose it. Saves written before this change carry no mark
-  and behave exactly as they did.
+  happen at the Space Center rather than in flight are marked the same way.
+
+  A progress milestone needed particular care, because KSP announces one before it
+  pays it out: the reward arrives a moment after Parsek hears about the milestone, so
+  anything that reads the reputation in between reads the figure from just before the
+  award and loses it. Parsek now waits one frame before rebuilding the career after a
+  milestone, and refuses to take a starting reputation from the live game at all while
+  a milestone it has heard about is still waiting for its reward. If the wait never
+  happens - the scene is left first, say - nothing is lost: the milestone is already
+  recorded and the next rebuild picks it up, and until then Parsek simply has no
+  starting reputation and changes nothing. Saves written before this change carry no
+  mark and behave exactly as they did.
 
 - **A flight you continued by clicking Switch-To now answers as ONE flight everywhere,
   so its Unfinished Flight row cannot be shown and then quietly closed.** Parsek asked
