@@ -1876,6 +1876,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RoboticTransition_MovingSignalFalse_PositionJump_StartsAndKeepsMoving()
+        {
+            // The inferred-motion arm of 'movingNow = movingSignal || inferredMoving':
+            // a servo whose module reports no moving flag while its position still
+            // advances must still record. Every other cell here passes movingSignal:true,
+            // so the inferred term is otherwise unreached.
+            ulong key = FlightRecorder.EncodeEngineKey(300, 0);
+            var moving = new HashSet<ulong>();
+            var positions = new Dictionary<ulong, float>();
+            var sampleUT = new Dictionary<ulong, double>();
+
+            // Seed lastPosition without arming motion (no prior sample -> no inference).
+            var seedEvents = FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: false, positionValue: 10f, deadband: 0.5f, ut: 100.0,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+            Assert.Empty(seedEvents);
+            Assert.DoesNotContain(key, moving);
+
+            // Position advanced past the quarter-deadband floor with the flag still false.
+            var startEvents = FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: false, positionValue: 12f, deadband: 0.5f, ut: 100.1,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            Assert.Single(startEvents);
+            Assert.Equal(PartEventType.RoboticMotionStarted, startEvents[0].eventType);
+            Assert.Contains(key, moving);
+
+            // Position stopped changing: inference drops and the stop event fires once.
+            var stopEvents = FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: false, positionValue: 12f, deadband: 0.5f, ut: 100.4,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            Assert.Single(stopEvents);
+            Assert.Equal(PartEventType.RoboticMotionStopped, stopEvents[0].eventType);
+            Assert.DoesNotContain(key, moving);
+        }
+
+        [Fact]
         public void RoboticTransition_At4HzCap_EmitsPositionSample()
         {
             ulong key = FlightRecorder.EncodeEngineKey(300, 0);

@@ -1,0 +1,32 @@
+diff --git a/Source/Parsek.Tests/SessionMergerTests.cs b/Source/Parsek.Tests/SessionMergerTests.cs
+index 07cd90d7f..d4bf64e77 100644
+--- a/Source/Parsek.Tests/SessionMergerTests.cs
++++ b/Source/Parsek.Tests/SessionMergerTests.cs
+@@ -199,6 +199,27 @@ namespace Parsek.Tests
+             Assert.Equal(TrackSectionSource.Checkpoint, result[2].source);
+         }
+ 
++        [Fact]
++        public void ResolveOverlaps_ZeroDurationSection_Dropped()
++        {
++            // The endUT <= startUT skip: a degenerate section must never reach merged
++            // output (a zero-length section has no frames to render and corrupts the
++            // overlap walk). No other cell here feeds one - the classifier fixtures
++            // widen explicitly because of this guard.
++            var sections = new List<TrackSection>
++            {
++                MakeSection(100, 100, TrackSectionSource.Active),
++                MakeSection(100, 200, TrackSectionSource.Background)
++            };
++
++            var result = SessionMerger.ResolveOverlaps(sections);
++
++            TrackSection only = Assert.Single(result);
++            Assert.Equal(TrackSectionSource.Background, only.source);
++            Assert.Equal(100, only.startUT);
++            Assert.Equal(200, only.endUT);
++        }
++
+         #endregion
+ 
+         #region ResolveOverlaps — Active beats Background
