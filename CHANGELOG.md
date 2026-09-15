@@ -319,8 +319,9 @@ _(unreleased — entries accumulate here per commit)_
   its own cell. Nothing a player sees changes.
 
 - **Tests: the eleven priority-1 recording-risk coverage gaps from the unit-test quality
-  audit now have cells.** Ten new cells, all pure or headless, all against paths where the
-  suite stayed green with the guard removed. Terminal inference's orbit arm is driven
+  audit now have cells.** Ten new cells, all pure or headless, nine against paths where the
+  suite stayed green with the guard removed (the tenth, the sealed-tip membership shape,
+  adds a case two existing cells already guarded). Terminal inference's orbit arm is driven
   directly for the first time, with the surface-intersecting mirror row that keeps the
   periapsis-above-radius comparison honest. A sealed (Immutable) crashed leaf under a rewind
   point is proved NOT to resurface as a re-flyable Unfinished Flight row. The destroyed
