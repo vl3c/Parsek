@@ -154,6 +154,22 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: the five priority-1 data-loss coverage gaps from the unit-test quality audit now
+  have cells.** Each guards a path where a wrong answer destroys recorded flights and where
+  the suite stayed green with the guard removed. The orphan-file sweep's second pending
+  source - the save's pending tree held aside while an active-tree restore owns the Limbo
+  slot - is now proved to count as known, so its live sidecars cannot be quarantined
+  mid-restore; the same slot is proved to block `ResetForTesting` in play mode, the one arm
+  of that four-arm guard that had no cell. The sidecar saver is driven with a null in-memory
+  vessel snapshot against a real file on disk, so any destructive rewrite of a `_vessel.craft`
+  reds, not only the one source literal a text pin watched. The rewind-point reaper's real
+  file-delete limb runs for the first time (every other cell stubbed it) against a temp
+  directory with a sibling file as the blast-radius witness. And the future-vessel strip loop
+  is driven over consecutive strippable entries, which is what a forward walk with `RemoveAt`
+  silently skips. Each cell carries a mutation proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No production change, no
+  player-visible change.
+
 - **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
   Four source-text wiring gates were scanning raw file text, so a call left behind only as a
   comment - or the same call text inside a nearby log message - kept the gate green after the

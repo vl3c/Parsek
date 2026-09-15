@@ -262,6 +262,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildKnownRecordingIds_SavedPendingTreeDuringActiveRestore_IdsAreKnown()
+        {
+            // Coverage cell C-legacy-bugfix-023-01. BuildKnownRecordingIds has a SECOND
+            // pending source: the save's pending tree preserved while an active-tree
+            // restore owns the pending-Limbo slot. Those recordings are in no committed
+            // list and not in pendingTree, so dropping this contribution makes
+            // CleanOrphanFiles quarantine their live sidecars mid-restore.
+            var saved = new RecordingTree { Id = "saved-tree", TreeName = "SavedShip" };
+            saved.Recordings["saved-root"] = new Recording
+            {
+                RecordingId = "saved-root",
+                VesselName = "SavedShip",
+                TreeId = "saved-tree"
+            };
+            saved.Recordings["saved-debris"] = new Recording
+            {
+                RecordingId = "saved-debris",
+                VesselName = "SavedShip Debris",
+                TreeId = "saved-tree"
+            };
+            RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(saved);
+            Assert.False(RecordingStore.HasPendingTree);
+
+            var knownIds = RecordingStore.BuildKnownRecordingIds(out int pendingCount);
+
+            Assert.Contains("saved-root", knownIds);
+            Assert.Contains("saved-debris", knownIds);
+            Assert.Equal(2, pendingCount);
+        }
+
+        [Fact]
         public void CleanOrphanFiles_DeletesTransientArtifacts_WithoutTouchingValidSidecars()
         {
             string recordingsDir = CreateRecordingsDir("transient-artifacts");
