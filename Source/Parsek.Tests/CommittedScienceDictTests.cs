@@ -56,6 +56,55 @@ namespace Parsek.Tests
             Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
         }
 
+        // Fails if: CommitScienceActions stops skipping any limb of its
+        // four-way guard (null row, wrong action type, empty subject id,
+        // non-positive award). All three production call sites feed valid
+        // ScienceEarning rows only, so a dropped limb would commit a
+        // contract's subject id or a zero-science row into the committed
+        // cache, where it later suppresses the real award.
+        [Fact]
+        public void CommitScienceActions_InvalidActions_Skipped()
+        {
+            var actions = new List<GameAction>
+            {
+                null,
+                new GameAction
+                {
+                    Type = GameActionType.ContractComplete,
+                    SubjectId = "contract-subject",
+                    ScienceAwarded = 9f
+                },
+                new GameAction
+                {
+                    Type = GameActionType.ScienceEarning,
+                    SubjectId = "",
+                    ScienceAwarded = 7f
+                },
+                new GameAction
+                {
+                    Type = GameActionType.ScienceEarning,
+                    SubjectId = "zero-award",
+                    ScienceAwarded = 0f
+                },
+                new GameAction
+                {
+                    Type = GameActionType.ScienceEarning,
+                    SubjectId = "ok",
+                    ScienceAwarded = 5f
+                }
+            };
+
+            GameStateStore.CommitScienceActions(actions);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("ok", out sci));
+            Assert.Equal(5f, sci);
+            float other;
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience("contract-subject", out other));
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience("zero-award", out other));
+        }
+
         // ================================================================
         // RebuildCommittedScienceSubjects
         // ================================================================

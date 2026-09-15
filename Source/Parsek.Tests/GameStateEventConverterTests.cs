@@ -174,6 +174,27 @@ namespace Parsek.Tests
             Assert.Equal(3, action.ToLevel);
         }
 
+        // Fails if: the toLevel floor goes away. A negative normalized level
+        // (a downgrade event mis-keyed as an upgrade, or a corrupted
+        // valueAfter) rounds to tier 0 and reaches FacilitiesModule as a
+        // level no KSP facility has. Every other FacilityUpgraded cell uses a
+        // non-negative normalized level, so the clamp is otherwise silent.
+        [Fact]
+        public void ConvertEvent_FacilityUpgraded_NegativeValueAfter_ClampsToLevel1()
+        {
+            var evt = MakeEvent(GameStateEventType.FacilityUpgraded, 100.0,
+                key: "LaunchPad", detail: "cost=0",
+                valBefore: 0.0, valAfter: -0.5);
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FacilityUpgrade, action.Type);
+            // Without the clamp: Math.Round(-1.0) + 1 = 0.
+            Assert.Equal(1, action.ToLevel);
+            Assert.Contains(logLines, l =>
+                l.Contains("ConvertFacilityUpgraded") && l.Contains("clamped=True"));
+        }
+
         // ================================================================
         // BuildingDestroyed -> FacilityDestruction
         // ================================================================

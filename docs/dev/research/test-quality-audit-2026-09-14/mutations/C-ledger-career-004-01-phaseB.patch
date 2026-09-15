@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..cbc0f678b 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -1728,8 +1728,8 @@ namespace Parsek
+             if (rec == null || rec.CrewEndStatesResolved || rec.CrewEndStates != null)
+                 return false;
+ 
++            // MUTANT: EvaCrewName conjunct removed
+             if (rec.VesselSnapshot != null
+-                || !string.IsNullOrEmpty(rec.EvaCrewName)
+                 || KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(rec))
+                 return true;
+ 

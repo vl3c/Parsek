@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs b/Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs
+index 906fc6d44..74f8d04c4 100644
+--- a/Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs
++++ b/Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs
+@@ -588,7 +588,8 @@ namespace Parsek
+             }
+ 
+             double delta = matched.valueAfter - matched.valueBefore;
+-            if (delta <= 0)
++            // MUTANT: non-positive-delta early return removed
++            if (false)
+             {
+                 ParsekLog.Verbose(Tag,
+                     $"OnVesselRecoveryFunds: paired event for '{identity.DisplayName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +

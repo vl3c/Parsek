@@ -1404,6 +1404,47 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("unsupported schema"));
         }
 
+        // Fails if: the recording-schema-generation half of the load gate
+        // stops gating. Both existing schema cells write the CURRENT
+        // generation and mismatch only the ledger version, so making
+        // generationOk unconditionally true ships green while a ledger
+        // stamped with a generation this build cannot read loads as if it
+        // were compatible - rows keyed to a schema that moved underneath.
+        [Fact]
+        public void LoadFromFile_WrongSchemaGeneration_IsRejected()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+
+            Assert.True(Ledger.SaveToFile(LedgerPath));
+
+            string current = RecordingStore.CurrentRecordingSchemaGeneration
+                .ToString(CultureInfo.InvariantCulture);
+            string future = (RecordingStore.CurrentRecordingSchemaGeneration + 1)
+                .ToString(CultureInfo.InvariantCulture);
+            string content = File.ReadAllText(LedgerPath);
+            Assert.Contains("recordingSchemaGeneration = " + current, content);
+            File.WriteAllText(LedgerPath, content.Replace(
+                "recordingSchemaGeneration = " + current,
+                "recordingSchemaGeneration = " + future));
+
+            Ledger.ResetForTesting();
+            logLines.Clear();
+
+            Assert.False(Ledger.LoadFromFile(LedgerPath));
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") &&
+                l.Contains("unsupported schema") &&
+                l.Contains("recordingSchemaGeneration='" + future + "'") &&
+                l.Contains("expectedGeneration=" + current));
+        }
+
         // ================================================================
         // Safe-write pattern
         // ================================================================
@@ -2042,6 +2083,43 @@ namespace Parsek.Tests
             Ledger.TruncateActionsForTesting(Ledger.Actions.Count + 5);
             Assert.Equal(versionBefore, Ledger.StateVersion);
             Assert.Single(Ledger.Actions);
+        }
+
+        // Fails if: Reconcile's prune path stops bumping StateVersion.
+        // Reconcile is the production mutator the truncate cell above only
+        // mimics: EffectiveState.ComputeELS caches against Ledger.StateVersion,
+        // so without the bump the next reader is served the pruned rows for
+        // the rest of the session. The sibling cells pin only the truncate
+        // seam and the funds-seed repair.
+        [Fact]
+        public void Reconcile_PrunedRows_InvalidateTheElsCache()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = GameActionType.ScienceSpending,
+                Cost = 5f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = GameActionType.ScienceSpending,
+                Cost = 10f
+            });
+
+            int versionBefore = Ledger.StateVersion;
+
+            // Populate the cache with the two-row answer through the real consumer.
+            int elsBefore = EffectiveState.ComputeELS().Count;
+            Assert.Equal(2, elsBefore);
+
+            Ledger.Reconcile(new HashSet<string>(), maxUT: 18000.0);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.NotEqual(versionBefore, Ledger.StateVersion);
+
+            // The outcome, not just the mechanism: the ELS must have shrunk.
+            Assert.Empty(EffectiveState.ComputeELS());
         }
     }
 }
