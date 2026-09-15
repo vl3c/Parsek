@@ -1,0 +1,22 @@
+diff --git a/Source/Parsek/GameActions/ReputationModule.cs b/Source/Parsek/GameActions/ReputationModule.cs
+index d09b102b5..00ccc02ea 100644
+--- a/Source/Parsek/GameActions/ReputationModule.cs
++++ b/Source/Parsek/GameActions/ReputationModule.cs
+@@ -283,6 +283,9 @@ namespace Parsek
+             if (nominal == 0f)
+                 return;
+ 
++            // MUTANT: the setup rep cost never reaches the loss curve or the ledger
++            return;
++#pragma warning disable 0162
+             var result = ApplyReputationCurve(nominal, runningRep);
+ 
+             action.EffectiveRep = result.actualDelta;
+@@ -294,6 +297,7 @@ namespace Parsek
+                 $"nominalPenalty={action.SetupReputationCost.ToString("F2", IC)}, " +
+                 $"effective={result.actualDelta.ToString("F2", IC)}, " +
+                 $"runningRep={runningRep.ToString("F2", IC)}");
++#pragma warning restore 0162
+         }
+ 
+         // ================================================================

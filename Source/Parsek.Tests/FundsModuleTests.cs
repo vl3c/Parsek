@@ -371,6 +371,53 @@ namespace Parsek.Tests
             Assert.Equal(22000.0, module.GetRunningBalance());
         }
 
+        // The five non-positive early returns (milestone award, contract advance,
+        // contract reward, contract penalty, strategy setup cost) are written <= 0.0, but
+        // the suite only ever probes EXACTLY zero. A <= to == slip would let a negative
+        // row through: a negative award or advance would DEBIT the balance, and a negative
+        // penalty or setup cost would CREDIT it, in both cases silently.
+        [Theory]
+        [InlineData("milestone")]
+        [InlineData("contract-advance")]
+        [InlineData("contract-reward")]
+        [InlineData("contract-penalty")]
+        [InlineData("strategy-setup-cost")]
+        public void FundsModule_NegativeAmounts_AreNoOps(string kind)
+        {
+            module.ProcessAction(MakeSeed(0, 25000f));
+
+            GameAction action;
+            switch (kind)
+            {
+                case "milestone":
+                    action = MakeMilestone(50, "FirstLaunch", -5000f, effective: true);
+                    break;
+                case "contract-advance":
+                    action = MakeContractAccept(100, "contract-1", -5000f);
+                    break;
+                case "contract-reward":
+                    action = MakeContractComplete(200, "contract-1", -5000f, effective: true);
+                    break;
+                case "contract-penalty":
+                    action = MakeContractFail(300, "contract-1", -5000f);
+                    break;
+                default:
+                    action = new GameAction
+                    {
+                        UT = 400,
+                        Type = GameActionType.StrategyActivate,
+                        StrategyId = "strategy-1",
+                        SetupCost = -5000f
+                    };
+                    break;
+            }
+
+            module.ProcessAction(action);
+
+            Assert.Equal(25000.0, module.GetRunningBalance());
+            Assert.Equal(0.0, module.GetTotalEarnings());
+        }
+
         [Fact]
         public void ContractFail_ZeroPenalty_NoChange()
         {

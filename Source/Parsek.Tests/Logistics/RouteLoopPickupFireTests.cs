@@ -207,6 +207,7 @@ namespace Parsek.Tests.Logistics
             long lastObservedLoopCycleIndex = -1,
             Dictionary<string, double> deliveryManifest = null,
             Dictionary<string, double> pickupManifest = null,
+            List<InventoryPayloadItem> inventoryDeliveryManifest = null,
             uint endpointPid = 42u)
         {
             return new Route
@@ -229,6 +230,7 @@ namespace Parsek.Tests.Logistics
                         Endpoint = new RouteEndpoint { VesselPersistentId = endpointPid },
                         DeliveryManifest = deliveryManifest,
                         PickupManifest = pickupManifest,
+                        InventoryDeliveryManifest = inventoryDeliveryManifest,
                     },
                 },
                 SourceRefs = new List<RouteSourceRef>
@@ -739,6 +741,29 @@ namespace Parsek.Tests.Logistics
                 BuildLoopRoute(deliveryManifest: new Dictionary<string, double>())));
             Assert.False(RouteOrchestrator.RouteHasDeliveryManifest(
                 BuildLoopRoute(pickupManifest: M(("Ore", 50.0))))); // pure-pickup
+        }
+
+        [Fact]
+        public void RouteHasDeliveryManifest_TrueOnInventoryOnlyStop()
+        {
+            // The MIRROR of the pickup helper's inventory dimension. A stop that delivers
+            // only stored parts carries no resource manifest at all; if the inventory term
+            // is dropped the cycle takes the pure-pickup branch, never calls ApplyDelivery,
+            // and emits no RouteCargoDelivered row for cargo that physically moved.
+            var route = BuildLoopRoute(
+                inventoryDeliveryManifest: new List<InventoryPayloadItem>
+                {
+                    new InventoryPayloadItem
+                    {
+                        IdentityHash = "kind-drill",
+                        PartName = "RadialDrill",
+                        Quantity = 1,
+                        SlotsTaken = 1
+                    }
+                });
+
+            Assert.Null(route.Stops[0].DeliveryManifest);
+            Assert.True(RouteOrchestrator.RouteHasDeliveryManifest(route));
         }
 
         // ==================================================================

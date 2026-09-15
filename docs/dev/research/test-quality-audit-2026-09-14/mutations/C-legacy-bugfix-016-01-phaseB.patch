@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MilestoneStore.cs b/Source/Parsek/MilestoneStore.cs
+index ca0d08b72..2ba94c833 100644
+--- a/Source/Parsek/MilestoneStore.cs
++++ b/Source/Parsek/MilestoneStore.cs
+@@ -565,7 +565,7 @@ namespace Parsek
+             for (int i = 0; i < milestones.Count; i++)
+             {
+                 var m = milestones[i];
+-                if (!m.Committed) continue;
++                // MUTANT: uncommitted (provisional) milestones are counted too
+                 for (int j = 0; j < m.Events.Count; j++)
+                 {
+                     if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;

@@ -1,0 +1,37 @@
+diff --git a/Source/Parsek/EffectiveState.cs b/Source/Parsek/EffectiveState.cs
+index 35f60c54b..b1c26471d 100644
+--- a/Source/Parsek/EffectiveState.cs
++++ b/Source/Parsek/EffectiveState.cs
+@@ -1592,6 +1592,20 @@ namespace Parsek
+                     }
+                 }
+ 
++                // MUTANT: a recording-level supersede filter creeps into ELS.
++                HashSet<string> supersededRecordingIds = null;
++                var mutantSupersedes = hasScenario ? scenario.RecordingSupersedes : null;
++                if (mutantSupersedes != null && mutantSupersedes.Count > 0)
++                {
++                    supersededRecordingIds = new HashSet<string>(StringComparer.Ordinal);
++                    for (int i = 0; i < mutantSupersedes.Count; i++)
++                    {
++                        var r = mutantSupersedes[i];
++                        if (r == null || string.IsNullOrEmpty(r.OldRecordingId)) continue;
++                        supersededRecordingIds.Add(r.OldRecordingId);
++                    }
++                }
++
+                 var source = Ledger.Actions;
+                 var result = new List<GameAction>(source.Count);
+                 int raw = source.Count;
+@@ -1607,6 +1621,11 @@ namespace Parsek
+                         skippedTombstoned++;
+                         continue;
+                     }
++                    if (supersededRecordingIds != null && !string.IsNullOrEmpty(a.RecordingId)
++                        && supersededRecordingIds.Contains(a.RecordingId))
++                    {
++                        continue;
++                    }
+                     result.Add(a);
+                 }
+ 

@@ -1357,6 +1357,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyToRoster_TombstonedAvailableKerbalOnLiveVessel_SkippedLive()
+        {
+            // Available status alone is not enough to delete a roster entry: a kerbal
+            // seated on a loaded non-ghost vessel is a live seat name, and removing them
+            // would strip crew out from under the running scene. The status arm at the
+            // line above does not catch this - the fake reports Available, exactly as a
+            // stock roster can while the kerbal sits in a pod.
+            var module = new KerbalsModule();
+            var roster = new TombstoneCleanupFakeRoster();
+            roster.Add("Rescuee Kerman", ProtoCrewMember.RosterStatus.Available);
+            roster.LiveVesselCrew.Add("Rescuee Kerman");
+
+            module.QueueTombstonedRosterKerbal("Rescuee Kerman");
+            module.ApplyToRoster(roster);
+
+            Assert.True(roster.Contains("Rescuee Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Tombstoned roster cleanup:")
+                && l.Contains("skippedLive=1")
+                && l.Contains("removed=0"));
+        }
+
+        [Fact]
         public void ApplyToRoster_TombstonedNonAvailableRosterKerbal_Skipped()
         {
             var module = new KerbalsModule();
@@ -1430,9 +1454,17 @@ namespace Parsek.Tests
                 return statuses.Remove(name);
             }
 
+            /// <summary>
+            /// Names this fake reports as currently seated on a loaded non-ghost
+            /// vessel. Empty by default, so every pre-existing cell keeps the
+            /// old hard-coded false answer.
+            /// </summary>
+            internal readonly System.Collections.Generic.HashSet<string> LiveVesselCrew =
+                new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+
             public bool IsKerbalOnLiveVessel(string kerbalName)
             {
-                return false;
+                return LiveVesselCrew.Contains(kerbalName);
             }
 
             public bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId)

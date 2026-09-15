@@ -104,6 +104,48 @@ namespace Parsek.Tests
             Assert.Empty(ids);
         }
 
+        // The timeline-visibility skip in BOTH committed-action queries. Deleting either
+        // line is suite-green elsewhere: StockUiOverlayControllerTests compares
+        // GetCommittedTechIds() against another production derivation, so the two drift
+        // together, and no other cell feeds a HIDDEN (superseded / discarded recording)
+        // event into these queries. A hidden tech or facility row leaking through blocks
+        // the player from researching or upgrading something the live timeline never did.
+        [Fact]
+        public void GetCommittedTechIds_HiddenByTimelineFilter_NotIncluded()
+        {
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = "rec_live",
+                VesselName = "rec_live"
+            });
+            MilestoneStore.AddMilestoneForTesting(new Milestone
+            {
+                MilestoneId = "m_hidden",
+                Committed = true,
+                LastReplayedEventIndex = -1,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "basicRocketry",
+                        recordingId = "rec_hidden"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 60,
+                        eventType = GameStateEventType.FacilityUpgraded,
+                        key = "SpaceplaneHangar",
+                        recordingId = "rec_hidden"
+                    }
+                }
+            });
+
+            Assert.Empty(MilestoneStore.GetCommittedTechIds());
+            Assert.Empty(MilestoneStore.GetCommittedFacilityUpgrades());
+        }
+
         [Fact]
         public void GetCommittedTechIds_MultipleMilestones()
         {

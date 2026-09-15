@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/KerbalsModule.cs b/Source/Parsek/KerbalsModule.cs
+index c8f01dde7..08382ed6b 100644
+--- a/Source/Parsek/KerbalsModule.cs
++++ b/Source/Parsek/KerbalsModule.cs
+@@ -2158,12 +2158,7 @@ namespace Parsek
+                     continue;
+                 }
+ 
+-                if (roster.IsKerbalOnLiveVessel(name))
+-                {
+-                    skippedLive++;
+-                    continue;
+-                }
+-
++                // MUTANT: live-vessel skip removed
+                 if (roster.TryRemove(name))
+                     removed++;
+                 else

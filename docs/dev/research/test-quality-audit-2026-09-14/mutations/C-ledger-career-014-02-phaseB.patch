@@ -1,0 +1,31 @@
+diff --git a/Source/Parsek/GameActions/StrategyConversionCapture.cs b/Source/Parsek/GameActions/StrategyConversionCapture.cs
+index 7ad4ce084..45502fa81 100644
+--- a/Source/Parsek/GameActions/StrategyConversionCapture.cs
++++ b/Source/Parsek/GameActions/StrategyConversionCapture.cs
+@@ -311,7 +311,7 @@ namespace Parsek
+         {
+             var legs = new List<StrategyConversionLeg>();
+ 
+-            if (System.Math.Abs(q.DeltaScience) >= MinCaptureMagnitude)
++            if (System.Math.Abs(q.DeltaScience) > MinCaptureMagnitude)
+             {
+                 legs.Add(new StrategyConversionLeg
+                 {
+@@ -322,7 +322,7 @@ namespace Parsek
+ 
+             bool fundsInputIsZero = System.Math.Abs(q.InputFunds) < MinCaptureMagnitude;
+             if ((fundsInputIsZero || fundsChannelRecordsGross) &&
+-                System.Math.Abs(q.DeltaFunds) >= MinCaptureMagnitude)
++                System.Math.Abs(q.DeltaFunds) > MinCaptureMagnitude)
+             {
+                 legs.Add(new StrategyConversionLeg
+                 {
+@@ -331,7 +331,7 @@ namespace Parsek
+                 });
+             }
+ 
+-            if (System.Math.Abs(q.DeltaReputation) >= MinCaptureMagnitude)
++            if (System.Math.Abs(q.DeltaReputation) > MinCaptureMagnitude)
+             {
+                 legs.Add(new StrategyConversionLeg
+                 {

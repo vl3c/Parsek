@@ -364,6 +364,38 @@ _(unreleased — entries accumulate here per commit)_
   the ledger cutoff tests own that contract, and its one unique assertion survives as
   its own cell. Nothing a player sees changes.
 
+- **Tests: a second twelve priority-2 career-risk coverage gaps from the unit-test
+  quality audit are closed.** Ten rows were new coverage and two turned out to be guarded
+  already, so ten new cells landed and two rows closed as already covered. On the career
+  ledger: a strategy science yield is proved to feed the effective-earnings total, not only
+  the running pool, so the science the player can actually spend on a tech node cannot be
+  under-reported; the strategy currency-converter capture floor is driven at EXACTLY the
+  minimum magnitude in all three currencies, where the suite previously probed only values
+  orders of magnitude below it; the five non-positive early returns in the funds module are
+  driven with NEGATIVE amounts rather than exactly zero, so a `<=` to `==` slip that would
+  silently debit on an award or credit on a penalty now reds in all five; the KSC
+  expectation classifier's strategy science CREDIT arm gets the mirror of its covered debit
+  cell, so falling through to the generic earning default (which WARNs on every converter
+  row) is caught; and the strategies module's projection clone is driven for the first time,
+  pinning both that it carries the slot count and that it starts with no active strategies.
+  Off the ledger: a tombstoned roster kerbal who is Available but seated on a loaded vessel
+  is proved to survive cleanup (the fake roster gained a configurable live-seat set); the
+  Actions badge count is proved to exclude provisional milestones, which are not career work
+  yet; a delivery stop carrying only stored PARTS is proved to count as a delivery, so an
+  inventory-only cycle cannot take the pure-pickup branch and emit no delivered row; the
+  Wipe All path is driven headless for the first time and proved to empty the rescue-placed
+  marker set as well as the replacement map; and both committed-action queries are proved to
+  drop tech and facility rows hidden by the timeline filter, which the existing coverage
+  missed because it compared one production derivation against another. The two
+  already-covered rows are the strategy setup reputation cost (its mutant reds
+  `StrategyCaptureTests.RecalculateAndPatch_StrategyActivateSetupCostsAffectScienceAndRepBalances`)
+  and the ELS supersede filter (its mutant reds
+  `SupersedeCommitTombstoneTests.CommitTombstones_PreRewindPayoutAttributedToOriginChild_NotTombstoned`);
+  both were found by running the mutant against every class that reaches the method, not
+  only the one the audit named. Each landed cell carries a mutation proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No production change, no
+  player-visible change.
+
 - **Tests: twelve priority-2 data-loss and career coverage gaps from the unit-test quality
   audit are closed.** Eleven rows were new coverage and one (the gloops milestone purge)
   turned out to be guarded already by the discard-fate tests, so eleven new cells landed and

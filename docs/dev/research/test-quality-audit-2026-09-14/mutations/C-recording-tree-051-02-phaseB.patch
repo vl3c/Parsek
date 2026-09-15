@@ -1,0 +1,22 @@
+diff --git a/Source/Parsek/MilestoneStore.cs b/Source/Parsek/MilestoneStore.cs
+index ca0d08b72..a90672fd2 100644
+--- a/Source/Parsek/MilestoneStore.cs
++++ b/Source/Parsek/MilestoneStore.cs
+@@ -623,7 +623,7 @@ namespace Parsek
+                 if (!m.Committed) continue;
+                 for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
+                 {
+-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
++                    // MUTANT: timeline-visibility skip removed
+                     if (m.Events[j].eventType == GameStateEventType.TechResearched
+                         && !string.IsNullOrEmpty(m.Events[j].key))
+                         result.Add(m.Events[j].key);
+@@ -649,7 +649,7 @@ namespace Parsek
+                 if (!m.Committed) continue;
+                 for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
+                 {
+-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
++                    // MUTANT: timeline-visibility skip removed
+                     if (m.Events[j].eventType == GameStateEventType.FacilityUpgraded
+                         && !string.IsNullOrEmpty(m.Events[j].key))
+                         result.Add(m.Events[j].key);

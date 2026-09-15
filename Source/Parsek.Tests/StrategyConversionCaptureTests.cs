@@ -228,6 +228,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EvaluateLegs_AtExactlyMinCaptureMagnitude_IsCaptured()
+        {
+            // The floor is INCLUSIVE in all three currencies. SubThresholdMovements probes
+            // only values orders of magnitude below it, so a >= to > slip on any of the
+            // three compares would silently drop a movement sitting exactly on the floor
+            // and no committed cell would notice.
+            double floor = StrategyConversionCapture.MinCaptureMagnitude;
+
+            var sci = StrategyConversionCapture.EvaluateLegs(Query(dS: floor));
+            Assert.Equal(
+                StrategyConversionCurrency.Science,
+                Assert.Single(sci).Currency);
+
+            var funds = StrategyConversionCapture.EvaluateLegs(Query(dF: floor));
+            Assert.Equal(
+                StrategyConversionCurrency.Funds,
+                Assert.Single(funds).Currency);
+
+            var rep = StrategyConversionCapture.EvaluateLegs(Query(dR: -floor));
+            Assert.Equal(
+                StrategyConversionCurrency.Reputation,
+                Assert.Single(rep).Currency);
+        }
+
+        [Fact]
         public void ZeroInputReputationDelta_IsEvaluatedAsALeg()
         {
             // The SIGN is preserved through the pure evaluation; what each sign becomes is
@@ -814,6 +839,26 @@ namespace Parsek.Tests
 
             Assert.Equal(0.0, module.GetRunningScience(), 4);
             Assert.Contains(logLines, l => l.Contains("non-positive credit"));
+        }
+
+        [Fact]
+        public void ScienceModule_StrategyCredit_AlsoFeedsEffectiveEarnings()
+        {
+            // The credit is NOT a ProcessEarning row (no subject to cap against), but it
+            // must still reach totalEffectiveEarnings: that is the figure
+            // GetAvailableScience reserves against, so leaving it out under-reports the
+            // science the player can actually spend on a tech node by the yielded amount.
+            var module = new ScienceModule();
+            module.Reset();
+            module.ProcessStrategyScienceCredit(new GameAction
+            {
+                UT = 1.0,
+                Type = GameActionType.StrategyScienceCredit,
+                ScienceAwarded = 12.0f
+            });
+
+            Assert.Equal(12.0, module.GetTotalEffectiveEarnings(), 4);
+            Assert.Equal(12.0, module.GetAvailableScience(), 4);
         }
 
         // ================================================================

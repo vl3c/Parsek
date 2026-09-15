@@ -914,6 +914,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetPendingEventCount_ExcludesUncommittedMilestones()
+        {
+            // The badge counts pending CAREER work. A provisional milestone's events are
+            // not career work yet (the tree carrying them has not been merged), so
+            // counting them would show the player work that may never land.
+            MilestoneStore.AddMilestoneForTesting(new Milestone
+            {
+                MilestoneId = "provisional-ms",
+                StartUT = 0,
+                EndUT = 100,
+                Epoch = 0,
+                Committed = false,
+                LastReplayedEventIndex = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "basicRocketry",
+                        detail = "cost=5"
+                    }
+                }
+            });
+            MilestoneStore.AddMilestoneForTesting(
+                MakeCommittedMilestone(
+                    "committed-ms",
+                    0,
+                    100,
+                    new GameStateEvent
+                    {
+                        ut = 60,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "mk1pod.v2",
+                        detail = "cost=600"
+                    }));
+
+            Assert.Equal(1, MilestoneStore.GetPendingEventCount());
+        }
+
+        [Fact]
         public void GetPendingEventCount_ZeroWhenEmpty()
         {
             Assert.Equal(0, MilestoneStore.GetPendingEventCount());
