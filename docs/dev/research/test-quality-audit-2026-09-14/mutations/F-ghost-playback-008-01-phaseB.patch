@@ -1,0 +1,26 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index e0d742cb5..16255302d 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -4049,17 +4049,14 @@ namespace Parsek
+ 
+         internal static bool IsTerminalStateEligibleForMapPresence(TerminalState? terminal)
+         {
+-            return !terminal.HasValue
+-                || terminal.Value == TerminalState.Orbiting
+-                || terminal.Value == TerminalState.Docked
+-                || terminal.Value == TerminalState.SubOrbital;
++            // MUTANT: the terminal-state map-presence filter admits every terminal state.
++            return true;
+         }
+ 
+         private static bool IsTerminalStateEligibleForTerminalOrbitMapPresence(TerminalState? terminal)
+         {
+-            return !terminal.HasValue
+-                || terminal.Value == TerminalState.Orbiting
+-                || terminal.Value == TerminalState.Docked;
++            // MUTANT: the terminal-orbit fallback filter admits every terminal state.
++            return true;
+         }
+ 
+         internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)

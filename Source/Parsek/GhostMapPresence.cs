@@ -4068,6 +4068,24 @@ namespace Parsek
             return altitude > minAltitude && speed > StateVectorCreateSpeed;
         }
 
+        /// <summary>
+        /// The tracking-station refresh pass's state-vector removal decision, extracted from
+        /// RefreshTrackingStationGhosts so the composition is testable without a scene: a
+        /// Relative-frame point is NEVER removed on the altitude/speed threshold (its
+        /// <c>altitude</c> is anchor-local dz, not geographic altitude, so the threshold is
+        /// meaningless and firing it tears the ghost down every refresh tick while the create
+        /// path re-adds it next tick - the #556 flicker); an Absolute-frame point is evaluated
+        /// normally. Byte-identical to the inline short-circuit it replaces: the atmosphere
+        /// lookup still runs only on the non-Relative arm.
+        /// </summary>
+        internal static bool ShouldRemoveStateVectorOrbitInRefreshPass(
+            Recording rec, double effUT, double altitude, double speed, string bodyName)
+        {
+            if (IsInRelativeFrame(rec, effUT))
+                return false;
+            return ShouldRemoveStateVectorOrbit(altitude, speed, GetAtmosphereDepth(bodyName));
+        }
+
         internal static bool ShouldRemoveStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
             if (atmosphereDepth > 0 && altitude < atmosphereDepth)
@@ -7178,19 +7196,16 @@ namespace Parsek
                     // UpdateGhostOrbitFromStateVectors already dispatches on
                     // referenceFrame and resolves world position via the
                     // anchor for that branch.
-                    bool inRelativeFrame = IsInRelativeFrame(rec, effUT);
-                    if (!inRelativeFrame)
+                    if (ShouldRemoveStateVectorOrbitInRefreshPass(
+                        rec,
+                        effUT,
+                        pt.Value.altitude,
+                        pt.Value.velocity.magnitude,
+                        pt.Value.bodyName))
                     {
-                        double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
-                        if (ShouldRemoveStateVectorOrbit(
-                            pt.Value.altitude,
-                            pt.Value.velocity.magnitude,
-                            atmosphereDepth))
-                        {
-                            if (toRemove == null) toRemove = new List<(int, string)>();
-                            toRemove.Add((idx, "below-state-vector-threshold"));
-                            continue;
-                        }
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "below-state-vector-threshold"));
+                        continue;
                     }
 
                     if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, effUT,
