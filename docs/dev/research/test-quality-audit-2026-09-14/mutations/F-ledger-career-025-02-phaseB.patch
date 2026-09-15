@@ -1,0 +1,19 @@
+diff --git a/Source/Parsek/GameActions/KscActionExpectationClassifier.cs b/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
+index 406e1509f..334e6b907 100644
+--- a/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
++++ b/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
+@@ -307,6 +307,14 @@ namespace Parsek
+                 case GameActionType.KerbalStandIn:
+                 case GameActionType.FacilityDestruction:
+                 case GameActionType.StrategyDeactivate:
++                    return new KscActionExpectation
++                    {
++                        Class = KscReconcileClass.Untransformed,
++                        FundsLeg = CreateExpectationLeg(
++                            GameStateEventType.FundsChanged,
++                            "StrategySetup",
++                            -1000.0)
++                    };
+                 case GameActionType.FundsInitial:
+                 case GameActionType.ScienceInitial:
+                 case GameActionType.ReputationInitial:

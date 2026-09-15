@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..6bf0815db 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -406,8 +406,8 @@ namespace Parsek
+             // overall commit as complete.
+             OnRecordingCommittedPostSciencePersistFaultInjector?.Invoke(recordingId);
+ 
+-            ParsekLog.Info(Tag,
+-                $"Committed recording '{recordingId}': {actions.Count} actions added to ledger " +
++            ParsekLog.Verbose(Tag,
++                $"Committed recording redacted: {actions.Count} rows " +
+                 $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
+                 $"kerbals={kerbalActions.Count}, dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
+ 

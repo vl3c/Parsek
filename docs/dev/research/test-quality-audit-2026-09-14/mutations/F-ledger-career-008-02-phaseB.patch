@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GameStateStore.cs b/Source/Parsek/GameStateStore.cs
+index 7492afc21..55f1301a9 100644
+--- a/Source/Parsek/GameStateStore.cs
++++ b/Source/Parsek/GameStateStore.cs
+@@ -906,7 +906,6 @@ namespace Parsek
+         /// </summary>
+         internal static void RecordOriginalScience(string subjectId, float originalScience)
+         {
+-            if (originalScienceValues.ContainsKey(subjectId)) return;
+             originalScienceValues[subjectId] = originalScience;
+             ParsekLog.Verbose("GameStateStore",
+                 $"Recorded original science for {subjectId}: {originalScience:F1}");
