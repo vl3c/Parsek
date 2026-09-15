@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameStateFacilityRecorder.cs b/Source/Parsek/GameStateFacilityRecorder.cs
+index 766314af1..3fba94dce 100644
+--- a/Source/Parsek/GameStateFacilityRecorder.cs
++++ b/Source/Parsek/GameStateFacilityRecorder.cs
+@@ -110,7 +110,7 @@ namespace Parsek
+             // Mirror the poll's ledger-forward: only upgrades forward (downgrades are
+             // informational), gated on ShouldForwardFacilityLedgerEvent.
+             if (kind.Value == GameStateEventType.FacilityUpgraded
+-                && owner.ShouldForwardFacilityLedgerEvent(evt.recordingId))
++                && owner.ShouldForwardFacilityLedgerEvent(GameStateRecorder.ResolveCurrentRecordingTag()))
+                 LedgerOrchestrator.OnKscSpending(evt);
+ 
+             // Update the poll cache so a subsequent scene-change poll does not re-emit.

@@ -611,10 +611,32 @@ namespace Parsek.Tests
             // Gate 3: the helper must mirror the canonical promote-from-background
             // bind pattern (new FlightRecorder, ActiveTree assigned,
             // StartRecording(isPromotion: true), PrepareSessionStateForRecorderStart).
+            //
+            // BOUNDED to the helper's OWN body (audit F-recording-tree-035-02):
+            // run file-wide, this regex matched the CreateSplitBranch undock
+            // recorder further down ParsekFlight.cs, so mutating the helper to
+            // isPromotion:false - or dropping its PrepareSessionStateForRecorderStart
+            // call - left every gate green.
+            int helperStart = source.IndexOf(
+                "private bool BindLiveRecorderToSwitchSegment(", StringComparison.Ordinal);
+            Assert.True(helperStart > 0,
+                "BindLiveRecorderToSwitchSegment declaration not found in ParsekFlight.cs");
+            int helperEnd = source.IndexOf(
+                "// End Phase C: stock-action intent consume.", helperStart, StringComparison.Ordinal);
+            Assert.True(helperEnd > helperStart,
+                "End-of-Phase-C marker not found after BindLiveRecorderToSwitchSegment; "
+                + "re-anchor this gate before deleting that comment.");
+            string helperBody = source.Substring(helperStart, helperEnd - helperStart);
+
             Assert.Matches(new Regex(
-                @"recorder = new FlightRecorder\(\);[\s\S]{0,200}?recorder\.ActiveTree = activeTree;[\s\S]{0,400}?recorder\.StartRecording\(isPromotion: true\);[\s\S]{0,400}?PrepareSessionStateForRecorderStart\(",
+                @"recorder = new FlightRecorder\(\);[\s\S]{0,200}?recorder\.ActiveTree = activeTree;[\s\S]{0,400}?recorder\.StartRecording\(isPromotion: true\);[\s\S]{0,1500}?PrepareSessionStateForRecorderStart\(",
                 RegexOptions.Multiline),
-                source);
+                helperBody);
+
+            // The recorder-bound ledger line the consume ledger reads belongs to
+            // THIS helper, not to some other method that happens to log it.
+            Assert.Contains("recorder-bound route=", helperBody);
+            Assert.Contains("new-recording-id=", helperBody);
         }
 
         // -----------------------------------------------------------------

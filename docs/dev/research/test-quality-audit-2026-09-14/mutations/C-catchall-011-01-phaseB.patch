@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingOptimizer.cs b/Source/Parsek/RecordingOptimizer.cs
+index 3bec5cc89..9b368fde6 100644
+--- a/Source/Parsek/RecordingOptimizer.cs
++++ b/Source/Parsek/RecordingOptimizer.cs
+@@ -1682,8 +1682,6 @@ namespace Parsek
+             //     split loses them exactly once. The tip is a new recording id with no
+             //     annotations of its own, and both halves are marked dirty by the
+             //     callers, so the next sidecar write refits.
+-            OrbitSegmentCheckpointBridge.InvalidateSectionAnnotationsForOrdinalShift(
+-                original, "RecordingOptimizer.SplitAtUT");
+ 
+             // 6. Success log.
+             ParsekLog.Info("Optimizer",

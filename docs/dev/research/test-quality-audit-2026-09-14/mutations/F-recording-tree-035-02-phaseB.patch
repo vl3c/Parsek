@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..d788fb4f0 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -10117,7 +10117,7 @@ namespace Parsek
+                     recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
+                     chainManager.PendingBoundaryAnchor = null;
+                 }
+-                recorder.StartRecording(isPromotion: true);
++                recorder.StartRecording(isPromotion: false); // MUTATION
+             }
+             catch (System.Exception ex)
+             {

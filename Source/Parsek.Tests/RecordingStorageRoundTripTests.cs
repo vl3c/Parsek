@@ -2267,14 +2267,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrajectorySidecarBinary_Read_SparsePointListFlagPresent_TruncatedMidPoint_ThrowsInvalidData()
+        public void TrajectorySidecarBinary_Read_SparsePointList_TruncatedSecondPoint_ThrowsEndOfStreamAfterDefaultedFirstPoint()
         {
-            // ReadPointList's bounded-count check runs before
-            // ReadSparsePointList consumes the sparse-list-flag byte, so
-            // a count of 50 against only ~12 bytes of remaining payload
-            // is rejected at the same up-front gate. The sparse-vs-dense
-            // header bytes that used to be consumed before the EOS throw
-            // are no longer read in this corruption scenario.
+            // The sparse read path, not the up-front bound gate. The point-list
+            // count is 2, small enough that ReadBoundedCount passes, so
+            // ReadSparsePointList consumes the 0x03 list-flags byte
+            // (Enabled|BodyDefault) plus the defaulted body-name index, decodes
+            // the first point with a DEFAULTED body name, and then runs off the
+            // end of the truncated second point.
+            //
+            // The count-999 bound gate itself is pinned by
+            // TrajectorySidecarBinary_Read_PointListCountExceedsRemainingBytes_ThrowsInvalidData.
             string path = Path.Combine(tempDir, "truncated-sparse.prec");
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
             using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
@@ -2286,10 +2289,28 @@ namespace Parsek.Tests
                 writer.Write("truncated-sparse-test");
                 writer.Write((byte)0);
                 writer.Write(1);
-                writer.Write("Kerbin");
-                writer.Write(50);
-                writer.Write((byte)0x03);
-                writer.Write(0);
+                writer.Write("Kerbin");      // string table entry 0
+                writer.Write(2);             // point-list count
+                writer.Write((byte)0x03);    // sparse enabled + body default
+                writer.Write(0);             // default body name = string table[0]
+
+                // Point 0, complete: ut/lat/lon/alt, rotation, velocity,
+                // per-point flags 0 (take the body default), funds, science,
+                // reputation, ground clearance, point flags byte.
+                writer.Write(101.0);
+                writer.Write(1.0);
+                writer.Write(2.0);
+                writer.Write(3.0);
+                writer.Write(0f); writer.Write(0f); writer.Write(0f); writer.Write(1f);
+                writer.Write(4f); writer.Write(5f); writer.Write(6f);
+                writer.Write((byte)0);
+                writer.Write(7.0);
+                writer.Write(8f);
+                writer.Write(9f);
+                writer.Write(10.0);
+                writer.Write((byte)0);
+
+                // Point 1, truncated mid-point.
                 writer.Write(new byte[10]);
             }
 
@@ -2298,10 +2319,16 @@ namespace Parsek.Tests
             Assert.True(probe.Success);
 
             var rec = new Recording { RecordingId = "truncated-sparse-test" };
-            var ex = Assert.Throws<InvalidDataException>(() =>
+            Assert.Throws<EndOfStreamException>(() =>
                 RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
-            Assert.Contains("point-list", ex.Message);
-            Assert.Contains("exceeds", ex.Message);
+
+            // The first point survived the partial read, and its body name came
+            // from the sparse LIST default rather than a per-point string index:
+            // that is what proves the sparse header was consumed.
+            Assert.Single(rec.Points);
+            Assert.Equal(101.0, rec.Points[0].ut, 6);
+            Assert.Equal("Kerbin", rec.Points[0].bodyName);
+            Assert.Equal(7.0, rec.Points[0].funds, 6);
         }
 
         [Fact]

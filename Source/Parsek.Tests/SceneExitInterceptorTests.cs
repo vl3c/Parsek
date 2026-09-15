@@ -486,12 +486,26 @@ namespace Parsek.Tests
             Assert.Equal(GameScenes.MAINMENU, capturedDest);
         }
 
+        // NAME SCOPE (audit F-recording-tree-042-04): the test seam
+        // short-circuits BEFORE the try block, so the MAINMENU-specific
+        // hard-block catch (Error log + save-failed popup + false) is never
+        // reached here. This cell pins seam passthrough for a MAINMENU
+        // destination and nothing more; the hard-block contract has no
+        // headless test and needs a failure seam inside the try to get one.
         [Fact]
-        public void SafeWritePersistent_TestSeam_FailureOnMainMenu_ReturnsFalse()
+        public void SafeWritePersistent_TestSeamPassthrough_MainMenuDestination_ReturnsSeamValue()
         {
-            SceneExitInterceptor.SafeWritePersistentForTesting = _ => false;
+            GameScenes? capturedDest = null;
+            SceneExitInterceptor.SafeWritePersistentForTesting = dest =>
+            {
+                capturedDest = dest;
+                return false;
+            };
             bool result = SceneExitInterceptor.SafeWritePersistent(GameScenes.MAINMENU);
             Assert.False(result);
+            // The destination reaches the seam unchanged - that is the whole
+            // observable this cell owns.
+            Assert.Equal(GameScenes.MAINMENU, capturedDest);
         }
 
         [Fact]

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameActions/StrategiesModule.cs b/Source/Parsek/GameActions/StrategiesModule.cs
+index fb1204233..15d82a94f 100644
+--- a/Source/Parsek/GameActions/StrategiesModule.cs
++++ b/Source/Parsek/GameActions/StrategiesModule.cs
+@@ -115,7 +115,8 @@ namespace Parsek
+                 ActivateUT = action.UT
+             };
+ 
+-            activeStrategies[id] = state;
++            if (!activeStrategies.ContainsKey(id))
++                activeStrategies[id] = state;
+ 
+             ParsekLog.Info(Tag,
+                 $"Activate: strategyId='{id}' source={action.SourceResource} " +

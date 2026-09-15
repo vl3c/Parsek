@@ -280,6 +280,30 @@ namespace Parsek.Tests
             Assert.Equal(ContractTerminalOutcome.DeadlineExpired, terminalOutcomes["c4"]);
         }
 
+        // The "LATEST outcome" half of the cell above, which that cell cannot show: every id
+        // there takes exactly one terminal action, so a first-wins guard on the two maps
+        // passes it unchanged. A second terminal action with no intervening Accept (an
+        // Accept clears both maps) is the only shape that discriminates them, and the maps
+        // drive KspStatePatcher's tombstone discrimination.
+        [Fact]
+        public void TerminalContractMaps_SecondTerminalActionWithNoReAccept_Overwrites()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            module.ProcessAction(MakeFail("c1"));
+
+            Assert.Equal(GameActionType.ContractFail,
+                module.GetTerminalContractActionTypes()["c1"]);
+            Assert.Equal(ContractTerminalOutcome.Failed,
+                module.GetTerminalContractOutcomes()["c1"]);
+
+            module.ProcessAction(MakeCancel("c1"));
+
+            Assert.Equal(GameActionType.ContractCancel,
+                module.GetTerminalContractActionTypes()["c1"]);
+            Assert.Equal(ContractTerminalOutcome.Cancelled,
+                module.GetTerminalContractOutcomes()["c1"]);
+        }
+
         [Theory]
         [InlineData(GameActionType.ContractFail)]
         [InlineData(GameActionType.ContractCancel)]

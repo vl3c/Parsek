@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..2f2b2470f 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -3731,9 +3731,8 @@ namespace Parsek
+         internal static int GetChainPredecessorIndex(Recording rec)
+         {
+             if (rec == null) return -1;
+-            if (string.IsNullOrEmpty(rec.ChainId)) return -1;
++            // MUTATION: null-ChainId and non-positive-ChainIndex guards deleted
+             if (rec.ChainBranch != 0) return -1;
+-            if (rec.ChainIndex <= 0) return -1;
+             int expectedPredecessorIndex = rec.ChainIndex - 1;
+             for (int i = 0; i < committedRecordings.Count; i++)
+             {

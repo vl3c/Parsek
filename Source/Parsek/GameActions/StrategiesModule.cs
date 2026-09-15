@@ -210,6 +210,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the state stored for an active strategy, so a caller can see WHICH
+        /// activation is held and not merely how many there are: a re-activation of the same
+        /// id overwrites the stored commitment and resources, and nothing else on this
+        /// surface can tell an overwrite from an ignore. Read-only - the returned instance is
+        /// the stored one and must not be mutated.
+        /// </summary>
+        internal bool TryGetActiveStrategy(string strategyId, out StrategyState state)
+        {
+            return activeStrategies.TryGetValue(strategyId ?? "", out state);
+        }
+
+        /// <summary>
         /// Sets the maximum number of strategy slots. For testing and facility level updates.
         /// </summary>
         internal void SetMaxSlots(int slots)

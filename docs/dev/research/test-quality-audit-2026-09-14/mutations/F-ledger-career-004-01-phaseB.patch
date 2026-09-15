@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..f3781e626 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -6220,13 +6220,6 @@ namespace Parsek
+                 var evt = events[i];
+                 if (evt.eventType != GameStateEventType.ScienceChanged)
+                     continue;
+-                if (!string.Equals(
+-                        evt.key,
+-                        GameStateEventConverter.StrategyInputReasonKey,
+-                        StringComparison.Ordinal))
+-                {
+-                    continue;
+-                }
+                 if (evt.valueAfter >= evt.valueBefore)
+                     continue;
+                 if (visibilityFilter != null && !visibilityFilter(evt))

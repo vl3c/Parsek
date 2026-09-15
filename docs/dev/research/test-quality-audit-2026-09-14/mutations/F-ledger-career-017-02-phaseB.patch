@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GameActions/ReputationModule.cs b/Source/Parsek/GameActions/ReputationModule.cs
+index d09b102b5..22160e730 100644
+--- a/Source/Parsek/GameActions/ReputationModule.cs
++++ b/Source/Parsek/GameActions/ReputationModule.cs
+@@ -379,9 +379,7 @@ namespace Parsek
+                     continue;
+ 
+                 float time = rep / repRange;
+-                float mult = (input < 0f)
+-                    ? EvaluateSubtractionCurve(time)
+-                    : EvaluateAdditionCurve(time);
++                float mult = 1f;
+                 float step = input * mult;
+                 rep += step;
+                 accumulated += step;

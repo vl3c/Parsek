@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs b/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
+index 635bd2d84..024b458f5 100644
+--- a/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
++++ b/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
+@@ -856,12 +856,6 @@ namespace Parsek
+                             result.terrainHeightAtEnd = null;
+                             result.terminalOrbit = null;
+ 
+-                            if (recovered.terminalState == TerminalState.Orbiting
+-                                && appendedSegments.Count > 0)
+-                            {
+-                                result.terminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(
+-                                    appendedSegments[appendedSegments.Count - 1]);
+-                            }
+ 
+                             ParsekLog.Info("Extrapolator",
+                                 string.Format(

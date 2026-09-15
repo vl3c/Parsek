@@ -163,11 +163,16 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsEarning,
                 FundsAwarded = 5000f
             };
-            var milestone = new GameAction
+            // MilestoneAchievement used to stand here as an "ignored" type. It is not: the
+            // switch has an arm for it (ProcessMilestoneScienceReward), and the fixture only
+            // looked ignored because it carried no science and was not Effective. The types
+            // below have no arm at all, so this cell now discriminates the default case.
+            var facilityUpgrade = new GameAction
             {
                 UT = 17000.0,
-                Type = GameActionType.MilestoneAchievement,
-                MilestoneId = "FirstLaunch"
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceplaneHangar",
+                FacilityCost = 75000f
             };
             var contractAccept = new GameAction
             {
@@ -177,11 +182,51 @@ namespace Parsek.Tests
             };
 
             module.ProcessAction(fundsEarning);
-            module.ProcessAction(milestone);
+            module.ProcessAction(facilityUpgrade);
             module.ProcessAction(contractAccept);
 
             Assert.Equal(0.0, module.GetRunningScience());
             Assert.Equal(0, module.SubjectCount);
+        }
+
+        // The mirror of the arm the cell above used to misfile as ignored: an EFFECTIVE
+        // milestone carrying science credits the pool. Without this, deleting the
+        // MilestoneAchievement arm from ProcessAction's switch would go unnoticed.
+        [Fact]
+        public void ProcessAction_EffectiveMilestoneWithScience_CreditsTheRunningPool()
+        {
+            var milestone = new GameAction
+            {
+                UT = 17000.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                MilestoneScienceAwarded = 4f,
+                Effective = true
+            };
+
+            module.ProcessAction(milestone);
+
+            Assert.Equal(4.0, module.GetRunningScience(), 6);
+            // A milestone is a pool-only credit: it creates no subject.
+            Assert.Equal(0, module.SubjectCount);
+        }
+
+        // ... and the not-effective duplicate stays out of the pool.
+        [Fact]
+        public void ProcessAction_NotEffectiveMilestoneWithScience_CreditsNothing()
+        {
+            var milestone = new GameAction
+            {
+                UT = 17000.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "FirstLaunch",
+                MilestoneScienceAwarded = 4f,
+                Effective = false
+            };
+
+            module.ProcessAction(milestone);
+
+            Assert.Equal(0.0, module.GetRunningScience());
         }
 
         [Fact]

@@ -167,27 +167,31 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.ScienceEarning, Ledger.Actions[0].Type);
         }
 
+        // The COMMIT summary, from a real OnRecordingCommitted walk. Until the 2026-09-16
+        // audit this cell added a row by hand, called RecalculateAndPatch and asserted the
+        // RECALC's completion line - which RecalculateAndPatch_RunsWithoutError below
+        // already pins, and which says nothing about the commit summary the name claims.
         [Fact]
         public void OnRecordingCommitted_LogsSummary()
         {
+            RecordingStore.ResetForTesting();
             LedgerOrchestrator.Initialize();
 
-            // Add actions directly and run recalculate to verify logging
-            var action = new GameAction
-            {
-                UT = 200.0,
-                Type = GameActionType.ScienceEarning,
-                RecordingId = "rec-log-test",
-                SubjectId = "temperatureScan@KerbinSrfLanded",
-                ScienceAwarded = 5f,
-                SubjectMaxValue = 20f
-            };
-            Ledger.AddAction(action);
+            InstallCrewedRecording("rec-log-test", KerbalEndState.Aboard, "Jeb Kerman");
+            AddMilestoneRepEvent("rec-log-test", 90.0, "RecordsSpeed", 1f);
 
-            LedgerOrchestrator.RecalculateAndPatch();
+            bool scienceAdded = false;
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-log-test", 50.0, 150.0, null, ref scienceAdded);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[LedgerOrchestrator]") && l.Contains("RecalculateAndPatch complete"));
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Committed recording 'rec-log-test'") &&
+                l.Contains("actions added to ledger") &&
+                l.Contains("startUT=") &&
+                l.Contains("endUT="));
+
+            RecordingStore.ResetForTesting();
         }
 
         // ================================================================
@@ -1956,14 +1960,17 @@ namespace Parsek.Tests
         {
             var events = new List<GameStateEvent>
             {
-                // Wrong reason: an ordinary transmission credit.
+                // Wrong reason, RIGHT sign: a tech-research debit. It has to be a DEBIT or
+                // the reason filter is over-determined by the sign filter - with a
+                // wrong-reason CREDIT here (what this cell used to carry) the reason test
+                // could be deleted outright and the sum would still come out at 50.
                 new GameStateEvent
                 {
                     ut = 400.0,
                     eventType = GameStateEventType.ScienceChanged,
-                    key = "ScienceTransmission",
-                    valueBefore = 0.0,
-                    valueAfter = 60.0
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                    valueBefore = 100.0,
+                    valueAfter = 40.0
                 },
                 // Right reason, wrong sign: a StrategyInput CREDIT is not something KSP
                 // took away, and ConvertStrategyExchangeScience returns null for it.
@@ -2005,7 +2012,6 @@ namespace Parsek.Tests
             // ScreenMessage - on every recalc for the rest of the flight.
             const double LiveScience = 641.15828148;   // KSP already took the science
             const double RawRunning = 750.0;           // ledger has no debit row yet
-            const double PendingDebit = 108.84171852;
 
             // WITHOUT the adjustment the guard clamps DOWN to live and toasts.
             var unadjusted = KspStatePatcher.ResolveSciencePoolPatch(
@@ -2013,13 +2019,24 @@ namespace Parsek.Tests
             Assert.True(unadjusted.Clamped);
             Assert.Equal(KspStatePatcher.ClampDirection.Down, unadjusted.Direction);
 
-            // WITH it, the discriminator equals live and nothing is clamped. This is the
-            // exact fold ComputePendingAdjustedRunningScience performs.
+            // The discriminator comes from PRODUCTION, not from a hardcoded constant and an
+            // inline re-issue of the fold: stage the uncommitted exchange the way the live
+            // race does (recording on the current timeline, event in the store, no row yet)
+            // and let ComputePendingAdjustedRunningScience resolve it. Until the 2026-09-16
+            // audit the pending amount was typed in here, so stubbing that helper - or
+            // deleting the pending mechanism outright - left this cell green while the
+            // clamp-plus-toast symptom it is named for came back.
+            RecordingStore.AddRecordingWithTreeForTesting(
+                new Recording { RecordingId = "rec-flight", VesselName = "Exchanger" });
+            var evt = StrategyInputScienceDebit(8599.87, RawRunning, LiveScience, "rec-flight");
+            GameStateStore.AddEvent(ref evt);
+
+            double discriminator = KspStatePatcher.ComputePendingAdjustedRunningScience(
+                RawRunning, LiveScience);
+            Assert.Equal(LiveScience, discriminator, 4);
+
             var adjusted = KspStatePatcher.ResolveSciencePoolPatch(
-                (float)LiveScience,
-                RawRunning - PendingDebit,
-                RawRunning - PendingDebit,
-                authoritativeReduction: false);
+                (float)LiveScience, discriminator, discriminator, authoritativeReduction: false);
             Assert.False(adjusted.Clamped);
             Assert.Equal(KspStatePatcher.ClampDirection.None, adjusted.Direction);
         }

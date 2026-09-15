@@ -520,28 +520,42 @@ namespace Parsek.Tests
             Assert.Equal(expected, GhostVisualBuilder.TryExtractPartName(raw));
         }
 
+        // The parsed components are asserted on the accepting rows, not just
+        // the bool: a component-order swap (y/z) or a wrong parts[] index in
+        // TryParseVector3 keeps ok true and would otherwise ship green.
         [Theory]
-        [InlineData("1,2,3", true)]
-        [InlineData(" 1.5 , -2 , 3 ", true)]
-        [InlineData("1,2", false)]
-        [InlineData("x,2,3", false)]
-        public void TryParseVector3_Works(string value, bool expected)
+        [InlineData("1,2,3", true, 1f, 2f, 3f)]
+        [InlineData(" 1.5 , -2 , 3 ", true, 1.5f, -2f, 3f)]
+        [InlineData("1,2", false, 0f, 0f, 0f)]
+        [InlineData("x,2,3", false, 0f, 0f, 0f)]
+        public void TryParseVector3_Works(string value, bool expected, float x, float y, float z)
         {
             Vector3 parsed;
             bool ok = GhostVisualBuilder.TryParseVector3(value, out parsed);
             Assert.Equal(expected, ok);
+            // Rejecting rows must leave the out parameter at Vector3.zero.
+            Assert.Equal((double)x, (double)parsed.x, 4);
+            Assert.Equal((double)y, (double)parsed.y, 4);
+            Assert.Equal((double)z, (double)parsed.z, 4);
         }
 
+        // Same widening for the quaternion parser: w is the LAST component,
+        // so an x/w or y/z swap at Parsing.cs:194 is now the deciding term.
         [Theory]
-        [InlineData("0,0,0,1", true)]
-        [InlineData(" 0.1 , 0.2 , 0.3 , 0.4 ", true)]
-        [InlineData("0,0,1", false)]
-        [InlineData("0,0,0,w", false)]
-        public void TryParseQuaternion_Works(string value, bool expected)
+        [InlineData("0,0,0,1", true, 0f, 0f, 0f, 1f)]
+        [InlineData(" 0.1 , 0.2 , 0.3 , 0.4 ", true, 0.1f, 0.2f, 0.3f, 0.4f)]
+        [InlineData("0,0,1", false, 0f, 0f, 0f, 1f)]
+        [InlineData("0,0,0,w", false, 0f, 0f, 0f, 1f)]
+        public void TryParseQuaternion_Works(string value, bool expected, float x, float y, float z, float w)
         {
             Quaternion parsed;
             bool ok = GhostVisualBuilder.TryParseQuaternion(value, out parsed);
             Assert.Equal(expected, ok);
+            // Rejecting rows must leave the out parameter at Quaternion.identity.
+            Assert.Equal((double)x, (double)parsed.x, 4);
+            Assert.Equal((double)y, (double)parsed.y, 4);
+            Assert.Equal((double)z, (double)parsed.z, 4);
+            Assert.Equal((double)w, (double)parsed.w, 4);
         }
 
         [Theory]
@@ -1084,6 +1098,15 @@ namespace Parsek.Tests
                 Assert.NotNull(savedCr);
                 var entries = savedCr.GetNodes("ENTRY");
                 Assert.Equal(2, entries.Length);
+                // Read the written pairs back (order-independent): asserting only
+                // the ENTRY count and the Saved log leaves a key/value swap or a
+                // blank value write in SaveCrewReplacements invisible.
+                var saved = new Dictionary<string, string>();
+                foreach (var entry in entries)
+                    saved[entry.GetValue("original")] = entry.GetValue("replacement");
+                Assert.Equal(2, saved.Count);
+                Assert.Equal("Bob", saved["Jeb"]);
+                Assert.Equal("Bill", saved["Val"]);
                 Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Saved 2 crew replacement"));
             }
             finally

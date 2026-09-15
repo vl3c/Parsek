@@ -691,7 +691,11 @@ namespace Parsek.Tests
                 a.Type == GameActionType.StrategyDeactivate &&
                 a.StrategyId == "UnpaidResearch");
             Assert.NotNull(written);
-            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation: Funds mismatch"));
+            // The production channel tag. Until the 2026-09-16 audit this guarded the literal
+            // "KSC reconciliation: Funds mismatch", which KscActionReconciler never emits -
+            // it words its warnings "KSC reconciliation (funds): ..." - so the negative
+            // assertion could not fail for any behavior.
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (funds)"));
         }
 
         // ================================================================

@@ -80,13 +80,20 @@ namespace Parsek.Tests
                 l.Contains("[KerbalsModule]") && l.Contains("Reservation") && l.Contains("Jeb"));
         }
 
+        // RENAMED 2026-09-16 (test-quality audit). This cell was called
+        // IsManaged_RetiredKerbal_ReturnsTrue, but its own comment already said both kerbals
+        // are RESERVED: neither is retired, the retiredKerbals term in IsManaged is never
+        // reached, and making that term return false left the cell green. Retirement needs a
+        // chain entry that is used in a recording AND displaced AND not reserved
+        // (KerbalsModule.ComputeRetiredSet), which this fixture never builds. What the cell
+        // does prove is the reservation term, for two crew in two separate recordings - and
+        // GetReservationKind is asserted alongside so it is the reservation branch, not the
+        // retired one or the chain-membership one, that has to answer.
         [Fact]
-        public void IsManaged_RetiredKerbal_ReturnsTrue()
+        public void IsManaged_TwoReservedCrew_BothManagedAsReservedActive()
         {
-            // Arrange: To create a retired kerbal:
-            // 1. rec1 reserves Jeb (Aboard => open-ended reservation)
-            // 2. rec2 uses StandIn1 as crew
-            // Both Jeb and StandIn1 are reserved (both aboard intact vessels).
+            // rec1 reserves Jeb, rec2 reserves StandIn1; both vessels end intact, so both
+            // reservations are open-ended.
             var rec1 = MakeRecording("Ship1", new[] { "Jeb" },
                 TerminalState.Landed, 1000);
             var rec2 = MakeRecording("Ship2", new[] { "StandIn1" },
@@ -96,9 +103,12 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            // Both are managed (reserved)
             Assert.True(kerbals.IsManaged("Jeb"));
             Assert.True(kerbals.IsManaged("StandIn1"));
+            Assert.Equal(KerbalReservationKind.ReservedActive,
+                kerbals.GetReservationKind("Jeb"));
+            Assert.Equal(KerbalReservationKind.ReservedActive,
+                kerbals.GetReservationKind("StandIn1"));
         }
 
         [Fact]

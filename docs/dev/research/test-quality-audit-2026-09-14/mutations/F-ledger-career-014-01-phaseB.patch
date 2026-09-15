@@ -1,0 +1,31 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..cb0305a52 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -4157,6 +4157,8 @@ namespace Parsek
+         /// this row is the missing diverted half. Funds carry no curve, so the row is
+         /// exact in any walk order.</para>
+         /// </summary>
++        private static readonly List<GameAction> pendingConversionRows = new List<GameAction>();
++
+         internal static void OnStrategyCurrencyConversion(
+             double ut,
+             IReadOnlyList<StrategyConversionLeg> legs,
+@@ -4183,7 +4185,7 @@ namespace Parsek
+                 // Same contract as the OnKscSpending door: stamp only, never seed. See
+                 // StampLiveWriteRowAgainstSeed for the event-ordering reason.
+                 StampLiveWriteRowAgainstSeed(action, "strategy conversion " + action.Type);
+-                Ledger.AddAction(action);
++                pendingConversionRows.Add(action);
+                 written++;
+ 
+                 ParsekLog.Info(Tag,
+@@ -4210,6 +4212,8 @@ namespace Parsek
+             // and the next natural recalc picks them up.
+             var dispatch = StrategyConversionCapture.DecideRecalcDispatch(
+                 written, WarpToTimeConsumer.Instance != null);
++            for (int p = 0; p < pendingConversionRows.Count; p++)
++                Ledger.AddAction(pendingConversionRows[p]);
+             ParsekLog.Verbose(Tag,
+                 "OnStrategyCurrencyConversion recalc dispatch=" + dispatch +
+                 " written=" + written.ToString(CultureInfo.InvariantCulture));

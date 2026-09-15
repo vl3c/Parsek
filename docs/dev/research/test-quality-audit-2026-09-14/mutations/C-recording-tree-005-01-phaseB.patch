@@ -1,0 +1,24 @@
+diff --git a/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs b/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
+index 635bd2d84..b53d97d59 100644
+--- a/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
++++ b/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
+@@ -1636,19 +1636,6 @@ namespace Parsek
+                     }
+                 }
+             }
+-            else
+-            {
+-                InspectPredictedTailAnchorCandidates(
+-                    recording.Points,
+-                    "Points",
+-                    segment,
+-                    maxGapSeconds,
+-                    ref found,
+-                    ref bestUT,
+-                    ref anchorPoint,
+-                    ref anchorSource,
+-                    ref gapSeconds);
+-            }
+ 
+             return found;
+         }

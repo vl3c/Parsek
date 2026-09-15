@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/GameAction.cs b/Source/Parsek/GameActions/GameAction.cs
+index 834f5d132..b81ed9d8a 100644
+--- a/Source/Parsek/GameActions/GameAction.cs
++++ b/Source/Parsek/GameActions/GameAction.cs
+@@ -1124,7 +1124,7 @@ namespace Parsek
+                     if (Enum.IsDefined(typeof(GameActionType), typeInt))
+                         a.Type = (GameActionType)typeInt;
+                     else
+-                        ParsekLog.Warn("GameAction", $"Unknown action type id '{typeInt}' while deserializing");
++                        { }
+                 }
+             }
+ 

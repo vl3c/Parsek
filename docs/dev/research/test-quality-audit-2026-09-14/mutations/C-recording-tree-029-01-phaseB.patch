@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/EffectiveState.cs b/Source/Parsek/EffectiveState.cs
+index 35f60c54b..36ba92bc4 100644
+--- a/Source/Parsek/EffectiveState.cs
++++ b/Source/Parsek/EffectiveState.cs
+@@ -2257,8 +2257,7 @@ namespace Parsek
+                 // fenced out by the topology check below (its BP's parent is the pre-split
+                 // recording, not the continuation the debris is anchored to), so the
+                 // anchor double-duty noted on this method's contract stays excluded.
+-                if (bp == null
+-                    || (bp.Type != BranchPointType.Breakup && bp.Type != BranchPointType.JointBreak))
++                if (bp == null)
+                 {
+                     debrisAnchorOnlySkips++;
+                     continue;

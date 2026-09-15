@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameStateRecorder.Handlers.cs b/Source/Parsek/GameStateRecorder.Handlers.cs
+index 2fb97661c..f217d2021 100644
+--- a/Source/Parsek/GameStateRecorder.Handlers.cs
++++ b/Source/Parsek/GameStateRecorder.Handlers.cs
+@@ -141,7 +141,8 @@ namespace Parsek
+             // with an untagged KSC action that survives DiscardPendingTree forever.
+             // If the tag is empty while a live recorder exists, treat it as tag drift
+             // and avoid creating a null-owner ledger action that survives discard.
+-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
++            string recordingId = ResolveCurrentRecordingTag();
++            if (ShouldForwardDirectLedgerEvent(recordingId, HasLiveRecorder()))
+                 LedgerOrchestrator.OnKscSpending(evt);
+         }
+ 

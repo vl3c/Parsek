@@ -370,6 +370,95 @@ _(unreleased — entries accumulate here per commit)_
   `IsManaged` was never called: it now injects a real module that manages a different
   kerbal, with the null-module fallback kept as its own cell.
 
+- **Tests: twenty recording-tree cells from the audit's Medium T3 register (weak or
+  misleading) now turn on the production line their name names.** Ten of them were decided
+  by something other than the guard under test - an empty store, a lone committed record,
+  or an earlier rejection - so deleting that guard left them green: the three degenerate
+  `IsChainMidSegment` cells now face a committed peer at a higher chain index, the
+  chain-end and chain-predecessor cells face an unrelated later recording and a peer at
+  exactly the expected predecessor index, the crew-exclusion cell faces a committed EVA
+  child whose parent id is also empty, the cross-tree debris cell got a resolvable branch
+  point in the OTHER tree so only the tree fence rejects it, the two unfinished-flight
+  cells got rewind points that actually carry a slot for their subject (one of them now
+  also pins the reject REASON, since the old assertion was equally true for a destroyed
+  tip), the ELS pass-through cell got a real supersede relation, and the endpoint cell's
+  orbit segment now ends past the last trajectory point so the persisted phase is the only
+  thing rejecting the orbit fallback. Two cells asserted only a bool where a value was
+  available (the Vector3 / Quaternion parsers now pin the parsed components, so a
+  component swap reds; the crew-replacement save now reads the written pairs back).
+  Two got their missing arm (engine-only and all-zero thrust; a branch point whose SAME-PID
+  child is not the first one, which is the only shape that tells "every child" from "first
+  child"). One sidecar-corruption cell was repurposed: its point count was rejected by the
+  up-front bound gate before the sparse header it was named for was ever read, so it now
+  carries a count of two with one complete sparse point and a truncated second, and asserts
+  the end-of-stream failure plus the surviving point's defaulted body name. One source gate
+  was bounded to the method it guards - run file-wide it was matching a different recorder
+  bind further down the file, so mutating the helper it names changed nothing - and one new
+  gate pins that every direct-forward call site, including the two wrappers that delegate
+  to the predicate, passes an `x.recordingId` stamped on the event rather than re-reading
+  the live tag; a bare parameter spelling is accepted only inside those two wrappers' own
+  bodies, so a local alias that re-resolves at decision time is refused everywhere else.
+  Three cells were renamed to what they prove,
+  each saying in its body what it cannot witness and why (a save-persist seam that
+  short-circuits before the main-menu hard block, a chain-manager cell whose asserted log
+  line is the constructor's, and a suppression cell whose boolean cannot discriminate -
+  its discriminating twin already exists in the same suite). No production code changed and
+  no log text changed; each strengthened cell carries a mutation patch that reds it.
+- **Tests: twelve more priority-2 recording-risk coverage gaps from the unit-test quality
+  audit are closed.** Six rows were new coverage, six were guarded already by cells that
+  landed after the audit was taken, and none is obsolete, so seven new cells landed with no
+  production change. On scene-exit finalization: a recording with no track sections at all
+  is proved to reseed its first predicted tail segment from the latest in-window flat
+  trajectory point, a fallback no fixture reached because the only section-less fixture
+  fails at anchor-point-missing by design; and a recovered controlled-decoupled child is
+  proved to hand back the segments it extrapolated AND to stamp its terminal orbit from the
+  last of them, so a recovered child cannot ship without ghost / map orbit metadata. On the
+  splitter: an already-mutated closure root whose chain predecessor ends at an
+  env-transition UT rather than the rewind UT is proved to abort the idempotent re-entry
+  instead of replaying the post-split steps against the wrong origin. On the supersede
+  closure: anchored debris is proved to stay out when its branch point is a docking-port
+  separation rather than a breakup or joint break, and when its parent anchor names a
+  recording other than the one being walked - the two gates the committed cells never made
+  load-bearing. On load-time sweep: a pre-Re-Fly anchor snapshot whose session is over is
+  proved to be cleared with its warning and counted in the sweep summary, and the live
+  session's own snapshot is proved to survive. The six already-guarded rows are the
+  committed split's section-annotation drop, the track-section sample-rate formula on both
+  the foreground and background close paths, the subtree walk's iteration cap, the two
+  marker-owned switch-segment narrowing predicates, and the staging load's marker clears;
+  each row's mutant reds a pre-existing cell, so no duplicate cells were written.
+
+- **Tests: twenty career-ledger cells from the audit's T3 (weak or misleading)
+  register now let the production term they name decide the verdict.** Each already ran
+  the right code; none could see the branch its name claimed. A commit-summary cell
+  asserted the RECALC's completion line and never called the commit door at all, so it
+  now drives `OnRecordingCommitted` and reads its own summary. A pending-science cell
+  typed the pending amount in as a constant and re-issued the fold inline, so stubbing
+  the production helper left it green; it now stages the uncommitted exchange and lets
+  the helper resolve the discriminator. A first-value-wins store asserted only how many
+  entries it held, which an overwrite also satisfies, so the retained VALUE is asserted
+  now. An InvariantCulture round-trip pinned no culture at all, so it serializes under
+  de-DE and reads the raw node text. An unknown-enum-id reader promised a warning nobody
+  captured. A source-order gate compared against an unrelated earlier call in the same
+  file and is now scoped to the door's own body. A "latest outcome wins" contract-map
+  cell gave every contract exactly one terminal action, so a first-wins store passed it
+  too; a sibling now fails then cancels one id. A strategy re-activation could not tell
+  an overwrite from an ignore, so `StrategiesModule` gained a read-only
+  `TryGetActiveStrategy` accessor and the stored commitment is asserted. A science
+  module's "ignores non-science actions" cell used a milestone, which that module
+  actually handles, so the fixture moved to a type with no arm and two mirror cells pin
+  the milestone arm instead. A negative reconciliation assertion guarded a log literal
+  production never emits and now guards the real channel tag. Three cells were renamed to
+  what they prove (a tech-tree skip that cannot reach the applied-node log headlessly, a
+  PatchAll flag restore, and a reservation check that never reaches the retired branch),
+  with the set-at-entry half of the suppression flags pinned directly on
+  `SuppressionGuard.ResourcesAndReplay`. Two cells were deleted as copies of a named
+  twin, each leaving a comment saying which twin holds the branch. The ledger fuzzer's
+  "covers every action type" cell was true by construction; asserting a real payload per
+  type immediately found two action types with no generator arm (`KerbalExperience` and
+  `StrategyScienceCredit`) that had been fuzzing as all-zero rows, and both now carry
+  one. The only production change is that read-only accessor: no behavior, no log text
+  and nothing a player sees changes. Each strengthened cell was re-checked by breaking
+  the named production line on purpose and confirming it goes red.
 - **Tests: twelve more priority-2 recording-tree and rewind coverage gaps from the
   unit-test quality audit are closed.** Eleven rows were new coverage, one was guarded
   already, and none is obsolete, so eleven new cells landed with no production change. On

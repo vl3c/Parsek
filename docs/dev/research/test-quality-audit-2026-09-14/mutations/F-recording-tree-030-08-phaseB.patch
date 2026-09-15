@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/VesselSpawner.cs b/Source/Parsek/VesselSpawner.cs
+index fde611e8e..92a0e0f00 100644
+--- a/Source/Parsek/VesselSpawner.cs
++++ b/Source/Parsek/VesselSpawner.cs
+@@ -2579,7 +2579,7 @@ namespace Parsek
+ 
+         internal static HashSet<string> BuildExcludeCrewSet(Recording rec)
+         {
+-            if (string.IsNullOrEmpty(rec.RecordingId)) return null;
++            // MUTATION: empty-RecordingId early return deleted
+ 
+             HashSet<string> excludeCrew = null;
+             // [Phase 3] ERS-routed: chain-aware crew-exclusion walk must respect

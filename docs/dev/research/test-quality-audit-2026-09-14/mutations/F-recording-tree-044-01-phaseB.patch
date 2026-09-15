@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 3057033f3..e026846af 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -8530,7 +8530,8 @@ namespace Parsek
+                 if (bp.Id != rec.ChildBranchPointId) continue;
+ 
+                 // Check if any child recording shares the same vessel PID
+-                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
++                // MUTATION: only the FIRST child is scanned
++                for (int c = 0; c < bp.ChildRecordingIds.Count && c < 1; c++)
+                 {
+                     Recording childRec;
+                     if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out childRec))

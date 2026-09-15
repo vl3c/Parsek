@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/KspStatePatcher.cs b/Source/Parsek/GameActions/KspStatePatcher.cs
+index 8d15fb3f3..21a47c386 100644
+--- a/Source/Parsek/GameActions/KspStatePatcher.cs
++++ b/Source/Parsek/GameActions/KspStatePatcher.cs
+@@ -662,7 +662,7 @@ namespace Parsek
+             if (targetTechIds == null)
+             {
+                 VerboseStablePatchState("patch-skip|tech-tree|target", "target-null",
+-                    "PatchTechTree: no target tech set supplied — skipping");
++                    "PatchTechTree: skipping");
+                 return;
+             }
+ 

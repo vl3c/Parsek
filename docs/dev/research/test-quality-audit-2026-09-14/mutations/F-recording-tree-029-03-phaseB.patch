@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/EffectiveState.cs b/Source/Parsek/EffectiveState.cs
+index 35f60c54b..3fc04c3ed 100644
+--- a/Source/Parsek/EffectiveState.cs
++++ b/Source/Parsek/EffectiveState.cs
+@@ -2237,7 +2237,7 @@ namespace Parsek
+                 if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                 if (string.IsNullOrEmpty(cand.ParentAnchorRecordingId)) continue;
+                 if (!string.Equals(cand.ParentAnchorRecordingId, rec.RecordingId, StringComparison.Ordinal)) continue;
+-                if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
++                // MUTATION: cross-tree fence deleted
+                 if (result.Contains(cand.RecordingId)) continue;
+ 
+                 if (string.IsNullOrEmpty(cand.ParentBranchPointId))
