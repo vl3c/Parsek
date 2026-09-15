@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 3057033f3..1df6e6b04 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -8535,8 +8535,7 @@ namespace Parsek
+                     Recording childRec;
+                     if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out childRec))
+                     {
+-                        if (childRec.VesselPersistentId == rec.VesselPersistentId)
+-                            return false; // Same-PID continuation exists — NOT effective leaf
++                        // MUTATION: same-PID continuation check removed.
+                     }
+                 }
+ 

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/TrajectorySidecarBinary.cs b/Source/Parsek/TrajectorySidecarBinary.cs
+index 61c19dd2c..a8336bd0c 100644
+--- a/Source/Parsek/TrajectorySidecarBinary.cs
++++ b/Source/Parsek/TrajectorySidecarBinary.cs
+@@ -1092,6 +1092,9 @@ namespace Parsek
+         private static SparsePointListPlan BuildSparsePointListPlan(List<TrajectoryPoint> points)
+         {
+             var plan = new SparsePointListPlan();
++            // MUTATION: sparse encoding disabled.
++            return plan;
++#pragma warning disable 0162
+             if (points == null || points.Count == 0)
+                 return plan;
+ 

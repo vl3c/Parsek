@@ -276,6 +276,50 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: twelve rewind / Re-Fly cells from the audit's T3 (weak or misleading)
+  register now let the production term they name decide the verdict.** Each ran the
+  right code but could not see the branch its name claimed. The legacy-marker
+  structural-mutation cell excluded its branch point by lineage, so the conservative
+  null-baseline skip was never the reason it passed; the in-place slot-lookup fallback
+  used a Landed terminal, which never requires slot-aware classification, so the
+  in-place exemption from the abort could not fire; a carve-out ordering cell ran with
+  the competing chain-head gate disarmed; the idempotent re-apply hit an empty-list
+  early-out and never reached the duplicate guard its comment named; a Discard cell
+  asserted a predicate that stays true for a recording the prune removed from the
+  store; two spawn cells left the terminal null, so the effective-leaf rule and the
+  passed tree context were never consulted; a dialog headline was pinned only up to
+  the vessel name, and a classifier-fallback cell asserted a false that a hardcoded
+  false also produces; two crew-loss fixture cells compared a derivation against
+  itself; and the abort-before-dispatch cell asserted only that the run did not reach
+  its last line. The fixtures are now armed so the named term is the sole
+  discriminator, with three new sibling cells carrying the mirror direction (an
+  Orbiting in-place continuation, a non-debris recording of the same chain shape, and
+  a different-pid child resolvable only through the passed tree context, which shares
+  its instrument with an existing breakup-debris cell), and the two
+  fixture cells read the injected recording and the RP quicksave sidecar rather than
+  re-deriving what the fixture wrote. No production code changed; no log text changed;
+  nothing a player sees changes. Each cell was re-checked by breaking the named
+  production line on purpose and confirming it goes red.
+
+- **Tests: the other eight T3 rows, all recording-tree, now fail when the thing their
+  name promises breaks.** Two optimizer cells claimed to cover "tree recordings" while
+  the optimizer reads a recording's tree id nowhere, so they were renamed to the
+  boundary they actually cover and each gained a no-tree control, which makes the pair
+  a real contrast instead of a claim. Two loop-sync cells asserted a value that is also
+  the field's own default, because their fixture list held a single recording and no
+  partner could ever be found; each now carries the partner the scan WOULD accept, so
+  the guard is what produces the answer. A tail-trim cell pinned a window that a zero
+  buffer also satisfies and now pins the exact trimmed end. A scene-exit rate-limit
+  cell fired one failure reason five times while claiming a per-reason key, and now
+  fires two further reasons on the same recording inside the same window. A merge cell
+  named a version-threading that the measured code path does not read, so it was
+  renamed to the anchor-local measurement it does cover and gained a sibling that
+  stamps a format version the field default cannot be. And a sidecar cell asserting
+  "sparse encoding" touched nothing sparse: it now reads the writer's own accounting
+  line and pins the sparse list, point and per-field omission counts. No production
+  code changed; no log text changed; nothing a player sees changes. Each cell was
+  re-checked by breaking the named production line on purpose and confirming it goes
+  red.
 - **Tests: the final slice of the audit's Medium T1 register - fourteen catch-all and
   legacy-bugfix cells - now reaches the production line each name claims, closing that
   register.** Eleven cells

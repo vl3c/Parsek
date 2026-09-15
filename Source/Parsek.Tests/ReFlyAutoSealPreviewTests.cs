@@ -783,6 +783,31 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines,
                 l => l.Contains("[ERROR][Supersede]") &&
                      l.Contains("aborting because stable-leaf"));
+
+            // The false above is also what a hardcoded fallback would
+            // return, so drive the same route with a SEALING preview: the
+            // fallback must report the preview's own verdict.
+            logLines.Clear();
+            string sealingSource;
+            bool sealingPermanent = MergeDialog.DetermineReFlyTimelineActionIsPermanent(
+                rec,
+                marker,
+                new ReFlyAutoSealPreviewResult
+                {
+                    WillAutoSeal = true,
+                    Reasons = new List<ReFlyAutoSealReason>
+                    {
+                        ReFlyAutoSealReason.TransmittedScience,
+                    },
+                },
+                out sealingSource);
+
+            Assert.True(sealingPermanent);
+            Assert.Equal("preview:InvalidOperationException", sealingSource);
+            Assert.Contains(logLines,
+                l => l.Contains("[WARN][Supersede]") &&
+                     l.Contains("Prediction fallback") &&
+                     l.Contains("using preview label"));
         }
 
         [Fact]
@@ -893,7 +918,14 @@ namespace Parsek.Tests
             var preview = ReFlyAutoSealPreviewResult.NoSeal();
             string body = MergeDialog.BuildReFlyDialogBody(
                 "MyShip", 65.0, preview, willAutoSeal: false);
-            Assert.Contains("<align=\"center\">MyShip - ", body);
+            // Pin the whole headline, not just the vessel-name prefix: the
+            // prefix alone is satisfied by an empty duration, so dropping
+            // FormatDuration from the headline would ship silently.
+            string expectedDuration = ParsekTimeFormat.FormatDuration(65.0);
+            Assert.False(string.IsNullOrEmpty(expectedDuration));
+            Assert.Contains(
+                "<align=\"center\">MyShip - " + expectedDuration + "</align>",
+                body);
         }
 
         // ---------- ShouldUseLiveVesselForReFlyTarget (pid match) -------
