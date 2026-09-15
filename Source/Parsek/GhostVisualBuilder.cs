@@ -2431,7 +2431,9 @@ namespace Parsek
                 return cached;
 
             string animName = deployable.animationName;
-            if (string.IsNullOrEmpty(animName))
+            // THE SAME predicate the recorder screens with, so "the recorder does not seed it"
+            // and "the builder samples no pose for it" cannot drift apart.
+            if (PartStateSeeder.DeployableHasNoPoseAnimation(animName))
             {
                 ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': no animationName — skipping animation sampling");
                 animationSampleCache[key] = null;
@@ -6123,7 +6125,12 @@ namespace Parsek
                 persistentId, partName, raiseLightVisualOnly);
 
             // Detect ModuleColorChanger: cabin lights (Pattern A) and heat shield char (Pattern B)
-            colorChangerInfos = BuildColorChangerInfos(partNode, modelNode.transform, persistentId, partName);
+            // The prefab's own PART config is passed alongside the snapshot node because every
+            // field this builder reads is config-only and so never survives into a persisted
+            // snapshot node - GS6-GHOST-HAS-NO-COLORCHANGER-STATE. Same source the fairing
+            // structure hider already uses two calls below.
+            colorChangerInfos = BuildColorChangerInfos(
+                partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName);
 
             // Detect procedural fairings and generate simplified cone mesh
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
@@ -6146,36 +6153,101 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The ModuleColorChanger MODULE nodes of one PART node, in declaration order.
+        /// Pure over ConfigNode: never null, possibly empty.
+        /// </summary>
+        internal static List<ConfigNode> CollectColorChangerModuleNodes(ConfigNode partNode)
+        {
+            var found = new List<ConfigNode>();
+            if (partNode == null) return found;
+
+            var moduleNodes = partNode.GetNodes("MODULE");
+            if (moduleNodes == null) return found;
+
+            for (int m = 0; m < moduleNodes.Length; m++)
+            {
+                if (moduleNodes[m] == null) continue;
+                if (moduleNodes[m].GetValue("name") == "ModuleColorChanger")
+                    found.Add(moduleNodes[m]);
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// WHY THIS EXISTS. Everything the colour-changer builder needs - <c>shaderProperty</c>,
+        /// <c>toggleInFlight</c> and the red/green/blue/alpha curves - is CONFIG-ONLY on stock's
+        /// ModuleColorChanger: none of it is a persistent KSPField, so a PART node KSP itself wrote
+        /// into a save, a .craft or a Parsek ghost sidecar carries only
+        /// <c>isEnabled</c> / <c>animState</c> / <c>stagingEnabled</c>. Reading the snapshot node
+        /// alone therefore resolved NOTHING on any ghost built from a recording, while a synthetic
+        /// showcase node (which authors the fields by hand) resolved fine - the exact asymmetry
+        /// GS6-GHOST-HAS-NO-COLORCHANGER-STATE measured.
+        ///
+        /// The rule, one per ModuleColorChanger instance and matched by DECLARATION ORDER:
+        /// prefer the snapshot node when it actually carries a shaderProperty (so every synthetic
+        /// and showcase path keeps its exact historical behaviour, overrides included), else fall
+        /// back to the prefab's own part config at the same index. When the snapshot part node
+        /// declares no ModuleColorChanger at all, the prefab's list is used whole.
+        /// </summary>
+        internal static List<ConfigNode> ResolveColorChangerConfigNodes(
+            ConfigNode snapshotPartNode, ConfigNode prefabPartConfig)
+        {
+            List<ConfigNode> snapshot = CollectColorChangerModuleNodes(snapshotPartNode);
+            List<ConfigNode> prefab = CollectColorChangerModuleNodes(prefabPartConfig);
+
+            if (snapshot.Count == 0)
+                return prefab;
+
+            var resolved = new List<ConfigNode>(snapshot.Count);
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                bool snapshotCarriesConfig =
+                    !string.IsNullOrEmpty(snapshot[i].GetValue("shaderProperty"));
+                if (!snapshotCarriesConfig && i < prefab.Count)
+                    resolved.Add(prefab[i]);
+                else
+                    resolved.Add(snapshot[i]);
+            }
+            return resolved;
+        }
+
+        /// <summary>
         /// Scans part config for ModuleColorChanger instances and builds ColorChangerGhostInfo
         /// for each. Pattern A (toggleInFlight=True, _EmissiveColor) handles cabin lights.
         /// Pattern B (toggleInFlight=False, _BurnColor) handles heat shield ablation char.
         /// Returns null if no ColorChanger modules are detected.
+        ///
+        /// <paramref name="prefabPartConfig"/> is the prefab's own PART config
+        /// (<c>AvailablePart.partPrefab.partInfo.partConfig</c>) and supplies the config-only
+        /// fields a persisted snapshot node cannot carry - see
+        /// <see cref="ResolveColorChangerConfigNodes"/>.
         /// </summary>
         internal static List<ColorChangerGhostInfo> BuildColorChangerInfos(
-            ConfigNode partNode, Transform ghostModelNode, uint persistentId, string partName)
+            ConfigNode partNode, ConfigNode prefabPartConfig, Transform ghostModelNode,
+            uint persistentId, string partName)
         {
             if (partNode == null || ghostModelNode == null)
                 return null;
 
-            var moduleNodes = partNode.GetNodes("MODULE");
-            if (moduleNodes == null || moduleNodes.Length == 0)
+            List<ConfigNode> colorChangerNodes =
+                ResolveColorChangerConfigNodes(partNode, prefabPartConfig);
+            if (colorChangerNodes.Count == 0)
                 return null;
 
             List<ColorChangerGhostInfo> results = null;
+            int skippedNoShaderProperty = 0;
+            int skippedUnrecognisedPattern = 0;
 
-            for (int m = 0; m < moduleNodes.Length; m++)
+            for (int m = 0; m < colorChangerNodes.Count; m++)
             {
-                string moduleName = moduleNodes[m].GetValue("name");
-                if (moduleName != "ModuleColorChanger")
-                    continue;
-
-                string shaderProperty = moduleNodes[m].GetValue("shaderProperty");
+                string shaderProperty = colorChangerNodes[m].GetValue("shaderProperty");
                 if (string.IsNullOrEmpty(shaderProperty))
                 {
+                    skippedNoShaderProperty++;
                     continue;
                 }
 
-                string toggleStr = moduleNodes[m].GetValue("toggleInFlight");
+                string toggleStr = colorChangerNodes[m].GetValue("toggleInFlight");
                 bool toggleInFlight = false;
                 if (!string.IsNullOrEmpty(toggleStr))
                     bool.TryParse(toggleStr, out toggleInFlight);
@@ -6185,14 +6257,15 @@ namespace Parsek
 
                 if (!isCabinLight && !isAblationChar)
                 {
+                    skippedUnrecognisedPattern++;
                     continue;
                 }
 
                 // Evaluate color curves from config to get off/on colors
                 // Pattern A: off = curves at t=0 (black), on = curves at t=1 (warm glow)
                 // Pattern B: off = curves at t=0 (unburnt), on = curves at t=1 (fully charred)
-                Color offColor = EvaluateColorCurves(moduleNodes[m], 0f);
-                Color onColor = EvaluateColorCurves(moduleNodes[m], 1f);
+                Color offColor = EvaluateColorCurves(colorChangerNodes[m], 0f);
+                Color onColor = EvaluateColorCurves(colorChangerNodes[m], 1f);
 
                 // Find renderers on the ghost model that have this shader property
                 var renderers = ghostModelNode.GetComponentsInChildren<Renderer>(true);
@@ -6227,6 +6300,13 @@ namespace Parsek
 
                 }
             }
+
+            // Batch counting convention: one summary per part, never one line per module.
+            ParsekLog.VerboseRateLimited("GhostVisual", $"colorchanger-{partName}",
+                $"ColorChanger resolve '{partName}' pid={persistentId}: " +
+                $"modules={colorChangerNodes.Count} built={(results != null ? results.Count : 0)} " +
+                $"noShaderProperty={skippedNoShaderProperty} " +
+                $"unrecognisedPattern={skippedUnrecognisedPattern}", 60.0);
 
             return results;
         }

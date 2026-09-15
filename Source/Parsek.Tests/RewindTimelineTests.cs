@@ -1059,7 +1059,13 @@ namespace Parsek.Tests
             var recordings = new List<Recording> { standaloneRec, unrelated };
 
             RecordingStore.RewindReplayTargetSourcePid = kSourcePid;
-            RecordingStore.RewindReplayTargetRecordingId = standaloneRec.RecordingId;
+            // Deliberately NOT standaloneRec.RecordingId: with the armed id
+            // equal to the candidate's, ShouldApplyRewindSpawnSuppression
+            // returns at its RecordingId-equality branch and the pid /
+            // null-tree fallback this cell names is never reached. Pointing
+            // the armed id at a recording outside the list leaves that
+            // fallback as the only path that can mark anything.
+            RecordingStore.RewindReplayTargetRecordingId = "rewound-origin-not-in-list";
 
             try
             {

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index 3ea3153cf..9f46abeb0 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -1838,6 +1838,7 @@ namespace Parsek
+             double? utCutoff = null,
+             bool suppressSuspiciousDrawdownWarnings = false)
+         {
++            utCutoff = RewindContext.RewindAdjustedUT;
+             RecalculateAndPatchCore(
+                 utCutoff,
+                 bypassPatchDeferral: utCutoff.HasValue,
+warning: in the working copy of 'Source/Parsek/GameActions/LedgerOrchestrator.cs', LF will be replaced by CRLF the next time Git touches it

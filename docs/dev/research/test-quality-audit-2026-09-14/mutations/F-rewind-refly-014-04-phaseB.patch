@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ResourceBudget.cs b/Source/Parsek/ResourceBudget.cs
+index b5555e537..1350739d6 100644
+--- a/Source/Parsek/ResourceBudget.cs
++++ b/Source/Parsek/ResourceBudget.cs
+@@ -183,7 +183,7 @@ namespace Parsek
+         internal static double FullCommittedFundsCost(Recording rec)
+         {
+             if (rec == null || rec.Points.Count == 0) return 0;
+-            return rec.PreLaunchFunds - rec.Points[rec.Points.Count - 1].funds;
++            return rec.Points[rec.Points.Count - 1].funds - rec.PreLaunchFunds;
+         }
+ 
+         internal static double FullCommittedScienceCost(Recording rec)
+warning: in the working copy of 'Source/Parsek/ResourceBudget.cs', LF will be replaced by CRLF the next time Git touches it

@@ -216,6 +216,7 @@ namespace Parsek
         {
             if (v == null || v.parts == null) return;
 
+            int poselessDeployables = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
@@ -242,6 +243,14 @@ namespace Parsek
                 }
 
                 if (isBroken) continue;
+
+                // BG parity for the pose-animation gate; same argument as the flight-scene poll.
+                if (PartStateSeeder.DeployableHasNoPoseAnimation(deployable.animationName))
+                {
+                    poselessDeployables++;
+                    continue;
+                }
+
                 if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
                 if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
 
@@ -256,6 +265,12 @@ namespace Parsek
                         $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
                 }
             }
+
+            if (poselessDeployables > 0)
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"deployable-no-pose-animation-{state.vesselPid}",
+                    $"Deployable poll skipped {poselessDeployables} pose-animation-less module(s) " +
+                    $"(deployable-no-pose-animation gate, bg vessel {state.vesselPid})", 60.0);
         }
 
         /// <summary>

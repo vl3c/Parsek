@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 56b237769..d2479fce0 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -732,7 +732,7 @@ namespace Parsek
+         /// </summary>
+         internal static bool ComputeIsRevertOnLoad(bool isVesselSwitch, RevertKind revertKind)
+         {
+-            return !isVesselSwitch && revertKind != RevertKind.None;
++            return revertKind != RevertKind.None;
+         }
+ 
+         /// <summary>
+warning: in the working copy of 'Source/Parsek/ParsekScenario.cs', LF will be replaced by CRLF the next time Git touches it

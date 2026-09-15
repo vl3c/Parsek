@@ -668,6 +668,53 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     the value it found; RED without the restore, GREEN with it. The probe is scaffolding, not a
     committed test.
 
+- `testfix-t1t2`, second PR (2026-09-15): the first slice of Medium T1 rows
+  (`work/phase-b-slice-medium-t1-01.txt`, 20 ids, rewind / Re-Fly + recording-tree).
+  Each fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  - Fixed: F-rewind-refly-001-01 / -001-03 / -001-04 / -001-05 (branch-point fixtures given
+    `ParentRecordingIds` in the Re-Fly target's lineage, plus a real `tree_b` for the tree-id
+    guard, so the baseline / cutoff / type / tree-id term each becomes the sole discriminator);
+    F-rewind-refly-004-01 / -004-02 (the no-op re-apply cells now arm committed owner, replay
+    scope and a droppable supersede row, and the empty-owner-id cell asserts the ABSENCE of the
+    owner-not-found log line that the fallback branch would emit); F-rewind-refly-006-01
+    (a milestone inside the cutoff window, so a read of the cleared global moves the balance);
+    F-rewind-refly-009-01 (fixture given a recorded terminal orbit plus a control assertion that
+    it retains WITHOUT the marker); F-rewind-refly-010-05 (armed replay-target id points outside
+    the list, so only the pid / null-tree fallback can mark); F-rewind-refly-011-02 (origin made
+    `CommittedProvisional`, so only the supersede walk reaches an Immutable endpoint);
+    F-rewind-refly-014-02 (`RecordingStore.BeginRewindForOwner` made `internal` - visibility only -
+    and the cell drives it instead of re-issuing `RewindContext.BeginRewind` inline).
+  - Fixed (second half): F-rewind-refly-016-01 (the death row is now IN the list handed to
+    `TryPairBundledRepPenalty`, as the production caller does, so the `RecordingId` equality check is
+    the discriminator); F-rewind-refly-016-02 (`ReputationPenaltySource.Other` at exactly
+    `BundledRepUtWindow`, plus a just-outside sibling, so the inclusive boundary is actually
+    evaluated - a `KerbalDeath` source short-circuits on the source arm and never reaches it);
+    F-rewind-refly-018-01 (the selected slot's recording and live vessel now agree on a conclusive
+    launch guid, so the source arm WOULD name the pid and only the `SlotIndex` skip stops it);
+    F-rewind-refly-020-01 / -020-02 (the bug #134 clear and the `OnFlightReady` cleanup gate are
+    extracted as `RecordingStore.ClearPendingCleanupAfterRewindStrip` /
+    `ShouldRunPendingCleanupOnFlightReady` - behavior-identical, called from
+    `ParsekScenario.HandleRewindOnLoad` and `ParsekFlight.OnFlightReady` - and both cells drive them
+    instead of re-implementing the clear and the gate expression in the test body; the log-format
+    cell in the same class now asserts the line the production clear emits);
+    F-recording-tree-010-01 (a real `Limbo` -> `CommitPendingTree` -> `Finalized` round trip, where
+    the old body reset the store first so only the null-pending guard ran);
+    F-recording-tree-011-01 and -011-02 (the two test-local mirrors `ComputeIsRevert` /
+    `ComputeLimboDispatch` are deleted; production grew `ParsekScenario.ComputeIsRevertOnLoad` and
+    `ParsekScenario.ClassifyLimboDispatch` + `LimboDispatchOutcome`, both called from `OnLoad`, and
+    the cells drive those. The truth tables shrink to the decisions that exist: the pre-#434
+    epoch / count / orphaned-limbo clauses are gone from the revert decision, and the dispatch has
+    no revert outcome because the branch above `OnLoad`'s Limbo block has already discarded the
+    pending tree. `hasOrphanedLimboTree` keeps its own coverage in the `HasOrphanedLimboTree_*`
+    cells, which drive the real `TryRestoreActiveTreeNode`).
+  - Deleted: F-rewind-refly-014-04, whose `currentFunds + (baseline - currentFunds)` is `baseline`
+    for every input. Twin: `RewindUtCutoffTests.FundsSpending_CutoffFiltersLaterSpending`, which
+    pins that a spend after the cutoff is not deducted - the same contract, on the ledger recalc
+    that now performs the correction. Its one unique assertion (the positive arm of the
+    committed-cost sign convention) survives as
+    `RewindLoggingTests.FullCommittedCost_SignConvention_PositiveMeansSpent`.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

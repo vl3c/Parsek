@@ -322,14 +322,23 @@ namespace Parsek.Tests
         {
             // Even if the selected slot is itself flagged Disabled, the vessel the player is
             // about to fly must never be a strip candidate.
+            const string selectedLaunchGuid = "44444444-4444-4444-4444-444444444444";
             var rp = MakeRewindPoint();
             rp.ChildSlots[0].Disabled = true;
             rp.ChildSlots[0].DisabledReason = "no-live-vessel";
             rp.PidSlotMap.Clear();
 
+            // The selected slot's recording and the live vessel agree on a
+            // conclusive launch guid, so the source arm WOULD name pid 9 if the
+            // loop reached it. Without this the fixture's recording carried
+            // neither guid nor spawn pid and both match arms rejected pid 9
+            // regardless of the SlotIndex skip under test.
+            var recordings = MakeRecordings();
+            recordings[0].RecordedVesselGuid = selectedLaunchGuid;
+
             var kill = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
-                rp, selectedSlotIndex: 0, MakeRecordings(), supersedes: null,
-                liveVessels: new List<(uint pid, string guid)> { (9u, null) });
+                rp, selectedSlotIndex: 0, recordings, supersedes: null,
+                liveVessels: new List<(uint pid, string guid)> { (9u, selectedLaunchGuid) });
 
             Assert.Empty(kill);
         }

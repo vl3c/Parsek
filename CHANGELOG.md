@@ -193,6 +193,29 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: twenty rewind / Re-Fly and recording-tree cells from the audit's T1
+  (vacuous) register now exercise the production line their names claim.** Each one
+  passed for a reason unrelated to its subject: a branch-point fixture with no parent
+  recordings was thrown out by the lineage filter before the baseline, cutoff or
+  branch-point-type rule under test could speak; a no-op rewind pass returned zero
+  through three downstream guards at once, so deleting the named one changed nothing;
+  a suppression fixture answered "do not retain" whether or not the suppression flag
+  was set; a supersede walk was pointed at two endpoints that already agreed; and two
+  clusters replayed a copy of the production decision inside the test body and then
+  checked their own copy - one of them a copy of a decision the game stopped making
+  two fixes ago. The fixtures now isolate the named term - lineage-attached branch
+  points, a droppable supersede row armed behind the guard, a recording that would be
+  retained without the marker, a provisional origin that only the walk can get past -
+  and the replayed decisions are now made by the game and read by the test: five small
+  pieces of production code were lifted out so they can be called without a running
+  game (the revert classification and the pending-tree dispatch on load, the
+  cleanup-list clear after a rewind strip and the gate it silences, and the rewind's
+  own baseline setup), each still called from its original site, behaviour unchanged
+  apart from one log line whose em dash became a plain hyphen.
+  Each repair was re-checked by breaking the production line on purpose and confirming
+  the cell goes red. One cell whose arithmetic was true for every input was removed;
+  the ledger cutoff tests own that contract, and its one unique assertion survives as
+  its own cell. Nothing a player sees changes.
 
 - **Tests: the five priority-1 data-loss coverage gaps from the unit-test quality audit now
   have cells.** Each guards a path where a wrong answer destroys recorded flights and where
@@ -864,6 +887,26 @@ _(unreleased — entries accumulate here per commit)_
   recorded and the next rebuild picks it up, and until then Parsek simply has no
   starting reputation and changes nothing. Saves written before this change carry no
   mark and behave exactly as they did.
+
+- **Ghost cabin lights work again on replayed flights: a pod's or docking port's lit
+  interior now lights up on the ghost the way it did on the flight.** A part whose light
+  is a colour change rather than a lamp - the Mk1-3 pod's cabin lights, a Clamp-O-Tron's
+  ring - is described entirely in the part's own config file, and none of that
+  description is written into a saved game. Parsek was reading only the saved copy, so a
+  ghost built from a recording never learned the part had a light at all, and every
+  recorded light switch was quietly dropped on replay. The ghost builder now reads those
+  fields from the part's config alongside the saved state, which is where they live.
+  Lamps (an actual light source, like the illuminator) were never affected.
+
+- **Permanently-fixed solar panels no longer fill recordings with panel-deployed events
+  that can never show anything.** An OX-STAT flat panel has no deploy animation: it is
+  always out, and there is nothing to animate on replay. Parsek recorded a "deployed"
+  event for each one at the start of every recording anyway - four per typical craft, on
+  every flight. Both the recorder and the ghost builder now decide "this panel has no
+  pose to show" with the same single rule, so the events stop being written and no replay
+  changes visually. Panels that really do fold record and replay exactly as before, and a
+  fixed panel that BREAKS is still recorded and still disappears on the ghost. Recordings
+  already on disk are unaffected.
 
 - **A flight you continued by clicking Switch-To now answers as ONE flight everywhere,
   so its Unfinished Flight row cannot be shown and then quietly closed.** Parsek asked

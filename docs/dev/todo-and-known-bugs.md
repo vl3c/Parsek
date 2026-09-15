@@ -7772,7 +7772,79 @@ Full contract: `docs/dev/design-map-ts-render-tracer.md` Appendix A,
 `Source/Parsek.Tests/GhostPartEventApplyLogTests.cs` (25 cells: grammar, tally,
 per-family outcome per drivable skip class, InvariantCulture under `de-DE`).
 
-## GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5: the recorder seeds a DeployableExtended for every OX-STAT panel, and the ghost can never render one, so four recorded events are skipped on every replay of any craft carrying them [MEASURED 2026-09-02 on `GS-6-part-event-applier-sweep` reading run `2026-09-02_1420` (PASS attempt 1). D7 GHOST-VISUAL OBSERVATION, REPORT-ONLY - NOT a lane defect and NOT obviously a product defect; it is the first thing the new applier instrument found, and it is filed rather than fixed]
+## ~~GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5~~: the recorder seeds a DeployableExtended for every OX-STAT panel, and the ghost can never render one, so four recorded events are skipped on every replay of any craft carrying them [MEASURED 2026-09-02 on `GS-6-part-event-applier-sweep` reading run `2026-09-02_1420` (PASS attempt 1). D7 GHOST-VISUAL OBSERVATION. FIXED 2026-09-15 by OPTION (a), the recorder stops seeding - operator decision; LIVE-CONFIRMED the same day on GS-6 run `2026-09-15_1604` (PASS attempt 1) and PINNED in the spec]
+
+**FIX (2026-09-15), option (a) of the three below: the RECORDER stops emitting the
+event, at both ends that could produce it.** One predicate,
+`PartStateSeeder.DeployableHasNoPoseAnimation(string animationName)`
+(`Source/Parsek/PartStateSeeder.cs`), is now the single convention for "this
+ModuleDeployablePart cannot be posed", and FOUR sites read it rather than spelling the
+condition out - the three RECORDER-side producers listed here plus the ghost builder's own
+sampling gate named below:
+
+  - `PartStateSeeder.SeedDeployables` - returns false instead of adding the pid to
+    `extendedDeployables`, so no `DeployableExtended` seed event is emitted
+    (`EmitSeedEvents`'s `EmitFromUintSet(sets.extendedDeployables, ...)` never sees it).
+  - `FlightRecorder.CheckDeployableState` - THE MIRROR CHECK, and it is load-bearing
+    rather than tidy: with the seed gone, the very first live poll would read EXTENDED
+    against an empty set and `CheckDeployableTransition` would emit exactly the
+    DeployableExtended the seed no longer writes, one physics frame later. Screening only
+    the seeder would have moved the event, not removed it.
+  - `BackgroundRecorder.CheckDeployableState`
+    (`BackgroundRecorder.PartEventPolling.cs`) - the same poll for BG vessels, screened
+    identically, because a background station's OX-STATs are the same population.
+
+The FOURTH site is `GhostVisualBuilder.SampleDeployableStates`, which now calls the same
+predicate where it used to spell `string.IsNullOrEmpty(animName)` itself, so the two ends
+cannot drift: the predicate
+IS the condition that produced `no-resolved-visual` (a module with no `animationName`
+samples no stowed/deployed pair, so `ResolveSampledStatesToDeployableInfo` returns null and
+only the break-subtree branch materialises a `DeployableGhostInfo` - with an EMPTY
+`transforms` list, which `ApplyDeployableStateWithOutcome`'s `ApplyDeployableFraction`
+reports as `no-resolved-visual`).
+
+WHAT IS DELIBERATELY NOT GATED: the BROKEN branch, on both the seed and both polls. A
+static panel can still break, and `TryResolveDeployableBreakSubtreeRoot` resolves the
+break subtree INDEPENDENTLY of the animation cascade (that is why the OX-STAT had a
+`DeployableGhostInfo` at all), so `DeployableBroken` still records and still renders.
+
+The ghost side is untouched: `no-resolved-visual` stays as the fallback for every
+recording already on disk, which keeps replaying exactly as it did. Purely additive
+behaviour on the write side - no key renamed, no field added, no layout changed - so
+`RecordingSchema.CurrentRecordingSchemaGeneration` stays at 4.
+
+Headless guards: `Source/Parsek.Tests/GhostStateGapsTests.cs` (predicate both directions
+plus the whitespace boundary, which is deliberately NOT screened because the builder would
+still try to sample it). The two batch-summary log lines
+(`deployable-no-pose-animation gate`) sit inside `Vessel`-walking methods and are proved by
+the flight, not by xUnit.
+
+LIVE-CONFIRMED on GS-6 run `2026-09-15_1604` (PASS attempt 1, 534 s), flown on head
+`7a6b4957d`. From the collected `KSP.log`:
+
+```
+BEFORE (runs _1420 / _1505 / _1524):
+  apply family=DeployableExtended surface=deployable rec=0 pid=1114565348 applied=0 skipped=4
+      reason=no-resolved-visual
+AFTER (_1604): that line is ABSENT - zero occurrences - and every deployable applier line reads
+  apply family=DeployableExtended  surface=deployable rec=0 pid=1170199082 applied=1 skipped=0 reason=applied
+  apply family=DeployableExtended  surface=deployable rec=0 pid=2225231708 applied=1 skipped=0 reason=applied
+  apply family=DeployableRetracted surface=deployable rec=0 pid=1170199082 applied=1 skipped=0 reason=applied
+  apply family=DeployableRetracted surface=deployable rec=0 pid=2225231708 applied=1 skipped=0 reason=applied
+plus both new gate lines:
+  [Recorder] Deployable seeding skipped 4 pose-animation-less module(s) (deployable-no-pose-animation gate)
+  [Recorder] Deployable poll skipped 4 pose-animation-less module(s) (deployable-no-pose-animation gate)
+```
+
+The seed count is 4, exactly the craft's four `solarPanels5`, and the poll line repeats
+under its rate limit (`suppressed=2984..2999`), which is the mirror doing its job every
+frame. pid 1114565348 survives in the log ONLY in ghost-build lines (part census, mesh
+clone, `break subtree 'suncatcher' resolved`) - so the panel is still built and still
+breakable, and only its dead event is gone. The `mediumDishAntenna` still deploys and
+retracts, and `telescopicLadderBay` (the ladder family, which has a real animation) is
+unaffected.
+
+THE ORIGINAL READING FOLLOWS, unchanged.
 
 THE LINES, verbatim from the collected `KSP.log`:
 
@@ -7938,7 +8010,47 @@ invalid in a way that produces NO error and looks precisely like a missing produ
 feature. Any future "family X never fired" reading checks the recorder's
 `Visual coverage [X]` census FIRST, before blaming capture.
 
-## GS6-GHOST-HAS-NO-CONVERTER-LOOP-STATE: a ghost built from a craft carrying a fuel cell has no converter-loop state at all, so every ConverterActivated/Deactivated apply is skipped `no-family-state` [MEASURED 2026-09-02 on the armed run `2026-09-02_1524` (PASS 25/25). D7 GHOST-VISUAL FINDING, REPORT-ONLY - the exact sibling of GS6-GHOST-HAS-NO-COLORCHANGER-STATE below]
+## ~~GS6-GHOST-HAS-NO-CONVERTER-LOOP-STATE~~: a ghost built from a craft carrying a fuel cell has no converter-loop state at all, so every ConverterActivated/Deactivated apply is skipped `no-family-state` [MEASURED 2026-09-02 on the armed run `2026-09-02_1524` (PASS 25/25). D7 GHOST-VISUAL FINDING. ROOT CAUSE ESTABLISHED 2026-09-15: NOT the same defect as its colour-changer sibling, and NO code change is warranted. CLOSED as explained, with a craft-gap successor entry]
+
+**ROOT CAUSE (2026-09-15): the reading is correct and the ghost is right. A `FuelCell`
+has no running-loop animation to replay, on any ghost.** The entry below assumed this was
+the sibling of GS6-GHOST-HAS-NO-COLORCHANGER-STATE and would be answered with it. It is
+not, and the difference is exactly the one the supervisor's own asymmetry rule asks for -
+the two surfaces are sourced from OPPOSITE ends:
+
+  - COLOUR CHANGER: `BuildColorChangerInfos(partNode, ...)` read the SNAPSHOT node, whose
+    persisted field set cannot carry the config-only fields. That is a flight-vs-showcase
+    ASYMMETRY, and it was a real defect (fixed; see that entry).
+  - CONVERTER LOOP: `GhostVisualBuilder.TryBuildSynthesizedMotionInfos(prefab, persistentId,
+    partName, modelRoot, modelNode, cloneMap)` takes NO snapshot node at all. It walks
+    `prefab.Modules` and dispatches at `GhostVisualBuilder.cs:4186`
+    (`string.Equals(moduleName, "ModuleAnimationGroup")`) into
+    `TryBuildConverterLoopInfo` (`GhostVisualBuilder.cs:1932-1972`), which needs
+    `activeAnimationName` and samples the prefab's clip. Prefab-sourced from end to end, so
+    a FLIGHT ghost and a SHOWCASE ghost take a byte-identical path - the asymmetry that
+    produced the colour-changer defect cannot exist here.
+
+AND THE CRAFT SETTLES IT. The GS-6 sweep craft's only converter is a `FuelCell`, pid
+900501096, and stock gives it exactly two modules -
+`GameData/Squad/Parts/Resources/FuelCell/FuelCell.cfg:38 ModuleResourceConverter` and
+`:80 ModuleCargoPart`. No `ModuleAnimationGroup`, no `activeAnimationName`, no animation
+of any kind. There is no running loop on that part to render, so
+`synth.converterLoops == null` and `ApplyConverterLoopStateWithOutcome`'s
+`no-family-state` is the TRUTHFUL answer, not a resolution failure. (The whole
+`synthesizedMotionInfos` container is non-null on that ghost - the craft's seven
+`liquidEngine2` gimbals populate it - so the null is specifically the loop list.)
+
+WHAT IS NOT PROVEN, and it is the honest residue: no lane has ever flown a part that DOES
+have a converter loop (a stock ISRU or drill, which carry `ModuleAnimationGroup`), so S7's
+visible output has never been live-proved on a flight ghost. That is a CRAFT gap, filed as
+its own successor entry below rather than fixed here, because the fix is a purpose-built
+craft and not a line of C#.
+
+NOT DONE, DELIBERATELY: narrowing `no-family-state` into a "this part has no loop" reason
+class. It would be a change to the applier instrument that GS-6 reads, for a case where
+the coarse answer is already correct, and it would move spec tokens for no product gain.
+
+THE ORIGINAL READING FOLLOWS, unchanged.
 
 THE LINES, both directions of the family:
 
@@ -7964,7 +8076,111 @@ should be answered together - both are "the ghost's builder does not populate th
 surface for a flight ghost", both were invisible before the applier instrument
 existed, and both are REPORT-ONLY here (the lane pins nothing on either).
 
-## GS6-LIGHT-EVENTS-OUTNUMBER-THE-GHOSTS-LIGHT-INFOS: two of five light events per toggle land on parts the ghost has no `LightGhostInfo` for [MEASURED 2026-09-02 on run `2026-09-02_1524`. OBSERVATION, REPORT-ONLY - folded here rather than filed separately because it is the same builder question as the two above]
+## GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD: S7's running-loop animation has never been live-proved on a flight ghost, because no craft any lane flies carries a converter that HAS one [FOUND BY READING 2026-09-15 while closing GS6-GHOST-HAS-NO-CONVERTER-LOOP-STATE. CRAFT-AUTHORING GAP, REPORT-ONLY - not a product defect, not a driver gap]
+
+THE DRIVER IS NOT THE PROBLEM, exactly as with `bays`: kRPC 0.5.4 exposes
+`ResourceConverter.start()/.stop()`, it is wired as an `mlib` action, and GS-6 already
+fires it - the sweep's `converter-on` / `converter-off` steps produced real
+ConverterActivated / ConverterDeactivated events on pid 900501096.
+
+THE CRAFT IS. The only converter aboard is a `FuelCell`, whose stock config
+(`GameData/Squad/Parts/Resources/FuelCell/FuelCell.cfg`) declares
+`ModuleResourceConverter` and `ModuleCargoPart` and nothing else. The ghost's loop family
+is discovered from `ModuleAnimationGroup.activeAnimationName`
+(`GhostVisualBuilder.cs:4186` -> `TryBuildConverterLoopInfo`, `:1932-1972`), which is the
+module a stock ISRU / drill carries and a fuel cell does not. So the feature's whole
+visible output - a drill head turning while the recording says it was mining - has never
+had a subject.
+
+WHAT IT WANTS: an ISRU (`ISRU`) or a drill (`RadialDrill` / `MiniDrill`) aboard a sweep
+craft, which runs straight into the constraint
+`GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL` already documents - a by-construction
+craft lifts every PART tail BYTE-FOR-BYTE out of a stock craft KSP itself wrote
+(`harness/tools/build_gs1_craft.py`), and no stock VAB craft carries an ISRU, so the tail
+must be harvested from a live VAB session first. Same piece of work as the service-bay
+tail; they should be harvested in one session.
+
+## GS6-LIGHT-EVENTS-OUTNUMBER-THE-GHOSTS-LIGHT-INFOS: two of five light events per toggle land on parts the ghost has no `LightGhostInfo` for [MEASURED 2026-09-02 on run `2026-09-02_1524`. OBSERVATION, REPORT-ONLY - folded here rather than filed separately because it is the same builder question as the two above. FULLY EXPLAINED 2026-09-15 on GS-6 run `2026-09-15_1604`, which enumerated the producers directly: FIVE distinct pids, no pid doubled. The pre-flight 'one pid contributed two events' reading written earlier that day is RETRACTED in the body - it came from a census taken against the STOCK cfgs, which miss the ModuleManager patch that gives the ladder bay its ModuleLight. No code change from this entry]
+
+**2026-09-15: THE FIFTH EVENT IS THE DOCKING PORT, and it was never counted.** The
+light-event PRODUCER set is not "parts with a lamp": it is exactly the two call sites of
+`FlightRecorder.CheckLightTransition`, derived from source rather than guessed -
+
+  - `FlightRecorder.cs:2649` - a part with a `ModuleLight` (its `isOn`), and
+  - `FlightRecorder.cs:2685` - a part with NO ModuleLight carrying a `ModuleColorChanger`
+    whose `toggleInFlight` is true (its `animState`), which is how a cabin light becomes a
+    light event at all.
+
+(`PartStateSeeder.SeedLights` seeds from the same two predicates, and
+`BackgroundRecorder` mirrors them.) Run those two predicates over every distinct part on
+`harness/fixtures/saves/gs1-two-stage-pad/Ships/VAB/Kerbal X Sweep.craft` against the stock
+cfgs, and FOUR producer pids come out, not three:
+
+```
+spotLight1    pid 900500822   ModuleLight              spotLightMk1.cfg:31
+spotLight1    pid 900500959   ModuleLight              spotLightMk1.cfg:31
+mk1-3pod      pid  57152010   ModuleColorChanger       mk1-3.cfg:85-99   (_EmissiveColor, toggleInFlight)
+dockingPort2  pid 2530776075  ModuleColorChanger       dockingPort.cfg:52-65 (_EmissiveColor, toggleInFlight,
+                                                       defaultActionGroup = Light)
+```
+
+The Clamp-O-Tron's ring light is a Pattern-A colour changer bound to the SAME Light action
+group `lights-on` / `lights-off` drive, so it toggles with the pod. It has no Unity
+`Light`, which is why it is one of the two `surface=light` skips - and, after the
+colour-changer fix above, it should become a `surface=colorchanger` APPLY rather than the
+second `no-family-state` skip.
+
+`HeatShield2` pid 2104924005 also carries a ModuleColorChanger, but Pattern B
+(`HeatShield2.cfg:84-89`, `_BurnColor`, `toggleInFlight = False`), so the `toggleInFlight`
+gate at `FlightRecorder.cs:2682` excludes it from the light family entirely. Correct, and
+worth writing down so the next reader does not count it as a fifth producer.
+
+THE ARITHMETIC CLOSES, AND MY FIRST ANSWER TO IT WAS WRONG. Measured on the GS-6 run
+`2026-09-15_1604` (PASS attempt 1, 534 s), whose collected `KSP.log` enumerates the
+producers directly instead of leaving them to be inferred from a tally representative:
+
+```
+Part event: LightOn/LightOff 'spotLight1'           pid=900500822    (ModuleLight branch)
+Part event: LightOn/LightOff 'spotLight1'           pid=900500959    (ModuleLight branch)
+Part event: LightOn/LightOff 'telescopicLadderBay'  pid=2225231708   (ModuleLight branch)
+ColorChanger state change: pid=57152010   animState=True/False 'mk1-3pod'
+ColorChanger state change: pid=2530776075 animState=True/False 'dockingPort2'
+```
+
+FIVE DISTINCT PRODUCER PIDS, one event each per direction. No pid is doubled, and the
+"one pid contributed two events" reading written here on 2026-09-15 before the flight is
+RETRACTED.
+
+WHY THE CENSUS THAT PRODUCED IT MISSED ONE: it ran the two producer predicates over the
+craft's parts using the STOCK cfgs, and `telescopicLadderBay` has no ModuleLight in
+`Squad/Parts/Utility/ladderTelescopicBay/ladderTelescopicBay.cfg`. The INSTALL that flies
+adds one -
+`GameData/KSPCommunityFixes/MMPatches/StockTweaks/LadderToggleableLight.cfg` patches
+`@PART[telescopicLadderBay]` with `MODULE { name = ModuleLight lightName = Point light }`,
+and that file is present in the provisioned `automation/stock-minimal` instance. The
+lesson generalises past this entry: a part-module census for a HARNESS reading must be
+taken against the flown instance's GameData (ModuleManager patches included), never
+against the stock cfg alone.
+
+THE TWO SURFACES NOW ACCOUNT FOR THE SAME FIVE EVENTS, from the same log:
+
+```
+family=LightOn|LightOff surface=light        pid=57152010   applied=3 skipped=2 reason=no-info-for-part
+family=LightOn|LightOff surface=colorchanger pid=2225231708 applied=2 skipped=3 reason=no-info-for-part
+```
+
+3 + 2 = 5 and 2 + 3 = 5, and the split is exactly the part populations: the three
+ModuleLight parts APPLY on `surface=light` and skip on `surface=colorchanger`, the two
+Pattern-A colour changers do the reverse. The representative pid differs per surface
+because `GhostPartEventApplyLog`'s grammar names the FIRST pid that SKIPPED in the batch
+when there was any skip (the pod on the light surface, the ladder bay on the colour-changer
+surface), and `applied=` / `skipped=` count EVENTS - `tally.Record` is called once per
+event per surface and `CountsAsApplied` is true only for `Applied`. Nothing is
+unaccounted for and nothing here is a defect.
+
+NO CODE CHANGE from this entry.
+
+THE ORIGINAL READING FOLLOWS, unchanged.
 
 ```
 apply family=LightOn  surface=light rec=0 pid=57152010 applied=3 skipped=2 reason=no-info-for-part
@@ -7984,7 +8200,122 @@ its own surface is the one reporting `no-family-state` below. The reading is
 therefore consistent rather than alarming; it is recorded so the `skipped=2` is
 not mistaken for a lamp failing to render on a later run.
 
-## GS6-GHOST-HAS-NO-COLORCHANGER-STATE: a ghost built from a craft whose pod carries a Pattern-A cabin light has no colour-changer state at all, so every LightOn/LightOff colour-changer apply is skipped `no-family-state` - and this is the SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE answer [MEASURED 2026-09-02 on run `2026-09-02_1505`. D7 GHOST-VISUAL FINDING, REPORT-ONLY - filed, not fixed]
+## ~~GS6-GHOST-HAS-NO-COLORCHANGER-STATE~~: a ghost built from a craft whose pod carries a Pattern-A cabin light has no colour-changer state at all, so every LightOn/LightOff colour-changer apply is skipped `no-family-state` - and this is the SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE answer [MEASURED 2026-09-02 on run `2026-09-02_1505`. D7 GHOST-VISUAL FINDING. ROOT CAUSE FOUND AND FIXED 2026-09-15, LIVE-CONFIRMED the same day on GS-6 run `2026-09-15_1604` (PASS attempt 1) and PINNED in the spec]
+
+**ROOT CAUSE (2026-09-15), and it is a real product defect rather than a design
+question.** `GhostVisualBuilder.BuildColorChangerInfos` read its module config out of the
+SNAPSHOT part node only:
+
+```
+Source/Parsek/GhostVisualBuilder.cs (pre-fix)
+  6162  var moduleNodes = partNode.GetNodes("MODULE");
+  6174  string shaderProperty = moduleNodes[m].GetValue("shaderProperty");
+  6175  if (string.IsNullOrEmpty(shaderProperty)) continue;
+```
+
+EVERY field that function needs - `shaderProperty`, `toggleInFlight` and the
+red/green/blue/alpha curves - is CONFIG-ONLY on stock's `ModuleColorChanger`: none is a
+persistent KSPField, so KSP never writes any of it into a save, a `.craft` or a Parsek
+ghost sidecar. Measured on the committed bytes rather than assumed: a persisted node in
+`harness/fixtures/saves/b1-pad-craft/persistent.sfs` reads
+
+```
+MODULE { name = ModuleColorChanger
+         isEnabled = True
+         animState = False
+         stagingEnabled = True
+         EVENTS {} ACTIONS { ToggleAction {...} } UPGRADESAPPLIED {} }
+```
+
+and nothing else, while `Squad/Parts/Command/Mk1-3Pod/mk1-3.cfg:85-99` carries
+`shaderProperty = _EmissiveColor`, `toggleInFlight = true` and the four curves. So the
+`continue` on line 6175 fired on the FIRST field for every ModuleColorChanger on every
+ghost built from a recording, `colorChangerInfos` came back null, `GhostBuildResult` left
+the whole dictionary null, and `ApplyLightPowerEventWithOutcomes` reported
+`no-family-state` - the strongest reason class - for a part that plainly has a cabin light.
+
+WHY THE SHOWCASE GHOSTS DID NOT SHOW IT, which is the asymmetry the entry below could not
+name: a showcase / synthetic part node is AUTHORED with those fields
+(`Source/Parsek.Tests/PartEventTests.cs:1004` adds `shaderProperty` by hand, and
+`VesselSnapshotBuilder` does the same), so the snapshot-only read resolved fine there and
+S1.9 measured the dictionary present. Nothing was wrong with discovery; the flight ghost
+was being handed a node that could not contain the answer. Ghost sidecars are NOT
+module-less - the decompressed
+`harness/fixtures/saves/bdock-recorded/Parsek/Recordings/*_ghost.craft` carries 33 MODULE
+nodes - they are simply persisted nodes, carrying the persisted field set.
+
+**THE FIX.** `BuildColorChangerInfos` now also takes the prefab's own PART config
+(`prefab.partInfo?.partConfig`, the same source
+`HideFairingInternalStructure` already reads two calls below it), and one pure resolver
+decides per ModuleColorChanger instance which node the config-only fields come from:
+
+  `GhostVisualBuilder.ResolveColorChangerConfigNodes(snapshotPartNode, prefabPartConfig)`
+  - instances matched by DECLARATION ORDER; the snapshot node wins whenever it actually
+    carries a `shaderProperty` (so every synthetic, showcase and test path keeps its exact
+    historical behaviour, overrides included), else the prefab node at the same index;
+    when the snapshot declares no ModuleColorChanger at all the prefab's list is used
+    whole; with no prefab node to fall back to the snapshot node is returned unchanged and
+    the builder's own empty-`shaderProperty` skip counts it, as before.
+
+TWO DELIBERATE BEHAVIOUR CHANGES the rule carries, neither byte-identical and both
+intended: a snapshot part node that declares NO ModuleColorChanger at all now inherits the
+prefab's whole list (so a showcase or synthetic node built without the module gains the
+prefab's colour changers - which is the point, since that is also the shape a stripped
+sidecar takes), and a prefab declaring MORE instances than the snapshot truncates to the
+snapshot count (the per-index walk runs over the snapshot list, so prefab-only extras are
+never materialised).
+
+Pattern A (`toggleInFlight` + `_EmissiveColor`) and Pattern B (`_BurnColor`) classification,
+the curve evaluation, the material cloning and the off-state initialisation are all
+untouched - they now simply receive a node that has the data. One `VerboseRateLimited`
+summary per part reports `modules= built= noShaderProperty= unrecognisedPattern=`.
+
+EXPECTED ON THE GS-6 RE-FLIGHT: `surface=colorchanger` moves off `no-family-state` for
+`mk1-3pod` pid 57152010 AND for `dockingPort2` pid 2530776075 (see the light-event entry
+above - the Clamp-O-Tron carries the same Pattern-A module,
+`Squad/Parts/Utility/dockingPort/dockingPort.cfg:52-65`). The craft's `HeatShield2` pid
+2104924005 is Pattern B and is driven by ablation, not by light events.
+
+Headless guards: `Source/Parsek.Tests/GhostStateGapsTests.cs` - the persisted-shape node
+falling back to the prefab, the showcase-shape node winning over a DISAGREEING prefab (the
+regression pin that showcase ghost building did not move), no-colour-changer-either-side,
+two-instance order matching, and more-snapshot-nodes-than-prefab. The material clone below
+the resolver needs live renderers and stays flight-proved.
+
+LIVE-CONFIRMED on the same run `2026-09-15_1604`. `no-family-state` is GONE from the
+colour-changer surface (the only two occurrences left in the whole log are the
+converter-loop family, by design - see its own entry):
+
+```
+BEFORE (_1505 / _1524):
+  apply family=LightOn  surface=colorchanger rec=0 pid=57152010 applied=0 skipped=3..5
+      reason=no-family-state          (LightOff mirrors it)
+AFTER (_1604), both directions:
+  apply family=LightOn  surface=colorchanger rec=0 pid=2225231708 applied=2 skipped=3
+      reason=no-info-for-part
+  apply family=LightOff surface=colorchanger rec=0 pid=2225231708 applied=2 skipped=3
+      reason=no-info-for-part
+```
+
+`applied=2` is exactly the two Pattern-A parts the fix was aimed at, and the builder says
+so in its own new summary line, three parts resolved off the PREFAB config where the
+snapshot node carried nothing:
+
+```
+ColorChanger resolve 'mk1-3pod'     pid=57152010   : modules=1 built=1 noShaderProperty=0 unrecognisedPattern=0
+ColorChanger resolve 'dockingPort2' pid=2530776075 : modules=1 built=1 noShaderProperty=0 unrecognisedPattern=0
+ColorChanger resolve 'HeatShield2'  pid=2104924005 : modules=1 built=1 noShaderProperty=0 unrecognisedPattern=0
+```
+
+(the heat shield is Pattern B and is driven by ablation, not by light events - it is built
+now too, which it was not before). `skipped=3` is the three ModuleLight parts, which carry
+no colour changer and correctly report `no-info-for-part` on THIS surface; the
+representative pid 2225231708 is the ladder bay because the grammar names the first pid
+that SKIPPED. The reason class therefore moved from the strongest ("the ghost has no
+colour-changer dictionary at all") to the weakest and correct one ("this particular part
+has no entry"), which is precisely what the fix predicted.
+
+THE ORIGINAL READING FOLLOWS, unchanged.
 
 THE LINES, verbatim, both directions of the family:
 

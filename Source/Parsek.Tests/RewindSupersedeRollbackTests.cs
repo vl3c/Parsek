@@ -973,9 +973,32 @@ namespace Parsek.Tests
         public void ReapplyRewindSupersedeDropAfterLoad_NoOp_WhenNotRewinding()
         {
             // Defensive: outside an active rewind, the re-apply must NOT mutate state.
-            // RewindContext.IsRewinding defaults to false in xUnit.
+            // Every downstream term is armed (committed owner + fork, replay-target
+            // scope, one droppable supersede row) so the IsRewinding guard is the
+            // ONLY reason the pass returns 0: this is exactly the fixture that
+            // ReapplyRewindSupersedeDropAfterLoad_RecreatesRetirement_WhenScenarioRestoresSupersede
+            // drives to dropped==1 with the rewind armed.
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRec("B", startUT: 31.5);
+            InstallCommittedTreeForTesting("tree-reapply-not-rewinding", a, b);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RecordingStore.SetRewindReplayTargetScope(a);
+            // RewindContext.IsRewinding defaults to false in xUnit; no BeginRewind.
+            Assert.False(RewindContext.IsRewinding);
+
             int dropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+
             Assert.Equal(0, dropped);
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Empty(scenario.RecordingRewindRetirements);
         }
 
         [Fact]
@@ -983,12 +1006,36 @@ namespace Parsek.Tests
         {
             // Sanity: even if RewindContext.IsRewinding is true, with no owner id the
             // re-apply must early-return without touching anything.
+            //
+            // The empty-id early return and the owner-not-found fallback both
+            // yield 0, so the count alone cannot discriminate them. The
+            // observable that can: the owner-not-found branch emits a Verbose
+            // "not found in committed recordings" line. Asserting its ABSENCE
+            // pins the empty-id guard as the one that fired.
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRec("B", startUT: 31.5);
+            InstallCommittedTreeForTesting("tree-reapply-empty-owner", a, b);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
             try
             {
                 RewindContext.BeginRewind(0, default(BudgetSummary), 0, 0, 0);
+                RewindContext.SetAdjustedUT(6.5);
                 // RewindReplayTargetRecordingId left null intentionally.
+                logLines.Clear();
                 int dropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
                 Assert.Equal(0, dropped);
+                Assert.Single(scenario.RecordingSupersedes);
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[Rewind]")
+                    && l.Contains("not found in committed recordings"));
             }
             finally
             {

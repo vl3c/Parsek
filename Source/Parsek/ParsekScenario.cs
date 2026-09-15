@@ -717,6 +717,58 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #434: the OnLoad revert decision. A load is a revert exactly when the
+        /// scene classifier did NOT call it a vessel switch and
+        /// <see cref="RevertDetector"/> handed back a real revert kind (the
+        /// GameEvents hook fires synchronously inside
+        /// <c>FlightDriver.RevertTo{Launch,Prelaunch}</c>, before
+        /// <c>HighLogic.LoadScene</c>, so the flag is already set when OnLoad runs).
+        ///
+        /// <para>Pure so it can be unit-tested; the OnLoad call site is not
+        /// reachable from xUnit (ScenarioModule lifecycle). The pre-#434 epoch /
+        /// recording-count / orphaned-limbo heuristics are NOT part of this
+        /// decision any more - they were replaced by the event, and
+        /// <c>hasOrphanedLimboTree</c> survives only as a Verbose diagnostic.</para>
+        /// </summary>
+        internal static bool ComputeIsRevertOnLoad(bool isVesselSwitch, RevertKind revertKind)
+        {
+            return !isVesselSwitch && revertKind != RevertKind.None;
+        }
+
+        /// <summary>
+        /// Disposition of the OnLoad pending-Limbo dispatch. The block this
+        /// classifies only runs when a pending tree is in Limbo or
+        /// LimboVesselSwitch; on a revert the branch above has already discarded
+        /// the pending tree, so there is no revert outcome here.
+        /// </summary>
+        internal enum LimboDispatchOutcome
+        {
+            /// <summary>Pre-transitioned tree (#266): reinstall via the vessel-switch restore coroutine.</summary>
+            VesselSwitchRestore = 0,
+            /// <summary>Limbo (not LimboVesselSwitch) but the classifier says vessel switch: pre-#266 finalize.</summary>
+            SafetyNetFinalize = 1,
+            /// <summary>Quickload / cold-start resume: defer the restore to OnFlightReady.</summary>
+            QuickloadRestore = 2,
+        }
+
+        /// <summary>
+        /// Pure form of the OnLoad pending-Limbo dispatch decision. Ordering is
+        /// load-bearing: a LimboVesselSwitch stash was pre-transitioned at stash
+        /// time and must take the restore path even when the classifier also says
+        /// vessel switch; only a plain Limbo stash under a vessel switch falls
+        /// back to the safety-net finalize.
+        /// </summary>
+        internal static LimboDispatchOutcome ClassifyLimboDispatch(
+            bool isVesselSwitch, PendingTreeState pendState)
+        {
+            if (pendState == PendingTreeState.LimboVesselSwitch)
+                return LimboDispatchOutcome.VesselSwitchRestore;
+            if (isVesselSwitch)
+                return LimboDispatchOutcome.SafetyNetFinalize;
+            return LimboDispatchOutcome.QuickloadRestore;
+        }
+
+        /// <summary>
         /// True when quickload discard must treat a re-fly session as active.
         /// This includes the normal persisted marker and the retry/invoke window
         /// before <see cref="RewindInvoker.AtomicMarkerWrite"/> recreates the
@@ -3459,7 +3511,7 @@ namespace Parsek
                     // captured static can never leak into a later OnLoad (e.g. a revert event that
                     // this load classifies as a vessel switch). Only used below when isRevert.
                     HashSet<uint> revertTargetPids = RevertDetector.ConsumeRevertTargetVesselPids();
-                    bool isRevert = !isVesselSwitch && revertKind != RevertKind.None;
+                    bool isRevert = ComputeIsRevertOnLoad(isVesselSwitch, revertKind);
                     ParsekLog.Verbose("Scenario",
                         $"OnLoad: revert detection — revertKind={revertKind}, " +
                         $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
@@ -3885,7 +3937,8 @@ namespace Parsek
                     {
                         RecorderStateLog.RecState("OnLoad:limbo-dispatched", CaptureScenarioRecorderState());
                         var pendState = RecordingStore.PendingTreeStateValue;
-                        if (pendState == PendingTreeState.LimboVesselSwitch)
+                        var limboOutcome = ClassifyLimboDispatch(isVesselSwitch, pendState);
+                        if (limboOutcome == LimboDispatchOutcome.VesselSwitchRestore)
                         {
                             // Bug #266: tree was pre-transitioned at stash time. Just defer
                             // to OnFlightReady for the vessel-switch restore coroutine, which
@@ -3897,7 +3950,7 @@ namespace Parsek
                                 $"OnLoad: pending-LimboVesselSwitch tree '{RecordingStore.PendingTree?.TreeName}' " +
                                 "deferred to OnFlightReady for vessel-switch restore (#266)");
                         }
-                        else if (isVesselSwitch)
+                        else if (limboOutcome == LimboDispatchOutcome.SafetyNetFinalize)
                         {
                             // Safety net: Limbo state (NOT LimboVesselSwitch) but the
                             // OnLoad classifier still says vessel switch. This means the
@@ -4563,12 +4616,7 @@ namespace Parsek
             // that would match freshly-spawned past vessels (bug #134). The revert path's
             // alreadyHasCleanupData guard (line ~352) will see null and collect
             // fresh data from CollectSpawnedVesselInfo() if needed.
-            RecordingStore.PendingCleanupPids = null;
-            RecordingStore.PendingCleanupNames = null;
-            RecordingStore.PendingRevertPreExistingPids = null;
-            ParsekLog.Info("Rewind",
-                "OnLoad: cleared PendingCleanupPids/Names after strip — " +
-                "prevents OnFlightReady from destroying freshly-spawned past vessels");
+            RecordingStore.ClearPendingCleanupAfterRewindStrip();
 
             // Strip PRELAUNCH vessels from the future (bug #129).
             // StripOrphanedSpawnedVessels filters by name — unrecorded PRELAUNCH vessels

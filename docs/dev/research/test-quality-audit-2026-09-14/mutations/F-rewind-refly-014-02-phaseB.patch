@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index fc4501300..069a87519 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -5313,7 +5313,8 @@ namespace Parsek
+             // Baseline resources from the owner's pre-launch snapshot.
+             // The rewind save was captured at the same moment as PreLaunch values.
+             RewindContext.BeginRewind(owner.StartUT, reserved,
+-                owner.PreLaunchFunds, owner.PreLaunchScience, owner.PreLaunchReputation);
++                owner.Points.Count > 0 ? owner.Points[owner.Points.Count - 1].funds : owner.PreLaunchFunds,
++                owner.PreLaunchScience, owner.PreLaunchReputation);
+             SetRewindReplayTargetScope(owner);
+ 
+             if (!SuppressLogging)
+warning: in the working copy of 'Source/Parsek/RecordingStore.cs', LF will be replaced by CRLF the next time Git touches it
