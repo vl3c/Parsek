@@ -14,8 +14,9 @@ namespace Parsek.Tests
     // behind only as a comment (or inside a log string) no longer satisfies a pin, and each
     // proximity window is additionally anchored to the ENCLOSING METHOD BODY, so two unrelated
     // methods that happen to sit within the character budget cannot jointly satisfy one gate.
-    // EveryScan_RejectsSourceWhereTheCallsSurviveOnlyAsComments is the decoy cell that proves
-    // the stripping is wired in.
+    // EveryScan_RejectsSourceWhereTheCallsSurviveOnlyAsComments pins the helper on a synthetic
+    // comment-only source; the wiring of that helper into ReadMissionsWindowSource is not
+    // separately gated here.
     public class MissionCrossTreeDockUiWiringTests
     {
         private static string ReadMissionsWindowSource()

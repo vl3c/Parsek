@@ -20,8 +20,8 @@ _(unreleased — entries accumulate here per commit)_
   anchor their proximity windows to the enclosing method body plus carry a comment-only decoy
   cell. Two test classes installed a static test hook and never put it back (a rotation-period
   seam that then answered NaN for every body, and a KerbalsModule on the ledger orchestrator),
-  leaking into every later test in the Sequential collection; both now restore what they found
-  in Dispose. Each repair carries a mutation or leak-check proof under
+  leaking into every later test in the Sequential collection; the kerbals seam is saved and
+  restored in Dispose, the frame-transform seam is reset on both ends of the class. Each repair carries a mutation or leak-check proof under
   `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No player-visible change.
 
 - **Automated testing: five fixes to the new hover / point / open-everything support,

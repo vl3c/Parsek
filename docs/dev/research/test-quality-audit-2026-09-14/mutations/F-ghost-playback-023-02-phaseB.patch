@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
 index b5e79c0fa..f5aea379c 100644
 --- a/Source/Parsek/ParsekFlight.cs
 +++ b/Source/Parsek/ParsekFlight.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections;
- using System.Collections.Generic;
- using System.Globalization;
 @@ -20202,6 +20202,11 @@ namespace Parsek
          internal bool HasActiveGhost(int index) => watchMode.HasActiveGhost(index);
          internal bool IsGhostWithinVisualRange(int index) => watchMode.IsGhostWithinVisualRange(index);

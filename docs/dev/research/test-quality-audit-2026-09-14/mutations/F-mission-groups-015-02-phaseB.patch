@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/UI/MissionsWindowUI.cs b/Source/Parsek/UI/MissionsWin
 index 77710895c..e7e94b7db 100644
 --- a/Source/Parsek/UI/MissionsWindowUI.cs
 +++ b/Source/Parsek/UI/MissionsWindowUI.cs
-@@ -1,4 +1,4 @@
--using System.Collections.Generic;
-+﻿using System.Collections.Generic;
- using Parsek.Logistics;
- using UnityEngine;
- 
 @@ -2224,7 +2224,7 @@ namespace Parsek
                      if (toggled != included)
                      {
