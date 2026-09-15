@@ -49,6 +49,8 @@ namespace Parsek.Tests
         [InlineData("CaptureScreenshot")]
         [InlineData("UiAction")]
         [InlineData("DumpGuiTree")]
+        [InlineData("GloopsStart")]
+        [InlineData("GloopsStop")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -143,7 +145,15 @@ namespace Parsek.Tests
             // artefacts (pixels vs an IMGUI control tree), a census drives them as a PAIR
             // under one label, and a reader of the response line has to be able to say
             // which artefact a step produced.
-            Assert.Equal(36, TestCommandVerbs.ImplementedVerbNames.Count);
+            // The Gloops pair is ADDITIVE once more (36 -> 38; reserved unchanged at 5),
+            // so the first number moves alone and by TWO - the arithmetic signature of an
+            // addition of two rather than a promotion, which would have moved both numbers
+            // in opposite directions. The reserved envelope never carried a
+            // ghost-only-recorder verb, and neither name is a second spelling of
+            // StartRecording / StopRecording: those own the auto-record tree that commits
+            // into the career, these own the parallel ghost-only recorder behind the Gloops
+            // window's primary button.
+            Assert.Equal(38, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

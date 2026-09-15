@@ -1707,7 +1707,7 @@ the wave supervisor's keep-4 ruling; 0 flights, the offline control stands (`_00
 3); only an opportunistic live control on an NRE-bearing run remains open. n and the class
 composition are in the spec comment and in test_hlib's CEILINGS comment.
 
-## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BOTH HALVES RULED 2026-09-15 (register B3 / B4); the `sub-2-point-drop` half stays open until the Gloops PR lands]
+## ~~D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one~~ [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. RULED 2026-09-15 (operator ruling B4: option (1), Gloops stays as is). CLOSED 2026-09-15: both halves are done - `sub-2-point-drop` by GL-2 and `manual-gloops` by GL-1, each LIVE-PROVEN + ARMED on its first flight, and the `stop-on-switch` half (B3) by the registry PR #1697]
 
 **B3 RULED YES and APPLIED 2026-09-15 (the R2 half).** `stop-on-switch` is RENAMED
 `switch-backgrounds-recording` in `harness/coverage/registry.toml` and CLAIMED on CI-1 off
@@ -1715,12 +1715,6 @@ a literal token (`Transitioned to background (pid=`) pinned from run `2026-09-08
 with an armed re-flight and one negative control flown this session (run ids in
 `autotest-status.md`). The cell is no longer a registry defect and no longer unclaimable;
 every doc line that still said so was corrected in the same PR.
-
-**B4 RULED YES with the constraint that Gloops code stays untouched; implemented on branch
-`gloops-seam-verbs` (separate PR).** The `sub-2-point-drop` half is therefore NOT closed
-here: this PR only rewrites the registry comment to record that the always-tree commit path
-keeps a 1-point recording (MC-3 measured it) so Gloops is the drop's only seam-reachable
-producer, and corrects the stale S0.5 / S0.6 comments.
 
 **What the cell names.** `harness/coverage/registry.toml` D1 `sub-2-point-drop`: a
 recording shorter than two points is dropped instead of committed. The only producer
@@ -1787,11 +1781,12 @@ DIFFERENT predicate (`Points.Count == 0`);
 (3) delete the value with a rationale comment - DEMOTED, because a same-predicate
 tree-mode path exists and deletion would drop a real behaviour from the registry.
 
-**Stale comments to correct in the PR that takes the decision (not a drive-by):** the
-"stationary-pod sub-2-point-drop" remarks at
-`harness/scenarios/S0.5-live-record-discard.toml:74` and
-`harness/scenarios/S0.6-live-record-commit.toml:62` predate always-tree mode; a tree
-commit never passes through `CreateRecordingFromFlightData`.
+**~~Stale comments to correct in the PR that takes the decision (not a drive-by)~~ DONE
+2026-09-15:** the "stationary-pod sub-2-point-drop" remarks at
+`harness/scenarios/S0.5-live-record-discard.toml` and
+`harness/scenarios/S0.6-live-record-commit.toml` predated always-tree mode - a tree commit
+never passes through `CreateRecordingFromFlightData`. Both now say what their count range
+is actually robust to, and both point at `GL-2-gloops-sub-2-point-drop` for the drop itself.
 
 **Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 3):**
 two separate answers, both operator calls (roadmap "Priority register (2026-09-11)" items B3
@@ -1805,8 +1800,15 @@ and B4).
     requires it.
   - Claim it on CI-1 with the token, an armed re-flight and one negative control. No C#.
 - `sub-2-point-drop`: option (1) above.
-  - The tree commit path keeps a 1-point recording (MC-3 measured it, per the memo), so the
-    drop's only seam-reachable producer is Gloops.
+  - The tree commit path keeps a 1-point recording (MC-3 measured it, per the memo), so
+    Gloops is the only seam VERB whose SUBJECT the drop can be. CORRECTED 2026-09-15 (the
+    memo file itself stays as written): that is NOT the same as "the only producer". The
+    dock/undock chain path reaches the same factory on all four of its branches
+    (`ParsekFlight.HandleDockUndockCommitRestart` ->
+    `ChainSegmentManager.CommitDockUndockSegment` -> `CommitSegmentCore`) with no
+    always-tree guard, and logs `CommitSegmentCore`'s own "segment too short" instead -
+    a literal whose full line carries an EM DASH before "aborting"
+    (`ChainSegmentManager.cs:659`), so a spec citing it must not pin ASCII.
   - Rewrite the registry comment to say so, and close the cell together with `manual-gloops`
     through ONE C# seam verb pair (`GloopsStart` / `GloopsStop`, about 150 lines).
     Confidence is medium on the verb shape.
@@ -1816,13 +1818,65 @@ Line numbers re-checked 2026-09-11 at `b21fc2096`:
 - `FallbackCommitSplitRecorder` is declared at `:6843`;
 - the Gloops `too short - discarded` ScreenMessage is at `:17085` (cited as `:17058` above).
 
-**Fix (revised 2026-09-15; the registry half DONE, the C# half pending).**
-- The registry PR redefined `stop-on-switch` as `switch-backgrounds-recording` and claimed
-  it on CI-1, rewrote the `sub-2-point-drop` comment, and corrected the S0.5 / S0.6
-  comments. DONE 2026-09-15.
-- A separate C# PR on branch `gloops-seam-verbs` adds the Gloops verb pair (Gloops code
-  itself untouched, per B4's constraint) and the lanes that claim `manual-gloops` and
-  `sub-2-point-drop`. PENDING.
+**RULING B4, taken 2026-09-15 (operator): option (1), and GLOOPS STAYS AS IS.** The cell
+is KEPT and closed through a seam verb pair, with no change to the Gloops recorder, its
+window or any code it calls - `GLOOPS-STANDALONE-WINDDOWN` and GUI-P13 stay open and
+untouched. Option (2) was not taken (it would have redefined a real behaviour away from its
+own producer) and option (3) was already demoted.
+
+**Fix (`sub-2-point-drop` half: BUILT 2026-09-15, branch `gloops-seam-verbs`; awaiting its
+reading flight).**
+- ADDITIVE M-A2 verb pair `GloopsStart` / `GloopsStop`, no args, both `RequiresFlight`,
+  both SINGLE-PHASE (the recorder attaches to the physics-frame patch inside
+  `FlightRecorder.StartRecording`, and the stop half stops / builds / commits / nulls in one
+  synchronous call, so each read-back is a final answer). 36 -> 38 implemented, reserved
+  unchanged at 5. They drive the EXISTING entry points - the same two internal
+  `ParsekFlight` members the window's primary button calls - and every REJECTED token is a
+  READ-BACK of an existing Gloops guard's decision rather than a second copy of it. A unit
+  cell reads the applier's source and asserts it reaches no other Gloops mutator (no
+  Discard, no Preview) and writes no Gloops field.
+- THE DROP IS NOT A REFUSAL: the button behaves identically, so `GloopsStop` terminates OK
+  with `committed=false points=<n> dropped=too-short`, and a lane gates on the PRODUCTION
+  log line. A REJECTED would have forced the lane to call its own subject a driver fault.
+- Two lanes, both authored as READING-RUN specs and neither armed:
+  `GL-1-gloops-manual-lifecycle` (claims `manual-gloops`; `samplingDensity=2` and eight
+  inert probes between start and stop, with the commit token deliberately UNGATED because
+  whether a stationary pod accrues two points is the reading-run unknown) and
+  `GL-2-gloops-sub-2-point-drop` (claims both; `samplingDensity=0` and ADJACENT steps, so
+  the take cannot reach two points, with the drop gated on four independently-failing
+  tokens).
+- SCOPE, corrected in review and carried into every doc that states it: the Gloops stop is
+  the only seam VERB whose SUBJECT is the drop, NOT the only producer. The census above
+  called `CommitDockUndockSegment` "not proven dead", and it is not: `ParsekFlight
+  .HandleDockUndockCommitRestart` reaches `ChainSegmentManager.CommitDockUndockSegment` ->
+  `CommitSegmentCore` -> the factory on all FOUR of its branches (dock initiator, dock
+  target, undock stay, undock switch) with no always-tree guard anywhere on that chain. A
+  docking lane could meet the same refusal incidentally; it would log `CommitSegmentCore`'s
+  own Verbose "segment too short" rather than the Gloops Warn GL-2 gates, so the two are
+  distinguishable in a log.
+- `points=` in the stop payload is the committed recording's `Points.Count` on a commit and
+  the RECORDER COUNT BEFORE THE CALL on a drop. It is deliberately NOT "the number the < 2
+  rule was applied to": `FinalizeRecordingState` can ADD a boundary sample at stop when the
+  vessel is on rails, and the factory TRIMS leading stationary points before re-applying the
+  test, so a pre-call 1 can commit and a pre-call 5 can drop.
+- The registry comment now names Gloops with that scope, and the stale S0.5 / S0.6
+  "stationary-pod sub-2-point-drop" remarks named below are CORRECTED in the same change.
+
+**FLOWN 2026-09-15, and both declared unknowns answered.** GL-1: reading `2026-09-15_1601`
+PASS attempt 1 (65 s), armed `_1613` PASS attempt 1 (81 s), control `_1620`
+PARSEK-FAIL(expectation) on exactly the seeded `points=7`. The stationary PRELAUNCH pod
+COMMITS, at THREE points, so the count collapsed to exactly 1 and the outcome-agnostic
+prefix became four whole tokens. GL-2: reading `2026-09-15_1621` PASS attempt 1 (63 s),
+armed `_1623` PASS attempt 1 (52 s), control `_1624` PARSEK-FAIL(expectation) on exactly the
+seeded `dropped=too-long`. The take lands on EXACTLY ONE point, and the validator question
+answered itself - `logValidate status=PASS recRulesSuppressed=True` - so no suppression was
+added. Both lanes show two report-only stock teardown NREs with no Parsek frames
+(`KbApp.OnDestroy`, `Pipeline-Session Clear`): KSP's own quit noise, seen through the
+report-only `unityExceptions` row and deliberately not gated.
+
+**The `stop-on-switch` half (B3) is CLOSED TOO**, by the registry PR #1697 rather than by
+this one: redefined `switch-backgrounds-recording` and claimed on CI-1. Nothing in this
+entry remains open.
 
 ## ~~RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later~~ [FILED 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. CLOSED 2026-09-11: the re-pinned spec flew green and both D4 claims were taken]
 
