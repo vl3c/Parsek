@@ -93,9 +93,12 @@ namespace Parsek.Tests
             // (the handler is IMGUI, not xUnit drivable).
             string src = ReadMissionsWindowSource();
 
+            // The bulk edit itself lives in MissionChapters.ApplyChapterToggle (pinned
+            // behaviourally by MissionChaptersTests); the handler's obligation is to stamp the
+            // generation right after calling it, so the anchor is the call site.
             int mutation = src.IndexOf(
-                "mission.ExcludedIntervalKeys.Add(key)", StringComparison.Ordinal);
-            Assert.True(mutation >= 0, "chapter bulk-exclusion mutation site not found");
+                "MissionChapters.ApplyChapterToggle(", StringComparison.Ordinal);
+            Assert.True(mutation >= 0, "chapter bulk-exclusion call site not found");
 
             int stamp = src.IndexOf(
                 "mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;",
