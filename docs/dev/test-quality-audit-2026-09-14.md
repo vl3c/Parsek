@@ -1190,6 +1190,99 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     deferred, 0 deleted. Three sibling cells were added on the `rewind-refly` half and
     one on the `recording-tree` half (the other two recording-tree method additions are renames), each carrying the mirror or positive direction the
     original cell could not reach.
+
+- `testfix-t1t2`, eighth PR (2026-09-16): the THIRD slice of Medium T3 rows
+  (`work/phase-b-slice-medium-t3-03.txt`, 20 ids, all `ledger-career`). Each fixed row
+  has a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv`
+  and a `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - Strengthened (15): F-ledger-career-001-06
+    (`ReconcileKsc_PartPurchase_EntryCostMatched_NoWarn`, with the inert bypass provider
+    dropped - nothing on the reconcile path reads it - and a new mirror cell
+    `ReconcileKsc_PartPurchase_PartCostAgainstEntryCostEvent_WarnsDeltaMismatch` driving
+    the PRE-#451 shape, since the silence alone is satisfied by a reconciler that never
+    compares deltas. The #451 pin proper stays at the recorder seam,
+    `GameStateRecorderLedgerTests.ComputePartPurchaseFundsSpent_BypassOff_ReturnsEntryCost`);
+    F-ledger-career-003-02 (drives the real `OnRecordingCommitted` with an installed
+    crewed recording and asserts the commit summary at `LedgerOrchestrator.cs:407`
+    instead of the recalc line `RecalculateAndPatch_RunsWithoutError` already pins. The
+    `startUT=`/`endUT=` values are matched on the KEY only: that line formats `F1` under
+    the OS culture and the ro-RO dev host prints `50,0`);
+    F-ledger-career-004-01 (the wrong-reason fixture is now a wrong-reason DEBIT keyed
+    `TechResearchScienceReasonKey`, so the sign filter can no longer stand in for the
+    reason filter);
+    F-ledger-career-004-02 (the discriminator comes from
+    `KspStatePatcher.ComputePendingAdjustedRunningScience` over a staged uncommitted
+    exchange, not a typed-in constant plus an inline re-issue of the fold. Kept rather
+    than deleted against `StrategyPrefixHoldbackTests`: that twin pins the fold and the
+    basis, never the clamp-direction symptom);
+    F-ledger-career-008-02 (`TryGetOriginalScience` values, not just the entry count);
+    F-ledger-career-013-03 (serializes under `de-DE`, asserts the raw `ut` /
+    `scienceAwarded` / `transmitScalar` / `subjectMaxValue` node text carries no comma,
+    then reads back - the shape of `ResourceManifestSerializationTests.LocaleSafety`);
+    F-ledger-career-013-05 (captures the sink and asserts the `Unknown action type id
+    '9999'` Warn, plus `Type == default(GameActionType)` rather than `NotEqual(9999)`);
+    F-ledger-career-014-01 (both source scans start at
+    `internal static void OnStrategyCurrencyConversion`; the file-wide `IndexOf` was
+    being satisfied by `OnKscSpending`'s earlier, unrelated `Ledger.AddAction(action);`);
+    F-ledger-career-016-01 (each `GameActionType` must appear at least once carrying a
+    payload beyond the five skeleton fields, checked by reflection over `GameAction`'s
+    fields so a new field is covered the day it lands. This immediately red'd on
+    `KerbalExperience` and `StrategyScienceCredit`, neither of which had a `CreateAction`
+    arm - the corpus had been fuzzing all-zero rows of both, which is exactly what the
+    old comment falsely promised to catch - and both arms were added);
+    F-ledger-career-017-02 (the CROSS-ORDER comparison the design-doc property is about:
+    `NotEqual` on the milestone and contract effectives between the two walks. Flat
+    multipliers used to pass);
+    F-ledger-career-024-01 (the "ignored" milestone fixture is replaced with
+    `FacilityUpgrade`, which `ScienceModule.ProcessAction` genuinely has no arm for, and
+    two mirror cells pin the milestone arm it does have - effective-with-science credits
+    the pool, not-effective credits nothing);
+    F-ledger-career-025-02 (guards the production channel tag
+    `KSC reconciliation (funds)`; the literal `KSC reconciliation: Funds mismatch` it
+    used to guard is emitted nowhere);
+    F-ledger-career-027-01 (new sibling
+    `TerminalContractMaps_SecondTerminalActionWithNoReAccept_Overwrites`: a fail then a
+    cancel on one id with no intervening Accept is the only shape that separates
+    latest-wins from first-wins, since an Accept clears both maps);
+    F-ledger-career-031-03 (the dispatch is witnessed by the module's own `[Strategies]`
+    Activate / Deactivate lines and by `IsStrategyActive` after the walk; the
+    `Transformed*` fields are prefilled by the test helper and prove nothing about it);
+    F-ledger-career-031-04 (the stored `StrategyState` is read back, so the overwrite is
+    distinguishable from an ignore for the first time).
+  - Renamed to what they prove (3): F-ledger-career-018-01
+    (`PatchTechTree_NullTargetWithRewindContext_SkipsBeforeTheAvailableLog`; the
+    applied-node Info log carrying `utCutoff` / `baselineUt` is unreachable headlessly
+    because the null-target return fires first, so the cell now asserts the skip AND the
+    absence of that log's own tokens. The log's fields stay in-game work);
+    F-ledger-career-018-03 (`PatchAll_RestoresSuppressionFlags`, with the unproven "Sets"
+    half moved to a new direct cell
+    `SuppressionGuard_ResourcesAndReplay_SetsBothFlagsInsideTheScope` - PatchAll opens
+    exactly that guard, and nothing inside its scope was observable from the old cell);
+    F-ledger-career-037-01 (`IsManaged_TwoReservedCrew_BothManagedAsReservedActive`,
+    plus `GetReservationKind == ReservedActive` so the reservation term, not chain
+    membership, has to answer. Genuine retirement needs a displaced, unreserved chain
+    entry that this fixture never builds; the cell's own comment had said as much since
+    it was written).
+  - Deleted as duplicates (2), each leaving a comment naming the twin:
+    F-ledger-career-001-04 (`ClassifyAction_PartPurchase_BypassOff_StaysUntransformed` -
+    `KscActionExpectationClassifier` never reads the bypass provider, so the setup was
+    inert and the four asserts were a copy of
+    `ClassifyAction_PartPurchase_UntransformedWithRnDPartPurchaseKey`; the bypass branch
+    is pinned in `GameStateRecorderLedgerTests`);
+    F-ledger-career-032-01 (`InferCrewEndState_UndockedPodCrewInChildSnapshot_ReturnsAboard`
+    built no recording, no undock and no child snapshot - it drove the same branch with
+    the same assertions as `InferCrewEndState_OrbitingInSnapshot_ReturnsAboard`. The
+    undock/child-recording path it was named for still needs a recording-level case).
+  - One production change, a read-only accessor:
+    `StrategiesModule.TryGetActiveStrategy(string, out StrategyState)`, named by the
+    register for F-ledger-career-031-04 and added because no existing surface can tell a
+    re-activation's overwrite from an ignore. No behavior and no log text changed;
+    `GrepAuditTests` and `AgentInstructionMirrorTests` re-run green.
+  - Slice total: 20 of 20 addressed - 15 strengthened, 3 renamed and strengthened, 2
+    deleted (twin), 0 deferred. Five sibling cells were added (the delta-mismatch mirror,
+    the terminal-map overwrite, the suppression-guard scope, and the two milestone-arm
+    science cells), each carrying the mirror or positive direction the original cell
+    could not reach.
 - `testfix-t1t2`, sixth PR (2026-09-15): the final slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-06.txt`, 14 ids: 10 catchall, 4 legacy-bugfix), first
   commit. Every fixed row has a proof row in

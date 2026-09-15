@@ -82,30 +82,15 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]") && l.Contains("Aboard"));
         }
 
-        /// <summary>
-        /// Undock-split crew survival contract: a kerbal who departs on the undocked pod
-        /// is captured in that pod's child recording snapshot, so on an intact terminal
-        /// state (Orbiting) the kerbal is Aboard, not Dead.
-        ///
-        /// Regression for the docking-port undock that was mis-recorded as within-segment
-        /// part loss: the departing pod was emitted as a PartDestroyed segment event, so the
-        /// crew member fell out of the recording's final snapshot and inference returned Dead
-        /// (and the kerbal was flagged permanently gone). Routing the undock through a proper
-        /// Undock branch keeps the crew in the child snapshot.
-        /// </summary>
-        [Fact]
-        public void InferCrewEndState_UndockedPodCrewInChildSnapshot_ReturnsAboard()
-        {
-            // Bill departs on the undocked pod; the pod's child recording ends Orbiting with
-            // Bill still in its snapshot. This is the correct post-fix outcome.
-            var result = KerbalsModule.InferCrewEndState(
-                "Bill Kerman",
-                TerminalState.Orbiting,
-                new HashSet<string> { "Bill Kerman" });
-
-            Assert.Equal(KerbalEndState.Aboard, result);
-            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]") && l.Contains("Aboard") && l.Contains("Bill Kerman"));
-        }
+        // DELETED (2026-09-16 test-quality audit, F-ledger-career-032-01):
+        // InferCrewEndState_UndockedPodCrewInChildSnapshot_ReturnsAboard claimed regression
+        // coverage for the docking-port undock that was mis-recorded as within-segment part
+        // loss, but it built no recording, no undock and no child snapshot - it handed a
+        // literal HashSet to the inference helper and so drove the same branch, with the
+        // same assertions, as InferCrewEndState_OrbitingInSnapshot_ReturnsAboard above.
+        // That twin keeps the branch pinned. The undock/child-recording path it was NAMED
+        // for was never exercised here and still is not: covering it needs a recording-level
+        // case that routes an undock split and reads the child recording's crew end state.
 
         /// <summary>
         /// Intact terminal state (Landed) with crew NOT in snapshot -> Dead (EVA'd and lost).

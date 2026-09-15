@@ -2136,13 +2136,24 @@ namespace Parsek.Tests
             GameStateStore.RecordOriginalScience("crewReport@Kerbin", 0.0f);
             Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
 
-            // Second call for same subject — should NOT update
+            // Second call for the same subject: the count staying at 1 is NOT the contract -
+            // a store that overwrote in place would hold the count too, and the overwritten
+            // baseline is what ClearScienceSubjects then hands RestoreScienceInRnD. The
+            // retained VALUE is the contract, so the value is what is asserted.
             GameStateStore.RecordOriginalScience("crewReport@Kerbin", 2.0f);
             Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+            float first;
+            Assert.True(GameStateStore.TryGetOriginalScience("crewReport@Kerbin", out first));
+            Assert.Equal(0.0f, first);
 
-            // Different subject — should add
+            // Different subject: adds, carries its own first value, and leaves the other alone.
             GameStateStore.RecordOriginalScience("tempScan@Mun", 1.5f);
             Assert.Equal(2, GameStateStore.OriginalScienceValueCount);
+            float second;
+            Assert.True(GameStateStore.TryGetOriginalScience("tempScan@Mun", out second));
+            Assert.Equal(1.5f, second);
+            Assert.True(GameStateStore.TryGetOriginalScience("crewReport@Kerbin", out first));
+            Assert.Equal(0.0f, first);
         }
 
         [Fact]
