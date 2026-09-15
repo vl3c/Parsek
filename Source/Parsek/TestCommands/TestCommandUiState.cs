@@ -81,6 +81,15 @@ namespace Parsek.TestCommands
         internal const string MissionArg = "mission";
         internal const string RouteArg = "route";
         internal const string GroupArg = "group";
+
+        /// <summary><c>op=run</c>'s REQUIRED in-game test category. Spelled <c>category</c>,
+        /// the same key the <c>RunTests</c> verb takes, because it names the same thing -
+        /// an <c>[InGameTest(Category = ...)]</c> value - and a second spelling for one
+        /// concept is how a spec author picks the wrong one. OPEN valued: the categories
+        /// come from the assembly's attributes, so no closed table can carry them (but
+        /// they are NOT save-specific either, which is why a COMMITTED spec may name
+        /// one).</summary>
+        internal const string CategoryArg = "category";
         internal const string RecordingArg = "recording";
 
         internal const string StateTrueToken = "true";
@@ -106,6 +115,11 @@ namespace Parsek.TestCommands
         internal const string RosterKeyPrefix = "roster";
         internal const string FlightsKeyPrefix = "flights";
 
+        /// <summary>Both test-runner windows' category folds. ONE prefix shared by the two
+        /// windows because it names the same collection shape in both - each window keeps
+        /// its OWN set, and the window= arg is what says which.</summary>
+        internal const string CategoryKeyPrefix = "category";
+
         private static readonly string[] MissionsExpandPrefixes = new[]
         {
             GroupKeyPrefix, ChainKeyPrefix, VesselKeyPrefix, LegKeyPrefix, DigestKeyPrefix,
@@ -122,11 +136,21 @@ namespace Parsek.TestCommands
             RosterKeyPrefix, FlightsKeyPrefix,
         };
 
+        // Both runner windows draw ONE fold per in-game test category and nothing else
+        // foldable, so they take one prefix. Shared array, two windows: the sets live on
+        // the two window objects and `window=` selects between them.
+        private static readonly string[] TestRunnerExpandPrefixes = new[]
+        {
+            CategoryKeyPrefix,
+        };
+
         /// <summary>The windows whose expansion state this op drives, comma-joined for the
         /// reject message.</summary>
         internal static string ExpandableWindowNames =>
             TestCommandUiAction.MissionsWindow + "," + TestCommandUiAction.LogisticsWindow
-            + "," + TestCommandUiAction.KerbalsWindow;
+            + "," + TestCommandUiAction.KerbalsWindow
+            + "," + TestCommandUiAction.TestRunnerWindow
+            + "," + TestCommandUiAction.TestRunnerGlobalWindow;
 
         /// <summary>The key prefixes a window accepts, or null when the window keeps no
         /// expansion state this op can drive.</summary>
@@ -135,6 +159,8 @@ namespace Parsek.TestCommands
             if (window == TestCommandUiAction.MissionsWindow) return MissionsExpandPrefixes;
             if (window == TestCommandUiAction.LogisticsWindow) return LogisticsExpandPrefixes;
             if (window == TestCommandUiAction.KerbalsWindow) return KerbalsExpandPrefixes;
+            if (window == TestCommandUiAction.TestRunnerWindow) return TestRunnerExpandPrefixes;
+            if (window == TestCommandUiAction.TestRunnerGlobalWindow) return TestRunnerExpandPrefixes;
             return null;
         }
 
@@ -193,6 +219,42 @@ namespace Parsek.TestCommands
         /// <summary>The named mission / route does not exist. The message lists what
         /// does.</summary>
         internal const string TargetNotFoundReason = "target-not-found";
+
+        // ----- run: reject reasons -----
+        //
+        // `op=run` drives ONE WINDOW'S OWN InGameTestRunner, which is the only runner whose
+        // results either runner window draws. Every reason below is fail-closed: the
+        // alternative to each is a capture labelled "results" over a table that shows none.
+
+        /// <summary><c>op=run</c> against a window that owns no test runner. The message
+        /// names the two that do.</summary>
+        internal const string RunUnsupportedWindowReason = "run-unsupported-window";
+
+        /// <summary>No <c>category=</c>. REQUIRED, never defaulted to "everything": the
+        /// full batch is minutes of tests and half of them mutate the save, which is not
+        /// something a census step should be able to ask for by omission.</summary>
+        internal const string RunCategoryArgMissingReason = "run-category-arg-missing";
+
+        /// <summary>A <c>category=</c> matching ZERO tests in that window's own discovery.
+        /// REJECTED rather than run: an empty batch reports <c>total=0</c>, leaves the
+        /// table untouched, and photographs exactly like a batch that never started.</summary>
+        internal const string RunCategoryUnknownReason = "run-category-unknown";
+
+        /// <summary>The window's runner does not exist yet, because the window has not
+        /// drawn once (both runners are created lazily on first draw). The remedy is an
+        /// <c>op=open</c> step - which settles on a DRAWN frame - before the run.</summary>
+        internal const string RunRunnerNotReadyReason = "run-runner-not-ready";
+
+        /// <summary>That runner is already running a batch (or the addon's own is). Refused
+        /// rather than queued: <c>RunCategory</c> silently returns while
+        /// <c>IsRunning</c>, so a queued-looking step would report a batch it never
+        /// started.</summary>
+        internal const string RunAlreadyRunningReason = "run-already-running";
+
+        /// <summary>POST-CALL terminal: the budget ran out with the batch still running.
+        /// Not a refusal - the batch was dispatched and is simply slower than the verb's
+        /// bound.</summary>
+        internal const string RunNotFinishedReason = "run-not-finished";
 
         /// <summary><c>op=picker</c> against a window with no row-armed popup.</summary>
         internal const string PickerUnsupportedWindowReason = "picker-unsupported-window";
@@ -446,6 +508,67 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("changed", changed.ToString(ic)),
                 new KeyValuePair<string, string>("expanded", expandedCount.ToString(ic)),
                 new KeyValuePair<string, string>("total", total.ToString(ic)),
+            };
+        }
+
+        /// <summary>The two windows whose own runner <c>op=run</c> can drive, comma-joined
+        /// for the <see cref="RunUnsupportedWindowReason"/> message.</summary>
+        internal static string RunnableWindowNames =>
+            TestCommandUiAction.TestRunnerWindow + ","
+            + TestCommandUiAction.TestRunnerGlobalWindow;
+
+        /// <summary>Whether <c>op=run</c> is defined for this window.</summary>
+        internal static bool WindowOwnsTestRunner(string window)
+            => window == TestCommandUiAction.TestRunnerWindow
+               || window == TestCommandUiAction.TestRunnerGlobalWindow;
+
+        /// <summary>
+        /// Parses <c>op=run</c>'s window + <c>category=</c> pair. A whitespace-only
+        /// category is treated as MISSING-and-written, the <c>RunTests</c>
+        /// <c>IsEmptyCategoryArg</c> rule: <c>category = ""</c> is a typo, and the only
+        /// other reading would be "run everything".
+        /// </summary>
+        internal static bool TryParseRun(string window, string rawCategory,
+                                         out string category, out string rejectReason)
+        {
+            category = null;
+            if (!WindowOwnsTestRunner(window))
+            {
+                rejectReason = RunUnsupportedWindowReason;
+                return false;
+            }
+            if (rawCategory == null || rawCategory.Trim().Length == 0)
+            {
+                rejectReason = RunCategoryArgMissingReason;
+                return false;
+            }
+            category = rawCategory;
+            rejectReason = null;
+            return true;
+        }
+
+        /// <summary>
+        /// OK payload for <c>run</c>:
+        /// <c>op=run window= category= total= passed= failed= skipped=</c>.
+        ///
+        /// <para><c>total</c> is the runner's own considered count for the batch that just
+        /// ended, so a lane reads the same four numbers the window's summary line draws -
+        /// which is what makes the PICTURE checkable against the wire rather than only
+        /// against itself.</para>
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> BuildRunPayload(
+            string window, string category, int total, int passed, int failed, int skipped)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("op", TestCommandUiAction.RunOpToken),
+                new KeyValuePair<string, string>("window", window ?? string.Empty),
+                new KeyValuePair<string, string>("category", category ?? string.Empty),
+                new KeyValuePair<string, string>("total", total.ToString(ic)),
+                new KeyValuePair<string, string>("passed", passed.ToString(ic)),
+                new KeyValuePair<string, string>("failed", failed.ToString(ic)),
+                new KeyValuePair<string, string>("skipped", skipped.ToString(ic)),
             };
         }
 

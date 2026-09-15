@@ -269,10 +269,10 @@ count = { min = 0, max = 0 }
 # would be three pictures of the same thing.
 required = [
   # --- describe echoes, in step order. `scene=FLIGHT` proves the census ran in flight.
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,timeline",
   # --- THE TWO HOVER TARGETS, each proved to have been RESOLVED BY TEXT rather than
   # guessed at. The Real Spawn Control line additionally proves the prefix rung fired: an
   # exact match on that text is impossible, because the live label carries a count.

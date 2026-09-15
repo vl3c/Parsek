@@ -82,6 +82,15 @@ namespace Parsek.TestCommands
         /// most of these confirms mutate the save) or by pressing one allowed
         /// button.</summary>
         Dismiss = 15,
+
+        /// <summary><c>op=run window=testrunner|testrunnerglobal category=&lt;name&gt;</c>:
+        /// run one in-game test category through THAT RUNNER WINDOW'S OWN runner, the
+        /// category header's "Run" button body verbatim, so a capture can show the window's
+        /// results table populated. It is NOT the <c>RunTests</c> verb: that verb drives
+        /// the addon's own runner instance, whose <c>InGameTestInfo</c> objects are not the
+        /// ones either window draws, so a batch through it leaves both tables reading "not
+        /// run".</summary>
+        Run = 16,
     }
 
     /// <summary>What one settle poll of a TWO-PHASE <c>UiAction</c> op concludes.</summary>
@@ -228,6 +237,7 @@ namespace Parsek.TestCommands
         internal const string PlaybackOpToken = "playback";
         internal const string RaiseOpToken = "raise";
         internal const string DismissOpToken = "dismiss";
+        internal const string RunOpToken = "run";
 
         /// <summary>The <c>recording=</c>-less spelling the payload and the log line echo
         /// for an ALL-recordings flip. A sentinel token rather than an empty value, the
@@ -253,6 +263,15 @@ namespace Parsek.TestCommands
         internal const string SpawnControlWindow = "spawncontrol";
         internal const string GloopsWindow = "gloops";
         internal const string TestRunnerWindow = "testrunner";
+
+        /// <summary>The GLOBAL Ctrl+Shift+T runner (<c>TestRunnerShortcut</c>), a separate
+        /// MonoBehaviour that happens to carry the same title as
+        /// <see cref="TestRunnerWindow"/>. Spelled as ONE lowercase word like every other
+        /// token here: a hyphen would break the census label grammar the mirror generator
+        /// parses (<c>&lt;host&gt;-&lt;window&gt;[-&lt;state&gt;]-&lt;mode&gt;</c>, split on
+        /// hyphens) and the <c>[a-z]+</c> table mirrors in
+        /// <c>harness/lib/test_hlib.py</c>.</summary>
+        internal const string TestRunnerGlobalWindow = "testrunnerglobal";
 
         // ----- reject / error reasons -----
 
@@ -462,7 +481,7 @@ namespace Parsek.TestCommands
         // payload reads down the same list a reviewer sees on screen, and a census spec's
         // capture labels sort into that order too. `main` leads because it hosts the rest.
         //
-        // THE THREE DELIBERATE EXCLUSIONS, derived from a grep of every
+        // THE TWO DELIBERATE EXCLUSIONS, derived from a grep of every
         // ClickThruBlocker.GUILayoutWindow / GUILayout.Window host under Source/Parsek
         // rather than from memory, so "eleven windows" is a claim about the whole program:
         //   - GroupPickerUI (UI/GroupPickerUI.cs, "Set Parent Group" / "Manage Groups") is
@@ -474,12 +493,15 @@ namespace Parsek.TestCommands
         //   - LogisticsWindowUI's round-trip LINK PICKER (UI/LogisticsWindowUI.cs, its own
         //     GUILayoutWindow drawn from DrawIfOpen) is excluded for exactly that reason:
         //     it is armed from a Logistics ROW and carries that row's source state.
-        //   - TestRunnerShortcut (InGameTests/TestRunnerShortcut.cs) shares the Test Runner
-        //     title but is a SEPARATE MonoBehaviour with no accessor and no complexity
-        //     gate; the `testrunner` token below is the Settings-launched TestRunnerUI.
-        // Adding any of the three needs a way to drive its CONTEXT first, not just a table
-        // row - that is the honest cost, and it is why they are named here rather than
-        // silently absent.
+        // TestRunnerShortcut (InGameTests/TestRunnerShortcut.cs) WAS the third exclusion
+        // and is now a row: it shares the Test Runner title but is a separate MonoBehaviour
+        // drawn from its OWN OnGUI, so it needed an accessor rather than a driveable
+        // context (GUI-12). It is still NOT the `testrunner` token - that one is the
+        // Settings-launched TestRunnerUI - and it is the only row whose window is outside
+        // both hosts' `showUI` gate (WindowDrawsOutsideHostShowUi).
+        // Adding either of the two above needs a way to drive its CONTEXT first, not just a
+        // table row - that is the honest cost, and it is why they are named here rather
+        // than silently absent.
 
         private static readonly UiWindowSpec[] WindowTable = new[]
         {
@@ -529,9 +551,18 @@ namespace Parsek.TestCommands
             NewSpec(GloopsWindow, true, false),
 
             // The Settings-launched TestRunnerUI. NOT the global Ctrl+Shift+T window
-            // (TestRunnerShortcut), which shares the same title but is a separate
-            // MonoBehaviour whose flag has no accessor and no complexity gate.
+            // below, which shares the same title but is a separate MonoBehaviour with a
+            // separate open flag, a separate input lock and no complexity gate.
             NewSpec(TestRunnerWindow, true, true),
+
+            // The GLOBAL Ctrl+Shift+T runner (TestRunnerShortcut). LAST in the table and
+            // therefore last in a describe payload, because the main window has no button
+            // for it at all - the order above is that window's button order and this one
+            // is reachable only by the shortcut. Available in BOTH scenes and in fact in
+            // every scene but LOADING: its draw is in its own OnGUI, outside either host's
+            // showUI gate, which is also why it is exempt from the hidden-host settle
+            // refusal.
+            NewSpec(TestRunnerGlobalWindow, true, true),
         };
 
         private static UiWindowSpec NewSpec(string name, bool inFlight, bool inKsc,
@@ -569,7 +600,7 @@ namespace Parsek.TestCommands
             OpenOpToken, CloseOpToken, TabOpToken, ComplexityOpToken, RectOpToken,
             DescribeOpToken, PointerOpToken, FindOpToken, ExpandOpToken, TargetOpToken,
             PickerOpToken, DialogOpToken, PlaybackOpToken, RaiseOpToken,
-            DismissOpToken,
+            DismissOpToken, RunOpToken,
         });
 
         /// <summary>A window's tab tokens, comma-joined, or the empty string when it has
@@ -607,6 +638,7 @@ namespace Parsek.TestCommands
                 case PlaybackOpToken: op = UiActionOp.Playback; break;
                 case RaiseOpToken: op = UiActionOp.Raise; break;
                 case DismissOpToken: op = UiActionOp.Dismiss; break;
+                case RunOpToken: op = UiActionOp.Run; break;
                 default:
                     rejectReason = OpArgInvalidReason;
                     return false;
@@ -635,6 +667,7 @@ namespace Parsek.TestCommands
                 case UiActionOp.Playback: return PlaybackOpToken;
                 case UiActionOp.Raise: return RaiseOpToken;
                 case UiActionOp.Dismiss: return DismissOpToken;
+                case UiActionOp.Run: return RunOpToken;
                 default: return string.Empty;
             }
         }
@@ -658,7 +691,8 @@ namespace Parsek.TestCommands
             => op == UiActionOp.Open || op == UiActionOp.Close
                || op == UiActionOp.Tab || op == UiActionOp.Rect
                || op == UiActionOp.Find || op == UiActionOp.Expand
-               || op == UiActionOp.Target || op == UiActionOp.Picker;
+               || op == UiActionOp.Target || op == UiActionOp.Picker
+               || op == UiActionOp.Run;
 
         // ----- the two-phase ops -----
 
@@ -718,13 +752,20 @@ namespace Parsek.TestCommands
         /// <c>Recording</c> rather than on a window host, so a hidden Parsek surface
         /// cannot fake it, and driving the box with that surface closed is a legitimate
         /// thing for a lane to do.</para>
+        /// <para><c>run</c> is two-phase for a reason none of the others has: its
+        /// completion signal is a BATCH ENDING, which takes as many frames as the tests
+        /// take, so it owns its own poll (<c>!runner.IsRunning</c>) exactly as
+        /// <c>find</c> and <c>pointer</c> own theirs rather than counting drawn frames.
+        /// Reporting a result before the batch stopped would photograph a half-run table
+        /// under a label claiming results.</para>
         /// </summary>
         internal static bool OpIsTwoPhase(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Rect
                || op == UiActionOp.Pointer || op == UiActionOp.Find
                || op == UiActionOp.Expand || op == UiActionOp.Target
                || op == UiActionOp.Picker || op == UiActionOp.Playback
-               || op == UiActionOp.Raise || op == UiActionOp.Dismiss;
+               || op == UiActionOp.Raise || op == UiActionOp.Dismiss
+               || op == UiActionOp.Run;
 
         /// <summary>
         /// Whether a SETTLED two-phase op's read-back must additionally be refused when the
@@ -795,7 +836,27 @@ namespace Parsek.TestCommands
         /// read-back, not to trust it.</para>
         /// </summary>
         internal static bool SettleRefusedForHiddenHost(string window, bool hostShowUi)
-            => !hostShowUi && !string.Equals(window, MainWindow, StringComparison.Ordinal);
+            => !hostShowUi && !WindowDrawsOutsideHostShowUi(window);
+
+        /// <summary>
+        /// Whether this window draws with the scene host's <c>showUI</c> DOWN, so a settled
+        /// read-back over it is a statement about a frame that really did draw it.
+        ///
+        /// <para>Two windows, for two different reasons. <c>main</c> IS that showUI flag,
+        /// so the question does not apply to it. <c>testrunnerglobal</c> is drawn from
+        /// <c>TestRunnerShortcut.OnGUI</c> - its own MonoBehaviour, reached by Ctrl+Shift+T
+        /// in any scene - and not from <c>ParsekKSC.OnGUI</c> / <c>ParsekFlight.OnGUI</c>,
+        /// so the host gate is simply not in its draw path: refusing its read-back over a
+        /// hidden host would refuse correct work, and a census capture of it with the
+        /// Parsek toolbar surface shut is a legitimate picture.</para>
+        ///
+        /// <para>An unknown / null token answers FALSE (the read-back is refused), which
+        /// is the safe direction; it cannot be reached anyway, <c>TryResolveWindow</c>
+        /// having rejected first.</para>
+        /// </summary>
+        internal static bool WindowDrawsOutsideHostShowUi(string window)
+            => string.Equals(window, MainWindow, StringComparison.Ordinal)
+               || string.Equals(window, TestRunnerGlobalWindow, StringComparison.Ordinal);
 
         /// <summary>
         /// Whether <c>op=complexity</c> has nothing to do.

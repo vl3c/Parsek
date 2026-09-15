@@ -2140,11 +2140,23 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # default, because most of those confirms mutate the save) or by pressing one allowed
     # button. Both name a `popup=` and NO window - a PopupDialog is uGUI, which no
     # window-table row can name - so both are absent from UIACTION_OPS_NEEDING_WINDOW.
-    "raise", "dismiss")
+    "raise", "dismiss",
+    # GUI-12: `run` runs ONE in-game test category through the runner a TEST-RUNNER
+    # WINDOW owns, which is the only runner whose results that window's table draws - the
+    # `RunTests` verb drives a third runner instance whose InGameTestInfo objects neither
+    # window holds, so a batch through it photographs a table of dots under a label
+    # claiming results. Takes `window=` (one of the two runner windows) and a REQUIRED
+    # `category=`.
+    "run")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
-    "settings", "spawncontrol", "gloops", "testrunner")
+    "settings", "spawncontrol", "gloops", "testrunner",
+    # LAST, because it is the one window the main window has no button for: the global
+    # Ctrl+Shift+T runner (TestRunnerShortcut), a separate MonoBehaviour that carries the
+    # same title as `testrunner` (the Settings-launched TestRunnerUI) and draws from its
+    # OWN OnGUI - outside either scene host's showUI gate, in every scene but LOADING.
+    "testrunnerglobal")
 UIACTION_MODE_KEY = "mode"
 UIACTION_MODE_VALUES: Tuple[str, ...] = ("basic", "advanced")
 
@@ -2211,10 +2223,17 @@ UIACTION_NUDGE_VALUES: Tuple[str, ...] = ("true", "false")
 # row takes one prefix per TAB instead: `roster` drives a Roster row's replacement-chain
 # view plus that tab's plain-kerbal fold row (key `(available)`), `flights` drives a
 # Flights group's fold.
+# The two runner-window rows take ONE prefix, `category`, and share its spelling
+# because it names the same collection shape in both - each window keeps its own set and
+# `window=` says which. On those two the load-bearing direction is `key=none`: both
+# windows OPEN with every category expanded (each seeds its fold set from its own
+# discovery), so the collapsed list is the state no capture had.
 UIACTION_EXPAND_PREFIXES: Dict[str, Tuple[str, ...]] = {
     "missions": ("group", "chain", "vessel", "leg", "digest"),
     "logistics": ("row",),
     "kerbals": ("roster", "flights"),
+    "testrunner": ("category",),
+    "testrunnerglobal": ("category",),
 }
 
 # The two bulk key tokens. `all` is the affordance a census actually needs ("open every
@@ -2311,7 +2330,7 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # other three are about uGUI PopupDialogs, which no window-table row can name - those
 # three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
-    "open", "close", "tab", "rect", "find", "expand", "target", "picker")
+    "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run")
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
@@ -2324,6 +2343,19 @@ UIFIND_INDEX_KEY = "index"
 
 # `op=expand`'s key arg.
 UIACTION_EXPAND_KEY = "key"
+
+# `op=run`'s REQUIRED in-game test category. OPEN valued - the categories come from the
+# assembly's [InGameTest] attributes, so no closed table can carry them, but they are not
+# save-specific either, which is why a COMMITTED spec may name one. SPELLED `category`,
+# the same key the RunTests verb takes, because it names the same thing; that is also why
+# it is NOT a VERB_SCOPED_CLOSED_ARGS row (that table allows one owner verb per key, and
+# this key has two verbs and no closed vocabulary).
+UIACTION_RUN_CATEGORY_KEY = "category"
+
+# The windows `op=run` is defined for, mirroring TestCommandUiState.WindowOwnsTestRunner:
+# the two that own an InGameTestRunner. Any other window answers
+# `run-unsupported-window`.
+UIACTION_RUNNABLE_WINDOWS: Tuple[str, ...] = ("testrunner", "testrunnerglobal")
 
 # CaptureScreenshot's label rule, mirroring TestCommandCaptureScreenshot.IsValidLabel -
 # the harness's own filename-safe id shape (`_ID_RE`) for the head, because the label
@@ -2616,6 +2648,30 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
         errors.append(
             "driver.steps[%d].args.%s: only op=expand reads it, but this step is op=%s "
             "-- the arg would be silently ignored" % (index, UIACTION_EXPAND_KEY, op))
+    if op == "run":
+        window_name = str(window) if window is not None else None
+        category = step_args.get(UIACTION_RUN_CATEGORY_KEY)
+        if category is None or not str(category).strip():
+            errors.append(
+                "driver.steps[%d].args.%s: op=run REQUIRES a non-empty in-game test "
+                "category; there is no \"run everything\" default (the full batch is "
+                "minutes of tests, half of which mutate the save), so the seam answers "
+                "REJECTED run-category-arg-missing"
+                % (index, UIACTION_RUN_CATEGORY_KEY))
+        if (window_name in UIACTION_WINDOW_VALUES
+                and window_name not in UIACTION_RUNNABLE_WINDOWS):
+            errors.append(
+                "driver.steps[%d].args.%s: window %r owns no in-game test runner, so "
+                "op=run answers REJECTED run-unsupported-window. The ones that do are %s"
+                % (index, UIACTION_WINDOW_KEY, window_name,
+                   ", ".join(UIACTION_RUNNABLE_WINDOWS)))
+    elif UIACTION_RUN_CATEGORY_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: on a UiAction step only op=run reads it, but this "
+            "step is op=%s -- the arg would be silently ignored (the RunTests VERB reads "
+            "the same key, which is what makes this easy to misplace)"
+            % (index, UIACTION_RUN_CATEGORY_KEY, op))
+
     if op not in ("expand", "playback") and UIACTION_STATE_KEY in step_args:
         errors.append(
             "driver.steps[%d].args.%s: only op=expand and op=playback read it, but this "

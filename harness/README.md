@@ -256,10 +256,12 @@ survives and then points at images that are gone.
 
 ### Running a GUI census end to end
 
-NINE CENSUS LANES, in three waves, all `tier = "operator"` and all flown on request only.
-(A tenth `GUI-*` lane, `GUI-9-playback-toggle-map-scope`, carries the `gui-census` tag and
-drives the same ops, but it is a LIVE PROOF of the playback tick box's map scope rather
-than a census of chrome, so it is not in the table below and step 1 does not apply to it.)
+TEN FLOWN CENSUS LANES, in four waves, all `tier = "operator"` and all flown on request
+only. (`GUI-9-playback-toggle-map-scope` carries the `gui-census` tag and drives the same
+ops, but it is a LIVE PROOF of the playback tick box's map scope rather than a census of
+chrome, so it is not in the table below and step 1 does not apply to it.
+`GUI-11-census-kerbals-crewed` is committed and `tier = "operator"` too; nothing in this
+file records a flight for it, so it has no row below either.)
 
 WAVE 1 (2026-09-10, flown green 2026-09-11) is `GUI-1-census-ksc` and
 `GUI-2-census-flight`: every Parsek window's CHROME, in Advanced and Basic, on the
@@ -269,7 +271,11 @@ WAVE 2 (2026-09-11, ALL SIX FLOWN PASS the same day) is six lanes on COMMITTED f
 one host each, and they need NO staging - `run.py --id <lane>` is enough. WAVE 3
 (2026-09-15, FLOWN PASS the same day) is one lane on the same footing,
 `GUI-10-census-dialogs`: the first pictures of any Parsek MODAL, which nothing in the seam
-could put on screen until `op=raise` / `op=dismiss` shipped. It is the last row below:
+could put on screen until `op=raise` / `op=dismiss` shipped. WAVE 4 (2026-09-15, FLOWN PASS
+the same day) is `GUI-12-census-testrunners`, which CLOSES THE WINDOW CLASS: the global
+Ctrl+Shift+T runner was the last Parsek window with no picture and no seam route, and the
+three seam additions listed under "The census op vocabulary" below are what bought it. The
+two are the last rows below:
 
 | lane | host | what it photographs |
 |---|---|---|
@@ -280,8 +286,9 @@ could put on screen until `op=raise` / `op=dismiss` shipped. It is the last row 
 | `GUI-7-census-flight-recording` | `b1-pad-craft` | the flight status block Idle / RECORDING / Ready, and two attempts at the hover echoes (the tooltip strip and the disabled-control reason) - NEITHER painted |
 | `GUI-8-census-empty-states` | `fresh-science` | every window's EMPTY form, and the science-mode Career banners |
 | `GUI-10-census-dialogs` (run `2026-09-15_1538`, PASS attempt 1, 67 s, 8 + 8) | `bdock-recorded`, at the Space Center (`scene = "spacecenter"`: this host's activeVessel is focusable, so the default route would boot into FLIGHT) | six of the 21 modals STANDING - the two informational popups (`actionblocked`, `savefailed`), both Settings wipe confirmations, and the two that need a committed recording (`fastforward`, `seal`) - each with `op=dialog` reporting its name, title and ordered buttons beside the PNG, plus the two typed refusals (`dialog-target-unavailable` for `rewind`, which has no rewind owner on this host, and `dialog-already-open` for a second modal) |
+| `GUI-12-census-testrunners` (run `2026-09-15_2057`, PASS attempt 1, 89 s, 7 + 7) | `career-earned-ksc`, at the Space Center (`scene = "spacecenter"`) - the one census lane whose CONTENT is host-independent, since both runner windows read the assembly's `[InGameTest]` attributes rather than the save | BOTH in-game test runner windows in their real states: the Settings-launched one (`testrunner`) idle, every fold closed, one category expanded, and with REAL RESULTS after running the `GuiTree` category through its own runner (`discovered=1 total=1 passed=1 failed=0`, the summary moving to `1 passed` and the header to `GuiTree (1/1)`), plus the global Ctrl+Shift+T one (`testrunnerglobal`) idle, closed and one category expanded - ITS FIRST PICTURES OF ANY KIND. The two differ by exactly 3 nodes at every comparable state, which the dumps name as the `Search:` label, the text field and the 24 px clear button the global window does not draw |
 
-Steps 2 to 6 below apply to any of the nine. In order:
+Steps 2 to 6 below apply to any of the ten. In order:
 
 1. **Stage the host - WAVE 1 ONLY.** Those two lanes need a save with rows in every
    window, which is the operator's own long-lived career - it cannot be committed and
@@ -317,6 +324,7 @@ Steps 2 to 6 below apply to any of the nine. In order:
    python run.py --id GUI-2-census-flight
    python run.py --id GUI-3-census-logistics-routes      # and GUI-4 .. GUI-8
    python run.py --id GUI-10-census-dialogs
+   python run.py --id GUI-12-census-testrunners
    ```
 
    MEASURED WALL, so a run that has not finished in a couple of minutes is stuck rather
@@ -333,6 +341,7 @@ Steps 2 to 6 below apply to any of the nine. In order:
    | `GUI-7-census-flight-recording` | 59 s / 63 s | 8 + 8 | `2026-09-11_1559`, re-flown with the two hover flags as `2026-09-15_1539` |
    | `GUI-8-census-empty-states` | 61 s | 12 + 12 | `2026-09-11_1601` |
    | `GUI-10-census-dialogs` | 67 s | 8 + 8 | `2026-09-15_1538` |
+   | `GUI-12-census-testrunners` | 89 s | 7 + 7 | `2026-09-15_2057` |
 
    THE WALK IS THE SMALLER HALF, measured off GUI-1's own log: KSP boot to the seam's first
    `recv` takes 37 s, the `LoadGame` 8 s, and all 115 steps - 22 captures, 22 dumps, the tab
@@ -409,8 +418,9 @@ surfaces found 22 of 57 with a picture after wave 1, and the rest needed either 
 fixture lacked, a CLICK, or a surface the GUI-tree recorder cannot see at all. `UiAction`
 carried six further ops for the last two classes, and wave 2 drove all six - taking the
 reading to 27 of 57 (`docs/dev/design-gui-inventory.md` section 2, which also records that
-the "105" this paragraph used to carry was a hand-sum error). `raise` and `dismiss` are the
-two newest, and they are what wave 3 flies. The full contracts are in
+the "105" this paragraph used to carry was a hand-sum error). `raise` and `dismiss` came next
+and are what wave 3 flies, taking it to 33 of 57; `run` is the newest, and wave 4 flies it to
+34 of 57 with the window class CLOSED. The full contracts are in
 `docs/dev/design-autotest-command-seam.md` -> `#### UiAction`, and what follows is the
 authoring summary.
 
@@ -418,14 +428,15 @@ authoring summary.
 |---|---|---|
 | `pointer` | `op=pointer x= y=` or `op=pointer park=true`, plus `[focus=] [nudge=]` | moves the REAL OS cursor into the client, INTENDED to make Unity's own hit test run: hover styles, `GUI.tooltip`, the per-window tooltip echo strip, the disabled-hover echo. MEASURED 2026-09-11: the cursor lands (read back within 1 px) and the hover does NOT paint, so none of those four surfaces is reachable yet - GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT. `park=true` goes to the client corner so a LATER capture is hover-free, which still works and is still worth doing. `focus=true` (take the foreground first) and `nudge=true` (one relative `SendInput` pair after the move, so the window gets a real `WM_MOUSEMOVE`) are the two OPT-IN flags aimed at that defect, both defaulting false and both unflown; the payload reports `focus= nudge= fgOutcome= fg= tooltip=` |
 | `find` | `op=find window= text= [ctrl=] [index=]` | captures one in-memory GUI tree and answers a control's `x y w h cx cy`, so a spec chains `${stepN.cx}` / `${stepN.cy}` into a `pointer` step. The MATCH LADDER is exact, then prefix, then contains, first rung with any hit winning outright - which is what lets `text=Real Spawn Control` address the live `Real Spawn Control (0)` without a spec guessing the count |
-| `expand` | `op=expand window=<missions\|logistics> key=<all\|none\|prefix:value> [state=]` | a window's own set-of-expanded-keys: group folders, chain blocks, mission vessel / leg / digest rows, logistics route / candidate / section rows |
+| `expand` | `op=expand window=<missions\|logistics\|kerbals\|testrunner\|testrunnerglobal> key=<all\|none\|prefix:value> [state=]` | a window's own set-of-expanded-keys: group folders, chain blocks, mission vessel / leg / digest rows, logistics route / candidate / section rows, Kerbals roster / flights folds, and - since wave 4 - either test runner's category folds through ONE `category:` prefix, one set per window with `window=` saying which (`TestCommandUiState.ExpandableWindowNames` is the authority on the list). BOTH runner windows OPEN with every category expanded, each seeding its fold set from its own discovery, so `key=none` is the load-bearing direction there: GUI-12 read `changed=113 expanded=0 total=113` on each, then `changed=1 expanded=1 total=113` for `key=category:GuiTree` |
 | `target` | `op=target window=structure mission=<name>` or `route=<name>` | opens the Structure window ON a target through its production opener, so it draws a populated Log instead of empty chrome |
 | `picker` | `op=picker window=missions group=<name>\|recording=<id\|first>`, or `window=logistics route=<name>` | the popups a ROW arms: "Set Parent Group", "Manage Groups", the Logistics round-trip link picker |
+| `run` | `op=run window=<testrunner\|testrunnerglobal> category=<InGameTest category>` | runs ONE in-game test category through THAT WINDOW'S OWN `InGameTestRunner` - the category header `Run` button's body - so a capture can show the window's own results table populated. NOT the `RunTests` verb, and that is the whole point: each runner window builds its own runner with its own reflection discovery, so a `RunTests` batch drives a THIRD runner and leaves both windows reading "not run". Two-phase, polling `!runner.IsRunning`; `category=` is REQUIRED (never defaulted to everything) and the refusals are typed - `run-unsupported-window`, `run-category-arg-missing`, `run-category-unknown` (zero discovered tests), `run-runner-not-ready` (the window never drew, so its runner does not exist yet - put an `op=open` before it), `run-already-running`, and the post-call `run-not-finished`. The op's own runner is read by the addon's safe-point gate, so nothing else executes mid-batch. A LANE FLYING IT PINS `uiaction run ok ... failed=0` AND NOT THE `BATCH_COMPLETE` TALLY: `hlib.validate_spec` reserves the tally for a batch OWNER (a `RunTests` step XOR `[driver.autorun]`), and `CommittedBatchTallySourceSyncTests` only cross-checks those, so a pinned count here would be a hardcoded number with no gate keeping it true |
 | `dialog` | `op=dialog` | reports the live Parsek `PopupDialog` (`name title buttons`), which `DumpGuiTree` cannot see because a popup is uGUI |
 | `raise` | `op=raise popup=<one of seven>` | calls ONE dialog's own production spawn site and STOPS, so the modal STANDS to be reported and photographed. The closed set is `actionblocked`, `savefailed`, `wiperecordings`, `wipemilestones`, `rewind`, `fastforward`, `seal` - every row whose spawn is reachable by a pure in-process call with data the host already carries. A raise while any Parsek popup stands is `REJECTED dialog-already-open` |
 | `dismiss` | `op=dismiss popup=<same> [press=<OK\|Cancel>]` | takes it down. NO `press=` is the DEFAULT and means `PopupDialog.DismissPopup`, because most of these confirms mutate the save; the seam REFUSES every mutating confirm (`press-not-allowed`), so the only pressable labels across the whole table are the informational `OK` and the confirms' `Cancel` |
 
-FOUR AUTHORING RULES that cost a flight if missed:
+SIX AUTHORING RULES that cost a flight if missed:
 
 - **Coordinates are CLIENT pixels, y DOWN.** The same frame the dumps' `rect` uses, so an
   `op=find` answer drops straight into `op=pointer` with no arithmetic. Do NOT hand-write
@@ -447,6 +458,12 @@ FOUR AUTHORING RULES that cost a flight if missed:
   exception and wave 2 uses it: a route id read off the fixture's own `persistent.sfs` is
   stable and ASCII, where its display name may not be (`interbody-route-recorded`'s two
   route names both carry a U+2192 arrow).
+- **A PINNED `describe` ECHO CARRIES THE WHOLE WINDOW TABLE.** `op=describe` reports
+  `windows=<n>` for the seam's TABLE, not for the scene's drawn set, so adding a window row
+  moves that number on EVERY census lane at once: wave 4's `testrunnerglobal` row took it from
+  11 to 12, and the eleven older specs had their pinned echoes bumped in the same commit. A row
+  added without that sweep reds every lane that pins the echo, and the twelfth row is the global
+  Ctrl+Shift+T runner (last in the table, because the main window has no button for it).
 - **Order the speculative steps LAST.** The always-collect leg harvests on a driver-INVALID
   run exactly as it does on a PASS, so every capture taken before a failing step is on disk.
   Both first-wave lanes proved it: each read INVALID on ONE step and both kept every picture.

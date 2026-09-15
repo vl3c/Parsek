@@ -272,6 +272,43 @@ namespace Parsek.TestCommands
                 });
                 return sets;
             }
+            if (window == TestCommandUiAction.TestRunnerWindow)
+            {
+                // The SETTINGS-launched runner. Both runner windows OPEN with every
+                // category already expanded (each one's lazy init seeds the fold set from
+                // its own discovery), so on these two the load-bearing direction is
+                // `key=none` - the collapsed category list is the state no capture had -
+                // and `key=category:<name>` re-opens one.
+                TestRunnerUI tr = ui.GetTestRunnerUI();
+                sets.Add(new UiExpandSet
+                {
+                    Prefix = TestCommandUiState.CategoryKeyPrefix,
+                    Enumerate = tr.EnumerateCategoryExpandKeysForTesting,
+                    Set = tr.SetCategoryExpandedForTesting,
+                    Count = () => tr.ExpandedCategoryCountForTesting,
+                });
+                return sets;
+            }
+            if (window == TestCommandUiAction.TestRunnerGlobalWindow)
+            {
+                // The GLOBAL Ctrl+Shift+T runner, reached through its own singleton rather
+                // than through ParsekUI (the `main` row's shape). Null-safe: with no
+                // shortcut object the set enumerates empty and `changed=0 total=0` is the
+                // honest answer.
+                Parsek.InGameTests.TestRunnerShortcut s =
+                    Parsek.InGameTests.TestRunnerShortcut.Instance;
+                sets.Add(new UiExpandSet
+                {
+                    Prefix = TestCommandUiState.CategoryKeyPrefix,
+                    Enumerate = () => s != null
+                        ? s.EnumerateCategoryExpandKeysForTesting()
+                        : new List<string>(),
+                    Set = (key, want) =>
+                        s != null && s.SetCategoryExpandedForTesting(key, want),
+                    Count = () => s != null ? s.ExpandedCategoryCountForTesting : 0,
+                });
+                return sets;
+            }
             return sets;
         }
 

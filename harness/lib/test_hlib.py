@@ -8694,6 +8694,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "the first flight, whose six PNGs ARE the "
                                        "deliverable, and then the ordinary promotion "
                                        "call. NEVER FLOWN at authoring time.",
+        "GUI-12-census-testrunners.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: "
+                                       "the ordinary promotion call. FLOWN once at "
+                                       "authoring time (2026-09-15) - the seven PNGs and "
+                                       "seven dumps ARE the deliverable - so the tag "
+                                       "names the cadence decision only.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are

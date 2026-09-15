@@ -1688,9 +1688,9 @@ and a harness cell reads that set out of the source to keep the two from driftin
 #### UiAction (additive; drive the Parsek windows for a capture)
 
 `UiAction
-op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback|raise|dismiss>
+op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback|raise|dismiss|run>
 [window=] [tab=] [mode=] [x= y= w= h=] [park=] [focus=] [nudge=] [text=] [ctrl=] [index=]
-[key=] [state=] [mission=] [route=] [group=] [recording=] [popup=] [press=]`.
+[key=] [state=] [mission=] [route=] [group=] [recording=] [popup=] [press=] [category=]`.
 Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
 the `ListHandles` one: the Parsek UI is hosted in SPACECENTER as well as FLIGHT, so a KSC
 census under a flight row would defer to its budget and TIMEOUT. A scene that hosts no
@@ -1708,9 +1708,16 @@ READS THEM BACK.
 
 **EVERY OP THAT CHANGES DRAWN STATE IS TWO-PHASE** (`TestCommandUiAction.OpIsTwoPhase`):
 `open`, `rect`, the five census ops `pointer` / `find` / `expand` / `target` / `picker`,
-`playback`, and the two modal ops `raise` / `dismiss`. `close`, `tab` and `complexity` are
-single-phase for the reasons below, and `describe` / `dialog` are single-phase because they
-write nothing at all.
+`playback`, the two modal ops `raise` / `dismiss`, and `run`. `close`, `tab` and
+`complexity` are single-phase for the reasons below, and `describe` / `dialog` are
+single-phase because they write nothing at all.
+
+THREE OF THOSE OWN THEIR OWN POLL rather than counting one drawn frame, because a drawn
+frame is not their completion signal: `find` waits for a CAPTURE to arrive (the recorder
+flushes from `LateUpdate`, so the tree is not assembled until the frame after the one that
+drew it), `pointer` waits for Unity's input state to AGREE with the OS cursor move, and
+`run` waits for a BATCH TO END, which takes as many frames as the tests take. Reporting
+`run` on a frame count would photograph a half-run table under a label claiming results.
 
 WHAT THE SETTLE CHECKS is NOT uniform, and the asymmetry is deliberate
 (`TestCommandUiAction.SettleChecksHostShowUi`). The host-visibility gate
@@ -1775,7 +1782,8 @@ to apply a mode the save does not carry and no way around `ShouldRefuseModeChang
 **The window vocabulary is a table, in the main window's own button order** (so a describe
 payload reads down the same list a reviewer sees on screen): `main`, `missions`,
 `timeline`, `kerbals`, `career`, `logistics`, `structure`, `settings`, `spawncontrol`,
-`gloops`, `testrunner`. `main` is in it because every sub-window draw in both hosts sits
+`gloops`, `testrunner`, and LAST `testrunnerglobal`, which is last because it is the one
+window the main window has no button for at all. `main` is in it because every sub-window draw in both hosts sits
 inside the host's `showUI` gate, so a sub-window with `IsOpen = true` and the main window
 hidden is invisible - `op=open window=main` is the first step of any census, and the only
 op that touches the scene host rather than `ParsekUI`. `spawncontrol` and `gloops` are
@@ -1784,18 +1792,32 @@ is a `REJECTED window-not-in-scene` NAMING THE SCENE: an "opened" Gloops recorde
 would produce a capture of the scene without it, which reads as a render defect rather
 than as a spec that asked for the wrong scene.
 
-THREE WINDOW HOSTS ARE DELIBERATELY EXCLUDED, and the list comes from a grep of every
+**`testrunnerglobal` IS THE GLOBAL Ctrl+Shift+T RUNNER**, and it is the twelfth row
+(GUI-12). It carries the same TITLE as `testrunner` and is a different window: a separate
+MonoBehaviour (`InGameTests/TestRunnerShortcut.cs`) with its own open flag, its own input
+lock, its own window id key `ParsekTestRunnerGlobal`, no complexity gate, and the only
+draw in the program that goes through raw `GUILayout.Window`. Its row reaches that
+class's own singleton, which makes it the SECOND row not to reach `ParsekUI` (`main` is
+the other, and that one reaches the scene host). It is also the only row EXEMPT from the
+host-visibility settle gate together with `main`, through the named predicate
+`TestCommandUiAction.WindowDrawsOutsideHostShowUi`: its draw is in its own `OnGUI`, so
+neither host's `showUI` is in its path and a settled read-back over it describes a frame
+that really did draw it. Refusing it on a hidden host would refuse correct work.
+
+The twelfth row is why every `op=describe` line now reads `windows=12`. That count is the
+seam's whole TABLE and not the scene's drawn set, and the eleven census specs that pinned
+`windows=11` were bumped in the same commit as this row.
+
+TWO WINDOW HOSTS REMAIN DELIBERATELY EXCLUDED, and the list comes from a grep of every
 `ClickThruBlocker.GUILayoutWindow` / `GUILayout.Window` site under `Source/Parsek` rather
-than from memory, so "eleven windows" is a claim about the whole program: `GroupPickerUI`
+than from memory, so "twelve windows" is a claim about the whole program: `GroupPickerUI`
 ("Set Parent Group" / "Manage Groups" - a real window with its own rect and input lock,
-and IN the Advanced -> Basic close set), `LogisticsWindowUI`'s round-trip LINK PICKER, and
-`TestRunnerShortcut` (the global Ctrl+Shift+T window, which shares the Test Runner title
-but is a separate MonoBehaviour with no accessor and no complexity gate - the `testrunner`
-token is the Settings-launched `TestRunnerUI`). The first two are excluded for the same
-reason as each other: they are popups over a SELECTION (a recordings row, a logistics
-row), so raising their flag with nothing armed would photograph an empty picker - the
-`GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET` shape, and worse. Adding any of the
-three needs a way to drive its CONTEXT first, not just a table row.
+and IN the Advanced -> Basic close set) and `LogisticsWindowUI`'s round-trip LINK PICKER.
+Both are excluded for the same reason: they are popups over a SELECTION (a recordings row,
+a logistics row), so raising their flag with nothing armed would photograph an empty
+picker - the `GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET` shape, and worse. Both
+are nonetheless PHOTOGRAPHED, through `op=picker`, which opens them the way the row's own
+button does; adding a table ROW for either would still need a way to drive its CONTEXT.
 
 **Tabs, and the two windows that only look tabbed.** Four windows carry a selector:
 `missions` (`missions`, `recordings`), `timeline` (`overview`, `details`, `rewindff`,
@@ -2023,9 +2045,9 @@ is the only way to aim at a window's title-bar drag strip.
 
 **`op=expand` drives a window's own set-of-expanded-keys.** A whole class of missing census
 surfaces is not missing data and not outside the recorder: it is drawn only when some set
-contains the right string. `op=expand window=<missions|logistics> key=<...> [state=]`
-reaches them the way the rest of `UiAction` does, by writing the field the caret click
-writes.
+contains the right string. `op=expand window=<missions|logistics|kerbals|testrunner|testrunnerglobal> key=<...>
+[state=]` reaches them the way the rest of `UiAction` does, by writing the field the caret
+click writes.
 
 THE KEY GRAMMAR IS NAMESPACED because the sets are. The Missions window alone keeps five
 independent collections with overlapping key shapes - `expandedGroups` (group NAMES),
@@ -2034,13 +2056,21 @@ independent collections with overlapping key shapes - `expandedGroups` (group NA
 could not say which one it meant and two of them are indistinguishable. The wire key is
 `<prefix>:<value>` split at the FIRST colon (`group` / `chain` / `vessel` / `leg` /
 `digest` for the Missions window, which covers BOTH its tabs; `row` for Logistics, whose
-one set holds route ids, `cand:` keys and three fixed section keys). `collapsedLegs` is
+one set holds route ids, `cand:` keys and three fixed section keys; `roster` / `flights`
+for the Kerbals window, one per TAB; and `category` for BOTH test-runner windows, which
+keep one fold per in-game test category each - the prefix is shared because it names the
+same collection shape in both and `window=` is what says which set is driven). `collapsedLegs` is
 INVERTED on the production side and the op hides that: the wire always speaks "expanded"
 and the polarity flip lives once in the accessor rather than in every spec.
 
 `key=all` / `key=none` is the affordance that actually buys the pictures. A census wants
 "every group folder open", not one, and the ids it would otherwise have to name are
-save-specific so a committed spec cannot carry them. Each window class enumerates its own
+save-specific so a committed spec cannot carry them. ON THE TWO RUNNER WINDOWS THE
+LOAD-BEARING DIRECTION IS `key=none`: both open with EVERY category expanded (each seeds
+its fold set from its own discovery at lazy init), so the COLLAPSED category list is the
+state no capture could previously exist for - GUI-12 measured `changed=113 expanded=0
+total=113` on each window, and then `changed=1 expanded=1` for a single
+`key=category:GuiTree`. Each window class enumerates its own
 keys - only the class knows which collection is keyed by what, and the enumeration has to
 agree with the tree the player sees, so the group list comes from the PRODUCTION
 `GroupPickerPresentation.BuildTreeModel` and the chain list routes through ERS. The payload
@@ -2280,7 +2310,16 @@ with one closed vocabulary, so a per-op sibling would be a second thing to learn
 same refusal) / `recording-unknown` (a named id in no effective recording; the message
 carries how many DO exist, so `known=0` on an empty save reads differently from `known=7`
 on a typo - and it is a REJECTED rather than a cheerful `changed=0`, which is the one
-answer a lane cannot act on); `ERROR playback-not-applied`. `op=dialog` has none: it writes nothing and reports
+answer a lane cannot act on); `ERROR playback-not-applied`. `op=run`: `REJECTED run-unsupported-window` (message names the two windows that own a
+runner) / `run-category-arg-missing` (REQUIRED, and a blank one is a typo rather than
+"run everything", the `RunTests` `IsEmptyCategoryArg` rule) / `run-category-unknown` (zero
+tests of that category in THAT runner's own discovery - refused rather than dispatched,
+because an empty batch reports `total=0`, leaves the table untouched and photographs
+exactly like a batch that never started) / `run-runner-not-ready` (the window has never
+drawn, so its runner does not exist yet: both windows build one lazily on the first drawn
+frame, and the remedy is an `op=open` step, which settles on a drawn frame) /
+`run-already-running`; `ERROR run-not-finished` (the batch was dispatched and is slower
+than the verb's bound - not a refusal). `op=dialog` has none: it writes nothing and reports
 `open=false` with `-` sentinels when no Parsek popup stands, because a lane that asserts
 "no dialog is up" needs a key to assert on. `op=raise` and `op=dismiss` share a
 `popup=` vocabulary and therefore share its two rejects:
@@ -2468,6 +2507,53 @@ and `LinkPickerOpenForTesting`); `StepCountForTesting` + `TargetModeForTesting` 
 a few times per run, and adding a static plus its lifecycle would be a bigger change - and
 a new stale-reference risk across scene loads - than this caller justifies.
 
+**`op=run` RUNS ONE IN-GAME TEST CATEGORY THROUGH A RUNNER WINDOW'S OWN RUNNER**, and the
+reason it is not the `RunTests` verb is the whole of its justification.
+`op=run window=<testrunner|testrunnerglobal> category=<name>` calls that window's category
+header "Run" button body - `ResetCategory` then `RunCategory` - on the
+`InGameTestRunner` the window already owns.
+
+BOTH RUNNER WINDOWS CONSTRUCT THEIR OWN RUNNER, and each runner does its OWN reflection
+discovery, so the `InGameTestInfo` objects a window's table draws are that runner's
+instances and `Status` lives on them. The `RunTests` verb drives a THIRD runner (the
+addon's `ownedRunner`). A `RunTests` batch therefore leaves BOTH windows' tables reading
+"not run", which makes a capture labelled "results" a table of dots - the dishonest
+picture this op exists to avoid. GUI-12 measured the honest one: the summary label moved
+from `idle | 0 passed  0 failed  0 skipped  (624 total)` to
+`idle | 1 passed  0 failed  0 skipped  (624 total)` and the category header from
+`GuiTree (0/1)` to `GuiTree (1/1)`.
+
+ONE CATEGORY, NEVER "ALL". `category=` is REQUIRED and a blank one is a typo rather than
+an omission: the full batch is minutes of tests, half of which mutate the save, and a
+census step must not be able to ask for that by leaving an arg out. The ISOLATED entry
+points are deliberately unreachable from here too - an `[isolated]` FLIGHT cell restores a
+quicksaved baseline between cells, which no lane has asked a census step to do.
+
+THE BATCH BASELINE IS THE RUNNER'S OWN. `RunCategory` captures a clean `persistent.sfs`
+baseline and reverts from it at teardown (`InGameTestRunner.CaptureBatchBaseline`),
+exactly as under a player's click and under `RunTests`; nothing here duplicates or
+bypasses it. Two consequences a lane has to plan for: every capture that depends on
+arranged window state belongs BEFORE the run (the GUI-1 ordering rule, for the same
+reason), and a `describe` step AFTER the run is the cheap proof the window survived the
+teardown - without it a window closed under the lane would be photographed as an empty
+scene.
+
+THE SAFE-POINT GATE GREW A THIRD RUNNER with this op. `IsBatchRunning` read the addon's
+own runner and the global shortcut's; the SETTINGS-launched window's runner was reachable
+only by a human clicking Run in a window an unattended run never opened, so its absence
+was unreachable rather than wrong. It is reachable now, so both that gate and
+`CommandRunnerIsRunningForGating` (the autorun fire gate's mirror) read it. Two-phase
+completion is checked BEFORE the batch gate in the pump, which is what lets this op
+complete on the very batch it started.
+
+THE LANE PINS `uiaction run ok ... failed=0` AND NOT THE `BATCH_COMPLETE` TALLY. The batch
+does emit one (`category=GuiTree`), but a spec that pins the tally must OWN a batch in the
+harness's sense - a `RunTests` step XOR an `[driver.autorun]` block
+(`hlib.validate_spec`) - and `op=run` is neither. Pinning the seam's own line is also the
+better instrument here: it names the WINDOW whose runner ran the batch, which the tally
+cannot, and regexing the counts beside a literal `failed=0` reds the lane on a failing
+cell without pinning a number that moves when a test is added to the category.
+
 **Harness-side validation.** `op` / `window` / `mode` are `VERB_SCOPED_CLOSED_ARGS` rows
 (taking that table from five to eight; the census ops add `ctrl` / `state` / `park` under
 `UiAction` and `dialog` under `AnswerMergeDialog`, taking it to twelve), and two dedicated validators own what a flat table
@@ -2512,7 +2598,14 @@ rather than flagging the two coordinates the op actually reads. The four newest 
 STRAY branches in the mirror direction as well, because an arg only one op reads is
 silently ignored by every other one and a spec author would never learn it: `park` / `focus`
 / `nudge` on anything but `op=pointer`, and `popup` / `press` on anything but `op=raise` /
-`op=dismiss`, are pre-launch errors naming the op that would have ignored them. `press=` on
+`op=dismiss`, are pre-launch errors naming the op that would have ignored them. `category=`
+is the one arg with TWO owner verbs and so is NOT a closed-arg row (that table allows one
+owner per key, and this key has no closed vocabulary either - the categories come from the
+assembly's attributes): `validate_ui_action_step` instead REQUIRES it on `op=run`, refuses
+a `window=` that owns no runner against `hlib.UIACTION_RUNNABLE_WINDOWS`, and flags it as
+silently-ignored on any other `UiAction` op, saying in the message that the `RunTests`
+VERB reads the same key - which is what makes the arg easy to misplace in the first
+place. `press=` on
 an `op=raise` is its own branch rather than a stray: a raise that pressed would dismiss the
 modal it exists to leave standing - the exact defect that made `AnswerMergeDialog` unusable
 for the census. Both closed vocabularies (`UIACTION_POPUP_VALUES`,

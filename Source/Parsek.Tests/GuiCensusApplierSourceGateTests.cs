@@ -55,6 +55,7 @@ namespace Parsek.Tests
                 { "RowKeyPrefix", TestCommandUiState.RowKeyPrefix },
                 { "RosterKeyPrefix", TestCommandUiState.RosterKeyPrefix },
                 { "FlightsKeyPrefix", TestCommandUiState.FlightsKeyPrefix },
+                { "CategoryKeyPrefix", TestCommandUiState.CategoryKeyPrefix },
             };
 
         [Fact]
@@ -70,7 +71,9 @@ namespace Parsek.Tests
 
             foreach (string window in new[] { TestCommandUiAction.MissionsWindow,
                                               TestCommandUiAction.LogisticsWindow,
-                                              TestCommandUiAction.KerbalsWindow })
+                                              TestCommandUiAction.KerbalsWindow,
+                                              TestCommandUiAction.TestRunnerWindow,
+                                              TestCommandUiAction.TestRunnerGlobalWindow })
             {
                 string[] parsed = TestCommandUiState.ExpandPrefixesFor(window);
                 Assert.True(wired.ContainsKey(window),
@@ -136,6 +139,8 @@ namespace Parsek.Tests
                 { "TimelineWindow", TestCommandUiAction.TimelineWindow },
                 { "SettingsWindow", TestCommandUiAction.SettingsWindow },
                 { "KerbalsWindow", TestCommandUiAction.KerbalsWindow },
+                { "TestRunnerWindow", TestCommandUiAction.TestRunnerWindow },
+                { "TestRunnerGlobalWindow", TestCommandUiAction.TestRunnerGlobalWindow },
             };
             var result = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             string current = null;
@@ -275,7 +280,11 @@ namespace Parsek.Tests
                 rows.Add(new WindowRow
                 {
                     Window = token,
-                    OwnerType = FirstGroup(body, @"(\w+UI)\s+w\s*="),
+                    // `\w+UI` for every ParsekUI sub-window, plus `...Shortcut` for the
+                    // one row whose live object is a MonoBehaviour rather than a window
+                    // class (testrunnerglobal -> TestRunnerShortcut). Both spellings, one
+                    // group, so the minimum assertions below stay per-row.
+                    OwnerType = FirstGroup(body, @"(\w+(?:UI|Shortcut))\s+\w+\s*="),
                     MinW = FirstGroup(body, @"(?:minW:\s*)?((?:\w+\.)?MinWindowWidth)\b"),
                     MinH = FirstGroup(body, @"(?:minH:\s*)?((?:\w+\.)?MinWindowHeight)\b"),
                 });
@@ -307,6 +316,8 @@ namespace Parsek.Tests
                 case "SpawnControlWindow": return TestCommandUiAction.SpawnControlWindow;
                 case "GloopsWindow": return TestCommandUiAction.GloopsWindow;
                 case "TestRunnerWindow": return TestCommandUiAction.TestRunnerWindow;
+                case "TestRunnerGlobalWindow":
+                    return TestCommandUiAction.TestRunnerGlobalWindow;
                 default: return constantName;
             }
         }
