@@ -2671,6 +2671,25 @@ safely. No committed lane flies that shape - RF-12L was authored for it and its 
 flight concluded `destroyed` instead - so the question stays open rather than being decided
 from a run that cannot distinguish the two answers.
 
+SUPERVISOR RECOMMENDATION 2026-09-15 (bug-wave triage; class: needs an operator ruling,
+so NO code in that wave). This is a seam convention, not a bug fix: `IsPreRewindAttributedAction`
+(`TombstoneAttributionHelper.cs:77`) and `RecordingTreeSplitter`'s step-2.9 retag are a
+bit-identical pair by contract, so an interval action can only change its screening key on
+BOTH sides at once, and every consumer that reads a `KerbalAssignment` off HEAD versus TIP
+inherits the choice. Recommended ruling: screen a `KerbalAssignment` whose encoded outcome is
+a DEATH by its `endUT` (the death is the event the merge must refund; the boarding at
+`startUT` is not what a tombstone is about), apply the identical clause in the splitter's
+retag for the same action class, and leave every other interval action on `UT`. Cost: one
+extra clause on a single shared `internal static` predicate, with the mirror pinned by a test
+that walks both sides over one synthetic ledger. Consequence: 7.16's recovery promise starts
+holding for pre-rewind-boarded crew that a re-fly LANDS, which is the intended outcome; a
+re-fly that kills them again is covered only by the re-fly's own new death row, so the ruling
+rests on the re-fly path always writing that row (CL-4 measured that it does). The ruling
+must not be taken from RF-12W, where both answers agree; it needs the shape RF-12L was
+authored for (pre-rewind-boarded crew, re-fly lands them). Decisions owed: (1) yes or no on
+`endUT` screening for death-encoding intervals; (2) whether RF-12L is flown to its intended
+conclusion first, as the lane that would prove the change.
+
 ## REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. OPEN as a cleanup]
 
 `Source/Parsek.Tests/ReflyARecordedFixtureCodecTests.cs` lines ~114-116 carry a SECOND
@@ -12067,6 +12086,20 @@ is the obvious host - it already splices a prior launch's RECORDING_TREE and alr
 re-stamps identity fields). The lane is NOT
 authored here on purpose: naming the shape is stage 2's obligation, authoring and flying it
 is a separate decision, and the entry stays OPEN until it is flown.
+
+SUPERVISOR NOTE 2026-09-15 (bug-wave triage): stage 2 is MERGED into `main` (branch
+`kerbal-xp-stage2` is contained in `origin/main`; `RecoveryPickAmbiguityTests` is in the
+tree), so no product code is owed here. The only next stage this entry names is the live
+proof, and it defers authoring that lane to an operator decision, so the wave took no
+action. Recommendation: author the proof as a variant of
+`harness/tools/build_career_same_name_pad.py` that STRIPS `recordedVesselGuid` from the
+spliced prior-launch recordings (two same-name launches, no guid on either), flown by the
+same `science_bench_recover` mission over a new spec (next free L-number; check open PR
+branches first), expecting the ambiguity refusal (`corroboration=unknown-launch-guid`, the
+refused line) and NO `Recovery kerbal XP recorded` row, with L6 kept unchanged as the
+over-fire control. `tier = "operator"` until flown, interim pins per the harness README.
+Decision owed: authorize the fixture-builder variant plus one flight; the entry closes on
+the first green run.
 
 ## ~~ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one~~ [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct. **CLOSED 2026-08-30 by fix road (1)**: `SealSlot` and `RouteCommand` are both promoted out of `ReservedVerbs` and implemented against the production paths - see the closure note at the end of this entry]
 
