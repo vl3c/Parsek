@@ -754,91 +754,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RetireBranch_LogsOnceAndGatesPipeline_SimulatedIntegration()
+        public void RetireBranch_ProductionCallSites_SetTheFlagAndDedupeTheWarn_SourceGate()
         {
-            // Mirrors the production retire branch contract end-to-end without
-            // touching Unity:
-            //
-            //   1. ParsekFlight.InterpolateAndPositionRelative / PositionLoopGhost
-            //      ask RelativeAnchorResolution.Decide whether the recorded
-            //      anchor pid is live.
-            //   2. On Outcome.Retired, the production code logs a one-shot
-            //      WARN under the [Anchor] tag (deduped via DedupeKey) and
-            //      sets state.anchorRetiredThisFrame = true.
-            //   3. The engine then asks ShouldSkipPostPositionPipeline --
-            //      which must return true so the SetActive(false) sticks
-            //      through the frame.
-            //
-            // Failure modes this test catches:
-            //   - flag set but predicate returns false (engine runs activation
-            //     pipeline anyway, ghost re-appears at (0,0,0)).
-            //   - flag never set (pre-fix regression: previous freeze-in-place
-            //     branch would leave the ghost frozen at world origin).
-            //   - missing/wrong WARN log line (regresses the existing one-shot
-            //     dedupe contract, breaks player support triage).
-            var liveVessels = new HashSet<uint> { 100u, 200u };
-            var loggedKeys = new HashSet<long>();
-            var state = new GhostPlaybackState();
+            // This cell used to "simulate" the retire branch: the test itself added to a
+            // dedupe set, called ParsekLog.Warn and assigned anchorRetiredThisFrame, then
+            // asserted its own work. None of the three failure modes it names - a branch
+            // that logs every frame, one that never dedupes, one that never sets the flag -
+            // could red it, because production performed none of the three. The pure
+            // decisions (Decide / DedupeKey / FormatRetiredMessage /
+            // ShouldSkipPostPositionPipeline) already have their own cells above; what had
+            // no coverage is the WIRING at the call sites, and those live inside
+            // ParsekFlight positioning methods that need a live GameObject. So this is now a
+            // source gate over the three recorded/loop retire branches, read with comments
+            // blanked out so a comment describing the branch cannot stand in for it.
+            string src = SourceScanText.StripCSharpComments(ReadParsekFlightSource());
 
-            // Frame 1: positioner runs the retire branch.
-            var outcome = RelativeAnchorResolution.Decide(
-                anchorPid: 3151978247u,
-                resolver: pid => liveVessels.Contains(pid));
-            Assert.Equal(RelativeAnchorResolution.Outcome.Retired, outcome);
+            const string flag = "retireSignalState.anchorRetiredThisFrame = true;";
+            const string dedupe = "RelativeAnchorResolution.DedupeKey(";
+            const string once = "loggedAnchorNotFound.Add(";
+            const string message = "RelativeAnchorResolution.FormatRetiredMessage(";
 
-            long key = RelativeAnchorResolution.DedupeKey(9, 3151978247u);
-            if (loggedKeys.Add(key))
+            var dedupeSites = new List<int>();
+            for (int i = src.IndexOf(dedupe, StringComparison.Ordinal); i >= 0;
+                 i = src.IndexOf(dedupe, i + 1, StringComparison.Ordinal))
             {
-                ParsekLog.Warn("Anchor",
-                    RelativeAnchorResolution.FormatRetiredMessage(
-                        recordingIndex: 9,
-                        vesselName: "Kerbal X",
-                        anchorPid: 3151978247u,
-                        callsite: "InterpolateAndPositionRelative"));
+                dedupeSites.Add(i);
             }
-            state.anchorRetiredThisFrame = true;
+            Assert.Equal(3, dedupeSites.Count);
 
-            // Engine: gate the post-position pipeline.
-            Assert.True(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                state.anchorRetiredThisFrame));
+            foreach (int site in dedupeSites)
+            {
+                // The flag is set BEFORE the warn is even considered: the ghost stays hidden
+                // for the frame whether or not this (recording, anchor) has already warned.
+                string before = src.Substring(Math.Max(0, site - 400), Math.Min(400, site));
+                Assert.Contains(flag, before);
 
-            // One-shot WARN must have fired exactly once.
-            Assert.Equal(1,
-                logLines.Count(l => l.Contains("[WARN]")
-                    && l.Contains("[Anchor]")
-                    && l.Contains("relative-anchor-retired")));
+                // And the warn goes through the one-shot set, carrying the shared message.
+                string after = src.Substring(site, Math.Min(500, src.Length - site));
+                Assert.Contains(once, after);
+                Assert.Contains(message, after);
+                Assert.True(after.IndexOf(once, StringComparison.Ordinal)
+                    < after.IndexOf(message, StringComparison.Ordinal),
+                    "the warn must be gated by the dedupe set, not logged then deduped");
+            }
+        }
 
-            // Frame 2: engine clears the flag at the top of the next render
-            // pass, retire branch runs again on the same (recording, anchor)
-            // -- WARN must NOT re-fire, but flag must be re-armed.
-            state.anchorRetiredThisFrame = false;
-            outcome = RelativeAnchorResolution.Decide(
-                anchorPid: 3151978247u,
-                resolver: pid => liveVessels.Contains(pid));
-            Assert.Equal(RelativeAnchorResolution.Outcome.Retired, outcome);
-            if (loggedKeys.Add(key))
-                ParsekLog.Warn("Anchor", "should not be reachable on second hit");
-            state.anchorRetiredThisFrame = true;
-            Assert.True(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                state.anchorRetiredThisFrame));
-
-            // Still exactly one WARN line.
-            Assert.Equal(1,
-                logLines.Count(l => l.Contains("[WARN]")
-                    && l.Contains("[Anchor]")
-                    && l.Contains("relative-anchor-retired")));
-
-            // Frame 3: anchor reappears -- Decide returns Resolved, the
-            // retire flag is NOT set, and the gate must let the engine run
-            // the full pipeline so the ghost can become visible again.
-            liveVessels.Add(3151978247u);
-            state.anchorRetiredThisFrame = false;
-            outcome = RelativeAnchorResolution.Decide(
-                anchorPid: 3151978247u,
-                resolver: pid => liveVessels.Contains(pid));
-            Assert.Equal(RelativeAnchorResolution.Outcome.Resolved, outcome);
-            Assert.False(RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                state.anchorRetiredThisFrame));
+        private static string ReadParsekFlightSource()
+        {
+            string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = System.IO.Path.Combine(root, "Source", "Parsek", "ParsekFlight.cs");
+            if (!System.IO.File.Exists(path))
+                path = System.IO.Path.Combine(root, "Parsek", "ParsekFlight.cs");
+            Assert.True(System.IO.File.Exists(path), "Source file not found at " + path);
+            return System.IO.File.ReadAllText(path);
         }
 
         #endregion

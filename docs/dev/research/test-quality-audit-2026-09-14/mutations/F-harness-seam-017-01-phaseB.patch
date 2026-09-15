@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/TestCommands/TestCommandCaptureScreenshot.cs b/Source/Parsek/TestCommands/TestCommandCaptureScreenshot.cs
+index 4804daf52..334abfb7e 100644
+--- a/Source/Parsek/TestCommands/TestCommandCaptureScreenshot.cs
++++ b/Source/Parsek/TestCommands/TestCommandCaptureScreenshot.cs
+@@ -285,7 +285,7 @@ namespace Parsek.TestCommands
+         internal static List<KeyValuePair<string, string>> BuildPayload(
+             string label, long bytes, int superSize, bool overwrote)
+         {
+-            CultureInfo ic = CultureInfo.InvariantCulture;
++            CultureInfo ic = CultureInfo.CurrentCulture; // MUTANT
+             return new List<KeyValuePair<string, string>>
+             {
+                 new KeyValuePair<string, string>("label", label ?? string.Empty),

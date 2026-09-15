@@ -499,6 +499,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The write half of the chapter include checkbox (design 7.2): a BULK EDIT through the
+        /// existing <c>Mission.ExcludedIntervalKeys</c> set - explicit keys in, explicit keys out,
+        /// no cascade and no new namespace. <paramref name="include"/> true removes exactly the
+        /// chapter's own keys, false adds exactly them; keys outside the chapter are never
+        /// touched. Returns how many keys actually moved (what the handler's log line reports).
+        /// Pure, and called by the IMGUI handler so the rule is pinned on the code the game runs.
+        /// </summary>
+        internal static int ApplyChapterToggle(
+            IEnumerable<string> chapterKeys, ISet<string> excludedKeys, bool include)
+        {
+            if (chapterKeys == null || excludedKeys == null) return 0;
+            int changed = 0;
+            foreach (string key in chapterKeys)
+            {
+                if (include)
+                {
+                    if (excludedKeys.Remove(key)) changed++;
+                }
+                else if (excludedKeys.Add(key))
+                {
+                    changed++;
+                }
+            }
+            return changed;
+        }
+
+        /// <summary>
         /// Design Q6 / edge case 22, the RECONCILE observation: a branch recorded LATER inside an
         /// excluded chapter defaults to INCLUDED (the standing open-question-3a contract), so the
         /// chapter reappears in the loop with a piece the player thought they had dropped. Auto-

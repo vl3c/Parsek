@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -9959,23 +9959,11 @@ namespace Parsek
             // Update diagnostics growth rate
             if (DiagnosticsState.hasActiveGrowthRate)
             {
-                var gr = DiagnosticsState.activeGrowthRate;
-                gr.totalPoints = Recording.Count;
-                gr.totalEvents = PartEvents.Count;
                 double startUT = Recording.Count > 0 ? Recording[0].ut : point.ut;
-                gr.elapsedSeconds = point.ut - startUT;
-                if (gr.elapsedSeconds > 0)
-                {
-                    gr.pointsPerSecond = gr.totalPoints / gr.elapsedSeconds;
-                    gr.eventsPerSecond = gr.totalEvents / gr.elapsedSeconds;
-                }
-                else
-                {
-                    gr.pointsPerSecond = 0;
-                    gr.eventsPerSecond = 0;
-                }
-                gr.estimatedFinalBytes = (long)(gr.totalPoints * DiagnosticsState.avgBytesPerPoint + gr.totalEvents * 40);
-                DiagnosticsState.activeGrowthRate = gr;
+                DiagnosticsState.activeGrowthRate = ComputeGrowthRate(
+                    DiagnosticsState.activeGrowthRate,
+                    Recording.Count, PartEvents.Count, startUT, point.ut,
+                    DiagnosticsState.avgBytesPerPoint);
             }
 
             if (Recording.Count % 10 == 0)
@@ -9983,6 +9971,34 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Recorder", "recorded-point",
                     $"Recorded point #{Recording.Count}: {point}", 5.0);
             }
+        }
+
+        /// <summary>
+        /// Pure growth-rate update for the diagnostics overlay, including the zero-elapsed division
+        /// guard: a recording that has just started has startUT == currentUT, and dividing by it would
+        /// put NaN / Infinity into the report. Shared verbatim by both commit paths (with and without a
+        /// vessel). internal static so xUnit can drive elapsedSeconds == 0 - a hand-filled
+        /// RecordingGrowthRate struct cannot witness the guard.
+        /// </summary>
+        internal static RecordingGrowthRate ComputeGrowthRate(
+            RecordingGrowthRate gr, int totalPoints, int totalEvents,
+            double startUT, double currentUT, double avgBytesPerPoint)
+        {
+            gr.totalPoints = totalPoints;
+            gr.totalEvents = totalEvents;
+            gr.elapsedSeconds = currentUT - startUT;
+            if (gr.elapsedSeconds > 0)
+            {
+                gr.pointsPerSecond = gr.totalPoints / gr.elapsedSeconds;
+                gr.eventsPerSecond = gr.totalEvents / gr.elapsedSeconds;
+            }
+            else
+            {
+                gr.pointsPerSecond = 0;
+                gr.eventsPerSecond = 0;
+            }
+            gr.estimatedFinalBytes = (long)(gr.totalPoints * avgBytesPerPoint + gr.totalEvents * 40);
+            return gr;
         }
 
         private void CommitRecordedPointWithoutVessel(
@@ -10029,23 +10045,11 @@ namespace Parsek
 
             if (DiagnosticsState.hasActiveGrowthRate)
             {
-                var gr = DiagnosticsState.activeGrowthRate;
-                gr.totalPoints = Recording.Count;
-                gr.totalEvents = PartEvents.Count;
                 double startUT = Recording.Count > 0 ? Recording[0].ut : point.ut;
-                gr.elapsedSeconds = point.ut - startUT;
-                if (gr.elapsedSeconds > 0)
-                {
-                    gr.pointsPerSecond = gr.totalPoints / gr.elapsedSeconds;
-                    gr.eventsPerSecond = gr.totalEvents / gr.elapsedSeconds;
-                }
-                else
-                {
-                    gr.pointsPerSecond = 0;
-                    gr.eventsPerSecond = 0;
-                }
-                gr.estimatedFinalBytes = (long)(gr.totalPoints * DiagnosticsState.avgBytesPerPoint + gr.totalEvents * 40);
-                DiagnosticsState.activeGrowthRate = gr;
+                DiagnosticsState.activeGrowthRate = ComputeGrowthRate(
+                    DiagnosticsState.activeGrowthRate,
+                    Recording.Count, PartEvents.Count, startUT, point.ut,
+                    DiagnosticsState.avgBytesPerPoint);
             }
 
             if (Recording.Count % 10 == 0)

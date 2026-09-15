@@ -1,0 +1,21 @@
+diff --git a/Source/Parsek/MissionChapters.cs b/Source/Parsek/MissionChapters.cs
+index 0bcf81349..649b70c2e 100644
+--- a/Source/Parsek/MissionChapters.cs
++++ b/Source/Parsek/MissionChapters.cs
+@@ -513,14 +513,8 @@ namespace Parsek
+             int changed = 0;
+             foreach (string key in chapterKeys)
+             {
+-                if (include)
+-                {
+-                    if (excludedKeys.Remove(key)) changed++;
+-                }
+-                else if (excludedKeys.Add(key))
+-                {
+-                    changed++;
+-                }
++                // MUTANT: the include (Remove) branch is gone
++                if (excludedKeys.Add(key)) changed++;
+             }
+             return changed;
+         }

@@ -799,7 +799,9 @@ namespace Parsek.MapRender
         // spine-select fell through to the legacy assembler chain. NOT tracing-gated - this is a
         // correctness signal - but one-shot per pid so it cannot flood. The render result is a coherent
         // assembler-chain render; this surfaces that the ghost is riding the exception fallback.
-        private static void WarnSpineAssemblerFallback(uint pid, string recordingId, double currentUT)
+        // Internal (not private) so xUnit can drive the REAL one-shot writer: the warned-pid set has no
+        // other writer, and a test that seeds it by hand cannot witness the per-pid dedupe.
+        internal static void WarnSpineAssemblerFallback(uint pid, string recordingId, double currentUT)
         {
             if (!spineFallbackWarnedPids.Add(pid))
                 return;

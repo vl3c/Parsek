@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MissionLoopUnitBuilder.cs b/Source/Parsek/MissionLoopUnitBuilder.cs
+index 14d1e82cd..5b18d00e2 100644
+--- a/Source/Parsek/MissionLoopUnitBuilder.cs
++++ b/Source/Parsek/MissionLoopUnitBuilder.cs
+@@ -1493,7 +1493,7 @@ namespace Parsek
+             double descentRunEndUT, double captureShift, double conicEndRecorded,
+             out bool frameMismatch)
+         {
+-            double parkingConicEndUT = descentRunEndUT + captureShift;
++            double parkingConicEndUT = descentRunEndUT; // MUTANT: 0ba10f594 unshifted value
+             frameMismatch = !double.IsNaN(parkingConicEndUT) && !double.IsNaN(conicEndRecorded)
+                 && parkingConicEndUT >= conicEndRecorded;
+             return parkingConicEndUT;

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/TestCommands/TestCommandDumpGuiTree.cs b/Source/Parsek/TestCommands/TestCommandDumpGuiTree.cs
+index 7ed02a047..3f9b4e359 100644
+--- a/Source/Parsek/TestCommands/TestCommandDumpGuiTree.cs
++++ b/Source/Parsek/TestCommands/TestCommandDumpGuiTree.cs
+@@ -263,7 +263,7 @@ namespace Parsek.TestCommands
+         internal static List<KeyValuePair<string, string>> BuildPayload(
+             string label, long bytes, int windows, int nodes, int patched, int funnels, int hits)
+         {
+-            CultureInfo ic = CultureInfo.InvariantCulture;
++            CultureInfo ic = CultureInfo.CurrentCulture; // MUTANT
+             return new List<KeyValuePair<string, string>>
+             {
+                 new KeyValuePair<string, string>("label", label ?? string.Empty),
