@@ -4054,7 +4054,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// <summary>
         /// Test-only one-frame defer host. Non-null replaces
         /// <c>WarpToTimeConsumer.RunNextFrame</c> in <see cref="OnKscSpending"/> so a test
         /// can prove the recalc really is postponed rather than asserting about the

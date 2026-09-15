@@ -2736,7 +2736,7 @@ and a milestone row reaches them BEFORE stock has paid the award. Decompiled
 `AwardProgressStandard` (CelestialBodyOrbit, CelestialBodyReturn, CelestialBodyLanding),
 so `GameStateRecorder.OnProgressComplete` emits `BuildMilestoneDetail(0, 0, 0)`
 (Handlers.cs:709-712) and the AwardProgressPatch postfix enriches the row in place
-afterwards (`EnrichPendingMilestoneRewards`, :905-925). `Reputation.AddReputation` has
+afterwards (`EnrichPendingMilestoneRewards`, :905-921). `Reputation.AddReputation` has
 the same shape, raising `OnCurrencyModified` (Reputation.cs:76) before assigning `rep`
 (:109-117).
 
@@ -2777,6 +2777,23 @@ by the walk, and the reconstruction was left short by the award - persisted
 `OnStrategyCurrencyConversion` needed neither: its recalc was already deferred one frame
 for its own reason (the query has not finished applying its legs).
 
+KNOWN LIMITATION OF GUARD 2, recorded rather than filtered. `KSPAchievements.
+CelestialBodySubtree` calls `Complete()` and never `AwardProgress`, so it emits a
+milestone row whose rewards stay all-zero FOREVER, and
+`GameStateRecorder.OnProgressComplete` does not filter it out. To guard 2 such a row is
+indistinguishable from one that is still a frame away from its reward, so it reads as
+permanently pending. The consequence is bounded and is a seed VALUE difference, never a
+stuck state: on a save whose first-ever seed has not formed when a whole subtree
+completes, the live-pool read is deferred until the next reputation-carrying row arrives,
+and that row then reaches the REFUSAL branch (career start 0) instead of the live pool -
+so the career reconstructs from 0 plus its rows rather than from the live figure. Nothing
+hangs, nothing double-counts, and the career-start branches are untouched. NO FILTER IS
+ADDED: distinguishing a subtree row would mean teaching the guard which
+`KSPAchievements` types never award, a list that KSP owns and can change, to buy a seed
+value on a save shape that has never been seen - zero all-zero milestone rows exist
+across the 457 committed fixture and save files. If a real save ever shows it, the fix is
+at the RECORDER (do not emit a row for a node that awards nothing), not here.
+
 ONE PREDICATE WAS DELIBERATELY NOT WIDENED: the `InsideReputationSeed` skip inside
 `LedgerHasReputationTimelineActions` stays scoped to KerbalDeath rows. That predicate
 does not decide whether a row applies - it decides WHICH BRANCH creates the seed, so
@@ -2800,6 +2817,32 @@ and `seq = 1` :636) and its funds entry (`seq = 3` :665) are unmoved.
 Nothing in that spec pins a Parsek seed log line: the `insideRepSeed` and `re-stamped`
 strings appear only in comments (:522, :527), and `[expectations.logContracts]`'s two
 stock lines (:373-374) are KSP's own.
+
+FLOWN 2026-09-15 against head d021c2605, four armed lanes, all PASS:
+
+- `CL-4-refly-crew-standin` `2026-09-15_1722` - THE DEFECT'S OWN LANE.
+  `PatchReputation: 1.00 -> 2.00` is ABSENT, the milestone row (`rec_dee983a2...`) is
+  logged inside the seed, and `Seeded initial reputation: amount=0.999999464` is the
+  same live-pool figure `_1815` captured. The award is counted once.
+- `CL-2-pod-impact-ledger` `_1723` - the armed ledger oracle.
+  `3 row(s) stamped insideRepSeed=True ... repSeedOrigin=NotYetCaptured`, then
+  `4 reputation row(s) ... re-stamped outside`, `hardDivergences=0`, produced save
+  `rep = -7.99982834` exact. The pin prediction above is confirmed live.
+- `L5-career-contract-complete` `_1727` - the GUARDED DRAWDOWN pin is present and no
+  reputation seed line appears, so the contract door is undisturbed.
+- `L1-dismiss-kerbal-career` `_1735` - the zero-delta cross-check holds.
+
+WHAT THE FLIGHTS DID NOT WITNESS, stated plainly. The `unenriched milestone` deferral
+line and every `StampLiveWriteRowAgainstSeed` line are COUNT 0 on all four hosts: none of
+these lanes trips a KSC-scope progress milestone on a save that has no seed yet. The
+milestone deferral (`ShouldDeferKscRecalcOneFrame`) and the pre-award seed guard
+(`CountUnenrichedMilestoneRows`) are therefore HEADLESS-PROVEN ONLY - mutation-killed
+unit cells, and a test seam standing in for a MonoBehaviour defer host that cannot exist
+headless. The live witness is still owed, and the lane shape that would buy it is
+specific: a career save whose ledger carries NO `ReputationInitial` row yet, driven to
+trip a stock progress milestone from KSC scope (no live recorder, so
+`ShouldForwardDirectLedgerEvent` routes it to `OnKscSpending`), with the two lines above
+and the seed's own branch read off the collected log.
 
 RESIDUE, re-filed as its own entry: the review edge where a reputation row is already
 RECORDED in a pending uncommitted tree when the live-pool seed is captured. See
