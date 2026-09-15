@@ -1,0 +1,94 @@
+diff --git a/Source/Parsek/TrajectoryTextSidecarCodec.cs b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+index e53c1c2c0..b0c9d1a59 100644
+--- a/Source/Parsek/TrajectoryTextSidecarCodec.cs
++++ b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+@@ -503,7 +503,7 @@ namespace Parsek
+             }
+             if (nonMonotonicSkipped > 0)
+             {
+-                var ic = System.Globalization.CultureInfo.InvariantCulture;
++                var ic = System.Globalization.CultureInfo.CurrentCulture;
+                 double lastUt = points.Count > 0 ? points[points.Count - 1].ut : double.NaN;
+                 ParsekLog.Warn("RecordingStore",
+                     $"AppendPointsFromTrackSections: skipped {nonMonotonicSkipped} non-monotonic frame(s) " +
+@@ -1342,7 +1342,7 @@ namespace Parsek
+ 
+         internal static void SerializeTrajectoryInto(ConfigNode targetNode, Recording rec)
+         {
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+             EnsureTrajectoryHeader(targetNode, rec);
+             if (rec != null)
+             {
+@@ -1533,7 +1533,7 @@ namespace Parsek
+         internal static void DeserializePoints(ConfigNode sourceNode, Recording rec)
+         {
+             var ns = NumberStyles.Float;
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+ 
+             ConfigNode[] ptNodes = sourceNode.GetNodes("POINT");
+             int parseFailCount = 0;
+@@ -1556,7 +1556,7 @@ namespace Parsek
+         internal static void DeserializeOrbitSegments(ConfigNode sourceNode, Recording rec)
+         {
+             var ns = NumberStyles.Float;
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+ 
+             ConfigNode[] segNodes = sourceNode.GetNodes("ORBIT_SEGMENT");
+             for (int s = 0; s < segNodes.Length; s++)
+@@ -1570,7 +1570,7 @@ namespace Parsek
+         internal static void DeserializePartEvents(ConfigNode sourceNode, Recording rec)
+         {
+             var ns = NumberStyles.Float;
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+ 
+             ConfigNode[] peNodes = sourceNode.GetNodes("PART_EVENT");
+             for (int pe = 0; pe < peNodes.Length; pe++)
+@@ -1612,7 +1612,7 @@ namespace Parsek
+         internal static void DeserializeFlagEvents(ConfigNode sourceNode, Recording rec)
+         {
+             var ns = NumberStyles.Float;
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+ 
+             ConfigNode[] feNodes = sourceNode.GetNodes("FLAG_EVENT");
+             for (int fe = 0; fe < feNodes.Length; fe++)
+@@ -1649,7 +1649,7 @@ namespace Parsek
+                 return;
+             }
+ 
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+             for (int i = 0; i < events.Count; i++)
+             {
+                 var evt = events[i];
+@@ -1674,7 +1674,7 @@ namespace Parsek
+                 return;
+ 
+             var ns = NumberStyles.Float;
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+             int skipped = 0;
+ 
+             for (int i = 0; i < seNodes.Length; i++)
+@@ -1732,7 +1732,7 @@ namespace Parsek
+                 return;
+             }
+ 
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+ 
+             // Batch-counting convention (todo entry 160: this loop was ~184 Verbose lines per session, one per
+             // non-default-source section across every recording saved). The sources are collected here and emitted
+@@ -1847,7 +1847,7 @@ namespace Parsek
+         internal static void DeserializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
+         {
+             var ns = NumberStyles.Float;
+-            var ic = CultureInfo.InvariantCulture;
++            var ic = CultureInfo.CurrentCulture;
+ 
+             ConfigNode[] tsNodes = parent.GetNodes("TRACK_SECTION");
+             if (tsNodes.Length == 0)
