@@ -192,34 +192,14 @@ namespace Parsek.Tests
             Assert.Equal(-100.0, d.Delta, 6);
         }
 
-        [Fact]
-        public void ResolveFundsPatch_LeakClamp_FeedsTheGuardWarnLogWithClampedValue()
-        {
-            // Drives the composed clamp sub-path exactly as PatchFunds does: resolve, then
-            // (because Clamped) emit the guard WARN with the decision's EffectiveTarget as
-            // clampedTo. Fails if the decision's EffectiveTarget does not flow into the WARN
-            // the wrapper logs (the operator's only signal that a leak was caught).
-            var d = KspStatePatcher.ResolveFundsPatch(
-                currentFunds: 100000.0, targetFunds: 60000.0, runningFunds: 60000.0,
-                authoritativeReduction: false);
-            Assert.True(d.Clamped);
-
-            bool latch = false;
-            KspStatePatcher.EmitDrawdownGuardClamp(
-                "Funds", runningBalance: 60000.0, currentLive: 100000.0,
-                wouldBeTarget: 60000.0, clampedTo: d.EffectiveTarget,
-                toastText: "Kept your earned funds",
-                sessionToastLatch: ref latch, perSubjectScienceNote: false);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[KspStatePatcher]")
-                && l.Contains("GUARDED DRAWDOWN")
-                && l.Contains("resource=Funds")
-                && l.Contains("clampedTo=100000")
-                && l.Contains("earned value preserved"));
-            Assert.Single(screenMessages);
-            Assert.Equal("Kept your earned funds", screenMessages[0].text);
-        }
+        // ResolveFundsPatch_LeakClamp_FeedsTheGuardWarnLogWithClampedValue was deleted:
+        // PatchFunds early-returns on the null KSP singletons headlessly, so the cell
+        // re-issued resolve-then-emit in its own body and supplied clampedTo itself. Both
+        // halves are pinned on the code that runs -
+        // ResolveFundsPatch_MissingEarningLeak_ClampsToLiveAndCollapsesToNoOp above (the
+        // clamp and its EffectiveTarget) and
+        // DrawdownGuardTests.EmitDrawdownGuardClamp_Funds_WarnsWithNumbersAndToastsOnce
+        // (the WARN text and the latched toast).
 
         [Fact]
         public void EmitDrawdownGuardClamp_DownDirection_LogsGuardedUpliftAndHeldToast()
@@ -590,26 +570,13 @@ namespace Parsek.Tests
             Assert.Equal(7f, d.ScienceCap, 0.0001f);
         }
 
-        [Fact]
-        public void ResolveMissingSubjectCreation_CreatedSubjectFeedsTheNormalPatchDecision()
-        {
-            // Composition proof: the create branch does NOT write the science itself — it
-            // hands a zero-science row to ResolveSubjectSciencePatch, which writes the target
-            // and the diminishing-returns factor exactly as it would for a pre-existing row.
-            var creation = KspStatePatcher.ResolveMissingSubjectCreation(
-                "x@y", hasLedgerState: true, creditedTotal: 4.0, maxValue: 10.0);
-            Assert.True(creation.ShouldCreate);
-
-            // A freshly constructed ScienceSubject starts at science = 0 (verified against the
-            // decompiled 1.12.5 ctor).
-            var patch = KspStatePatcher.ResolveSubjectSciencePatch(
-                currentScience: 0f, targetScience: creation.TargetScience,
-                scienceCap: creation.ScienceCap);
-
-            Assert.True(patch.ShouldWrite);
-            Assert.Equal(4f, patch.TargetScience, 0.0001f);
-            Assert.Equal(0.6f, patch.ScientificValue, 0.0001f); // 1 - 4/10
-        }
+        // ResolveMissingSubjectCreation_CreatedSubjectFeedsTheNormalPatchDecision was
+        // deleted: the create-then-patch composition lives in PatchPerSubjectScience, which
+        // needs a live R&D table, so the cell performed the feed itself and hardcoded the
+        // fresh-subject currentScience. Both halves are pinned by
+        // ResolveMissingSubjectCreation_LedgerCreditsSubjectRnDLacks_Creates (ShouldCreate
+        // with the target and cap) and ResolveSubjectSciencePatch_ScientificValueFromCap
+        // (target 4 at cap 10 gives 0.6). The composition itself is in-game work.
 
         [Fact]
         public void EmitScienceSubjectsReflectionWarnOnce_FiresExactlyOncePerSession()

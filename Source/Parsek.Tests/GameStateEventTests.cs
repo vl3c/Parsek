@@ -646,18 +646,22 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref evt1);
 
-            // Beyond 0.1s epsilon — should add a new event
+            // Same type, same key, same (empty) tag and no coalesce barrier: the only
+            // thing keeping these two apart is the 0.1 s window, so widening or removing
+            // it merges them.
             var evt2 = new GameStateEvent
             {
                 ut = 100.2,
                 eventType = GameStateEventType.FundsChanged,
-                key = "VesselRecovery",
+                key = "ContractAdvance",
                 valueBefore = 15000,
                 valueAfter = 18000
             };
             GameStateStore.AddEvent(ref evt2);
 
             Assert.Equal(2, GameStateStore.EventCount);
+            Assert.Equal(15000, GameStateStore.Events[0].valueAfter);
+            Assert.Equal(18000, GameStateStore.Events[1].valueAfter);
         }
 
         [Fact]
@@ -695,11 +699,14 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
+            // evt1 and evt3 share a key and sit 0.08 s apart, inside the window, so the
+            // backward scan WOULD merge evt3 into evt1; only the recovery row in between
+            // breaking the scan keeps them apart.
             var evt1 = new GameStateEvent
             {
                 ut = 100.00,
                 eventType = GameStateEventType.FundsChanged,
-                key = "ContractReward",
+                key = "StrategySetup",
                 valueBefore = 10000,
                 valueAfter = 12000
             };
@@ -726,7 +733,7 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref evt3);
 
             Assert.Equal(3, GameStateStore.EventCount);
-            Assert.Equal("ContractReward", GameStateStore.Events[0].key);
+            Assert.Equal("StrategySetup", GameStateStore.Events[0].key);
             Assert.Equal(12000, GameStateStore.Events[0].valueAfter);
             Assert.Equal(LedgerOrchestrator.VesselRecoveryReasonKey, GameStateStore.Events[1].key);
             Assert.Equal("StrategySetup", GameStateStore.Events[2].key);
@@ -765,24 +772,32 @@ namespace Parsek.Tests
         {
             GameStateStore.ResetForTesting();
 
+            // Same UT, same type, same key, same (empty) tag: every coalescing gate BUT
+            // the resource-type gate is satisfied, so dropping that gate would fold these
+            // two career rows into one.
             var evt1 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry"
+                key = "basicRocketry",
+                valueBefore = 100,
+                valueAfter = 95
             };
             GameStateStore.AddEvent(ref evt1);
 
-            // Same UT and type but non-resource — should NOT coalesce
             var evt2 = new GameStateEvent
             {
                 ut = 100.0,
                 eventType = GameStateEventType.TechResearched,
-                key = "stability"
+                key = "basicRocketry",
+                valueBefore = 95,
+                valueAfter = 80
             };
             GameStateStore.AddEvent(ref evt2);
 
             Assert.Equal(2, GameStateStore.EventCount);
+            Assert.Equal(95, GameStateStore.Events[0].valueAfter);
+            Assert.Equal(80, GameStateStore.Events[1].valueAfter);
         }
 
         #endregion
@@ -1992,37 +2007,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SuppressResourceEvents_PreventsAccumulation()
+        public void OnScienceReceived_SuppressResourceEvents_ReturnsBeforeAnyCapture()
         {
-            // OnScienceReceived is private and requires KSP runtime, so we can't
-            // call it directly. Instead verify the public contract: pending subjects
-            // added during suppressed state should NOT be committed.
-            // This tests the commit path's interaction with suppression.
+            // The suppression early-return is the FIRST statement of OnScienceReceived and
+            // precedes every KSP read in it, so the real private handler can be driven
+            // headlessly. Its own verbose line is the witness: without the guard the call
+            // falls through to the null-subject rejection and logs that line instead.
+            // The max-wins half of the old body lived in CommitScienceSubjects_MaxWins and
+            // CommitScienceSubjects_LowerValueIgnored, which keep it.
             GameStateStore.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
 
-            // Simulate: suppression is on (replay in progress), but something
-            // leaked a subject into the pending list (shouldn't happen, but
-            // if it did, commit should still work — max-wins is safe).
-            GameStateRecorder.PendingScienceSubjects.Add(
-                new PendingScienceSubject { subjectId = "test@Kerbin", science = 3.0f });
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                GameStateRecorder.SuppressResourceEvents = true;
 
-            ScienceTestHelpers.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
-            GameStateRecorder.PendingScienceSubjects.Clear();
+                var handler = typeof(GameStateRecorder).GetMethod(
+                    "OnScienceReceived",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                Assert.NotNull(handler);
+                handler.Invoke(new GameStateRecorder(), new object[] { 5.0f, null, null, false });
 
-            // The subject was committed (max-wins policy handles it safely)
-            float sci;
-            Assert.True(GameStateStore.TryGetCommittedSubjectScience("test@Kerbin", out sci));
-            Assert.Equal(3.0f, sci);
-
-            // A subsequent commit with a lower value should NOT downgrade
-            GameStateRecorder.PendingScienceSubjects.Add(
-                new PendingScienceSubject { subjectId = "test@Kerbin", science = 1.0f });
-            ScienceTestHelpers.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
-            GameStateRecorder.PendingScienceSubjects.Clear();
-
-            Assert.True(GameStateStore.TryGetCommittedSubjectScience("test@Kerbin", out sci));
-            Assert.Equal(3.0f, sci);
+                Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+                Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
+                    && l.Contains("Suppressed OnScienceReceived during timeline replay"));
+                Assert.DoesNotContain(logLines, l => l.Contains("null subject or empty id"));
+            }
+            finally
+            {
+                GameStateRecorder.SuppressResourceEvents = false;
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
         }
 
         [Fact]

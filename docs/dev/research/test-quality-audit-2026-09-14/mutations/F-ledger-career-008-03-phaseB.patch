@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/GameStateRecorder.cs b/Source/Parsek/GameStateRecorder.cs
+index 3178802c4..6650f862c 100644
+--- a/Source/Parsek/GameStateRecorder.cs
++++ b/Source/Parsek/GameStateRecorder.cs
+@@ -857,13 +857,6 @@ namespace Parsek
+             // SuppressResourceEvents is set during timeline replay (ApplyResourceDeltas,
+             // ApplyTreeLumpSum) where AddScience replays pool deltas. We must not
+             // re-capture subjects during replay — they are already committed.
+-            if (SuppressResourceEvents)
+-            {
+-                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-science-subject",
+-                    "Suppressed OnScienceReceived during timeline replay", 5.0);
+-                return;
+-            }
+-
+             if (subject == null || string.IsNullOrEmpty(subject.id))
+             {
+                 ParsekLog.Verbose("GameStateRecorder", "OnScienceReceived: skipped — null subject or empty id");

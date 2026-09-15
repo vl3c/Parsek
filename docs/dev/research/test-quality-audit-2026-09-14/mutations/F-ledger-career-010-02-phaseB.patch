@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/UI/CareerStateWindowUI.cs b/Source/Parsek/UI/CareerStateWindowUI.cs
+index 13357e589..534903f37 100644
+--- a/Source/Parsek/UI/CareerStateWindowUI.cs
++++ b/Source/Parsek/UI/CareerStateWindowUI.cs
+@@ -590,10 +590,10 @@ namespace Parsek
+             int missionControlLevelCur = 1;
+             int missionControlLevelTerm = 1;
+             FacilityAcc mcCur;
+-            if (facilityStateCurSnap.TryGetValue("MissionControl", out mcCur))
++            if (facilityStateCurSnap.TryGetValue("Administration", out mcCur))
+                 missionControlLevelCur = mcCur.Level;
+             FacilityAcc mcTerm;
+-            if (facilityStateTerm.TryGetValue("MissionControl", out mcTerm))
++            if (facilityStateTerm.TryGetValue("Administration", out mcTerm))
+                 missionControlLevelTerm = mcTerm.Level;
+ 
+             int adminLevelCur = 1;

@@ -24,65 +24,45 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip()
         {
-            // Build a RECORDING with PART_EVENT nodes via the builder
-            var recNode = new RecordingBuilder("TestVessel")
-                .AddPoint(100, 0, 0, 100)
-                .AddPoint(110, 0, 0, 200)
-                .AddPartEvent(105, 12345, (int)PartEventType.Decoupled, "fuelTank")
-                .AddPartEvent(108, 67890, (int)PartEventType.Destroyed, "engine")
-                .Build();
-
-            // Load via ParsekScenario's static loader
-            var rec = new Recording
+            // Production codec on BOTH ends: RecordingStore.SerializeTrajectoryInto writes
+            // the PART_EVENT nodes and DeserializeTrajectoryFrom reads them back. The old
+            // body hand-rolled the read, so a regression in
+            // TrajectoryTextSidecarCodec.DeserializePartEvents left it green.
+            var rec = new Recording { VesselName = "TestVessel" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, altitude = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, altitude = 200, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
             {
-                VesselName = recNode.GetValue("vesselName") ?? "Unknown"
-            };
-            ParsekScenario.LoadRecordingMetadataForTests(recNode, rec);
-
-            // Load points
-            var ptNodes = recNode.GetNodes("POINT");
-            for (int i = 0; i < ptNodes.Length; i++)
+                ut = 105,
+                partPersistentId = 12345,
+                eventType = PartEventType.Decoupled,
+                partName = "fuelTank"
+            });
+            rec.PartEvents.Add(new PartEvent
             {
-                var pt = new TrajectoryPoint();
-                var inv = NumberStyles.Float;
-                var ic = CultureInfo.InvariantCulture;
-                double.TryParse(ptNodes[i].GetValue("ut"), inv, ic, out pt.ut);
-                double.TryParse(ptNodes[i].GetValue("lat"), inv, ic, out pt.latitude);
-                double.TryParse(ptNodes[i].GetValue("lon"), inv, ic, out pt.longitude);
-                double.TryParse(ptNodes[i].GetValue("alt"), inv, ic, out pt.altitude);
-                pt.bodyName = ptNodes[i].GetValue("body") ?? "Kerbin";
-                rec.Points.Add(pt);
-            }
+                ut = 108,
+                partPersistentId = 67890,
+                eventType = PartEventType.Destroyed,
+                partName = "engine"
+            });
 
-            // Load part events
-            var peNodes = recNode.GetNodes("PART_EVENT");
-            for (int pe = 0; pe < peNodes.Length; pe++)
-            {
-                var evt = new PartEvent();
-                var inv = NumberStyles.Float;
-                var ic = CultureInfo.InvariantCulture;
-                double.TryParse(peNodes[pe].GetValue("ut"), inv, ic, out evt.ut);
-                uint pid;
-                if (uint.TryParse(peNodes[pe].GetValue("pid"), NumberStyles.Integer, ic, out pid))
-                    evt.partPersistentId = pid;
-                int typeInt;
-                if (int.TryParse(peNodes[pe].GetValue("type"), NumberStyles.Integer, ic, out typeInt))
-                    evt.eventType = (PartEventType)typeInt;
-                evt.partName = peNodes[pe].GetValue("part") ?? "";
-                rec.PartEvents.Add(evt);
-            }
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            Assert.Equal(2, rec.PartEvents.Count);
+            var loaded = new Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
-            Assert.Equal(105.0, rec.PartEvents[0].ut);
-            Assert.Equal(12345u, rec.PartEvents[0].partPersistentId);
-            Assert.Equal(PartEventType.Decoupled, rec.PartEvents[0].eventType);
-            Assert.Equal("fuelTank", rec.PartEvents[0].partName);
+            Assert.Equal(2, loaded.PartEvents.Count);
 
-            Assert.Equal(108.0, rec.PartEvents[1].ut);
-            Assert.Equal(67890u, rec.PartEvents[1].partPersistentId);
-            Assert.Equal(PartEventType.Destroyed, rec.PartEvents[1].eventType);
-            Assert.Equal("engine", rec.PartEvents[1].partName);
+            Assert.Equal(105.0, loaded.PartEvents[0].ut);
+            Assert.Equal(12345u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal(PartEventType.Decoupled, loaded.PartEvents[0].eventType);
+            Assert.Equal("fuelTank", loaded.PartEvents[0].partName);
+
+            Assert.Equal(108.0, loaded.PartEvents[1].ut);
+            Assert.Equal(67890u, loaded.PartEvents[1].partPersistentId);
+            Assert.Equal(PartEventType.Destroyed, loaded.PartEvents[1].eventType);
+            Assert.Equal("engine", loaded.PartEvents[1].partName);
         }
 
         [Fact]
@@ -2528,15 +2508,25 @@ namespace Parsek.Tests
             part.AddValue("crew", "Jebediah Kerman");
             part.AddValue("crew", "Bill Kerman");
 
-            var snapshotCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
-            var existingCrew = new HashSet<string> { "Valentina Kerman" };
-            var duplicates = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+            // Drive the REAL removal: nobody aboard the snapshot is already live, so it
+            // must vacate no seat and leave the snapshot with both crew. Re-extracting an
+            // untouched snapshot proves nothing, which is what the old body did.
+            var existingCrew = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "\"Lander\" (pid=43)" }
+            };
+            int removed = VesselSpawner.RemoveDuplicateCrewFromSnapshotCore(snapshot, existingCrew);
 
-            Assert.Empty(duplicates);
-
-            // Snapshot untouched
+            Assert.Equal(0, removed);
             var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             Assert.Equal(2, crew.Count);
+            Assert.Contains("Jebediah Kerman", crew);
+            Assert.Contains("Bill Kerman", crew);
+
+            // and the predicate the removal consults agrees.
+            var duplicates = VesselSpawner.FindDuplicateCrew(
+                crew, new HashSet<string>(existingCrew.Keys));
+            Assert.Empty(duplicates);
         }
 
         [Fact]

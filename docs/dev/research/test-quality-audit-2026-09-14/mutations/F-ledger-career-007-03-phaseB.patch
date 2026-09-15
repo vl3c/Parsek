@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameStateStore.cs b/Source/Parsek/GameStateStore.cs
+index 7492afc21..b1a578f91 100644
+--- a/Source/Parsek/GameStateStore.cs
++++ b/Source/Parsek/GameStateStore.cs
+@@ -56,7 +56,7 @@ namespace Parsek
+             // ScienceChanged(StrategyInput) debit absorbed into a
+             // ScienceChanged(ScienceTransmission) credit, which is a silent capture loss
+             // in either direction. Two events whose keys differ now stay two events.
+-            if (IsResourceEvent(e.eventType) && events.Count > 0)
++            if (events.Count > 0)
+             {
+                 string incomingTag = e.recordingId ?? "";
+                 for (int i = events.Count - 1; i >= 0; i--)

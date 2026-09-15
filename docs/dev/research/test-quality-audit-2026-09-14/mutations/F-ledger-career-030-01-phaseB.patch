@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/KerbalsModule.cs b/Source/Parsek/KerbalsModule.cs
+index c8f01dde7..b1e0d6056 100644
+--- a/Source/Parsek/KerbalsModule.cs
++++ b/Source/Parsek/KerbalsModule.cs
+@@ -1869,8 +1869,7 @@ namespace Parsek
+                             continue;
+ 
+                         ProtoCrewMember.RosterStatus currentStatus;
+-                        if (!roster.TryGetStatus(standIn, out currentStatus))
+-                            continue;
++                        roster.TryGetStatus(standIn, out currentStatus);
+ 
+                         if (recreatedNames.Contains(standIn))
+                             KerbalLoadRepairDiagnostics.RecordRetiredStandInRecreated(standIn);

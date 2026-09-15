@@ -257,6 +257,52 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: a third slice of twenty ledger / career and recorder-event cells from the
+  audit's T1 (vacuous) register now reaches the production line their names claim.**
+  Sixteen were fixtures that over-determined their own answer. Four post-walk and
+  earnings cells named a gate that never decided anything: an ineffective duplicate
+  milestone sat 100 s from the only live event, so the live-coverage skip dropped it
+  whatever the Effective gate said; a prune-threshold cell passed an empty event list, so
+  there was nothing to reconcile either way; a double-WARN guard looked for the wrong
+  prefix, so the per-action reconciler could have shouted and the cell would not have
+  heard it; and an ineffective contract completion carried zero in every transformed
+  field, so the gate had nothing to suppress. They now carry a divergent live event at
+  the action's own UT, the skip line the threshold emits, the "KSC reconciliation"
+  prefix the other path really writes plus its verbose skip line, and non-zero
+  transformed awards. Three resource-coalescing cells differed in KEY as well as in the
+  thing they were testing, so the epsilon window, the vessel-recovery barrier and the
+  resource-type gate could each be deleted with the suite still green; all three now vary
+  only the subject under test. A suppression cell tested a commit path it did not name
+  and conceded so in its body; it now drives the real private science handler through its
+  suppression early-return (which precedes every KSP read) and asserts that guard's own
+  verbose line, with the max-wins half left to the two cells that already own it. Two
+  career-window cells gave the second milestone a duplicate id and both facilities the
+  same level, so a crossed read or a dropped guard changed nothing; they now use a fresh
+  id and two different levels. A ten-type "ignores non-rep actions" theory fed all-zero
+  rows, so any misroute was invisible - it now runs against a standing balance with every
+  rep-bearing field set, asserts the seed flag stays clear, and drops StrategyActivate,
+  which production does route to a rep handler. A recovery-funds cell could not tell a
+  skip from a silent defer; it now asserts the pending queue and the guard's log line. A
+  part-event roundtrip hand-rolled its own reader instead of calling the production
+  codec, and a crew-dedup cell proved "nothing removed" without invoking removal; both
+  now run the real code. Two kerbal fixtures asserted a mock they had configured - the
+  roster facade refused unknown names without recording the attempt, so a dropped skip
+  read green, and a diagnostics cell read a summary line that was gated on counters it
+  never checked; the facade now records every append, create and recreate CALL, and the
+  diagnostics cell reads the counters before they are reset. Two cells were deleted as
+  redundant: the funds leak-clamp wrapper cell and the missing-subject composition cell
+  each re-issued the production composition inline because the real wrapper early-returns
+  headlessly, and both halves of each are already pinned elsewhere
+  (`ResolveFundsPatch_MissingEarningLeak_ClampsToLiveAndCollapsesToNoOp` plus
+  `DrawdownGuardTests.EmitDrawdownGuardClamp_Funds_WarnsWithNumbersAndToastsOnce`, and
+  `ResolveMissingSubjectCreation_LedgerCreditsSubjectRnDLacks_Creates` plus
+  `ResolveSubjectSciencePatch_ScientificValueFromCap`). Two RCS and destruction-mode
+  cells picked inputs above the visibility floor and with a dead term, and now pick
+  inputs where the floor and the term are the only reason the answer holds. Every fixed
+  cell was re-checked by breaking the production line on purpose and confirming it goes
+  red. No production code changed, no log text changed, and nothing a player sees
+  changes.
+
 - **Tests: a second slice of twenty recording-tree cells from the audit's T1
   (vacuous) register now reaches the production line their names claim.** The first ten:
   three backward-compatibility cells loaded a RECORDING node that the schema gate
