@@ -222,10 +222,16 @@ namespace Parsek.Tests
         // ones were present, which three one-line mutants walked straight past:
         // `recorder.ForceStop()`, `flight.GloopsRecorderForUI.Recording.Clear()` and
         // `RecordingStore.DeleteRecordingFull(0)` all changed Gloops state while naming
-        // nothing on the list. Each was pasted into a SCRATCH COPY of the applier
+        // nothing on the list. A FOURTH mutant, found in review, walked past the FIRST
+        // derivation too: `var r2 = flight.GloopsRecorderForUI; r2.ForceStop();` binds the
+        // recorder to a name the hop scan was not looking for. That is why the local's name
+        // is now DERIVED from its binding site, why a second binding site is itself a
+        // failure, and why a terminator blocklist sits behind both as a backstop. Each was pasted into a SCRATCH COPY of the applier
         // and run through the cells below (2026-09-15): under the blocklist all three
         // PASSED; under the derivations below `ForceStop` and `Clear` red on the two-hop
-        // member scan and `DeleteRecordingFull` reds on the empty store-call set. The
+        // member scan, `DeleteRecordingFull` reds on the empty store-call set, and the
+        // rebound `r2.ForceStop()` reds on the single-binding cell AND the terminator
+        // backstop (it passed every cell in the round before this one). The
         // mutants were removed from the scratch copy afterwards; the committed applier
         // never carried them. The two-hop shape is why `.Recording.Clear()` is caught at
         // all: the name scan wants a "(" right after the Gloops name and a chained call
@@ -258,20 +264,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TheRecorderAccessorIsBoundToExactlyOneLocal()
+        {
+            // The premise the scan below rests on, asserted rather than assumed. That scan
+            // has to name the local that holds the recorder, and a hand-written name is a
+            // hole: `var r2 = flight.GloopsRecorderForUI; r2.ForceStop();` binds the same
+            // object to a DIFFERENT name and walks past a scan keyed on `recorder`. So the
+            // local's name is DERIVED from the one assignment that creates it, and a
+            // second binding site reds here instead of silently widening the surface.
+            string src = ReadApplierSource();
+            var bindings = Regex.Matches(
+                    src, @"(?:\bvar\b|\bFlightRecorder\b)\s+(\w+)\s*=\s*[\w.]*\bGloopsRecorderForUI\b")
+                .Cast<Match>().Select(m => m.Groups[1].Value).ToList();
+            Assert.Single(bindings);
+            Assert.Equal("recorder", bindings[0]);
+
+            // And the accessor is reached ONLY through that binding - never inline, where
+            // a chained call would dodge the local scan entirely.
+            Assert.Single(Regex.Matches(src, @"\bGloopsRecorderForUI\b").Cast<Match>().ToList());
+        }
+
+        [Fact]
         public void TheApplierOnlyReadsCountOffTheRecorderAndTheRecording()
         {
             // The mutant class the name scan above cannot see, in both of its shapes: a
-            // call on the `recorder` LOCAL, whose own members carry no "Gloops" in their
+            // call on the recorder LOCAL, whose own members carry no "Gloops" in their
             // spelling (`recorder.ForceStop()`), and a call reached THROUGH a Gloops
             // accessor rather than on it (`flight.GloopsRecorderForUI.Recording.Clear()` -
             // the name scan misses it because no "(" follows the Gloops name).
             //
-            // Derived in two hops. Hop one: every member reached off the `recorder` local
-            // or off a Gloops-named accessor. Hop two: every member reached off THOSE.
+            // The local's NAME is derived from its binding site rather than written here,
+            // so renaming it in the applier moves this scan with it and a second binding
+            // reds in the cell above.
+            //
+            // Derived in two hops. Hop one: every member reached off that local or off a
+            // Gloops-named accessor. Hop two: every member reached off THOSE.
             string src = ReadApplierSource();
+            string local = RecorderLocalName(src);
 
             var firstHop = new SortedSet<string>(
-                Regex.Matches(src, @"(?:\brecorder\b|\.\w*Gloops\w*)\s*\??\.\s*(\w+)")
+                Regex.Matches(src,
+                        @"(?:\b" + local + @"\b|\.\w*Gloops\w*)\s*\??\.\s*(\w+)")
                     .Cast<Match>().Select(m => m.Groups[1].Value),
                 StringComparer.Ordinal);
             Assert.Equal(
@@ -286,6 +319,19 @@ namespace Parsek.Tests
             Assert.Equal(
                 new SortedSet<string>(new[] { "Count" }, StringComparer.Ordinal),
                 secondHop);
+        }
+
+        [Fact]
+        public void TheApplierNamesNoRecorderTerminatorAtAll()
+        {
+            // BELT AND BRACES over the derivations above, and cheap: the three members that
+            // would end or empty a take are forbidden by NAME anywhere in the file, however
+            // they are reached - through a local, a chain, a cast or a second accessor this
+            // gate has not thought of. A blocklist is the wrong PRIMARY instrument (that is
+            // the whole point of the header above) and a perfectly good backstop.
+            string src = ReadApplierSource();
+            foreach (string terminator in new[] { "ForceStop", "StopRecording", ".Clear(" })
+                Assert.DoesNotContain(terminator, src);
         }
 
         [Fact]
@@ -320,6 +366,16 @@ namespace Parsek.Tests
             KeyValuePair<string, string> hit = payload.FirstOrDefault(kv => kv.Key == key);
             Assert.False(string.IsNullOrEmpty(hit.Key), "payload has no key " + key);
             return hit.Value;
+        }
+
+        /// <summary>The name of the local the applier binds `GloopsRecorderForUI` to, read
+        /// off the binding itself so a rename cannot leave a scan pointing at nothing.</summary>
+        private static string RecorderLocalName(string src)
+        {
+            Match m = Regex.Match(
+                src, @"(?:\bvar\b|\bFlightRecorder\b)\s+(\w+)\s*=\s*[\w.]*\bGloopsRecorderForUI\b");
+            Assert.True(m.Success, "the applier no longer binds GloopsRecorderForUI to a local");
+            return m.Groups[1].Value;
         }
 
         private static string ReadApplierSource()

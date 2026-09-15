@@ -37,11 +37,21 @@ tier = "operator"
 # refuses. S0.5 / S0.6 left the same outcome to the 3.0 s Medium default and a shorter
 # gap, which is why they could only TOLERATE it.
 #
-# READING RUN, NOT ARMED, on ONE point: the drop's Warn lands on the WRN surface the log
-# validator reads. Whether `validate-ksp-log` treats a DESIGNED refusal warn as an
-# unexpected one is a question for the produced log-validation output, not an assumption
-# to encode now. The drop line itself IS gated below - that is the lane's subject and it
-# is deterministic; the arming decision left to the operator is about the validator row.
+# THE READING RUN FLEW 2026-09-15 (`2026-09-15_1621_GL-2-gloops-sub-2-point-drop`, PASS
+# attempt 1, 63 s, mismatches=0, recordings=0) AND ANSWERED BOTH OPEN QUESTIONS.
+# (1) THE VALIDATOR ROW IS CLEAN: `verify logValidate status=PASS recRulesSuppressed=True
+# killedRunMode=False`. The designed refusal Warn does NOT read as an unexpected one, so
+# nothing about this lane needs a suppression and none is added - which is the outcome the
+# cannot-mask guarantee wanted, since suppressing a WRN is refused by ParseSuppressionList
+# anyway.
+# (2) THE TAKE LANDED ON EXACTLY ONE POINT, so the drop line is pinned WHOLE below with
+# its `points=1` literal rather than left as a prefix. The log's own bytes:
+#   [Parsek][INFO][Flight] Gloops recording started: vessel=mk1-capsule, pid=2871960053, ghostSnap=True
+#   [Parsek][INFO][TestCommands] gloopsstart started=true vessel=mk1-capsule
+#   [Parsek][WARN][Flight] StopGloopsRecording: not enough points (< 2)
+#   [Parsek][INFO][TestCommands] gloopsstop committed=false points=1 dropped=too-short
+# The refusal Warn and the drop line are 1.0 ms apart, the production refusal preceding the
+# verb's honest report of it - the two-witness shape the block below was written for.
 description = "Gloops start/stop with no dwell at Low sampling density: a genuine sub-2-point take, and the production < 2 commit refusal gated."
 instanceProfile = "stock-minimal"
 tags = ["recording", "gloops", "ghost-only", "drop", "D1"]
@@ -109,11 +119,15 @@ count = { min = 0, max = 0 }
 # `dropped=too-short` is a LOG token, not only a payload key: logContracts are regexes
 # over KSP.log and the response file is not scanned, so the applier prints it on the drop
 # branch of its own Info line. Gating a payload-only key would have been vacuous.
+# PINNED WHOLE 2026-09-15 off the reading run named in the header: the start line carries
+# the fixture pod's baked pid (deterministic, not run-local) and the drop line carries
+# `points=1`, the measured count, so `committed=false points=1 dropped=too-short` is now
+# one literal token rather than two loose prefixes.
 required  = [
-  "Gloops recording started: vessel=",
+  "Gloops recording started: vessel=mk1-capsule, pid=2871960053, ghostSnap=True",
+  "gloopsstart started=true vessel=mk1-capsule",
   "StopGloopsRecording: not enough points \\(< 2\\)",
-  "gloopsstop committed=false",
-  "dropped=too-short",
+  "gloopsstop committed=false points=1 dropped=too-short",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

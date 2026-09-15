@@ -454,8 +454,9 @@ owning todo entry. All OPEN; none applied.
    (witness `Transitioned to background (pid=`) and claim it on CI-1? Recommendation: yes.
    Cost: one token, an armed re-flight and one negative control, no C#. Memo s3; todo
    D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
-4. **RULED 2026-09-15 (B4) - D1 `sub-2-point-drop` and `manual-gloops`.** The
-   recommendation was taken as written, with one binding addition: GLOOPS STAYS AS IS - the
+4. **RULED YES 2026-09-15 (B4) and DONE the same day - D1 `sub-2-point-drop` and
+   `manual-gloops`.** The recommendation was taken as written, with one binding
+   constraint: GLOOPS STAYS AS IS - the
    recorder, its window and every code path they call are UNTOUCHED, and
    `GLOOPS-STANDALONE-WINDDOWN` / GUI-P13 stay open. BUILT on branch `gloops-seam-verbs`:
    the ADDITIVE no-arg pair `GloopsStart` / `GloopsStop` (36 -> 38 implemented, reserved
@@ -465,9 +466,14 @@ owning todo entry. All OPEN; none applied.
    1-point recording, but the dock/undock chain-segment path IS live and reaches the same
    factory, so the wording is scoped to the verb rather than claiming sole production), the
    two stale S0.5 / S0.6 remarks corrected, and two READING-RUN lanes:
-   `GL-1-gloops-manual-lifecycle` and `GL-2-gloops-sub-2-point-drop`. NEITHER IS ARMED and
-   neither has flown - the operator arms them after the reading runs. Memo s3; todo
-   D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
+   `GL-1-gloops-manual-lifecycle` and `GL-2-gloops-sub-2-point-drop`. BOTH FLEW THE SAME
+   DAY and both are LIVE-PROVEN + ARMED with the full three-run discipline: GL-1 reading
+   `2026-09-15_1601` / armed `_1613` / control `_1620`, GL-2 reading `_1621` / armed `_1623`
+   / control `_1624`, every run PASS on attempt 1 and each control PARSEK-FAIL(expectation)
+   on exactly its seeded token. The two declared unknowns are answered in the rows: the
+   stationary pod COMMITS at three points, and the designed refusal Warn does not trip the
+   log validator. Shipped in the Gloops PR (`gloops-seam-verbs`). Memo s3; todo
+   D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE (now closed, both halves).
 5. **OPEN - D17 `making-history`: define it or delete it.** Recommendation: define it as
    alt-site launch capture on stock-minimal and rank it last (a GS-4 clone launching from
    `Desert_Launch_Site`, one operator reading flight); or delete the value with an honest
@@ -561,12 +567,19 @@ ruled, its part is the cheapest work on the list and can go first.
    - Product C#: no (test generator only). Flights: 3.
    - Todo: D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL.
    - Decisions: none.
-6. **Gloops seam verb pair** (`GloopsStart` / `GloopsStop`), closing D1 `manual-gloops` and
-   `sub-2-point-drop`.
-   - Product C#: yes (~150 lines, on the M-A2 command seam). Flights: not estimated by the
-     memo.
-   - Todo: D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
-   - Decisions: B4.
+6. **SHIPPED 2026-09-15 - Gloops seam verb pair** (`GloopsStart` / `GloopsStop`), closing
+   D1 `manual-gloops` and `sub-2-point-drop`.
+   - Shipped on branch `gloops-seam-verbs` under B4's constraint that GLOOPS ITSELF IS
+     UNTOUCHED: the pair is ADDITIVE on the M-A2 seam (36 -> 38 implemented, reserved
+     unchanged at 5), both verbs no-arg, `RequiresFlight` and single-phase, and they call
+     the same two internal `ParsekFlight` members the Gloops window's primary button calls.
+     Zero diff under any Gloops file; `GLOOPS-STANDALONE-WINDDOWN` and GUI-P13 stay open.
+   - Flights: SIX, all on 2026-09-15 and all attempt 1 - GL-1 reading `_1601` / armed
+     `_1613` / control `_1620`, GL-2 reading `_1621` / armed `_1623` / control `_1624`. Both
+     lanes are LIVE-PROVEN + ARMED with the three-run discipline complete.
+   - Todo: D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE (CLOSED, both halves - this item
+     took the `sub-2-point-drop` half, the registry PR #1697 took `stop-on-switch`).
+   - Decisions: B4, ruled yes.
 
 Not ranked (the memo's item 8, drop or defer):
 - the RF-12L boundary-seam stability pair: drop;

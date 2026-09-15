@@ -24,7 +24,9 @@ _(unreleased — entries accumulate here per commit)_
   points. Two new test scenarios use the pair - one records and stops a real take, the
   other deliberately produces a take too short to keep and checks that Parsek refuses
   it - closing two recording-lifecycle coverage cells that no automated test could
-  reach before.
+  reach before. Both scenarios have flown: the short take commits at three points and
+  the deliberately-too-short one is refused at one, each confirmed by a repeat run and
+  by a control run that was made to expect the wrong number and duly failed.
 
 - **Developer tooling: the source tree now has a module dependency map with four
   ways to look at it, and a boundary check that reports without failing anything.**

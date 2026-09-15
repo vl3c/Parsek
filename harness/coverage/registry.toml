@@ -44,14 +44,18 @@ schema = 1
 # terminal is gated by the landedOnTargetBody assertion + the airless
 # Approach -> Surface* log token).
 #
-# "manual-gloops" and "sub-2-point-drop" (both long-standing values, CLAIMED
-# 2026-09-15 by GL-1 / GL-2): the GLOOPS recorder is the only producer of
-# "manual-gloops", and the only SEAM VERB whose subject is the drop.
+# "manual-gloops" and "sub-2-point-drop" (both long-standing values, CLAIMED AND
+# FLOWN 2026-09-15 by GL-1 / GL-2, each LIVE-PROVEN + ARMED on its first flight
+# with the full three-run discipline - reading, armed re-flight, negative control):
+# the GLOOPS recorder is the only producer of "manual-gloops", and the only SEAM
+# VERB whose subject is the drop.
 #   "manual-gloops" is the MANUAL, career-invisible recorder - a parallel
 #   FlightRecorder whose take commits IsGhostOnly with looping off. It is NOT the
 #   auto-record tree StartRecording drives, so no auto-record lane covers it, and
 #   its three buttons live in one window whose open flag only a player click ever
-#   wrote until the GloopsStart / GloopsStop seam pair landed.
+#   wrote until the GloopsStart / GloopsStop seam pair landed. MEASURED on GL-1's
+#   reading run 2026-09-15_1601: the stationary PRELAUNCH pod commits a take of
+#   THREE points at samplingDensity=2, which is the number its armed tokens pin.
 #   "sub-2-point-drop" is RecordingStore.CreateRecordingFromFlightData refusing a
 #   take of fewer than two trajectory points. Re-derived from the FULL caller set
 #   (todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE) rather than assumed: in
@@ -68,6 +72,9 @@ schema = 1
 #   not "the only producer": a docking lane could reach the same refusal
 #   incidentally, and would log CommitSegmentCore's own "segment too short" Verbose
 #   rather than the Gloops Warn GL-2 gates.
+#   MEASURED on GL-2's reading run 2026-09-15_1621: the take lands on EXACTLY ONE
+#   point at samplingDensity=0 with the stop step adjacent to the start, and the
+#   refusal Warn precedes the seam's own committed=false report by 1.0 ms.
 #   S0.5 and S0.6 each attributed a possible count to "the stationary-pod
 #   sub-2-point-drop", wording that predates always-tree mode and describes a path
 #   their own commits no longer take; both are corrected in the same change.

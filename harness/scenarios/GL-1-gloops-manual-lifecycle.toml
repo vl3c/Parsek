@@ -104,7 +104,9 @@ allowedAnomalies = []
 # the only thing that can add a row is this lane's Gloops take: 1 means it committed, 0
 # means it finalized under two points and was dropped. TWO or more would mean something
 # recorded that this spec did not ask for, which is the case worth reding on.
-count = { min = 0, max = 1 }
+# TIGHTENED 2026-09-15 off the reading run `2026-09-15_1601_GL-1-gloops-manual-lifecycle`
+# (PASS attempt 1, 65 s): the take COMMITTED, so the range collapses to exactly one row.
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 # Gated on what is CERTAIN: the production start line (ParsekFlight.StartGloopsRecording
@@ -112,12 +114,23 @@ count = { min = 0, max = 1 }
 # deliberately outcome-AGNOSTIC - it matches committed=true and committed=false alike -
 # so the lane proves the lifecycle ran without prejudging the point accrual the reading
 # run exists to measure.
-# TO ARM AFTER THE READING RUN (operator): if the produced payload shows points >= 2,
-# add "Gloops recording committed" and tighten count to { min = 1, max = 1 }.
+# ARMED 2026-09-15 off the reading run `2026-09-15_1601_GL-1-gloops-manual-lifecycle`
+# (PASS attempt 1, 65 s, mismatches=0), whose KSP.log answers the lane's declared unknown:
+# the stationary PRELAUNCH pod DOES accrue enough samples at samplingDensity=2, and the
+# take COMMITTED at THREE points. The four lines below are that log's own bytes:
+#   [Parsek][INFO][Flight] Gloops recording started: vessel=mk1-capsule, pid=2871960053, ghostSnap=True
+#   [Parsek][INFO][TestCommands] gloopsstart started=true vessel=mk1-capsule
+#   [Parsek][INFO][Flight] StopGloopsRecording: Gloops recording committed "mk1-capsule" (3 points, id=e12af737f62f4f4eb61cdbc6d8de1fe6)
+#   [Parsek][INFO][TestCommands] gloopsstop committed=true points=3 recordingId=e12af737f62f4f4eb61cdbc6d8de1fe6
+# The recording id is run-local (a fresh guid per commit) and is the ONLY part regexed;
+# the pid is the fixture craft's baked persistentId and the point count is the subject, so
+# both are literals. `committed=true points=3` is now the gate the outcome-agnostic
+# `gloopsstop committed=` prefix deliberately was not.
 required  = [
-  "Gloops recording started: vessel=",
-  "gloopsstart started=true",
-  "gloopsstop committed=",
+  "Gloops recording started: vessel=mk1-capsule, pid=2871960053, ghostSnap=True",
+  "gloopsstart started=true vessel=mk1-capsule",
+  "StopGloopsRecording: Gloops recording committed \"mk1-capsule\" \\(3 points, id=[0-9a-f]{32}\\)",
+  "gloopsstop committed=true points=3 recordingId=[0-9a-f]{32}",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
