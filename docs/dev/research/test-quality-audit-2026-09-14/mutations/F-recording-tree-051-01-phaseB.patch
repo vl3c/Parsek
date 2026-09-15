@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostChainWalker.cs b/Source/Parsek/GhostChainWalker.cs
+index 953e4426f..f12636cba 100644
+--- a/Source/Parsek/GhostChainWalker.cs
++++ b/Source/Parsek/GhostChainWalker.cs
+@@ -22,7 +22,7 @@ namespace Parsek
+         internal static bool ShouldGhostChainAtUT(GhostChain chain, double currentUT)
+         {
+             if (chain == null) return false;
+-            return currentUT < chain.SpawnUT;
++            return currentUT <= chain.SpawnUT;
+         }
+ 
+         /// <summary>

@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/TreeDiscardPurge.cs b/Source/Parsek/TreeDiscardPurge.cs
+index 358b7720f..309cb4d7b 100644
+--- a/Source/Parsek/TreeDiscardPurge.cs
++++ b/Source/Parsek/TreeDiscardPurge.cs
+@@ -1,4 +1,4 @@
+-using System;
++﻿using System;
+ using System.Collections.Generic;
+ using System.Globalization;
+ using System.IO;
+@@ -170,7 +170,6 @@ namespace Parsek
+             // changes).
+             if (tombstonesPurged > 0)
+             {
+-                CrewReservationManager.RecomputeAfterTombstones();
+                 ParsekLog.Info(CrewTag,
+                     $"PurgeTree: recomputed reservations after {tombstonesPurged.ToString(CultureInfo.InvariantCulture)} tombstone(s) purged for tree={treeId}");
+             }

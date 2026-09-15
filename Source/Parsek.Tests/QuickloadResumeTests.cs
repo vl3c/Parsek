@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -2238,7 +2238,8 @@ namespace Parsek.Tests
         // in ParsekScenario.ComputeIsRevertOnLoad, called from OnLoad, and
         // the cells below drive that helper. The old truth table's extra
         // clauses do not exist any more; hasOrphanedLimboTree survives only
-        // as a Verbose diagnostic and is still covered by the
+        // as a Verbose diagnostic, computed by ParsekScenario.ComputeHasOrphanedLimboTree
+        // and still covered by the
         // HasOrphanedLimboTree_* cells further down.
         // ============================================================
 
@@ -2290,9 +2291,10 @@ namespace Parsek.Tests
             bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(launchSave);
 
             Assert.False(activeTreeRestoredFromSave);
-            bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
-                && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                && !activeTreeRestoredFromSave;
+            bool hasOrphanedLimboTree = ParsekScenario.ComputeHasOrphanedLimboTree(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue,
+                activeTreeRestoredFromSave);
             Assert.True(hasOrphanedLimboTree);
         }
 
@@ -2315,9 +2317,10 @@ namespace Parsek.Tests
             bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(f5Save);
 
             Assert.True(activeTreeRestoredFromSave);
-            bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
-                && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                && !activeTreeRestoredFromSave;
+            bool hasOrphanedLimboTree = ParsekScenario.ComputeHasOrphanedLimboTree(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue,
+                activeTreeRestoredFromSave);
             Assert.False(hasOrphanedLimboTree);
         }
 
@@ -2333,9 +2336,10 @@ namespace Parsek.Tests
             bool activeTreeRestoredFromSave = ParsekScenario.TryRestoreActiveTreeNode(emptySave);
 
             Assert.False(activeTreeRestoredFromSave);
-            bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
-                && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                && !activeTreeRestoredFromSave;
+            bool hasOrphanedLimboTree = ParsekScenario.ComputeHasOrphanedLimboTree(
+                RecordingStore.HasPendingTree,
+                RecordingStore.PendingTreeStateValue,
+                activeTreeRestoredFromSave);
             Assert.False(hasOrphanedLimboTree);
         }
 

@@ -923,8 +923,15 @@ namespace Parsek.Tests
             CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
             CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
 
-            CrewReservationManager.CleanUpReplacementForTesting("Jebediah Kerman");
+            // The production mapping half of CleanUpReplacement, called directly: the
+            // roster half needs a live KerbalRoster, but this is the code the game
+            // runs, so a marker clear added here is caught.
+            string replacementName;
+            bool removed = CrewReservationManager.TryRemoveReplacementMappingPreservingRescueMarker(
+                "Jebediah Kerman", out replacementName);
 
+            Assert.True(removed);
+            Assert.Equal("Erilan Kerman", replacementName);
             Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"),
                 "Per-name CleanUpReplacement must NOT clear the rescue-placed marker");

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -247,7 +247,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BatchFlightBaselineRestore_ValidationFailureBeforeWipe_LeavesAllStoresIntact()
+        public void Simulation_ValidationFailureBeforeWipe_DocumentsIntendedSequence_RecordingStoreOnly()
         {
             // P1 (round 3) review regression: previously
             // PrepareForIsolatedBatchFlightBaselineRestore wiped
@@ -306,6 +306,12 @@ namespace Parsek.Tests
             // ordering. This xUnit test serves as a readable
             // specification of the intended sequence; the in-game
             // run is the regression detector.
+            // NAME CONTRACT: this cell SIMULATES the runner sequence, it does not
+            // witness it. The throw below is hardcoded and the wipe after it is
+            // unreachable, so moving the real prep wipe ahead of validation in
+            // InGameTestRunner.RestoreBatchFlightBaselineCore does not red it; the
+            // in-game batch is that regression detector. What it does pin is that a
+            // short-circuited restore leaves RecordingStore (only) intact.
             var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "PreValidationLive");
             Assert.NotNull(live);
             RecordingStore.AddRecordingWithTreeForTesting(live);
@@ -344,7 +350,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BatchFlightBaselineRestore_PostTestRollback_RestoresBatchStart_NotTestMutations()
+        public void Simulation_PostTestRollback_RestoresFromTheBatchStartSnapshot_NotTestMutations()
         {
             // P2 review regression: a test may layer synthetic mutations on
             // RecordingStore during its run. If the post-test
@@ -361,6 +367,10 @@ namespace Parsek.Tests
             // mutation, restore fails before OnLoad fires, rollback
             // fires. The rollback must restore the player's pre-batch
             // state -- NOT the test-mutated state.
+            // NAME CONTRACT: the runner's capture timing and wipe-arm point are
+            // re-issued inline below, so this cell cannot witness them - what it pins
+            // is the store primitive the rollback depends on: a snapshot taken at
+            // batch start restores the pre-batch state over a later test mutation.
             var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "PreBatchLive");
             Assert.NotNull(live);
             RecordingStore.AddRecordingWithTreeForTesting(live);

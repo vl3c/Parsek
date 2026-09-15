@@ -1,0 +1,19 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..596a6be23 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -1,4 +1,4 @@
+-using System;
++﻿using System;
+ using System.Collections.Generic;
+ using System.Diagnostics;
+ using System.Globalization;
+@@ -4683,8 +4683,6 @@ namespace Parsek
+             Dictionary<string, string> snapshotAutoAssignedGroups)
+         {
+             committedRecordings.Clear();
+-            if (snapshotRecordings != null)
+-                committedRecordings.AddRange(snapshotRecordings);
+             committedTrees.Clear();
+             if (snapshotTrees != null)
+                 committedTrees.AddRange(snapshotTrees);

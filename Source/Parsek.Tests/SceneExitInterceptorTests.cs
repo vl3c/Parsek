@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -411,7 +411,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildPostChoice_ArmsTokenWithDestination()
+        public void BuildPostChoice_NotArmedUntilInvoked()
         {
             // Stub the save call so we don't touch GamePersistence.
             SceneExitInterceptor.SafeWritePersistentForTesting = _ => true;
@@ -419,13 +419,49 @@ namespace Parsek.Tests
             var postChoice = SceneExitInterceptor.BuildPostChoice(GameScenes.SPACECENTER);
             Assert.NotNull(postChoice);
 
-            // Invoking postChoice would normally call HighLogic.LoadScene,
-            // which is unavailable in xUnit. We can't run the lambda
-            // directly. Instead verify the closure captured the destination
-            // by checking the field BEFORE invocation - it should still be
-            // LOADING (token only set inside the lambda right before
-            // LoadScene). This test asserts BuildPostChoice does not arm
-            // the token eagerly.
+            // Building the closure must not arm the token: it is armed inside the
+            // body, immediately before the scene load. The body itself is driven by
+            // RunPostChoice_* below (the closure calls HighLogic.LoadScene, which is
+            // unavailable in xUnit).
+            Assert.False(SceneExitInterceptor.s_AllowNextLoadScene);
+            Assert.Equal(GameScenes.LOADING, SceneExitInterceptor.s_AllowNextLoadSceneDestination);
+        }
+
+        [Fact]
+        public void RunPostChoice_ArmsTokenWithDestinationThenLoadsScene()
+        {
+            // The closure body with the scene load injected: the token, its
+            // destination and the re-entered load are all observable here.
+            SceneExitInterceptor.SafeWritePersistentForTesting = _ => true;
+            var loaded = new List<GameScenes>();
+            bool tokenArmedAtLoad = false;
+            GameScenes destAtLoad = GameScenes.LOADING;
+
+            SceneExitInterceptor.RunPostChoice(GameScenes.SPACECENTER, dest =>
+            {
+                // Read the token INSIDE the load: the prefix that consumes it runs
+                // from exactly here, so arming it after the load would not help.
+                tokenArmedAtLoad = SceneExitInterceptor.s_AllowNextLoadScene;
+                destAtLoad = SceneExitInterceptor.s_AllowNextLoadSceneDestination;
+                loaded.Add(dest);
+            });
+
+            Assert.True(tokenArmedAtLoad);
+            Assert.Equal(GameScenes.SPACECENTER, destAtLoad);
+            Assert.Equal(new[] { GameScenes.SPACECENTER }, loaded);
+        }
+
+        [Fact]
+        public void RunPostChoice_SaveFailed_DoesNotArmTokenAndDoesNotLoad()
+        {
+            // The persist guard is first: a failed write must leave the token
+            // disarmed and the scene where it is.
+            SceneExitInterceptor.SafeWritePersistentForTesting = _ => false;
+            int loadCalls = 0;
+
+            SceneExitInterceptor.RunPostChoice(GameScenes.SPACECENTER, _ => loadCalls++);
+
+            Assert.Equal(0, loadCalls);
             Assert.False(SceneExitInterceptor.s_AllowNextLoadScene);
             Assert.Equal(GameScenes.LOADING, SceneExitInterceptor.s_AllowNextLoadSceneDestination);
         }

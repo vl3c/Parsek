@@ -211,7 +211,24 @@ _(unreleased — entries accumulate here per commit)_
   own writes (the cell that drives the real reset covers it, and inherits its one extra
   assertion), and one pinned a short-circuit no unit test can distinguish from the paths
   below it. Each repair was re-checked by breaking the production line on purpose and
-  confirming the cell goes red. No production change, nothing a player sees changes.
+  confirming the cell goes red. The other ten were the same story in bigger code: a
+  cell asserted its own inline copy of the orphaned-Limbo classification, of the
+  chain ghost-skip rule, and of a batch-restore sequence; another re-committed an
+  already-committed tree, which returns at a duplicate check before the promotion
+  pass it was named for; another asserted a log line written by the caller of the
+  recompute rather than by the recompute; another watched its own staged file
+  deleter unlink a save the production delete is supposed to unlink; and the
+  scene-exit cell could only check that a closure had been built, never what it
+  does. Five small pieces of production code were lifted out so the game's own
+  decision can be called without a running game - the orphaned-Limbo
+  classification, the chain spawn-UT rule, the post-choice body (with the scene
+  load passed in), the stand-in mapping removal that must leave the rescue marker
+  alone, and a save-root resolution seam that lets one test drive the real sidecar
+  delete against a temp directory - each still called from its original site, with
+  the same guards and the same order of side effects. Two cells that only simulate
+  the in-game batch-restore runner were renamed to say so, with the sequence they
+  cannot witness named in the body. No behaviour changes, no log text changes, and
+  nothing a player sees changes.
 
 - **Tests: twenty rewind / Re-Fly and recording-tree cells from the audit's T1
   (vacuous) register now exercise the production line their names claim.** Each one

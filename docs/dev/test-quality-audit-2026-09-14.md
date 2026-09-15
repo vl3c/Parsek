@@ -740,6 +740,44 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     snapshot assertion); F-recording-tree-052-04 (`ZeroPid_NoEffect`; the `pid == 0`
     short-circuit returns what every path below it returns, so no unit test can pin it -
     twin `CommitFlowTests.ShouldSkip_ZeroPid_ReturnsFalse` keeps the documentation).
+  - Fixed (second half): F-recording-tree-011-03 (production grew
+    `ParsekScenario.ComputeHasOrphanedLimboTree`, called from `OnLoad`'s revert-detection
+    log line, and the three `HasOrphanedLimboTree_*` cells drive it instead of re-deriving
+    the expression); F-recording-tree-020-01 (the re-commit is now
+    `RecordingStore.ApplyRewindProvisionalMergeStatesForTesting`, since a second
+    `CommitTree` returns at the reference-equal duplicate skip before the promotion pass
+    the cell is named for); F-recording-tree-021-01 (the mapping half of
+    `CleanUpReplacement` is extracted as
+    `CrewReservationManager.TryRemoveReplacementMappingPreservingRescueMarker`, called by
+    production and by the xUnit seam, so the marker-preservation contract is pinned on the
+    code the game runs; the roster half still needs a live `KerbalRoster`);
+    F-recording-tree-036-01 (a real `KerbalsModule` is installed and the cell asserts
+    `CrewReservationManager`'s own "Recomputed after tombstones" line, not the caller's);
+    F-recording-tree-039-01 (`RecordingPaths.SaveRootOverrideForTesting` lets the cell drive
+    the REAL `RecordingStore.DeleteRecordingFiles` against the staged temp save, so the
+    eighth limb - the quickload-resume save - is behaviourally covered for the first time,
+    with the RewindPoints quicksave as the blast-radius witness);
+    F-recording-tree-042-03 (the postChoice closure body is extracted as
+    `SceneExitInterceptor.RunPostChoice(destination, loadScene)` - same guard, same order of
+    side effects - and two cells drive it: the token is read INSIDE the injected load, and a
+    failed persist arms nothing and loads nothing; the original cell keeps the
+    not-armed-until-invoked claim under that name);
+    F-recording-tree-046-06 (the marker-owned segment is now IN the armed attempt tree, the
+    shared-id case, plus a `markerOwned=2` assertion and a fixture precondition);
+    F-recording-tree-051-01 (production grew `GhostChainWalker.ShouldGhostChainAtUT`, called
+    by `ParsekFlight.FilterAndGhostChains`; the test-local mirror is deleted and all three
+    cells drive the production rule. The terminated-chain arm stays at the call site because
+    it logs its own reason).
+  - Renamed, behavioural coverage deferred: F-recording-tree-034-01 and -034-02, the two
+    batch-flight-baseline SIMULATION cells. The runner's step order lives inside
+    `InGameTestRunner.RestoreBatchFlightBaselineCore`, which needs a live KSP batch
+    (quicksave + `GamePersistence` load), so no xUnit mutant of that sequence can red them;
+    they are now `Simulation_ValidationFailureBeforeWipe_DocumentsIntendedSequence_RecordingStoreOnly`
+    and `Simulation_PostTestRollback_RestoresFromTheBatchStartSnapshot_NotTestMutations`,
+    each saying in the body what it cannot witness and naming the in-game batch as the
+    detector. -034-02 carries a mutation proof against the store primitive it does pin
+    (`RecordingStore.RestoreFromSnapshotForTesting`); -034-01 has no mutant by construction
+    and is the one deferred row of the twenty.
 
 ## July crosswalk
 

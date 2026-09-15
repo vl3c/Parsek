@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -63,6 +63,7 @@ namespace Parsek.Tests
                 }
                 catch { }
             }
+            RecordingPaths.SaveRootOverrideForTesting = null;
             RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -485,7 +486,10 @@ namespace Parsek.Tests
             StageRewindSave("resume-rec-with-save");
             string rpQuicksave = StageRewindPointQuicksave("rp-untouched");
 
-            DiscardSidecarReap.DeleteRecordingFilesForTesting = StagedDirDeleter(dir);
+            // No deleter override here: the REAL RecordingStore.DeleteRecordingFiles
+            // runs, with its save-root resolution pointed at the staged temp save.
+            // Every unlink below is production's, including the eighth limb.
+            RecordingPaths.SaveRootOverrideForTesting = lastSaveRoot;
 
             var rec = Rec("rec-with-save");
             rec.RewindSaveFileName = "resume-rec-with-save";

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -358,14 +358,25 @@ namespace Parsek.Tests
             var parent = MakeRecording("rec_parent", "tree_attempt");
             parent.ExplicitEndUT = 200.0;
             var attemptTree = MakeTreeWithRecordings("tree_attempt", parent);
-            RecordingStore.AddCommittedTreeForTesting(attemptTree);
-            AddCommitted(parent);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
 
+            // The marker-owned segment is IN the attempt tree, so the attempt arms
+            // with its id in the recorded set: without the marker-owned skip the
+            // loop reads it as a committed-overlap id and defers. That shared id is
+            // the only input under which this predicate can witness the narrowing;
+            // an id outside the attempt set falls through to false either way.
             var segment = MakeRecording(
                 "rec_segment_owned", "tree_attempt",
                 switchSegmentSessionId: ToSessionString(session.SessionId));
+            attemptTree.AddOrReplaceRecording(segment);
+
+            RecordingStore.AddCommittedTreeForTesting(attemptTree);
+            AddCommitted(parent);
             AddCommitted(segment);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            Assert.True(
+                RecordingStore.IsCommittedTreeRestoreAttemptRecordingId("rec_segment_owned"),
+                "fixture precondition: the marker-owned id must also be an attempt id, "
+                + "or the un-narrowed loop would answer false for its own reason");
 
             // Pending events are all on the marker-owned id.
             var evt1 = MakeEvent(ut: 250.0, recordingId: "rec_segment_owned");
@@ -377,7 +388,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]")
                 && l.Contains("not-deferred")
-                && l.Contains("reason=marker-owned-switch-segment"));
+                && l.Contains("reason=marker-owned-switch-segment")
+                && l.Contains("markerOwned=2"));
         }
 
         // Fails if: a mix of marker-owned + committed-overlap-but-not-

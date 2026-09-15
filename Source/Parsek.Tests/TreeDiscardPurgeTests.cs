@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Parsek.Logistics;
@@ -633,12 +633,23 @@ namespace Parsek.Tests
                 UT = 100.0,
             };
             InstallScenario(tombstones: new List<LedgerTombstone> { tomb });
+            // A real KerbalsModule so the recompute walks ELS instead of returning
+            // at its no-module guard. Cleared by LedgerOrchestrator.ResetForTesting
+            // in Dispose.
+            LedgerOrchestrator.SetKerbalsForTesting(new KerbalsModule());
 
             TreeDiscardPurge.PurgeTree("tree_1");
 
+            // PurgeTree writes the line below itself, in the same branch as the
+            // recompute call, so it cannot witness the recompute. The witness is
+            // CrewReservationManager's own output: RecomputeFromEffectiveLedger is
+            // the only writer of "Recomputed after tombstones".
             Assert.Contains(logLines, l =>
                 l.Contains("[CrewReservations]")
                 && l.Contains("recomputed reservations after 1 tombstone(s)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservations]")
+                && l.Contains("Recomputed after tombstones"));
         }
 
         [Fact]

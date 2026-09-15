@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/SceneExitInterceptor.cs b/Source/Parsek/SceneExitInterceptor.cs
+index 3eafabe1f..0551bf906 100644
+--- a/Source/Parsek/SceneExitInterceptor.cs
++++ b/Source/Parsek/SceneExitInterceptor.cs
+@@ -639,8 +639,6 @@ namespace Parsek
+         {
+             if (!SafeWritePersistent(destination))
+                 return;
+-            s_AllowNextLoadScene = true;
+-            s_AllowNextLoadSceneDestination = destination;
+             loadScene(destination);
+         }
+     }

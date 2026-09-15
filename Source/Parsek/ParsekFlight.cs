@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
@@ -12404,7 +12404,7 @@ namespace Parsek
                 uint pid = kvp.Key;
                 GhostChain chain = kvp.Value;
 
-                if (currentUT >= chain.SpawnUT)
+                if (!GhostChainWalker.ShouldGhostChainAtUT(chain, currentUT))
                 {
                     ParsekLog.Verbose("Ghoster",
                         string.Format(CultureInfo.InvariantCulture,

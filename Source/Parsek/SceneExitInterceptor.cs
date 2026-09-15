@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Reflection;
 using HarmonyLib;
 
@@ -625,14 +625,23 @@ namespace Parsek
         /// </summary>
         internal static Action BuildPostChoice(GameScenes destination)
         {
-            return () =>
-            {
-                if (!SafeWritePersistent(destination))
-                    return;
-                s_AllowNextLoadScene = true;
-                s_AllowNextLoadSceneDestination = destination;
-                HighLogic.LoadScene(destination);
-            };
+            return () => RunPostChoice(destination, HighLogic.LoadScene);
+        }
+
+        /// <summary>
+        /// The body of the postChoice closure, with the scene load taken as a
+        /// delegate so it can run without a live HighLogic. Same guard, same
+        /// order of side effects as the closure it was lifted out of: persist
+        /// first and return on failure, then arm the one-shot bypass token and
+        /// its destination, then re-enter the scene load.
+        /// </summary>
+        internal static void RunPostChoice(GameScenes destination, Action<GameScenes> loadScene)
+        {
+            if (!SafeWritePersistent(destination))
+                return;
+            s_AllowNextLoadScene = true;
+            s_AllowNextLoadSceneDestination = destination;
+            loadScene(destination);
         }
     }
 
