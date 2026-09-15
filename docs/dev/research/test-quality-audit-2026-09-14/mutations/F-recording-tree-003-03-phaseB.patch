@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/RecordingStore.Optimization.cs b/Source/Parsek/RecordingStore.Optimization.cs
+index a5a9790df..951cd25d2 100644
+--- a/Source/Parsek/RecordingStore.Optimization.cs
++++ b/Source/Parsek/RecordingStore.Optimization.cs
+@@ -577,7 +577,8 @@ namespace Parsek
+                 // (extension of the parent-anchor contract) carry IsDebris=false
+                 // and correctly fall into this skip; they are not loop-synced to
+                 // a non-debris parent.
+-                if (!rec.IsDebris || string.IsNullOrEmpty(rec.TreeId))
++                // MUTATION: TreeId conjunct dropped from the fast-skip.
++                if (!rec.IsDebris)
+                 {
+                     rec.LoopSyncParentIdx = -1;
+                     continue;

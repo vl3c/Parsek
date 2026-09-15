@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/SessionMerger.cs b/Source/Parsek/SessionMerger.cs
+index 5cbc07a7f..b3e617ffa 100644
+--- a/Source/Parsek/SessionMerger.cs
++++ b/Source/Parsek/SessionMerger.cs
+@@ -122,7 +122,7 @@ namespace Parsek
+                 merged.TreeId = srcRec.TreeId;
+                 merged.VesselPersistentId = srcRec.VesselPersistentId;
+                 merged.RecordedVesselGuid = srcRec.RecordedVesselGuid; // merged recording keeps the source launch
+-                merged.RecordingFormatVersion = srcRec.RecordingFormatVersion;
++                // MUTATION: the merge result no longer carries the source format version.
+                 merged.TrackSections = mergedSections;
+                 merged.PartEvents = mergedEvents;
+ 

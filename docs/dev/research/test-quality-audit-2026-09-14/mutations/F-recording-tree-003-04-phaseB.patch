@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/RecordingOptimizer.TailTrim.cs b/Source/Parsek/RecordingOptimizer.TailTrim.cs
+index 6e5cc6a7e..7bedc4c0a 100644
+--- a/Source/Parsek/RecordingOptimizer.TailTrim.cs
++++ b/Source/Parsek/RecordingOptimizer.TailTrim.cs
+@@ -668,7 +668,8 @@ namespace Parsek
+                 lastInterestingUT = rec.Points[1].ut;
+             }
+ 
+-            double trimUT = lastInterestingUT + bufferSeconds;
++            // MUTATION: buffer doubled.
++            double trimUT = lastInterestingUT + 2.0 * bufferSeconds;
+             if (trimUT >= rec.EndUT)
+             {
+                 skipCategory = "buffer-not-met";

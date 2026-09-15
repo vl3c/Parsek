@@ -826,6 +826,20 @@ namespace Parsek.Tests
             // duplicate the existing retirement.
             Assert.Equal(0, secondDropped);
             Assert.Single(scenario.RecordingRewindRetirements);
+
+            // The empty-list early-out above never reaches the duplicate
+            // guard. Re-stage the relation the way the cross-LoadScene .sfs
+            // restore does (the OnLoad path re-reads the persisted
+            // RECORDING_SUPERSEDE rows, which is exactly why this re-apply
+            // exists), so the third pass walks the same relation a second
+            // time and the seenRetiredIds check is the only thing that keeps
+            // the retirement list at one row.
+            scenario.RecordingSupersedes.Add(MakeRel("old", "F"));
+
+            int thirdDropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+            Assert.Equal(1, thirdDropped);
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Single(scenario.RecordingRewindRetirements);
         }
 
         [Fact]

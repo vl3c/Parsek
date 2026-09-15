@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..85e5cd8e2 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -5942,7 +5942,7 @@ namespace Parsek
+             // owner here).
+             foreach (string retiredId in rollback.RetiredForkRecordingIds)
+             {
+-                if (string.IsNullOrEmpty(retiredId) || seenRetiredIds.Contains(retiredId))
++                if (string.IsNullOrEmpty(retiredId))
+                     continue;
+ 
+                 Recording retiredRec = null;

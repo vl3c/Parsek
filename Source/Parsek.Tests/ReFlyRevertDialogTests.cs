@@ -708,6 +708,18 @@ namespace Parsek.Tests
 
             Assert.True(EffectiveState.IsUnfinishedFlight(origin),
                 "Origin should still satisfy IsUnfinishedFlight after Discard");
+            // IsUnfinishedFlight alone is not the row's visibility gate:
+            // TryResolveUnfinishedFlight admits a recording whose slot anchor
+            // cannot resolve, so the predicate stays true even for an origin
+            // the attempt prune removed from the store. Store membership IS
+            // the gate, so an over-broad attempt-id set reds here and nowhere
+            // else.
+            Assert.Contains(RecordingStore.CommittedRecordings,
+                r => r?.RecordingId == marker.OriginChildRecordingId);
+            // The RP the row resolves its BranchPointId through must survive
+            // the same prune.
+            Assert.Contains(ParsekScenario.Instance.RewindPoints,
+                p => p?.RewindPointId == marker.RewindPointId);
         }
 
         [Fact]

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek.Tests/Generators/ScenarioWriter.cs b/Source/Parsek.Tests/Generators/ScenarioWriter.cs
+index e22e068e2..f19594025 100644
+--- a/Source/Parsek.Tests/Generators/ScenarioWriter.cs
++++ b/Source/Parsek.Tests/Generators/ScenarioWriter.cs
+@@ -724,7 +724,8 @@ namespace Parsek.Tests.Generators
+                     : BuildSyntheticVessel(flightState);
+                 StampVesselIdentity(vessel, vesselPid, rootPid,
+                     (slotVesselNamePrefix ?? "B9 Slot ") + slot.SlotIndex.ToString(ic),
+-                    DeriveVesselLaunchGuid(slot.OriginChildRecordingId));
++                    // MUTATION: sidecar VESSEL pid no longer agrees with the recording guid.
++                    DeriveVesselLaunchGuid("drift:" + slot.OriginChildRecordingId));
+ 
+                 if (slot.SlotIndex == rp.FocusSlotIndex)
+                     activeOrdinal = ordinal;

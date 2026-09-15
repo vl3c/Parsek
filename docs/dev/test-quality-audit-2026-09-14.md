@@ -1112,6 +1112,103 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `ResolveSubjectSciencePatch_ScientificValueFromCap`. The composition itself is in-game
     work). Both deletions leave a comment at the site naming the twins.
 
+- `testfix-t1t2`, seventh PR (2026-09-16): the FIRST slice of Medium T3 rows opens the
+  T3 (weak / misleading) wave (`work/phase-b-slice-medium-t3-01.txt`, 20 ids: 12
+  `rewind-refly`, 8 `recording-tree`). Every T3 row already runs the production line;
+  the work is making the named term the DECIDING one. Each fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - The twelve `rewind-refly` ids, all strengthened, no production change:
+    F-rewind-refly-001-02 (the legacy marker's BP now carries `ParentRecordingIds` in
+    the Re-Fly target's lineage, so the null baseline is the only term that can keep the
+    gate shut - previously lineage excluded it either way);
+    F-rewind-refly-002-02 (new mirror cell
+    `InPlaceContinuationSlotLookupFailure_OrbitingTerminal_ExemptFromSlotAwareAbort`:
+    Landed never sets `RequiresSlotAwareMergeClassification`, so the original cell could
+    not witness the in-place exemption from the abort; Orbiting is the one terminal that
+    does);
+    F-rewind-refly-003-01 (the competing chain-head gate is ARMED - committed TIP,
+    `SupersedeTargetId`, shared `ChainId`/`ChainBranch` at a lower `ChainIndex` - and a
+    new mirror cell drives the identical shape with `IsDebris=false` and must get
+    `PreRewindChainHead`. The comment's block-ORDER rationale was false: the two
+    branches gate on `IsDebris` and `!IsDebris` and are mutually exclusive by type, so
+    the comment now says that instead);
+    F-rewind-refly-004-03 (the supersede relation is re-staged between passes, as the
+    cross-`LoadScene` `.sfs` restore does, so the third pass actually reaches the
+    `seenRetiredIds` duplicate guard the comment named instead of stopping at the
+    empty-list early-out);
+    F-rewind-refly-007-03 (`IsUnfinishedFlight` admits a recording whose slot anchor
+    cannot resolve, so it stays true for a pruned origin; the cell now asserts store
+    membership and RP survival, which IS the row's visibility gate).
+  - The spawn and dialog half: F-rewind-refly-010-01 and -010-02 (both cells left
+    `TerminalStateValue` null, so `hasSpawnableTerminal` collapsed `effectiveLeaf` and
+    the plain `ChildBranchPointId` gate answered before `IsEffectiveLeafForVessel` or
+    the passed tree context was consulted; both now carry a spawnable terminal, and
+    -010-02 gains the positive sibling
+    `ShouldSpawn_DifferentPidChildInPendingTreeContextOnly_SpawnsAsEffectiveLeaf` - the
+    only direction in which the passed context can change the verdict, since the
+    same-PID shape answers False whether or not the context resolves);
+    F-rewind-refly-012-01 (the whole headline, formatted duration and closing tag
+    included, instead of the `MyShip - ` prefix an empty duration also satisfies);
+    F-rewind-refly-012-02 (the same throwing-classifier route is driven a second time
+    with a SEALING preview, so the fallback's return value is discriminated rather than
+    matching a hardcoded `false`);
+    F-rewind-refly-017-01 (the before-dispatch half is now witnessed by
+    `Assert.DoesNotContain` over the first three dispatch targets' own log lines; the
+    trailing `PatchAll complete` line is absent for a relocated guard too).
+  - The two `sut=test-infrastructure` fixture rows, strengthened against the OTHER side
+    of the derivation: F-rewind-refly-016-03 (the RP map key is compared against the
+    `vesselPersistentId` the INJECTED recording carries, since
+    `ScenarioWriter.BuildRecording` has its own `StableHashToUint` call site) and
+    F-rewind-refly-016-04 (the cell loads `Parsek/RewindPoints/rp_cl_root.sfs` and
+    asserts the pod slot's VESSEL `pid` equals the recording's `recordedVesselGuid` -
+    the pair `QuickloadResumeMatchGuard` compares - mirroring
+    `RewindB9FixtureTests.Inject_RpSidecarVesselGuidsAgreeWithRecordedVesselGuid`).
+    Their mutation patches are over `Source/Parsek.Tests/Generators/ScenarioWriter.cs`,
+    the code under test for these two rows.
+  - The eight `recording-tree` ids close the slice: 6 strengthened, 2 renamed AND
+    strengthened, 0 deferred, 0 deleted. Still no production change.
+    F-recording-tree-002-01 and -002-02 are the two renames
+    (`CanAutoSplitIgnoringGhostTriggers_TreeIdIsNotAGate_SameVerdictAsCanAutoSplit`
+    and `FindSplitCandidatesForOptimizer_ExoToAtmoBoundary_TreeIdIsNotAGate`):
+    `RecordingOptimizer` reads `Recording.TreeId` NOWHERE, so "allows tree recordings"
+    / "finds tree recordings" named a property no fixture in that file can witness.
+    Each cell keeps its original assertions, gains an identical no-`TreeId` control and
+    (for -002-01) the base `CanAutoSplit` agreement, so a newly added tree skip reds the
+    tree arm and leaves the control green. The pass-level tree-split contract stays with
+    `RunOptimizationPass_SplitsMultiEnvRecording` as the register noted.
+    F-recording-tree-003-01 and -003-03 (the two loop-sync cells asserted
+    `LoopSyncParentIdx == -1` against a one-element list, which is also the field's
+    default; each now holds the partner the candidate scan WOULD accept - non-debris,
+    different pid, covering the subject's `StartUT`, and for -003-03 carrying the SAME
+    null `TreeId`, since the scan compares the two ids for EQUALITY: a partner with a
+    real tree id could never link and would leave the guard unwitnessed, which is where
+    the register's sketch would have gone wrong).
+    F-recording-tree-003-04 (exact `EndUT == 17060` - the previous `>= 17050 &&
+    <= 17060` window is satisfied by a ZERO buffer too).
+    F-recording-tree-007-01 (the reason half of the `(recordingId, failureReason)`
+    rate-limit key is now driven with TWO further non-`NullSolver` reasons on the SAME
+    recording inside the window. Note the register's sketch of one `MissingPatchBody`
+    hit would NOT have red'd: `WarnRateLimited` keeps its own key store behind a `W|`
+    prefix, so the `NullSolver` verbose floor can never suppress a WARN - it takes two
+    WARN-arm reasons sharing the recording id to make the key's reason segment load-bearing).
+    F-recording-tree-008-01 (renamed
+    `MergeTree_SameAnchorRelativeBoundary_MeasuresAnchorLocalDiscontinuity`, since
+    `MergeTree` only forwards the format version to `MeasureRelativeAwareBoundary` /
+    `TryGetBodyFixedBoundaryPoint` and neither body reads it. The register's suggested
+    `Assert.Equal(CurrentRecordingFormatVersion, merged.RecordingFormatVersion)` is a
+    TAUTOLOGY - `Recording.RecordingFormatVersion` is initialised to that constant, so
+    deleting the copy in `SessionMerger` leaves it green - so the copy is pinned by a new
+    sibling, `MergeTree_CopiesTheSourceRecordingFormatVersion_NotTheFieldDefault`, which
+    stamps `CurrentRecordingFormatVersion + 7`).
+    F-recording-tree-013-01 (the cell now reads `WriteBinaryTrajectoryFile`'s own
+    accounting line and pins `sparsePointLists=2`, `sparsePoints=6` and the four
+    `omitted*` counts; the probe asserts encoding and version only, which is why
+    disabling `BuildSparsePointListPlan` used to leave it green).
+  - Slice total: 20 of 20 addressed - 18 strengthened, 2 renamed and strengthened, 0
+    deferred, 0 deleted. Three sibling cells were added on the `rewind-refly` half and
+    one on the `recording-tree` half (the other two recording-tree method additions are renames), each carrying the mirror or positive direction the
+    original cell could not reach.
 - `testfix-t1t2`, sixth PR (2026-09-15): the final slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-06.txt`, 14 ids: 10 catchall, 4 legacy-bugfix), first
   commit. Every fixed row has a proof row in

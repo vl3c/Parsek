@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/SupersedeCommit.cs b/Source/Parsek/SupersedeCommit.cs
+index 00b958c1d..d1d062503 100644
+--- a/Source/Parsek/SupersedeCommit.cs
++++ b/Source/Parsek/SupersedeCommit.cs
+@@ -569,7 +569,6 @@ namespace Parsek
+             // `!rec.IsDebris`) instead.
+             double debrisCutoff = ComputePreRewindCutoff(marker);
+             if (!double.IsNaN(debrisCutoff)
+-                && rec.IsDebris
+                 && !string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
+                 && rec.TryGetActualTrajectoryBounds(out double recActualStart, out _)
+                 && recActualStart < debrisCutoff)
