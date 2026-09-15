@@ -3680,7 +3680,9 @@ PASS attempt 1 (55 s, both `scope=InterBody basis=Endpoints` lines, the same two
 STILL OPEN AFTER THIS BLOCK, and no part of it: `DispatchWindowPeriod != 0` synodic cadence is
 unmeasured and unmeasurable by design since the scope fix (the field is informational), no
 dispatch has been driven on an inter-body route, the ownership arm is still whole-member
-(ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER), and V26M's paint-arm stand-down remains
+(ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER - closed 2026-09-15 on branch
+`render-and-recorder-hygiene`; unflown, see that entry for the lanes that would read it), and
+V26M's paint-arm stand-down remains
 epoch-dependent rather than guaranteed by the step list
 (V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
 

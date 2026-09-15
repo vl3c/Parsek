@@ -3551,7 +3551,7 @@ accepts both without saying which it saw is the vacuous reading this suite refus
 
 ---
 
-## ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER: a route member whose phase the ghost OWNS has ALL of its legs stood down, including the ones the ghost's mesh does not cover [RAISED 2026-09-06 on branch `g10-leg-drop` while making the PAINT arm per-leg. Pre-existing M6 v1 behaviour, not a regression. OPEN, low priority]
+## ~~ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER: a route member whose phase the ghost OWNS has ALL of its legs stood down, including the ones the ghost's mesh does not cover~~ [RAISED 2026-09-06 on branch `g10-leg-drop` while making the PAINT arm per-leg. Pre-existing M6 v1 behaviour, not a regression. FIXED 2026-09-15 on branch `render-and-recorder-hygiene`, headlessly. UNFLOWN]
 
 The route line's no-double-draw arbitration has two arms. The PAINT arm is per LEG (a leg stands
 down only when a visible ghost mesh of the same recording overlaps that leg's own recorded span).
@@ -3564,13 +3564,49 @@ So when the ghost is FLYING a member (rather than forward-painting it), the rout
 member's whole recorded path even though the ghost's mesh covers only the leg it is on. On a
 multi-leg member that is the same hole the paint arm just closed, on a different population.
 
-Not fixed here for two reasons: it is the shipped v1 behaviour that H59's ARMED census pinned
-(`routesDrawn=0 legsDrawn=0 skippedOwned=1` on a one-leg member, where the two granularities
-agree), and closing it means giving the ownership publish a span, i.e. touching the ownership
-contract for a cosmetic gap. The clean fix if it ever matters: publish the OWNING leg's span
-alongside the ownership id and route the ownership arm through the same span overlap. Any lane
-that reads it will show `ownedLegs=` greater than the legs the ghost's `Polyline frame: drawn=`
-count can account for.
+Not fixed in that pass for two reasons: it is the shipped v1 behaviour that H59's ARMED census
+pinned (`routesDrawn=0 legsDrawn=0 skippedOwned=1` on a one-leg member, where the two
+granularities agree), and closing it means giving the ownership publish a span, i.e. touching the
+ownership contract for a cosmetic gap. The clean fix if it ever matters: publish the OWNING leg's
+span alongside the ownership id and route the ownership arm through the same span overlap. Any
+lane that reads it will show `ownedLegs=` greater than the legs the ghost's
+`Polyline frame: drawn=` count can account for.
+
+**FIXED 2026-09-15 exactly that way, and the ownership contract is NOT widened.**
+`GhostTrajectoryPolylineRenderer.drewNonOrbitalLegSpans` is written at the ONE existing feeder -
+the per-recording `if (anyDrawn)` block that adds to `drewNonOrbitalLegRecordings`, published only
+on an ACTUAL draw - and carries the union of the PRIMARY head's drawn legs (the boundary-overlap
+secondary is excluded, exactly as it is from the id set). It shares the id set's clear lifecycle
+to the line: the top of every `LateUpdate`, and `Clear()`. `drewNonOrbitalLegRecordings` remains
+the SOLE ownership source and `IsRenderingNonOrbitalLeg` is byte-unchanged, so `GhostMapPresence`
+(proto orbit-line hide, the `IsIconSuppressed` fallback) reads exactly what it read before.
+
+The route line's ownership arm keeps `ShouldSkipGroupAsGhostDrawn` as the member-level
+precondition (and cheap early-out) and adds `ShouldSkipLegAsGhostOwned` over
+`IsOwningNonOrbitalLegSpan` inside the leg loop, through the SAME
+`GhostTrajectoryPolylineRenderer.LegSpansOverlap` predicate the paint arm uses - so the two arms
+cannot drift apart on endpoint handling (strict on both ends: adjacent legs sharing an endpoint UT
+do not drag each other down). `ResolveOwnedLegOverlap` is FAIL-CLOSED when a span is absent
+(stand the leg down whole, the v1 behaviour, plus one rate-limited Info naming the recording):
+ownership without a span is a broken publish contract the single feeder cannot produce, and the
+safe direction is the one that cannot put a second identical line over a live ghost mesh.
+
+MIRRORS CHECKED, each with a cell in `RouteLineOwnershipSpanArbitrationTests`: a ONE-LEG member
+still reads `skippedOwned=1 ownedLegs=1` (H59's armed census pin does not move - the two
+granularities agree there); a member with NO ghost slot is untouched (`ownedLegs=0`); ownership
+published then cleared un-stands the leg on the next frame; and the three-leg member whose MIDDLE
+leg the ghost draws reads `ownedLegs=1` where v1 read 3. The M-A7 deferral record stays ONE per
+(route, member) per frame on both arms (the manifest census counts members deferred, not legs).
+`RouteLinePaintArbitrationSourceGateTests` pins both halves of the arm inside `DrawAll`'s own
+brace-matched body.
+
+UNFLOWN. The lanes that would read it: `V18T-depot-route-ts-arrival`,
+`V26M-interbody-route-map-lines`, `V26T-interbody-route-ts-arrival`, `H59-surface-route-map-lines`.
+The token is `Route line draw: ... skippedOwned=<n> ... ownedLegs=<n> paintedLegs=<n>`. H59 is the
+one with live ownership-arm evidence (nine `skippedOwned=1 ownedLegs=1 paintedLegs=0` frames on a
+ONE-LEG member) and must read the SAME numbers; V26M's ghost population in the map window is
+epoch-dependent (V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT), so its `ownedLegs=` stays a
+regex rather than a literal.
 
 ---
 

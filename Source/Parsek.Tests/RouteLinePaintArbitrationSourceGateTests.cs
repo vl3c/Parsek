@@ -24,9 +24,9 @@ namespace Parsek.Tests
     /// <item><b>The rebuild path</b> - <c>ClearPaintedLegMesh</c> at <c>TryDrawLeg</c>'s map-line
     /// mode-flip rebuild (re-review F2). The rebuild DESTROYS the line, and the sweep cannot catch
     /// it because the sweep only flips lines that are currently active.</item>
-    /// <item><b>The consumption</b> - both arbitration arms inside <c>DrawAll</c>. The ownership arm
-    /// is per GROUP (it carries no UT span), the paint arm per LEG against that leg's own recorded
-    /// span; a deleted arm is exactly the co-draw the M-A7 probe measured at 1024 on reading run 1.</item>
+    /// <item><b>The consumption</b> - both arbitration arms inside <c>DrawAll</c>. Each is a member-
+    /// level question followed by a per-LEG span test against that leg's own recorded span; a deleted
+    /// arm is exactly the co-draw the M-A7 probe measured at 1024 on reading run 1.</item>
     /// </list>
     ///
     /// <para>The pins are STRUCTURAL rather than a file-wide grep: each is asserted inside the
@@ -71,9 +71,14 @@ namespace Parsek.Tests
                 RoutePath,
                 "internal static void DrawAll(int frame, int targetLayer, "
                 + "Func<string, CelestialBody> resolveBody)");
-            // OWNERSHIP arm, per group (it carries no UT span), counted in legs.
+            // OWNERSHIP arm: the member-level precondition, then the per-LEG span test against
+            // that leg's own recorded span. Deleting either half is a defect with opposite signs -
+            // without the precondition every route leg pays a span lookup and a member the ghost
+            // does not own can still be stood down by a stale span; without the per-leg half the
+            // whole member goes down again (ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER).
             Assert.Contains("ShouldSkipGroupAsGhostDrawn(group, ghostOwnsProbe)", body);
-            Assert.Contains("ownedLegs += group.legs.Length;", body);
+            Assert.Contains("memberOwned && ShouldSkipLegAsGhostOwned(", body);
+            Assert.Contains("ownedLegs++;", body);
             // PAINT arm, per leg against that leg's own recorded span.
             Assert.Contains("ShouldSkipLegAsGhostPainted(", body);
             Assert.Contains("legs[i].startUT, legs[i].endUT,", body);

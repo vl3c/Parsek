@@ -899,6 +899,14 @@ or `TracedPathTreatment`.
   ACTUAL draw (either the owned or the Driver-direct path - the draw, not the TracedPath /
   StockConic classification, decides whether the proto line must hide);
   `IsRenderingNonOrbitalLeg` resolves membership via the pure `ResolveNonOrbitalLegOwnership`.
+  The SAME feeder also publishes `drewNonOrbitalLegSpans` - the recorded UT span that draw covers
+  (the union of the primary head's drawn legs; the boundary-overlap secondary is excluded exactly
+  as it is from the id set). That is NOT a second ownership source and does not widen the
+  ownership question: membership of the id set is still the whole answer for `GhostMapPresence`,
+  and the span exists only so the route line's ownership arm can arbitrate per leg
+  (`IsOwningNonOrbitalLegSpan` / the pure `ResolveOwnedLegOverlap`, fail-CLOSED when a span is
+  somehow absent). One publish site, one clear lifecycle: both are dropped at the top of every
+  `LateUpdate` and in `Clear()`.
   Per-leg head-UT gate + contiguous-span merge; `[DefaultExecutionOrder(-50)]` so the publish
   precedes the orbit-patch read.
 - The icon floor + `ghostsWithSuppressedIcon` + `IsIconSuppressed` are a KEPT PERMANENT
@@ -1022,17 +1030,20 @@ what its tooltip said.
 - `ComputeRouteSignature` folds every expanded segment's id + content hash, so a continuation's
   re-cut invalidates the cached line. The tree-scoped half of the expansion is memoized against
   the ERS list identity (`DrawAll` runs on the map onPreCull hook).
-- OWNERSHIP IS PER GROUP, AND FOR AN EXPANDED SEGMENT OWNERSHIP ALONE CANNOT ANSWER.
+- OWNERSHIP ALONE CANNOT ANSWER FOR AN EXPANDED SEGMENT.
   `drewNonOrbitalLegRecordings` remains the SOLE ownership source (nothing below widens it):
   it is published only on the ghost's CURRENT-element draw, so it answers for a run HEAD the
   ghost is flying and never for a chain CONTINUATION segment, which the ghost's FORWARD RUN-LEG
   pass paints under its own recording id without publishing ownership - by design, since a
   forward leg owns no phase and hides no proto line. The route line therefore arbitrates each
-  on TWO ARMS, deliberately at different granularities:
-  - OWNERSHIP, PER GROUP (`ShouldSkipGroupAsGhostDrawn` over `IsRenderingNonOrbitalLeg`):
-    ownership carries no UT span, so there is nothing to arbitrate per leg with. This is the
-    shipped M6 v1 behaviour, and it is what H59's armed census pinned (`skippedOwned=1` on a
-    one-leg member).
+  on TWO ARMS, both PER LEG since 2026-09-15:
+  - OWNERSHIP (`ShouldSkipGroupAsGhostDrawn` over `IsRenderingNonOrbitalLeg` as the member-level
+    precondition and cheap early-out, then `ShouldSkipLegAsGhostOwned` over
+    `IsOwningNonOrbitalLegSpan` per leg): the owning draw publishes the span it covers, so a
+    member the ghost is FLYING keeps the legs that draw does not reach. Was whole-group through
+    M6 v1, because the publish carried no span (ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER).
+    On a ONE-LEG member the two granularities agree, so H59's armed census pin is unmoved
+    (`skippedOwned=1`), and the deferral is still recorded once per (route, member) per frame.
   - PAINT, PER LEG (`ShouldSkipLegAsGhostPainted` over `IsPaintingNonOrbitalLegSpan`): a leg is
     stood down only when a VISIBLE ghost mesh of the same recording overlaps THAT LEG'S recorded
     span (strict overlap, so adjacent legs sharing an endpoint UT do not drag each other down).
@@ -1082,11 +1093,10 @@ what its tooltip said.
   `polylineCache` - now filtered to the drawn leg's own span, or every correct partial draw would
   read as a violation - and never the membership set. A membership set that drifts from the
   meshes it mirrors (a hide path nobody wired) therefore still reds as a recorded violation.
-- RESIDUAL, stated rather than papered over: the ownership arm remains whole-group, so a member
-  whose phase the ghost OWNS has all of its legs stood down even where the ghost's mesh covers
-  only the current leg. That is the v1 behaviour, unchanged by this pass; making it per-leg needs
-  a span on the ownership publish. Filed as ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER in
-  `docs/dev/todo-and-known-bugs.md`.
+- The residual this pass left - the ownership arm standing a member down WHOLE - was closed on
+  2026-09-15 by giving the ownership publish a span at its one existing feeder; both arms are now
+  per leg through the same `LegSpansOverlap` rule. The ownership SET is unchanged and stays the
+  sole ownership source.
 
 ### Predicted continuation tails on the map (2026-09-08)
 
