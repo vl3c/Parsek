@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 6f828fb85..02513c9a0 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -1394,7 +1394,7 @@ namespace Parsek
+                 ghostPosEntries.Clear();
+ 
+             ClearStaleConfirmations();
+-            HandleMissedVesselSwitchRecovery();
++            // HandleMissedVesselSwitchRecovery();
+ 
+             // Gloops: auto-commit if vessel switch auto-stopped the recorder
+             CheckGloopsAutoStoppedByVesselSwitch();

@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/RecordingSidecarStore.cs b/Source/Parsek/RecordingSidecarStore.cs
+index f59f16a43..cb0629fdc 100644
+--- a/Source/Parsek/RecordingSidecarStore.cs
++++ b/Source/Parsek/RecordingSidecarStore.cs
+@@ -60,6 +60,7 @@ namespace Parsek
+                             $"{FormatSidecarContext(rec)} fileKind=vessel");
+                     return false;
+                 }
++                if (System.IO.File.Exists(vesselPath)) System.IO.File.Delete(vesselPath);
+                 // Bug #278 follow-up (PR #177, defense-in-depth): do NOT delete an
+                 // existing _vessel.craft when in-memory VesselSnapshot is null. PR
+                 // #176's #278 fix routes FinalizePendingLimboTreeForRevert through

@@ -668,6 +668,51 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     the value it found; RED without the restore, GREEN with it. The probe is scaffolding, not a
     committed test.
 
+- `testfix-t4-flaky`, second PR (2026-09-15): the remaining 19 T4 rows
+  (`work/phase-b-slice-t4-02.txt`). 18 FIXED, 1 DELETED in favour of a named twin, 0
+  deferred. Each fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  that `git apply --check`s against a clean tree.
+  - Comment-stripping (the raw-scan half): F-catchall-026-01 (Update ordering, via
+    `StripCommentsAndMaskLiterals`), F-catchall-036-02 (hide policy gate, via
+    `StripCSharpComments` with indexes still addressing the raw file),
+    F-catchall-049-01 (bug-273 dirty pins, plus a whole-identifier match and a
+    literal-masked body walk), F-mission-groups-015-01 (selection stamp; also
+    enclosing-method anchoring plus a comment-only decoy cell), F-legacy-bugfix-015-02
+    (time-jump recalc), F-ui-settings-002-01 (both tooltip scanners, so a commented-out
+    control no longer counts toward the margin-0 anti-vacuity floors).
+  - Wrong instrument, replaced: F-map-render-015-02 (the intent COMMENT and the
+    `5.0); return; }` shape swapped for a brace-matched defer block that refuses a
+    `PruneStaleState` call - control proof: the 5.0 -> 10.0 edit is now GREEN),
+    F-ghost-playback-024-02 (900-character window -> nearest preceding Failed check in the
+    call's OWN method body, with no other notify between check and call),
+    F-ledger-career-035-02 (body extraction now ends at the method's closing brace -
+    control proof: a `||` written into the NEXT member's doc comment is now GREEN).
+  - Source pin -> behaviour: F-catchall-006-01 (`AtomicMarkerWrite` driven; the marker's
+    `RewindPointUT` must equal `rp.UT` and differ from `InvokedUT`), F-recording-tree-031-01
+    (a corrupted branch-point graph past the cap: partial list + the cap Warn),
+    F-recording-tree-031-02 (`MergeCommit` driven with an armed session + restore attempt;
+    both markers cleared), F-recording-tree-047-01 (`LoadRewindStagingState` driven by
+    reflection with a node carrying neither marker), F-catchall-011-01 (`SplitAtUT` driven:
+    the committed split drops the head's section annotations, a guarded return keeps them -
+    the mirror direction, which is why the opt-out exists).
+  - DELETED in favour of a twin: F-legacy-bugfix-024-02's five-step cross-file grep chain,
+    superseded by `Bug278SnapshotPersistenceTests.SaveRecordingFiles_NullVesselSnapshot_`
+    `LeavesExistingVesselCraftOnDisk` (landed with C-legacy-bugfix-024-01). Only the negative
+    pin naming the removed `File.Delete(vesselPath)` is kept, now read from stripped source.
+  - Flakes: F-logging-001-03 and F-logging-002-02 bracket `gcGen0Baseline` between reads taken
+    either side of Reset instead of comparing it to a post-hoc `GC.CollectionCount(0)`;
+    both still red when a counter is omitted from Reset.
+  - Leaks: F-catchall-002-01 restores `GameStateStore.SuppressLogging` in both finally blocks
+    (probe RED without it). F-catchall-059-02's premise is WRONG and is recorded as such: the
+    class's `Dispose` already calls `RecordingStore.ResetForTesting()`, which itself resets
+    `RewindContext`, so `IsRewinding` never leaked. The explicit `RewindContext.ResetForTesting()`
+    is kept in ctor and Dispose so the guard no longer rides on a foreign type's reset, and the
+    probe reds only when both resets are removed.
+  - Both leak rows were proved with the same temporary in-process probe PR #1696 used
+    (`PhaseBLeakProbe`, ctor -> cell -> Dispose, asserting the static). Scaffolding, not
+    committed.
+
 - `testfix-t1t2`, second PR (2026-09-15): the first slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-01.txt`, 20 ids, rewind / Re-Fly + recording-tree).
   Each fixed row has a proof row in

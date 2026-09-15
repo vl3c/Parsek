@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/UI/RecordingsTableUI.cs b/Source/Parsek/UI/RecordingsTableUI.cs
+index 058f7c276..7537d2c63 100644
+--- a/Source/Parsek/UI/RecordingsTableUI.cs
++++ b/Source/Parsek/UI/RecordingsTableUI.cs
+@@ -2317,8 +2317,9 @@ namespace Parsek
+                 // buried buried, the exact opposite of "rewind access must remain
+                 // visible", and it is the only way back for a row an older build's
+                 // ungated group hide-all wrote Hidden over.
++                // decoy: EffectiveState.IsUnfinishedFlight(rec) named only in a comment
+                 if (IsArchiveRefusedForUnfinishedFlight(
+-                        hidden, EffectiveState.IsUnfinishedFlight(rec)))
++                        hidden, unfinishedFlightRowDepth > 0))
+                 {
+                     ParsekLog.Warn("UnfinishedFlights",
+                         $"Hide refused for Unfinished Flight rec={rec.RecordingId ?? "<no-id>"} " +

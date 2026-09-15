@@ -1,0 +1,20 @@
+diff --git a/Source/Parsek/GhostPlaybackEngine.cs b/Source/Parsek/GhostPlaybackEngine.cs
+index 15201ad36..88267a1c7 100644
+--- a/Source/Parsek/GhostPlaybackEngine.cs
++++ b/Source/Parsek/GhostPlaybackEngine.cs
+@@ -4104,6 +4104,7 @@ namespace Parsek
+                     traj, loopUT, PendingSpawnLifecycle.LoopEnter, flags);
+                 state.loopCycleIndex = cycleIndex;
+                 ghostStates[index] = state;
++                QueueOrEmitGhostSpawnPending(index, traj, state, flags);
+                 GhostVisualLoadStatus loopSpawnStatus = EnsureGhostVisualsLoaded(
+                     index, traj, state, loopUT, "loop first spawn",
+                     resetCompletedEventDedup: true);
+@@ -4113,7 +4114,6 @@ namespace Parsek
+                     ghostStates.Remove(index);
+                     return;
+                 }
+-                QueueOrEmitGhostSpawnPending(index, traj, state, flags);
+                 if (loopSpawnStatus == GhostVisualLoadStatus.Pending)
+                 {
+                     ghostActive = false;

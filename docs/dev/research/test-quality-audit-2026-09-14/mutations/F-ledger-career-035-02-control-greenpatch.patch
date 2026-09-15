@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 56b237769..a24f16e72 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -6360,7 +6360,7 @@ namespace Parsek
+         /// when the clock is initialized to a real positive UT. Wrapped in try/catch because
+         /// <see cref="Planetarium.GetUniversalTime"/> can throw during very early load / scene
+         /// teardown (same defensive pattern as <see cref="Update"/>); a throw or null fetch is
+-        /// treated as not-ready so the per-frame poll cannot kill the coroutine, and
++        /// treated as not-ready so the per-frame poll cannot kill the coroutine (a || b), and
+         /// <paramref name="ut"/> is set to 0.0 (which the recalc routes to a safe full replay).
+         /// </summary>
+         private static bool TryReadReadyUniverseTime(out double ut)

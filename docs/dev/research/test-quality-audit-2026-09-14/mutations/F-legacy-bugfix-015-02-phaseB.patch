@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/TimeJumpManager.cs b/Source/Parsek/TimeJumpManager.cs
+index 4ec974f38..0dbda1cc8 100644
+--- a/Source/Parsek/TimeJumpManager.cs
++++ b/Source/Parsek/TimeJumpManager.cs
+@@ -386,7 +386,7 @@ namespace Parsek
+                 // Step 5: Game actions recalculation. After UT has changed, replay the
+                 // committed ledger through the target UT and patch KSP state so
+                 // funds/science/reputation/contracts/facilities match the new time.
+-                RecalculateLedgerAfterTimeJump("epoch-shift", targetUT);
++                // RecalculateLedgerAfterTimeJump("epoch-shift", targetUT);
+ 
+                 int remainingGhosts = chains != null ? chains.Count : 0;
+ 

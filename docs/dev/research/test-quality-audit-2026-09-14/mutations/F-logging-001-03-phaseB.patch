@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/Diagnostics/DiagnosticsStructs.cs b/Source/Parsek/Diagnostics/DiagnosticsStructs.cs
+index bce09b0e7..cfb9c2b44 100644
+--- a/Source/Parsek/Diagnostics/DiagnosticsStructs.cs
++++ b/Source/Parsek/Diagnostics/DiagnosticsStructs.cs
+@@ -283,7 +283,6 @@ namespace Parsek
+             spawnFailures = 0;
+             spawnRetries = 0;
+             ghostBuildsThisSession = 0;
+-            ghostDestroysThisSession = 0;
+             reentryFxBuildsThisSession = 0;
+             reentryFxSkippedThisSession = 0;
+             reentryFxDeferredThisSession = 0;

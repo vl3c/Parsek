@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 56b237769..e376a1ea6 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -2614,7 +2614,6 @@ namespace Parsek
+             // their dedicated nodes; null here so a pre-feature save (no
+             // serialized markers) leaves both fields cleared.
+             activeStockActionIntent = null;
+-            activeSwitchSegmentSession = null;
+ 
+             LoadStagingList(node, "REWIND_POINTS", "POINT", RewindPoints, RewindPoint.LoadFrom);
+             RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();

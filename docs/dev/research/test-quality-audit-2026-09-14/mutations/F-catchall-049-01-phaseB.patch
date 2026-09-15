@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 6f828fb85..3d146a17f 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -4602,7 +4602,7 @@ namespace Parsek
+                 // the .prec sidecar. Without this, data lives only in memory
+                 // and is lost on scene reload (see Recording.MarkFilesDirty
+                 // docstring and CHANGELOG 2026-04-09 bug #273).
+-                target.MarkFilesDirty();
++                // target.MarkFilesDirty(); - decoy: the name survives only as a comment
+             }
+             target.ExplicitEndUT = endUT;
+         }
