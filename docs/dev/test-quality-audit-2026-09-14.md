@@ -5,7 +5,7 @@ Dates: Phase 0-1 opened 2026-09-14; Phases 1, 2, 3 and 4 closed 2026-09-15.
 Scope: `Source/Parsek.Tests` xUnit unit tests only. `InGameTests` and the harness Python suites are
 cross-referenced only where they change a verdict on a unit test.
 
-Status: Phase A complete; Phase B awaits operator go-ahead (record date here: __________).
+Status: Phase A complete; Phase B go-ahead given by the operator on 2026-09-15 (first wave: the 7 High in `testfix-t1t2`, the six mechanical gate repairs in `testfix-t4-flaky`).
 
 Plan: `docs/dev/plans/test-quality-audit.md`. Raw and derived evidence:
 `docs/dev/research/test-quality-audit-2026-09-14/`.
