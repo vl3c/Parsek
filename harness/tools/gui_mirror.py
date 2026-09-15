@@ -470,6 +470,56 @@ def sample_colors(w, h, bpp, px, rect, step=2):
     return _hex(bg), (_hex(fg) if fg else None)
 
 
+def grid_label_runs(w, h, bpp, px, rect, min_width=18, gap=16, bright=150):
+    """The x-extent of each label drawn on a selection grid, measured off the
+    frame.
+
+    A grid reports one rect and the SELECTED item's text; it reports nothing about
+    where the items sit or how their text is aligned, and the alignment is not
+    uniform across the product - the Kerbals tab bar centres its two labels while
+    the Career bar left-aligns its four in cells of the same stride. Centring
+    everything put the Career labels 87 px right of where the game draws them.
+
+    So the positions are read rather than assumed: inside the middle band of the
+    grid's own rect, runs of bright pixels are the glyphs, and runs separated by
+    less than a word gap are one label.
+    """
+    x0, y0, rw, rh = [int(v) for v in rect]
+    if rw <= 0 or rh <= 4:
+        return []
+    x1 = min(w, x0 + rw)
+    band0 = max(0, y0 + rh // 4)
+    band1 = min(h, y0 + rh - rh // 4)
+    if band1 <= band0 or x1 <= x0:
+        return []
+    lit = []
+    for x in range(max(0, x0), x1):
+        top = 0
+        for y in range(band0, band1):
+            o = (y * w + x) * bpp
+            val = 0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2]
+            if val > top:
+                top = val
+        lit.append(1 if top > bright else 0)
+    runs = []
+    start = None
+    for i, on in enumerate(lit):
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            runs.append([x0 + start, x0 + i - 1])
+            start = None
+    if start is not None:
+        runs.append([x0 + start, x1 - 1])
+    merged = []
+    for a, b in runs:
+        if merged and a - merged[-1][1] < gap:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    return [r for r in merged if r[1] - r[0] >= min_width]
+
+
 def _hex(rgb):
     return "#%02x%02x%02x" % tuple(rgb)
 
@@ -505,7 +555,8 @@ def root_height(root, log_rects):
     return max(1, bottom - rect[1] + 4)
 
 
-def compact_tree(node, parent_rect, sampler=None, parent_bg=None):
+def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
+                 grid_runs=None):
     """One dump node -> the page's compact node: rect made parent-relative (so a
     scroll view clips its own children), plus the colours sampled off the frame."""
     rect = [int(v) for v in (node.get("rect") or [0, 0, 0, 0])]
@@ -532,6 +583,12 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None):
         out["v"] = node["value"]
     if node.get("textValue"):
         out["tv"] = node["textValue"]
+    if out["k"] == "buttongrid" and grid_runs is not None:
+        runs = grid_runs(rect)
+        if runs:
+            # Stored relative to the grid, so the page places each label where the
+            # game drew it instead of centring them all.
+            out["gi"] = [[r[0] - rect[0], r[1] - r[0] + 1] for r in runs]
     if node.get("horizontal") is not None:
         out["hz"] = 1 if node["horizontal"] else 0
     bg = None
@@ -543,7 +600,7 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None):
             out["bg"] = bg
         if fg and (text or out["k"] in ("box", "toggle")):
             out["fg"] = fg
-    kids = [compact_tree(ch, rect, sampler, bg or parent_bg)
+    kids = [compact_tree(ch, rect, sampler, bg or parent_bg, grid_runs)
             for ch in (node.get("children") or ())]
     if kids:
         out["c"] = kids
@@ -1118,6 +1175,7 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         sh = int(screen.get("height") or FRAME_H)
 
         sampler = None
+        grid_runs = None
         pix = None
         if cap["png"]:
             try:
@@ -1126,6 +1184,9 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
 
                 def sampler(rect, _p=pix):
                     return sample_colors(_p[0], _p[1], _p[2], _p[3], rect)
+
+                def grid_runs(rect, _p=pix):
+                    return grid_label_runs(_p[0], _p[1], _p[2], _p[3], rect)
             except Exception as exc:
                 if verbose:
                     sys.stderr.write("png %s: %s\n" % (cap["png"], exc))
@@ -1137,7 +1198,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             key = (root.get("text") or "", tuple(rect))
             is_foreign = key in foreign
             h = root_height(root, cap["log"].get("rects"))
-            node = compact_tree(root, [rect[0], rect[1]], sampler)
+            node = compact_tree(root, [rect[0], rect[1]], sampler,
+                                grid_runs=grid_runs)
             node["x"], node["y"] = rect[0], rect[1]
             node["h"] = h
             node["title"] = root.get("text") or ""
@@ -1400,7 +1462,20 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
   background:#1a2430 url() no-repeat;flex:0 0 auto}
 .stage.scene{background-image:linear-gradient(#20303c,#2c3a2c)}
 .photo{position:absolute;image-rendering:pixelated;opacity:1;z-index:1}
-.stage.showphoto .kwin{opacity:.55}
+/* Photo OVERLAY mode. The rendered layer collapses to outlines: text drawn over
+   the photograph's own text is two copies of the same string a pixel or two
+   apart, which reads as a rendering fault and hides the thing the overlay is for
+   - whether each control's BOX lands where the game put it. */
+.stage.overlay .kwin{background:none !important;border-color:rgba(110,159,208,.7)}
+.stage.overlay .kwin>.kt{display:none}
+.stage.overlay .gn{background:none !important;color:transparent !important;
+  border:1px solid rgba(110,159,208,.35) !important}
+.stage.overlay .gn.k-layoutgroup,.stage.overlay .gn.notext{border-color:transparent !important}
+.stage.overlay .gn .tx,.stage.overlay .gn .cb,.stage.overlay .gn .gl{display:none}
+.stage.overlay.noboxes .gn,.stage.overlay.noboxes .kwin{border-color:transparent !important}
+.sidebyside{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.sidebyside>div{flex:0 1 auto;min-width:0}
+.sidebyside h5{margin:0 0 3px;font-size:11px;color:var(--dim);font-weight:600}
 .kwin{position:absolute;background:var(--win);border:1px solid var(--winedge);
   border-radius:5px;z-index:5;font:var(--gfont)/1 Arial,Helvetica,sans-serif;overflow:hidden}
 .kwin.foreign{opacity:.45}
@@ -1425,10 +1500,12 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 .gn.k-buttongrid{background:var(--btn);border:1px solid var(--btnedge);border-radius:3px}
 .gn.k-buttongrid.grid{background:none;border:0}
 .gn.k-buttongrid .gi{position:absolute;top:0;bottom:0;background:var(--btn);
-  border:1px solid var(--btnedge);border-radius:3px;display:flex;align-items:center;
-  justify-content:center;color:var(--ink);cursor:pointer;
+  border:1px solid var(--btnedge);border-radius:3px;color:var(--ink);cursor:pointer;
   font:var(--gfont)/1 Arial,Helvetica,sans-serif}
+.gn.k-buttongrid .gi>.gl{left:0;right:0}
 .gn.k-buttongrid .gi.on{background:#5c5c5c;color:#fff;border-color:#7d7d7d}
+.gn.k-buttongrid .gl{position:absolute;top:0;bottom:0;display:flex;align-items:center;
+  justify-content:center;white-space:pre;overflow:hidden}
 .gn.k-buttongrid .gi:hover{outline:1px solid var(--accent);outline-offset:-1px}
 .gn.k-toggle{cursor:pointer}
 .gn.k-toggle .cb{width:14px;height:14px;border:1px solid #777;background:#222;
@@ -1498,8 +1575,12 @@ M.captures.forEach(function(c){ byId[c.id] = c; });
 var S = {
   view: 'mirror',
   window: null, tab: null, state: null, mode: null,
-  fixture: null, photo: false, foreign: false, capture: null
+  fixture: null, photo: 'off', boxes: true, foreign: false, capture: null
 };
+/* off -> the rendering alone (the default: it is the thing being checked)
+   overlay -> the photograph alone, with the rendering as outlines over it
+   side -> the rendering and the photograph next to each other, same scale */
+var PHOTO_MODES = ['off', 'overlay', 'side'];
 var FIX_ORDER = M.fixtures.map(function(f){ return f.key; });
 
 function el(tag, cls, txt){
@@ -1581,9 +1662,17 @@ function renderNode(n, out, opts){
     if (tabs.length > 1){
       d.classList.add('grid');
       var seg = n.w / tabs.length;
+      var runs = (n.gi && n.gi.length === tabs.length) ? n.gi : null;
       tabs.forEach(function(t, i){
-        var b = el('div','gi' + (norm(t.name) === norm(n.tv||'') ? ' on' : ''), t.name);
+        var b = el('div','gi' + (norm(t.name) === norm(n.tv||'') ? ' on' : ''));
         b.style.left = (i*seg) + 'px'; b.style.width = seg + 'px';
+        var lab = el('span','gl', t.name);
+        if (runs){
+          /* the label's own measured position in this very frame */
+          lab.style.left = (runs[i][0] - i*seg) + 'px';
+          lab.style.width = runs[i][1] + 'px';
+        }
+        b.appendChild(lab);
         b.dataset.click = '1'; b.dataset.tab = t.token;
         d.appendChild(b);
       });
@@ -1605,6 +1694,18 @@ function renderNode(n, out, opts){
   return d;
 }
 
+/* The crop, at its own pixel size, at the crop's own origin: the photograph is
+   never stretched or re-aspected, so a box that lands on its own outline in
+   overlay mode really does land there in the game. A photo the size budget had to
+   subsample is upscaled by the same factor on both axes. */
+function photoImg(cap){
+  var img = el('img','photo');
+  img.src = cap.photo.src;
+  img.style.left = cap.photo.x + 'px'; img.style.top = cap.photo.y + 'px';
+  img.style.width = cap.photo.w + 'px'; img.style.height = cap.photo.h + 'px';
+  img.alt = cap.label;
+  return img;
+}
 function renderCapture(cap, host, opts){
   opts = opts || {};
   host.innerHTML = '';
@@ -1619,15 +1720,16 @@ function renderCapture(cap, host, opts){
   host.style.width = ext + 'px';
   host.style.height = exty + 'px';
   host.classList.add('scene');
-  if (opts.photo && cap.photo && cap.photo.src){
-    var img = el('img','photo');
-    img.src = cap.photo.src;
-    img.style.left = cap.photo.x + 'px'; img.style.top = cap.photo.y + 'px';
-    img.style.width = cap.photo.w + 'px'; img.style.height = cap.photo.h + 'px';
-    host.appendChild(img);
-    host.classList.add('showphoto');
-  } else {
-    host.classList.remove('showphoto');
+  host.classList.remove('overlay');
+  host.classList.remove('noboxes');
+  if (opts.photo === 'overlay' && cap.photo && cap.photo.src){
+    host.appendChild(photoImg(cap));
+    host.classList.add('overlay');
+    if (opts.boxes === false) host.classList.add('noboxes');
+  }
+  if (opts.photoOnly && cap.photo && cap.photo.src){
+    host.appendChild(photoImg(cap));
+    return host;
   }
   cap.roots.forEach(function(r){
     if (r.foreign && !opts.foreign) return;
@@ -1809,8 +1911,17 @@ function select(cap, exact){
   S.capture = cap.id; S.window = cap.window; S.tab = cap.tab;
   S.state = cap.state; if (cap.mode) S.mode = cap.mode;
   var stage = document.getElementById('stage');
-  renderCapture(cap, stage, { photo: S.photo, foreign: S.foreign });
+  var side = document.getElementById('sidestage');
+  var sidewrap = document.getElementById('sidewrap');
+  renderCapture(cap, stage, { photo: S.photo, boxes: S.boxes, foreign: S.foreign });
   stage.onclick = function(ev){ routeClick(ev, cap); };
+  var wantSide = (S.photo === 'side' && cap.photo && cap.photo.src);
+  sidewrap.classList.toggle('hidden', !wantSide);
+  if (wantSide){
+    renderCapture(cap, side, { photoOnly: true, foreign: S.foreign });
+  } else {
+    side.innerHTML = '';
+  }
   var bits = [cap.window, cap.tab, cap.state, cap.mode].filter(Boolean).join(' / ');
   var msg = bits + '   [' + cap.fixture + ' | ' + cap.label + ' | run ' + cap.runId + ']';
   if (exact === false && cap.fixture !== S.fixture){
@@ -1945,20 +2056,24 @@ function sideBlock(title, cap, info){
   side.appendChild(h);
   if (!cap){ side.appendChild(el('div','small','no capture')); return side; }
   var bar = el('div');
-  var pb = el('button','ui','photo');
+  var pb = el('button','ui','show the photo');
   var wrap = el('div','stagewrap');
   var stage = el('div','stage');
   wrap.appendChild(stage);
+  /* Two states, not an overlay: the two sides of a Compare pair are already side
+     by side, so what a reader wants here is to swap one side for its photograph,
+     not to stack text on text. */
   var showing = { photo:false };
   pb.onclick = function(){
     showing.photo = !showing.photo;
     pb.classList.toggle('on', showing.photo);
-    renderCapture(cap, stage, { photo: showing.photo, foreign: S.foreign });
+    pb.textContent = showing.photo ? 'show the rendering' : 'show the photo';
+    renderCapture(cap, stage, { photoOnly: showing.photo, foreign: S.foreign });
   };
   bar.appendChild(pb);
   side.appendChild(bar);
   side.appendChild(wrap);
-  renderCapture(cap, stage, { photo:false, foreign:S.foreign });
+  renderCapture(cap, stage, { photo:'off', foreign:S.foreign });
   wrap.style.maxHeight = '420px';
   return side;
 }
@@ -2110,8 +2225,22 @@ function boot(){
   paintMode();
 
   var pb = document.getElementById('btnPhoto');
-  pb.onclick = function(){ S.photo = !S.photo; pb.classList.toggle('on', S.photo);
+  var bb = document.getElementById('btnBoxes');
+  function paintPhoto(){
+    pb.textContent = 'photo: ' + S.photo;
+    pb.classList.toggle('on', S.photo !== 'off');
+    bb.classList.toggle('hidden', S.photo !== 'overlay');
+    bb.classList.toggle('on', S.boxes);
+    bb.textContent = S.boxes ? 'outlines on' : 'outlines off';
+  }
+  pb.onclick = function(){
+    S.photo = PHOTO_MODES[(PHOTO_MODES.indexOf(S.photo) + 1) % PHOTO_MODES.length];
+    paintPhoto();
+    if (byId[S.capture]) select(byId[S.capture], true);
+  };
+  bb.onclick = function(){ S.boxes = !S.boxes; paintPhoto();
     if (byId[S.capture]) select(byId[S.capture], true); };
+  paintPhoto();
   var fb = document.getElementById('btnForeign');
   fb.onclick = function(){ S.foreign = !S.foreign; fb.classList.toggle('on', S.foreign);
     if (byId[S.capture]) select(byId[S.capture], true); };
@@ -2141,7 +2270,8 @@ def render_html(model):
         '<button class="ui" id="btnCompare">compare</button>',
         '<span class="small">dataset</span><select id="fixture"></select>',
         '<button class="ui" id="btnMode">mode</button>',
-        '<button class="ui" id="btnPhoto">photo</button>',
+        '<button class="ui" id="btnPhoto">photo: off</button>',
+        '<button class="ui hidden" id="btnBoxes">outlines on</button>',
         '<button class="ui" id="btnForeign">other mods</button>',
         '<span class="sp"></span>',
         '<span class="small">%d captures, %d windows, %d fixtures (%s)</span>'
@@ -2151,7 +2281,12 @@ def render_html(model):
         '<div id="wrap"><div id="rail"></div><div id="main">',
         '<div id="status"></div>',
         '<div id="mirrorView">',
-        '<div class="stagewrap"><div class="stage" id="stage"></div></div>',
+        '<div class="sidebyside">',
+        '<div><h5>rendered from the control tree</h5>'
+        '<div class="stagewrap"><div class="stage" id="stage"></div></div></div>',
+        '<div id="sidewrap" class="hidden"><h5>the frame the tree was dumped on</h5>'
+        '<div class="stagewrap"><div class="stage" id="sidestage"></div></div></div>',
+        '</div>',
         '<div class="echo" id="echo"></div>',
         '<p class="small">Hovering a control puts its real tooltip in the strip above '
         "and on the element itself. A click switches to the capture of that state where "

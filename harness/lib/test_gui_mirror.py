@@ -393,6 +393,44 @@ class TreeFlatteningTests(unittest.TestCase):
         self.assertEqual(out["tv"], "Roster")
 
 
+class GridLabelMeasurementTests(unittest.TestCase):
+    """A selection grid reports one rect and the selected item's text only, so
+    where its labels sit is measured off the frame. The product is not uniform
+    about it - two-tab bars centre, four-tab bars left-align - and assuming either
+    put a whole tab strip tens of pixels out."""
+
+    def frame(self, bands):
+        """A 400x30 dark frame with bright bands at the given x ranges."""
+        w, h, bpp = 400, 30, 3
+        px = bytearray(bytes((0x3c, 0x3c, 0x3c)) * (w * h))
+        for (x0, x1) in bands:
+            for y in range(10, 20):
+                for x in range(x0, x1):
+                    o = (y * w + x) * bpp
+                    px[o:o + 3] = bytes((0xe0, 0xe0, 0xe0))
+        return w, h, bpp, bytes(px)
+
+    def test_each_label_is_found_as_one_run(self):
+        w, h, bpp, px = self.frame([(20, 70), (200, 244)])
+        runs = gmi.grid_label_runs(w, h, bpp, px, [0, 0, 400, 30])
+        self.assertEqual(runs, [[20, 69], [200, 243]])
+
+    def test_gaps_narrower_than_a_word_join(self):
+        # Two glyph clusters 6 px apart are one label, not two.
+        w, h, bpp, px = self.frame([(20, 50), (56, 90)])
+        runs = gmi.grid_label_runs(w, h, bpp, px, [0, 0, 400, 30])
+        self.assertEqual(runs, [[20, 89]])
+
+    def test_a_flat_bar_measures_nothing(self):
+        w, h, bpp, px = self.frame([])
+        self.assertEqual(gmi.grid_label_runs(w, h, bpp, px, [0, 0, 400, 30]), [])
+
+    def test_a_degenerate_rect_measures_nothing(self):
+        w, h, bpp, px = self.frame([(20, 70)])
+        self.assertEqual(gmi.grid_label_runs(w, h, bpp, px, [0, 0, 0, 30]), [])
+        self.assertEqual(gmi.grid_label_runs(w, h, bpp, px, [0, 0, 400, 2]), [])
+
+
 class HeaderOffsetMeasurementTests(unittest.TestCase):
     """The alignment number the Compare note quotes is measured here, off the
     dump, rather than copied out of the record it cites."""

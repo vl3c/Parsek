@@ -24,6 +24,7 @@ produced:
 | The colour of every control and every glyph | the matching `<label>.png`, sampled inside each control's own rect |
 | Which window, tab, complexity mode and scene a capture IS | that run's `KSP.log` (`uiaction open/close/tab/rect/complexity/describe`, paired to `capturescreenshot ok label=`) |
 | A tab's display name | the capture in which THAT tab was selected (`buttongrid.textValue`) |
+| Where each tab label sits on its bar | measured in the frame: the bright runs inside the grid's own rect |
 | A modal's title and button labels | `uiaction dialog open=true ... title=... buttons=A|B` in the log |
 | Which dataset a capture is of | `fixture.saveTemplate` in `harness/scenarios/<specId>.toml` |
 | The Compare notes | `CHANGELOG.md` (current version), the `GUI-*` entries of `docs/dev/todo-and-known-bugs.md`, and the merge commits |
@@ -64,6 +65,18 @@ palette rule that would be a guess about the product, the generator reads the
 background and the ink out of each control's own rect in the frame the tree was
 dumped on. Status tints and disabled greys come along for free, and a colour the
 product changes changes in the mirror on the next census with no code edit.
+
+### Why a tab bar's labels are measured too
+
+A selection grid reports one rect and the selected item's text. It reports nothing
+about where the items sit or how their text is aligned, and the product is not
+uniform about it: the Kerbals bar centres its two labels while the Career bar
+left-aligns its four in cells of the same 245 px stride. Centring everything put
+the Career strip 87 px right of where the game draws it - measured against the
+photo, which is what caught it. So `grid_label_runs` reads the bright runs inside
+the grid's own rect out of the frame and the page places each label on its own run,
+falling back to a centred equal split only where the run count and the tab count
+disagree.
 
 ## 2. The label-to-state grammar
 
@@ -162,7 +175,27 @@ which the mirror reproduces with a CSS translate. The page-level echo line under
 the stage is kept as well, because it is readable when the window's own strip is
 scrolled off the top of a tall capture.
 
-## 6. Size budget
+## 6. The three photo modes
+
+The photograph is there to check the rendering, and the first version checked it
+the wrong way: it drew the rendered window ON TOP of the frame, so every string
+appeared twice a pixel or two apart. That reads as a rendering fault and hides the
+one thing an overlay is good for.
+
+* **off** (the default) - the rendering alone. It is the thing being checked.
+* **overlay** - the photograph alone, with the rendered layer collapsed to thin
+  outlines: no text, no fills, one box per control, and the outlines can be turned
+  off too. A box that lands on its own control in the photograph is the check.
+* **side** - the rendering and the photograph next to each other at the same
+  scale, in two panes that scroll independently. This is the comparison to reach
+  for; the Compare view's per-side button is the same idea, swapping one side of a
+  before/after pair for its photograph rather than stacking them.
+
+The crop is drawn at its own pixel size at its own origin, so it is never
+stretched or re-aspected; a photo the size budget had to subsample is upscaled by
+the same factor on both axes and says so by being soft.
+
+## 7. Size budget
 
 The page must be ONE file with no external requests, so the photos are inlined and
 therefore rationed. 16 MB is the ceiling; `--budget-mb` moves it and the tool exits
@@ -179,7 +212,7 @@ about 6.2 MB of control trees, 14.9 MB total.
 The PNG codec is stdlib `zlib` + `struct` (read, crop, subsample, re-encode);
 `harness/` is stdlib-only and Pillow is not available.
 
-## 7. Foreign windows
+## 8. Foreign windows
 
 Another mod's window was on screen when the census ran and is in the dump. A root
 is Parsek's when its `(x, y, w)` matches a rect the seam APPLIED to a window, in
@@ -191,7 +224,7 @@ server window, the MechJeb menu button) and is hidden behind the `other mods`
 toggle. A root seen under one window only - a group picker, the Gloops recorder,
 the watch-mode overlay - is Parsek's and stays.
 
-## 8. Regenerating
+## 9. Regenerating
 
 The page is NOT committed; the generator, its tests and this doc are. Regenerate
 after a census, pointing `--shots` at every shots directory worth including and
@@ -213,7 +246,7 @@ window, states per window with their fixtures, the known-but-uncaptured states, 
 the before/after key table. It is the thing to read when the question is "what is
 covered" rather than "what does it look like".
 
-## 9. Coverage as of the 2026-09-15 build
+## 10. Coverage as of the 2026-09-15 build
 
 192 captures over 7 fixtures and 12 windows, from 16 census runs (GUI-1 through
 GUI-11).
@@ -242,7 +275,7 @@ shape: a tab selected in BASIC mode (Missions' own tab, two Timeline tabs, both
 Kerbals tabs, all four Career tabs). Basic draws no tab bar, so the census never
 took them. They are listed in the left rail, greyed, and clicking one says why.
 
-## 10. What this page is not
+## 11. What this page is not
 
 * Not a status authority. `docs/dev/autotest-status.md` owns the census's status
   and `design-gui-inventory.md` owns the structural map.

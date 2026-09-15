@@ -14,9 +14,12 @@ _(unreleased — entries accumulate here per commit)_
   Parsek's GUI.** `harness/tools/gui_mirror.py` turns the census artifacts into one
   self-contained HTML file in which every window is laid out from the captured
   IMGUI control rects, so column widths, insets and row strides are the game's to
-  the pixel; the colours are sampled out of the PNGs, because the control-tree
-  dump records a style NAME and not a colour and the blue clickable rows, the
-  dimmed ones and the status tints exist only in the pixels; and the tabs,
+  the pixel; the colours AND the tab-bar label positions are measured out of the
+  PNGs, because the control-tree dump records a style NAME and not a colour (the
+  blue clickable rows, the dimmed ones and the status tints exist only in the
+  pixels) and a selection grid reports neither where its items sit nor how their
+  text is aligned (the Kerbals
+  bar centres its two labels, the Career bar left-aligns its four); and the tabs,
   launchers, folds and pickers are clickable, switching to the capture of that
   state. Nothing about a window is written into the generator - not a label, not a
   tooltip, not a column width - so the page cannot drift from the game: there is
@@ -24,7 +27,8 @@ _(unreleased — entries accumulate here per commit)_
   renders a synthetic capture and then asserts the generator's own source does not
   contain the strings the page showed). A click with no capture behind it flashes
   the control and says `no capture for this state yet` rather than inventing a
-  screen, and the left rail lists every state that has a capture next to every
+  screen; the captured frame can be put beside the rendering, or under it as thin
+  per-control outlines, so a layout check never stacks text on text; and the left rail lists every state that has a capture next to every
   state the command seam knows and nothing photographed. Which window, tab,
   complexity mode and scene each capture IS comes from that run's KSP.log rather
   than from the label, which is also the only record of a stock modal's title and
