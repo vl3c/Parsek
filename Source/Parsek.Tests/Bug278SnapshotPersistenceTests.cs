@@ -183,56 +183,30 @@ namespace Parsek.Tests
         [Fact]
         public void DestructiveDelete_RegressionChain_IsReachable_DocumentedBySourceInspection()
         {
-            // Locate source files relative to the test working directory
-            // (bin/Debug/net472/ — need 5 .. to reach project root, per MEMORY.md).
+            // Downgraded to the single negative pin. The five-step chain this cell used to grep
+            // (ParsekScenario / ParsekFlight* / RecordingStore / RecordingSidecarStore) asserted
+            // that the ROUTE to the bug still exists, not that the guarantee holds - and it
+            // matched commented-out code, so any of the five could have been satisfied by a
+            // comment. The guarantee itself now has a behavioural twin in this file,
+            // SaveRecordingFiles_NullVesselSnapshot_LeavesExistingVesselCraftOnDisk, which drives
+            // the real saver and reds on ANY destructive rewrite, not just this one spelling.
+            //
+            // What is kept here: the literal that names the removed branch, so a verbatim
+            // re-introduction is called out by name at its own site. Read from comment-stripped,
+            // literal-masked source, so the historical narration of the branch in comments does
+            // not read as its return.
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
+            string sidecarStoreSrc = SourceScanText.StripCommentsAndMaskLiterals(
+                System.IO.File.ReadAllText(
+                    System.IO.Path.Combine(srcRoot, "RecordingSidecarStore.cs")));
 
-            string scenarioSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "ParsekScenario.cs"));
-            // ParsekFlight is a partial class split across ParsekFlight.cs and
-            // ParsekFlight.*.cs sibling files; concatenate them so the source-text
-            // pins below stay valid wherever the finalization band currently lives.
-            string flightSrc = string.Join(
-                "\n",
-                System.Linq.Enumerable.Select(
-                    System.IO.Directory.GetFiles(srcRoot, "ParsekFlight*.cs"),
-                    System.IO.File.ReadAllText));
-            string storeSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "RecordingStore.cs"));
-            string sidecarStoreSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "RecordingSidecarStore.cs"));
-
-            // Step 1: PR #176's limbo finalize routes through FinalizeIndividualRecording.
-            // The call also threads `treeContext: tree` so the effective-leaf check in
-            // FinalizeIndividualRecording can resolve the BP topology for limbo trees
-            // that aren't yet in RecordingStore.CommittedTrees (effective-leaf fix).
-            Assert.Contains(
-                "ParsekFlight.FinalizeIndividualRecording(rec, commitUT, isSceneExit: true, treeContext: tree)",
-                scenarioSrc);
-
-            // Step 2: FinalizeIndividualRecording nulls VesselSnapshot in the
-            // vessel-gone branch (the comment mentions "marking Destroyed" so we
-            // can locate the exact null-out site by its surrounding context).
-            Assert.Contains("rec.VesselSnapshot = null;", flightSrc);
-            Assert.Contains("marking Destroyed", flightSrc);
-
-            // Step 3: FinalizeTreeCommit sets FilesDirty=true on every recording.
-            // This is what re-marks the just-nulled leaves dirty so the next
-            // FlushDirtyFiles call sends them through SaveRecordingFiles.
-            Assert.Contains("rec.FilesDirty = true;", storeSrc);
-            Assert.Contains("FlushDirtyFiles(committedRecordings)", storeSrc);
-
-            // Step 4: SaveRecordingFiles handles VesselSnapshot != null on the
-            // happy path (the line we left intact). Pinning this lets us detect
-            // a future refactor that moves the destructive-delete logic back into
-            // the function or restructures the conditional.
+            // The happy path (snapshot present) still gates the write.
             Assert.Contains("if (rec.VesselSnapshot != null)", sidecarStoreSrc);
 
-            // Step 5: The destructive-delete branch is GONE (replaced with the
-            // bug #278 follow-up comment). If anyone re-introduces File.Delete
-            // on the vesselPath, this test fails and they re-read the chain.
+            // The destructive-delete branch stays gone: stale-cleanup is the job of the explicit
+            // deletion paths (DeleteRecordingFiles), not of every save.
             Assert.DoesNotContain("File.Delete(vesselPath)", sidecarStoreSrc);
         }
 

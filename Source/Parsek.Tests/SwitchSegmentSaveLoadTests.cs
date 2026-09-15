@@ -221,53 +221,55 @@ namespace Parsek.Tests
         // any pending switch attempt.
         // -----------------------------------------------------------------
 
-        // Fails if: loading a save that DOES NOT carry a SwitchSegmentSession
-        // leaves a previously-armed session lingering on the scenario. The
-        // load path must clear both the intent marker and the segment
-        // session before reading from the node, so a load from a pre-switch
-        // save unarms cleanly. We drive only the round-trip of the absent-
-        // node case (the full OnLoad is not xUnit-drivable) and assert that
-        // the session loader leaves activeSwitchSegmentSession null when no
-        // node is present.
+        // Fails if: loading a save that DOES NOT carry a SwitchSegmentSession leaves a
+        // previously-armed session (or intent) lingering on the scenario. The load path clears
+        // both fields BEFORE reading their nodes, so an F9 back to a pre-switch save unarms
+        // cleanly.
+        //
+        // Driven through the real LoadRewindStagingState by reflection (the pattern
+        // RecordingRewindRetirementTests uses) rather than by source-text ordering: the two
+        // IndexOf calls this cell used to make both hit the ClearStockActionIntent /
+        // ClearSwitchSegmentSession HELPER bodies near the top of ParsekScenario.cs, not the
+        // load path, so moving the load-path clear AFTER the node read stayed green.
         [Fact]
         public void F9_ToPreSwitchSave_ClearsMarker_DropsPendingAttempt()
         {
-            // 1) The session loader returns false (and produces null) when
-            //    the node is missing. This is the basic absence case the
-            //    OnLoad path relies on to leave activeSwitchSegmentSession
-            //    null after a pre-feature / pre-switch save load.
-            var emptyParent = new ConfigNode("PARSEK");
-            ConfigNode missingNode = emptyParent.GetNode(SwitchSegmentSession.NodeName);
-            Assert.Null(missingNode);
+            var scenario = new ParsekScenario();
+            ParsekScenario.SetInstanceForTesting(scenario);
 
-            // 2) Same shape for the intent marker.
-            ConfigNode missingIntent = emptyParent.GetNode(StockActionIntentMarker.NodeName);
-            Assert.Null(missingIntent);
+            // Arm both markers, as a pre-F9 session would have them.
+            ArmFreshSession(scenario, Guid.NewGuid(), "tree_pre_f9", "rec_seg_pre_f9");
+            scenario.ArmStockActionIntent(new StockActionIntentMarker
+            {
+                IntentId = Guid.NewGuid(),
+                Action = StockActionType.TrackingStationFly,
+                TargetVesselPersistentId = 99u,
+                SourceScene = StockActionSourceScene.TrackingStation,
+                CapturedRealtime = 100f,
+                CapturedUT = 1000.0,
+                ProcessSessionId = ParsekProcess.ProcessSessionId,
+            });
+            Assert.NotNull(scenario.ActiveSwitchSegmentSession);
+            Assert.NotNull(scenario.CurrentStockActionIntent);
 
-            // 3) Source-text gate: LoadRewindStagingState clears the two
-            //    fields BEFORE reading the nodes, so a missing-node load
-            //    leaves them null even if a previously-loaded save had
-            //    armed them. Asserting both clears appear in the right
-            //    order pins the F9-from-pre-switch contract.
-            string projectRoot = Path.GetFullPath(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", ".."));
-            string scenarioPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekScenario.cs");
-            string source = File.ReadAllText(scenarioPath);
+            // The pre-switch save: a PARSEK node carrying neither marker node.
+            var preSwitchSave = new ConfigNode("PARSEK");
+            Assert.Null(preSwitchSave.GetNode(SwitchSegmentSession.NodeName));
+            Assert.Null(preSwitchSave.GetNode(StockActionIntentMarker.NodeName));
 
-            int clearIntent = source.IndexOf("activeStockActionIntent = null;");
-            int clearSession = source.IndexOf("activeSwitchSegmentSession = null;");
-            int loadIntent = source.IndexOf(
-                "ConfigNode intentNode = node.GetNode(StockActionIntentMarker.NodeName);");
-            int loadSession = source.IndexOf(
-                "ConfigNode segmentNode = node.GetNode(SwitchSegmentSession.NodeName);");
-            Assert.True(clearIntent > 0 && clearSession > 0);
-            Assert.True(loadIntent > 0 && loadSession > 0);
-            Assert.True(clearIntent < loadIntent,
-                "intent clear must precede intent node load");
-            Assert.True(clearSession < loadSession,
-                "session clear must precede session node load");
+            InvokeLoadRewindStagingState(scenario, preSwitchSave);
+
+            Assert.Null(scenario.ActiveSwitchSegmentSession);
+            Assert.Null(scenario.CurrentStockActionIntent);
+        }
+
+        private static void InvokeLoadRewindStagingState(ParsekScenario scenario, ConfigNode node)
+        {
+            System.Reflection.MethodInfo method = typeof(ParsekScenario).GetMethod(
+                "LoadRewindStagingState",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            method.Invoke(scenario, new object[] { node });
         }
 
         // -----------------------------------------------------------------

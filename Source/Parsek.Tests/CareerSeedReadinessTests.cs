@@ -117,9 +117,12 @@ namespace Parsek.Tests
         [Fact]
         public void AllCurrencySingletonsPresent_RequiresAllThreeNotAnyOne()
         {
-            string body = ReadMethodBody(
-                "private static bool AllCurrencySingletonsPresent()",
-                "</summary>");
+            // Brace-matched to the method's own closing brace: the "</summary>" anchor used to
+            // run the scan past the body and into the NEXT member's doc comment, so the negative
+            // below read comment prose as code (a "||" written in that comment red'd this cell
+            // with AllCurrencySingletonsPresent unchanged).
+            string body = ReadMethodBodyToClosingBrace(
+                "private static bool AllCurrencySingletonsPresent()");
 
             // Every singleton is required (&&). An || here would restore the "any one is
             // enough" gate that dropped the science seed.
@@ -195,6 +198,28 @@ namespace Parsek.Tests
             Assert.True(File.Exists(scenarioPath),
                 $"ParsekScenario.cs not found at {scenarioPath}");
             return File.ReadAllText(scenarioPath);
+        }
+
+        /// <summary>
+        /// The method's declaration plus its body, ending at the body's own closing brace.
+        /// Read from comment-stripped, literal-masked source, so neither a comment nor a brace
+        /// inside a string literal can be read as code by the caller's needles.
+        /// </summary>
+        private static string ReadMethodBodyToClosingBrace(string signature)
+        {
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekScenarioSource());
+            int start = prepared.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(start >= 0, $"'{signature}' not found in ParsekScenario.cs");
+            int open = prepared.IndexOf('{', start);
+            Assert.True(open > start, $"no block body after '{signature}' in ParsekScenario.cs");
+            int depth = 0, close = -1;
+            for (int i = open; i < prepared.Length; i++)
+            {
+                if (prepared[i] == '{') depth++;
+                else if (prepared[i] == '}' && --depth == 0) { close = i; break; }
+            }
+            Assert.True(close > open, $"unbalanced braces in '{signature}' in ParsekScenario.cs");
+            return prepared.Substring(start, close - start + 1);
         }
 
         private static string ReadMethodBody(string signature, string endAnchor)

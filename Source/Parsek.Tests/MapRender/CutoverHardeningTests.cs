@@ -428,15 +428,34 @@ namespace Parsek.Tests
         {
             // The cold-load defer is a HOLD, not a teardown: it must NOT call PruneStaleState (which would
             // drop the cached chains / prior intents the next ready frame resumes from). A regression that
-            // pruned on a transient UT=0 frame would lose the resume state. The documented intent marker
-            // (a comment, read from the RAW source) is the contract.
-            string rawSrc = ReadMapRenderSource("ShadowRenderDriver.cs");
-            Assert.Contains("PruneStaleState is intentionally NOT called", rawSrc);
-            // The defer block ends in a bare `return;` (no PruneStaleState before it): with comments stripped
-            // the rate-limit log's close `5.0);` is immediately followed by the defer `return;` and the block
-            // close `}`.
-            string collapsed = CollapseWhitespace(StripLineComments(rawSrc));
-            Assert.Contains("5.0); return; }", collapsed);
+            // pruned on a transient UT=0 frame would lose the resume state.
+            //
+            // Scoped to the defer block itself, brace-matched out of comment-stripped and
+            // literal-masked source: the earlier form read the intent COMMENT as the contract (a real
+            // prune added under it would have stayed green) and pinned an unrelated rate-limit
+            // constant plus statement ordering (an innocent 5.0 -> 10.0 edit red'd it).
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(
+                ReadMapRenderSource("ShadowRenderDriver.cs"));
+
+            const string guard = "if (!IsLiveClockReady(currentUT))";
+            int guardIdx = prepared.IndexOf(guard, StringComparison.Ordinal);
+            Assert.True(guardIdx >= 0, "the cold-load clock guard is gone from ShadowRenderDriver.RunFrame");
+
+            int open = prepared.IndexOf('{', guardIdx + guard.Length);
+            Assert.True(open >= 0, "no block after the cold-load clock guard");
+            int depth = 0, close = -1;
+            for (int i = open; i < prepared.Length; i++)
+            {
+                if (prepared[i] == '{') depth++;
+                else if (prepared[i] == '}' && --depth == 0) { close = i; break; }
+            }
+            Assert.True(close > open, "unbalanced braces in the cold-load defer block");
+            string deferBlock = prepared.Substring(open, close - open + 1);
+
+            Assert.False(SourceScanText.ContainsIdentifier(deferBlock, "PruneStaleState"),
+                "REGRESSION: the cold-load defer now calls PruneStaleState; a transient UT=0 frame " +
+                "would drop the cached chains / prior intents the next ready frame resumes from.");
+            Assert.Contains("return;", deferBlock);
         }
 
         // Mirrors ShadowRenderDriverTests.ReadMapRenderSource (root resolve + Parsek/-rooted fallback).
