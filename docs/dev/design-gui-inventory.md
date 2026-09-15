@@ -498,8 +498,9 @@ header-vs-cell delta); the Roster tab lists EVERY visible kerbal rather than onl
 ledger-created slots, with plain available kerbals behind one fold row; the status words
 changed to `Available` / `Assigned (<vessel>)` / `Reserved ...` / `Stand-in for <owner>` /
 `Retired` / `Lost`; raw `UT n` stamps became calendar dates; the `Unlinked Retired` tail is
-gone (a retiree with no slot is now an ordinary row); and `DefaultWindowWidth` went 410 ->
-700 with `MinWindowWidth` 280 -> 520.
+gone (a retiree with no slot is now an ordinary row); the Flights tab's row unit became the
+MISSION rather than the recorded segment; and `DefaultWindowWidth` went 410 -> 760 with
+`MinWindowWidth` 280 -> 700 (the arithmetic for both is in that document's section 5).
 
 ---
 

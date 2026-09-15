@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, and a snapshot-less recording can be attributed to the wrong stand-in [FILED 2026-09-15 with the Kerbals-window rebuild. Both are PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
+## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
 
 **What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
 the two things its row model could not answer off existing data.
@@ -58,7 +58,26 @@ the two things its row model could not answer off existing data.
    capture would pay it; GUI-5 already has that pair on a career host, so it is worth a
    cent, not a flight of its own.
 
-Neither of the first two blocks anything. All four are recorded because the window now has
+5. **A stand-in's own flight is filed under the OWNER, always - and can fill the owner's
+   `Last flight` cell with a flight he never took.** The producer is
+   `KerbalsModule.ReverseMapCrewNames` (`Source/Parsek/KerbalsModule.cs:479-507`), called
+   from `PopulateCrewEndStates` before `Recording.CrewEndStates` is written: it walks the
+   recorded crew list and maps EVERY name that appears as a `CrewReplacements` value - then,
+   failing that, every name found in any `KerbalSlot.Chain` via
+   `TryReverseMapCrewNameFromSlots` - back to the slot owner. There is no per-flight test of
+   any kind: the mapping is a pure name lookup, so a stand-in who flew a whole mission of
+   his OWN gets it filed under the kerbal he covers, counted in that kerbal's bucket
+   summary, and - if it is the latest-ending one - printed in that kerbal's Roster `Last
+   flight` cell. His own Flights group does not carry it at all. The `as <stand-in>` crew
+   note (item 2) is a label on the owner's row, not a fix.
+   **Fix:** persist the flown crew per recording (a `CREW_FLOWN` node beside
+   `CREW_END_STATES`, or a per-entry `flownBy` key) and key the end states by who actually
+   flew, so `ReverseMapCrewNames` stops being the only answer. That is a schema-generation
+   bump and re-harvests every stamped fixture, which is why the Kerbals rebuild recorded it
+   rather than doing it; the reading-side workaround (item 2's `RawRecordingCrewByRecordingId`)
+   already exists and is what the crew note uses.
+
+Neither of the first two blocks anything. All five are recorded because the window now has
 columns whose blanks are visible, where the old outline simply said nothing.
 
 ## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows]
