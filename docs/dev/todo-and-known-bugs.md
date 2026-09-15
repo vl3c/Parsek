@@ -2671,7 +2671,7 @@ safely. No committed lane flies that shape - RF-12L was authored for it and its 
 flight concluded `destroyed` instead - so the question stays open rather than being decided
 from a run that cannot distinguish the two answers.
 
-## REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. OPEN as a cleanup]
+## ~~REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached~~ [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. FIXED 2026-09-15 on branch `render-and-recorder-hygiene`: the second candidate and the sixth-segment sentence are gone; `ResolveFixtureDir` / `DescribeCandidates` are untouched]
 
 `Source/Parsek.Tests/ReflyARecordedFixtureCodecTests.cs` lines ~114-116 carry a SECOND
 `FixtureCandidates` entry, `../../../../../../Parsek-refly-lanes/harness/fixtures/saves/refly-a-recorded`.

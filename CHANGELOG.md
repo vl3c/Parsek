@@ -78,6 +78,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Developer tooling: a test fixture resolver no longer looks for a sibling worktree by
+  name.** `ReflyARecordedFixtureCodecTests` searched for its recorded save in two places:
+  the repository's own `harness/fixtures/saves/`, and a hard-coded sibling checkout that
+  briefly held the fixture while it was in review. The fixture has been in the repository
+  since then, so the second path could never be taken; it is gone, and the resolver keeps
+  its candidate-list shape so a genuinely missing fixture still skips with the path it
+  tried. No player-visible change.
+
 - **Unticking a recording's playback box now hides that flight everywhere, not just in
   the world.** The tick box at the left of every row in the Recordings tab promised that
   "the flight stays recorded but no ghost appears" - and it hid the ghost you fly past,
