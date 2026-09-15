@@ -57,12 +57,13 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 265 committed
+### Scenarios: 266 committed
 
-RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main`:
-`ls harness/scenarios/*.toml` returns **265** files; tiers: 129 nightly, 26 daily, 110
-operator, parsed from the specs' `tier` keys. The two new files are GL-1 and GL-2, both
-`operator` by the calibration discipline, so only that column moves.
+RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main` twice (the second
+merge brought `GUI-10-census-dialogs` in): `ls harness/scenarios/*.toml` returns **266**
+files; tiers: 129 nightly, 26 daily, 111 operator, parsed from the specs' `tier` keys.
+Three new files since the registry PR's 263 - GL-1, GL-2 and GUI-10 - all `operator`, so
+only that column moves.
 
 The derivation before it: re-derived 2026-09-15 on `registry-decisions-0911`, the registry
 PR: `ls harness/scenarios/*.toml` returned **263** files; tiers: 129 nightly, 26 daily, 108
@@ -117,7 +118,7 @@ these rather than editing them by memory; both numbers have moved many times.
 ### Coverage: 189 of 250 registry cells (was 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
 
 RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main`:
-`hlib.compute_coverage(specs, [], registry)` over the 265 committed specs returns
+`hlib.compute_coverage(specs, [], registry)` over the 266 committed specs returns
 `values 250 covered 189 uncovered 61`. The denominator does NOT move (both D1 cells were
 long-standing values); the numerator moves by TWO, `manual-gloops` (GL-1 + GL-2) and
 `sub-2-point-drop` (GL-2), each claimed off a lane that is LIVE-PROVEN and ARMED.
@@ -245,7 +246,7 @@ values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 Per dimension (total / uncovered) for the derivation of 2026-09-11 on `loop-render-residue`
 (256 specs, 184 of 248, after its merge of origin/main `afa1d47c0`;
 the registry PR then took it to 187 of 250 over 263 specs, moving the D1, D4 and D9 rows
-by one each, and the Gloops PR to 189 of 250 over 265 specs, moving the D1 row by two more - see the residue table below, which is re-derived), every row identical to `cheap-flights-arming`'s read after its merge of
+by one each, and the Gloops PR to 189 of 250 over 266 specs, moving the D1 row by two more - see the residue table below, which is re-derived), every row identical to `cheap-flights-arming`'s read after its merge of
 `f7141586f`; the retained `de5ac6112` block directly above it is history). The D1 row
 moved there with the ghost-replay Tier B wave's `switch-segment-noop-discard` claim, and
 the D2 / D17 rows with wave package A2's two claims. The 2026-08-04 uncovered count stays
@@ -415,7 +416,7 @@ Re-derive before acting:
   from the specs' `tier` keys; re-derived 2026-09-15 after the registry PR, which was 256 =
   125 / 26 / 105 when this register was written and moved four lanes operator -> nightly
   under item B7).
-- Coverage, from `harness/`: the one-liner below prints `265 specs 189 of 250`, so **189 of
+- Coverage, from `harness/`: the one-liner below prints `266 specs 189 of 250`, so **189 of
   250** cells are covered and 61 are uncovered (was 187 of 250 over 263 specs; the Gloops PR
   claimed D1 `manual-gloops` and `sub-2-point-drop` off GL-1 / GL-2, both long-standing
   values, so the numerator moves by two and the denominator not at all. Before that: 184 of
@@ -540,8 +541,8 @@ the run ids in `autotest-status.md`.
    Memo s6 and s12; todo CADENCE-PROMOTIONS-2026-09-11. DONE: all four flipped to nightly;
    the nightly p50 sum moves from ~7.25 h to ~7.67 h (GS-8 645 s, GS-9 494 s, GS-4 338 s,
    MC-3 53 s; method as #1652), and the tier counts re-derive to daily 26 / nightly 129 /
-   operator 108 over 263 specs (110 operator over 265 after the Gloops PR added GL-1 and
-   GL-2, both operator).
+   operator 108 over 263 specs (111 operator over 266 after GL-1, GL-2 and GUI-10, all
+   operator).
 8. **RULED SIX - GS-4's `unityExceptions` ceiling: 4 or 6.** Recommendation: 6 now, per the H23
    precedent (6 is the legal maximum of the known stock class set). Or pre-authorise the
    re-pin to 6 on the first no-Parsek-frame red at 5. Either answer reverses the wave's
