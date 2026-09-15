@@ -787,18 +787,73 @@ namespace Parsek.Tests
         [Fact]
         public void Generator_CoversEveryNonSeedActionType()
         {
-            // The fuzz corpus must span all nine modules' action vocabulary; a new
-            // GameActionType landing without a generator payload reds here.
+            // The fuzz corpus must span all nine modules' action vocabulary, and span it
+            // with real rows: PRESENCE alone is true by construction here, because the
+            // corpus plan is built from the same enum the assertions walk and CreateAction
+            // always stamps action.Type. A new GameActionType with no arm in CreateAction
+            // would satisfy a presence-only check while fuzzing an all-zero row, which is
+            // what the comment used to promise it caught. So each type must also appear at
+            // least once carrying a payload BEYOND the five skeleton fields every generated
+            // row gets.
             var seen = new HashSet<GameActionType>();
+            var withPayload = new HashSet<GameActionType>();
             for (int iteration = 0; iteration < 40; iteration++)
             {
                 foreach (var action in BuildLedger(iteration).Actions)
+                {
                     seen.Add(action.Type);
+                    if (CarriesPayloadBeyondSkeleton(action))
+                        withPayload.Add(action.Type);
+                }
             }
 
             foreach (var type in Enum.GetValues(typeof(GameActionType)).Cast<GameActionType>())
+            {
                 Assert.Contains(type, seen);
+                Assert.True(withPayload.Contains(type),
+                    "generator emits " + type + " rows with no payload beyond the skeleton "
+                    + "fields - add a CreateAction arm for it");
+            }
         }
+
+        /// <summary>
+        /// True when the action differs from a bare GameAction in some field other than the
+        /// five CreateAction/Seed always set (ActionId, UT, Sequence, Type, RecordingId).
+        /// Reflection rather than a hand-kept table so a new GameAction field is covered the
+        /// day it lands.
+        /// </summary>
+        private static bool CarriesPayloadBeyondSkeleton(GameAction action)
+        {
+            var bare = new GameAction();
+            var fields = typeof(GameAction).GetFields(
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance);
+
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var f = fields[i];
+                if (SkeletonFieldNames.Contains(f.Name))
+                    continue;
+
+                object mine = f.GetValue(action);
+                object theirs = f.GetValue(bare);
+                if (mine == null && theirs == null)
+                    continue;
+                if (mine == null || theirs == null)
+                    return true;
+                if (!mine.Equals(theirs))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static readonly HashSet<string> SkeletonFieldNames =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "ActionId", "UT", "Sequence", "Type", "RecordingId"
+            };
 
         private FuzzLedger BuildLedger(int iteration)
         {
@@ -925,6 +980,13 @@ namespace Parsek.Tests
                 case GameActionType.StrategyScienceDebit:
                     action.Cost = 5f + rng.Next(0, 200);
                     break;
+                // The credit half of the same exchange, added 2026-09-16 alongside the
+                // payload assertion: it had no arm either, so the corpus only ever fuzzed a
+                // zero-credit row, which ScienceModule.ProcessStrategyScienceCredit rejects
+                // before it touches the pool.
+                case GameActionType.StrategyScienceCredit:
+                    action.ScienceAwarded = 5f + rng.Next(0, 200);
+                    break;
                 case GameActionType.FundsEarning:
                     action.FundsAwarded = Amount(rng, 10f, 5000f);
                     break;
@@ -982,6 +1044,17 @@ namespace Parsek.Tests
                 case GameActionType.KerbalStandIn:
                     action.KerbalName = KerbalNames[rng.Next(KerbalNames.Length)];
                     action.KerbalRole = KerbalRoles[rng.Next(KerbalRoles.Length)];
+                    break;
+                // Added 2026-09-16 with the payload assertion in
+                // Generator_CoversEveryNonSeedActionType: this type had NO arm, so the
+                // corpus fuzzed an all-zero KerbalExperience row - the exact shape the
+                // presence-only assertion could not see. Career entries are the row's
+                // whole payload (KerbalsModule unions them on recovery).
+                case GameActionType.KerbalExperience:
+                    action.KerbalName = KerbalNames[rng.Next(KerbalNames.Length)];
+                    action.KerbalRole = KerbalRoles[rng.Next(KerbalRoles.Length)];
+                    action.KerbalCareerEntries =
+                        rng.Next(1, 40).ToString(IC) + ",Orbit,Kerbin";
                     break;
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityRepair:

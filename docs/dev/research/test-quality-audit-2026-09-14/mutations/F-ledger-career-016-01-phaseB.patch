@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/GameActions/GameAction.cs b/Source/Parsek/GameActions/GameAction.cs
+index 834f5d132..fa214774a 100644
+--- a/Source/Parsek/GameActions/GameAction.cs
++++ b/Source/Parsek/GameActions/GameAction.cs
+@@ -218,7 +218,10 @@ namespace Parsek
+         /// family's science leg is always a debit (its output currency is funds or
+         /// reputation).</para>
+         /// </summary>
+-        StrategyScienceCredit = 33
++        StrategyScienceCredit = 33,
++
++        /// <summary>Mutation probe: a new type with no generator payload.</summary>
++        MutationProbeType = 34
+     }
+ 
+     /// <summary>

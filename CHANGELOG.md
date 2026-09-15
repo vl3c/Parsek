@@ -303,6 +303,38 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: twenty career-ledger cells from the audit's T3 (weak or misleading)
+  register now let the production term they name decide the verdict.** Each already ran
+  the right code; none could see the branch its name claimed. A commit-summary cell
+  asserted the RECALC's completion line and never called the commit door at all, so it
+  now drives `OnRecordingCommitted` and reads its own summary. A pending-science cell
+  typed the pending amount in as a constant and re-issued the fold inline, so stubbing
+  the production helper left it green; it now stages the uncommitted exchange and lets
+  the helper resolve the discriminator. A first-value-wins store asserted only how many
+  entries it held, which an overwrite also satisfies, so the retained VALUE is asserted
+  now. An InvariantCulture round-trip pinned no culture at all, so it serializes under
+  de-DE and reads the raw node text. An unknown-enum-id reader promised a warning nobody
+  captured. A source-order gate compared against an unrelated earlier call in the same
+  file and is now scoped to the door's own body. A "latest outcome wins" contract-map
+  cell gave every contract exactly one terminal action, so a first-wins store passed it
+  too; a sibling now fails then cancels one id. A strategy re-activation could not tell
+  an overwrite from an ignore, so `StrategiesModule` gained a read-only
+  `TryGetActiveStrategy` accessor and the stored commitment is asserted. A science
+  module's "ignores non-science actions" cell used a milestone, which that module
+  actually handles, so the fixture moved to a type with no arm and two mirror cells pin
+  the milestone arm instead. A negative reconciliation assertion guarded a log literal
+  production never emits and now guards the real channel tag. Three cells were renamed to
+  what they prove (a tech-tree skip that cannot reach the applied-node log headlessly, a
+  PatchAll flag restore, and a reservation check that never reaches the retired branch),
+  with the set-at-entry half of the suppression flags pinned directly on
+  `SuppressionGuard.ResourcesAndReplay`. Two cells were deleted as copies of a named
+  twin, each leaving a comment saying which twin holds the branch. The ledger fuzzer's
+  "covers every action type" cell was true by construction; asserting a real payload per
+  type immediately found two action types with no generator arm (`KerbalExperience` and
+  `StrategyScienceCredit`) that had been fuzzing as all-zero rows, and both now carry
+  one. The only production change is that read-only accessor: no behavior, no log text
+  and nothing a player sees changes. Each strengthened cell was re-checked by breaking
+  the named production line on purpose and confirming it goes red.
 - **Tests: twelve more priority-2 recording-tree and rewind coverage gaps from the
   unit-test quality audit are closed.** Eleven rows were new coverage, one was guarded
   already, and none is obsolete, so eleven new cells landed with no production change. On

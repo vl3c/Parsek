@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameActions/ScienceModule.cs b/Source/Parsek/GameActions/ScienceModule.cs
+index 5a25b3b1c..3d7ceb22e 100644
+--- a/Source/Parsek/GameActions/ScienceModule.cs
++++ b/Source/Parsek/GameActions/ScienceModule.cs
+@@ -136,9 +136,6 @@ namespace Parsek
+                 case GameActionType.ContractComplete:
+                     ProcessContractScienceReward(action);
+                     break;
+-                case GameActionType.MilestoneAchievement:
+-                    ProcessMilestoneScienceReward(action);
+-                    break;
+                 case GameActionType.StrategyActivate:
+                     ProcessStrategySetupScienceCost(action);
+                     break;
