@@ -1,0 +1,215 @@
+{
+ "batch_id": "rewind-refly-005",
+ "cluster": "rewind-refly",
+ "tier": "A",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "LoadTimeSweepTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MarkerValid_AllSixFieldsOK_Preserved",
+       "line": 217
+      },
+      {
+       "method": "MarkerValid_TreeExistsOnlyAsPendingTree_Preserved",
+       "line": 244
+      },
+      {
+       "method": "MarkerValid_SkipsGroupHierarchyPrune",
+       "line": 284
+      },
+      {
+       "method": "MarkerInvalid_RunsGroupHierarchyPrune",
+       "line": 314
+      },
+      {
+       "method": "SaveInto_ValidMarkerSkipsGroupHierarchyPrune",
+       "line": 342
+      },
+      {
+       "method": "SaveInto_InvalidMarkerRunsGroupHierarchyPrune",
+       "line": 374
+      },
+      {
+       "method": "MarkerValidator_InvalidSupersedeTarget_ClearsFieldAndLogsWarning",
+       "line": 396
+      },
+      {
+       "method": "MarkerInvalid_SessionIdEmpty_ClearedLogsWarn",
+       "line": 421
+      },
+      {
+       "method": "MarkerInvalid_TreeIdMissing_Cleared",
+       "line": 445
+      },
+      {
+       "method": "MarkerInvalid_RefRecordingMissing_Cleared",
+       "line": 465
+      },
+      {
+       "method": "MarkerInvalid_OriginChildMissing_Cleared",
+       "line": 489
+      },
+      {
+       "method": "MarkerInvalid_RewindPointMissing_Cleared",
+       "line": 512
+      },
+      {
+       "method": "MarkerValid_PriorSessionInvokedUtAfterFreshLoadUt_PreservedAndLogged",
+       "line": 536
+      },
+      {
+       "method": "MarkerInvalid_InvokedUtNaN_ClearedWithDiagnostic",
+       "line": 561
+      },
+      {
+       "method": "MarkerInvalid_InvokedUtNegative_ClearedWithDiagnostic",
+       "line": 580
+      },
+      {
+       "method": "MarkerInvalid_InvokedUtExtremeFuture_ClearedWithDiagnostic",
+       "line": 599
+      },
+      {
+       "method": "MarkerInvalid_ActiveRecordingNotInNotCommitted_Cleared",
+       "line": 618
+      },
+      {
+       "method": "MarkerValid_InPlaceContinuation_ForkProvisional_Preserved",
+       "line": 643
+      },
+      {
+       "method": "MarkerInvalid_PlaceholderPattern_CommittedProvisional_Cleared",
+       "line": 675
+      },
+      {
+       "method": "SpareSet_PreservesSessionProvisional_RP",
+       "line": 709
+      },
+      {
+       "method": "DiscardSet_ZombieProvisional_Removed",
+       "line": 736
+      },
+      {
+       "method": "DiscardSet_ZombieProvisional_AlsoCleansTreeDict",
+       "line": 773
+      },
+      {
+       "method": "Reaper_PreservesEligibleRpReferencedByActiveMarker",
+       "line": 815
+      },
+      {
+       "method": "DiscardSet_NormalStagingRpWithoutSessionScope_Preserved",
+       "line": 852
+      },
+      {
+       "method": "OrphanSupersede_WarnsButKeeps",
+       "line": 887
+      },
+      {
+       "method": "FullyOrphanSupersede_RemovedAtLoadTime",
+       "line": 911
+      },
+      {
+       "method": "OrphanRewindRetirement_RemovedAtLoadTime",
+       "line": 941
+      },
+      {
+       "method": "LegacyOldSideRetirement_RemovedWhenPriorTipIsNonImmutable",
+       "line": 969
+      },
+      {
+       "method": "LegacyOldSideRetirement_KeepsImmutablePriorTipRow",
+       "line": 1014
+      },
+      {
+       "method": "LegacyOldSideSweep_DeferredAndDurableForMultiOldSideToImmutableForkShape",
+       "line": 1044
+      },
+      {
+       "method": "LegacyOldSideSweep_RecoversStaleRow_WhenUnrelatedTreeHasCanonReFly",
+       "line": 1167
+      },
+      {
+       "method": "LegacyOldSideSweep_SameTreeMixedShape_DefersStaleRowConservatively",
+       "line": 1231
+      },
+      {
+       "method": "LegacyOldSideSweep_DefersViaRemovedForkSignal_WhenReconstructionFails",
+       "line": 1305
+      },
+      {
+       "method": "LegacyOldSideRetirement_SweepIsIdempotent",
+       "line": 1370
+      },
+      {
+       "method": "RetirementPointingAtImmutable_RemovedAndSupersedeRestoredAtLoadTime",
+       "line": 1404
+      },
+      {
+       "method": "RetirementPointingAtImmutable_OrphanWithoutRestoredId_RemovedButNoRelationCreated",
+       "line": 1450
+      },
+      {
+       "method": "RetirementPointingAtImmutable_RestoredRecordingMissing_DoesNotInjectOrphanRelation",
+       "line": 1485
+      },
+      {
+       "method": "RetirementPointingAtImmutable_DemotedCanonReason_NotSwept",
+       "line": 1538
+      },
+      {
+       "method": "RetirementPointingAtImmutable_SelfRewoundCanonReason_NotSwept",
+       "line": 1603
+      },
+      {
+       "method": "RetirementPointingAtImmutable_DefaultReason_SweptAsLegacy",
+       "line": 1641
+      },
+      {
+       "method": "RetirementPointingAtImmutable_SupersedeAlreadyPresent_RelationNotDuplicated",
+       "line": 1675
+      },
+      {
+       "method": "SupersedeEndpointsInPendingTree_NotRemovedAsFullyOrphaned",
+       "line": 1715
+      },
+      {
+       "method": "SupersedeFullyOrphanedByZombieDiscard_RemovedSameLoad",
+       "line": 1752
+      },
+      {
+       "method": "OrphanTombstone_WarnsButKeeps",
+       "line": 1786
+      },
+      {
+       "method": "StrayField_OnImmutable_WarnsAndClears",
+       "line": 1812
+      },
+      {
+       "method": "NestedSessionProvCleanup_OnParentDiscard",
+       "line": 1841
+      },
+      {
+       "method": "LoadSummary_LogsCounts",
+       "line": 1875
+      },
+      {
+       "method": "BumpStateVersions_InvalidatesCaches_AfterSweep",
+       "line": 1925
+      },
+      {
+       "method": "SelfSupersedeRow_RemovedAtLoadTime",
+       "line": 1949
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,273 @@
+{
+ "batch_id": "ghost-playback-020",
+ "cluster": "ghost-playback",
+ "tier": "B",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "GhostOrbitIconDriveTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MapLiveUTToEffUT_SubtractsShift",
+       "line": 34
+      },
+      {
+       "method": "MapLiveUTToEffUT_ZeroShift_IsIdentity",
+       "line": 42
+      },
+      {
+       "method": "MapLiveUTToEffUT_NegativeShift_AddsMagnitude",
+       "line": 49
+      },
+      {
+       "method": "GetGhostOrbitEpochShift_Unset_ReturnsZero",
+       "line": 59
+      },
+      {
+       "method": "GetGhostOrbitEpochShift_AfterReset_ReturnsZero",
+       "line": 65
+      },
+      {
+       "method": "GetGhostOrbitEpochShift_PerPidIndependent",
+       "line": 73
+      },
+      {
+       "method": "ResolveIconDriveDecision_OnArcWithinWindow_DrivesAtEffUT_NotSuppressed",
+       "line": 85
+      },
+      {
+       "method": "ResolveIconDriveDecision_OnArcWithinWindow_ZeroShift_DrivesAtLiveUT",
+       "line": 99
+      },
+      {
+       "method": "ResolveIconDriveDecision_PastWindow_ClampsToRawEnd_Suppressed",
+       "line": 113
+      },
+      {
+       "method": "ResolveIconDriveDecision_BeforeWindow_ClampsToRawStart_Suppressed",
+       "line": 125
+      },
+      {
+       "method": "ResolveIconDriveDecision_PastWindow_OverridesOnArcFalse",
+       "line": 136
+      },
+      {
+       "method": "ResolveIconDriveDecision_WithinWindowOffArc_SignalsOffArc_Suppressed",
+       "line": 150
+      },
+      {
+       "method": "ResolveIconDriveDecision_AtEndUTExactly_StaysInWindow",
+       "line": 166
+      },
+      {
+       "method": "ResolveIconDriveDecision_AtStartUTExactly_StaysInWindow",
+       "line": 177
+      },
+      {
+       "method": "IconDriveAndArcClip_UseTheSameLiveToEffMapping",
+       "line": 190
+      },
+      {
+       "method": "DrivePatchGate_StaleLoopShiftedSegmentBounds_WouldEngage",
+       "line": 217
+      },
+      {
+       "method": "DrivePatchGate_AfterStateVectorReseedClearsSegmentDicts_Defers",
+       "line": 239
+      },
+      {
+       "method": "ShouldSuppressIconNoBounds_DirectorTracking_Suppresses",
+       "line": 269
+      },
+      {
+       "method": "ShouldSuppressIconNoBounds_NotDirectorTracking_DoesNotSuppress",
+       "line": 278
+      },
+      {
+       "method": "ClassifyNoBoundsSuppressionTransition_FirstSuppressedFrame_IsEnter",
+       "line": 289
+      },
+      {
+       "method": "ClassifyNoBoundsSuppressionTransition_SuppressedAgainImmediately_IsSustain",
+       "line": 299
+      },
+      {
+       "method": "ClassifyNoBoundsSuppressionTransition_DrivenAfterSuppressedRun_IsExit",
+       "line": 309
+      },
+      {
+       "method": "ClassifyNoBoundsSuppressionTransition_DrivenWithNoRecentSuppression_IsNone",
+       "line": 319
+      },
+      {
+       "method": "ClassifyNoBoundsSuppressionTransition_GapFrameBetweenSuppressed_IsExitThenEnter",
+       "line": 329
+      },
+      {
+       "method": "ClassifyNoBoundsSuppressionTransition_StaleNonAdjacentStamp_IsEnterNotSustain",
+       "line": 346
+      },
+      {
+       "method": "GhostNoBoundsSuppressLastFrame_AfterReset_IsEmpty",
+       "line": 359
+      },
+      {
+       "method": "IconSuppressTransition_DirectorTracedThenDriven_ClassifiesEnterThenExit",
+       "line": 373
+      },
+      {
+       "method": "IconDrivePropagateUT_FreshRecord_ReturnsDrivenUT",
+       "line": 407
+      },
+      {
+       "method": "IconDrivePropagateUT_WithinFreshnessWindow_StillFresh",
+       "line": 420
+      },
+      {
+       "method": "IconDrivePropagateUT_StaleRecord_FallsBack",
+       "line": 435
+      },
+      {
+       "method": "IconDrivePropagateUT_AbsentRecord_FallsBack",
+       "line": 451
+      },
+      {
+       "method": "IconDrivePropagateUT_ClearedByReset",
+       "line": 461
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "WatchModeTargetLossTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyWatchTargetLoss_ContinuesOnlyWhenCameraAndGhostBothResolve",
+       "line": 40
+      },
+      {
+       "method": "ClassifyWatchTargetLoss_CountsMissingCameraInfrastructureToAnExit",
+       "line": 66
+      },
+      {
+       "method": "ClassifyWatchTargetLoss_StillCountsTheLegacyGhostSideCauses",
+       "line": 93
+      },
+      {
+       "method": "ShouldBridgeWatchCameraOffDestroyedGhost_OnlyForTheWatchedIndexAndABoundTarget",
+       "line": 117
+      },
+      {
+       "method": "ClassifyWatchCycleFallback_RefusesToCommitAFallbackTheCameraDidNotTake",
+       "line": 167
+      },
+      {
+       "method": "ClassifyWatchCycleBridgeDisposition_RebindsWhenTheCameraIsStillOnTheAnchor",
+       "line": 192
+      },
+      {
+       "method": "WatchTargetLossExitWarnNamesTheCauseAndTheSession",
+       "line": 228
+      },
+      {
+       "method": "IsWithinWatchEntryRange_AcceptsEveryV7mRefusalDistance",
+       "line": 280
+      },
+      {
+       "method": "IsGhostOnBody_RefusesAHiddenGhostHoldingItsStaleSpawnSeed",
+       "line": 310
+      },
+      {
+       "method": "IsWatchBodyReadingCurrent_RequiresBothANameAndALiveRenderZone",
+       "line": 362
+      },
+      {
+       "method": "AutoSelectRefusesOnTheBodyTermAndTheReportNamesIt",
+       "line": 378
+      },
+      {
+       "method": "DescribeWatchCandidates_HandlesEmptyAndNull",
+       "line": 405
+      },
+      {
+       "method": "WatchButtonExplainsAnUnresolvedBodyAsNotRenderedRatherThanDifferentBody",
+       "line": 418
+      },
+      {
+       "method": "TimelineWatchDescriptorCarriesTheUnresolvedBodyExplanation",
+       "line": 452
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GhostMapOrbitRaiseGapTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldDriveGapFromPoints_TrueInsideParkingToLoiterRaiseGap",
+       "line": 169
+      },
+      {
+       "method": "ShouldDriveGapFromPoints_FalseInsideASegment",
+       "line": 183
+      },
+      {
+       "method": "ShouldDriveGapFromPoints_FalseWithoutPointCoverage",
+       "line": 194
+      },
+      {
+       "method": "ShouldDriveGapFromPoints_FalseInRelativeFrame",
+       "line": 204
+      },
+      {
+       "method": "ShouldDriveGapFromPoints_FalseInOrbitalCheckpointFrame",
+       "line": 214
+      },
+      {
+       "method": "ShouldDriveGapFromPoints_FalseForOrbitEquivalentCarryGap",
+       "line": 228
+      },
+      {
+       "method": "ShouldDriveGapFromPoints_FalseForLaunchAscent",
+       "line": 250
+      },
+      {
+       "method": "ShouldSeedGapGlideInertial_TrueOnlyForGapReasonAndAbsoluteBranch",
+       "line": 273
+      },
+      {
+       "method": "ShouldSeedGapGlideInertial_FalseForOtherReasons",
+       "line": 280
+      },
+      {
+       "method": "ShouldSeedGapGlideInertial_FalseForNonAbsoluteBranches",
+       "line": 290
+      },
+      {
+       "method": "ShouldDriveGapFromPoints_FalseForCrossBodyGap",
+       "line": 303
+      },
+      {
+       "method": "IconGlidesRecordedAscentAcrossGap_NoFreezeNoSnap",
+       "line": 344
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "MidChainRecordingRejected_IsDroppedAndAllReferencesPruned", "line": 115, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "MidChainRecordingRejected_SurvivorsStillHydrateFromSidecars", "line": 172, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "PrunedTree_SaveThenReload_IsStable", "line": 198, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "PrunedRecordingSidecars_AreQuarantinedByOrphanCleanup", "line": 235, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "LeafRecordingRejected_PrunesOnlyTheOrphanedBranchPoint", "line": 269, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "RecordingWithChildrenRejected_ClearsEveryChildParentReference", "line": 300, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "RootRecordingRejected_DropsEntireTree", "line": 327, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "ActiveRecordingRejected_ClearsActiveRecordingId", "line": 351, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "NewerGenerationRecording_IsRejectedAndPrunedToo", "line": 367, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "NoRejectedRecordings_LeavesTreeUntouched", "line": 389, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "ClearRejectedRecordingReferences_ClearsOnlyMatchingIds", "line": 414, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "ClearRejectedRecordingReferences_NoRemovedBranchPoints_StillClearsParentIds", "line": 440, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "ClearRejectedRecordingReferences_UnrelatedRecording_IsUntouched", "line": 464, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SchemaRejectPruneChainTests.cs", "method": "ClearRejectedRecordingReferences_NullRecording_IsNoOp", "line": 489, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "Write_SameModelTwice_ProducesByteIdenticalJson", "line": 59, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_IsInputOrderIndependent", "line": 76, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "SortFindings_OrdersByLevelDescThenRuleIdThenTargetThenSection", "line": 90, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_MatchesGoldenSchema", "line": 124, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_NoFindings_EmitsEmptyArray", "line": 175, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildHumanSummary_HeaderAndFindingLines_MatchContract", "line": 184, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_EscapesSpecialCharactersInStrings", "line": 205, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "Baselined_FiveFails_CountsSplitAndJsonCarryFlag", "line": 243, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "HumanSummary_AllBaselined_IsRed0_WithBaselinedSuffix", "line": 266, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "HumanSummary_OneExtraNonBaselinedFail_IsRed1", "line": 282, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "IsRed_TrueOnFailOrStale_FalseOnWarnInfoOnly", "line": 300, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_PopulatedCareerSave_MatchesGoldenSchema", "line": 395, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_PopulatedCareerSave_IsByteDeterministic", "line": 477, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_NonFundsCareerSave_EmitsBlockWithFacetFlags", "line": 491, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_NullCareerSave_EmitsParsedFalseBlock", "line": 517, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_ParsedCareerSave_EmptyCollections_EmitCompactContainers", "line": 531, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_EmptyRosterNode_IsDistinguishableFromNoRosterNode", "line": 551, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_NonFinitePool_EmitsNullNotZero", "line": 579, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/ReportWriterTests.cs", "method": "BuildJson_NonFiniteFacetMapAndResource_EmitNull", "line": 607, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "CiFloor_SyntheticCorpus_IsGreen_AndWritesReports", "line": 108, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "ParseBaselineMode_MapsEnvValues", "line": 136, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "WriteThenApply_RedCorpus_GoesGreen_FindingsRemain", "line": 146, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "Forbid_OverBaselinedSave_Reds", "line": 172, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "Forbid_NoBaseline_GreenCorpus_Clean", "line": 186, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "Ignore_OverBaselinedSave_LeavesRedsRed", "line": 201, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "WriteBaseline_ExistingBaselineHardFault_Refuses_FileUntouched", "line": 220, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "Manual_AnalyzeEnvSave_WritesReports", "line": 252, "verdict": "fixture-limited", "falsifiability": "falsifiability: Source/Parsek/Analyzer/OfflineAnalyzer.cs; sut=test-infrastructure; with PARSEK_ANALYZER_SAVE set, make Run stop writing the .analysis.json report -> red", "note": "operator-only lane: returns green with no assertion whenever its env var is unset, so it contributes nothing to a CI pass; documented Manual trait, driven by analyze-historical-saves.ps1"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "Manual_WriteBaselineForEnvSave", "line": 282, "verdict": "fixture-limited", "falsifiability": "falsifiability: Source/Parsek/Analyzer/OfflineAnalyzer.cs; sut=test-infrastructure; with PARSEK_ANALYZER_SAVE set, make Run stop writing the .analysis.json report -> red", "note": "operator-only lane: returns green with no assertion whenever its env var is unset, so it contributes nothing to a CI pass; documented Manual trait, driven by analyze-historical-saves.ps1"}
+{"kind": "method", "file": "Source/Parsek.Tests/Analyzer/OfflineAnalyzerTests.cs", "method": "Manual_HistoricalSaves_GreenUnderApply", "line": 324, "verdict": "fixture-limited", "falsifiability": "falsifiability: Source/Parsek/Analyzer/OfflineAnalyzer.cs; sut=test-infrastructure; with PARSEK_ANALYZER_SAVE set, make Run stop writing the .analysis.json report -> red", "note": "operator-only lane: returns green with no assertion whenever its env var is unset, so it contributes nothing to a CI pass; documented Manual trait, driven by analyze-historical-saves.ps1"}

@@ -1,0 +1,49 @@
+diff --git a/Source/Parsek/BackgroundRecorder.PartEventPolling.cs b/Source/Parsek/BackgroundRecorder.PartEventPolling.cs
+index 5689e89e2..07392c561 100644
+--- a/Source/Parsek/BackgroundRecorder.PartEventPolling.cs
++++ b/Source/Parsek/BackgroundRecorder.PartEventPolling.cs
+@@ -89,25 +89,25 @@ namespace Parsek
+             // the frequent per-physics-frame poll cheap.
+             int prePartEventCount = treeRec.PartEvents.Count;
+ 
+-            CheckParachuteState(v, state, treeRec, ut);
+-            CheckJettisonState(v, state, treeRec, ut);
+-            CheckEngineState(v, state, treeRec, ut);
+-            CheckRcsState(v, state, treeRec, ut);
+-            CheckDeployableState(v, state, treeRec, ut);
+-            CheckLadderState(v, state, treeRec, ut);
+-            CheckAnimationGroupState(v, state, treeRec, ut);
+-            CheckAeroSurfaceState(v, state, treeRec, ut);
+-            CheckControlSurfaceState(v, state, treeRec, ut);
+-            CheckRobotArmScannerState(v, state, treeRec, ut);
+-            CheckAnimateHeatState(v, state, treeRec, ut);
+-            CheckAnimateGenericState(v, state, treeRec, ut);
+-            CheckLightState(v, state, treeRec, ut);
+-            CheckGearState(v, state, treeRec, ut);
+-            CheckCargoBayState(v, state, treeRec, ut);
+-            CheckFairingState(v, state, treeRec, ut);
+-            CheckRoboticState(v, state, treeRec, ut);
+-            CheckConverterState(v, state, treeRec, ut);
+-            CheckEvaState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckParachuteState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckJettisonState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckEngineState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckRcsState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckDeployableState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckLadderState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckAnimationGroupState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckAeroSurfaceState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckControlSurfaceState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckRobotArmScannerState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckAnimateHeatState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckAnimateGenericState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckLightState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckGearState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckCargoBayState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckFairingState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckRoboticState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckConverterState(v, state, treeRec, ut);
++            // MUTATION-T1 removed call: CheckEvaState(v, state, treeRec, ut);
+ 
+             if (treeRec.PartEvents.Count > prePartEventCount)
+                 treeRec.MarkFilesDirty();

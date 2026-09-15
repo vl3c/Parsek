@@ -1,0 +1,238 @@
+{
+ "batch_id": "ledger-career-033",
+ "cluster": "ledger-career",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "LedgerTraceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsResourceDrift_WithinTolerance_False",
+       "line": 50
+      },
+      {
+       "method": "IsResourceDrift_BeyondTolerance_True",
+       "line": 58
+      },
+      {
+       "method": "IsResourceDrift_ExactlyAtTolerance_False",
+       "line": 65
+      },
+      {
+       "method": "IsResourceDrift_NaNActual_False",
+       "line": 74
+      },
+      {
+       "method": "IsResourceDrift_InfinityActual_False",
+       "line": 82
+      },
+      {
+       "method": "IsResourceDrift_NaNTarget_True",
+       "line": 89
+      },
+      {
+       "method": "IsResourceDrift_InfinityTarget_True",
+       "line": 97
+      },
+      {
+       "method": "IsSubjectScienceDrift_WithinTolerance_False",
+       "line": 106
+      },
+      {
+       "method": "IsSubjectScienceDrift_BeyondTolerance_True",
+       "line": 112
+      },
+      {
+       "method": "IsSubjectScienceDrift_ExactlyAtTolerance_False",
+       "line": 118
+      },
+      {
+       "method": "IsSubjectScienceDrift_NaNActual_False",
+       "line": 125
+      },
+      {
+       "method": "IsSubjectScienceDrift_InfinityActual_False",
+       "line": 131
+      },
+      {
+       "method": "IsSubjectScienceDrift_NaNTarget_True",
+       "line": 137
+      },
+      {
+       "method": "IsSubjectScienceDrift_InfinityTarget_True",
+       "line": 143
+      },
+      {
+       "method": "IsFacilityLevelMismatch_EqualLevels_False",
+       "line": 151
+      },
+      {
+       "method": "IsFacilityLevelMismatch_DifferentLevels_True",
+       "line": 157
+      },
+      {
+       "method": "IsTechNodePresenceMismatch_AllCombos",
+       "line": 166
+      },
+      {
+       "method": "IsContractPresenceMismatch_AllCombos",
+       "line": 178
+      },
+      {
+       "method": "ResourceTolerance_MatchesPatcherMagnitudes",
+       "line": 189
+      },
+      {
+       "method": "FormatStructural_FieldOrderIsStableAndComplete",
+       "line": 207
+      },
+      {
+       "method": "FormatStructural_NullCutoff_RendersNullToken",
+       "line": 242
+      },
+      {
+       "method": "FormatStructural_ValuedCutoff_RendersInvariantValue",
+       "line": 250
+      },
+      {
+       "method": "FormatStructural_AuthReductionFalse_RendersFalse",
+       "line": 259
+      },
+      {
+       "method": "FormatStructural_NaNNumerics_RenderSafely",
+       "line": 267
+      },
+      {
+       "method": "FormatStructural_CarriesRecalcSeq",
+       "line": 283
+      },
+      {
+       "method": "EmitStructural_Enabled_EmitsOneInfoStructuralLine",
+       "line": 294
+      },
+      {
+       "method": "EmitStructural_Disabled_NoOp",
+       "line": 319
+      },
+      {
+       "method": "EmitStructural_UsesCurrentRecalcSeq",
+       "line": 327
+      },
+      {
+       "method": "EmitOnChange_Disabled_NoOp",
+       "line": 344
+      },
+      {
+       "method": "EmitOnChange_FirstValue_Emits",
+       "line": 352
+      },
+      {
+       "method": "EmitOnChange_SameValueTwice_EmitsOnce",
+       "line": 368
+      },
+      {
+       "method": "EmitOnChange_NewValue_EmitsFreshLine",
+       "line": 383
+      },
+      {
+       "method": "EmitOnChange_DifferentKeysIndependent",
+       "line": 395
+      },
+      {
+       "method": "BeginRecalc_ClearsSteadyStateGuard_SoSameValueReEmits",
+       "line": 408
+      },
+      {
+       "method": "EmitAnomaly_Disabled_NoOp",
+       "line": 429
+      },
+      {
+       "method": "EmitAnomaly_Enabled_EmitsOneWarnLedgerVsTruthLine",
+       "line": 437
+      },
+      {
+       "method": "EmitAnomaly_CarriesRecalcSeq",
+       "line": 456
+      },
+      {
+       "method": "AllEmits_DisabledViaForceFlagAndSetting_ProduceZeroLines",
+       "line": 469
+      },
+      {
+       "method": "AllEmits_EnabledViaSetting_ResumeEmission",
+       "line": 489
+      },
+      {
+       "method": "IsEnabled_FollowsParsekSettingsCurrent",
+       "line": 508
+      },
+      {
+       "method": "GetStoredLedgerTracing_DefaultsNull",
+       "line": 526
+      },
+      {
+       "method": "SetStoredLedgerTracing_RoundTrips",
+       "line": 532
+      },
+      {
+       "method": "RecordLedgerTracing_UpdatesInMemoryStore",
+       "line": 539
+      },
+      {
+       "method": "ResetForTesting_ClearsStoredLedgerTracing",
+       "line": 546
+      },
+      {
+       "method": "ApplyTo_RestoresStoredLedgerTracing",
+       "line": 554
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CrewReservationRecomputeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecomputeAfterTombstones_DeadKerbalReturnsActive",
+       "line": 140
+      },
+      {
+       "method": "RecomputeAfterTombstones_DifferentRetryCrew_ReleasesOldCrewKeepsRetryCrew",
+       "line": 189
+      },
+      {
+       "method": "RecomputeAfterTombstones_SurvivingRosterCreationRowPreservesQueuedCleanup",
+       "line": 231
+      },
+      {
+       "method": "RecomputeAfterTombstones_LogsCount",
+       "line": 269
+      },
+      {
+       "method": "RecomputeAfterTombstones_DeathRowStrippedUnderASurvivingLiveRow_DemotesPermanentToTemporary",
+       "line": 292
+      },
+      {
+       "method": "RecomputeAfterTombstones_NoTombstones_NoChange",
+       "line": 357
+      },
+      {
+       "method": "RecomputeAfterTombstones_NoKerbalsModule_NoOp",
+       "line": 379
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

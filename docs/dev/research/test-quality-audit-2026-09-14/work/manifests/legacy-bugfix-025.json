@@ -1,0 +1,271 @@
+{
+ "batch_id": "legacy-bugfix-025",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "Bug290Tests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LimboTree_NotDiscardedOnRevert_WhenFlagCleared",
+       "line": 35
+      },
+      {
+       "method": "FinalizedTree_CanBeDiscarded_WhenFlagCleared",
+       "line": 63
+      },
+      {
+       "method": "ReturnsTrue_WhenModuleJettisonIsJettisoned",
+       "line": 90
+      },
+      {
+       "method": "ReturnsFalse_WhenModuleJettisonNotJettisoned",
+       "line": 102
+      },
+      {
+       "method": "ReturnsFalse_WhenNoModuleJettison",
+       "line": 114
+      },
+      {
+       "method": "ReturnsFalse_WhenNoModules",
+       "line": 125
+      },
+      {
+       "method": "ReturnsFalse_WhenIsJettisonedMissing",
+       "line": 132
+      },
+      {
+       "method": "ReturnsTrue_CaseInsensitive",
+       "line": 144
+      },
+      {
+       "method": "IgnoresOtherModules_ReturnsTrue_ForJettisonedModule",
+       "line": 156
+      },
+      {
+       "method": "PhysicsWarp2x_OrbitalGhost_Exempt",
+       "line": 176
+      },
+      {
+       "method": "PhysicsWarp3x_OrbitalGhost_Exempt",
+       "line": 183
+      },
+      {
+       "method": "NormalSpeed_OrbitalGhost_NotExempt",
+       "line": 189
+      },
+      {
+       "method": "SlightlyAboveNormal_OrbitalGhost_Exempt",
+       "line": 195
+      },
+      {
+       "method": "ShouldSuppressGhosts_HighWarp_ReturnsTrue",
+       "line": 219
+      },
+      {
+       "method": "ShouldSuppressGhosts_LowWarp_ReturnsFalse",
+       "line": 225
+      },
+      {
+       "method": "MapView_SkipsWarpSuppression",
+       "line": 231
+      },
+      {
+       "method": "FlightView_HighWarp_SuppressesGhosts",
+       "line": 243
+      },
+      {
+       "method": "FlightView_LowWarp_DoesNotSuppressGhosts",
+       "line": 253
+      },
+      {
+       "method": "ShouldSuppressGhostMeshAtWarp_SurfaceStationarySection_ReturnsFalse",
+       "line": 263
+      },
+      {
+       "method": "ShouldSuppressGhostMeshAtWarp_SurfaceMobileSection_ReturnsTrue",
+       "line": 271
+      },
+      {
+       "method": "ShouldSuppressGhostMeshAtWarp_SurfaceOnlyTrajectory_ReturnsFalse",
+       "line": 279
+      },
+      {
+       "method": "ShouldSuppressGhostMeshAtWarp_LowWarpMovingSection_ReturnsFalse",
+       "line": 294
+      },
+      {
+       "method": "ShouldSuppressGhostMeshAtWarp_NewestStationaryOverlapCycle_ReturnsFalse",
+       "line": 302
+      },
+      {
+       "method": "ShouldSuppressGhostMeshAtWarp_NewestMovingOverlapCycle_ReturnsTrue",
+       "line": 321
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug263DecoupleFallbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecordFallbackDecoupleEvent_AddsEvent_WhenPidNotInDecoupledSet",
+       "line": 48
+      },
+      {
+       "method": "RecordFallbackDecoupleEvent_Skips_WhenPartEventsAlreadyHasDecoupledForPid",
+       "line": 76
+      },
+      {
+       "method": "RecordFallbackDecoupleEvent_Skips_WhenOtherEventTypeForSamePid",
+       "line": 99
+      },
+      {
+       "method": "RecordFallbackDecoupleEvent_NullPartName_UsesUnknownFallback",
+       "line": 125
+      },
+      {
+       "method": "RecordFallbackDecoupleEvent_MultipleDistinctPids_AllRecorded",
+       "line": 137
+      },
+      {
+       "method": "RecordFallbackDecoupleEvent_DoesNotOverrideEarlierEvent_WhenPidWasRecordedByJointBreak",
+       "line": 170
+      },
+      {
+       "method": "RecordFallbackDecoupleEvent_RecoversEvent_WhenPartEventsDroppedButDecoupledSetStale",
+       "line": 189
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug263SortTrapTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StableSortPartEventsByUT_EmptyList_IsNoOp",
+       "line": 29
+      },
+      {
+       "method": "StableSortPartEventsByUT_SingleEvent_IsNoOp",
+       "line": 37
+      },
+      {
+       "method": "StableSortPartEventsByUT_OrdersByUT_Ascending",
+       "line": 55
+      },
+      {
+       "method": "StableSortPartEventsByUT_SameUTEvents_PreserveInsertionOrder",
+       "line": 81
+      },
+      {
+       "method": "ResumeAfterFalseAlarm_SameUTDecouples_SurviveRemoveRange",
+       "line": 138
+      },
+      {
+       "method": "StableSortPartEventsByUT_MixedOrder_WithAndWithoutTies_SortsCorrectly",
+       "line": 217
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Issue316WatchProtectionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Issue316_FinalizeAutomaticExitForTesting_RetainsLineageProtectionWithoutSpam",
+       "line": 35
+      },
+      {
+       "method": "Issue316_ResolveZoneWatchState_RetainedProtectionKeepsLateDebrisFullFidelity",
+       "line": 51
+      },
+      {
+       "method": "Issue316_TryCommitWatchSessionStart_NullLoadedState_PreservesExistingLineageProtection",
+       "line": 95
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug270SidecarEpochTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SidecarEpoch_RoundTrips_ThroughSfsMetadata",
+       "line": 35
+      },
+      {
+       "method": "SidecarEpoch_Zero_OmittedFromSfs",
+       "line": 48
+      },
+      {
+       "method": "SidecarEpoch_MissingSfsField_DefaultsToZero",
+       "line": 58
+      },
+      {
+       "method": "ShouldSkipStaleSidecar_MatchingEpoch_ReturnsFalse",
+       "line": 72
+      },
+      {
+       "method": "ShouldSkipStaleSidecar_MismatchedEpoch_ReturnsTrue",
+       "line": 86
+      },
+      {
+       "method": "ShouldSkipStaleSidecar_ZeroSfsEpoch_SkipsValidation",
+       "line": 105
+      },
+      {
+       "method": "ShouldSkipStaleSidecar_ZeroPrecEpoch_WithNonZeroSfsEpoch_DetectsMismatch",
+       "line": 119
+      },
+      {
+       "method": "SidecarEpoch_IncrementedOnSave_MatchesSfsAfterSaveSequence",
+       "line": 135
+      },
+      {
+       "method": "OutOfBandWrite_PreservesEpoch_MatchesAfterQuickload",
+       "line": 166
+      },
+      {
+       "method": "MultipleOnSaveIncrements_AllMatchAfterQuickload",
+       "line": 199
+      },
+      {
+       "method": "SceneExitForceWrite_AfterOnSave_DoesNotCauseMismatch",
+       "line": 232
+      },
+      {
+       "method": "SidecarEpoch_QuicksaveQuickload_DetectsStaleness",
+       "line": 265
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

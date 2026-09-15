@@ -1,0 +1,292 @@
+{
+ "batch_id": "trajectory-orbit-015",
+ "cluster": "trajectory-orbit",
+ "tier": "B",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "ReaimWindowPlannerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Plan_KerbinToDuna_ProducesSaneSynodicSchedule",
+       "line": 25
+      },
+      {
+       "method": "DepartureUTForWindow_StepsBySynodicPeriod",
+       "line": 53
+      },
+      {
+       "method": "RelaunchUTForWindow_StepsByCadence",
+       "line": 63
+      },
+      {
+       "method": "RelaunchUTForWindow_NormalCase_CoincidesWithSynodicDeparture",
+       "line": 73
+      },
+      {
+       "method": "RelaunchUTForWindow_SpanExceedsSynodic_CadenceIsSynodicMultiple_ClocksCoincide",
+       "line": 85
+      },
+      {
+       "method": "ParkRephase_SpanExceedsSynodic_CadenceMultiple_ParkSitsOnLiveLaunchBody",
+       "line": 116
+      },
+      {
+       "method": "DepartureAndRelaunchClocksCoincide_AtEveryWindow_SpanExceedsSynodic",
+       "line": 155
+      },
+      {
+       "method": "ParkEndOverrideClocksCoincide_CoincideTrue_DivergeFalse",
+       "line": 181
+      },
+      {
+       "method": "ParkEndOverrideClocksCoincide_AtEveryWindow_BothScheduleShapes",
+       "line": 196
+      },
+      {
+       "method": "Plan_ReferenceBeforeRecordedDeparture_FirstWindowIsTheRecordedDeparture",
+       "line": 223
+      },
+      {
+       "method": "Plan_DegenerateInputs_InvalidWithReason",
+       "line": 233
+      },
+      {
+       "method": "Plan_ZeroSpanDuration_CadenceIsSynodic",
+       "line": 252
+      },
+      {
+       "method": "Plan_SubEpsilonPositiveSpan_CadenceFlooredToSynodic_NotZero",
+       "line": 261
+      },
+      {
+       "method": "Plan_S15Shape_CadenceIsTwoSynodic_ClocksCoincideEveryWindow",
+       "line": 277
+      },
+      {
+       "method": "Plan_NormalCase_CadenceIsSynodic_DepartureByteIdenticalToSynodicStepping",
+       "line": 305
+      },
+      {
+       "method": "PadAlignLaunch_SnapsLaunchToWholeSiderealDay",
+       "line": 333
+      },
+      {
+       "method": "PadAlignLaunch_QuantizesCadenceAndSpacingToWholeDay",
+       "line": 351
+      },
+      {
+       "method": "PadAlignLaunch_DepartureMovesBySameDeltaAsLaunch",
+       "line": 368
+      },
+      {
+       "method": "PadAlignLaunch_NonRotatingBody_Identity",
+       "line": 381
+      },
+      {
+       "method": "PadAlignLaunch_AlreadyAligned_ZeroDelta",
+       "line": 393
+      },
+      {
+       "method": "PadAlignLaunch_CadenceDiffersFromSynodic_NotApplied",
+       "line": 407
+      },
+      {
+       "method": "PadAlignLaunch_FloorGuard_SnapsUpAboveFloor",
+       "line": 423
+      },
+      {
+       "method": "PadAlignLaunch_RetrogradeBody_AlignsToRotationMagnitude",
+       "line": 443
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RelativeRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TrackSection_RelativeFrame_StoresAnchorVesselId",
+       "line": 17
+      },
+      {
+       "method": "TrackSection_AbsoluteFrame_AnchorVesselIdDefaultsToZero",
+       "line": 34
+      },
+      {
+       "method": "RecorderContract_V6RelativeStoresAnchorLocalOffset_ReplaysToFocusWorldPos",
+       "line": 70
+      },
+      {
+       "method": "RecorderContract_V6RelativeOffsetIndependentOfAnchorWorldVelocity",
+       "line": 116
+      },
+      {
+       "method": "RecorderContract_V6RelativeFieldsAreNotBodyFixedLatLonAlt",
+       "line": 143
+      },
+      {
+       "method": "RecorderContract_LiveAnchorPositionMustMatchPlaybackAnchorPosition",
+       "line": 185
+      },
+      {
+       "method": "AnchorDetection_TransitionLogic_EnterRelativeWhenClose",
+       "line": 273
+      },
+      {
+       "method": "AnchorDetection_TransitionLogic_ExitRelativeWhenFar",
+       "line": 307
+      },
+      {
+       "method": "AnchorDetection_TransitionLogic_HysteresisStaysRelative",
+       "line": 340
+      },
+      {
+       "method": "AnchorDetection_TransitionLogic_NoAnchor_StaysAbsolute",
+       "line": 367
+      },
+      {
+       "method": "AnchorDetection_TransitionLogic_TreeVesselsExcluded_StaysAbsolute",
+       "line": 390
+      },
+      {
+       "method": "AnchorDetector_EntryTransition_LogsRelativeEntry",
+       "line": 420
+      },
+      {
+       "method": "AnchorDetector_ExitTransition_LogsRelativeExit",
+       "line": 434
+      },
+      {
+       "method": "AnchorDetector_StayAbsolute_NoTransitionLog",
+       "line": 448
+      },
+      {
+       "method": "AnchorDetector_StayRelative_NoTransitionLog",
+       "line": 460
+      },
+      {
+       "method": "AnchorDetector_FindNearestAnchor_LogsAnchorPid",
+       "line": 472
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReaimTofSearchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "InvariantA_ZeroEccentricity_CandidateSetIdenticalToTodaysRecordedCenteredBand",
+       "line": 39
+      },
+      {
+       "method": "InvariantB_RecordedTofAlwaysFirstCandidate_AcrossEccentricities",
+       "line": 64
+      },
+      {
+       "method": "InvariantC_AllCandidatesWithinMaxHalfWidthFraction_OfRecordedTof",
+       "line": 87
+      },
+      {
+       "method": "InvariantD_PositiveEccentricity_SetExtendsTowardGeomTof_LongerSide",
+       "line": 115
+      },
+      {
+       "method": "InvariantD_PositiveEccentricity_SetExtendsTowardGeomTof_ShorterSide",
+       "line": 148
+      },
+      {
+       "method": "HalfWidthFraction_GrowsWithEccentricity_Bounded_AndBaseAtZero",
+       "line": 174
+      },
+      {
+       "method": "HalfWidthFraction_DegenerateEccentricity_ClampsToBase",
+       "line": 196
+      },
+      {
+       "method": "BuildCandidateTofs_DistinctAndPositive_AndNoPreferredSideStillProbesBothSides",
+       "line": 205
+      },
+      {
+       "method": "BuildCandidateTofs_DegenerateRecordedTof_ReturnsEmpty",
+       "line": 238
+      },
+      {
+       "method": "BuildParkingCandidateTofs_Step0IsGeomTof_NotRecorded",
+       "line": 255
+      },
+      {
+       "method": "BuildParkingCandidateTofs_BandCenteredOnGeomTof_Symmetric",
+       "line": 267
+      },
+      {
+       "method": "BuildParkingCandidateTofs_EccentricTargetWidensBand_Bounded",
+       "line": 292
+      },
+      {
+       "method": "BuildParkingCandidateTofs_AllPositiveAndDistinct",
+       "line": 320
+      },
+      {
+       "method": "BuildParkingCandidateTofs_DegenerateGeomTof_ReturnsEmpty",
+       "line": 331
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "OrbitalCheckpointDensifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LongWarpOrbitalCheckpoint_DensifiesTrajectoryPoints",
+       "line": 51
+      },
+      {
+       "method": "ShortWarpOrbitalCheckpoint_DoesNotDensify",
+       "line": 72
+      },
+      {
+       "method": "CurrentFormatSidecar_RoundTripsDensifiedCheckpointPoints",
+       "line": 90
+      },
+      {
+       "method": "MapSourceLog_CheckpointPointsDoNotOverrideSegmentDecision",
+       "line": 124
+      },
+      {
+       "method": "LongMultiSegmentCheckpoint_DensificationCapIsSpreadToSectionEnd",
+       "line": 165
+      },
+      {
+       "method": "ManySegmentCheckpoint_CapBudgetDoesNotFrontLoad",
+       "line": 185
+      },
+      {
+       "method": "OptimizerTrimCheckpointFrames_PreservesInterpolatedTrimEndpoint",
+       "line": 203
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

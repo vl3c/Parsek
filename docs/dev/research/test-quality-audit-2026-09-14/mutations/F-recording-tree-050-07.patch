@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/ChainSegmentManager.cs b/Source/Parsek/ChainSegmentManager.cs
+index 49bd30f55..6c4bdd57d 100644
+--- a/Source/Parsek/ChainSegmentManager.cs
++++ b/Source/Parsek/ChainSegmentManager.cs
+@@ -826,7 +826,10 @@ namespace Parsek
+                 // The next chain segment handles spawning, but after revert the snapshot
+                 // is needed for re-spawn. VesselSnapshot is immutable after commit.
+                 if (TryGetContinuationRecording(out var boardingRec))
++                {
+                     BakeContinuationData(boardingRec);
++                    boardingRec.VesselSnapshot = null; // MUTATION-T1: reintroduce bug #95 snapshot null
++                }
+                 ParsekLog.Verbose("Chain", $"Continuation stopped (boarding): " +
+                     $"VesselSnapshot preserved on recording #{ContinuationRecordingIdx} " +
+                     $"(snapshot={RecordingStore.CommittedRecordings[ContinuationRecordingIdx].VesselSnapshot != null})");

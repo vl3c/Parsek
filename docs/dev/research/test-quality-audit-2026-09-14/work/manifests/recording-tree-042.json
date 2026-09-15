@@ -1,0 +1,159 @@
+{
+ "batch_id": "recording-tree-042",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 35,
+ "files": [
+  {
+   "file": "SceneExitInterceptorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Decision_NoActiveTree_ReturnsNone",
+       "line": 86
+      },
+      {
+       "method": "Decision_PendingFinalizedTree_AutoMergeOff_ReturnsRegularMerge",
+       "line": 97
+      },
+      {
+       "method": "Decision_PendingFinalizedTree_ReFlyActive_ReturnsReFlyAttempt",
+       "line": 108
+      },
+      {
+       "method": "Decision_PendingNotFinalized_ReturnsNone",
+       "line": 119
+      },
+      {
+       "method": "LivePendingTreeDecision_FinalizedLandedPendingTree_AutoMergeOn_ReturnsNone",
+       "line": 130
+      },
+      {
+       "method": "LivePendingTreeDecision_LimboPendingTree_ReturnsNone",
+       "line": 147
+      },
+      {
+       "method": "Prefix_NoActiveTree_FinalizedPending_InvokesShowDialogForTesting",
+       "line": 167
+      },
+      {
+       "method": "Decision_NoActiveTree_NoSwitchSegment_ReturnsNone",
+       "line": 201
+      },
+      {
+       "method": "Decision_NoActiveTree_SwitchSegmentActive_ReturnsRegularMerge",
+       "line": 216
+      },
+      {
+       "method": "TryResolveSessionTreeForDialog_NullSession_ReturnsNull",
+       "line": 234
+      },
+      {
+       "method": "TryResolveSessionTreeForDialog_EmptyTreeId_ReturnsNull",
+       "line": 244
+      },
+      {
+       "method": "TryResolveSessionTreeForDialog_MatchesPendingTree_Returns",
+       "line": 259
+      },
+      {
+       "method": "SceneExitInterceptor_SessionTreeResolvedFromCommitted_RefusesDialogSpawn",
+       "line": 281
+      },
+      {
+       "method": "Decision_AutoMergeOff_AnyDest_ReturnsRegularMerge",
+       "line": 307
+      },
+      {
+       "method": "Decision_AutoMergeOn_KscExit_ReturnsNone_88Folded",
+       "line": 327
+      },
+      {
+       "method": "Decision_AutoMergeOn_TsExit_ReturnsNone_88Folded",
+       "line": 341
+      },
+      {
+       "method": "Decision_AutoMergeOn_NotLandedAtKsc_ReturnsNone",
+       "line": 353
+      },
+      {
+       "method": "Decision_AutoMergeOn_MainMenu_AlwaysReturnsRegularMerge",
+       "line": 364
+      },
+      {
+       "method": "Decision_ReFlyActive_ReturnsReFlyAttempt_AnyAutoMerge",
+       "line": 378
+      },
+      {
+       "method": "Decision_AutoMergeOn_NotLandedAtKsc_ReFlyActive_OverridesToReFlyAttempt",
+       "line": 392
+      },
+      {
+       "method": "Token_NotArmed_DefaultIsLOADING",
+       "line": 406
+      },
+      {
+       "method": "BuildPostChoice_ArmsTokenWithDestination",
+       "line": 414
+      },
+      {
+       "method": "SafeWritePersistent_TestSeam_Success_ReturnsTrue",
+       "line": 436
+      },
+      {
+       "method": "SafeWritePersistent_TestSeam_FailureOnMainMenu_ReturnsFalse",
+       "line": 454
+      },
+      {
+       "method": "SafeWritePersistent_TestSeam_FailureOnKsc_ReturnsFalseFromSeam",
+       "line": 462
+      },
+      {
+       "method": "TryAutoDiscardIdleActiveTree_NullFlight_ReturnsFalse",
+       "line": 476
+      },
+      {
+       "method": "TryAutoDiscardIdleActiveTree_ReFlyMarkerArmed_RefusesAndKeepsMarker",
+       "line": 501
+      },
+      {
+       "method": "TryAutoDiscardIdleActiveTree_MergeJournalActive_RefusesAndKeepsJournal",
+       "line": 535
+      },
+      {
+       "method": "TryAutoDiscardIdleActiveTree_NoReFlyNoJournal_NoRefusalLogged",
+       "line": 568
+      },
+      {
+       "method": "AutoDiscardActiveTreeCore_ClearsSwitchSegmentSession",
+       "line": 609
+      },
+      {
+       "method": "LoadScenePrefix_IdleOnPadBranch_ReSavesAfterDiscard",
+       "line": 630
+      },
+      {
+       "method": "BackfillMaxDistanceFromBodyFixedSurfaces_NullRecording_ReturnsCleanly",
+       "line": 647
+      },
+      {
+       "method": "BackfillMaxDistanceFromBodyFixedSurfaces_NullTrackSections_ReturnsCleanly",
+       "line": 654
+      },
+      {
+       "method": "BackfillMaxDistanceFromBodyFixedSurfaces_EmptyTrackSections_LeavesMaxDistanceUntouched",
+       "line": 664
+      },
+      {
+       "method": "BackfillMaxDistanceFromBodyFixedSurfaces_AllRelativeSections_LeavesMaxDistanceUntouched",
+       "line": 675
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,181 @@
+{
+ "batch_id": "catchall-038",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 35,
+ "files": [
+  {
+   "file": "DeserializeExtractedTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DeserializePoints_ParsesBasicPoint",
+       "line": 35
+      },
+      {
+       "method": "DeserializePoints_MultiplePoints_PreservesOrder",
+       "line": 78
+      },
+      {
+       "method": "DeserializePoints_NoPointNodes_LeavesEmpty",
+       "line": 105
+      },
+      {
+       "method": "DeserializePoints_MissingBody_DefaultsToKerbin",
+       "line": 116
+      },
+      {
+       "method": "DeserializePoints_LogsWarningForUnparseableUT",
+       "line": 136
+      },
+      {
+       "method": "DeserializeOrbitSegments_ParsesBasicSegment",
+       "line": 175
+      },
+      {
+       "method": "DeserializeOrbitSegments_ParsesOrbitalFrameRotation",
+       "line": 208
+      },
+      {
+       "method": "DeserializeOrbitSegments_ParsesAngularVelocity",
+       "line": 233
+      },
+      {
+       "method": "DeserializeOrbitSegments_NoSegmentNodes_LeavesEmpty",
+       "line": 256
+      },
+      {
+       "method": "DeserializePartEvents_ParsesBasicEvent",
+       "line": 271
+      },
+      {
+       "method": "DeserializePartEvents_MultipleEvents_PreservesOrder",
+       "line": 296
+      },
+      {
+       "method": "DeserializePartEvents_NoEventNodes_LeavesEmpty",
+       "line": 320
+      },
+      {
+       "method": "DeserializePartEvents_MissingOptionalFields_DefaultsToZero",
+       "line": 331
+      },
+      {
+       "method": "DeserializePartEvents_UnknownEventType_LogsWarning",
+       "line": 350
+      },
+      {
+       "method": "SerializeDeserialize_RoundTrip_PreservesAllData",
+       "line": 388
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReconciliationBundleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Capture_RoundTrip_RestoresEveryDomain",
+       "line": 86
+      },
+      {
+       "method": "Restore_Idempotent_NoDuplicates",
+       "line": 203
+      },
+      {
+       "method": "Restore_AfterBundle_DoesNotDuplicatePreExistingEntries",
+       "line": 226
+      },
+      {
+       "method": "Restore_WithRouteCutoff_DropsFutureRouteRows_KeepsPastAndNonRoute",
+       "line": 267
+      },
+      {
+       "method": "Restore_Parameterless_KeepsAllRouteRows_RollbackContract",
+       "line": 296
+      },
+      {
+       "method": "Restore_WithCutoff_DropsPendingScienceStrictlyAfterCutoff_KeepsAtAndBefore",
+       "line": 334
+      },
+      {
+       "method": "Restore_Parameterless_RestoresPendingScienceWholesale_RollbackContract",
+       "line": 368
+      },
+      {
+       "method": "Restore_WithCutoff_KeepsNaNCaptureUtPendingScience",
+       "line": 394
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MultiMoonAlignmentTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResonantInnerThree_EngagesConfigHold_OnJointConfigurationPeriod",
+       "line": 129
+      },
+      {
+       "method": "ResonantInnerThree_PerLoopHold_AlignsEveryEncounterWithinSoiTolerance",
+       "line": 144
+      },
+      {
+       "method": "ResonantInnerThree_TidallyLockedMoonLanding_StillEngages",
+       "line": 178
+      },
+      {
+       "method": "Drop_MultiMoon_StillAlignsOrbitalConfiguration",
+       "line": 193
+      },
+      {
+       "method": "IncommensurateBopMoon_FailsClosedWithAmberNamingTheShape",
+       "line": 210
+      },
+      {
+       "method": "NonLockedMoonRotationLanding_FailsClosedWithAmber",
+       "line": 226
+      },
+      {
+       "method": "JoolLandingRotation_MultiMoon_FailsClosedWithAmber",
+       "line": 239
+      },
+      {
+       "method": "SlackSmallerThanAnchorPeriod_FailsClosedWithAmber",
+       "line": 253
+      },
+      {
+       "method": "MultiMoon_DestinationSideLoiterCut_FailsClosedWithAmber",
+       "line": 264
+      },
+      {
+       "method": "Extractor_MultiMoon_EmitsSupportedConstraintSet",
+       "line": 286
+      },
+      {
+       "method": "Extractor_MultiMoonWithStation_StaysFailClosed_WithStationMoonReason",
+       "line": 300
+      },
+      {
+       "method": "SingleMoon_TidallyLockedIke_KeepsPlainRotationHold",
+       "line": 319
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

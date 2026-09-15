@@ -1,0 +1,265 @@
+{
+ "batch_id": "trajectory-orbit-018",
+ "cluster": "trajectory-orbit",
+ "tier": "B",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "TrajectoryTextSidecarCodecStructuralEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TextRoundTrip_StructuralEventFlag_PreservesBit",
+       "line": 58
+      },
+      {
+       "method": "TextSerialize_FlagsZero_OmitsFieldOnTheWire",
+       "line": 86
+      },
+      {
+       "method": "TextSerialize_FlaggedPoint_EmitsFlagsValue",
+       "line": 110
+      },
+      {
+       "method": "TextRead_LegacyMirrorWithoutFlagsField_DefaultsToZero",
+       "line": 130
+      },
+      {
+       "method": "TextRoundTrip_FutureBitAtBitOne_RoundsTrip",
+       "line": 159
+      },
+      {
+       "method": "TextRoundTrip_ClearanceAndFlags_BothPreservedIndependently",
+       "line": 181
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TrajectoryTextSidecarCodecTerrainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TextRoundTrip_FiniteClearance_PreservesValue",
+       "line": 61
+      },
+      {
+       "method": "TextRoundTrip_NaNClearance_RoundTripsAsNaN",
+       "line": 93
+      },
+      {
+       "method": "TextRead_LegacyMirrorWithoutClearanceField_DefaultsToNaN",
+       "line": 124
+      },
+      {
+       "method": "TextRoundTrip_MixedFiniteAndNaN_PreservesPerPointSemantics",
+       "line": 154
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "WarpToTimeMathTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeTargetUT_Kerbin",
+       "line": 29
+      },
+      {
+       "method": "ComputeTargetUT_Earth",
+       "line": 38
+      },
+      {
+       "method": "ComputeTargetUT_HourMinuteOverflow_RollsOver",
+       "line": 45
+      },
+      {
+       "method": "TryParseField_Cases",
+       "line": 67
+      },
+      {
+       "method": "DecideWarpPlan_FutureTarget_ForwardOnly",
+       "line": 89
+      },
+      {
+       "method": "DecideWarpPlan_FutureTarget_InFlight_RequiresExit",
+       "line": 98
+      },
+      {
+       "method": "DecideWarpPlan_AtTarget",
+       "line": 109
+      },
+      {
+       "method": "DecideWarpPlan_PastTarget_WithRewindTarget_RewindThenForward",
+       "line": 117
+      },
+      {
+       "method": "DecideWarpPlan_PastTarget_NoRewindTarget_Unreachable",
+       "line": 127
+      },
+      {
+       "method": "SelectRewindTarget_NearestPrior",
+       "line": 138
+      },
+      {
+       "method": "SelectRewindTarget_ExactMatch",
+       "line": 147
+      },
+      {
+       "method": "SelectRewindTarget_BeforeAll_FallsBackToEarliest",
+       "line": 156
+      },
+      {
+       "method": "SelectRewindTarget_Empty_ReturnsMinusOne",
+       "line": 166
+      },
+      {
+       "method": "SelectRewindTarget_SingleAfterTarget_FallsBackToEarliest",
+       "line": 174
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReaimedTrajectoryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Adapter_PresentsAssembledSegments_AndDerivesSpan",
+       "line": 30
+      },
+      {
+       "method": "Adapter_EmptiesPositionDependentSurfaces",
+       "line": 49
+      },
+      {
+       "method": "Adapter_DelegatesPartEventsToRecording",
+       "line": 64
+      },
+      {
+       "method": "Adapter_DelegatesIdentityToRecording",
+       "line": 80
+      },
+      {
+       "method": "Adapter_NullOrEmptyAssembled_FallsBackToInnerSpan",
+       "line": 89
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReaimFeasibilityScanTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FirstSuccessIndex_ReturnsFirstTrue",
+       "line": 27
+      },
+      {
+       "method": "FirstSuccessIndex_NullOrEmpty_ReturnsMinusOne",
+       "line": 33
+      },
+      {
+       "method": "CenterOfLongestRunIndex_Cyclic_PicksBandCenter",
+       "line": 50
+      },
+      {
+       "method": "CenterOfLongestRunIndex_NonCyclic_DoesNotWrap",
+       "line": 58
+      },
+      {
+       "method": "CenterOfLongestRunIndex_NullOrEmpty_ReturnsMinusOne",
+       "line": 64
+      },
+      {
+       "method": "CenterOfLongestRunIndex_WrappedRunLosesTiesToLinearRun",
+       "line": 71
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TrajectorySidecarProbeVersionContractTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CurrentVersionPair_IsAccepted",
+       "line": 11
+      },
+      {
+       "method": "LegacyEqualVersionPair_IsRejected",
+       "line": 19
+      },
+      {
+       "method": "MismatchedVersionPair_IsRejected",
+       "line": 27
+      },
+      {
+       "method": "TextConfigNode_CurrentVersion_IsUnsupportedAfterReset",
+       "line": 35
+      },
+      {
+       "method": "TextConfigNode_PreResetVersion_IsUnsupportedAfterReset",
+       "line": 55
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TrajectoryPointTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TrajectoryPoint_ToString_FormatsCorrectly",
+       "line": 10
+      },
+      {
+       "method": "ResourceFields_StoreCorrectly",
+       "line": 33
+      },
+      {
+       "method": "ToString_DoesNotIncludeResourceFields",
+       "line": 48
+      },
+      {
+       "method": "ToString_WithNegativeCoordinates",
+       "line": 64
+      },
+      {
+       "method": "ToString_WithExtremeAltitude",
+       "line": 82
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,186 @@
+{
+ "batch_id": "spawn-vessel-018",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "ResourceManifestSerializationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RoundTrip_BothStartAndEnd",
+       "line": 33
+      },
+      {
+       "method": "RoundTrip_StartOnly",
+       "line": 75
+      },
+      {
+       "method": "RoundTrip_EndOnly",
+       "line": 98
+      },
+      {
+       "method": "RoundTrip_NullBoth_NoNodeWritten",
+       "line": 121
+      },
+      {
+       "method": "RoundTrip_EmptyDicts_NoNodeWritten",
+       "line": 135
+      },
+      {
+       "method": "RoundTrip_AsymmetricKeys",
+       "line": 149
+      },
+      {
+       "method": "RoundTrip_Precision",
+       "line": 191
+      },
+      {
+       "method": "LocaleSafety",
+       "line": 219
+      },
+      {
+       "method": "LegacyRecording_NoNode_NullFields",
+       "line": 262
+      },
+      {
+       "method": "MalformedResource_Skipped",
+       "line": 276
+      },
+      {
+       "method": "DockTargetVesselPid_RoundTrip_ViaScenario",
+       "line": 313
+      },
+      {
+       "method": "DockTargetVesselPid_LegacyRecording_DefaultsZero",
+       "line": 330
+      },
+      {
+       "method": "DockTargetVesselPid_ZeroNotWritten",
+       "line": 343
+      },
+      {
+       "method": "DockTargetVesselPid_RoundTrip_ViaTree",
+       "line": 356
+      },
+      {
+       "method": "ResourceManifest_RoundTrip_ViaTree",
+       "line": 377
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ResourceManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ExtractResourceManifest_NullInput_ReturnsNull",
+       "line": 60
+      },
+      {
+       "method": "ExtractResourceManifest_EmptyVessel_ReturnsNull",
+       "line": 68
+      },
+      {
+       "method": "ExtractResourceManifest_SinglePart_SingleResource",
+       "line": 78
+      },
+      {
+       "method": "ExtractResourceManifest_SinglePart_MultipleResources",
+       "line": 93
+      },
+      {
+       "method": "ExtractResourceManifest_MultipleParts_SameResource_Summed",
+       "line": 109
+      },
+      {
+       "method": "ExtractResourceManifest_MultipleParts_MixedResources",
+       "line": 126
+      },
+      {
+       "method": "ExtractResourceManifest_ZeroAmountResource_Included",
+       "line": 147
+      },
+      {
+       "method": "ExtractResourceManifest_PartWithNoResources_Skipped",
+       "line": 161
+      },
+      {
+       "method": "ExtractResourceManifest_MissingAmountField_DefaultsZero",
+       "line": 178
+      },
+      {
+       "method": "ExtractResourceManifest_MalformedAmount_DefaultsZero",
+       "line": 193
+      },
+      {
+       "method": "ExtractResourceManifest_ElectricCharge_Excluded",
+       "line": 209
+      },
+      {
+       "method": "ExtractResourceManifest_IntakeAir_Excluded",
+       "line": 224
+      },
+      {
+       "method": "ExtractResourceManifest_Ablator_Included",
+       "line": 239
+      },
+      {
+       "method": "ExtractResourceManifest_RoundTrip_Precision",
+       "line": 252
+      },
+      {
+       "method": "ExtractResourceManifest_VesselSnapshotBuilder_Integration",
+       "line": 266
+      },
+      {
+       "method": "ComputeResourceDelta_NormalConsumption",
+       "line": 297
+      },
+      {
+       "method": "ComputeResourceDelta_ResourceGained",
+       "line": 315
+      },
+      {
+       "method": "ComputeResourceDelta_MixedGainsAndLosses",
+       "line": 333
+      },
+      {
+       "method": "ComputeResourceDelta_ResourceOnlyInStart",
+       "line": 354
+      },
+      {
+       "method": "ComputeResourceDelta_ResourceOnlyInEnd",
+       "line": 369
+      },
+      {
+       "method": "ComputeResourceDelta_Unchanged",
+       "line": 384
+      },
+      {
+       "method": "ComputeResourceDelta_BothNull",
+       "line": 402
+      },
+      {
+       "method": "ComputeResourceDelta_StartNull",
+       "line": 410
+      },
+      {
+       "method": "ComputeResourceDelta_EndNull",
+       "line": 424
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

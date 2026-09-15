@@ -1,0 +1,175 @@
+{
+ "batch_id": "map-render-003",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "RenderParityRegressionScenarioTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Faithful_AscentToOrbit_KnownGood_ZeroDrift",
+       "line": 175
+      },
+      {
+       "method": "Faithful_AtmosphericAscent_KnownGood_ZeroDrift",
+       "line": 190
+      },
+      {
+       "method": "Faithful_DescentToLanding_KnownGood_ZeroDrift",
+       "line": 204
+      },
+      {
+       "method": "Faithful_SoiCrossing_KnownGood_ZeroDrift",
+       "line": 218
+      },
+      {
+       "method": "Faithful_BgOnRailsAllOrbital_KnownGood_ZeroDrift",
+       "line": 235
+      },
+      {
+       "method": "Faithful_AerobrakingEccentric_KnownGood_ZeroDrift",
+       "line": 250
+      },
+      {
+       "method": "Faithful_LoopShiftedGhost_SameOrbit_ZeroDrift",
+       "line": 265
+      },
+      {
+       "method": "Faithful_DifferentSampleDensity_SameCurve_ZeroDrift",
+       "line": 309
+      },
+      {
+       "method": "Faithful_LoopRotationBug_OffOrbitArc_FlagsDrift",
+       "line": 334
+      },
+      {
+       "method": "Faithful_WrongBodyOrbit_DifferentScale_FlagsDrift",
+       "line": 350
+      },
+      {
+       "method": "Faithful_MisAppliedLoopShift_PhaseOffset_FlagsDrift",
+       "line": 366
+      },
+      {
+       "method": "Faithful_DescentArcOffset_FlagsDrift",
+       "line": 385
+      },
+      {
+       "method": "Faithful_AerobrakingWrongEccentricity_FlagsDrift",
+       "line": 401
+      },
+      {
+       "method": "Synthesized_ReaimedLoopIntendedArc_KnownGood_ZeroDrift",
+       "line": 420
+      },
+      {
+       "method": "Synthesized_MixedFaithfulReaimedMembers_IntendedArc_ZeroDrift",
+       "line": 438
+      },
+      {
+       "method": "Synthesized_DescentReStitchIntendedG1Arc_KnownGood_ZeroDrift",
+       "line": 453
+      },
+      {
+       "method": "Synthesized_LoopShiftedReaimedSeed_PhaseMatched_ZeroDrift",
+       "line": 470
+      },
+      {
+       "method": "Synthesized_ReaimedParkingOrbit_StaleEffUtSkew_ZeroDrift",
+       "line": 513
+      },
+      {
+       "method": "Synthesized_ReaimedParkingOrbit_WrongElements_FlagsDrift",
+       "line": 577
+      },
+      {
+       "method": "SynthEpochGate_BakedConvention_Passes",
+       "line": 618
+      },
+      {
+       "method": "SynthEpochGate_RawCreationFrame_SkipsAsKnownTransient",
+       "line": 628
+      },
+      {
+       "method": "SynthEpochGate_ZeroShift_ConventionsCoincide_Passes",
+       "line": 642
+      },
+      {
+       "method": "SynthEpochGate_UnexplainedEpoch_SkipsAsNonRaw",
+       "line": 652
+      },
+      {
+       "method": "SynthEpochGate_NonFiniteShift_TreatedAsZero_MatchesReferenceBuilder",
+       "line": 662
+      },
+      {
+       "method": "SynthEpochGate_NonFiniteRenderedEpoch_Skips",
+       "line": 672
+      },
+      {
+       "method": "SynthEpochSkip_RawConvention_ClassifiesRawTransient",
+       "line": 687
+      },
+      {
+       "method": "SynthEpochSkip_MatchesPriorBakedEpoch_ClassifiesPriorSeedTransient",
+       "line": 695
+      },
+      {
+       "method": "SynthEpochSkip_NoPriorBaked_OrNoMatch_ClassifiesUnexplained",
+       "line": 705
+      },
+      {
+       "method": "SynthEpochSkip_Describe_LabelsAreGrepStableAndDistinct",
+       "line": 716
+      },
+      {
+       "method": "ReaimGate_VerbatimSeed_ComparesEqual_FaithfulMemberStaysMeasured",
+       "line": 756
+      },
+      {
+       "method": "ReaimGate_ReaimedSeed_Differs_FaithfulLensStandsDown",
+       "line": 767
+      },
+      {
+       "method": "SynthEpochGate_SlackAbsorbsRoundTrip_ButNotAFrameOfDrift",
+       "line": 777
+      },
+      {
+       "method": "FaithfulLookup_IsTheRecordedClock_CurrentUTMinusShift",
+       "line": 794
+      },
+      {
+       "method": "FaithfulLookup_NonFiniteShift_TreatedAsZero_CurrentUTUnchanged",
+       "line": 806
+      },
+      {
+       "method": "FaithfulLookup_BlockerScenario_RecordedClockLandsInSpan_DriveClockDoesNot",
+       "line": 819
+      },
+      {
+       "method": "Synthesized_ReaimedArc_DrawnRotated_FlagsDrift",
+       "line": 856
+      },
+      {
+       "method": "Synthesized_DescentReStitch_SeamDiscontinuity_FlagsDrift",
+       "line": 872
+      },
+      {
+       "method": "SameAbsoluteOffset_DriftOnLko_NotOnHeliocentric_PerScenarioTolerance",
+       "line": 895
+      },
+      {
+       "method": "NoMeasurement_NeverFalseDrift_RegressionSafety",
+       "line": 917
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

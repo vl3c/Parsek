@@ -1,0 +1,328 @@
+{
+ "batch_id": "catchall-063",
+ "cluster": "catchall",
+ "tier": "C",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "ParsekSettingsPersistenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetStoredReadableSidecarMirrors_DefaultsNull",
+       "line": 33
+      },
+      {
+       "method": "GetStoredGhostRenderTracing_DefaultsNull",
+       "line": 39
+      },
+      {
+       "method": "SetStoredReadableSidecarMirrors_RoundTrips",
+       "line": 45
+      },
+      {
+       "method": "SetStoredGhostRenderTracing_RoundTrips",
+       "line": 52
+      },
+      {
+       "method": "RecordGhostRenderTracing_UpdatesInMemoryStore",
+       "line": 59
+      },
+      {
+       "method": "ResetForTesting_ClearsStoredValue",
+       "line": 67
+      },
+      {
+       "method": "ApplyTo_RestoresStoredGhostRenderTracing",
+       "line": 77
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "NeverLeftGroundExemptionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullRecording_NotExempt",
+       "line": 23
+      },
+      {
+       "method": "SinglePoint_TerminalLanded_Exempt",
+       "line": 29
+      },
+      {
+       "method": "SinglePoint_NoTerminalState_GroundedTerminalPosition_Exempt",
+       "line": 37
+      },
+      {
+       "method": "SinglePoint_NoGroundedEvidence_NotExempt",
+       "line": 52
+      },
+      {
+       "method": "SinglePoint_NonLandedTerminalState_NotExempt_EvenWithTerminalPosition",
+       "line": 61
+      },
+      {
+       "method": "TwoPoints_NotExempt",
+       "line": 76
+      },
+      {
+       "method": "SinglePoint_WithOrbitSegment_NotExempt",
+       "line": 85
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TransferSolverInterfaceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DefaultSolver_MatchesUvLambert_OnTheCurtisCase",
+       "line": 21
+      },
+      {
+       "method": "DefaultSolver_FailsClosed_LikeUvLambert_OnDegenerateGeometry",
+       "line": 45
+      },
+      {
+       "method": "Synthesizer_TransferSolverSeam_DefaultsToUvLambertDelegation",
+       "line": 69
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DepthMaskFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetDepthMaskTransformNames_ReStockJetShape_FindsMask",
+       "line": 33
+      },
+      {
+       "method": "GetDepthMaskTransformNames_CommunityModuleDepthMask_Matches",
+       "line": 41
+      },
+      {
+       "method": "GetDepthMaskTransformNames_StockConfig_Empty",
+       "line": 54
+      },
+      {
+       "method": "IsDepthMaskShaderName_MatchesDepthMaskShadersOnly",
+       "line": 77
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FloatingOriginSetOffsetPatchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RecordFloatingOriginShift_LogsPatchInputsAndFrame",
+       "line": 30
+      },
+      {
+       "method": "RecordFloatingOriginShift_NoSettleActivity_IsRateLimited",
+       "line": 54
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekFlightDebrisPersistenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DiscardActiveTreeForSuppressedSceneExit_RestoresDebrisPersistenceOverride",
+       "line": 11
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PatchFundsSanityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsSuspiciousDrawdown_BigDropFromBigPool_IsSuspicious",
+       "line": 39
+      },
+      {
+       "method": "IsSuspiciousDrawdown_SmallDrop_IsNotSuspicious",
+       "line": 46
+      },
+      {
+       "method": "IsSuspiciousDrawdown_Addition_IsNotSuspicious",
+       "line": 53
+      },
+      {
+       "method": "IsSuspiciousDrawdown_SmallPool_IsNotSuspicious",
+       "line": 61
+      },
+      {
+       "method": "IsSuspiciousDrawdown_BoundaryExactly10Percent_NotSuspicious",
+       "line": 71
+      },
+      {
+       "method": "IsSuspiciousDrawdown_BoundaryJustAbove10Percent_Suspicious",
+       "line": 78
+      },
+      {
+       "method": "IsSuspiciousDrawdown_ZeroPool_NotSuspicious",
+       "line": 84
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekFlightExplosionAnchorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveExplosionAnchorBodyName_PrefersLastInterpolatedBody",
+       "line": 8
+      },
+      {
+       "method": "ResolveExplosionAnchorBodyName_FallsBackToLastPointBeforeSurfacePosition",
+       "line": 29
+      },
+      {
+       "method": "ResolveExplosionAnchorBodyName_FallsBackToPersistedEndpointDecision",
+       "line": 50
+      },
+      {
+       "method": "ResolveExplosionAnchorBodyName_FallsBackToSurfacePositionBody",
+       "line": 73
+      },
+      {
+       "method": "ResolveExplosionAnchorBodyName_NoPlaybackContext_ReturnsNull",
+       "line": 93
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CatmullRomFitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Evaluate_UniformKnots_MatchesLinearMidpointForLinearControls",
+       "line": 9
+      },
+      {
+       "method": "Evaluate_NonUniformShortSegment_ScalesTangentsBySegmentDuration",
+       "line": 27
+      },
+      {
+       "method": "Evaluate_Pr708AtmosphericShortSegment_StaysWithinAdjacentControls",
+       "line": 45
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LiveKspLogValidationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ValidateLatestSession",
+       "line": 12
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BranchPointRewindPointIdRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BranchPoint_NullRewindPointId_StaysNull_OnRoundTrip",
+       "line": 14
+      },
+      {
+       "method": "BranchPoint_PopulatedRewindPointId_RoundTripsExactly",
+       "line": 35
+      },
+      {
+       "method": "BranchPoint_EmptyStringRewindPointId_TreatedAsNull",
+       "line": 56
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekFlightLiveResumeAccessorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveLiveResumedRecordingId_NotRecording_ReturnsNull",
+       "line": 19
+      },
+      {
+       "method": "ResolveLiveResumedRecordingId_NoActiveId_ReturnsNull",
+       "line": 27
+      },
+      {
+       "method": "ResolveLiveResumedRecordingId_RecordingWithActiveId_ReturnsId",
+       "line": 38
+      },
+      {
+       "method": "StaticAccessors_NoInstance_ReturnNullAndNaN",
+       "line": 48
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

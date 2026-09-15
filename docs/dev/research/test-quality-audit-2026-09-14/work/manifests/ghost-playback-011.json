@@ -1,0 +1,243 @@
+{
+ "batch_id": "ghost-playback-011",
+ "cluster": "ghost-playback",
+ "tier": "A",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "WatchModeControllerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "WatchRangeHysteresis_AllowsNearCutoffEntryAndExitsAfterBand",
+       "line": 46
+      },
+      {
+       "method": "ShouldExitWatchAfterCutoffDebounce_BelowThreshold_KeepsWatching",
+       "line": 58
+      },
+      {
+       "method": "ShouldExitWatchAfterCutoffDebounce_AtOrAboveThreshold_ExitsWatch",
+       "line": 69
+      },
+      {
+       "method": "RegisterWatchCutoffSampleAndShouldExit_WithinRangeFrame_ResetsCounter",
+       "line": 82
+      },
+      {
+       "method": "RegisterWatchCutoffSampleAndShouldExit_ConsecutiveCutoffFrames_ExitsAtThreshold",
+       "line": 102
+      },
+      {
+       "method": "ResolveWatchCutoffDistance_OrbitTailIncludesRenderDistance",
+       "line": 120
+      },
+      {
+       "method": "ResolveWatchCutoffDistance_NonTailUsesActiveVesselDistance",
+       "line": 131
+      },
+      {
+       "method": "PrimeLoopWatchResetState_NullGhost_DoesNotThrow_AndResetsState",
+       "line": 142
+      },
+      {
+       "method": "ResolveOverlapBridgeRetargetState_PendingWithoutPrimary_KeepsBridge",
+       "line": 164
+      },
+      {
+       "method": "ResolveOverlapBridgeRetargetState_PendingWithPrimary_RetargetsToPrimary",
+       "line": 176
+      },
+      {
+       "method": "ResolveOverlapBridgeRetargetState_NoPendingBridge_DoesNothing",
+       "line": 188
+      },
+      {
+       "method": "ResolveOverlapBridgeRetargetState_PendingWithoutPrimaryPastBudget_ExitsWatch",
+       "line": 200
+      },
+      {
+       "method": "AdvanceOverlapBridgeWaitFrames_SameFrame_DoesNotIncrementTwice",
+       "line": 212
+      },
+      {
+       "method": "AdvanceOverlapBridgeWaitFrames_NewFrame_IncrementsBudget",
+       "line": 223
+      },
+      {
+       "method": "ProcessWatchEndHoldTimer_DebrisOnlyChild_DoesNotAutoFollowDuringHold",
+       "line": 234
+      },
+      {
+       "method": "ProcessWatchEndHoldTimer_PendingActivationUT_RecomputesDeadlineBeforeExpiry",
+       "line": 313
+      },
+      {
+       "method": "ProcessWatchEndHoldTimer_PendingActivationUTReached_AddsPostActivationGrace",
+       "line": 380
+      },
+      {
+       "method": "ProcessWatchEndHoldTimer_PendingActivationUT_RecomputedDeadlineRespectsMaxCap",
+       "line": 447
+      },
+      {
+       "method": "ResolveSwitchCameraMode_AutoMode_ChoosesHorizonLock",
+       "line": 514
+      },
+      {
+       "method": "ResolveSwitchCameraMode_AutoMode_ChoosesFreeAboveAtmosphere",
+       "line": 527
+      },
+      {
+       "method": "ResolveSwitchCameraMode_UserOverride_KeepsExplicitMode",
+       "line": 540
+      },
+      {
+       "method": "ResolveSwitchCameraMode_PreserveMode_KeepsCurrentAcrossAtmosphereBoundary",
+       "line": 553
+      },
+      {
+       "method": "ShouldRunAutomaticWatchCameraModeSelection_SuppressedAfterChainTransfer",
+       "line": 584
+      },
+      {
+       "method": "PrepareFreshWatchCameraState_AtmosphericGhost_UsesHorizonModeAndCanonicalFraming",
+       "line": 598
+      },
+      {
+       "method": "PrepareFreshWatchCameraState_OrbitalGhost_UsesFreeModeAndCanonicalFraming",
+       "line": 629
+      },
+      {
+       "method": "DefaultWatchEntryConstants_AreInDegreeConvention_ProduceExpectedOrbitDirection",
+       "line": 655
+      },
+      {
+       "method": "CompensateTransferredWatchAngles_NoRotationOrWorldDirection_ReturnsRawAngles",
+       "line": 680
+      },
+      {
+       "method": "CompensateTransferredWatchAngles_WorldOrbitDirection_PreservesDirection",
+       "line": 702
+      },
+      {
+       "method": "MakeWatchCameraStateTargetRelative_ClearsBasisFields_KeepsPitchHeadingDistanceMode",
+       "line": 731
+      },
+      {
+       "method": "CompensateTransferredWatchAngles_TargetRelativeStateIgnoresNewTargetRotation",
+       "line": 771
+      },
+      {
+       "method": "CompensateTransferredWatchAngles_RawWorldDirectionStateProjectsOntoNewTargetBasis",
+       "line": 806
+      },
+      {
+       "method": "CompensateTransferredWatchAngles_ChainTransferBoundary_PreservesCapturedLocalAngles",
+       "line": 842
+      },
+      {
+       "method": "TryResolveRetargetedWatchAngles_WithCapturedState_ReappliesCompensatedAngles",
+       "line": 895
+      },
+      {
+       "method": "TryResolveRetargetedWatchAngles_WithoutCapturedState_LeavesRawAngles",
+       "line": 928
+      },
+      {
+       "method": "TryResolveWorldOrbitDirection_PivotFrameRotatesForwardIntoWorldSpace",
+       "line": 949
+      },
+      {
+       "method": "TryResolveWorldOrbitDirection_PivotFramePreservesPitchComponent",
+       "line": 966
+      },
+      {
+       "method": "InitializeMapFocusRestoreState_MapAlreadyOpen_PrimesOneShotRestore",
+       "line": 983
+      },
+      {
+       "method": "AdvanceMapFocusRestoreState_ReopeningMap_RearmsRestoreAttempt",
+       "line": 993
+      },
+      {
+       "method": "AdvanceMapFocusRestoreState_MapStillOpenWithoutPendingRestore_DoesNotRefocusAgain",
+       "line": 1007
+      },
+      {
+       "method": "CanRestoreMapFocus_MissingMapObject_StaysDeferred",
+       "line": 1021
+      },
+      {
+       "method": "ClassifyMapFocusRestore_ReturnsSpecificMissingReason",
+       "line": 1033
+      },
+      {
+       "method": "BuildMapFocusRestoreDecisionMessage_IncludesMapIconState",
+       "line": 1068
+      },
+      {
+       "method": "ClassifyWatchCameraInfrastructure_ReturnsSpecificMissingReason",
+       "line": 1089
+      },
+      {
+       "method": "BuildWatchCameraInfrastructureMessage_IncludesTargetState",
+       "line": 1114
+      },
+      {
+       "method": "FinalizeAutomaticExit_ClearsEnsureGhostOrbitRenderersLatch",
+       "line": 1137
+      },
+      {
+       "method": "TryCommitWatchSessionStart_AfterPriorSessionLeftLatchSet_ClearsLatch",
+       "line": 1154
+      },
+      {
+       "method": "ShouldIgnoreOverlapCycleEvent_NonWatchedCycle_Ignored",
+       "line": 1188
+      },
+      {
+       "method": "ShouldIgnoreOverlapCycleEvent_WatchedCycle_NotIgnored",
+       "line": 1195
+      },
+      {
+       "method": "ShouldIgnoreOverlapCycleEvent_ReadyForNextSentinel_IgnoresRealEvent",
+       "line": 1202
+      },
+      {
+       "method": "ShouldIgnoreOverlapCycleEvent_HoldingSentinel_IgnoresRealEvent",
+       "line": 1212
+      },
+      {
+       "method": "LogAutoFollowDeferred_RepeatedSameTarget_EmitsVerboseOnceWithinRateLimit",
+       "line": 1221
+      },
+      {
+       "method": "LogAutoFollowDeferred_NullOrEmptyRecordingId_FallsBackToIndexKey",
+       "line": 1271
+      },
+      {
+       "method": "ReadActiveVesselGuarded_TeardownNullReference_ReturnsNullAndLogsVerbose",
+       "line": 1306
+      },
+      {
+       "method": "ReadActiveVesselGuarded_HeadlessHostTriple_ReturnsNullSilently",
+       "line": 1332
+      },
+      {
+       "method": "ReadActiveVesselGuarded_NullReader_ReturnsNull",
+       "line": 1357
+      },
+      {
+       "method": "ReadActiveVesselGuarded_UnexpectedException_StillPropagates",
+       "line": 1363
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,64 @@
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "InitialState_HasPendingBreakupIsFalse", "line": 34, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "InitialState_TickReturnsNull", "line": 41, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "SingleSplit_TickWithinWindow_ReturnsNull", "line": 52, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "SingleSplit_TickAfterWindow_ReturnsBreakup", "line": 63, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "SingleControlledChild_CorrectCounts", "line": 81, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "SingleDebris_CorrectCounts", "line": 96, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "RapidSplits_ThreeInWindow_SingleBreakup", "line": 114, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "MixedControlledAndDebris_CorrectCounts", "line": 133, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "WindowBoundary_JustBelow_ReturnsNull", "line": 156, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "WindowBoundary_Exact_ReturnsBreakup", "line": 166, "verdict": "duplicate", "category": "T2", "twin": "CrashCoalescerTests.SingleSplit_TickAfterWindow_ReturnsBreakup", "falsifiability": "falsifiability: Source/Parsek/CrashCoalescer.cs:142; relax the window check to currentUT - windowStartUT <= coalesceWindow -> both red", "note": "identical arrange (OnSplitEvent(100.0,1000,false), Tick(100.5)); asserts only NotNull, a strict subset of the twin's Type/UT/HasPendingBreakup asserts"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "ResetBetweenUses_SecondBreakupHasNoLeftoverState", "line": 181, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "ManualReset_ClearsAllState", "line": 204, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "NoSplits_RepeatedTick_AlwaysNull", "line": 223, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "BreakupCause_OverheatPreserved", "line": 236, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "BreakupCause_StructuralFailurePreserved", "line": 247, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "BreakupCause_DefaultIsCrash", "line": 258, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "CoalesceWindow_MatchesDefaultConstructor", "line": 273, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "CoalesceWindow_MatchesCustomConstructor", "line": 284, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "BreakupDuration_SingleSplit_IsZero", "line": 299, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "BreakupDuration_MultipleSplits_IsLastMinusFirst", "line": 311, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "BreakupDuration_DoesNotIncludeIdleWindowTime", "line": 327, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "CustomWindow_LargerWindow_DoesNotExpireEarly", "line": 347, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "EmittedBranchPoint_HasValidId", "line": 366, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "EmittedBranchPoint_HasEmptyChildAndParentIds", "line": 378, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_WindowOpened_OnFirstSplit", "line": 395, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_WindowOpened_NotOnSubsequentSplit", "line": 406, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_BreakupEmitted_ContainsControlledAndDebrisCounts", "line": 430, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_ControlledChildAdded_LoggedWithPid", "line": 449, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_DebrisAdded_Logged", "line": 464, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_Reset_LoggedOnManualReset", "line": 478, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_Reset_LoggedOnWindowExpiry", "line": 489, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "AllDecoupleWindow_EmitsJointBreakWithDecoupleCause", "line": 505, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "AllDecoupleWindow_MultipleChildren_EmitsSingleJointBreak", "line": 522, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "DecouplerPartId_CapturedFromFirstDecoupleSplit", "line": 539, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "MixedWindow_DecoupleThenCrash_EmitsBreakup", "line": 554, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "MixedWindow_CrashThenDecouple_EmitsBreakup", "line": 570, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_DecoupleEmitted_TaggedAsJointBreak", "line": 584, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "DecoupleWindow_ToString_ShowsSplitCause", "line": 598, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "BreakupBranchPoint_ToString_IncludesTypeAndId", "line": 614, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "NonBreakupBranchPoint_ToString_IncludesTypeAndId", "line": 632, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "MultiVesselSplit_AllChildrenReported", "line": 651, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "MultiVesselSplit_SameUT_AllCountedSeparately", "line": 669, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "LastEmittedControlledChildPids_AvailableAfterTick", "line": 691, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "LastEmittedControlledChildPids_EmptyWhenNoControlledChildren", "line": 714, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "LastEmittedControlledChildPids_OverwrittenByNextBreakup", "line": 725, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "LastEmittedDebrisPids_AvailableAfterTick", "line": 747, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "LastEmittedDebrisPids_ControlledPidsNotIncluded", "line": 764, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "LastEmittedDebrisPids_PreservedAfterReset", "line": 778, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "LastEmittedDebrisPids_FourBoosters_AllTracked", "line": 795, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "LastEmittedDebrisPids_OverwrittenByNextBreakup", "line": 815, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "Log_DebrisAdded_IncludesPid", "line": 833, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "PreCapturedSnapshot_SurvivedThroughEmission", "line": 848, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "PreCapturedSnapshot_NullWhenNotProvided", "line": 870, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "PreCapturedSnapshot_ClearedOnReset", "line": 880, "verdict": "misleading", "category": "T3", "falsifiability": "falsifiability: Source/Parsek/CrashCoalescer.cs:205; drop the lastEmitted overwrite so the previous emission's snapshots persist -> red", "note": "name says cleared on Reset, but CrashCoalescer.cs:218 states lastEmitted is not cleared by Reset; the body never calls Reset and actually pins overwrite-on-next-emission"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "PreCapturedSnapshot_MultipleDebris", "line": 899, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "PreCapturedTrajectoryPoint_SurvivesThroughEmission", "line": 917, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "PreCapturedTrajectoryPoint_ClearedOnNextEmission", "line": 946, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "ShouldSkipDeadOnArrivalControlledChild_DeadAndNoSnapshot_ReturnsTrue", "line": 975, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "ShouldSkipDeadOnArrivalControlledChild_DeadButHasSnapshot_ReturnsTrue", "line": 987, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "ShouldSkipDeadOnArrivalControlledChild_AliveNoSnapshot_ReturnsFalse", "line": 998, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "method": "ShouldSkipDeadOnArrivalControlledChild_AliveWithSnapshot_ReturnsFalse", "line": 1008, "verdict": "ok"}
+{"kind": "finding", "id": "F-legacy-bugfix-013-01", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "line": 166, "method": "WindowBoundary_Exact_ReturnsBreakup", "category": "T2", "severity": "Low", "confidence": "high", "falsifiability": "falsifiability: Source/Parsek/CrashCoalescer.cs:142; relax the window check to currentUT - windowStartUT <= coalesceWindow -> both red", "what_it_asserts": "Tick exactly at windowStart + coalesceWindow emits a non-null branch point", "why_weak": "same arrange and a subset of the assertions of SingleSplit_TickAfterWindow_ReturnsBreakup at line 63, which already covers the exact boundary and also pins Type, UT and HasPendingBreakup", "proposed_action": "delete this method; WindowBoundary_JustBelow_ReturnsNull keeps the below-boundary half", "effort": "S", "july_ref": "none"}
+{"kind": "finding", "id": "F-legacy-bugfix-013-02", "file": "Source/Parsek.Tests/CrashCoalescerTests.cs", "line": 880, "method": "PreCapturedSnapshot_ClearedOnReset", "category": "T3", "severity": "Low", "confidence": "high", "falsifiability": "falsifiability: Source/Parsek/CrashCoalescer.cs:205; drop the lastEmitted overwrite so the previous emission's snapshots persist -> red", "what_it_asserts": "a pre-captured snapshot from one emission is no longer retrievable after a second window emits", "why_weak": "the name claims Reset clears the snapshot, which contradicts the documented contract at CrashCoalescer.cs:218 (not cleared by Reset); Reset is never called in the body, so a regression that made Reset clear lastEmitted would still leave this green", "proposed_action": "rename to PreCapturedSnapshot_OverwrittenByNextEmission, and add a case that calls Reset() directly and asserts the snapshot survives", "effort": "S", "july_ref": "none"}
+{"kind": "coverage", "sut": "CrashCoalescer", "sut_file": "Source/Parsek/CrashCoalescer.cs", "sut_line": 257, "case_kind": "negative", "proposed_name": "LastEmittedSnapshots_SurviveManualReset", "sketch": "OnSplitEvent with preSnapshot + preTrajectoryPoint; Tick past window; call Reset(); assert GetPreCapturedSnapshot and GetPreCapturedTrajectoryPoint still return the emitted values", "guards": "the documented lifecycle at CrashCoalescer.cs:218 that Reset clears only the active window and leaves the lastEmitted caller-facing snapshot intact; currently only the uint pid lists have that case (LastEmittedDebrisPids_PreservedAfterReset)", "risk": "recording"}

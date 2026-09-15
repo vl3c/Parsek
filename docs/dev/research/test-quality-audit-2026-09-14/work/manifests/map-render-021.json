@@ -1,0 +1,295 @@
+{
+ "batch_id": "map-render-021",
+ "cluster": "map-render",
+ "tier": "B",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "MapRender/ChainSamplerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullChain_IsOutside",
+       "line": 33
+      },
+      {
+       "method": "NonLooped_InSegment_IdentityDriveUT",
+       "line": 39
+      },
+      {
+       "method": "NonLooped_MidGap_Holds_NotRetire",
+       "line": 50
+      },
+      {
+       "method": "NonLooped_PastEnd_IsOutside",
+       "line": 58
+      },
+      {
+       "method": "OverlapMember_SampledUT_EqualsResolveTrackingStationSampleUT",
+       "line": 96
+      },
+      {
+       "method": "OverlapMember_SampledUT_TracksLegacyHead_AcrossCycles",
+       "line": 122
+      },
+      {
+       "method": "PhaseChain_NullChain_IsOutside",
+       "line": 156
+      },
+      {
+       "method": "PhaseChain_InSegment_ProjectsTreatmentAndConic",
+       "line": 162
+      },
+      {
+       "method": "PhaseChain_MidGap_Holds_NotRetire",
+       "line": 174
+      },
+      {
+       "method": "PhaseChain_PastEnd_IsOutside",
+       "line": 182
+      },
+      {
+       "method": "PhaseChain_MatchedHoldPhase_FallsToGap",
+       "line": 189
+      },
+      {
+       "method": "OverlapMember_BeforeSpanStart_IsOutside_LikeLegacyHidden",
+       "line": 205
+      },
+      {
+       "method": "PhaseChain_TwoDifferentUts_ProjectSameSegment_DifferentDriveUt",
+       "line": 225
+      },
+      {
+       "method": "TryGetFirstEmittedSegmentCached_RepeatedCalls_ReturnSameGeometry",
+       "line": 249
+      },
+      {
+       "method": "TryGetFirstEmittedSegmentCached_HoldPhase_ReturnsFalse",
+       "line": 274
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/MultiMemberSpineParityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Fixture_AssemblesExpectedMultiSegmentChain_WithSoiCrossing",
+       "line": 147
+      },
+      {
+       "method": "MultiMemberChain_FactoryGeometry_ByteMatchesAssembler",
+       "line": 179
+      },
+      {
+       "method": "MultiMemberChain_FullSweep_TwoSpines_EmitIdenticalIntents_WithSharedPrior",
+       "line": 194
+      },
+      {
+       "method": "MultiMemberChain_SpotFrame_TwoSpines_Agree",
+       "line": 245
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/OutlierFlagsSidecarRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Write_Read_RoundTrip_PreservesAllFields",
+       "line": 68
+      },
+      {
+       "method": "Write_Read_EmptyOutlierList_StillReadable",
+       "line": 114
+      },
+      {
+       "method": "Write_Read_BitmapWithEmptyContent_RoundTrip",
+       "line": 138
+      },
+      {
+       "method": "AlgorithmStampDrift_V6_To_V7_DiscardsOldFile",
+       "line": 174
+      },
+      {
+       "method": "Read_NegativeBitmapLength_RejectedAsCorrupt",
+       "line": 230
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRenderS0CoverageTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsDrawnRecordingAccounted_ProtoBearing_Accounted",
+       "line": 59
+      },
+      {
+       "method": "IsDrawnRecordingAccounted_InProtoLessCoverage_Accounted",
+       "line": 70
+      },
+      {
+       "method": "IsDrawnRecordingAccounted_DrawnButInNeither_FIRES",
+       "line": 80
+      },
+      {
+       "method": "IsDrawnRecordingAccounted_NullOrEmpty_NeverFlagged",
+       "line": 91
+      },
+      {
+       "method": "AssertDrawnRecordingsAccounted_ProtoLessDrawnNotInCoverage_FIRES",
+       "line": 103
+      },
+      {
+       "method": "AssertDrawnRecordingsAccounted_ProtoLessInCoverage_DoesNotFire",
+       "line": 120
+      },
+      {
+       "method": "AssertDrawnRecordingsAccounted_ProtoBearingDrawn_AccountedViaPidBridge",
+       "line": 133
+      },
+      {
+       "method": "AssertDrawnRecordingsAccounted_MixedFrame_FiresOnlyForTheOrphan",
+       "line": 151
+      },
+      {
+       "method": "AssertDrawnRecordingsAccounted_NothingDrawn_NoOp",
+       "line": 169
+      },
+      {
+       "method": "NoteDrawnRecordingCoverage_PidZero_AddsToBothSets",
+       "line": 177
+      },
+      {
+       "method": "NoteDrawnRecordingCoverage_NonZeroPid_DrawnButNotCoverage_NeedsPidBridge",
+       "line": 190
+      },
+      {
+       "method": "ClearFrameCoverageSets_EmptiesTheDrawnSet",
+       "line": 205
+      },
+      {
+       "method": "PaintedSet_ResolvesThroughThePidBridge",
+       "line": 220
+      },
+      {
+       "method": "PaintedSet_UnmappedPid_IsNotPainting",
+       "line": 229
+      },
+      {
+       "method": "PaintedSet_MappedPidWithoutAPaint_IsNotPainting",
+       "line": 239
+      },
+      {
+       "method": "PaintedSet_IsBroaderThanTheOwnershipSet",
+       "line": 249
+      },
+      {
+       "method": "ClearFrameCoverageSets_EmptiesThePaintedSet",
+       "line": 266
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MapRender/GeometryParityComparatorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AlignedChains_Match",
+       "line": 62
+      },
+      {
+       "method": "BothNull_Match",
+       "line": 72
+      },
+      {
+       "method": "DiffOnlyInKindOrProvenance_StillMatches",
+       "line": 78
+      },
+      {
+       "method": "HoldPhase_EmitsNothing_DoesNotDisruptAlignment",
+       "line": 100
+      },
+      {
+       "method": "TreatmentMismatch_Diverges",
+       "line": 125
+      },
+      {
+       "method": "StartUtMismatch_Diverges",
+       "line": 140
+      },
+      {
+       "method": "EndUtMismatch_Diverges",
+       "line": 152
+      },
+      {
+       "method": "FrameBodyMismatch_Diverges",
+       "line": 163
+      },
+      {
+       "method": "HasConicMismatch_Diverges",
+       "line": 174
+      },
+      {
+       "method": "ConicElementMismatch_Diverges",
+       "line": 186
+      },
+      {
+       "method": "ConicIsPredictedMismatch_Diverges",
+       "line": 199
+      },
+      {
+       "method": "WindowStartMismatch_Diverges",
+       "line": 218
+      },
+      {
+       "method": "WindowEndMismatch_Diverges",
+       "line": 228
+      },
+      {
+       "method": "FaithfulFallbackMismatch_Diverges",
+       "line": 237
+      },
+      {
+       "method": "SegmentCountMismatch_Diverges_AndFlagsCountMismatch",
+       "line": 246
+      },
+      {
+       "method": "OneNull_Diverges",
+       "line": 262
+      },
+      {
+       "method": "ProjectGeometry_SkipsHoldPhases",
+       "line": 270
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,252 @@
+{
+ "batch_id": "logistics-route-034",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "Logistics/RouteOwedDockCrossingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NormalAdvance_ThreeCycles_FiresEachDockOnceInOrder",
+       "line": 120
+      },
+      {
+       "method": "WarpJump_PastNewCycleDock_OneCrossingForHighestPassedCycle",
+       "line": 150
+      },
+      {
+       "method": "WarpJump_BeforeNewCycleDock_OwesPriorCycle",
+       "line": 168
+      },
+      {
+       "method": "SaveReloadResume_PersistedLastObserved_NoRefire_NextCycleFires",
+       "line": 183
+      },
+      {
+       "method": "ParkedTail_OwesOnce_ThenSilentWhileParked",
+       "line": 211
+      },
+      {
+       "method": "DockOutsideSpan_NeverOwed_ParityHolds",
+       "line": 229
+      },
+      {
+       "method": "ScheduledUnit_SawtoothLaunches_FiresPerScheduledIndex_KindScheduled",
+       "line": 243
+      },
+      {
+       "method": "DeriveCycleIndexKind_NullSchedule_Flat",
+       "line": 281
+      },
+      {
+       "method": "DeriveCycleIndexKind_RelaunchSchedule_Scheduled",
+       "line": 290
+      },
+      {
+       "method": "DeriveCycleIndexKind_ReaimUnit_Flat",
+       "line": 308
+      },
+      {
+       "method": "Emitter_FlatUnit_ResultCarriesKindFlat",
+       "line": 317
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteStoreScenarioIntegrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Scenario_OnSave_WritesRoutesAtRightParent",
+       "line": 103
+      },
+      {
+       "method": "Scenario_OnLoad_ReadsRoutesFromCleanState",
+       "line": 121
+      },
+      {
+       "method": "Scenario_RoundTrip_PreservesRouteOrder",
+       "line": 142
+      },
+      {
+       "method": "Scenario_RoundTrip_EmptyStore_NoRoutesNode",
+       "line": 160
+      },
+      {
+       "method": "Scenario_OnSave_RemovesStaleRoutesNode",
+       "line": 180
+      },
+      {
+       "method": "Scenario_RoundTrip_PreservesPriorityAndNonKscOriginDescriptor",
+       "line": 206
+      },
+      {
+       "method": "Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec",
+       "line": 273
+      },
+      {
+       "method": "Scenario_Update_InvokesRouteOrchestratorTick",
+       "line": 324
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteStoreTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AddRoute_HappyPath_StoresAndLogsCreation",
+       "line": 91
+      },
+      {
+       "method": "AddRoute_PresetCreatedUT_IsPreserved",
+       "line": 110
+      },
+      {
+       "method": "AddRoute_Null_LogsWarnNoThrow",
+       "line": 123
+      },
+      {
+       "method": "AddRoute_EmptyId_LogsWarnNoThrow",
+       "line": 135
+      },
+      {
+       "method": "AddRoute_DuplicateId_LogsWarnAndKeepsOriginal",
+       "line": 152
+      },
+      {
+       "method": "RemoveRoute_Unknown_LogsWarnReturnsFalse",
+       "line": 174
+      },
+      {
+       "method": "RemoveRoute_NullOrEmpty_LogsWarnReturnsFalse",
+       "line": 187
+      },
+      {
+       "method": "RemoveRoute_Known_RemovesAndLogsAndReturnsTrue",
+       "line": 206
+      },
+      {
+       "method": "TryGetRoute_Hit_ReturnsTrueAndRoute",
+       "line": 228
+      },
+      {
+       "method": "TryGetRoute_Miss_ReturnsFalseAndNull",
+       "line": 240
+      },
+      {
+       "method": "SaveRoutesTo_NoRoutes_OmitsRoutesNode",
+       "line": 255
+      },
+      {
+       "method": "SaveRoutesTo_RemovesStaleRoutesNode",
+       "line": 271
+      },
+      {
+       "method": "SaveRoutesTo_LoadRoutesFrom_RoundTrip",
+       "line": 286
+      },
+      {
+       "method": "LoadRoutesFrom_NoRoutesNode_LoadsZeroNoWarn",
+       "line": 310
+      },
+      {
+       "method": "LoadRoutesFrom_NullParent_LoadsZero",
+       "line": 328
+      },
+      {
+       "method": "LoadRoutesFrom_PreservesOrder",
+       "line": 342
+      },
+      {
+       "method": "LoadRoutesFrom_DroppedRoute_DoesNotIncrementCount",
+       "line": 362
+      },
+      {
+       "method": "ResetForTesting_ClearsAndLogsPrevCount",
+       "line": 408
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteCandidateDismissTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DismissCandidateTree_HappyPath_AddsAndLogsInfo",
+       "line": 50
+      },
+      {
+       "method": "DismissCandidateTree_NullEmptyOrDuplicate_NoOp",
+       "line": 65
+      },
+      {
+       "method": "RestoreCandidateTree_RemovesAndLogsInfo",
+       "line": 82
+      },
+      {
+       "method": "RestoreCandidateTree_NotDismissed_WarnNoOp",
+       "line": 99
+      },
+      {
+       "method": "DeriveCandidates_DismissedTree_SkippedWithBatchCounter",
+       "line": 113
+      },
+      {
+       "method": "DeriveNearMisses_DismissedTree_SkippedWithBatchCounter",
+       "line": 129
+      },
+      {
+       "method": "DismissThenRestore_ReincludesCandidate",
+       "line": 151
+      },
+      {
+       "method": "SaveRoutesTo_EmptySet_WritesNothingAndStripsStaleNode",
+       "line": 176
+      },
+      {
+       "method": "SaveLoad_RoundTrip_PersistsDismissedIds",
+       "line": 189
+      },
+      {
+       "method": "Load_ZeroRoutesWithDismissals_RestoresSet",
+       "line": 216
+      },
+      {
+       "method": "LoadRoutesFrom_SweepsStaleDismissedIds",
+       "line": 235
+      },
+      {
+       "method": "SweepStaleDismissedCandidates_NullTrees_SweepsAll",
+       "line": 258
+      },
+      {
+       "method": "ResetForTesting_ClearsDismissedSet",
+       "line": 271
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

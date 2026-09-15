@@ -1,0 +1,222 @@
+{
+ "batch_id": "harness-seam-010",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "TestCommandListHandlesTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ParseKind_absent_is_its_own_reason",
+       "line": 62
+      },
+      {
+       "method": "ParseKind_accepts_the_three_lowercase_literals",
+       "line": 83
+      },
+      {
+       "method": "ParseKind_maps_each_literal_to_its_own_member",
+       "line": 94
+      },
+      {
+       "method": "ParseKind_rejects_everything_outside_the_closed_set",
+       "line": 116
+      },
+      {
+       "method": "RewindPoints_payload_emits_the_documented_key_sequence",
+       "line": 129
+      },
+      {
+       "method": "RewindPoints_preserve_list_order_rather_than_sorting_by_id",
+       "line": 161
+      },
+      {
+       "method": "RewindPoints_cap_enumerates_sixteen_and_reports_the_true_total",
+       "line": 173
+      },
+      {
+       "method": "Slot_cap_enumerates_eight_and_still_raises_truncated",
+       "line": 190
+      },
+      {
+       "method": "RewindPoints_empty_is_a_legitimate_answer",
+       "line": 214
+      },
+      {
+       "method": "RewindPoint_ut_is_invariant_culture",
+       "line": 225
+      },
+      {
+       "method": "SlotOpen_is_resolved_and_not_immutable",
+       "line": 254
+      },
+      {
+       "method": "Committed_payload_emits_the_documented_key_sequence",
+       "line": 263
+      },
+      {
+       "method": "Committed_walks_trees_in_list_order_and_sorts_ids_within_each",
+       "line": 299
+      },
+      {
+       "method": "Committed_cap_enumerates_thirtytwo_and_reports_the_true_total",
+       "line": 323
+      },
+      {
+       "method": "Committed_empty_and_null_groups_are_legitimate_answers",
+       "line": 339
+      },
+      {
+       "method": "Committed_pid_is_invariant_culture",
+       "line": 350
+      },
+      {
+       "method": "Active_payload_emits_the_documented_key_sequence",
+       "line": 375
+      },
+      {
+       "method": "Active_with_no_live_tree_is_an_empty_answer_not_a_failure",
+       "line": 411
+      },
+      {
+       "method": "Active_background_cap_enumerates_sixteen_and_reports_the_true_total",
+       "line": 428
+      },
+      {
+       "method": "Count_and_truncated_for_the_log_line_come_out_of_the_built_payload",
+       "line": 446
+      },
+      {
+       "method": "ListHandles_is_an_implemented_non_mutating_verb",
+       "line": 471
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TestCommandWarpToUTTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveTargetUt_ParsesAnInvariantCultureAbsoluteTarget",
+       "line": 33
+      },
+      {
+       "method": "ResolveTargetUt_AbsentIsMissingTarget",
+       "line": 41
+      },
+      {
+       "method": "ResolveTargetUt_LocaleCommaIsRefusedNotSilentlyReinterpreted",
+       "line": 52
+      },
+      {
+       "method": "ResolveTargetUt_IsInvariantUnderAHostileThreadCulture",
+       "line": 62
+      },
+      {
+       "method": "ResolveTargetUt_NonFiniteOrAbsurdIsOutOfRange",
+       "line": 90
+      },
+      {
+       "method": "IsForwardWarp_RefusesAPastOrEqualTarget",
+       "line": 99
+      },
+      {
+       "method": "ResolveMaxRate_AbsentIsUncapped",
+       "line": 109
+      },
+      {
+       "method": "ResolveMaxRate_ParsesAValidCap",
+       "line": 117
+      },
+      {
+       "method": "ResolveMaxRate_FailsClosedOnAnythingBelowOneOrUnparseable",
+       "line": 130
+      },
+      {
+       "method": "EvaluateFeasibility_OrdersControllerBeforeLock_AndPassesWhenBothAreFine",
+       "line": 141
+      },
+      {
+       "method": "SelectRateIndex_PicksTheHighestRateThatStillRunsForTheMinimumWindow",
+       "line": 154
+      },
+      {
+       "method": "SelectRateIndex_WalksDownTheLadderAsTheTargetNears_AndReachesOneX",
+       "line": 180
+      },
+      {
+       "method": "SelectRateIndex_HonoursTheAltitudeCeilingAndTheMaxRateCap",
+       "line": 199
+      },
+      {
+       "method": "SelectRateIndex_WorksOnThePhysicsLadderToo_WhoseRungsAreNotTheRailsOnes",
+       "line": 217
+      },
+      {
+       "method": "SelectRateIndex_ClampsAnOutOfRangeCeilingRatherThanIndexingPastTheLadder",
+       "line": 254
+      },
+      {
+       "method": "SelectRateIndex_MissingOrEmptyLadderAndNonPositiveSpanAreOneX",
+       "line": 272
+      },
+      {
+       "method": "HasReached_IsOneSidedSoAnOvershootStaysLatched",
+       "line": 284
+      },
+      {
+       "method": "DecideWarpCompletion_CompletesOnlyWhenReached_Unwarped_AndSettled",
+       "line": 299
+      },
+      {
+       "method": "DecideWarpCompletion_StillWaitingWhileTheGameIsStillWarped",
+       "line": 309
+      },
+      {
+       "method": "DecideWarpCompletion_StillWaitingWhileTheSettleWindowHasNotDrained",
+       "line": 324
+      },
+      {
+       "method": "DecideWarpCompletion_StillWaitingWhileTheClockHasNotArrived",
+       "line": 334
+      },
+      {
+       "method": "DecideWarpCompletion_TimesOutWhenTheBudgetExpiresShortOfTheTarget",
+       "line": 346
+      },
+      {
+       "method": "DecideWarpCompletion_TimesOutEvenWhenTheClockArrivedButWarpNeverCameDown",
+       "line": 358
+      },
+      {
+       "method": "DecideWarpCompletion_SuccessWinsOverAnExactlyExpiredBudget",
+       "line": 371
+      },
+      {
+       "method": "BuildCompletePayload_CarriesReachedTargetDeltaAndMaxRate",
+       "line": 385
+      },
+      {
+       "method": "BuildCompletePayload_MaxRateOfOneIsHowAReaderTellsARealTimeWaitApart",
+       "line": 400
+      },
+      {
+       "method": "RefusalReasons_AreDistinctTokens",
+       "line": 412
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

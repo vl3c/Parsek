@@ -1,0 +1,275 @@
+{
+ "batch_id": "ghost-playback-004",
+ "cluster": "ghost-playback",
+ "tier": "A1",
+ "expected_methods": 64,
+ "files": [
+  {
+   "file": "GhostPlaybackEngineTests.cs",
+   "ranges": [
+    {
+     "start": 5033,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveVisiblePlaybackUT_DoesNotClampDebrisSeedBridgeAfterClampWindow",
+       "line": 5033
+      },
+      {
+       "method": "ShouldHoldInitialRelativeActivationHidden_FreshRelativeStartWithinWindow_ReturnsTrue",
+       "line": 5066
+      },
+      {
+       "method": "ShouldHoldInitialRelativeActivationHidden_AfterWindowOrAbsolute_ReturnsFalse",
+       "line": 5086
+      },
+      {
+       "method": "ShouldHoldInitialRelativeActivationHidden_V13ParentAnchoredDebrisWithBodyFixedPrimary_ReturnsFalse",
+       "line": 5112
+      },
+      {
+       "method": "ShouldHoldInitialRelativeActivationHidden_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_ReturnsTrue",
+       "line": 5144
+      },
+      {
+       "method": "ShouldHoldInitialRelativeActivationHidden_NonDebrisRelativeStartWithBodyFixed_ReturnsTrue",
+       "line": 5171
+      },
+      {
+       "method": "ShouldHoldInitialDebrisSeedBridgeActivationHidden_LargeParentAnchoredStructuralSeedGap_ReturnsTrueUntilFirstOrdinarySample",
+       "line": 5202
+      },
+      {
+       "method": "ShouldHoldInitialDebrisSeedBridgeActivationHidden_SmallParentAnchoredStructuralSeedGap_ReturnsFalse",
+       "line": 5238
+      },
+      {
+       "method": "IsSyntheticSeedBridgeDistance_UsesRelativeLocalDistance",
+       "line": 5270
+      },
+      {
+       "method": "ShouldHoldInitialDebrisSeedBridgeActivationHidden_RequiresParentAnchoredStructuralRelativeSeed",
+       "line": 5286
+      },
+      {
+       "method": "ShouldHoldInitialDebrisSeedBridgeActivationHidden_LongSeedBridge_ReturnsFalse",
+       "line": 5335
+      },
+      {
+       "method": "ShouldHoldInitialActivationHiddenThisFrame_ParentAnchoredDebrisSeedBridge_ReportsDebrisReason",
+       "line": 5367
+      },
+      {
+       "method": "ShouldHoldInitialActivationHiddenThisFrame_DebrisSeedBridgeEnd_AllowsFirstOrdinarySample",
+       "line": 5400
+      },
+      {
+       "method": "ShouldHoldInitialAbsoluteBridgeActivationHidden_FreshSeedBridge_ReturnsTrueUntilBridgeEnd",
+       "line": 5433
+      },
+      {
+       "method": "ShouldHoldInitialAbsoluteBridgeActivationHidden_OrdinaryAbsoluteSection_ReturnsFalse",
+       "line": 5459
+      },
+      {
+       "method": "ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden_HoldsUntilRelativeStart",
+       "line": 5484
+      },
+      {
+       "method": "ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden_LongAbsoluteRun_ReturnsFalse",
+       "line": 5540
+      },
+      {
+       "method": "ShouldHoldInitialActivationHiddenThisFrame_HoldsFreshAbsoluteForMinimumFrames",
+       "line": 5571
+      },
+      {
+       "method": "ShouldHoldInitialRelativeActivationHiddenThisFrame_HoldsMinimumFramesAfterUtWindow",
+       "line": 5605
+      },
+      {
+       "method": "ShouldMarkSpawnedAtChainSeam_OnlyStandardEnterWithSeamFlagQualifies",
+       "line": 5638
+      },
+      {
+       "method": "ClearLoadedVisualReferences_ResetsSpawnedAtChainSeam",
+       "line": 5654
+      },
+      {
+       "method": "ShouldHoldInitialActivationHiddenThisFrame_ChainSeamSuccessor_SkipsActivationSettle",
+       "line": 5677
+      },
+      {
+       "method": "ShouldHoldInitialActivationHiddenThisFrame_ChainSeamSuccessorWithinUtWindow_StillHidesForPhysicalReason",
+       "line": 5720
+      },
+      {
+       "method": "ShouldHoldInitialActivationHiddenThisFrame_V13ParentAnchoredDebrisWithBodyFixedPrimary_ReturnsFalse",
+       "line": 5753
+      },
+      {
+       "method": "ShouldHoldInitialActivationHiddenThisFrame_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_StillUsesFallback",
+       "line": 5802
+      },
+      {
+       "method": "ResolvePredictedOrbitTailContinuityBlendSeconds_CoversFinalizerGap",
+       "line": 5834
+      },
+      {
+       "method": "ResolvePredictedOrbitTailContinuityWeight_EasesFromLastPointToOrbit",
+       "line": 5845
+      },
+      {
+       "method": "HasRenderableGhostData_SinglePoint_ReturnsTrue",
+       "line": 5856
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_OriginOwnedDebris_ReturnsTrue",
+       "line": 5874
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_DebrisStartsAfterRewindPointUT_ReturnsFalse",
+       "line": 5900
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_DebrisStartsAtRewindPointUT_ReturnsFalse",
+       "line": 5932
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_RealisticMarkerShape_HidesDebrisInDriftWindow",
+       "line": 5964
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_IsUnaffectedByDriftedInvokedUT",
+       "line": 6000
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_UnsetOrNonPositiveRewindPointUT_ReturnsFalse",
+       "line": 6036
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_FlagNotAllowed_ReturnsFalse",
+       "line": 6070
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_NonDebris_ReturnsFalse",
+       "line": 6094
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_RejectsNonCompanionCases",
+       "line": 6121
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_FlagRecordingIdMismatch_ReturnsFalse",
+       "line": 6146
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_MissingTrajectoryId_ReturnsFalse",
+       "line": 6172
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_MissingOriginId_ReturnsFalse",
+       "line": 6199
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_NullTrajectory_ReturnsFalse",
+       "line": 6223
+      },
+      {
+       "method": "ShouldRenderSuppressedCompanionDebris_NullMarker_ReturnsFalse",
+       "line": 6238
+      },
+      {
+       "method": "LogSessionSuppressedCompanionDebrisRenderAllowed_EmitsDecisionFields",
+       "line": 6256
+      },
+      {
+       "method": "LogSessionSuppressedCompanionDebrisRenderAllowed_NaNRewindPointUT_RendersSentinel",
+       "line": 6297
+      },
+      {
+       "method": "RecordingEligibleForSessionSuppressedRenderCarveOut_HonorsMergeState",
+       "line": 6331
+      },
+      {
+       "method": "RecordingEligibleForSessionSuppressedRenderCarveOut_MissingRecordingId_ReturnsFalse",
+       "line": 6349
+      },
+      {
+       "method": "CachePlaybackDistances_CachesSeparateActiveVesselAndRenderDistances",
+       "line": 6362
+      },
+      {
+       "method": "OnAnchorVesselLoaded_AddsToSet",
+       "line": 6385
+      },
+      {
+       "method": "OnAnchorVesselUnloaded_RemovesFromSet",
+       "line": 6393
+      },
+      {
+       "method": "OnAnchorVesselUnloaded_NonexistentId_NoError",
+       "line": 6402
+      },
+      {
+       "method": "Constructor_LogsCreation",
+       "line": 6432
+      },
+      {
+       "method": "MaxOverlapGhostsPerRecording_IsReasonable",
+       "line": 6473
+      },
+      {
+       "method": "OverlapExplosionHoldSeconds_IsPositive",
+       "line": 6480
+      },
+      {
+       "method": "TryGetOverlapGhosts_NoOverlaps_ReturnsFalse",
+       "line": 6494
+      },
+      {
+       "method": "TryGetOverlapGhosts_WithOverlaps_ReturnsList",
+       "line": 6502
+      },
+      {
+       "method": "Dispose_EmptyEngine_NoError",
+       "line": 6523
+      },
+      {
+       "method": "TryResolveUnitMemberPlaybackUT_Member_ReturnsSpanLoopUT_NotRawUT",
+       "line": 6562
+      },
+      {
+       "method": "TryResolveUnitMemberPlaybackUT_NonMember_ReturnsFalse_AndRawUT",
+       "line": 6584
+      },
+      {
+       "method": "TryResolveUnitMemberPlaybackUT_NoUnits_ReturnsFalse_AndRawUT",
+       "line": 6600
+      },
+      {
+       "method": "TryResolveUnitMemberPlaybackUT_BeforeSpanStart_ReturnsFalse_AndRawUT",
+       "line": 6613
+      },
+      {
+       "method": "TryResolveUnitMemberPlaybackUT_SelfOverlap_ReturnsNewestInstanceMemberUT",
+       "line": 6630
+      },
+      {
+       "method": "TryResolveUnitMemberPlaybackUT_LaunchAlignment_EarlyLaunch_MatchesTsAtSpanStart",
+       "line": 6697
+      },
+      {
+       "method": "TryResolveUnitMemberPlaybackUT_LaunchAlignment_PostSoi_MatchesTsAndBaseline",
+       "line": 6719
+      },
+      {
+       "method": "TryResolveUnitMemberPlaybackUT_LaunchAlignment_NeverAbsentBelowSpan",
+       "line": 6743
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

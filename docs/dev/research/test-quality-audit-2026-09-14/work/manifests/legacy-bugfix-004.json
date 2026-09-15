@@ -1,0 +1,179 @@
+{
+ "batch_id": "legacy-bugfix-004",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 40,
+ "files": [
+  {
+   "file": "Bug587ThirdFacetDoubledGhostMapTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Suppresses_WhenInPlaceMarker_RelativeBranch_AnchorIsActiveReFlyVesselPid_VictimIsParent",
+       "line": 159
+      },
+      {
+       "method": "NotSuppressed_WhenAnchorIsActiveButRecordingIsNotParent_DockingTargetSibling",
+       "line": 199
+      },
+      {
+       "method": "Suppresses_WhenVictimIsGrandparent_MultiHopParentChain",
+       "line": 234
+      },
+      {
+       "method": "NotSuppressed_WhenVictimIsActiveItself",
+       "line": 299
+      },
+      {
+       "method": "NotSuppressed_WhenCommittedTreesIsNull_BailsSafely",
+       "line": 328
+      },
+      {
+       "method": "NotSuppressed_WhenVictimIdIsNullOrEmpty",
+       "line": 353
+      },
+      {
+       "method": "NotSuppressed_WhenNoMarkerActive",
+       "line": 381
+      },
+      {
+       "method": "NotSuppressed_WhenMarkerIsPlaceholderPattern",
+       "line": 406
+      },
+      {
+       "method": "NotSuppressed_WhenAbsoluteFrame",
+       "line": 440
+      },
+      {
+       "method": "NotSuppressed_WhenRelativeAnchorIsADifferentVessel",
+       "line": 467
+      },
+      {
+       "method": "NotSuppressed_WhenAnchorPidIsZero",
+       "line": 497
+      },
+      {
+       "method": "NotSuppressed_WhenActiveReFlyRecordingMissingFromCommittedList",
+       "line": 523
+      },
+      {
+       "method": "NotSuppressed_WhenActiveReFlyRecordingHasZeroVesselPid",
+       "line": 549
+      },
+      {
+       "method": "NotSuppressed_WhenCommittedListIsNull_AndTreeRecsHaveNoPid",
+       "line": 576
+      },
+      {
+       "method": "NotSuppressed_WhenMarkerFieldsEmpty",
+       "line": 605
+      },
+      {
+       "method": "NotSuppressed_WhenBranchIsNoSection",
+       "line": 632
+      },
+      {
+       "method": "NotSuppressed_WhenBranchIsOrbitalCheckpoint",
+       "line": 658
+      },
+      {
+       "method": "Suppression_DistinctReason_StableForLogParsers",
+       "line": 680
+      },
+      {
+       "method": "IsRecordingInParentChainOfActiveReFly_DirectParent_ReturnsTrue",
+       "line": 715
+      },
+      {
+       "method": "IsRecordingInParentChainOfActiveReFly_UnrelatedSibling_ReturnsFalse",
+       "line": 729
+      },
+      {
+       "method": "IsRecordingInParentChainOfActiveReFly_NullArgsBailSafely",
+       "line": 744
+      },
+      {
+       "method": "IsRecordingInParentChainOfActiveReFly_MissingActiveRecording_ReturnsFalse",
+       "line": 755
+      },
+      {
+       "method": "IsRecordingInParentChainOfActiveReFly_CycleInBpTopologyBailsSafely",
+       "line": 768
+      },
+      {
+       "method": "ComposeSearchTreesForReFlySuppression_NoPending_ReturnsCommittedAsIs",
+       "line": 818
+      },
+      {
+       "method": "ComposeSearchTreesForReFlySuppression_NullCommitted_ReturnsEmptyOrPendingOnly",
+       "line": 836
+      },
+      {
+       "method": "ComposeSearchTreesForReFlySuppression_PendingDistinctFromCommitted_AppendsPending",
+       "line": 854
+      },
+      {
+       "method": "ComposeSearchTreesForReFlySuppression_PendingSameIdAsCommitted_KeepsPendingDropsCommitted",
+       "line": 871
+      },
+      {
+       "method": "ComposeSearchTreesForReFlySuppression_SameInputs_ReturnsStableComposedView",
+       "line": 891
+      },
+      {
+       "method": "ComposeSearchTreesForReFlySuppression_SameListMutated_InvalidatesCachedView",
+       "line": 911
+      },
+      {
+       "method": "Suppresses_LoadWindowShape_EmptyCommittedRecordings_ActiveInPendingTree",
+       "line": 932
+      },
+      {
+       "method": "Suppresses_LoadWindowShape_StaleCommittedActive_PrefersMarkerTreePending",
+       "line": 1009
+      },
+      {
+       "method": "Suppresses_WhenMarkerTreeMissing_FallsBackToLegacyFirstMatch",
+       "line": 1078
+      },
+      {
+       "method": "NotSuppressed_LoadWindowShape_ActiveMissingEverywhere_ReportsZeroCounts",
+       "line": 1113
+      },
+      {
+       "method": "IsRecordingInParentChainOfActiveReFly_ActiveInPendingTree_FoundViaSearchList",
+       "line": 1152
+      },
+      {
+       "method": "IsRecordingInParentChainOfActiveReFly_WalkTrace_ExhaustedShape",
+       "line": 1176
+      },
+      {
+       "method": "IsRecordingInParentChainOfActiveReFly_WalkTrace_ActiveNotFoundShape",
+       "line": 1200
+      },
+      {
+       "method": "StructuredLogLine_CreateStateVectorSuppressed_PinShape",
+       "line": 1224
+      },
+      {
+       "method": "Suppresses_WhenBranchIsBodyFixedPrimary_ParentChainVictim",
+       "line": 1266
+      },
+      {
+       "method": "NotSuppressed_WhenBranchIsAbsolute_RealAbsoluteSection",
+       "line": 1296
+      },
+      {
+       "method": "Suppresses_WhenForkModeInPlaceMarker_RelativeBranch_AnchorIsActiveReFlyVesselPid",
+       "line": 1331
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

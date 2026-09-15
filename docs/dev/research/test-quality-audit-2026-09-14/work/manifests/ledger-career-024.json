@@ -1,0 +1,251 @@
+{
+ "batch_id": "ledger-career-024",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "ScienceModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BasicEarning_FullCredit",
+       "line": 71
+      },
+      {
+       "method": "RetroactivePriority_EarlierGetsFullCredit",
+       "line": 83
+      },
+      {
+       "method": "MixedTransmitRecover_CapRespected",
+       "line": 110
+      },
+      {
+       "method": "InterleavedEarningAndSpending",
+       "line": 137
+      },
+      {
+       "method": "ProcessAction_IgnoresNonScienceActions",
+       "line": 158
+      },
+      {
+       "method": "ProcessAction_IgnoresNullAction",
+       "line": 188
+      },
+      {
+       "method": "Reset_ClearsState",
+       "line": 197
+      },
+      {
+       "method": "SubjectCap_ExactlyHit_NoOvercredit",
+       "line": 215
+      },
+      {
+       "method": "SubjectCap_AlreadyFull_ZeroEffective",
+       "line": 234
+      },
+      {
+       "method": "Spending_Affordable_DeductsBalance",
+       "line": 251
+      },
+      {
+       "method": "Spending_NotAffordable_FlagsFalse",
+       "line": 264
+      },
+      {
+       "method": "MultipleSubjects_IndependentCaps",
+       "line": 278
+      },
+      {
+       "method": "GetSubjectCredited_UnknownSubject_ReturnsZero",
+       "line": 309
+      },
+      {
+       "method": "GetSubjectCredited_NullSubject_ReturnsZero",
+       "line": 315
+      },
+      {
+       "method": "Spending_ExactBalance_IsAffordable",
+       "line": 321
+      },
+      {
+       "method": "MultipleSpendingsInSequence",
+       "line": 334
+      },
+      {
+       "method": "RecalculationWalk_RetroactivePriority",
+       "line": 354
+      },
+      {
+       "method": "Earning_LogsEffectiveScience",
+       "line": 383
+      },
+      {
+       "method": "CapHit_LogsReducedCredit",
+       "line": 396
+      },
+      {
+       "method": "Spending_LogsAffordable",
+       "line": 415
+      },
+      {
+       "method": "Spending_NotAffordable_LogsWarning",
+       "line": 432
+      },
+      {
+       "method": "Reset_LogsSubjectCount",
+       "line": 444
+      },
+      {
+       "method": "Reservation_BlocksNewSpending",
+       "line": 473
+      },
+      {
+       "method": "Reservation_AllowsAfterMoreEarnings",
+       "line": 503
+      },
+      {
+       "method": "GetAvailableScience_NoSpendings_EqualsRunningScience",
+       "line": 526
+      },
+      {
+       "method": "GetAvailableScience_WithSpendings_ReflectsReservation",
+       "line": 548
+      },
+      {
+       "method": "Reservation_AfterFullWalk_MatchesBalance",
+       "line": 583
+      },
+      {
+       "method": "Reservation_MidWalk_LowerThanRunningScience",
+       "line": 607
+      },
+      {
+       "method": "Reservation_WithSubjectCap_UsesEffectiveNotAwarded",
+       "line": 629
+      },
+      {
+       "method": "ComputeTotalSpendings_NullList_SetsZero",
+       "line": 653
+      },
+      {
+       "method": "ComputeTotalSpendings_EmptyList_SetsZero",
+       "line": 660
+      },
+      {
+       "method": "ComputeTotalSpendings_IgnoresNonSpendingActions",
+       "line": 667
+      },
+      {
+       "method": "ComputeTotalSpendings_SkipsNullEntries",
+       "line": 683
+      },
+      {
+       "method": "Reset_ClearsReservationState",
+       "line": 697
+      },
+      {
+       "method": "ComputeTotalSpendings_LogsSummary",
+       "line": 725
+      },
+      {
+       "method": "Reset_LogsReservationFields",
+       "line": 743
+      },
+      {
+       "method": "ScienceInitial_SeedsRunningBalance",
+       "line": 760
+      },
+      {
+       "method": "ScienceInitial_PlusEarnings_Accumulates",
+       "line": 776
+      },
+      {
+       "method": "ContractComplete_AddsScienceReward_WhenEffective",
+       "line": 804
+      },
+      {
+       "method": "ContractComplete_SkipsScienceReward_WhenNotEffective",
+       "line": 822
+      },
+      {
+       "method": "ContractComplete_UsesTransformedReward_NotRawReward",
+       "line": 840
+      },
+      {
+       "method": "ContractComplete_ZeroReward_NoEffect",
+       "line": 857
+      },
+      {
+       "method": "ContractComplete_ScienceAddedToAvailable_ForSpending",
+       "line": 874
+      },
+      {
+       "method": "HasSeed_FalseBeforeAnyAction",
+       "line": 900
+      },
+      {
+       "method": "HasSeed_TrueAfterScienceInitial",
+       "line": 906
+      },
+      {
+       "method": "HasSeed_FalseAfterReset",
+       "line": 918
+      },
+      {
+       "method": "HasSeed_FalseWithOnlyEarnings",
+       "line": 932
+      },
+      {
+       "method": "ProcessMilestoneScienceReward_Effective_CreditsPool",
+       "line": 950
+      },
+      {
+       "method": "ProcessMilestoneScienceReward_NotEffective_SkipsCrediting",
+       "line": 971
+      },
+      {
+       "method": "ProcessMilestoneScienceReward_ZeroReward_NoOp",
+       "line": 993
+      },
+      {
+       "method": "ProcessMilestoneScienceReward_StacksWithEarnings",
+       "line": 1013
+      },
+      {
+       "method": "ComputeTotalSpendings_TwoSpendingsSameUT_CountsBoth",
+       "line": 1034
+      },
+      {
+       "method": "Recalculate_TwoScienceSpendingsSameUT_BothProcessed",
+       "line": 1054
+      },
+      {
+       "method": "ProcessStrategyScienceDebit_DeductsEvenWhenUnaffordable",
+       "line": 1097
+      },
+      {
+       "method": "ProcessStrategyScienceDebit_AffordableCase_DeductsAndLogsVerbose",
+       "line": 1129
+      },
+      {
+       "method": "ProcessStrategyScienceDebit_NonPositiveCost_IsNoOp",
+       "line": 1149
+      },
+      {
+       "method": "ComputeTotalSpendings_IncludesStrategyScienceDebit",
+       "line": 1168
+      },
+      {
+       "method": "TryGetProjectionDelta_StrategyScienceDebit_ReturnsNegativeCost",
+       "line": 1186
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

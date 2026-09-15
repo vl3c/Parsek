@@ -1,0 +1,151 @@
+{
+ "batch_id": "recording-tree-029",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 33,
+ "files": [
+  {
+   "file": "SessionSuppressedSubtreeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ForwardOnlyClosure_LinearChain_IncludesAllDescendants",
+       "line": 133
+      },
+      {
+       "method": "ForwardOnlyClosure_ExcludesAncestors",
+       "line": 165
+      },
+      {
+       "method": "ForegroundDecoupleDebris_JointBreakBP_IncludedInClosure",
+       "line": 195
+      },
+      {
+       "method": "BackgroundSplitDebris_AnchoredToContinuation_ExcludedFromClosure",
+       "line": 233
+      },
+      {
+       "method": "MixedParentHalt_DockedMergeHaltsClosure",
+       "line": 269
+      },
+      {
+       "method": "NullMarker_ReturnsEmpty",
+       "line": 305
+      },
+      {
+       "method": "NullOrigin_ReturnsEmpty",
+       "line": 313
+      },
+      {
+       "method": "PublicWrapper_ReturnsDefensiveCopy",
+       "line": 323
+      },
+      {
+       "method": "InternalClosure_OriginRootMatchesPublicWrapper",
+       "line": 346
+      },
+      {
+       "method": "PublicWrapper_RemainsOriginRootedWhenSupersedeTargetDiffers",
+       "line": 367
+      },
+      {
+       "method": "InternalClosure_CacheKeyIncludesRootOverride",
+       "line": 398
+      },
+      {
+       "method": "MarkerWithNoChildren_ReturnsOriginOnly",
+       "line": 428
+      },
+      {
+       "method": "ChainExpansion_HeadOrigin_IncludesTip",
+       "line": 457
+      },
+      {
+       "method": "ChainExpansion_TipOrigin_IncludesHead",
+       "line": 494
+      },
+      {
+       "method": "ChainExpansion_DifferentChainBranch_Excluded",
+       "line": 526
+      },
+      {
+       "method": "ChainExpansion_ThreeSegments_AllIncluded",
+       "line": 563
+      },
+      {
+       "method": "ChainExpansion_DifferentTree_Excluded",
+       "line": 600
+      },
+      {
+       "method": "ChainExpansion_TipWithChildBranchPointId_BpDescendantsAlsoIncluded",
+       "line": 668
+      },
+      {
+       "method": "IsInSessionSuppressedSubtree_PositiveAndNegativeCases",
+       "line": 706
+      },
+      {
+       "method": "BpChildrenWalk_SidePidChild_Excluded",
+       "line": 745
+      },
+      {
+       "method": "BpChildrenWalk_DownstreamOfSideOff_AlsoExcluded",
+       "line": 790
+      },
+      {
+       "method": "BpChildrenWalk_BothPidsZero_LegacyWideWalk_Preserved",
+       "line": 832
+      },
+      {
+       "method": "BpChildrenWalk_OriginPidZero_ChildPidNonZero_AdmittedAsLegacy",
+       "line": 862
+      },
+      {
+       "method": "BpChildrenWalk_OriginPidNonZero_ChildPidZero_AdmittedAsLegacy",
+       "line": 893
+      },
+      {
+       "method": "DebrisChildren_DestroyedParent_NoChildBranchPointId_AllAdmitted",
+       "line": 925
+      },
+      {
+       "method": "DebrisChildren_BypassSamePidSideOffGate",
+       "line": 975
+      },
+      {
+       "method": "DebrisChildren_LegacyV11WithoutParentAnchorRecordingId_NotAdmitted",
+       "line": 1006
+      },
+      {
+       "method": "DebrisChildren_OtherParentsDebris_NotAdmitted",
+       "line": 1032
+      },
+      {
+       "method": "DebrisChildren_DifferentTree_NotAdmitted",
+       "line": 1063
+      },
+      {
+       "method": "DebrisChildren_NotCommittedDebris_StillAdmitted",
+       "line": 1109
+      },
+      {
+       "method": "DebrisChildren_TransitiveDebrisOfDebris_Admitted",
+       "line": 1143
+      },
+      {
+       "method": "DebrisChildren_AnchorOnlyBackgroundSplit_NotAdmitted",
+       "line": 1182
+      },
+      {
+       "method": "DebrisChildren_AnchorOnlyBreakupBp_ParentMismatch_NotAdmitted",
+       "line": 1251
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

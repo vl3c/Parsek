@@ -1,0 +1,206 @@
+{
+ "batch_id": "recording-tree-039",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 44,
+ "files": [
+  {
+   "file": "DiscardSidecarReapTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GameplayDiscardPath_ReapsQuickloadResumeSidecars_WhenStoreEmptiesToZero",
+       "line": 204
+      },
+      {
+       "method": "Reap_PreservesIdsTheStoreStillOwns_CommittedRestoreCloneCase",
+       "line": 251
+      },
+      {
+       "method": "Reap_PreservesIdsOwnedOnlyByACommittedTree",
+       "line": 275
+      },
+      {
+       "method": "SelectReapRecordings_FailsClosed_OnNullKnownSet",
+       "line": 306
+      },
+      {
+       "method": "SelectReapRecordings_SkipsNullAndIdlessEntries",
+       "line": 316
+      },
+      {
+       "method": "Reap_RefusesInvalidRecordingIds",
+       "line": 326
+      },
+      {
+       "method": "SkipReason_NamesTheLoadShapeThatForbidsReaping",
+       "line": 362
+      },
+      {
+       "method": "SkipReason_NullWhenNoProtectedLoadShapeIsActive",
+       "line": 369
+      },
+      {
+       "method": "Reap_DeletesNothing_WhenTheLoadShapeGateIsSet",
+       "line": 375
+      },
+      {
+       "method": "Reap_LockedFile_CountsAsFailed_AndTheBatchContinues",
+       "line": 401
+      },
+      {
+       "method": "DeleteRecordingFiles_ReportsFailure_SoTheReapCanCountTruthfully",
+       "line": 441
+      },
+      {
+       "method": "Reap_DeleteThrows_IsStillContainedAndCounted",
+       "line": 453
+      },
+      {
+       "method": "Reap_AlsoUnlinksTheQuickloadResumeSave_ButNeverARewindPointQuicksave",
+       "line": 477
+      },
+      {
+       "method": "Reap_NullCapture_IsAQuietNoOp",
+       "line": 504
+      },
+      {
+       "method": "CaptureTreeRecordings_SnapshotsBeforeTeardown_AndSurvivesTheTreeBeingDropped",
+       "line": 513
+      },
+      {
+       "method": "Reap_NeverEnumeratesTheRecordingsDirectory",
+       "line": 527
+      },
+      {
+       "method": "SweeperZeroKnownGuard_StaysUntouchedByThisFix",
+       "line": 540
+      },
+      {
+       "method": "PendingAndScopedDiscardPaths_KeepOwningTheirOwnSidecarDeletes",
+       "line": 552
+      },
+      {
+       "method": "AutoDiscardActiveTreeCore_CapturesRecordingsBeforeNullingActiveTree",
+       "line": 607
+      },
+      {
+       "method": "AutoDiscardActiveTreeCore_ReapsAfterTheTeardown",
+       "line": 622
+      },
+      {
+       "method": "AutoDiscardActiveTreeCore_SamplesTheLoadShapeSkipGate",
+       "line": 636
+      },
+      {
+       "method": "AutoDiscardActiveTreeCore_WrapsTheReapSoItCannotAbortTheDiscard",
+       "line": 649
+      },
+      {
+       "method": "AutoDiscardActiveTreeCore_WrapsTheCaptureAndFailsClosed",
+       "line": 663
+      },
+      {
+       "method": "OnlyTheTestCommandVerbOptsOutOfTheReap",
+       "line": 682
+      },
+      {
+       "method": "TestCommandVerbs_DelegateToTheSharedDeciders",
+       "line": 723
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CheckpointDoubleCoverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Ensure_EmptyAbsoluteShellDuplicatingCheckpointSpan_RemovesShell",
+       "line": 125
+      },
+      {
+       "method": "Ensure_EmptyAbsoluteShellWithFlatSegmentOnly_PromotesAndRemovesShell",
+       "line": 154
+      },
+      {
+       "method": "Ensure_NoOrbitSegments_StillReconcilesCoveredShell",
+       "line": 180
+      },
+      {
+       "method": "Ensure_UncoveredEmptyShell_IsKept",
+       "line": 246
+      },
+      {
+       "method": "Ensure_PartiallyCoveredEmptyShell_IsTrimmedToRemainder",
+       "line": 278
+      },
+      {
+       "method": "Ensure_BoundarySeamSection_IsNeverReconciled",
+       "line": 306
+      },
+      {
+       "method": "Ensure_FlatEnvelopeOverExistingCheckpoints_ClipsAndAttachesIntoEmptyShell",
+       "line": 336
+      },
+      {
+       "method": "Ensure_FlatEnvelopeFullyCovered_IsSkippedAndConverges",
+       "line": 379
+      },
+      {
+       "method": "TryAppend_NewestWins_FullyCoveredExistingSection_IsReplaced",
+       "line": 415
+      },
+      {
+       "method": "TryAppend_NewestWins_InsideStaleEnvelope_SplitsEnvelopeAroundFreshClose",
+       "line": 454
+      },
+      {
+       "method": "TryAppend_CoveredByPhysicalSection_SkipsWithCoveredReason",
+       "line": 487
+      },
+      {
+       "method": "TryAppend_ExactDuplicateOfNonLastSection_SkipsAsDuplicate",
+       "line": 510
+      },
+      {
+       "method": "TryAppend_ExactDuplicateOfLastSection_SkipsAsDuplicateLast",
+       "line": 535
+      },
+      {
+       "method": "TryAppend_RemovesEmptyShellCoveredByAppendedCheckpoint",
+       "line": 560
+      },
+      {
+       "method": "Ensure_WithReconcileDisabled_LeavesDoubleCoverUntouched",
+       "line": 587
+      },
+      {
+       "method": "Ensure_RebuildPreservesUncoveredPredictedTailAndTrailingFlatSegment",
+       "line": 618
+      },
+      {
+       "method": "RelocateSectionIndexForSplit_FindsExactShiftedAndFallbackAnchors",
+       "line": 659
+      },
+      {
+       "method": "EnsureWrapper_LogsReconciledEmptySections",
+       "line": 689
+      },
+      {
+       "method": "EndToEnd_BuilderFixtureWithBothSubPatterns_SerializesWithoutDoubleCover",
+       "line": 718
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,324 @@
+{
+ "batch_id": "logistics-route-039",
+ "cluster": "logistics-route",
+ "tier": "C",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "Logistics/RouteStatusPolicyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EnumValueCount_IsNine_SoAppendsTripThePinnedMatrices",
+       "line": 36
+      },
+      {
+       "method": "BindsTree_IsTrue_ForEveryStatus",
+       "line": 55
+      },
+      {
+       "method": "BindsTree_IsTrue_ForAllEnumeratedValues",
+       "line": 65
+      },
+      {
+       "method": "GhostDriving_IsTrue_ForLiveRenderStates",
+       "line": 78
+      },
+      {
+       "method": "GhostDriving_IsFalse_ForPausedAndBrokenStates",
+       "line": 90
+      },
+      {
+       "method": "Broken_IsTrue_ForHardBrokenStates",
+       "line": 102
+      },
+      {
+       "method": "Broken_IsFalse_ForLiveAndPausedStates",
+       "line": 116
+      },
+      {
+       "method": "FullMatrix_PinsAllThreePredicates",
+       "line": 125
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteCreationDialogTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeRootToUndockSpan_MultiLegTree_UsesRootLaunchToUndock_NotLeafSpan",
+       "line": 96
+      },
+      {
+       "method": "ComputeRootToUndockSpan_SingleLegTree_RootEqualsSource",
+       "line": 143
+      },
+      {
+       "method": "ComputeRootToUndockSpan_UnresolvableInputs_FallBackToTheLeafSpan",
+       "line": 163
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteEndpointResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Surface_FallbackPicksClosestInRadius",
+       "line": 43
+      },
+      {
+       "method": "Surface_FallbackExcludesWrongBody",
+       "line": 69
+      },
+      {
+       "method": "Surface_FallbackExcludesGhostPids",
+       "line": 92
+      },
+      {
+       "method": "Surface_FallbackBeyondRadius_Fails",
+       "line": 116
+      },
+      {
+       "method": "Surface_FallbackWrongSituation_Excluded",
+       "line": 138
+      },
+      {
+       "method": "Surface_NoVessels_Fails",
+       "line": 161
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/InventoryDeliveryParityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ComputeUnitsThatFit_NoLimits_AdmitsAll",
+       "line": 26
+      },
+      {
+       "method": "ComputeUnitsThatFit_VolumeConstrains",
+       "line": 38
+      },
+      {
+       "method": "ComputeUnitsThatFit_MassConstrains",
+       "line": 50
+      },
+      {
+       "method": "ComputeUnitsThatFit_NegativeHeadroom_AdmitsZero",
+       "line": 63
+      },
+      {
+       "method": "ComputeUnitsThatFit_ZeroPerUnitFootprint_DoesNotConstrain",
+       "line": 76
+      },
+      {
+       "method": "ComputeUnitsThatFit_ExactFit_NotFlooredShort",
+       "line": 90
+      },
+      {
+       "method": "ComputeUnitsThatFit_NonPositiveRequest_ReturnsZero",
+       "line": 102
+      },
+      {
+       "method": "BuildUnloadedStoredPartNode_OverridesSlotAndQuantity",
+       "line": 134
+      },
+      {
+       "method": "BuildUnloadedStoredPartNode_PreservesPayloadAndSource",
+       "line": 150
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/DockPartnerResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Resolve_TargetCase_ReturnsFromSide",
+       "line": 26
+      },
+      {
+       "method": "Resolve_InitiatorCase_ReturnsToSide",
+       "line": 40
+      },
+      {
+       "method": "Resolve_BothEqualSelf_ReturnsZero",
+       "line": 52
+      },
+      {
+       "method": "Resolve_FromZero_FallsThroughToTo",
+       "line": 60
+      },
+      {
+       "method": "Resolve_BothZero_ReturnsZero",
+       "line": 68
+      },
+      {
+       "method": "Known_SelfPid_ReturnsFalse",
+       "line": 78
+      },
+      {
+       "method": "Known_ZeroPartner_ReturnsFalse",
+       "line": 90
+      },
+      {
+       "method": "Known_ActiveTreeMatch_ReturnsTrue",
+       "line": 100
+      },
+      {
+       "method": "Known_CommittedRecordingsMatch_ReturnsTrue",
+       "line": 117
+      },
+      {
+       "method": "Known_ForeignVessel_ReturnsFalse",
+       "line": 133
+      },
+      {
+       "method": "Known_BothRegistriesNull_ReturnsFalse",
+       "line": 146
+      },
+      {
+       "method": "Known_NullEntriesInRegistry_AreIgnored",
+       "line": 156
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/LogisticsLastOutcomeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Active_FullFillRow_IsFull",
+       "line": 38
+      },
+      {
+       "method": "Active_PartialRow_IsPartial",
+       "line": 51
+      },
+      {
+       "method": "Active_NoRows_IsNone",
+       "line": 63
+      },
+      {
+       "method": "NullSummary_IsNone",
+       "line": 78
+      },
+      {
+       "method": "Active_EmptyActual_IsNone",
+       "line": 87
+      },
+      {
+       "method": "WaitState_WithStaleFullRow_ForcesNone",
+       "line": 103
+      },
+      {
+       "method": "WaitState_BadgeReadsFlyingNotDelivering",
+       "line": 117
+      },
+      {
+       "method": "Active_BadgeReadsDelivering",
+       "line": 133
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteEndpointStepOrderTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RootPartIsTried_First",
+       "line": 29
+      },
+      {
+       "method": "TheWholeSequenceIsRootThenPidThenProximity",
+       "line": 38
+      },
+      {
+       "method": "UnknownInputsAreSkipped_NotStalledOn",
+       "line": 47
+      },
+      {
+       "method": "RootMatch_WinsOverANearerProximityCandidate",
+       "line": 63
+      },
+      {
+       "method": "RootMatch_WinsOverAPidMatchToo",
+       "line": 80
+      },
+      {
+       "method": "RootMiss_FallsThroughToPid_ThenToProximity",
+       "line": 91
+      },
+      {
+       "method": "NothingMatches_ResolvesToNone",
+       "line": 107
+      },
+      {
+       "method": "AnOrbitalDepot_ResolvesByRootAlthoughProximityCanNeverRun",
+       "line": 116
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RouteModuleRegistrationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "LedgerOrchestrator_Initialize_RegistersRouteModule",
+       "line": 45
+      },
+      {
+       "method": "RouteModule_RegisteredAfterFundsModule_InSecondTier",
+       "line": 84
+      },
+      {
+       "method": "RouteModule_Initialize_IsIdempotent",
+       "line": 117
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

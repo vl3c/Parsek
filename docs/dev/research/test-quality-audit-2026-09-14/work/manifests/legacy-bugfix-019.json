@@ -1,0 +1,269 @@
+{
+ "batch_id": "legacy-bugfix-019",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "Bug572FollowupFinalizeRestoredTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FinalizeIndividualRecording_RestoredFromCommittedTree_StripCasualty_DoesNotInferLanded",
+       "line": 70
+      },
+      {
+       "method": "FinalizeIndividualRecording_RestoredFromCommittedTree_SkipsCacheFallback",
+       "line": 110
+      },
+      {
+       "method": "FinalizeIndividualRecording_RestoredFromCommittedTree_PreservesExistingTerminalAgainstCacheRepair",
+       "line": 161
+      },
+      {
+       "method": "FinalizeTreeRecordingsAfterFlush_RestoredActiveLeaf_DoesNotRunActiveEnsureSecondPass",
+       "line": 207
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_RestoredFromCommittedTree_DoesNotInferLanded",
+       "line": 274
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_RestoredFromCommittedTree_SkipsCacheFallback",
+       "line": 313
+      },
+      {
+       "method": "ShouldEnsureActiveRecordingTerminalState_TrueNonLeaf_ReturnsTrue",
+       "line": 369
+      },
+      {
+       "method": "ShouldEnsureActiveRecordingTerminalState_EffectiveLeaf_ReturnsFalse",
+       "line": 403
+      },
+      {
+       "method": "FinalizeIndividualRecording_NormalUnloadedLanding_StillInfersLanded",
+       "line": 445
+      },
+      {
+       "method": "FinalizeIndividualRecording_OrbitThenLand_StillInfersLanded",
+       "line": 485
+      },
+      {
+       "method": "RestoredRecording_FinalizeRespectsRestoredFlag_ClearsAfterRead",
+       "line": 524
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug406GhostReuseLoopCycleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResetForLoopCycle_ResetsPlaybackIterators_PreservesSnapshotDictionaries",
+       "line": 45
+      },
+      {
+       "method": "ResetForLoopCycle_PreservesReentryFxPendingBuildFlag_BothWays",
+       "line": 137
+      },
+      {
+       "method": "ResetForLoopCycle_ClearsLightPlaybackStatesInPlace",
+       "line": 179
+      },
+      {
+       "method": "ResetForLoopCycle_NullState_DoesNotThrow",
+       "line": 201
+      },
+      {
+       "method": "ResetForLoopCycle_HandlesNullDictionariesGracefully",
+       "line": 212
+      },
+      {
+       "method": "ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleAndLogsRateLimited",
+       "line": 236
+      },
+      {
+       "method": "ReusePrimaryGhostAcrossCycle_NullGhost_RapidRepeatEmitsAtMostOneLogLine",
+       "line": 278
+      },
+      {
+       "method": "ReusePrimaryGhostAcrossCycle_NullGhost_DoesNotIncrementReuseCounter",
+       "line": 315
+      },
+      {
+       "method": "DiagnosticsHealth_ResetClearsReuseCounter",
+       "line": 331
+      },
+      {
+       "method": "ResetForLoopCycle_DoesNotBumpReuseCounter",
+       "line": 343
+      },
+      {
+       "method": "ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventFalse_StillNoEvent",
+       "line": 377
+      },
+      {
+       "method": "ReusePrimaryGhostAcrossCycle_NullGhost_EmitRetargetEventTrue_NoEvent",
+       "line": 410
+      },
+      {
+       "method": "ResetForLoopCycle_ZeroesRoboticBookkeepingButCannotMoveTheServo",
+       "line": 435
+      },
+      {
+       "method": "RestoreRoboticSpawnBaselines_PutsEveryServoBackToItsSpawnPose",
+       "line": 471
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug171To174Tests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NoWarp_OrbitalGhost_NotExempt",
+       "line": 15
+      },
+      {
+       "method": "Warp5x_OrbitalGhost_Exempt",
+       "line": 21
+      },
+      {
+       "method": "Warp10x_OrbitalGhost_Exempt",
+       "line": 27
+      },
+      {
+       "method": "Warp50x_OrbitalGhost_Exempt",
+       "line": 33
+      },
+      {
+       "method": "Warp4x_OrbitalGhost_Exempt_AboveThreshold",
+       "line": 39
+      },
+      {
+       "method": "Warp1x_OrbitalGhost_NotExempt_AtThreshold",
+       "line": 46
+      },
+      {
+       "method": "Warp10x_NoOrbitalSegments_NotExempt",
+       "line": 53
+      },
+      {
+       "method": "Warp50x_NoOrbitalSegments_NotExempt",
+       "line": 59
+      },
+      {
+       "method": "NoWarp_NoOrbitalSegments_NotExempt",
+       "line": 65
+      },
+      {
+       "method": "LeafWithNoData_IsZeroPoint",
+       "line": 78
+      },
+      {
+       "method": "LeafWithPoints_NotZeroPoint",
+       "line": 92
+      },
+      {
+       "method": "LeafWithOrbitSegments_NotZeroPoint",
+       "line": 109
+      },
+      {
+       "method": "LeafWithSurfacePos_NotZeroPoint",
+       "line": 126
+      },
+      {
+       "method": "NonLeaf_WithNoData_NotZeroPoint",
+       "line": 140
+      },
+      {
+       "method": "LeafWithSidecarHydrationFailure_NotZeroPoint",
+       "line": 154
+      },
+      {
+       "method": "LeafWithFramesOnlyAbsoluteSection_NotZeroPoint",
+       "line": 176
+      },
+      {
+       "method": "LeafWithOrbitalCheckpointSectionCheckpoints_NotZeroPoint",
+       "line": 202
+      },
+      {
+       "method": "LeafWithEmptySections_StillZeroPoint",
+       "line": 227
+      },
+      {
+       "method": "LeafWithNullPayloadSections_StillZeroPoint",
+       "line": 257
+      },
+      {
+       "method": "LeafWithOrbitalCheckpointSection_FramesDoNotCount_StillZeroPoint",
+       "line": 278
+      },
+      {
+       "method": "SectionPayloadLeaf_AgreesWithMergeSupersedePredicate",
+       "line": 309
+      },
+      {
+       "method": "CollectZeroPointLeafIds_NoZeroPointLeaves_ReturnsNull",
+       "line": 345
+      },
+      {
+       "method": "CollectZeroPointLeafIds_TwoZeroPointLeaves_ReturnsBothIds",
+       "line": 361
+      },
+      {
+       "method": "CollectZeroPointLeafIds_MixedLeaves_OnlyReturnsZeroPoint",
+       "line": 396
+      },
+      {
+       "method": "CollectZeroPointLeafIds_SkipsHydrationFailedLeaf",
+       "line": 422
+      },
+      {
+       "method": "EmptyTree_IsFullyTerminated",
+       "line": 470
+      },
+      {
+       "method": "AllLeavesDestroyed_IsFullyTerminated",
+       "line": 477
+      },
+      {
+       "method": "LeafWithNoTerminalState_NotFullyTerminated",
+       "line": 500
+      },
+      {
+       "method": "LeafLanded_NotFullyTerminated",
+       "line": 515
+      },
+      {
+       "method": "NonLeaf_Destroyed_IgnoredByCheck",
+       "line": 530
+      },
+      {
+       "method": "MixedLeaves_OneOrbitingOneDestroyed_NotFullyTerminated",
+       "line": 555
+      },
+      {
+       "method": "FullyTerminatedTree_SkippedInChainComputation",
+       "line": 582
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

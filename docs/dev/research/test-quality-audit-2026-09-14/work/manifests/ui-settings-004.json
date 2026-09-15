@@ -1,0 +1,179 @@
+{
+ "batch_id": "ui-settings-004",
+ "cluster": "ui-settings",
+ "tier": "C",
+ "expected_methods": 29,
+ "files": [
+  {
+   "file": "SettingsWindowPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryResolveAutoLoopEdit_SecondsBelowMinimum_ClampsToMinCycleDuration",
+       "line": 11
+      },
+      {
+       "method": "TryResolveAutoLoopEdit_MinutesInput_PreservesFractionWithoutClamp",
+       "line": 25
+      },
+      {
+       "method": "TryResolveAutoLoopEdit_InvalidOrNegativeInput_ReturnsFalse",
+       "line": 42
+      },
+      {
+       "method": "BuildDefaults_MatchesSettingsWindowResetValues",
+       "line": 58
+      },
+      {
+       "method": "HiddenSettings_FieldDefaults_ArePinned",
+       "line": 84
+      },
+      {
+       "method": "BuildDefaults_ResetsTheGhostAudioSliderToItsFieldInitializer",
+       "line": 98
+      },
+      {
+       "method": "DefaultsButtonTooltip_SaysTheInterfaceModeIsNotReset",
+       "line": 113
+      },
+      {
+       "method": "WipeMilestonesDisabledReason_NamesMilestonesNotGameActions",
+       "line": 124
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TooltipEchoBoxTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveCapturedText_ManualOverrideWins",
+       "line": 28
+      },
+      {
+       "method": "ResolveCapturedText_NoOverride_FallsBackToGuiTooltip",
+       "line": 37
+      },
+      {
+       "method": "ResolveCapturedText_NeitherPresent_IsEmptyNotNull",
+       "line": 44
+      },
+      {
+       "method": "ResolveCapturedText_IsPureAndRepeatable",
+       "line": 54
+      },
+      {
+       "method": "NormalizeLines_OnlyOneOrTwo_OtherwiseTaller",
+       "line": 78
+      },
+      {
+       "method": "ProbeText_MatchesTheStripHeight",
+       "line": 86
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ParsekUITests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI",
+       "line": 17
+      },
+      {
+       "method": "NormalizeOpaqueWindowTitleTextColors_ReplacesDarkFocusedStatesWithReadableBaseColor",
+       "line": 51
+      },
+      {
+       "method": "ResolveReadableWindowTitleTextColor_FallsBackToWhiteWhenBothCandidatesAreDark",
+       "line": 88
+      },
+      {
+       "method": "MainWindowButtonLabels_UseShortTopLevelText",
+       "line": 98
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FormatCrewManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BothNull_ReturnsNull",
+       "line": 9
+      },
+      {
+       "method": "StartOnly_ShowsStartFormat",
+       "line": 17
+      },
+      {
+       "method": "BothStartAndEnd_ShowsDeltaFormat",
+       "line": 34
+      },
+      {
+       "method": "Unchanged_ZeroDelta",
+       "line": 56
+      },
+      {
+       "method": "SingleTrait",
+       "line": 74
+      },
+      {
+       "method": "GainedCrew_PositiveDelta",
+       "line": 91
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FormatInventoryManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BothNull_ReturnsNull",
+       "line": 9
+      },
+      {
+       "method": "StartOnly_ShowsStartFormat",
+       "line": 17
+      },
+      {
+       "method": "BothStartAndEnd_ShowsDeltaFormat",
+       "line": 34
+      },
+      {
+       "method": "SingleItem",
+       "line": 56
+      },
+      {
+       "method": "Unchanged_ZeroDelta",
+       "line": 73
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,191 @@
+{
+ "batch_id": "ghost-playback-014",
+ "cluster": "ghost-playback",
+ "tier": "A",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "GhostMapObservabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Builder_AlwaysIncludesActionRecIdxVesselSourceBranchBodyScene",
+       "line": 44
+      },
+      {
+       "method": "Builder_OmitsTerminalFieldsWhenSourceIsNotTerminalOrbit",
+       "line": 67
+      },
+      {
+       "method": "Builder_PopulatesSegmentBlockWhenSegmentSet",
+       "line": 88
+      },
+      {
+       "method": "Builder_PopulatesAnchorBlockWhenRelativeBranch",
+       "line": 120
+      },
+      {
+       "method": "Builder_PopulatesTerminalBlockWhenSourceIsTerminalOrbit",
+       "line": 141
+      },
+      {
+       "method": "Builder_OmitsNanNumericFieldsByDefault",
+       "line": 160
+      },
+      {
+       "method": "Builder_NullVesselNameRendersAsExplicitPlaceholder",
+       "line": 178
+      },
+      {
+       "method": "MapResolutionBranch_TranslatesAllKnownTags",
+       "line": 201
+      },
+      {
+       "method": "WorldPos_AbsoluteBranch_EqualsSurfaceLookupResult",
+       "line": 219
+      },
+      {
+       "method": "WorldPos_RelativeBranch_EqualsAnchorPosPlusOffset",
+       "line": 255
+      },
+      {
+       "method": "EmitLifecycleSummary_LogsCountersAndResets",
+       "line": 301
+      },
+      {
+       "method": "BuildLifecycleSummaryMessage_IncludesMapVisibilityCounters",
+       "line": 332
+      },
+      {
+       "method": "BuildGhostProtoVesselVisibilityState_ExplainsIconBlockers",
+       "line": 372
+      },
+      {
+       "method": "RelativeFrame_DecisionLine_CarriesBranchAndWorldPosAndAnchorPid",
+       "line": 411
+      },
+      {
+       "method": "AbsoluteFrame_DecisionLine_CarriesBranchAndSurfaceWorldPos",
+       "line": 466
+      },
+      {
+       "method": "Builder_CanonicalActions_RoundTripIntoLine",
+       "line": 537
+      },
+      {
+       "method": "Builder_NewDecisionFields_DefaultsRecordingIndexToZero_NoLeakageInProductionLines",
+       "line": 561
+      },
+      {
+       "method": "Builder_RecordingIndexNegativeOne_RendersAsExplicitSentinel",
+       "line": 573
+      },
+      {
+       "method": "Builder_RecordingIndexNonZero_PropagatesIntoLine",
+       "line": 591
+      },
+      {
+       "method": "ResolveEffectiveMapOrbitSegments_EmptyLoopUnits_ReturnsRecordedReference",
+       "line": 634
+      },
+      {
+       "method": "ResolveEffectiveMapOrbitSegments_NullOrEmptyRecordingId_ReturnsRecorded",
+       "line": 646
+      },
+      {
+       "method": "ResolveEffectiveMapOrbitSegments_NullLoopUnits_ReturnsRecorded",
+       "line": 657
+      },
+      {
+       "method": "ResolveEffectiveMapOrbitSegments_WindowOverload_NonReaim_ReturnsRecordedRefAndWindowMinusOne",
+       "line": 668
+      },
+      {
+       "method": "ResolveEffectiveMapOrbitSegments_WindowOverload_NullRecordingIdOrUnits_ReturnsRecordedAndMinusOne",
+       "line": 684
+      },
+      {
+       "method": "TryResolveReaimedCoveringSegment_FaithfulMember_ReturnsTrueWithRecordedSegment",
+       "line": 698
+      },
+      {
+       "method": "AnyGhostHeadLeftAppliedSegment_HeadInsideAllBounds_False",
+       "line": 724
+      },
+      {
+       "method": "AnyGhostHeadLeftAppliedSegment_HeadPastABound_True",
+       "line": 733
+      },
+      {
+       "method": "AnyGhostHeadLeftAppliedSegment_NoGhosts_False",
+       "line": 745
+      },
+      {
+       "method": "ShouldRunMapOrbitReseed_TimerElapsed_AlwaysRuns",
+       "line": 751
+      },
+      {
+       "method": "ShouldRunMapOrbitReseed_NotWarping_TimerOnly",
+       "line": 759
+      },
+      {
+       "method": "ShouldRunMapOrbitReseed_WarpingAndHeadLeft_Runs",
+       "line": 767
+      },
+      {
+       "method": "ResolveMapOrbitReseedIntervalSec_NotWarping_BaseIntervalExactly",
+       "line": 788
+      },
+      {
+       "method": "ResolveMapOrbitReseedIntervalSec_LowWarp_BaseCadenceAlreadyMeetsBudget",
+       "line": 800
+      },
+      {
+       "method": "ResolveMapOrbitReseedIntervalSec_ThresholdWarp_ContinuousWithBase",
+       "line": 809
+      },
+      {
+       "method": "ResolveMapOrbitReseedIntervalSec_HighWarp_GameTimeSpanCapped",
+       "line": 821
+      },
+      {
+       "method": "ResolveMapOrbitReseedIntervalSec_MonotonicNonIncreasingInWarp",
+       "line": 833
+      },
+      {
+       "method": "ClampPendingReseedDeadline_SteadyRate_NoOp",
+       "line": 847
+      },
+      {
+       "method": "ClampPendingReseedDeadline_WarpStepUp_PullsDeadlineIn",
+       "line": 856
+      },
+      {
+       "method": "ClampPendingReseedDeadline_WarpStepDown_KeepsShorterArmedDeadline",
+       "line": 866
+      },
+      {
+       "method": "ShouldAssertTerminalOrbitBoundClamp_TerminalReasonWithBounds_AssertsOvershoot",
+       "line": 883
+      },
+      {
+       "method": "ShouldAssertTerminalOrbitBoundClamp_NonTerminalReason_DoesNotAssert",
+       "line": 902
+      },
+      {
+       "method": "ShouldAssertTerminalOrbitBoundClamp_NoOrbitBounds_DoesNotAssert",
+       "line": 913
+      },
+      {
+       "method": "ShouldAssertTerminalOrbitBoundClamp_NonFiniteInputs_DoNotAssert",
+       "line": 925
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

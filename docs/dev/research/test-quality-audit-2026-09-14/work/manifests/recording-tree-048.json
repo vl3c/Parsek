@@ -1,0 +1,233 @@
+{
+ "batch_id": "recording-tree-048",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "SwitchContinuationTerminalWalkTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SingleSwitchHop_OrbitingSegment_OriginQualifiesStableLeafUnconcluded",
+       "line": 72
+      },
+      {
+       "method": "ChainedDoubleSwitch_WalksToLastSegmentTerminal",
+       "line": 97
+      },
+      {
+       "method": "SwitchSegmentDestroyed_OriginQualifiesCrashed",
+       "line": 116
+      },
+      {
+       "method": "DownstreamDockBranchPoint_StillRejectsDownstreamBp",
+       "line": 132
+      },
+      {
+       "method": "DanglingSwitchBranchPoint_NoChildRecording_BehavesAsBeforeWithoutThrowing",
+       "line": 158
+      },
+      {
+       "method": "AmbiguousSwitchBranchPoint_TwoClaimants_StopsWalkRatherThanGuessing",
+       "line": 180
+      },
+      {
+       "method": "CyclicSwitchBranchPoints_TerminateWithoutHanging",
+       "line": 199
+      },
+      {
+       "method": "NullRecording_WalkReturnsNull",
+       "line": 225
+      },
+      {
+       "method": "CandidateShape_TerminallessOriginBehindSwitchBp_NowAccepted",
+       "line": 235
+      },
+      {
+       "method": "CandidateShape_TerminallessOriginBehindDockBp_StillRejected",
+       "line": 250
+      },
+      {
+       "method": "CommitTree_NudgedProbeOrigin_PromotesAndKeepsRewindPointAlive",
+       "line": 267
+      },
+      {
+       "method": "ClassifySwitchCloseTerminalStamp_TerminallessRecording_Stamps",
+       "line": 297
+      },
+      {
+       "method": "ClassifySwitchCloseTerminalStamp_AlreadyClassified_NeverOverwrites",
+       "line": 305
+      },
+      {
+       "method": "ClassifySwitchCloseTerminalStamp_NullRecording_Skips",
+       "line": 317
+      },
+      {
+       "method": "ClassifySwitchCloseCacheApply_AliveVesselWithDestroyedCache_VetoesToLive",
+       "line": 335
+      },
+      {
+       "method": "ClassifySwitchCloseCacheApply_AliveVesselWithNonDestroyedCache_Applies",
+       "line": 347
+      },
+      {
+       "method": "ClassifySwitchCloseCacheApply_NoVesselWithDestroyedCache_Applies",
+       "line": 359
+      },
+      {
+       "method": "ClassifySwitchCloseCacheApply_NoCacheTerminal_Applies",
+       "line": 371
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SessionSuppressionWiringTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsSuppressed_WithActiveSession_PositiveAndNegative",
+       "line": 162
+      },
+      {
+       "method": "IsSuppressed_WithoutActiveSession_AlwaysFalse",
+       "line": 175
+      },
+      {
+       "method": "IsSuppressedRecordingIndex_ResolvesRawIndex",
+       "line": 187
+      },
+      {
+       "method": "SuppressedSubtreeIds_EnumeratesClosure",
+       "line": 214
+      },
+      {
+       "method": "SessionSuppressionState_TransitionLogsOnce",
+       "line": 230
+      },
+      {
+       "method": "SessionSuppressionState_StartLog_ListsClosureIds",
+       "line": 264
+      },
+      {
+       "method": "GhostChainWalker_SuppressedRecording_NotInChain",
+       "line": 285
+      },
+      {
+       "method": "GhostMapPresence_SuppressedRecording_PredicateGate",
+       "line": 362
+      },
+      {
+       "method": "IsLiveReFlyCrew_MarkerNull_False",
+       "line": 385
+      },
+      {
+       "method": "ActiveVesselMatchesReFlyRecording_UnknownRecordingId_False",
+       "line": 397
+      },
+      {
+       "method": "ActiveVesselMatchesReFlyRecording_MissingProvisionalRecording_False",
+       "line": 414
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "QuickloadDiscardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsQuickloadOnLoad_Unset_ReturnsFalse",
+       "line": 71
+      },
+      {
+       "method": "IsQuickloadOnLoad_PreChangeUtZero_AllowsBackwardsDetection",
+       "line": 82
+      },
+      {
+       "method": "IsQuickloadOnLoad_UtUnchanged_ReturnsFalse",
+       "line": 103
+      },
+      {
+       "method": "IsQuickloadOnLoad_UtWentForward_ReturnsFalse",
+       "line": 112
+      },
+      {
+       "method": "IsQuickloadOnLoad_UtWentBackwards_ReturnsTrue",
+       "line": 121
+      },
+      {
+       "method": "IsQuickloadOnLoad_SubEpsilonNoise_ReturnsFalse",
+       "line": 129
+      },
+      {
+       "method": "IsQuickloadOnLoad_ExactEpsilonBoundary_ReturnsFalse",
+       "line": 138
+      },
+      {
+       "method": "IsQuickloadOnLoad_PlaytestSiford_ReturnsTrue",
+       "line": 148
+      },
+      {
+       "method": "IsQuickloadOnLoad_NegativeEpsilon_ReturnsFalse",
+       "line": 160
+      },
+      {
+       "method": "DiscardStashedOnQuickload_WithPendingTree_DiscardsAndLogs",
+       "line": 171
+      },
+      {
+       "method": "DiscardStashedOnQuickload_WithPendingTreeFinalized_Discards",
+       "line": 193
+      },
+      {
+       "method": "DiscardStashedOnQuickload_WithActiveReFlySession_PreservesPendingTreeAndRewindPoint",
+       "line": 213
+      },
+      {
+       "method": "DiscardStashedOnQuickload_WithPendingReFlyInvoke_PreservesPendingTreeAndRewindPoint",
+       "line": 256
+      },
+      {
+       "method": "DiscardStashedOnQuickload_WithPendingTreeLimbo_Preserves",
+       "line": 285
+      },
+      {
+       "method": "DiscardPendingTreeAndAbandonDeferredFlightResults_DiscardsPendingTree",
+       "line": 307
+      },
+      {
+       "method": "DiscardStashedOnQuickload_WithStaleScienceSubjects_Clears",
+       "line": 321
+      },
+      {
+       "method": "DiscardStashedOnQuickload_NothingStashed_LogsOnlyHeader",
+       "line": 344
+      },
+      {
+       "method": "IsVesselSwitchFlagFresh_LowFpsEvaLeak_IsRejectedByTighterCap",
+       "line": 366
+      },
+      {
+       "method": "DiscardStashedOnQuickload_PendingTreeFinalized_AlwaysDiscarded",
+       "line": 383
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

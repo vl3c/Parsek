@@ -1,0 +1,230 @@
+{
+ "batch_id": "catchall-024",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "ForwardRenderWindowTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsFullLoopClosedOrbit_TrueWhenEllipticalAndSpanAtLeastPeriod",
+       "line": 71
+      },
+      {
+       "method": "IsFullLoopClosedOrbit_FalseJustBelowPeriodBoundary",
+       "line": 81
+      },
+      {
+       "method": "IsFullLoopClosedOrbit_TrueExactlyAtPeriodBoundary",
+       "line": 91
+      },
+      {
+       "method": "IsFullLoopClosedOrbit_FalseForHyperbolicRegardlessOfSpan",
+       "line": 101
+      },
+      {
+       "method": "IsFullLoopClosedOrbit_FalseForParabolic",
+       "line": 109
+      },
+      {
+       "method": "IsFullLoopClosedOrbit_FalseForDegenerateSma",
+       "line": 117
+      },
+      {
+       "method": "IsFullLoopClosedOrbit_FalseForNonFiniteMu",
+       "line": 125
+      },
+      {
+       "method": "ComputeForwardStopUT_StopsAtFirstBodyChange",
+       "line": 137
+      },
+      {
+       "method": "ComputeForwardStopUT_StopsAtFirstFullLoopClosedOrbit",
+       "line": 159
+      },
+      {
+       "method": "ComputeForwardStopUT_WalksMultipleTransferArcsToEndOfData",
+       "line": 180
+      },
+      {
+       "method": "ComputeForwardStopUT_IconOnClosedOrbitReturnsOwnStartUT",
+       "line": 208
+      },
+      {
+       "method": "ComputeForwardStopUT_PredictedElementsIncluded",
+       "line": 232
+      },
+      {
+       "method": "ComputeForwardStopUT_UsesEffectiveListNotRecorded",
+       "line": 253
+      },
+      {
+       "method": "ComputeForwardStopUT_ReturnsCurrentUTWhenNoElementAhead",
+       "line": 283
+      },
+      {
+       "method": "ComputeForwardWindow_PastEndWithinData_RunStaysAlive",
+       "line": 305
+      },
+      {
+       "method": "ComputeForwardWindow_PastEndBehindFullLoop_RunStartsAfterIt",
+       "line": 327
+      },
+      {
+       "method": "ComputeForwardWindow_PastDataEnd_NoRun",
+       "line": 349
+      },
+      {
+       "method": "ComputeForwardStopUT_EmptyListReturnsCurrentUT",
+       "line": 366
+      },
+      {
+       "method": "ComputeForwardWindow_NullMuDelegateDoesNotThrowAndSkipsFullLoopStop",
+       "line": 376
+      },
+      {
+       "method": "ComputeForwardWindow_LogsWindowDecision",
+       "line": 395
+      },
+      {
+       "method": "ComputeForwardWindow_RunStartIsNegInfWhenNoBackwardBoundary",
+       "line": 417
+      },
+      {
+       "method": "ComputeForwardWindow_GapBeforeClosedOrbitIsNotIconOnClosed",
+       "line": 438
+      },
+      {
+       "method": "ComputeForwardWindow_RunStartsAfterPriorClosedOrbit",
+       "line": 460
+      },
+      {
+       "method": "ComputeForwardWindow_RunStartsAtPriorSoiBoundary",
+       "line": 482
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RevertDiscardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "UnstashPendingTreeOnRevert_ClearsSlot_PreservesFilesAndEvents",
+       "line": 67
+      },
+      {
+       "method": "UnstashPendingTreeOnRevert_FromLimboState_WorksToo",
+       "line": 95
+      },
+      {
+       "method": "UnstashPendingTreeOnRevert_FromLimboVesselSwitchState_WorksToo",
+       "line": 111
+      },
+      {
+       "method": "UnstashPendingTreeOnRevert_NoPendingTree_IsNoop",
+       "line": 126
+      },
+      {
+       "method": "UnstashPendingTreeOnRevert_ClearsPendingScienceSubjects",
+       "line": 138
+      },
+      {
+       "method": "UnstashPendingTreeOnRevert_NoPendingTree_StillClearsStraySubjects",
+       "line": 164
+      },
+      {
+       "method": "RevertDetector_Consume_ReturnsNoneWhenUnarmed",
+       "line": 182
+      },
+      {
+       "method": "RevertDetector_ArmAndConsume_OneShot",
+       "line": 188
+      },
+      {
+       "method": "RevertDetector_PrelaunchKind_ConsumesCorrectly",
+       "line": 204
+      },
+      {
+       "method": "RevertDetector_Subscribe_DoesNotThrowOnKspGameEventsAdd",
+       "line": 212
+      },
+      {
+       "method": "ShouldRunQuickloadDiscard_TruthTable",
+       "line": 247
+      },
+      {
+       "method": "ShouldRunQuickloadDiscard_ActiveReFlySession_ReturnsFalse",
+       "line": 274
+      },
+      {
+       "method": "ShouldRunQuickloadDiscard_ActiveReFlyMarker_ReturnsFalse",
+       "line": 285
+      },
+      {
+       "method": "ShouldRunQuickloadDiscard_PendingReFlyInvoke_ReturnsFalse",
+       "line": 303
+      },
+      {
+       "method": "DiscardStashedOnQuickload_RefusesWhenRevertDetectorArmed",
+       "line": 316
+      },
+      {
+       "method": "RevertPath_WithoutPendingTree_ClearsStalePendingScienceSubjects",
+       "line": 347
+      },
+      {
+       "method": "UnstashPendingTreeOnRevert_AfterRevertToLaunch_PreservesSidecarState",
+       "line": 377
+      },
+      {
+       "method": "UnstashPendingTreeOnRevert_DifferenceFromDiscardPendingTree",
+       "line": 412
+      },
+      {
+       "method": "ResolveRevertPruneCutoff_Launch_UsesLoadedUTExclusive",
+       "line": 443
+      },
+      {
+       "method": "ResolveRevertPruneCutoff_Prelaunch_UsesEditorBoundaryInclusive",
+       "line": 455
+      },
+      {
+       "method": "ResolveRevertPruneCutoff_Prelaunch_NaNBoundary_FallsBackToLoadedUT",
+       "line": 468
+      },
+      {
+       "method": "ResolveEditorRevertBoundaryUT_PrefersCapturedLaunchUT",
+       "line": 480
+      },
+      {
+       "method": "ResolveEditorRevertBoundaryUT_FallsBackToRollout_WhenNoCapture",
+       "line": 490
+      },
+      {
+       "method": "DecideFreshLaunchUtAction_FreshLaunchFlight_Captures",
+       "line": 498
+      },
+      {
+       "method": "DecideFreshLaunchUtAction_NonFreshFlight_Clears",
+       "line": 505
+      },
+      {
+       "method": "DecideFreshLaunchUtAction_LeavesCapture",
+       "line": 521
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

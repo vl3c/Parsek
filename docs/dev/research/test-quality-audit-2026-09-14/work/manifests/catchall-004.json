@@ -1,0 +1,91 @@
+{
+ "batch_id": "catchall-004",
+ "cluster": "catchall",
+ "tier": "A1",
+ "expected_methods": 18,
+ "files": [
+  {
+   "file": "SyntheticRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 4613,
+     "end": 5409,
+     "methods": [
+      {
+       "method": "WheelDynamicsShowcaseRecordings_BuildExpectedShape",
+       "line": 4613
+      },
+      {
+       "method": "AnimateHeatShowcaseRecordings_BuildExpectedShape",
+       "line": 4644
+      },
+      {
+       "method": "InventoryPlacementShowcaseRecording_BuildExpectedShape",
+       "line": 4686
+      },
+      {
+       "method": "ShowcaseRecordings_PrimaryPartRotationIsConsistent",
+       "line": 4709
+      },
+      {
+       "method": "ShowcaseToggleRecordings_DefaultCadenceCategoriesUseExpectedStateMachine",
+       "line": 4753
+      },
+      {
+       "method": "ShowcaseToggleRecordings_FastCadenceCategoriesUseExpectedStateMachine",
+       "line": 4806
+      },
+      {
+       "method": "SpecialDeployAnimationShowcases_NonHeatShieldEntriesUseFastAlternatingStateMachine",
+       "line": 4880
+      },
+      {
+       "method": "SpecialDeployAnimationShowcases_InflatableHeatShieldUsesExpectedSequence",
+       "line": 4911
+      },
+      {
+       "method": "FairingShowcaseRecordings_UseExpectedModulesAndJettisonCadence",
+       "line": 4958
+      },
+      {
+       "method": "JettisonShowcaseRecordings_UseRepeatedShroudJettisonCadence",
+       "line": 5011
+      },
+      {
+       "method": "LightShowcaseRecordings_AllEntriesFollowExpectedBlinkStateMachine",
+       "line": 5027
+      },
+      {
+       "method": "ParachuteShowcaseRecordings_AllEntriesFollowThreePhaseStateCycle",
+       "line": 5062
+      },
+      {
+       "method": "InventoryPlacementShowcaseRecording_UsesRepeatableLifecycleStateMachine",
+       "line": 5098
+      },
+      {
+       "method": "EngineShowcaseRecordings_AllEntriesUseDeterministicTimelineAndValues",
+       "line": 5130
+      },
+      {
+       "method": "RoboticsShowcaseRecordings_UseExpectedMotionTargetsAndCadence",
+       "line": 5232
+      },
+      {
+       "method": "WheelDynamicsShowcaseRecordings_UseExpectedModulesAndMotionTargets",
+       "line": 5276
+      },
+      {
+       "method": "AllShowcaseRecordings_EventPidMatchesGhostPartPid",
+       "line": 5316
+      },
+      {
+       "method": "AllShowcaseRecordings_HaveUniquePositions",
+       "line": 5369
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,254 @@
+{
+ "batch_id": "catchall-017",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "ResurrectionRetirementEligibilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PidMatchWithMatchingGuid_Classifies",
+       "line": 116
+      },
+      {
+       "method": "GuidMismatch_DoesNotClassify",
+       "line": 132
+      },
+      {
+       "method": "PidOnlyMatchWithUnknownGuidOnEitherSide_DoesNotClassify",
+       "line": 147
+      },
+      {
+       "method": "IsPositivelySameLaunch_RejectsEveryDegenerateInput",
+       "line": 170
+      },
+      {
+       "method": "RecordingNotTerminallyRecovered_DoesNotClassify",
+       "line": 189
+      },
+      {
+       "method": "RecordingWithNoTerminalVerdict_DoesNotClassify",
+       "line": 201
+      },
+      {
+       "method": "RecoveryBeforeTheCutoff_IsLeftAlone",
+       "line": 212
+      },
+      {
+       "method": "RecoveryExactlyAtTheCutoff_IsLeftAlone",
+       "line": 225
+      },
+      {
+       "method": "RecoveryScience_IsBundled",
+       "line": 240
+      },
+      {
+       "method": "ScienceTransmittedDuringTheFlight_IsNotBundled",
+       "line": 262
+      },
+      {
+       "method": "PreRewindTransmittedScience_IsNotRetired_EvenAtTheAnchorUt",
+       "line": 290
+      },
+      {
+       "method": "RecoveryScience_IsRetired_EvenWhenTheFundsAnchorIsFarFromEndUt",
+       "line": 313
+      },
+      {
+       "method": "CrewRecoveredRows_AreBundledByEndStateNotByUt",
+       "line": 334
+      },
+      {
+       "method": "CrewRowsWithOtherEndStates_AreNotBundled",
+       "line": 352
+      },
+      {
+       "method": "ActionsFromOtherRecordings_AreNeverBundled",
+       "line": 372
+      },
+      {
+       "method": "RecoveryExperienceRows_AreBundledByRecordingMembership",
+       "line": 389
+      },
+      {
+       "method": "ExperienceRowsFromOtherRecordings_AreNotBundled",
+       "line": 419
+      },
+      {
+       "method": "ScienceBundleIsKeyedOnMethodAndIgnoresTheUtEntirely",
+       "line": 444
+      },
+      {
+       "method": "ZeroValueRecovery_AnchorsOnEndUtAndStillRetiresTheCrewRow",
+       "line": 474
+      },
+      {
+       "method": "ZeroValueRecoveryEndingBeforeTheCutoff_IsLeftAlone",
+       "line": 498
+      },
+      {
+       "method": "RecoveredRecordingWithNothingToRetire_ProducesNoEntry",
+       "line": 508
+      },
+      {
+       "method": "SeveralResurrectedCraft_AreEachClassifiedSeparately",
+       "line": 524
+      },
+      {
+       "method": "OnlyTheResurrectedCraftIsClassified_NotItsRecoveredNeighbours",
+       "line": 544
+      },
+      {
+       "method": "EmptyOrNullInputs_ReturnEmptyWithoutThrowing",
+       "line": 565
+      },
+      {
+       "method": "RepeatedClassification_IsStable",
+       "line": 581
+      },
+      {
+       "method": "MultipleRecoveryFundsRowsOnOneRecording_AllAnchorAndAllRetire",
+       "line": 603
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "UnaffordableRelockGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ProcessSpending_Refused_StampsRunningScienceMarkerAndDoesNotDeduct",
+       "line": 67
+      },
+      {
+       "method": "ProcessSpending_Affordable_LeavesMarkerNull",
+       "line": 83
+      },
+      {
+       "method": "ProcessSpending_AffordableAfterAPriorRefusal_ClearsTheStaleMarker",
+       "line": 96
+      },
+      {
+       "method": "RecalculationEngine_ResetDerivedFields_ClearsTheRefusalMarker",
+       "line": 116
+      },
+      {
+       "method": "IsRefusedUnaffordableUnlockRow_RefusedRowInsideCutoff_IsTrue",
+       "line": 139
+      },
+      {
+       "method": "IsRefusedUnaffordableUnlockRow_RowPastCutoff_IsFalse",
+       "line": 147
+      },
+      {
+       "method": "IsRefusedUnaffordableUnlockRow_UnprocessedRow_IsFalse",
+       "line": 156
+      },
+      {
+       "method": "IsRefusedUnaffordableUnlockRow_AffordableRow_IsFalse",
+       "line": 170
+      },
+      {
+       "method": "IsRefusedUnaffordableUnlockRow_NonScienceSpendingType_IsFalse",
+       "line": 181
+      },
+      {
+       "method": "IsRefusedUnaffordableUnlockRow_NullOrEmptyNodeId_IsFalse",
+       "line": 189
+      },
+      {
+       "method": "BuildTarget_RefusedRow_IsExcludedFromTargetAndReportedAsADrop",
+       "line": 205
+      },
+      {
+       "method": "BuildTarget_RowRewoundPastTheCutoff_IsNotADrop",
+       "line": 227
+      },
+      {
+       "method": "BuildTarget_UnprocessedRow_IsNotADrop",
+       "line": 245
+      },
+      {
+       "method": "BuildTarget_NodeAlsoInBaseline_IsNotADrop",
+       "line": 261
+      },
+      {
+       "method": "BuildTarget_SecondAffordableRowForTheSameNode_IsNotADrop",
+       "line": 278
+      },
+      {
+       "method": "BuildTarget_TwoRefusalsForOneNode_KeepsTheLatest",
+       "line": 299
+      },
+      {
+       "method": "BuildTarget_NoUsableBaseline_ReportsNullTargetAndNullDrops",
+       "line": 315
+      },
+      {
+       "method": "BuildTarget_FourArgOverload_StillBehavesIdentically",
+       "line": 330
+      },
+      {
+       "method": "Repro_UnaffordableSpend_WouldRelockAndStripProto_WithoutTheGuard",
+       "line": 348
+      },
+      {
+       "method": "Fixed_UnaffordableSpend_RefusesTheRelockAndPreservesLiveState",
+       "line": 375
+      },
+      {
+       "method": "Legitimate_RewoundPastResearch_StillRelocks",
+       "line": 397
+      },
+      {
+       "method": "Legitimate_TombstonedRow_StillRelocks",
+       "line": 417
+      },
+      {
+       "method": "Legitimate_NeverResearchedNode_IsAlreadyUnavailable",
+       "line": 437
+      },
+      {
+       "method": "Guard_DoesNotFireOnANodeThatIsNotLiveAvailable",
+       "line": 445
+      },
+      {
+       "method": "Guard_StandsDownOnSplitStateWithNoProtoNode",
+       "line": 456
+      },
+      {
+       "method": "Guard_DoesNotFireOnADifferentNode",
+       "line": 483
+      },
+      {
+       "method": "ShouldRefuseUnaffordableRelock_Matrix",
+       "line": 504
+      },
+      {
+       "method": "ShouldRefuseUnaffordableRelock_MatrixOrdinalsStillNameTheRightMembers",
+       "line": 515
+      },
+      {
+       "method": "ShouldRefuseUnaffordableRelock_NullOrEmptyInputs_AreFalse",
+       "line": 526
+      },
+      {
+       "method": "RealWalk_UnderfundedLedger_ArmsTheGuardForTheUnpayableNode",
+       "line": 541
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

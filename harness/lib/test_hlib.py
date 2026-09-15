@@ -8265,11 +8265,14 @@ class UnityExceptionScanTests(unittest.TestCase):
         #          the ceiling is the status doc's short-spec band top, not a pin.
         #     GS-4 n=8: 4, 1, 2 (older DLLs) + 2, 1, 4, 0, 0 (wave DLL: the 4 is the
         #          armed re-flight `2026-09-11_0049`, the two 0s the vacuous flights of
-        #          its live negative control). A WINDOW kept at 4 by supervisor ruling,
-        #          reachable on the wave DLL (GS-9 `2026-09-10_1944` and GS-4 `_0049`
-        #          both measured 4) and CONTROLLED OFFLINE on `_0049` (maxTotal 3 reds
-        #          on exactly the total, 4 passes); composition, n, the control and the
-        #          legal shape above it (5) are in its dict entry below.
+        #          its live negative control). Armed at 4 (a WINDOW) and RE-PINNED TO 6
+        #          on 2026-09-15 by operator decision, which reverses the wave
+        #          supervisor's ruling and adopts H23's rule instead: a ceiling is the
+        #          legal MAXIMUM of the known stock class set (STAGING 1 + MAP-FOCUS 2 +
+        #          HATCH-TOOLTIP 1 + MECHJEB-ONDESTROY 1 + FLIGHT-CAMERA-STARTUP 1 = 6),
+        #          not the observed band top. CONTROLLED OFFLINE on `_0049` (maxTotal 3
+        #          reds on exactly the total, 4 passes), and the widening leaves that
+        #          control and every green run intact; the cost is in its dict entry.
         expected = {
             "B10-career-passive-safety.toml": 0,
             "CL-2-pod-impact-ledger.toml": 0,
@@ -8324,33 +8327,34 @@ class UnityExceptionScanTests(unittest.TestCase):
             "H23-tracking-station.toml": 6,
             "S4.1-rewind-merge.toml": 3,
             "H5-invariants-corpus.toml": 5,
-            # GS-4, armed 2026-09-10 (ghost-replay Tier B item 9); the ceiling is KEPT at
-            # 4 by supervisor ruling. A WINDOW, not a mechanism bound (the H5 shape, not
-            # H23's), and REACHABLE on the wave DLL by the identical stock class set.
-            # COMPOSITION OF 4: the MAP-FOCUS KnowledgeBase pair counted twice ([ERR] +
-            # [EXC]) + STAGING + a teardown NRE (`2026-08-27_2145`: STAGING 1 + MAP-FOCUS
-            # 2 + HATCH-TOOLTIP 1). n: GS-4 readings 4 / 1 / 2 on older DLLs
-            # (`2026-08-27_2145` / `_2204` / `2026-08-28_1550`) + 2 / 1 on the wave DLL
-            # (`2026-09-10_1924`: STAGING 1 + MECHJEB-ONDESTROY 1; `_1930`: HATCH-TOOLTIP
-            # 1), every one driver-valid. WAVE-DLL REACHABILITY: GS-9 `2026-09-10_1944`
-            # flew this machine's unchanged cycle 1 and teardown and measured 4
-            # (MAP-FOCUS 2 + FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1), so 2 would
-            # false-red a legal stock shape. THE LEGAL SHAPE THAT WOULD EXCEED IT: 5 -
-            # those four plus one more stock NRE (e.g. both teardown classes in one
-            # flight). Every class is stock KSP or MechJeb, no `Parsek.` frame in any stack.
-            # ARMED RE-FLIGHT `2026-09-11_0049` PASS at total 4 (STAGING 1 + MAP-FOCUS 2 +
-            # HATCH-TOOLTIP 1: this composition, reached by GS-4 itself on the wave DLL).
-            # LIVE NEGATIVE CONTROL (maxTotal 0): `_0056` and its one re-fly `_0102` both
-            # measured total 0 - vacuous, not failed. OFFLINE NEGATIVE CONTROL (RULINGS
-            # R3-2, the BDOCK-1 precedent), DISCHARGED: the committed spec through
-            # run.load_toml + hlib.evaluate_unity_exceptions over `_0049`'s archived
-            # KSP.log (15,674,487 bytes; the highest GS-4 wave-DLL total) reds on exactly
-            # `unityExceptions.total 4 > maxTotal 3 (NullReferenceException=4)` at
-            # maxTotal 3 and PASSES at the committed 4, with expectations and
-            # ghostLifecycle PASS under the mutated spec (script
-            # a4_gs4_offline_negctl.py in the wave scratchpad). Only an opportunistic LIVE
-            # control stays open (todo GS4-UNITY-CEILING-NEGCTL-VACUOUS).
-            "GS-4-kerbalx-rewind-watch.toml": 4,
+            # GS-4, armed 2026-09-10 (ghost-replay Tier B item 9) at 4 and RE-PINNED TO 6
+            # on 2026-09-15 by OPERATOR DECISION (wave-0910 memo section 7a, register item
+            # B8), which REVERSES the wave supervisor's "keep 4" (ruling R2-4). The rule
+            # applied is H23's, not H5's: a ceiling is the MECHANISM's legal maximum rather
+            # than the observed band top, so that a legal stock shape cannot false-red.
+            # 6 IS THAT MAXIMUM over this machine's known class set: STAGING 1 + MAP-FOCUS 2
+            # (one KnowledgeBase event counted twice, [ERR] + [EXC]) + HATCH-TOOLTIP 1 +
+            # MECHJEB-ONDESTROY 1 + FLIGHT-CAMERA-STARTUP 1. NO FLIGHT IS OWED, because the
+            # re-pin only WIDENS. n unchanged: GS-4 readings 4 / 1 / 2 on older DLLs
+            # (`2026-08-27_2145` / `_2204` / `2026-08-28_1550`) + 2 / 1 / 4 / 0 / 0 on the
+            # wave DLL (`2026-09-10_1924` / `_1930` / `2026-09-11_0049` / `_0056` /
+            # `_0102`); GS-9's `2026-09-10_1944` measured 4 on the same machine's cycle 1
+            # and teardown (MAP-FOCUS 2 + FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1).
+            # Every class is stock KSP or MechJeb; no `Parsek.` frame in any stack.
+            # THE OFFLINE NEGATIVE CONTROL STANDS AND THE WIDENING DOES NOT TOUCH IT
+            # (RULINGS R3-2, the BDOCK-1 precedent): the spec through run.load_toml +
+            # hlib.evaluate_unity_exceptions over `_0049`'s archived KSP.log (15,674,487
+            # bytes; the highest GS-4 wave-DLL total) reds on exactly
+            # `unityExceptions.total 4 > maxTotal 3 (NullReferenceException=4)` at maxTotal
+            # 3 and passes at 4, with expectations and ghostLifecycle PASS under the
+            # mutated spec (script a4_gs4_offline_negctl.py in the wave scratchpad). THE
+            # COST OF 6, stated rather than hidden: a 5 or a 6 built purely from stock
+            # classes now passes silently where 4 would have filed it. A `Parsek.` frame is
+            # a finding at ANY count and is caught by `maxParsekFrames` (memo section 7b,
+            # todo UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES), never by a lower ceiling.
+            # Only an opportunistic LIVE control stays open (todo
+            # GS4-UNITY-CEILING-NEGCTL-VACUOUS).
+            "GS-4-kerbalx-rewind-watch.toml": 6,
         }
         armed = {}
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
@@ -9003,21 +9007,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # the three-run discipline (GHOSTLIFE_ARMED_SPECS) and unityExceptions on
         # 2026-09-10; what remains open is the ordinary cadence PROMOTION call -
         # the GS-1/GS-2/GS-3 shape exactly.
-        "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); ghostLifecycle armed 2026-08-28, unityExceptions armed 2026-09-10 (armed re-flight 2026-09-11_0049 PASS; its live maxTotal-0 negative control read two vacuous total-0 flights, and the ceiling is controlled OFFLINE on 2026-09-11_0049 per RULINGS R3-2); operator tier is the PROMOTION call, not debt",
         # The ghost-replay Tier A derivatives (roadmap items 2 and 4), operator by
         # the CALIBRATION DISCIPLINE on the GS-4 / GS-6 shape: authored 2026-09-08
         # with first-flight pins, then the reading run, the re-pin off its own
         # bytes, the armed re-flight and the negative control. Promotion past
         # operator is the cadence call that follows, not outstanding human work.
         "GS-7-kerbalx-crash-watch-hold.toml": "calibration-discipline - AUTHORED 2026-09-08 (the watched explosion hold over a deliberate crash profile, the kx machine's impactProfile branch); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
-        "GS-8-kerbalx-zone-round-trip.toml":  "calibration-discipline - AUTHORED 2026-09-08 (the 120 km render-ladder step both ways, a longer core burn and a late watch entry on the unchanged kx machine); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's
         # subject rewound TWICE off one committed tree through the kx machine's new
         # `rewindCycles` opt-in. Same calibration discipline as GS-7 / GS-8: read
         # 2026-09-10 (outcome O1) and armed off that run's bytes; the armed re-flight
         # (`2026-09-11_0109` PASS) and the negative control (`2026-09-11_0119`, valid)
         # have flown, so the promotion call is what remains.
-        "GS-9-kerbalx-repeat-rewind.toml":    "calibration-discipline - AUTHORED and READ 2026-09-10 (repeat-rewind idempotence: a second Rewind-to-Launch off the SAME committed tree, rewindCycles=2 on the kx machine; reading `2026-09-10_1944` PASS attempt 1, outcome O1 IDEMPOTENT) and ARMED off those bytes; LIVE-PROVEN 2026-09-11 (armed re-flight 2026-09-11_0109 PASS, negative control 2026-09-11_0119 red on exactly destroyLines 16 < min 17); operator tier is the open PROMOTION call, not debt",
         # tier=operator by PROMOTION POLICY on a NEVER-FLOWN lane, the GS-1 shape
         # exactly: GS-6 is authored and registered but has not flown, so it cannot
         # sit on a cadence. Its debt is the READING RUN, carried by the
@@ -9341,7 +9342,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The ARMED renderComposition block flew again on `2026-09-10_2151` (wave package A2; gating PASS, routeLineBuilds 2, routeCoDrawViolations 0, no mismatch); its negative control is still OWED. `[expectations.routes]` was ARMED 2026-09-11 off that same run (twelve leaves as declared); its armed re-flight `2026-09-11_0201` PASS attempt 1 (routes and renderComposition gating PASS, no mismatch), and its group windows' controls are B32's `2026-09-11_0206` / `_0209`.",
         # R14's better-time-warp residue, 2026-09-10 (wave package A2). The first
         # operator-tier spec on the modded-compat instance.
-        "MC-3-better-time-warp.toml":        "tier=operator on the modded-compat instance, NOT debt: ARMED-DISCIPLINE COMPLETE 2026-09-10 - reading `2026-09-10_2025` on the pre-registered outcome (A), pinned from those bytes, armed re-flight `2026-09-10_2208` PASS attempt 1 on the same lines, and negative control `2026-09-10_2213` (`instanceProfile` -> stock-minimal in place, reverted) PARSEK-FAIL(expectation) on exactly the zeroed-limit literal with the drift gate valid (Mun reseed 2 lines, zeroed line 0). D17 `better-time-warp` is claimed off that literal. Nothing is owed; a nightly slot beside MC-1 / MC-2 is the operator's cadence call, reported rather than taken.",
         # THE TWO GUI-CENSUS LANES. Operator-tier by MECHANISM, the FORGE class rather
         # than the calibration class, and the mechanism is the HOST: both fly an
         # OPERATOR-LOCAL fixture (`fixtures/local-saves/c1-gui`) that no other machine
@@ -9472,6 +9472,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V3C-flight-arrival-companion.toml",
         "GS-6-part-event-applier-sweep.toml",
     )
+    # 2026-09-15: the wave-0910 cadence call (memo sections 6 and 12, priority register
+    # item B7). MC-3, GS-4, GS-8 and GS-9 were the last four lanes whose ONLY open item
+    # was the cadence: each is armed-discipline complete on its own flights and none of
+    # them had ever run on cadence, because operator tier is flown on request. The
+    # operator promoted ALL FOUR to nightly. Costed from the duration ledger where it
+    # has samples (GS-4 p50 338 s, GS-8 645 s) and from the lanes' own result JSONs
+    # where it does not (MC-3 53 s, GS-9 494 s): the nightly p50 sum moves from ~7.25 h
+    # to ~7.67 h. Their REVIEWED_UNTAGGED entries left with them, for the reason the
+    # 2026-08-29 comment gives - a nightly lane that never writes the token is in
+    # neither population this roster tracks.
+    #
+    # MC-3 is the only one of the four on the modded-compat instance; it joins MC-1 and
+    # MC-2, which were already nightly there.
+    TIER_PROMOTED_2026_09_15 = (
+        "MC-3-better-time-warp.toml",
+        "GS-4-kerbalx-rewind-watch.toml",
+        "GS-8-kerbalx-zone-round-trip.toml",
+        "GS-9-kerbalx-repeat-rewind.toml",
+    )
 
     def test_the_tier_promoted_specs_left_both_inventories(self):
         """The promotion is an OPERATOR DECISION, so it is pinned rather than
@@ -9485,7 +9504,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
           * the `pending-operator` tag appearing on one of them, which would assert
             outstanding human work against a call that has been made."""
         promoted = ([(n, "2026-08-29") for n in self.TIER_PROMOTED_2026_08_29] +
-                    [(n, "2026-09-08") for n in self.TIER_PROMOTED_2026_09_08])
+                    [(n, "2026-09-08") for n in self.TIER_PROMOTED_2026_09_08] +
+                    [(n, "2026-09-15") for n in self.TIER_PROMOTED_2026_09_15])
         for name, when in promoted:
             with self.subTest(spec=name):
                 spec = load_spec(name)

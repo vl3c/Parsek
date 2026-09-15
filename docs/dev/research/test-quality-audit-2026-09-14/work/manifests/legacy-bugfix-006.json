@@ -1,0 +1,163 @@
+{
+ "batch_id": "legacy-bugfix-006",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 36,
+ "files": [
+  {
+   "file": "LineBlinkWindowExitExemptionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Classify_DarkAndMeasuredOutside_IsWindowExitOff",
+       "line": 42
+      },
+      {
+       "method": "Classify_LitAndMeasuredInside_IsInsideWindowOn",
+       "line": 51
+      },
+      {
+       "method": "Classify_DegenerateLineRead_IsOther",
+       "line": 60
+      },
+      {
+       "method": "Classify_NoFreshIntent_IsOther",
+       "line": 71
+      },
+      {
+       "method": "Classify_DecisionDisagreesWithTruth_IsOther",
+       "line": 88
+      },
+      {
+       "method": "Classify_DarkButNotMeasuredOutside_IsOther",
+       "line": 105
+      },
+      {
+       "method": "Classify_LitButNotMeasuredInside_IsOther",
+       "line": 121
+      },
+      {
+       "method": "Resolve_LitEdge_InsideOnAfterWindowExitOff_IsExempt",
+       "line": 141
+      },
+      {
+       "method": "Resolve_DarkEdge_WindowExitOffAfterInsideOn_IsExempt",
+       "line": 150
+      },
+      {
+       "method": "Resolve_LitEdge_LitHalfNotProvenInside_StillRaises",
+       "line": 159
+      },
+      {
+       "method": "Resolve_DarkEdge_PriorLitHalfNotProvenInside_StillRaises",
+       "line": 170
+      },
+      {
+       "method": "Resolve_HalvesMustBeOppositeKinds_OtherwiseRaises",
+       "line": 184
+      },
+      {
+       "method": "Resolve_NoPriorToggle_IsNotExempt",
+       "line": 205
+      },
+      {
+       "method": "IsLineBlink_DefaultWindowTransitionExempt_PreservesLegacyBehavior",
+       "line": 219
+      },
+      {
+       "method": "IsLineBlink_WithinWindow_WindowTransitionExempt_NotBlink",
+       "line": 228
+      },
+      {
+       "method": "IsLineBlink_WithinWindow_NotAWindowTransition_StillBlink",
+       "line": 238
+      },
+      {
+       "method": "IsLineBlink_NoToggle_WindowTransitionExempt_StillNotBlink",
+       "line": 250
+      },
+      {
+       "method": "ArchivedRaise_V8Eve_1111_DarkEdgeStraddle_IsNowExempt",
+       "line": 292
+      },
+      {
+       "method": "ArchivedRaise_V8Eve_1114_DarkEdgeStraddle_IsNowExempt",
+       "line": 310
+      },
+      {
+       "method": "ArchivedRaise_V10Dres_0627_LitEdgeRebind_IsNowExempt",
+       "line": 328
+      },
+      {
+       "method": "ArchivedRaise_V10Dres_0632_LitEdgeRebind_IsNowExempt",
+       "line": 342
+      },
+      {
+       "method": "ArchivedRaiseGeometry_ButAHalfIsNotProven_StillRaises",
+       "line": 354
+      },
+      {
+       "method": "V15M_GillyHandoff_PreFixInputs_Raised",
+       "line": 476
+      },
+      {
+       "method": "V15M_GillyHandoff_MapClosedLane_IsNowExempt",
+       "line": 490
+      },
+      {
+       "method": "V15M_FirstIncarnation_TenFrames_NeverRaised_BeforeOrAfter",
+       "line": 507
+      },
+      {
+       "method": "MapOpen_HandoffThatNeverDraws_StillRaises",
+       "line": 527
+      },
+      {
+       "method": "MapOpen_HandoffThatActuallyDraws_IsExempt",
+       "line": 541
+      },
+      {
+       "method": "MapOpen_ButPublishSurfaceNeverRan_StillRaises",
+       "line": 552
+      },
+      {
+       "method": "HandoffExemption_FailsClosedOnEveryConjunct",
+       "line": 579
+      },
+      {
+       "method": "HandoffExemption_DecisionDisagreesWithTruth_NotExempt",
+       "line": 625
+      },
+      {
+       "method": "IsLineBlink_DefaultTracedPathHandoffExempt_PreservesLegacyBehavior",
+       "line": 656
+      },
+      {
+       "method": "IsLineBlink_NoToggle_TracedPathHandoffExempt_StillNotBlink",
+       "line": 666
+      },
+      {
+       "method": "CoverageStamps_AreConfinedToTheFourMeasuringDecisions",
+       "line": 695
+      },
+      {
+       "method": "HandoffStamp_IsConfinedToTheSingleTracedPathSuppressSite",
+       "line": 754
+      },
+      {
+       "method": "PublishSurfaceRanSignal_ReusesTheExistingWalkCompletedStamp",
+       "line": 807
+      },
+      {
+       "method": "CoverageStamp_DefaultsToUnknown_AndHasOneWriter",
+       "line": 857
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,211 @@
+{
+ "batch_id": "legacy-bugfix-005",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "Bug278FinalizeLimboTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FinalizeIndividualRecording_LeafWithoutVessel_FallsBackToDestroyed",
+       "line": 44
+      },
+      {
+       "method": "FinalizeIndividualRecording_LeafWithoutVessel_NotSceneExit_FallsBackToDestroyed",
+       "line": 70
+      },
+      {
+       "method": "FinalizeIndividualRecording_LeafWithExistingTerminalState_PreservesIt",
+       "line": 91
+      },
+      {
+       "method": "FinalizeIndividualRecording_LeafWithOrbitOnlyEndpoint_HealsStaleTerminalOrbitBody",
+       "line": 118
+      },
+      {
+       "method": "FinalizeIndividualRecording_LeafWithSameUtPointAnchor_DoesNotOverwriteTerminalOrbitBody",
+       "line": 147
+      },
+      {
+       "method": "FinalizeIndividualRecording_LeafWithSameUtPointAnchor_WarnsWhenPreservingNonPositiveCachedSma",
+       "line": 188
+      },
+      {
+       "method": "FinalizeIndividualRecording_LeafWithSameUtPointAnchor_HealsFromLastMatchingBodySegment",
+       "line": 226
+      },
+      {
+       "method": "FinalizeIndividualRecording_LeafWithEarlierDifferentBodyPoint_UsesOnlyLastPointForSameUtAnchor",
+       "line": 278
+      },
+      {
+       "method": "FinalizeIndividualRecording_LeafWithPostRefreshTerminalOrbitBody_DoesNotReuseEarlierPointBody",
+       "line": 325
+      },
+      {
+       "method": "FinalizeIndividualRecording_NonLeaf_SkipsTerminalStateAssignment",
+       "line": 367
+      },
+      {
+       "method": "FinalizeIndividualRecording_SetsExplicitStartAndEndUT_FromPoints",
+       "line": 387
+      },
+      {
+       "method": "FinalizeIndividualRecording_NoPoints_FallsBackEndUTToCommitUT",
+       "line": 411
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_AlreadyTerminal_SkipsAndLogs",
+       "line": 431
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_NoActiveId_NoOp",
+       "line": 458
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_NoLiveVesselOnSceneExit_InfersFromTrajectory",
+       "line": 471
+      },
+      {
+       "method": "EnsureActiveRecordingTerminalState_NoLiveVesselOutsideSceneExit_LeavesTerminalUnset",
+       "line": 513
+      },
+      {
+       "method": "SceneExitInferredActiveNonLeaf_DefaultsToPersistInMergeDialog",
+       "line": 536
+      },
+      {
+       "method": "ShouldRefreshActiveEffectiveLeafSnapshot_StableTerminalBreakupContinuous_ReturnsTrue",
+       "line": 605
+      },
+      {
+       "method": "ShouldRefreshActiveEffectiveLeafSnapshot_SamePidContinuation_ReturnsFalse",
+       "line": 639
+      },
+      {
+       "method": "NormalizeStableTerminalSnapshotForPersistence_UnsafeSit_CorrectsAtCompositionPoint",
+       "line": 672
+      },
+      {
+       "method": "NormalizeStableTerminalSnapshotForPersistence_SafeSit_LeavesSnapshotUntouched",
+       "line": 689
+      },
+      {
+       "method": "NormalizeStableTerminalSnapshotForPersistence_Landed_RewritesStaleOrbitToSurfaceTuple",
+       "line": 706
+      },
+      {
+       "method": "PruneZeroPointLeaves_RemovesEmptyDestroyedLeaves",
+       "line": 749
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_RemovesDestroyedDebrisStub",
+       "line": 788
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_RemovesLandedDebrisStub",
+       "line": 829
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_RemovesRecoveredDebrisStub",
+       "line": 854
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_RemovesSectionBackedLandedDebrisStub",
+       "line": 883
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_KeepsSectionWithMultipleFrames",
+       "line": 919
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_KeepsNonDebrisSinglePointLandedLeaf",
+       "line": 960
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_KeepsDebrisLeafWithoutTerminalState",
+       "line": 985
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_KeepsSubOrbitalDebrisLeaf",
+       "line": 1008
+      },
+      {
+       "method": "ShouldSkipStopMetricsValidation_SubOrbitalSinglePointDebrisLeaf_ReturnsTrue",
+       "line": 1030
+      },
+      {
+       "method": "ShouldSkipStopMetricsValidation_OrbitingSectionBackedSinglePointDebrisLeaf_ReturnsTrue",
+       "line": 1048
+      },
+      {
+       "method": "ShouldSkipStopMetricsValidation_TerminalDebrisStub_ReturnsFalse",
+       "line": 1078
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_RemovesSplashedDebrisStub",
+       "line": 1099
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_KeepsTwoSectionDebrisLeaf",
+       "line": 1126
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_KeepsSingleSectionDebrisLeafWithOrbitCheckpoint",
+       "line": 1171
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_KeepsSingleSectionDebrisLeafWithDifferentFrame",
+       "line": 1216
+      },
+      {
+       "method": "PruneSinglePointDebrisLeaves_SummaryLogIncludesTerminalStateBreakdown",
+       "line": 1268
+      },
+      {
+       "method": "FormatTerminalStateBreakdown_EmptyReturnsEmpty",
+       "line": 1305
+      },
+      {
+       "method": "FormatTerminalStateBreakdown_RendersEnumOrderDeterministically",
+       "line": 1313
+      },
+      {
+       "method": "CollectSinglePointDebrisLeafIds_SkipsRootAndActiveIds",
+       "line": 1326
+      },
+      {
+       "method": "InferTerminal_LowAltitude_ReturnsLanded",
+       "line": 1368
+      },
+      {
+       "method": "InferTerminal_HighAltitude_ReturnsSubOrbital",
+       "line": 1376
+      },
+      {
+       "method": "InferTerminal_SurfaceTrackSection_ReturnsLanded",
+       "line": 1384
+      },
+      {
+       "method": "InferTerminal_SurfaceMobileTrackSection_ReturnsLanded",
+       "line": 1398
+      },
+      {
+       "method": "InferTerminal_StableOrbit_ReturnsOrbiting",
+       "line": 1412
+      },
+      {
+       "method": "InferTerminal_NoPoints_ReturnsSubOrbital",
+       "line": 1429
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

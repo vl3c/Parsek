@@ -1,0 +1,115 @@
+{
+ "batch_id": "legacy-bugfix-014",
+ "cluster": "legacy-bugfix",
+ "tier": "A",
+ "expected_methods": 24,
+ "files": [
+  {
+   "file": "Bug445RolloutCostLeakTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnVesselRolloutSpending_WritesFundsSpendingVesselBuild",
+       "line": 94
+      },
+      {
+       "method": "OnVesselRolloutSpending_WithFutureLedgerActions_RecalculatesAtRolloutUt",
+       "line": 128
+      },
+      {
+       "method": "OnVesselRolloutSpending_NonPositiveCost_Skipped",
+       "line": 166
+      },
+      {
+       "method": "ClassifyAction_FundsSpendingVesselBuild_PairsWithVesselRolloutEvent",
+       "line": 187
+      },
+      {
+       "method": "ClassifyAction_FundsSpendingOther_StillPairsWithRnDPartPurchase",
+       "line": 210
+      },
+      {
+       "method": "CanRecordingAdoptRolloutAction_OnlyPrelaunchStartsCanClaim",
+       "line": 237
+      },
+      {
+       "method": "TryAdoptRolloutAction_WithinWindow_ClaimsAction",
+       "line": 247
+      },
+      {
+       "method": "TryAdoptRolloutAction_BumpsStateVersionSoRecordingScopedCachesCannotGoStale",
+       "line": 268
+      },
+      {
+       "method": "TryAdoptRolloutAction_DoesNotBumpWhenNothingIsAdopted",
+       "line": 298
+      },
+      {
+       "method": "TryAdoptRolloutAction_OutsideWindow_LeavesActionUnclaimed",
+       "line": 316
+      },
+      {
+       "method": "TryAdoptRolloutAction_AlreadyAdopted_DoesNotReclaim",
+       "line": 336
+      },
+      {
+       "method": "TryAdoptRolloutAction_AtExactWindowBoundary_Adopts",
+       "line": 362
+      },
+      {
+       "method": "TryAdoptRolloutAction_JustOutsideWindow_DoesNotAdopt",
+       "line": 378
+      },
+      {
+       "method": "TryAdoptRolloutAction_SameSiteDifferentVessel_DoesNotAdopt",
+       "line": 391
+      },
+      {
+       "method": "TryAdoptRolloutAction_SameVesselDifferentSite_DoesNotAdopt",
+       "line": 421
+      },
+      {
+       "method": "TryAdoptRolloutAction_MultipleUnclaimedMatchingContext_AdoptsMostRecent",
+       "line": 450
+      },
+      {
+       "method": "CreateVesselCostActions_AdoptsRolloutInsteadOfDoubleCharging",
+       "line": 484
+      },
+      {
+       "method": "CreateVesselCostActions_NoRollout_StillEmitsFromRecordingDelta",
+       "line": 523
+      },
+      {
+       "method": "CancelledRollout_LeavesUnclaimedSpendingInLedger",
+       "line": 548
+      },
+      {
+       "method": "CreateVesselCostActions_PrelaunchAfterLongPadWait_StillAdoptsRollout",
+       "line": 567
+      },
+      {
+       "method": "CreateVesselCostActions_FlyingStart_DoesNotAdoptRollout",
+       "line": 599
+      },
+      {
+       "method": "CreateVesselCostActions_AdoptedRolloutPlusResidualDelta_EmitsBoth",
+       "line": 627
+      },
+      {
+       "method": "RolloutAction_RoundTripsThroughSerializeDeserialize_RemainsAdoptable",
+       "line": 680
+      },
+      {
+       "method": "LegacyBareRolloutKey_RoundTripsThroughSerializeDeserialize_RemainsAdoptable",
+       "line": 725
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

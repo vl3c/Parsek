@@ -1,0 +1,229 @@
+{
+ "batch_id": "logistics-route-030",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "Logistics/RouteNextCrossingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PureMath_BeforeDockThisCycle_ReturnsSecondsToThisDock",
+       "line": 120
+      },
+      {
+       "method": "PureMath_AfterDockCycleObserved_RollsToNextCycleDock",
+       "line": 136
+      },
+      {
+       "method": "PureMath_DockOutOfSpan_ReturnsFalse",
+       "line": 151
+      },
+      {
+       "method": "PureMath_ExactlyAtDockBoundary_AdvancesToNextCycle",
+       "line": 166
+      },
+      {
+       "method": "PureMath_LastObservedAdvanced_SkipsConsumedCycles",
+       "line": 184
+      },
+      {
+       "method": "PureMath_LoiterCutsUnit_ReturnsFalse",
+       "line": 199
+      },
+      {
+       "method": "PureMath_ScheduleUnit_ReturnsFalse",
+       "line": 213
+      },
+      {
+       "method": "PureMath_DegenerateSpan_ReturnsFalse",
+       "line": 227
+      },
+      {
+       "method": "PureMath_SubMinCadence_UsesMinCycleDurationSpacing",
+       "line": 242
+      },
+      {
+       "method": "Accessor_NotGhostDriving_ReturnsFalseAndLogs",
+       "line": 264
+      },
+      {
+       "method": "Accessor_EndpointLost_ReturnsFalse",
+       "line": 281
+      },
+      {
+       "method": "Accessor_ResolverReturnsNull_ReturnsFalseAndLogs",
+       "line": 295
+      },
+      {
+       "method": "Accessor_ResolverReturnsUnit_ForwardsPureResultAndLogs",
+       "line": 312
+      },
+      {
+       "method": "Accessor_DockOutOfSpan_ReturnsFalseAndLogs",
+       "line": 329
+      },
+      {
+       "method": "Accessor_DoesNotMutateLoopClockState",
+       "line": 346
+      },
+      {
+       "method": "Accessor_NullRoute_ReturnsFalse",
+       "line": 359
+      },
+      {
+       "method": "Branch_WaitStateWithRecheck_PicksRechecksIn",
+       "line": 375
+      },
+      {
+       "method": "Branch_ActiveWithCrossing_PicksNextDelivery",
+       "line": 391
+      },
+      {
+       "method": "Branch_NoCrossingNoWait_PicksNone",
+       "line": 407
+      },
+      {
+       "method": "Branch_WaitStateRecheckPassed_FallsBackToNextDelivery",
+       "line": 424
+      },
+      {
+       "method": "IsWaitState_ClassifiesBlockedStates",
+       "line": 442
+      },
+      {
+       "method": "NextDeliveryCell_NextDeliveryBranch_ShowsCountdown",
+       "line": 465
+      },
+      {
+       "method": "NextDeliveryCell_RechecksInBranch_ShowsCountdown",
+       "line": 472
+      },
+      {
+       "method": "NextDeliveryCell_NoneBranch_ShowsDash",
+       "line": 480
+      },
+      {
+       "method": "NextDeliveryCell_EmptyCountdown_ShowsDash",
+       "line": 487
+      },
+      {
+       "method": "DetailCountdownLine_NextDelivery_PrefixesNextDelivery",
+       "line": 495
+      },
+      {
+       "method": "DetailCountdownLine_RechecksIn_PrefixesRechecksIn",
+       "line": 503
+      },
+      {
+       "method": "DetailCountdownLine_None_ReturnsNull",
+       "line": 511
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteEndpointLaunchGuidTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PidGuidGate_RefusesOnlyWhenBothGuidsAreKnownAndDiffer",
+       "line": 48
+      },
+      {
+       "method": "PidGuidGate_AcceptsWheneverEitherSideIsUnknown",
+       "line": 67
+      },
+      {
+       "method": "PidGuidGate_IsNormalizationInsensitive",
+       "line": 78
+      },
+      {
+       "method": "EndpointLaunchGuid_RoundTripsThroughTheRouteCodec",
+       "line": 91
+      },
+      {
+       "method": "EndpointWithoutAGuid_OmitsTheKey_AndReadsBackUnknown",
+       "line": 115
+      },
+      {
+       "method": "OriginProofLaunchGuid_RoundTripsAndIsSparseWhenAbsent",
+       "line": 135
+      },
+      {
+       "method": "RouteProofHash_IsUnchangedByTheLaunchGuidOnEitherSurface",
+       "line": 186
+      },
+      {
+       "method": "ATransferStampsTheResolvedVesselsGuidOntoTheReboundEndpoint",
+       "line": 243
+      },
+      {
+       "method": "ATransferWithAnUnreadableGuid_ClearsTheStaleOneRatherThanKeepingIt",
+       "line": 296
+      },
+      {
+       "method": "SameEndpoint_DistinguishesOnTheLaunchGuid",
+       "line": 331
+      },
+      {
+       "method": "EvaluateSeesTheEndpointsOwnGuid_SoThePidArmSeparatesTheTwoLaunches",
+       "line": 352
+      },
+      {
+       "method": "DecidePidStep_RefusesADifferentLaunch_AndAcceptsEveryOtherReading",
+       "line": 391
+      },
+      {
+       "method": "RefusedPidStep_FallsThroughToTheNextStep",
+       "line": 442
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteGoBackRewindReconcileTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RetireInPlace_DropsOnlyFutureRouteRows_BumpsVersion",
+       "line": 124
+      },
+      {
+       "method": "RetireInPlace_NoFutureRouteRows_NoOpNoVersionBump",
+       "line": 156
+      },
+      {
+       "method": "RetireInPlace_BoundaryRowAtCutoff_IsKept",
+       "line": 172
+      },
+      {
+       "method": "ReconcileStoreAtRewind_DirectCall_EqualsBundleRestoreResult",
+       "line": 286
+      },
+      {
+       "method": "ReconcileStoreAtRewind_NullKeptActions_TreatedAsEmpty",
+       "line": 362
+      },
+      {
+       "method": "HandleRewindOnLoad_RunsRetireThenReconcileBeforeCareerRestore",
+       "line": 397
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

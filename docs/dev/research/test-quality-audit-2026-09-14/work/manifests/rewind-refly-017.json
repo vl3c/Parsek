@@ -1,0 +1,218 @@
+{
+ "batch_id": "rewind-refly-017",
+ "cluster": "rewind-refly",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "RewindReadbackGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Resolve_TargetEqualsFloor_WithinExpectedRange",
+       "line": 65
+      },
+      {
+       "method": "Resolve_WithinTolerance_WithinExpectedRange",
+       "line": 79
+      },
+      {
+       "method": "Resolve_TargetBelowFloorMinusTolerance_FlaggedDivergence",
+       "line": 92
+      },
+      {
+       "method": "Resolve_TargetFarAboveFloor_WithinExpectedRange",
+       "line": 106
+      },
+      {
+       "method": "Resolve_OnlyOneWitnessFinite_FloorUsesIt",
+       "line": 120
+      },
+      {
+       "method": "Resolve_NoFiniteWitness_NotEvaluated",
+       "line": 139
+      },
+      {
+       "method": "Resolve_NonFiniteWitness_IsTreatedAsMissing",
+       "line": 153
+      },
+      {
+       "method": "Resolve_NaNTarget_FlaggedDivergence",
+       "line": 166
+      },
+      {
+       "method": "Resolve_PostRpSpendingSim_LegitDrawdownNotFlagged",
+       "line": 185
+      },
+      {
+       "method": "Resolve_ExactlyAtFloorMinusTolerance_WithinExpectedRange",
+       "line": 205
+      },
+      {
+       "method": "Runner_FlaggedDivergence_EmitsWarnWithAllFields",
+       "line": 229
+      },
+      {
+       "method": "Runner_WithinRange_EmitsVerboseNoWarn",
+       "line": 252
+      },
+      {
+       "method": "Runner_NoFiniteWitness_EmitsVerboseSkipNoWarn",
+       "line": 271
+      },
+      {
+       "method": "Runner_NotArmed_ReturnsFalseAndEmitsNothing",
+       "line": 287
+      },
+      {
+       "method": "Runner_FlaggedButAbortOff_ReturnsFalse",
+       "line": 302
+      },
+      {
+       "method": "Runner_FlaggedAndForceAbort_ReturnsTrue",
+       "line": 319
+      },
+      {
+       "method": "PatchAll_ForceAbortAndArmedDivergence_AbortsBeforeDispatch",
+       "line": 338
+      },
+      {
+       "method": "PatchAll_AbortOffAndArmedDivergence_WarnsButCompletes",
+       "line": 361
+      },
+      {
+       "method": "PatchAll_NotArmed_NoGuardLinesNoAbort",
+       "line": 383
+      },
+      {
+       "method": "Arm_LogsAllWitnessValues_ThenClearDisarms",
+       "line": 403
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReFlyPreInvokeAdvisoryTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ResolveSiblingSlotNames_OtherMappedSlots_AreNamedFromTheirOriginRecordings",
+       "line": 78
+      },
+      {
+       "method": "ResolveSiblingSlotNames_ExcludesBySlotIndexNotListIndex",
+       "line": 98
+      },
+      {
+       "method": "ResolveSiblingSlotNames_SlotInNoMap_IsOmitted",
+       "line": 118
+      },
+      {
+       "method": "ResolveSiblingSlotNames_RootPartPidMapAlone_StillCountsAsMapped",
+       "line": 140
+      },
+      {
+       "method": "ResolveSiblingSlotNames_UnresolvableOrigin_FallsBackToSlotLabel",
+       "line": 158
+      },
+      {
+       "method": "ResolveSiblingSlotNames_SupersededOriginStillResolvesByRawId",
+       "line": 170
+      },
+      {
+       "method": "ResolveSiblingSlotNames_NullOrEmptyInputs_ReturnEmpty",
+       "line": 191
+      },
+      {
+       "method": "ResolveSiblingSlotNames_NullSlotEntry_IsSkippedNotThrown",
+       "line": 203
+      },
+      {
+       "method": "ComposeAdvisoryBody_NamesTheSevenPatchedFacets",
+       "line": 220
+      },
+      {
+       "method": "ComposeAdvisoryBody_NamesTheConcretePlayerVisibleRevertExamples",
+       "line": 238
+      },
+      {
+       "method": "ComposeAdvisoryBody_StatesThatRecoveredCraftComeBackAndGiveTheirRewardsUp",
+       "line": 251
+      },
+      {
+       "method": "ComposeAdvisoryBody_ListsTheSiblingCraftThatBecomeReplays",
+       "line": 265
+      },
+      {
+       "method": "ComposeAdvisoryBody_NoSiblings_SaysSoInsteadOfAnEmptyList",
+       "line": 276
+      },
+      {
+       "method": "ComposeAdvisoryBody_RendersNamesAsProseNotAsABracketedLogList",
+       "line": 285
+      },
+      {
+       "method": "ComposeAdvisoryBody_NullSiblings_IsTreatedAsNone",
+       "line": 298
+      },
+      {
+       "method": "ComposeAdvisoryBody_ReassuresThatUnrelatedWorldIsPreserved",
+       "line": 306
+      },
+      {
+       "method": "ComposeAdvisoryBody_MoreSiblingsThanTheCap_CapsAndReportsTheOverflow",
+       "line": 321
+      },
+      {
+       "method": "FormatCappedProseList_MirrorsTheLogListsCapAndOverflowWithoutBrackets",
+       "line": 342
+      },
+      {
+       "method": "FormatCappedNameList_NullOrEmpty_RendersEmptyBrackets",
+       "line": 359
+      },
+      {
+       "method": "FormatCappedNameList_UnderCap_ListsEveryEntryWithNoOverflowNote",
+       "line": 366
+      },
+      {
+       "method": "FormatCappedNameList_OverCap_TruncatesAndCountsTheRemainder",
+       "line": 374
+      },
+      {
+       "method": "FormatCappedNameList_BlankEntry_RendersAsUnnamedNotAsAGap",
+       "line": 383
+      },
+      {
+       "method": "FormatCappedNameList_NonPositiveCap_StillShowsOneEntry",
+       "line": 391
+      },
+      {
+       "method": "FormatAdvisoryLogLine_CarriesTheGrepStableTokens",
+       "line": 405
+      },
+      {
+       "method": "FormatAdvisoryLogLine_NullRpId_RendersPlaceholderNotAnEmptyToken",
+       "line": 420
+      },
+      {
+       "method": "LogReFlyAdvisory_EmitsOneInfoLineUnderTheRewindSubsystem",
+       "line": 430
+      },
+      {
+       "method": "LogReFlyAdvisory_StatesTheFacetSummaryTheDialogStates",
+       "line": 445
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

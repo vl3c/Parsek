@@ -1,0 +1,259 @@
+{
+ "batch_id": "recorder-events-002",
+ "cluster": "recorder-events",
+ "tier": "A1",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "PartEventTests.cs",
+   "ranges": [
+    {
+     "start": 921,
+     "end": 1778,
+     "methods": [
+      {
+       "method": "PartEvents_SerializationRoundtrip_LightBlinkEnabled",
+       "line": 921
+      },
+      {
+       "method": "ColorChanger_CabinLight_OffToOn_EmitsLightOnEvent",
+       "line": 951
+      },
+      {
+       "method": "ColorChanger_CabinLight_OnToOff_EmitsLightOffEvent",
+       "line": 968
+      },
+      {
+       "method": "ColorChanger_CabinLight_SameState_NoEvent",
+       "line": 981
+      },
+      {
+       "method": "EvaluateColorCurves_Mk1Pod_OffIsBlack",
+       "line": 999
+      },
+      {
+       "method": "EvaluateColorCurves_HeatShield_BurnColor",
+       "line": 1040
+      },
+      {
+       "method": "EvaluateSingleCurve_MidpointInterpolation",
+       "line": 1081
+      },
+      {
+       "method": "EvaluateSingleCurve_NullNode_ReturnsDefault",
+       "line": 1092
+      },
+      {
+       "method": "EvaluateSingleCurve_EmptyKeys_ReturnsDefault",
+       "line": 1099
+      },
+      {
+       "method": "EvaluateSingleCurve_ClampsBelowRange",
+       "line": 1107
+      },
+      {
+       "method": "EvaluateSingleCurve_ClampsAboveRange",
+       "line": 1118
+      },
+      {
+       "method": "BuildColorChangerInfos_NullPartNode_ReturnsNull",
+       "line": 1133
+      },
+      {
+       "method": "BuildColorChangerInfos_NoModuleNodes_ReturnsNull",
+       "line": 1140
+      },
+      {
+       "method": "BuildColorChangerInfos_NullGhostModelNode_ReturnsNull",
+       "line": 1150
+      },
+      {
+       "method": "BuildColorChangerInfos_NonColorChangerModuleOnly_ReturnsNull",
+       "line": 1167
+      },
+      {
+       "method": "GearTransition_RetractedToDeployed_EmitsDeployedEvent",
+       "line": 1185
+      },
+      {
+       "method": "GearTransition_DeployedToRetracted_EmitsRetractedEvent",
+       "line": 1200
+      },
+      {
+       "method": "GearTransition_NoChange_ReturnsNull",
+       "line": 1214
+      },
+      {
+       "method": "GearTransition_AlreadyDeployed_ReturnsNull",
+       "line": 1224
+      },
+      {
+       "method": "PartEvents_SerializationRoundtrip_GearDeployed",
+       "line": 1234
+      },
+      {
+       "method": "PartEvents_SerializationRoundtrip_GearRetracted",
+       "line": 1261
+      },
+      {
+       "method": "ClassifyGearState_Deployed_IsDeployed",
+       "line": 1287
+      },
+      {
+       "method": "ClassifyGearState_Retracted_IsRetracted",
+       "line": 1295
+      },
+      {
+       "method": "ClassifyGearState_Deploying_NeitherEndpoint",
+       "line": 1303
+      },
+      {
+       "method": "ClassifyGearState_Retracting_NeitherEndpoint",
+       "line": 1311
+      },
+      {
+       "method": "ClassifyCargoBayState_ClosedPos0_AnimTime0_IsClosed",
+       "line": 1323
+      },
+      {
+       "method": "ClassifyCargoBayState_ClosedPos0_AnimTime1_IsOpen",
+       "line": 1331
+      },
+      {
+       "method": "ClassifyCargoBayState_ClosedPos1_AnimTime0_IsOpen",
+       "line": 1339
+      },
+      {
+       "method": "ClassifyCargoBayState_ClosedPos1_AnimTime1_IsClosed",
+       "line": 1347
+      },
+      {
+       "method": "ClassifyCargoBayState_MidTransition_Neither",
+       "line": 1355
+      },
+      {
+       "method": "ClassifyCargoBayState_DeployLimited_Neither",
+       "line": 1363
+      },
+      {
+       "method": "ClassifyCargoBayState_NonStandardClosedPosition_Neither",
+       "line": 1371
+      },
+      {
+       "method": "CargoBayTransition_ClosedToOpened_EmitsOpenedEvent",
+       "line": 1379
+      },
+      {
+       "method": "CargoBayTransition_OpenedToClosed_EmitsClosedEvent",
+       "line": 1394
+      },
+      {
+       "method": "CargoBayTransition_NoChange_ReturnsNull",
+       "line": 1408
+      },
+      {
+       "method": "CargoBayTransition_AlreadyOpen_ReturnsNull",
+       "line": 1418
+      },
+      {
+       "method": "PartEvents_SerializationRoundtrip_CargoBayOpened",
+       "line": 1428
+      },
+      {
+       "method": "PartEvents_SerializationRoundtrip_CargoBayClosed",
+       "line": 1455
+      },
+      {
+       "method": "FairingTransition_IntactToDeployed_EmitsJettisonedEvent",
+       "line": 1485
+      },
+      {
+       "method": "FairingTransition_AlreadyDeployed_ReturnsNull",
+       "line": 1500
+      },
+      {
+       "method": "FairingTransition_NotDeployed_ReturnsNull",
+       "line": 1510
+      },
+      {
+       "method": "FairingJettisoned_SerializationRoundtrip",
+       "line": 1520
+      },
+      {
+       "method": "RcsTransition_Activation_EmitsRCSActivatedEvent",
+       "line": 1551
+      },
+      {
+       "method": "RcsTransition_Deactivation_EmitsRCSStoppedEvent",
+       "line": 1570
+      },
+      {
+       "method": "RcsTransition_PowerChange_EmitsRCSThrottleEvent",
+       "line": 1587
+      },
+      {
+       "method": "RcsTransition_SmallPowerChange_NoEvent",
+       "line": 1603
+      },
+      {
+       "method": "RcsTransition_NotActive_NoChange_NoEvent",
+       "line": 1616
+      },
+      {
+       "method": "RcsTransition_MultiModule_DifferentModuleIndex",
+       "line": 1629
+      },
+      {
+       "method": "ComputeRcsPower_NormalCase",
+       "line": 1653
+      },
+      {
+       "method": "ComputeRcsPower_ZeroThrusterPower_ReturnsZero",
+       "line": 1663
+      },
+      {
+       "method": "ComputeRcsPower_EmptyForces_ReturnsZero",
+       "line": 1671
+      },
+      {
+       "method": "ComputeRcsPower_NullForces_ReturnsZero",
+       "line": 1679
+      },
+      {
+       "method": "ComputeRcsPower_ClampedToOne",
+       "line": 1686
+      },
+      {
+       "method": "ComputeRcsPower_PartialFiring",
+       "line": 1695
+      },
+      {
+       "method": "ShouldStartRcsRecording_AtThreshold_ReturnsTrue",
+       "line": 1708
+      },
+      {
+       "method": "ShouldStartRcsRecording_BelowThreshold_ReturnsFalse",
+       "line": 1714
+      },
+      {
+       "method": "ShouldStartRcsRecording_AboveThreshold_ReturnsFalse",
+       "line": 1720
+      },
+      {
+       "method": "IsRcsRecordingSustained_AtThreshold_ReturnsTrue",
+       "line": 1726
+      },
+      {
+       "method": "IsRcsRecordingSustained_BelowThreshold_ReturnsFalse",
+       "line": 1732
+      },
+      {
+       "method": "IsRcsRecordingSustained_AboveThreshold_ReturnsTrue",
+       "line": 1738
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

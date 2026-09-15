@@ -1,0 +1,193 @@
+{
+ "batch_id": "rewind-refly-015",
+ "cluster": "rewind-refly",
+ "tier": "B",
+ "expected_methods": 38,
+ "files": [
+  {
+   "file": "ReFlyWorldPreservationFixtureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifySlotAffinity_SortsSelectedOtherAndUnrelatedOnEitherKey",
+       "line": 91
+      },
+      {
+       "method": "ClassifySlotAffinity_SelectedWinsWhenAVesselMatchesBothMaps",
+       "line": 121
+      },
+      {
+       "method": "BuildSlotPidSets_ReportsAnUnmappedSelectedSlot",
+       "line": 139
+      },
+      {
+       "method": "BuildRewindPoint_CarriesTheB9UsabilityPrerequisites",
+       "line": 161
+      },
+      {
+       "method": "UnrelatedFleetPids_CanNeverCollideWithASlotPid",
+       "line": 190
+      },
+      {
+       "method": "RpSidecar_CarriesBothSlotsPlusTheWholeUnrelatedFleet",
+       "line": 222
+      },
+      {
+       "method": "RpSidecar_NameCollisionPairSharesTheReFlownCraftName",
+       "line": 270
+      },
+      {
+       "method": "RpSidecar_EveryVesselCarriesADistinctPidAndLaunchGuid",
+       "line": 294
+      },
+      {
+       "method": "RpSidecar_OrbitsTheClonedFleetSoNothingPilesUpOnThePad",
+       "line": 326
+      },
+      {
+       "method": "RpSidecar_ActiveVesselStillIndexesTheFocusSlotPastTheAppendedFleet",
+       "line": 354
+      },
+      {
+       "method": "RpSidecar_CarriesTheTreeAsAnActiveResumeNodeAndAgreeingLaunchGuids",
+       "line": 367
+      },
+      {
+       "method": "RealScrubOverTheGeneratedSidecar_PreservesTheFleetAndRemovesTheSibling",
+       "line": 415
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RewindB9FixtureTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BuildRewindPoint_HasFixedIdNullSessionAndQuicksavePath",
+       "line": 60
+      },
+      {
+       "method": "BuildRewindPoint_TwoControllableChildSlots",
+       "line": 80
+      },
+      {
+       "method": "BuildRewindPoint_PidSlotMapMatchesInjectedRecordingPids",
+       "line": 99
+      },
+      {
+       "method": "Inject_EmitsRewindPointsBlockAndRoundTrips",
+       "line": 115
+      },
+      {
+       "method": "Inject_TreeCarriesCrashedBoosterSibling",
+       "line": 138
+      },
+      {
+       "method": "Inject_BoosterMergeStateRoundTripsThroughTheProductionCodec",
+       "line": 168
+      },
+      {
+       "method": "Inject_CrashedBoosterClassifiesAsOpenUnfinishedFlight",
+       "line": 206
+      },
+      {
+       "method": "Inject_WritesRpQuicksaveSidecarAtRewindPointsPath",
+       "line": 276
+      },
+      {
+       "method": "Sidecar_DeepParsePassesWhenPartsResolve",
+       "line": 341
+      },
+      {
+       "method": "Inject_RpSidecarCarriesTheTreeAsAnActiveResumeNode",
+       "line": 407
+      },
+      {
+       "method": "Inject_RpSidecarVesselGuidsAgreeWithRecordedVesselGuid",
+       "line": 461
+      },
+      {
+       "method": "DeriveVesselLaunchGuid_IsDeterministicAndParsesAsAGuid",
+       "line": 515
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ReFlyMergeOptimizerSplitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SplitPass_ActiveReFlyMarker_DefersSplitForActiveProvisionalOnly",
+       "line": 112
+      },
+      {
+       "method": "SplitPass_NoActiveMarker_SplitsRecordingThatWouldHaveBeenDeferred",
+       "line": 151
+      },
+      {
+       "method": "SplitPass_MarkerActiveButDifferentRecordingId_DoesNotDefer",
+       "line": 176
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_RemovesAllSessionTaggedRecordings",
+       "line": 194
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_FallsBackToProvisionalForRpId",
+       "line": 225
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_NoMatchesIsNoOp",
+       "line": 243
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_AlsoPrunesFromCommittedTreeDictionary",
+       "line": 256
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_ScrubsBranchPointEndpointRefs",
+       "line": 300
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_TreeDictPruneNullsActiveWhenFallbackMissing",
+       "line": 363
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_SessionMatchOnly_DoesNotDeletePriorDurableAttempt",
+       "line": 394
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_NoSessionId_FallsBackToRpMatch",
+       "line": 424
+      },
+      {
+       "method": "PruneTaggedRecordingsFromCommittedTrees_ResetsStaleRootRecordingId",
+       "line": 440
+      },
+      {
+       "method": "RemoveSessionProvisionalRecordings_BothNullArgs_NoOp",
+       "line": 485
+      },
+      {
+       "method": "RunOptimizationPass_LeavesProvisionalEligibleForAppendRelations",
+       "line": 500
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

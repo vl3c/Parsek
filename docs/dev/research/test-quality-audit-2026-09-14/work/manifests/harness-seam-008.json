@@ -1,0 +1,163 @@
+{
+ "batch_id": "harness-seam-008",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 36,
+ "files": [
+  {
+   "file": "AutorunHooksTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Parse_UnsetOrEmpty_Inert_NoWarning",
+       "line": 22
+      },
+      {
+       "method": "Parse_All_EnablesRunAll",
+       "line": 34
+      },
+      {
+       "method": "Parse_SingleCategory",
+       "line": 46
+      },
+      {
+       "method": "Parse_UnknownCategory_KeptVerbatim_Enabled",
+       "line": 58
+      },
+      {
+       "method": "Parse_Malformed_TrimsAndDropsEmpties",
+       "line": 76
+      },
+      {
+       "method": "Parse_ZeroCategories_Inert_Warns",
+       "line": 93
+      },
+      {
+       "method": "Parse_ExitArmed_OnlyForExactlyOne",
+       "line": 109
+      },
+      {
+       "method": "Parse_ExitWithoutTests_Warns",
+       "line": 118
+      },
+      {
+       "method": "Parse_TestsAndExit_CleanNoWarnings",
+       "line": 129
+      },
+      {
+       "method": "Parse_IsDeterministic",
+       "line": 142
+      },
+      {
+       "method": "Parse_IsolatedArmed_OnlyForExactlyOne",
+       "line": 167
+      },
+      {
+       "method": "Parse_IsolatedWithoutTests_Warns",
+       "line": 178
+      },
+      {
+       "method": "Parse_IsolatedAndExitWithoutTests_WarnsBoth",
+       "line": 194
+      },
+      {
+       "method": "Parse_IsolatedSurvivesEverySelectorShape",
+       "line": 213
+      },
+      {
+       "method": "Parse_IsolatedIsOrthogonalToEnabled",
+       "line": 224
+      },
+      {
+       "method": "SceneSettle_FlightFullyReady_Fires",
+       "line": 242
+      },
+      {
+       "method": "SceneSettle_NonGameScene_NeverFires",
+       "line": 258
+      },
+      {
+       "method": "SceneSettle_NoSaveLoaded_DoesNotFire",
+       "line": 272
+      },
+      {
+       "method": "SceneSettle_FlightHalfInitialized_DoesNotFire",
+       "line": 287
+      },
+      {
+       "method": "SceneSettle_SpaceCenter_NoVesselGate_Fires",
+       "line": 300
+      },
+      {
+       "method": "SceneSettle_SettleCounterMustReachTarget",
+       "line": 316
+      },
+      {
+       "method": "SceneSettle_ReconcilePending_Blocks",
+       "line": 328
+      },
+      {
+       "method": "FireGate_AllClear_Fires",
+       "line": 340
+      },
+      {
+       "method": "FireGate_RunnerRunning_Blocks",
+       "line": 350
+      },
+      {
+       "method": "FireGate_CommandRunnerRunning_Blocks",
+       "line": 361
+      },
+      {
+       "method": "FireGate_ConsumedForProcess_Blocks",
+       "line": 371
+      },
+      {
+       "method": "FireGate_FiredThisScene_Blocks",
+       "line": 381
+      },
+      {
+       "method": "H2Exit_QuitsOnlyWhenArmedAndAutorun",
+       "line": 397
+      },
+      {
+       "method": "H2Exit_ButtonBatch_NeverQuits",
+       "line": 408
+      },
+      {
+       "method": "H2Exit_QuitSupersedesBounce",
+       "line": 420
+      },
+      {
+       "method": "H2Exit_NoQuit_DoesNotSkipBounce",
+       "line": 431
+      },
+      {
+       "method": "ReconcileGateClear_ClearOnlyWhenBothFalse",
+       "line": 450
+      },
+      {
+       "method": "ReconcileGateClear_NegationFeedsSettleAsPending",
+       "line": 461
+      },
+      {
+       "method": "ReconcileGateClear_NonReloadableBranch_HeldByInProgressFlagAlone",
+       "line": 480
+      },
+      {
+       "method": "AccumulateCategoryBatch_FoldsUnionAcrossTokens",
+       "line": 496
+      },
+      {
+       "method": "AccumulateCategoryBatch_ZeroTotalToken_CountsAsBatchOnly",
+       "line": 518
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
