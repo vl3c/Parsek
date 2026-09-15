@@ -872,6 +872,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetTailTrackSectionEnvironment_NoQualifyingSection_ReturnsFalse()
+        {
+            // The false arm is what makes PrepareQuickloadResumeStateIfNeeded skip
+            // ArmRestoreEnvironmentResync. A section with no frames, no checkpoints
+            // and zero duration carries no environment worth resuming from.
+            var rec = new Recording
+            {
+                RecordingId = "tail_env_none",
+                VesselName = "No Tail Env",
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 10.0,
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 10.0,
+                endUT = 10.0,
+                frames = null,
+                checkpoints = null,
+            });
+
+            Assert.False(FlightRecorder.TryGetTailTrackSectionEnvironment(rec, out _));
+            Assert.False(FlightRecorder.TryGetTailTrackSectionEnvironment(null, out _));
+        }
+
+        [Fact]
         public void TrimRecordingTreePastUT_TrimsSiblingRecordingsAcrossTree()
         {
             var tree = MakeTree("trim_tree", "Trim Tree", 2);
@@ -1731,6 +1758,21 @@ namespace Parsek.Tests
 
             bool keepPending = ParsekScenario.ShouldKeepPendingTreeAfterHydrationFailure(
                 diskTree, staleEpochHydrationFailures: 0);
+
+            Assert.False(keepPending);
+        }
+
+        [Fact]
+        public void ShouldKeepPendingTreeAfterHydrationFailure_MismatchedPendingTree_ReturnsFalse()
+        {
+            // A pending copy of a DIFFERENT tree must never be kept over the
+            // loaded one, even under a stale-epoch hydration failure.
+            var pendingTree = MakeTree("tree_hydration_a", "In-Memory Pending", 1);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            var diskTree = MakeTree("tree_hydration_b", "Disk Active", 1);
+
+            bool keepPending = ParsekScenario.ShouldKeepPendingTreeAfterHydrationFailure(
+                diskTree, staleEpochHydrationFailures: 1);
 
             Assert.False(keepPending);
         }

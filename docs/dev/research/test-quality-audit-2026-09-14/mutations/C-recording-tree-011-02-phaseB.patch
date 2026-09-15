@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ParsekScenario.HydrationRepair.cs b/Source/Parsek/ParsekScenario.HydrationRepair.cs
+index fc6460949..7963b2fae 100644
+--- a/Source/Parsek/ParsekScenario.HydrationRepair.cs
++++ b/Source/Parsek/ParsekScenario.HydrationRepair.cs
+@@ -13,8 +13,7 @@ namespace Parsek
+             return staleEpochHydrationFailures > 0
+                 && loadedTree != null
+                 && RecordingStore.HasPendingTree
+-                && RecordingStore.PendingTree != null
+-                && RecordingStore.PendingTree.Id == loadedTree.Id;
++                && RecordingStore.PendingTree != null;
+         }
+ 
+         internal static int RestoreHydrationFailedRecordingsFromPendingTree(RecordingTree loadedTree)

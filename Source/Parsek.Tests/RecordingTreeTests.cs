@@ -101,6 +101,66 @@ namespace Parsek.Tests
             Assert.False(pos.HasRecordedRotation);
         }
 
+        [Fact]
+        public void SurfacePosition_LoadFromLegacyNodeWithRotationFields_MarksRotationRecorded()
+        {
+            // Pre-flag save: rotation fields present, no rotationRecorded key.
+            // The hasRotationFields fallback must treat those as recorded.
+            var node = new ConfigNode("TEST");
+            node.AddValue("body", "Mun");
+            node.AddValue("lat", "1");
+            node.AddValue("lon", "2");
+            node.AddValue("alt", "3");
+            node.AddValue("rotX", "0.1");
+            node.AddValue("rotY", "0.2");
+            node.AddValue("rotZ", "0.3");
+            node.AddValue("rotW", "0.9");
+            node.AddValue("situation", ((int)SurfaceSituation.Landed).ToString(CultureInfo.InvariantCulture));
+
+            var restored = SurfacePosition.LoadFrom(node);
+
+            Assert.True(restored.HasRecordedRotation);
+            Assert.Equal(0.1f, restored.rotation.x, 0.00001f);
+            Assert.Equal(0.2f, restored.rotation.y, 0.00001f);
+            Assert.Equal(0.3f, restored.rotation.z, 0.00001f);
+            Assert.Equal(0.9f, restored.rotation.w, 0.00001f);
+        }
+
+        [Fact]
+        public void SurfacePosition_SaveWithoutExplicitFlag_NonZeroRotation_WritesRotationRecordedTrue()
+        {
+            // Live call sites leave rotationRecorded null, so the implicit arm
+            // (HasImplicitRecordedRotation) is the shipped persistence path.
+            var pos = new SurfacePosition
+            {
+                body = "Mun",
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 3.0,
+                rotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f),
+                situation = SurfaceSituation.Landed
+            };
+            Assert.Null(pos.rotationRecorded);
+
+            var node = new ConfigNode("TEST");
+            SurfacePosition.SaveInto(node, pos);
+
+            Assert.Equal("True", node.GetValue("rotationRecorded"));
+
+            // Mirror direction: a missing (all-zero) quaternion with the same
+            // null flag must persist as NOT recorded.
+            var missing = new SurfacePosition
+            {
+                body = "Mun",
+                rotation = default(Quaternion),
+                situation = SurfaceSituation.Landed
+            };
+            var missingNode = new ConfigNode("TEST");
+            SurfacePosition.SaveInto(missingNode, missing);
+
+            Assert.Equal("False", missingNode.GetValue("rotationRecorded"));
+        }
+
         // --- BranchPoint serialization ---
 
         [Fact]
