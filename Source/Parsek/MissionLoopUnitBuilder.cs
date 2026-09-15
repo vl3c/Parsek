@@ -1468,18 +1468,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Selects the deorbit-arc leg the map renderer rides as the descent tail: the leg ENDING AT the
-        /// seam (the transfer member's recorded trajectory terminates there, where the descent set takes
-        /// over) — i.e. the leg with the MAXIMUM <c>endUT</c> that is at/below <paramref name="seamUT"/> +
-        /// <paramref name="epsSeconds"/>, on <paramref name="targetBody"/>. Returns its <c>startUT</c>, or
-        /// NaN when no such leg exists. This is the C1 icon-engage bound
-        /// (<see cref="GhostPlaybackLogic.LoopUnit.FirstDeorbitLegStartUT"/>): selecting by max-endUT (the
-        /// seam-terminating leg) instead of min-startUT in the wide (seam+captureShift, seam] window is what
-        /// keeps C1 from engaging ~a dozen parking periods early on an earlier approach leg — the loiter-line
-        /// regression where the icon left the parking conic across most of the loiter and killed the parking
-        /// line while no deorbit leg had drawn yet. Pure; xUnit-testable without Unity.
-        /// </summary>
-        /// <summary>
         /// The SHIFTED parking-conic end (Layer A of the loiter-gap render fix):
         /// <paramref name="descentRunEndUT"/> is the loiter run's last sample in the RAW recorded
         /// frame, and the map-presence segment lookup runs against the re-aimed (captureShift-
@@ -1499,6 +1487,18 @@ namespace Parsek
             return parkingConicEndUT;
         }
 
+        /// <summary>
+        /// Selects the deorbit-arc leg the map renderer rides as the descent tail: the leg ENDING AT the
+        /// seam (the transfer member's recorded trajectory terminates there, where the descent set takes
+        /// over) — i.e. the leg with the MAXIMUM <c>endUT</c> that is at/below <paramref name="seamUT"/> +
+        /// <paramref name="epsSeconds"/>, on <paramref name="targetBody"/>. Returns its <c>startUT</c>, or
+        /// NaN when no such leg exists. This is the C1 icon-engage bound
+        /// (<see cref="GhostPlaybackLogic.LoopUnit.FirstDeorbitLegStartUT"/>): selecting by max-endUT (the
+        /// seam-terminating leg) instead of min-startUT in the wide (seam+captureShift, seam] window is what
+        /// keeps C1 from engaging ~a dozen parking periods early on an earlier approach leg — the loiter-line
+        /// regression where the icon left the parking conic across most of the loiter and killed the parking
+        /// line while no deorbit leg had drawn yet. Pure; xUnit-testable without Unity.
+        /// </summary>
         internal static double SelectDeorbitTailLegStartUT(
             IReadOnlyList<Parsek.Display.GhostTrajectoryPolylineRenderer.LegPolyline> legs,
             string targetBody, double seamUT, double epsSeconds)
