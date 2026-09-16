@@ -122,7 +122,14 @@ namespace Parsek.Tests
             int currentPartCount,
             bool expected)
         {
-            bool needsCacheRefresh = moduleCachesDirty || cachedPartCount != currentPartCount;
+            // The invalidation half of the name comes from production:
+            // NeedsPostSwitchModuleCacheRefresh is the derivation the trigger pass runs
+            // (ParsekFlight.EvaluatePostSwitchAutoRecordTrigger). The cell used to compute
+            // "moduleCachesDirty || cachedPartCount != currentPartCount" itself, which made
+            // the last two Theory parameters decorative: a change to the production
+            // derivation could not reach this assertion at all.
+            bool needsCacheRefresh = ParsekFlight.NeedsPostSwitchModuleCacheRefresh(
+                moduleCachesDirty, cachedPartCount, currentPartCount);
             bool result = ParsekFlight.ShouldEvaluatePostSwitchManifestDiff(
                 currentUT,
                 nextManifestEvaluationUt,

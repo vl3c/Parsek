@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/SceneExitInterceptor.cs b/Source/Parsek/SceneExitInterceptor.cs
+index 6a8128222..3d905ef37 100644
+--- a/Source/Parsek/SceneExitInterceptor.cs
++++ b/Source/Parsek/SceneExitInterceptor.cs
+@@ -582,11 +582,11 @@ namespace Parsek
+             {
+                 if (destination == GameScenes.MAINMENU)
+                 {
+-                    ParsekLog.Error("SceneExit",
++                    ParsekLog.Warn("SceneExit",
+                         $"SafeWritePersistent threw {ex.GetType().Name}: {ex.Message} " +
+                         $"dest={destination} - hard-blocking transition");
+                     ShowSaveFailedPopup();
+-                    return false;
++                    return true;
+                 }
+                 ParsekLog.Warn("SceneExit",
+                     $"SafeWritePersistent threw {ex.GetType().Name}: {ex.Message} " +

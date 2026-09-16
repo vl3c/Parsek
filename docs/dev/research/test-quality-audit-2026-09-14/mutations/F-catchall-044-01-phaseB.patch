@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ParsekConfig.cs b/Source/Parsek/ParsekConfig.cs
+index d09df2201..1dcd3897a 100644
+--- a/Source/Parsek/ParsekConfig.cs
++++ b/Source/Parsek/ParsekConfig.cs
+@@ -110,7 +110,8 @@ namespace Parsek
+                 double t = (distanceToVesselMeters - PhysicsBubbleMeters)
+                     / (GhostVisualRangeMeters - PhysicsBubbleMeters);
+                 if (t > 1.0) t = 1.0;
+-                return 2.0 + t * 3.0;
++                // MUTANT: the distance ramp collapses to its far-range value.
++                return 5.0;
+             }
+         }
+ 

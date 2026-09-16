@@ -128,19 +128,44 @@ namespace Parsek.Tests.Analyzer
             Assert.Equal(0, empty.SubjectSchemaGeneration);
         }
 
-        // Guards (H5 readiness): every rule runs over a fully in-memory model with
-        // no loader. Fails if a rule reaches for a file/Stream, which would block the
-        // future in-game RecordingInvariants category from reusing the core. With
-        // the empty production set this proves the wiring; every rule added later is
-        // exercised here for free.
+        // Guards (H5 readiness): every rule runs over a fully in-memory model with no
+        // loader, and every save-directory probe is gated on SaveDirectory being set,
+        // so the future in-game RecordingInvariants category can reuse the core with
+        // no save on disk. The model deliberately carries the file-scoped trigger
+        // (RewindSaveFileName, which routes Inv9 into a File.Exists over
+        // Parsek/Saves/<id>.sfs) while SaveDirectory stays null: an ungated probe
+        // resolves against some real directory, finds nothing there and emits the
+        // dangling-reference finding, so an EMPTY report is what proves the gate.
+        // Record.Exception alone cannot see that - a rule that reads a real file and
+        // succeeds throws nothing. The name says no SAVE files rather than no file
+        // access at all, because Inv10CodecRoundtrip round-trips through a temp file
+        // by design; that is loader-independent and not what this gate is about.
         [Fact]
-        public void CorePurity_AllRules_RunOverInMemoryModel_WithoutFileAccess()
+        public void CorePurity_AllRules_NullSaveDirectory_DoNotThrow_AndProbeNoSaveFiles()
         {
-            var model = InMemoryModel();
+            var model = new AnalyzerModel
+            {
+                SaveName = "mem",
+                SaveDirectory = null,
+                Recordings = new List<Recording>
+                {
+                    new Recording { RecordingId = "rec-1", RecordingSchemaGeneration = 4 },
+                    new Recording
+                    {
+                        RecordingId = "rec-rw",
+                        RecordingSchemaGeneration = 4,
+                        RewindSaveFileName = "parsek_rw_recrw",
+                        MergeState = MergeState.CommittedProvisional,
+                    },
+                },
+            };
 
-            Exception thrown = Record.Exception(() => InvariantEvaluator.Evaluate(model, InvariantRegistry.AllRules));
+            AnalysisReport report = null;
+            Exception thrown = Record.Exception(
+                (Action)(() => report = InvariantEvaluator.Evaluate(model, InvariantRegistry.AllRules)));
 
             Assert.Null(thrown);
+            Assert.Empty(report.Findings);
         }
 
         // Guards the review gate (design "CitedContract-presence test"): reflection

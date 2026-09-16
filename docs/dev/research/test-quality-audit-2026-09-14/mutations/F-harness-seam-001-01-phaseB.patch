@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GuiTreeModel.cs b/Source/Parsek/GuiTreeModel.cs
+index ee9a9b7f9..315e8268d 100644
+--- a/Source/Parsek/GuiTreeModel.cs
++++ b/Source/Parsek/GuiTreeModel.cs
+@@ -476,7 +476,7 @@ namespace Parsek
+                 case GuiNodeKind.Label: return "label";
+                 case GuiNodeKind.Box: return "box";
+                 case GuiNodeKind.Button: return "button";
+-                case GuiNodeKind.RepeatButton: return "repeatbutton";
++                case GuiNodeKind.RepeatButton: return "repeat-button";
+                 case GuiNodeKind.Toggle: return "toggle";
+                 case GuiNodeKind.TextField: return "textfield";
+                 case GuiNodeKind.ButtonGrid: return "buttongrid";

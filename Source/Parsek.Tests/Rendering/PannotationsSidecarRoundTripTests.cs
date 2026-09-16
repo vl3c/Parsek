@@ -157,14 +157,12 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void Probe_AlgorithmStampMismatch_DiscardsFile()
+        public void Probe_AlgorithmStampField_RoundTrips()
         {
-            // What makes it fail: if the probe didn't expose
-            // AlgorithmStampVersion, the orchestrator (T5) would have no way
-            // to detect a stamp drift and would feed stale annotations into
-            // the new algorithm — HR-10 / HR-11 violation. The discard
-            // logic itself lives in the orchestrator; the probe's
-            // contract here is just to expose the field.
+            // Renamed from Probe_AlgorithmStampMismatch_DiscardsFile: no mismatch and no discard is
+            // constructed here, and the discard itself lives in the orchestrator (T5). This cell
+            // pins the write/read round trip of the stamp field only; the DRIFTED-stamp case, which
+            // is what lets the orchestrator detect stale annotations at all, is the sibling below.
             string path = Path.Combine(tempDir, "rec_stamp.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(path, "recS", 1, 7, hash,
@@ -172,6 +170,34 @@ namespace Parsek.Tests.Rendering
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             Assert.Equal(PannotationsSidecarBinary.AlgorithmStampVersion, probe.AlgorithmStampVersion);
+        }
+
+        [Fact]
+        public void Probe_AlgorithmStampDrift_IsReportedFromTheFile()
+        {
+            // What makes it fail: a probe that echoed the compiled-in AlgorithmStampVersion instead
+            // of the value it read out of the header would round-trip green forever while reporting
+            // agreement on every stale file, so the orchestrator's stamp-drift discard could never
+            // fire - the HR-10 / HR-11 violation the round-trip cell above cannot see.
+            string path = Path.Combine(tempDir, "rec_stamp_drift.pann");
+            byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+            PannotationsSidecarBinary.Write(path, "recSD", 1, 7, hash,
+                new List<KeyValuePair<int, SmoothingSpline>>());
+
+            // Overwrite the algorithm stamp int (offset 8..11, after the 4-byte magic and the
+            // 4-byte binary version) with 4242 little-endian.
+            const int DriftedStamp = 4242;
+            byte[] bytes = File.ReadAllBytes(path);
+            bytes[8] = 0x92; bytes[9] = 0x10; bytes[10] = 0; bytes[11] = 0;
+            File.WriteAllBytes(path, bytes);
+
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            Assert.True(probe.Success);
+            Assert.NotEqual(PannotationsSidecarBinary.AlgorithmStampVersion, DriftedStamp);
+            Assert.Equal(DriftedStamp, probe.AlgorithmStampVersion);
+            // The stamp is orthogonal to the binary version gate: the file is still Supported, so a
+            // stamp drift is the orchestrator's call, not a parse refusal.
+            Assert.True(probe.Supported);
         }
 
         [Fact]

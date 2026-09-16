@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/PlaybackTrace.cs b/Source/Parsek/PlaybackTrace.cs
+index dcab7c9e1..f19c56ab7 100644
+--- a/Source/Parsek/PlaybackTrace.cs
++++ b/Source/Parsek/PlaybackTrace.cs
+@@ -126,7 +126,7 @@ namespace Parsek
+         internal static void Reset()
+         {
+             structuralEventUTCache.Clear();
+-            traceStates.Clear();
++            // MUTANT: the per-ghost trace cursors and completed-event sets survive Reset.
+         }
+ 
+         private static TraceState TryGetTraceState(string recId, int ghostIdx)

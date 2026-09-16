@@ -187,29 +187,17 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
-        [Fact]
-        public void ImmutableDestroyedUnderRP_IsMember()
-        {
-            // Regression: a committed Immutable recording whose terminal is
-            // Destroyed AND whose parent BranchPoint has a RewindPoint MUST
-            // appear in the virtual group (the definition of an unfinished
-            // flight — design §3.1 / §5.11).
-            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
-                parentBranchPointId: "bp_1", treeId: "tree_1");
-            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
-            // AddRecordingWithTreeForTesting builds a single-node tree with a
-            // fresh GUID id; we only need the recording itself in ERS for the
-            // unfinished-flight check, which relies on the scenario's
-            // RewindPoints list rather than tree.BranchPoints. rec.TreeId is
-            // overwritten by the helper, but that does not affect
-            // IsUnfinishedFlight.
-
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
-
-            var members = UnfinishedFlightsGroup.ComputeMembers();
-            Assert.Single(members);
-            Assert.Equal("rec_A", members[0].RecordingId);
-        }
+        // ImmutableDestroyedUnderRP_IsMember was DELETED here (test-quality audit,
+        // F-legacy-bugfix-010-01). Its name, doc comment and claimed regression all said Immutable,
+        // but the fixture passed MergeState.CommittedProvisional, which made it an exact duplicate
+        // of CommittedProvisionalDestroyedUnderRP_IsMember below - same ids, same RewindPoint, same
+        // assertions. The Immutable + Destroyed-under-RP case it left uncovered is owned by
+        // ImmutableDestroyedUnderRP_NotMember_SealedTipClosed, which reds together with
+        // SealedSlot_NotMember, StashedThenSealedSlot_NotMember,
+        // UnfinishedFlightClassifierTests.OpenClosedFilter_ImmutableTip_HidesShapeQualifyingSlotFromUf,
+        // CollapseSealMergeStateRegressionTests.StashThenSeal_NotReStashable_AndHiddenFromUf and
+        // RewindB9FixtureTests.Inject_CrashedBoosterClassifiesAsOpenUnfinishedFlight when the
+        // sealed-tip open/closed filter in EffectiveState is disabled.
 
         [Fact]
         public void DestroyedWithRecordingScopedScienceEarningAction_NotMember()

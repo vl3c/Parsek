@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/Rendering/OutlierClassifier.cs b/Source/Parsek/Rendering/OutlierClassifier.cs
+index 123ff5f2d..1cbb5cccc 100644
+--- a/Source/Parsek/Rendering/OutlierClassifier.cs
++++ b/Source/Parsek/Rendering/OutlierClassifier.cs
+@@ -299,7 +299,6 @@ namespace Parsek.Rendering
+                 double rate = (double)rejectedTotal / count;
+                 if (rate > thresholds.ClusterRateThreshold)
+                 {
+-                    mask |= (byte)ClassifierBit.Cluster;
+                     cluster = true;
+                 }
+             }

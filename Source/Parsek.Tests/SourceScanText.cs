@@ -183,6 +183,32 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// The source text of the brace-matched block that OPENS at
+        /// <paramref name="openBrace"/>, braces included. Pair it with
+        /// <see cref="OpenBlockStack"/> or an <c>IndexOf('{')</c> past a signature to scope a
+        /// gate to one method body, so a later method's call cannot satisfy it.
+        /// <paramref name="prepared"/> must come from
+        /// <see cref="StripCommentsAndMaskLiterals"/>: a brace inside a comment or a string
+        /// literal would otherwise unbalance the walk. Throws when the braces do not balance,
+        /// which is a scan bug rather than a test failure.
+        /// </summary>
+        internal static string BraceMatchedBlock(string prepared, int openBrace)
+        {
+            int depth = 0;
+            for (int i = openBrace; i < prepared.Length; i++)
+            {
+                if (prepared[i] == '{') depth++;
+                else if (prepared[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0) return prepared.Substring(openBrace, i - openBrace + 1);
+                }
+            }
+            throw new InvalidOperationException(
+                "SourceScanText.BraceMatchedBlock: unbalanced braces from " + openBrace);
+        }
+
+        /// <summary>
         /// The enclosing method body's opening brace position for <paramref name="index"/>,
         /// or -1 when the block structure is not namespace -> type -> method (which the
         /// caller should assert on rather than silently pass).

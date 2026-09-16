@@ -313,12 +313,13 @@ namespace Parsek.Tests
             Assert.NotNull(adopted);
             Assert.Equal("rec-A", adopted.RecordingId);
 
-            // Revert + relaunch with a 5 s clock rollback. The write-time
-            // gate must NOT collapse this into the adopted row (adopted
-            // rollouts are not duplicate candidates — see the existing
-            // OnVesselRolloutSpending_AdoptedRolloutDoesNotBlockNewWrite test
-            // which exercises this property). The new emission lands as a
-            // fresh unadopted row.
+            // Revert + relaunch with a 5 s clock rollback - INSIDE
+            // RolloutDuplicateWindowSeconds, so the window check cannot stand in
+            // for the adopted-row exclusions. The write-time gate must NOT
+            // collapse this into the adopted row (adopted rollouts are not
+            // duplicate candidates: TryAdoptRolloutAction nulls the row's
+            // DedupKey and stamps its RecordingId, and the duplicate scan skips
+            // on both). The new emission lands as a fresh unadopted row.
             RecordRollout(t1 - 5.0, ProductionCost);
             int adoptedCount = Ledger.Actions.Count(a =>
                 a.Type == GameActionType.FundsSpending &&
@@ -336,44 +337,19 @@ namespace Parsek.Tests
             Assert.Equal(t1, adopted.UT);
         }
 
-        /// <summary>
-        /// Once a rollout has been adopted by a recording, a later rollout
-        /// emission for the same vessel must be kept as a fresh unadopted row
-        /// — the existing row no longer represents an outstanding deduction.
-        /// This guards against the dedup gate accidentally hijacking the
-        /// adoption matcher's ownership semantics.
-        /// </summary>
-        [Fact]
-        public void OnVesselRolloutSpending_AdoptedRolloutDoesNotBlockNewWrite()
-        {
-            RecordRollout(ProductionUtFirst, ProductionCost);
-            var rec = new Recording
-            {
-                RecordingId = "rec-A",
-                StartSituation = "Prelaunch",
-                VesselPersistentId = ProductionPid,
-                VesselName = ProductionVesselName,
-                LaunchSiteName = ProductionSite,
-            };
-            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT: 730.0, rec);
-            Assert.NotNull(adopted);
-            Assert.Equal("rec-A", adopted.RecordingId);
-
-            // Second rollout for a fresh recording on the same craft (e.g. flew
-            // away, recovered, rolled out the same craft again — different
-            // session even though pid+site+name+cost match).
-            RecordRollout(ProductionUtSecond + 200.0, ProductionCost);
-
-            // One adopted + one new unadopted. The dedup gate must NOT collapse
-            // the new write into the adopted row.
-            int adoptedCount = Ledger.Actions.Count(a =>
-                a.Type == GameActionType.FundsSpending &&
-                a.FundsSpendingSource == FundsSpendingSource.VesselBuild &&
-                !string.IsNullOrEmpty(a.RecordingId));
-            int unadoptedCount = CountUnadoptedRollouts();
-            Assert.Equal(1, adoptedCount);
-            Assert.Equal(1, unadoptedCount);
-        }
+        // OnVesselRolloutSpending_AdoptedRolloutDoesNotBlockNewWrite was deleted by
+        // the 2026-09-14 test-quality audit (F-catchall-010-02). Its second emission
+        // sat 200 s after the adopted row while RolloutDuplicateWindowSeconds is 60,
+        // so the window check alone kept the write and the adoption exclusion the
+        // name claimed was never the deciding branch: the cell was a copy of
+        // OnVesselRolloutSpending_OutsideDuplicateWindow_BothKept with an inert
+        // adoption bolted on. The adoption property is guarded by
+        // OnVesselRolloutSpending_AdoptedRowDoesNotBlockRelaunchWrite above, whose
+        // relaunch emission is INSIDE the window; deleting both adopted-row
+        // exclusions in TryFindDuplicateRolloutAction (the RecordingId skip and the
+        // DedupKey-empty skip, the second of which is the one that actually decides
+        // because adoption nulls the key) reds that cell and nothing else in the
+        // four classes that reach the rollout path.
 
         // ----------------------------------------------------------------
         // Load-time repair (already-corrupt saves)

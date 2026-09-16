@@ -765,7 +765,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsRecordingInParentChainOfActiveReFly_CycleInBpTopologyBailsSafely()
+        public void IsRecordingInParentChainOfActiveReFly_CycleWithAbsentVictim_ExhaustsWithoutRevisiting()
+        {
+            // The genuine cycle case the cell below could not reach: its victim is the FIRST BP
+            // parent visited, so the walk returns before any revisit and the visited sets it names
+            // never bound anything.
+            //
+            // Here the victim is absent, so the walk must exhaust. rec-1 is reachable twice - once
+            // as a parent of bp-A (the active's parent BP) and once as a parent of bp-B, which is
+            // rec-1's OWN parent BP - so the recording-level visited set, not the BP-level one, is
+            // what stops the second visit. The trace lists every recording it encountered, so a
+            // revisit shows up as a duplicate there.
+            var tree = new RecordingTree { Id = TreeId };
+            tree.Recordings["rec-active"] = new Recording
+            {
+                RecordingId = "rec-active",
+                TreeId = TreeId,
+                ParentBranchPointId = "bp-A",
+            };
+            tree.Recordings["rec-1"] = new Recording
+            {
+                RecordingId = "rec-1",
+                TreeId = TreeId,
+                ParentBranchPointId = "bp-B",
+            };
+            tree.Recordings["rec-3"] = new Recording
+            {
+                RecordingId = "rec-3",
+                TreeId = TreeId,
+                ParentBranchPointId = "bp-B",
+            };
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-A",
+                ParentRecordingIds = new List<string> { "rec-1", "rec-3" },
+                ChildRecordingIds = new List<string> { "rec-active" },
+            });
+            // bp-B names rec-1 as a parent while rec-1 names bp-B as its parent BP: the cycle.
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-B",
+                ParentRecordingIds = new List<string> { "rec-1" },
+                ChildRecordingIds = new List<string> { "rec-1", "rec-3" },
+            });
+            var trees = new List<RecordingTree> { tree };
+
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                "rec-victim-not-in-tree", "rec-active", trees, out string trace));
+            Assert.Contains("exhausted-without-victim", trace);
+            Assert.Contains("parents=[rec-1,rec-3]", trace); // each encountered exactly once
+            Assert.Contains("parentsEncountered=2", trace);
+        }
+
+        [Fact]
+        public void IsRecordingInParentChainOfActiveReFly_DirectParentInCyclicBp_ReturnsTrue()
         {
             // A pathological cycle (BP-A's parent is rec-1, which references
             // BP-A again as its ParentBranchPointId) must not infinite-loop;
@@ -791,9 +844,10 @@ namespace Parsek.Tests
             });
             var trees = new List<RecordingTree> { tree };
 
-            // rec-1 IS itself a parent in the BP, so walking from rec-2 hits
-            // rec-1 immediately. The cycle is harmless because visited-recs
-            // bounds the walk.
+            // rec-1 IS itself a parent in the BP, so walking from rec-2 hits rec-1 immediately -
+            // which is why this cell is named for the direct parent and NOT for the cycle guard:
+            // the walk returns before any revisit, so the visited sets are never exercised here.
+            // The absent-victim sibling above is the one that makes the walk exhaust.
             Assert.True(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
                 "rec-1", "rec-2", trees, out _));
         }

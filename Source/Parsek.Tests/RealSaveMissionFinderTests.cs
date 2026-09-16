@@ -264,13 +264,18 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(unit.ArrivalJointSecondaryToleranceSeconds));
             Assert.Equal(0, unit.ArrivalJointMaxWholeHoldPeriods);
             Assert.DoesNotContain(logLines, l => l.Contains("kind=joint"));
-            if (unit.ArrivalHoldSeconds > 0.0)
-            {
-                // The pre-existing single-period ROTATION hold (byte-identical-off guarantee).
-                Assert.Equal(DunaRotation, unit.ArrivalAlignPeriodSeconds, 9);
-                Assert.Contains(logLines, l =>
-                    l.Contains("[Reaim]") && l.Contains("ARRIVAL HOLD") && l.Contains("kind=rotation"));
-            }
+
+            // The pre-existing single-period ROTATION hold (the byte-identical-off
+            // guarantee) is asserted UNCONDITIONALLY. These lines used to sit inside
+            // "if (unit.ArrivalHoldSeconds > 0.0)", so a builder regression that dropped
+            // the single-period hold entirely skipped them and left the cell green while
+            // still claiming the guarantee - the one failure mode this control exists to
+            // catch.
+            Assert.True(unit.ArrivalHoldSeconds > 0.0,
+                "the landing-only control must still emit the single-period rotation hold");
+            Assert.Equal(DunaRotation, unit.ArrivalAlignPeriodSeconds, 9);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reaim]") && l.Contains("ARRIVAL HOLD") && l.Contains("kind=rotation"));
         }
     }
 }

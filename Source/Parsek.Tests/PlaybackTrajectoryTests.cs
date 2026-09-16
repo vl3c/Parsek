@@ -273,6 +273,20 @@ namespace Parsek.Tests
             Assert.True(traj.LoopPlayback);
         }
 
+        // The forwarder is NOT a pass-through: IPlaybackTrajectory.LoopPlayback is
+        // "!IsDebris && LoopPlayback", a model-layer mask that stops parent-anchored debris from
+        // dispatching its own loop. No cell used to cast a DEBRIS recording to the interface, so
+        // dropping the mask left the suite green while debris would start looping on its own
+        // instead of riding its parent's chain.
+        [Fact]
+        public void Recording_LoopPlayback_DebrisIsMaskedOff()
+        {
+            var rec = new Recording { LoopPlayback = true, IsDebris = true };
+
+            Assert.True(rec.LoopPlayback); // the stored field is untouched
+            Assert.False(((IPlaybackTrajectory)rec).LoopPlayback);
+        }
+
         [Fact]
         public void Recording_LoopIntervalSeconds_Matches()
         {

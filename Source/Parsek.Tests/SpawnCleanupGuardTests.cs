@@ -34,27 +34,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RevertPath_SetsCleanupData_WhenNotAlreadySet()
+        public void RevertCleanupArming_WithProductionCollector_ArmsOnlySpawnedVessels()
         {
-            // When PendingCleanupPids/Names are both null, the revert path
-            // should collect and set them.
+            // The collector half of the revert arming, wired the way OnLoad wires it:
+            // ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo). The two
+            // arming cells below inject a fake collector, so neither of them can see
+            // what the real one returns; this cell asserts the armed set IS that
+            // return value. The unspawned recording is the discriminator: cleanup must
+            // name the vessels Parsek actually spawned, not every recorded vessel
+            // (the all-names collector is a separate, deliberately wider set).
             Assert.Null(RecordingStore.PendingCleanupPids);
             Assert.Null(RecordingStore.PendingCleanupNames);
 
-            // Add a spawned recording so CollectSpawnedVesselInfo returns data
             RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Probe", SpawnedVesselPersistentId = 77 });
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+                { VesselName = "NeverSpawned", SpawnedVesselPersistentId = 0 });
 
-            var info = RecordingStore.CollectSpawnedVesselInfo();
-            var spawnedPids = info.pids.Count > 0 ? info.pids : null;
-            var spawnedNames = info.names.Count > 0 ? info.names : null;
-            RecordingStore.PendingCleanupPids = spawnedPids;
-            RecordingStore.PendingCleanupNames = spawnedNames;
+            ParsekScenario.ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo);
 
             Assert.NotNull(RecordingStore.PendingCleanupPids);
-            Assert.Contains(77u, RecordingStore.PendingCleanupPids);
+            Assert.Equal(new HashSet<uint> { 77u }, RecordingStore.PendingCleanupPids);
             Assert.NotNull(RecordingStore.PendingCleanupNames);
-            Assert.Contains("Probe", RecordingStore.PendingCleanupNames);
+            Assert.Equal(new HashSet<string> { "Probe" }, RecordingStore.PendingCleanupNames);
         }
 
         [Fact]
@@ -121,6 +123,55 @@ namespace Parsek.Tests
             // But the guard prevents this: original data is still there
             Assert.NotNull(RecordingStore.PendingCleanupPids);
             Assert.NotNull(RecordingStore.PendingCleanupNames);
+        }
+
+        [Fact]
+        public void RevertCleanupArming_WhenRewindAlreadyArmedCleanup_DoesNotOverwrite()
+        {
+            // The PRODUCTION arming step, not a re-implementation of its guard: the
+            // three cells above all rebuild the condition in the test, so none of them
+            // would notice the guard going away. A rewind arms the set and then zeroes
+            // live spawn tracking, so the revert load that follows collects nothing -
+            // overwriting would leave those vessels in the save with nothing to clean
+            // them up.
+            RecordingStore.PendingCleanupPids = new HashSet<uint> { 42u };
+            RecordingStore.PendingCleanupNames = new HashSet<string> { "Rocket" };
+            int collectorCalls = 0;
+
+            ParsekScenario.ArmRevertCleanupData(() =>
+            {
+                collectorCalls++;
+                return (new HashSet<uint>(), new HashSet<string>());
+            });
+
+            Assert.Equal(0, collectorCalls);
+            Assert.Contains(42u, RecordingStore.PendingCleanupPids);
+            Assert.Contains("Rocket", RecordingStore.PendingCleanupNames);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("revert path skipping cleanup collection")
+                && l.Contains("already set (1 pid(s), 1 name(s))"));
+        }
+
+        [Fact]
+        public void RevertCleanupArming_WhenNothingArmed_CollectsAndStores()
+        {
+            // Mirror: with nothing armed the collector DOES run and its result is what
+            // gets stored, so the cell above is about the guard rather than about the
+            // arming step never writing anything.
+            Assert.Null(RecordingStore.PendingCleanupPids);
+            Assert.Null(RecordingStore.PendingCleanupNames);
+            int collectorCalls = 0;
+
+            ParsekScenario.ArmRevertCleanupData(() =>
+            {
+                collectorCalls++;
+                return (new HashSet<uint> { 7u }, new HashSet<string> { "Probe" });
+            });
+
+            Assert.Equal(1, collectorCalls);
+            Assert.Contains(7u, RecordingStore.PendingCleanupPids);
+            Assert.Contains("Probe", RecordingStore.PendingCleanupNames);
         }
 
         [Fact]

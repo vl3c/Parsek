@@ -443,17 +443,24 @@ namespace Parsek.Tests
         [Fact]
         public void SteeringAngle_PointsIntoTheTurnAndClampsAtTheCaliperLimit()
         {
-            // The steering drive negates on the way in, so the two inversions cancel and a LEFT
-            // turn produces a positive caliper angle. This cell pins that cancellation.
-            float gentle = GhostPlaybackLogic.ComputeSynthDeflectionDegrees(
-                -10f, GhostPlaybackLogic.WheelSteeringGainDegPerDegPerSec,
-                GhostPlaybackLogic.MaxWheelSteeringDegrees);
-            float hard = GhostPlaybackLogic.ComputeSynthDeflectionDegrees(
-                -400f, GhostPlaybackLogic.WheelSteeringGainDegPerDegPerSec,
-                GhostPlaybackLogic.MaxWheelSteeringDegrees);
+            // The steering drive negates on the way in and ComputeSynthDeflectionDegrees inverts
+            // again, so the two cancel: the caliper angle carries the SAME SIGN as the ground-track
+            // heading rate - the wheels point INTO the turn. The inputs below are HEADING RATES
+            // driven through the production caller ComputeTargetWheelSteeringDegrees; the cell used
+            // to hand ComputeSynthDeflectionDegrees the already-negated value, so the caller-side
+            // minus - the half that decides which way the ghost wheels point - was never run, and
+            // its sign was the opposite of a real heading rate.
+            float gentle = GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees(10f);
+            float hard = GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees(400f);
 
             AssertClose(15f, gentle, 3);
             AssertClose(GhostPlaybackLogic.MaxWheelSteeringDegrees, hard, 3);
+
+            // The mirror direction: the opposite heading rate steers the opposite way (and clamps
+            // at the same limit). Without it a body that dropped BOTH negations would still pass.
+            AssertClose(-15f, GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees(-10f), 3);
+            AssertClose(-GhostPlaybackLogic.MaxWheelSteeringDegrees,
+                GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees(-400f), 3);
         }
 
         // -------------------------------------------------------------- S3: sun tracking

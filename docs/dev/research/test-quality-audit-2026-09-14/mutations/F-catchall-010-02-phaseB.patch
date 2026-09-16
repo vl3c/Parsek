@@ -1,0 +1,26 @@
+diff --git a/Source/Parsek/GameActions/LedgerRolloutAdoption.cs b/Source/Parsek/GameActions/LedgerRolloutAdoption.cs
+index 88ceb2ecb..028ad08f3 100644
+--- a/Source/Parsek/GameActions/LedgerRolloutAdoption.cs
++++ b/Source/Parsek/GameActions/LedgerRolloutAdoption.cs
+@@ -162,13 +162,17 @@ namespace Parsek
+                 if (a == null) continue;
+                 if (a.Type != GameActionType.FundsSpending) continue;
+                 if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild) continue;
+-                if (!string.IsNullOrEmpty(a.RecordingId)) continue;
+-                if (string.IsNullOrEmpty(a.DedupKey)) continue;
+-                if (!a.DedupKey.StartsWith(LedgerOrchestrator.RolloutDedupPrefix, StringComparison.Ordinal)) continue;
++                // MUTANT: both adopted-row exclusions are deleted - a row already
++                // adopted by a recording (RecordingId set, DedupKey cleared by
++                // TryAdoptRolloutAction) is admitted as a duplicate candidate.
++                if (!string.IsNullOrEmpty(a.DedupKey)
++                    && !a.DedupKey.StartsWith(LedgerOrchestrator.RolloutDedupPrefix, StringComparison.Ordinal)) continue;
+                 if (Math.Abs(a.UT - ut) > RolloutDuplicateWindowSeconds) continue;
+                 if (Math.Abs(a.FundsSpent - (float)cost) > RolloutDuplicateCostEpsilon) continue;
+ 
+-                var existingContext = ParseRolloutAdoptionContext(a.DedupKey);
++                var existingContext = string.IsNullOrEmpty(a.DedupKey)
++                    ? context
++                    : ParseRolloutAdoptionContext(a.DedupKey);
+                 if (!RolloutDuplicateMatches(existingContext, context)) continue;
+ 
+                 match = a;

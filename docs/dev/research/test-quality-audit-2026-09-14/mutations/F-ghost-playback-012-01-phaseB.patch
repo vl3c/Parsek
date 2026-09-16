@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GhostChainWalker.cs b/Source/Parsek/GhostChainWalker.cs
+index a1826a313..a9fb54646 100644
+--- a/Source/Parsek/GhostChainWalker.cs
++++ b/Source/Parsek/GhostChainWalker.cs
+@@ -557,10 +557,6 @@ namespace Parsek
+                     chainVisited.Add(tipVesselPid);
+                     visited.Add(tipVesselPid);
+ 
+-                    // Merge linked chain's links into the current chain
+-                    for (int i = 0; i < linkedChain.Links.Count; i++)
+-                        chain.Links.Add(linkedChain.Links[i]);
+-
+                     // Re-sort after merge
+                     chain.Links.Sort(CompareChainLinks);
+ 

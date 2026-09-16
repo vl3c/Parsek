@@ -3547,16 +3547,14 @@ namespace Parsek
                 // phase drifts by (effective - user) * loopCycleIndex. Dispatch (IsOverlapLoop
                 // above) still uses the user period — that matches the engine's dispatch at
                 // GhostPlaybackEngine.cs:900.
-                double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
-                    intervalSeconds, resolveDuration,
-                    GhostPlayback.MaxOverlapGhostsPerRecording);
-
-                return GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                return ComputeWatchOverlapPlaybackUT(
                     Planetarium.GetUniversalTime(),
                     scheduleStartUT,
                     playbackStartUT,
                     resolveDuration,
-                    effectiveCadence, currentState.loopCycleIndex);
+                    intervalSeconds,
+                    currentState.loopCycleIndex,
+                    GhostPlayback.MaxOverlapGhostsPerRecording);
             }
 
             if (host.TryComputeLoopPlaybackUTForWatch(rec, Planetarium.GetUniversalTime(),
@@ -3566,6 +3564,35 @@ namespace Parsek
             }
 
             return fallbackUT;
+        }
+
+        /// <summary>
+        /// Pure: the watch-sync playback UT for one overlap-loop cycle, resolved against
+        /// the cadence the ENGINE actually launches cycles at rather than the user's stored
+        /// loop period. The engine raises the period when the cap on simultaneously-live
+        /// cycles would be exceeded (ComputeEffectiveLaunchCadence) and assigns
+        /// loopCycleIndex with that raised value, so reconstructing the cycle start from the
+        /// user period drifts the watch camera by (effective - user) * loopCycleIndex (#443).
+        /// Dispatch into the overlap branch still uses the user period, matching the engine.
+        /// </summary>
+        internal static double ComputeWatchOverlapPlaybackUT(
+            double currentUT,
+            double scheduleStartUT,
+            double playbackStartUT,
+            double duration,
+            double userPeriodSeconds,
+            long loopCycleIndex,
+            int maxOverlapGhosts)
+        {
+            double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                userPeriodSeconds, duration, maxOverlapGhosts);
+
+            return GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                currentUT,
+                scheduleStartUT,
+                playbackStartUT,
+                duration,
+                effectiveCadence, loopCycleIndex);
         }
 
         private bool TryEnsurePrimaryWatchGhostLoaded(

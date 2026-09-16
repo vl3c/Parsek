@@ -283,10 +283,22 @@ namespace Parsek.Tests
         [Fact]
         public void TangentFromPositions_FirstDifference_IsTheSegmentDirection()
         {
+            // The third argument is xUnit's float TOLERANCE overload (a float literal cannot bind the int
+            // precision overload), so the old 4f accepted x in [-1,7] and y in [0,8] - a halved, zeroed or
+            // sign-flipped component passed. The window is 1e-4 now, and z is checked too: the first
+            // difference is the whole vector the G1 seam predicate consumes.
             Vector3 t = CrossMemberSeamStitcher.TangentFromPositions(
                 new Vector3(0f, 0f, 0f), new Vector3(3f, 4f, 0f));
-            Assert.Equal(3f, t.x, 4f);
-            Assert.Equal(4f, t.y, 4f);
+            Assert.Equal(3f, t.x, 1e-4f);
+            Assert.Equal(4f, t.y, 1e-4f);
+            Assert.Equal(0f, t.z, 1e-4f);
+
+            // Non-zero origin and a non-zero z: the tangent is b - a, not b.
+            Vector3 u = CrossMemberSeamStitcher.TangentFromPositions(
+                new Vector3(-1f, 2f, 5f), new Vector3(2f, 6f, -7f));
+            Assert.Equal(3f, u.x, 1e-4f);
+            Assert.Equal(4f, u.y, 1e-4f);
+            Assert.Equal(-12f, u.z, 1e-4f);
         }
 
         [Fact]
@@ -314,30 +326,44 @@ namespace Parsek.Tests
         // ---- (4) Compose-AFTER-the-remap ordering ----
 
         [Fact]
-        public void Stitch_ComposesAfterRemap_HeadIsReAnchored_NotTheRawSampleUT()
+        public void Stitch_ComposesAfterRemap_DriveUtIsTheReAnchoredHead_NotTheRawLiveUT()
         {
-            // The ordering contract (design §9.1): the stitcher composes AFTER the span-clock remap. The
-            // stitched DriveUT is the RE-ANCHORED descent head (recordedDeorbitUT + (liveUT - triggerUT)),
-            // NOT the raw post-remap sampleUT it is handed. Proven by passing a deliberately-wrong sampleUT:
-            // the stitcher ignores it and re-anchors off liveUT, so the result is independent of sampleUT.
-            var units = MakeDescentUnitSet();
+            // The ordering contract (design §9.1): the stitcher composes AFTER the span-clock remap, so the
+            // stitched DriveUT (and the phase lookup behind it) is the RE-ANCHORED descent head
+            // recordedDeorbitUT + (liveUT - triggerUT), NOT the live UT it is handed.
+            //
+            // The default fixture cannot see that at all: with captureShift = -150 the trigger lands ON
+            // recordedDeorbitUT (both 200), so head == liveUT identically and an implementation that drove
+            // straight off liveUT produced the same number. TryStitchDescentSeam takes no sampleUT, so the
+            // old "call it twice with identical arguments" assertion was a tautology as well.
+            //
+            // captureShift = +50 puts the conic end at 250, so the first trigger congruent to 200 (mod
+            // Trot=300) at or after it is 500. liveUT = 550 then re-anchors to head 250 - inside the descent
+            // clip [200,300] - while the raw 550 is outside the chain window [150,300] entirely.
+            const double ShiftedCapture = 50.0;
+            var units = MakeDescentUnitSet(captureShift: ShiftedCapture);
             PhaseChain chain = DescentMemberChain();
 
             Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
-                0, PhaseAnchor, Cadence, SpanStart, RecDeorbit, TestTrot, CaptureShift, null,
+                0, PhaseAnchor, Cadence, SpanStart, RecDeorbit, TestTrot, ShiftedCapture, null,
                 out _, out _, out double triggerUT);
-            double liveUT = triggerUT + 50.0;
+            Assert.Equal(500.0, triggerUT, 6);
+
+            double liveUT = triggerUT + 50.0;                       // 550
             double expectedHead = RecDeorbit + (liveUT - triggerUT); // 250
+            Assert.NotEqual(liveUT, expectedHead);                   // the fixture discriminates now
 
-            bool a = CrossMemberSeamStitcher.TryStitchDescentSeam(
+            bool ok = CrossMemberSeamStitcher.TryStitchDescentSeam(
                 chain, liveUT, units, out GhostSample sa);
-            bool b = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                chain, liveUT, units, out GhostSample sb);
 
-            Assert.True(a);
-            Assert.True(b);
+            Assert.True(ok);
             Assert.Equal(expectedHead, sa.DriveUT, 6);
-            Assert.Equal(sa.DriveUT, sb.DriveUT); // independent of the (wrong) sampleUT => re-anchored, not raw
+            Assert.Equal(Treatment.TracedPath, sa.Treatment);
+            // The phase was located at the re-anchored head: the raw liveUT sits past the chain window, so a
+            // compose-BEFORE-remap stitcher could not have found a descent phase at all.
+            Assert.True(chain.TryGetPhase(sa.DriveUT, out TrajectoryPhase phaseAtHead, out _));
+            Assert.IsType<DescentPhase>(phaseAtHead);
+            Assert.False(chain.TryGetPhase(liveUT, out _, out _));
         }
 
         // ---- (5) The spine API: TryStitchDescentSeam ----

@@ -10,6 +10,35 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
+  are closed, and the priority-2 register with them.** Eight rows were new coverage, five
+  were guarded already by cells that landed after the audit snapshot, and one is deferred
+  because the witness it needs would break the committed scrape cell that currently guards
+  it, so thirteen new cells landed. Four of the eight needed a production seam, each the smallest hook that
+  leaves the live path behaving as before. On scene exit: a save that throws on the way to
+  the main menu is proved to refuse the transition, and the same throw on the way to the
+  space center to let it continue - the catch was unreachable headless because the
+  existing seam replaces the whole method and a test-built game reads as null to Unity's
+  overloaded equality, so the save step itself became injectable. On revert: the
+  spawned-vessel cleanup arming step moved out of OnLoad behind its collector, and is
+  proved to keep a set a rewind already armed rather than overwrite it with the empty one
+  a post-rewind load collects - the three cells that were there rebuilt the guard
+  condition inside the test, so none could witness it going away. On map presence: the two
+  state-vector removal call sites now share one frame-aware gate, proved to leave a
+  Relative-frame point (whose altitude is an anchor-local offset, not a height) alone while
+  still removing a genuine below-threshold Absolute one. On watch mode: the overlap-loop
+  camera is proved to rebuild its cycle start from the cadence the engine actually launches
+  at rather than the stored loop period, the wrong-loop-phase defect. The four rows that
+  needed no seam pin a rewind retirement whose restored recording vanished (kept, with a
+  warning, instead of silently un-hiding the fork), two walks that must terminate on a
+  corrupt cycle rather than freeze the game (cross-tree chain links, and the
+  preferred-child path walk - each bounded by a ten-second completion assertion so a
+  regression fails in seconds instead of stalling the run), and that a terminated ghost
+  chain suppresses only its own tip rather than every later recording of the same vessel.
+  One edge found while proving these is filed rather than closed: the `File.Replace` catch
+  in the safe-write path is reached by no test on any host. No player-visible change.
+
+
 - **Automated testing: both in-game test runner windows are now photographed in their
   real states, and the one reachable only by Ctrl+Shift+T is reachable by the census for
   the first time.** Two windows carry the title `Parsek - Test Runner`: the one Settings
@@ -221,6 +250,80 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Tests: twenty ghost-playback, analyzer and flight-seam cells from the audit's T3
+  (weak or misleading) register now let the production term they name decide the
+  verdict.** Every one of them already ran the right code; none could see the branch,
+  value or ordering its name claimed. Nineteen were strengthened - nine of them renamed to
+  what they prove, since a rename is a subset of strengthening and not a separate bucket -
+  and one was deleted as a duplicate of a named twin, with nine sibling cells added. The
+  analyzer's "core purity" cell asserted only that nothing threw, which a rule that reads
+  a real file and succeeds also satisfies; it now carries the file-scoped trigger with a
+  null save directory and requires an EMPTY report, which is the only thing that proves
+  the save-directory gate. A rollout cell put its second emission 200 s outside a 60 s
+  duplicate window, so the window check alone kept it and the adoption rule the name
+  claimed was never reached - it was a copy of the out-of-window cell with an inert
+  adoption bolted on, and it is gone; the in-window twin one method above holds that
+  branch and is the only cell that reds when both adopted-row exclusions are deleted. An
+  aligned-loop sweep read one boolean that a primary-side perturbation leaves untouched,
+  so it now drives the borrow window and pins the region-B cycle flip. A forward-window
+  cell was named for which segment list the RENDERER supplies while testing a pure
+  function that takes the list as a parameter; it keeps the geometry claim it does prove
+  and the caller property moved to a source gate over the method that builds the window.
+  A commit-ordering cell asserted only order-independent end state, and a
+  watch-mode-cleanup cell compared the production log against a destroy line the TEST
+  wrote immediately after the call; both orderings are now source gates over the real
+  method bodies. A distance-aware terrain clamp computed its expectation from the very
+  call under test and now pins the repro's own 2.42 m and 285.52 m as literals. A
+  landing-only control wrapped its rotation assertions in an if on the hold length, so a
+  builder regression that dropped the hold skipped them; the hold is asserted
+  unconditionally. A ghost-observability cell asserted that every counter was zero - the
+  headless visuals gate zeroes them all - and is renamed to that gate, with the counting
+  arithmetic now exercised directly. A launch-alignment sweep hid its bound inside an if
+  on whether the resolver resolved, and now counts resolved steps. A seam-bridge cell
+  re-implemented the angle gate inline and described the 4.59 deg near-meet as a SKIP,
+  which is not what production does; every measured geometry now routes through the
+  production classifier. Seven tracking-station filter cells named a create/skip policy in
+  their comments and re-asserted the field the fixture had just set; each now calls
+  ShouldCreateTrackingStationGhost and asserts the (shouldCreate, skipReason) pair. A
+  relative-frame cell was a two-fact tripwire whose two facts were never joined. A
+  map-focus predicate had only its false arm pinned. A steering cell was handed the
+  already-negated value, so the caller-side sign that decides which way ghost wheels point
+  never ran - and the value it passed had the opposite sign of a real heading rate. A trace
+  reset never read back the cursors it claimed to clear. Two ghost-audio cells asserted a
+  playback-cap count that a null audio source satisfies on its own. And a loop-playback
+  forwarder was treated as a pass-through when it is really a debris mask.
+
+  Three behaviour-identical helpers were extracted so a test can reach a term without a
+  running game: ParsekFlight.NeedsPostSwitchModuleCacheRefresh (the module-cache
+  invalidation the cell used to recompute itself),
+  GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees (the wheel-steering caller
+  negate), and GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap (the deferred-batch
+  cap flag, previously unreachable because no xUnit fixture can carry a Unity AudioSource);
+  two FX counters in GhostPlaybackEngine were widened from private to internal, and the
+  brace-matched body scan the three new source gates share moved into the test suite's
+  existing SourceScanText helper instead of being pasted per file. The relative-frame cell
+  needed a fourth extraction when it was written, but the state-vector removal gate
+  GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame landed on main first and already
+  covers BOTH removal call sites, so the cell simply calls that one - deriving the frame
+  flag from the recording's own TrackSection, which is the tracking-station shape its
+  sibling in RuntimePolicyTests does not cover. No behaviour, no log
+  text and nothing a player sees changes. Each strengthened cell was
+  re-checked by breaking the named production line on purpose and confirming it goes red
+  where it used to stay green.
+
+- **Tests: the revert-path spawn-cleanup cell now arms through the production step
+  instead of assigning the fields itself.** `RevertPath_SetsCleanupData_WhenNotAlreadySet`
+  called `RecordingStore.CollectSpawnedVesselInfo` and then wrote `PendingCleanupPids` /
+  `PendingCleanupNames` by hand, so the revert arming it was named for never ran and
+  could have been deleted without the cell noticing. It is renamed
+  `RevertCleanupArming_WithProductionCollector_ArmsOnlySpawnedVessels` and now calls
+  `ParsekScenario.ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo)`, the
+  exact wiring `OnLoad` uses, asserting the armed sets ARE what the real collector
+  returned. A second recording with no spawned pid is the discriminator: cleanup names
+  the vessels Parsek actually spawned, not every recorded vessel. The two arming cells
+  added alongside it inject a fake collector, so neither of them can see what the real
+  one returns; this cell is the only one that does.
+
 - **The Kerbals window was rebuilt as two column tables, and its Roster tab now lists
   every kerbal instead of only the ones Parsek created a slot for.** Before this, on a
   110-recording career, that tab drew exactly ONE row - because a slot only exists where
@@ -409,6 +512,60 @@ _(unreleased — entries accumulate here per commit)_
   crew cell injected no `KerbalsModule` at all, so only the null fallback ran and
   `IsManaged` was never called: it now injects a real module that manages a different
   kerbal, with the null-module fallback kept as its own cell.
+
+- **Tests: twenty rendering, harness-seam and legacy-bugfix cells from the audit's Medium
+  T3 register (weak or misleading) now turn on the production term their name names.**
+  Nineteen were strengthened, six of those also renamed; one was deleted as the duplicate
+  it was; none was premise-wrong. Four of them asserted a vocabulary against itself or
+  against a hand-written copy: the census `ctrl=` filter re-split its own comma-join, so it
+  now reads `GuiTreeAssembler.KindName` over every `GuiNodeKind`; the seam-endpoint skip
+  bucket list was a test-local array, so the reason set is read from the capture method's
+  own IL string operands (a comment cannot satisfy it) with the three seam-seed constants
+  excluded by the production constant; and the sidecar reaper's "adding a suffix starts
+  failing this test" promise is kept by discovering every `RecordingPaths` builder whose
+  single parameter is a recordingId. Two comma-locale round trips pinned no culture at all
+  - a codec formatting and parsing with the same ambient culture round-trips green on any
+  host - so both run under de-DE and read the raw written POINT / ORBIT_SEGMENT values.
+  Three assertions could not see a wrong answer: a tangent's `Assert.Equal(3f, t.x, 4f)`
+  binds xUnit's float TOLERANCE overload, so a halved or zeroed component passed; the
+  read-only classifier invariant value-checked only sample 0's ut, so an interior rewrite
+  passed; and the Cluster cell wrapped its assertion in a test-side recompute of the
+  production rate gate that measurement shows was never true (four consecutive kraken
+  velocities reject 2 of 16, under the 0.20 gate), so the assertion had never run. Five
+  cells never entered the branch they were named for: the two #411 KSC loop-subrange cells
+  hand-passed the effective bounds instead of reading them from the schedule resolver the
+  dispatch calls; the stable-orbit terminal inference asserted the SubOrbital DEFAULT
+  because `FlightGlobals` is null headless; and the two cycle-guard walks had no cycle to
+  cap. Three more asserted no value at all: the three map-trace cells claiming Info routing
+  asserted no level token under a verbose-forcing fixture; the time-jump event asserted key
+  PRESENCE only; and the debris-free commit put every assertion inside a foreach, so a
+  commit of nothing passed in silence. Renames: the seam stitcher's compose-after-remap
+  cell (its fixture made the re-anchored head numerically equal to the live UT, and its
+  independence assertion was a tautology), the Cluster cell, the pannotations stamp cell
+  (renamed to the round trip it proves, with a new drifted-stamp sibling), the time-jump
+  fields cell, and the two cycle cells (each keeping its old fixture under an honest name
+  beside a new genuine-cycle case). The delete is the unfinished-flights
+  `ImmutableDestroyedUnderRP_IsMember`, whose name said Immutable while its fixture passed
+  CommittedProvisional, making it an exact duplicate of the cell below it; the Immutable
+  case it left uncovered is guarded by a post-audit sibling that reds with five others when
+  the sealed-tip filter is disabled. Two production edits, both behaviour-identical: the
+  KSC loop schedule resolver is widened from private to internal, and OnLoad's revert-branch
+  pending-tree decision is extracted as a pure classifier the call site dispatches over with
+  the same log lines and the same flag clear. Six commits: four rendering rows, then four
+  more rendering rows, then the two KSC rows, then the three harness-seam rows, then the
+  two revert / commit-count rows with the time-jump grammar, then the four remaining
+  legacy-bugfix rows. Every row carries a mutation patch that reds its cell and applies
+  against a clean tree.
+
+- **Tests: the audit's one Medium T2 row (duplicate) is closed by deleting the duplicate
+  cell.** `GhostChainWalkerTests.CrossTreeCycle_DetectedAndHandled` fed the exact fixture of
+  `CrossTree_TwoLinks_ChainsExtend` (same recordings, pids, branch points and UTs) and then
+  asserted strictly less about the result: a non-null dictionary, the key, at least one link
+  and a non-empty tip, against the twin's single chain, two links, named tip and exact spawn
+  UT. The cycle its name claimed never ran: in that fixture the tip vessel pid equals the
+  walk origin, so `MergeCrossTreeLinks` breaks before the `chainVisited` guard. The real
+  cycle is covered by `MergeCrossTreeLinks_TwoChainsPointingAtEachOther_BreaksCycleAndWarns`,
+  which landed with the previous wave. No production change.
 
 - **Tests: twenty recording-tree cells from the audit's Medium T3 register (weak or
   misleading) now turn on the production line their name names.** Ten of them were decided

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/FileIOUtils.cs b/Source/Parsek/FileIOUtils.cs
+index 2f3b3f9a7..18a804a30 100644
+--- a/Source/Parsek/FileIOUtils.cs
++++ b/Source/Parsek/FileIOUtils.cs
+@@ -331,7 +331,8 @@ namespace Parsek
+             // "<name>.bak" would be), and so no pre-delete is needed to claim the name.
+             string bakPath = destPath + SwapBackupExtensionPrefix + Guid.NewGuid().ToString("N");
+ 
+-            File.Move(destPath, bakPath);
++            // MUTANT: drop the destination instead of moving it aside.
++            File.Delete(destPath);
+             try
+             {
+                 File.Move(sourcePath, destPath);

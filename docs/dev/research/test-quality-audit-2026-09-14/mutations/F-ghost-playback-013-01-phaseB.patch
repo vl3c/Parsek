@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 9aab5fd55..0b5205f5b 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -5506,8 +5506,9 @@ namespace Parsek
+         /// </summary>
+         internal static float ComputeTargetWheelSteeringDegrees(float headingRateDegPerSec)
+         {
++            // MUTANT: the caller-side negate is dropped; ghost wheels point out of the turn.
+             return ComputeSynthDeflectionDegrees(
+-                -headingRateDegPerSec, WheelSteeringGainDegPerDegPerSec, MaxWheelSteeringDegrees);
++                headingRateDegPerSec, WheelSteeringGainDegPerDegPerSec, MaxWheelSteeringDegrees);
+         }
+ 
+         /// <summary>Degrees of caliper angle per deg/s of ground-track heading change.</summary>

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MapRender/CrossMemberSeamStitcher.cs b/Source/Parsek/MapRender/CrossMemberSeamStitcher.cs
+index 6fc5380c6..46f12fed2 100644
+--- a/Source/Parsek/MapRender/CrossMemberSeamStitcher.cs
++++ b/Source/Parsek/MapRender/CrossMemberSeamStitcher.cs
+@@ -345,7 +345,7 @@ namespace Parsek.MapRender
+             foreach (RenderSegment seg in phaseAtHead.Emit(ctx))
+             {
+                 RenderSegment seamed = StampOrbitLandingSeam(seg);
+-                stitched = GhostSample.InSegment(seamed, phaseIndex, reAnchoredHead);
++                stitched = GhostSample.InSegment(seamed, phaseIndex, liveUT);
+                 EmitDescentStitchedTraceOnChange(chain.RecordingId, committedIndex, liveUT, reAnchoredHead, phase);
+                 return true;
+             }

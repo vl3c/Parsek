@@ -450,9 +450,21 @@ namespace Parsek.Tests
         {
             // The filter must speak the same words the .gui.json a reviewer is reading
             // does, or a spec author reads one vocabulary and writes another.
-            foreach (string ctrl in TestCommandUiFind.CtrlValues)
-                Assert.Contains(ctrl, TestCommandUiFind.ValidCtrlNames.Split(','));
-            Assert.Equal(13, TestCommandUiFind.CtrlValues.Length);
+            //
+            // The mirror is asserted against the OTHER side now: GuiTreeAssembler.KindName
+            // projected over every GuiNodeKind value, in enum order. The old body re-split
+            // ValidCtrlNames, which is the comma-join of CtrlValues itself, so it compared the
+            // array with itself and a kind rename on either side stayed green.
+            var fromKindNames = new List<string>();
+            foreach (GuiNodeKind kind in System.Enum.GetValues(typeof(GuiNodeKind)))
+                fromKindNames.Add(GuiTreeAssembler.KindName(kind));
+
+            Assert.Equal(fromKindNames, TestCommandUiFind.CtrlValues);
+            // The reject message still lists exactly those values, comma-joined.
+            Assert.Equal(fromKindNames, new List<string>(TestCommandUiFind.ValidCtrlNames.Split(',')));
+            // No kind falls through KindName's default: an added enum member with no case would
+            // land here as "unknown" rather than silently widening the accepted vocabulary.
+            Assert.DoesNotContain("unknown", fromKindNames);
         }
 
         [Fact]

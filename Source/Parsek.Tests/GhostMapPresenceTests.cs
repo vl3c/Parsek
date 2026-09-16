@@ -681,11 +681,17 @@ namespace Parsek.Tests
                 TerminalOrbitSemiMajorAxis = 700000,
                 TerminalStateValue = TerminalState.Destroyed
             };
+            // HasOrbitData is terminal-state-blind, so it is only the PRECONDITION here:
+            // the recording really does carry orbit data and is still refused. The refusal
+            // itself comes from the policy entry point, which these cells used to name in a
+            // comment and never call - they re-asserted the TerminalStateValue the fixture
+            // had just set, so inverting any terminal-state branch of
+            // ShouldCreateTrackingStationGhost left all seven green.
             Assert.True(GhostMapPresence.HasOrbitData(rec));
-            // HasOrbitData is true, but the policy layer should filter by terminal state.
-            // This test documents the expectation: Destroyed recordings have orbit data
-            // but should be filtered out at the policy level.
-            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+
+            var decision = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 500.0);
+            Assert.False(decision.shouldCreate);
+            Assert.Equal("terminal-Destroyed", decision.skipReason);
         }
 
         /// <summary>
@@ -704,7 +710,12 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.SubOrbital
             };
             Assert.True(GhostMapPresence.HasOrbitData(rec));
-            Assert.Equal(TerminalState.SubOrbital, rec.TerminalStateValue);
+
+            // The TERMINAL-endpoint policy still refuses SubOrbital; the state-vector lines
+            // the comment above describes come from the live-coast source, not this path.
+            var decision = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 500.0);
+            Assert.False(decision.shouldCreate);
+            Assert.Equal("terminal-SubOrbital", decision.skipReason);
         }
 
         /// <summary>
@@ -721,7 +732,10 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Landed
             };
             Assert.True(GhostMapPresence.HasOrbitData(rec));
-            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+
+            var decision = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 500.0);
+            Assert.False(decision.shouldCreate);
+            Assert.Equal("terminal-Landed", decision.skipReason);
         }
 
         /// <summary>
@@ -738,7 +752,10 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Orbiting
             };
             Assert.True(GhostMapPresence.HasOrbitData(rec));
-            Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
+
+            var decision = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 500.0);
+            Assert.True(decision.shouldCreate);
+            Assert.Null(decision.skipReason);
         }
 
         /// <summary>
@@ -755,7 +772,10 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Docked
             };
             Assert.True(GhostMapPresence.HasOrbitData(rec));
-            Assert.Equal(TerminalState.Docked, rec.TerminalStateValue);
+
+            var decision = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 500.0);
+            Assert.True(decision.shouldCreate);
+            Assert.Null(decision.skipReason);
         }
 
         /// <summary>
@@ -772,7 +792,10 @@ namespace Parsek.Tests
                 TerminalStateValue = null
             };
             Assert.True(GhostMapPresence.HasOrbitData(rec));
-            Assert.Null(rec.TerminalStateValue);
+
+            var decision = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 500.0);
+            Assert.True(decision.shouldCreate);
+            Assert.Null(decision.skipReason);
         }
 
         #endregion
@@ -794,7 +817,10 @@ namespace Parsek.Tests
                 IsDebris = true
             };
             Assert.True(GhostMapPresence.HasOrbitData(rec));
-            Assert.True(rec.IsDebris);
+
+            var decision = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 500.0);
+            Assert.False(decision.shouldCreate);
+            Assert.Equal("debris", decision.skipReason);
         }
 
         /// <summary>
@@ -811,7 +837,10 @@ namespace Parsek.Tests
                 IsDebris = false
             };
             Assert.True(GhostMapPresence.HasOrbitData(rec));
-            Assert.False(rec.IsDebris);
+
+            var decision = GhostMapPresence.ShouldCreateTrackingStationGhost(rec, false, 500.0);
+            Assert.True(decision.shouldCreate);
+            Assert.Null(decision.skipReason);
         }
 
         #endregion
@@ -2172,6 +2201,22 @@ namespace Parsek.Tests
                 + "refresh tick — the create path would re-add it next tick → flicker. "
                 + "The gate suppresses the threshold for Relative-frame points so "
                 + "UpdateGhostOrbitFromStateVectors stays in charge of the cycle.");
+
+            // ...and the COMPOSITION, which is what the name claims. The pair above is only a
+            // tripwire: the refresh pass that joins them was never called here, so deleting the
+            // frame exemption reintroduced the per-tick create/remove flicker with both
+            // assertions still green. The frame flag is DERIVED from the recording's own
+            // TrackSection here, which is what the tracking-station refresh pass does;
+            // RuntimePolicyTests pins the same gate with the flag passed literally.
+            Assert.False(
+                GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                    inRelativeFrame: GhostMapPresence.IsInRelativeFrame(rec, currentUT),
+                    altitude: dzAsAltitude,
+                    speed: worldVelocityMag,
+                    atmosphereDepth: airlessAtmosphereDepth),
+                "the refresh pass must NOT remove a Relative-frame state-vector ghost: its "
+                + "altitude is anchor-local dz, so the threshold is meaningless and firing it "
+                + "tears the ghost down every tick while the create path re-adds it next tick.");
         }
 
         [Fact]
@@ -2203,6 +2248,17 @@ namespace Parsek.Tests
                     altitude: -0.31, speed: 2920.0, atmosphereDepth: 0),
                 "Absolute frame: alt~0 below threshold legitimately removes "
                 + "the ghost (state-vector subsurface drift case).");
+
+            // The mirror of the Relative cell, through the same composition and with the frame
+            // flag derived from the recording: the gate applies ONLY to Relative frames, so the
+            // identical numbers DO remove here.
+            Assert.True(
+                GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                    inRelativeFrame: GhostMapPresence.IsInRelativeFrame(rec, currentUT),
+                    altitude: -0.31,
+                    speed: 2920.0,
+                    atmosphereDepth: 0),
+                "Absolute frame: the refresh pass still evaluates the threshold.");
         }
 
         /// <summary>

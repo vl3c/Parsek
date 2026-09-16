@@ -624,6 +624,58 @@ uses ut=110. And `ParsekScenario` inherits Unity's overloaded `==`, so a mutant 
 scenario (Unity reports the fake-null as null, which is why `Run` itself uses
 `ReferenceEquals`); the recorded mutant stubs the body unconditionally instead.
 
+**Phase B status, ninth PR (2026-09-16).** The last fourteen priority-2 rows, a mixed
+`direct` / `seam` slice: eight are new coverage (thirteen cells, every mirror included),
+five are `already-covered` and one is `deferred`, and none is obsolete. **The priority-2
+register is now closed** - no `keep` row of priority 2 remains in
+`coverage-opportunities.csv`, leaving two `deferred` priority-2 rows and 144 `keep` rows at
+priority 3 and below (the count includes the new C-io-serialization-005-01 filed below). The eight landed rows are
+C-rewind-refly-005-02, C-ghost-playback-012-01, C-recording-tree-034-02,
+C-recording-tree-051-01, C-recording-tree-042-01, C-spawn-vessel-021-01,
+C-recorder-events-008-01 and C-recorder-events-015-02; four of them needed a production
+seam and the other four did not. The seams, all smallest-hook and live-path-neutral:
+`SceneExitInterceptor.PersistentSaveStepForTesting` (an `Action<GameScenes>` invoked
+INSIDE the try, because the existing whole-method seam returns before it and a
+test-constructed `Game` reads as null to Unity's overloaded `==`, so the catch was
+unreachable); `ParsekScenario.ArmRevertCleanupData(collector)` (the revert cleanup arming
+step lifted out of `OnLoad` with the spawned-vessel collector as a delegate);
+`GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame` (one frame-aware gate now shared by
+BOTH state-vector removal call sites, with the `GetAtmosphereDepth` read kept behind the
+frame test so a Relative-frame point still never touches `FlightGlobals`); and
+`WatchModeController.ComputeWatchOverlapPlaybackUT` (the overlap branch of the private
+instance method, as a pure static over the cadence inputs). The five already-covered rows:
+C-ghost-playback-008-01, C-spawn-vessel-020-01, C-io-serialization-004-01,
+C-recorder-events-026-01 and C-recording-tree-039-01. The deferred row is
+C-catchall-049-01.
+
+Four notes for whoever reads these rows again. First, C-ghost-playback-008-01's proposed
+mutant is EQUIVALENT: `Landed` is refused by three independent gates
+(`IsTerminalStateEligibleForMapPresence`, `IsTerminalStateEligibleForTerminalOrbitMapPresence`
+and `TryResolveTerminalOrbitGhostSeed`), each producing the same `terminal-<state>` reason,
+so admitting it at any one site changes nothing observable - and the proposed cell name
+`ShouldCreate_Landed_Skipped` is a cell that already exists and survives every single-gate
+mutant. The reachable form of the same site (admit `SubOrbital`) reds a committed
+`GhostMapEndpointTailTests` cell, which is what the recorded patch holds. Second,
+C-catchall-049-01 is DEFERRED rather than closed: its mutant reds only the source-scrape cell
+`PlaytestFollowupTests.Bug273_MethodBody_ContainsMarkFilesDirtyCall`, and the behavioural
+witness the row wants needs the append-plus-dirty pair moved out of
+`SampleContinuationVessel` - which that same scrape cell would itself red, so the seam is
+forbidden here and the row stays open. Third, C-io-serialization-004-01 keeps its
+`already-covered` verdict for the recorded mutant only. The `ForceReplaceFailureForTesting`
+seam buys no cell for THAT mutant (a forced replace failure with nothing locked lets the
+fallback SUCCEED, exactly as the drop-the-destination mutant does), but the `File.Replace`
+catch itself is executed by no cell at all: the four replace-failure cells reach it only
+through `FileShare.None`, which the Linux CI host does not enforce, and the forced-fallback
+cell that reds the destination-preserving mutant skips the catch entirely. That edge is filed
+as the new priority-3 row **C-io-serialization-005-01** (mutant: return inside the
+`File.Replace` catch, swallowing the failure and orphaning the `.tmp`). Fourth, two of the landed rows guard walks that do not terminate under
+their mutant: `GhostChainWalker.MergeCrossTreeLinks` and `ParsekFlight`'s preferred-child
+path walk would both spin forever rather than fail an assertion, so both cells run the walk
+on a worker task and assert a 10 s completion bound - the mutant then reds in ten seconds
+instead of stalling the run (the chain-walker cell also installs its own log sink inside the
+task, since the sink is `[ThreadStatic]`). A two-chain cycle is not enough for the first one (the `tipVesselPid == originPid` short-circuit already catches it),
+so that fixture is a 100 -> 200 -> 300 -> 200 loop that excludes the walk origin.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.
@@ -1232,6 +1284,120 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     one on the `recording-tree` half (the other two recording-tree method additions are renames), each carrying the mirror or positive direction the
     original cell could not reach.
 
+- `testfix-t3-d`, slice 5 (2026-09-16): the FIFTH slice of Medium T3 rows
+  (`work/phase-b-slice-medium-t3-05.txt`, 20 ids: 12 `ghost-playback`, 7 `catchall`,
+  1 `analyzer`). Counted the slice-4 way (every kept row is strengthened; a rename is a
+  SUBSET of that, not a separate bucket): 19 strengthened, of which 9 renamed; 1 deleted;
+  0 deferred; 0 premise-wrong. Nine sibling cells were added. Per commit, derived from
+  `git diff origin/main...HEAD -- Source/Parsek.Tests`: e29d96489 3 renames + 1 new + the
+  deletion, e2ee3d67b 1 + 1, 41e91527e 0 + 0, 6338adcfd 1 + 2, 30419f2b6 1 + 0,
+  1a0d21bf9 0 + 0, eae1f2f75 0 + 2, 69d9af157 2 + 1, 8f2e4eef5 1 + 2. Each row has a proof
+  row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against a clean tree. The three source gates
+  this slice adds share `SourceScanText.BraceMatchedBlock` (moved there from the first
+  copy rather than pasted three times); every class that reads `SourceScanText` was re-run
+  after the move, and all three gates were re-proved RED under their recorded patches.
+  - Given the production term the name claims (8): F-catchall-010-02 is the DELETION - its
+    second rollout emission sat 200 s outside the 60 s duplicate window, so the window
+    check alone kept the write and the cell was a copy of
+    `OnVesselRolloutSpending_OutsideDuplicateWindow_BothKept` with an inert adoption; the
+    twin `OnVesselRolloutSpending_AdoptedRowDoesNotBlockRelaunchWrite` (relaunch INSIDE the
+    window) is the only cell that reds when both adopted-row exclusions are deleted, across
+    all four classes that reach the rollout path. Note which exclusion decides: adoption
+    NULLS the row's `DedupKey`, so the `IsNullOrEmpty(a.DedupKey)` skip is load-bearing and
+    the `RecordingId` skip alone is equivalent.
+    F-analyzer-003-01 (renamed
+    `CorePurity_AllRules_NullSaveDirectory_DoNotThrow_AndProbeNoSaveFiles`: the model now
+    carries `RewindSaveFileName` with a NULL `SaveDirectory` and the report must be EMPTY,
+    since `Record.Exception == null` is also satisfied by a rule that reads a real file and
+    succeeds. The name says no SAVE files because `Inv10CodecRoundtrip` round-trips through
+    a temp file by design);
+    F-catchall-018-01 (renamed
+    `AlignedLoop_NeverHasSecondary_AndRegionBStillFlipsThePrimaryToNextInstance`: the sweep
+    read only `HasSecondary`, which the region-B cycle bump leaves untouched, so the cell
+    now probes inside the borrow window and pins `CycleIndex == N+1` and the fresh-launch
+    `LoopUT`. Cycle 3's advance is 0 on that fixture, so the window loop stops at N=1);
+    F-catchall-044-01 (the repro's own 2.42 m clearance and 285.52 m floor as literals - the
+    old expectation was `283.1 + clearance`, computed from the very call under test. The ramp
+    itself stays with `Bug156Tests.ComputeTerrainClearance_*`);
+    F-catchall-046-01 (the landing-only control's rotation assertions moved out of
+    `if (unit.ArrivalHoldSeconds > 0.0)` and the hold is asserted unconditionally - the one
+    regression the control exists to catch used to skip them);
+    F-ghost-playback-008-01 (all seven `TerminalFilter_` / `DebrisFilter_` cells now call
+    `ShouldCreateTrackingStationGhost` and assert the `(shouldCreate, skipReason)` pair. The
+    recorded mutant opens BOTH `IsTerminalStateEligibleForMapPresence` and
+    `IsTerminalStateEligibleForTerminalOrbitMapPresence` so all three refusals move at once,
+    but the two filters are NOT symmetric. Destroyed and Landed are refused by the first and
+    then again by the second, so opening the first ALONE leaves their `skipReason` unchanged
+    and the suite green. SubOrbital passes the first and is refused only by the second, so
+    opening the second alone already reds `SubOrbital_HasOrbitData_ReturnsTrue` on its own);
+    F-ghost-playback-011-02 (the ready arm plus the three remaining deferral inputs - only
+    the false arm was pinned and nothing else calls `CanRestoreMapFocus`);
+    F-ghost-playback-015-02 (the trace cursors and completed-event set are seeded, asserted
+    present, and asserted gone after `Reset()`);
+    F-ghost-playback-018-02 (the debris mirror: `IPlaybackTrajectory.LoopPlayback` is
+    `!IsDebris && LoopPlayback`, and no cell cast a debris recording to the interface).
+  - Re-aimed at a production caller through a behaviour-identical extraction (5 rows, 4
+    helpers): F-catchall-040-01 (`ParsekFlight.NeedsPostSwitchModuleCacheRefresh` - two of
+    the Theory's five parameters never reached production because the cell recomputed the
+    invalidation itself);
+    F-ghost-playback-009-01 (`GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame` - the
+    cell was a two-fact tripwire whose facts were never joined. This row was originally
+    written with a branch-only `ShouldRemoveStateVectorOrbitInRefreshPass`; merging
+    `origin/main` brought PR #1724's `ShouldRemoveStateVectorOrbitForFrame`, which is the
+    SINGLE gate for both removal call sites (refresh pass and flight policy) with the
+    atmosphere read kept lazy behind the frame test, so the branch helper was deleted and
+    the cell retargeted onto main's. It derives the frame flag from the recording's own
+    `TrackSection`, the tracking-station shape; `RuntimePolicyTests` pins the same gate with
+    the flag passed literally, and the re-generated mutant reds both);
+    F-ghost-playback-013-01 (`GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees` - the
+    cell was handed the post-negation value, so the caller-side minus never ran AND the
+    `-10` it passed was the opposite sign of a real heading rate; the mirror direction is
+    asserted so dropping both negations cannot pass);
+    F-ghost-playback-016-01 and -016-02
+    (`GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap` - no xUnit `AudioGhostInfo`
+    can carry a Unity `AudioSource`, so the null-source early return fired first and both
+    `enforceCount` assertions were satisfied without the cap flag ever being read. That
+    early return did nothing but skip the cap, so folding it into the gate is
+    byte-identical. -016-01 is renamed to the paused-tracking claim with its inert override
+    injection dropped; -016-02 is renamed to the power batch driving the post-batch
+    selection, with the seam-routing assertion kept and labelled as one).
+    `GhostPlaybackEngine.CountFxForObservability` / `CountModulesAndParticleSystems` were
+    widened private -> internal for F-ghost-playback-003-01, whose cell asserted twelve
+    zeros that the headless `HasLoadedGhostVisuals` gate produces on its own; it is renamed
+    to that gate, and two new cells drive the counting arithmetic, accumulation across
+    ghosts, and the null / empty maps.
+  - Moved to a source gate because no runtime cell can see the claim (3):
+    F-catchall-024-01 (`ComputeForwardStopUT` is pure and takes its list as a parameter, so
+    no argument of it can witness WHICH list the renderer supplies; renamed to the geometry
+    claim, and a gate over the method hosting the `ComputeForwardWindow` call asserts
+    `windowSegs` is assembled only from the coalesced effective scratch lists fed by
+    `ResolveEffectiveMapOrbitSegments`);
+    F-catchall-039-03 (renamed `AutoCommit_EndState_TreeCommittedAndResourceIndexAdvanced`;
+    the commit-then-mark ORDER is a gate over `CommitPendingTreeAsApplied`'s body, because
+    `MarkTreeAsApplied` advances the indexes on the tree OBJECT the caller passes and the
+    end state is identical under the swap);
+    F-ghost-playback-025-01 (renamed
+    `ExitWatchModeBeforeTimelineGhostCleanup_WhenWatching_DetachesThenExitsSkippingCameraRestore`;
+    the ordering half compared the helper's log against a destroy line the TEST wrote right
+    after the call, so the real call-site order is now a gate over
+    `DestroyAllTimelineGhosts`).
+  - F-ghost-playback-007-01 is renamed
+    `SeamBridge_AngleBandRouting_MeetsConicChordAndMergeSlice`, with every measured playtest
+    geometry routed through `ClassifySeamBridgeByAngle`. Its messages had called the 4.59 deg
+    near-meet a SKIP, which production does not do - (0.5 deg, 5 deg] routes to `Chord`. The
+    mutant is aimed at `SeamBridgeAngleRad` rather than the classifier, because
+    `ClassifySeamBridgeByAngle_FourBands` already pins all four bands and all three
+    boundaries from raw radians; what this cell uniquely owns is the geometry-to-band
+    pipeline.
+  - F-ghost-playback-004-01 closes the slice: the launch-alignment sweep's in-span bound sat
+    inside `if (resolved)`, so a resolver that stopped resolving ran the body zero times. It
+    now counts swept and resolved steps and requires every step to resolve. The mutant is
+    deliberately PARTIAL (inert only past the third cycle): a resolver inert everywhere also
+    reds the two sibling cells that assert `resolved` at currentUT 2100 and 3000, so only the
+    swept-count assertion can see a regression confined to later cycles.
+
+
 - `testfix-t1t2`, eighth PR (2026-09-16): the THIRD slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-03.txt`, 20 ids, all `ledger-career`). Each fixed row
   has a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv`
@@ -1414,6 +1580,106 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `GrepAuditNonLoopLivePidTests`, `LoopUnitSetCoherenceTests`,
     `OverlapPerInstanceTests`, `WatchEntryAcceptanceWiringGateTests`,
     `RuntimePolicyTests`), plus `GrepAuditTests` each time. No gate needed re-anchoring.
+
+- `testfix-t3-e` (2026-09-16): the SIXTH slice of Medium T3 rows
+  (`work/phase-b-slice-medium-t3-06.txt`, 20 ids: 8 `map-render`, 7 `legacy-bugfix`,
+  3 `harness-seam`, 2 `io-serialization`). Counting rule: every row is strengthened, and
+  a rename is a SUBSET of that, never a separate bucket. Slice total: 19 strengthened,
+  6 of those also renamed, 1 deleted, 0 premise-wrong, 2 behaviour-identical production
+  edits. Each row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - Vocabulary asserted against itself (3): F-harness-seam-001-01 re-split
+    `ValidCtrlNames`, which is the comma-join of `CtrlValues`, so a kind rename on either
+    side stayed green; it compares against `GuiTreeAssembler.KindName` over every
+    `GuiNodeKind` now. F-harness-seam-007-01's reason set was a test-local array, so the
+    stated purpose (a capture reason added without a bucket is visible here) went unmet;
+    the set is read from `ComputeSeamEndpointGeometry`'s IL `ldstr` operands, with the
+    three seam-seed constants excluded BY the production constants and the oracle-owned
+    `no-usable-ratio` appended by name. F-harness-seam-015-02's comment promised a new
+    `RecordingPaths` builder would red it while listing seven by hand; the builder set is
+    discovered by reflection (static, string-returning, one `recordingId` parameter).
+  - Culture pins that pinned nothing (2): F-io-serialization-004-01 / -004-02 set no
+    culture, and a symmetric codec round-trips on every host, so both now pin de-DE around
+    the round trip and read the RAW written POINT / ORBIT_SEGMENT values. The mutant is
+    ambient culture on BOTH sides, which is green before and red after.
+  - Assertion windows too wide to see a wrong answer (3): F-map-render-006-01's
+    `Assert.Equal(3f, t.x, 4f)` binds xUnit's float TOLERANCE overload (a float literal
+    cannot bind the int precision overload), accepting x in [-1,7]; it is 1e-4f now, with
+    z and a non-zero-origin pair. F-map-render-014-02 value-checked only `frames[0].ut`
+    against a whole-payload read-only invariant; every frame's ut/lat/lon/alt/velocity/
+    body/rotation/flags is snapshotted now. F-map-render-014-01, renamed
+    `OutlierClassifier_Cluster_FlagsSection_WhenRejectionRateIsOverTheGate`: its Cluster
+    assertion sat inside a test-side recompute of the production rate gate, and the
+    measurement shows the gate was NEVER true - four consecutive kraken velocities reject
+    2 of 16 samples (0.125, under 0.20), because the interior samples of a run share their
+    neighbours' velocity. The fixture spikes alternating indices (8 of 16), pins the
+    counts first, and a new mirror cell pins the bit CLEAR under the gate.
+  - Never entered the named branch (5): F-map-render-001-03 / -001-04 hand-passed the
+    effective loop bounds, so a KSC dispatcher reverted to the raw span stayed green; both
+    read them from `ParsekKSC.TryGetLoopSchedule` now and the cycle-bounds cell feeds
+    `GetActiveCycles` the resolver's `(scheduleStartUT, scheduleStartUT + duration)`
+    exactly as `UpdateOverlapKsc` does. F-legacy-bugfix-005-01 asserted the SubOrbital
+    DEFAULT under a name promising Orbiting, because `FlightGlobals.GetBodyByName` is null
+    headless; the radius comes through `TerminalInferenceBodyRadiusResolverForTesting` now,
+    with the unresolved-body and sub-surface-periapsis mirrors as their own cells.
+    F-legacy-bugfix-004-01 and -018-01 both named a cycle guard over fixtures with no
+    reachable revisit (the first's victim was the first BP parent; the second's duplicate
+    `ChainIndex = 0` has no predecessor, as its own comment said). Each keeps its old
+    fixture under an honest name
+    (`IsRecordingInParentChainOfActiveReFly_DirectParentInCyclicBp_ReturnsTrue`,
+    `DuplicateChainIndexZero_TerminatesAtTheFirstMatch`) beside a new absent-victim case
+    where the walk must exhaust and the trace's `parents=[...]` list decides. The mutant
+    is the `visitedRecs` short-circuit alone: both fixtures still TERMINATE without it
+    (the BP-level visited set bounds them), so the evidence is a duplicate in the trace
+    rather than a hang that would take the test host down.
+  - Asserted no value at all (4): F-map-render-004-01's three Info-routing cells asserted
+    no level token under a fixture that forces verbose on, so a Verbose-routed line matched
+    every predicate; each asserts `[INFO]` now (the `EmitRaw_NonImportant` twin already
+    pinned `[VERBOSE]`, so the mirror direction was covered). F-map-render-009-03,
+    renamed `Probe_AlgorithmStampField_RoundTrips`, constructed neither the mismatch nor
+    the discard its name promised; a new sibling patches the stamp int in the header bytes
+    and asserts the probe reports the drifted value, which is what a probe echoing the
+    compiled-in constant would fail. F-legacy-bugfix-015-01, renamed
+    `CreateTimeJumpEvent_HeaderAndDetailKeyGrammar`: the values are already owned by the
+    post-audit `CreateTimeJumpEvent_DetailsValuesRoundTrip`, whose dictionary parse loses
+    ORDER, so this cell pins the eight keys in their declared order plus the header.
+    F-legacy-bugfix-002-01 put every assertion inside a `foreach` over
+    `CommittedRecordings`, so a `CommitTree` that committed nothing passed in silence; the
+    count comes first and the group is compared against the tree's own
+    `AutoGeneratedRootGroupName`.
+  - Production decision re-implemented in the test (1): F-legacy-bugfix-001-03 ran its own
+    copy of OnLoad's revert guard, so the production branch never executed. That decision
+    is extracted as the pure `ParsekScenario.ClassifyRevertPendingTreeDisposition` (fresh
+    stash wins, then no pending tree, then Limbo / LimboVesselSwitch, else orphan); the
+    call site is a straight dispatch over the result with the same log lines and the same
+    `PendingStashedThisTransition` clear, and a sibling covers the three arms.
+  - The one delete: F-legacy-bugfix-010-01's `ImmutableDestroyedUnderRP_IsMember` said
+    Immutable in its name, doc comment and claimed regression while its fixture passed
+    `MergeState.CommittedProvisional`, making it byte-identical to
+    `CommittedProvisionalDestroyedUnderRP_IsMember` below it. Under the cross-class rule
+    the sealed-tip mutant (disable `IsSlotEffectiveTipOpen`) reds six cells in four classes
+    - `ImmutableDestroyedUnderRP_NotMember_SealedTipClosed`, `SealedSlot_NotMember`,
+    `StashedThenSealedSlot_NotMember`,
+    `UnfinishedFlightClassifierTests.OpenClosedFilter_ImmutableTip_HidesShapeQualifyingSlotFromUf`,
+    `CollapseSealMergeStateRegressionTests.StashThenSeal_NotReStashable_AndHiddenFromUf`
+    and `RewindB9FixtureTests.Inject_CrashedBoosterClassifiesAsOpenUnfinishedFlight` - so
+    the Immutable case is covered and the duplicate was removed with a comment in its place.
+  - Two production edits, both behaviour-identical and both re-verified against the
+    source-scanning gates over the touched files: `ParsekKSC.TryGetLoopSchedule` widened
+    from `private static` to `internal static` (visibility only), and the revert-branch
+    classifier extracted above. After the `ParsekScenario.cs` edit every class that reads
+    that file was re-run (`Bug585InPlaceContinuationRestoreTests`,
+    `CareerSeedReadinessTests`, `ChainSaveLoadTests`, `CheckpointDoubleCoverRetireTests`,
+    `ObservabilityPersistencePhase3Tests`, `QuickloadResumeTests`, `RevertDiscardTests`,
+    `RewindB9FixtureTests`, `SaveActiveTreeSidecarBothOrNeitherTests`,
+    `ScenarioAutoCommitResourcesAppliedTests`, `ScenarioGameEventHandlerContractTests`,
+    `SceneChangeTerminalStateWiringGateTests`, `SwitchSegmentSaveLoadTests`,
+    `SwitchSegmentSuppressionNarrowingTests`, `TestBatchIsolationTests`), plus
+    `GrepAuditTests`, `GrepAuditNonLoopLivePidTests` and `LoopUnitSetCoherenceTests` after
+    the `ParsekKSC` one. No gate needed re-anchoring.
+  - One doc reference updated for a rename: `docs/dev/done/plans/phase8-outlier-rejection.md`
+    named the Cluster cell and its "2 of 16" claim.
 
 - `testfix-t3-c` (2026-09-16): the FOURTH slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-04.txt`, 20 ids: 12 `logistics-route`,
@@ -1748,6 +2014,56 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `GroupAggregateTests`, `SpawnSafetyNetTests`, `SnapshotBaselineApplicationTests`,
     `OrbitSegmentTests`, `ReaimClassifierTests`, `MissionLoopUnitBuilderTests`,
     `MissionPeriodicityTests`, `TrajectoryWalkbackTests` and `TimelineWindowUITests`.
+- `testfix-t3-g` (2026-09-16): slice 8 of the Medium T3 rows
+  (`work/phase-b-slice-medium-t3-08.txt`), a single row held back from slice 7 because
+  PR #1724 rewrote its file underneath it. 1 strengthened, 1 of those also renamed,
+  0 deleted, 0 deferred, no production change. With this row the Medium T3 register's
+  remaining work is slices 6 and 7, each on its own branch.
+  - F-spawn-vessel-021-01, renamed
+    `RevertCleanupArming_WithProductionCollector_ArmsOnlySpawnedVessels`: the cell called
+    `RecordingStore.CollectSpawnedVesselInfo` and then assigned `PendingCleanupPids` /
+    `PendingCleanupNames` itself, so the revert arming its old name claimed
+    (`RevertPath_SetsCleanupData_WhenNotAlreadySet`) never ran. PR #1724 lifted that step
+    out as `ParsekScenario.ArmRevertCleanupData(collector)` and added both guard arms
+    around it, which made the ALREADY-COVERED question worth asking first: it is not.
+    Both #1724 cells inject a FAKE collector, so the register's named mutant
+    (`CollectSpawnedVesselInfo` skipping nonzero `SpawnedVesselPersistentId`) leaves both
+    of them green - it reds only the three hand-rolled cells. The re-aimed cell closes
+    that gap by passing the production collector itself, exactly as `OnLoad` does, and
+    asserting the armed sets ARE its return value; a second recording with no spawned pid
+    is the discriminator between the spawned-vessel collector and the wider all-names one.
+    It is therefore not a duplicate of either #1724 cell, and it reds under both mutants:
+    the register's, and a stub of `ArmRevertCleanupData` that never arms (the recorded
+    patch), which the old cell survived.
+  - Filtered suite after the slice: `SpawnCleanupGuardTests` 6 passed / 0 failed, the
+    same count as before (a rename, not an added cell).
+
+- `testfix-t2-a` (2026-09-16): the Medium register's single T2 (duplicate) row
+  (`work/phase-b-slice-medium-t2-01.txt`). 0 strengthened, 1 deleted, 0 deferred, no
+  production change. With this row and Medium T3 slice 7 the Medium register is closed.
+  - F-ghost-playback-012-01, DELETED: `GhostChainWalkerTests.CrossTreeCycle_DetectedAndHandled`
+    built the same fixture as `CrossTree_TwoLinks_ChainsExtend` - identical recordings, pids,
+    branch points and UTs - and asserted a strict subset of its claims (non-null, key 100,
+    `Links.Count >= 1`, non-empty tip, against the twin's `Single`, `Links.Count == 2`,
+    tip `R2-leaf`, `SpawnUT == 1320`). Nothing in it was distinct, so nothing was kept.
+  - The cycle its name claimed is unreachable from that fixture: the tip vessel pid equals
+    the walk origin, so `MergeCrossTreeLinks` breaks at the `tipVesselPid == originPid`
+    test and never reaches the `chainVisited` guard. That guard is covered by
+    `MergeCrossTreeLinks_TwoChainsPointingAtEachOther_BreaksCycleAndWarns` (PR #1724).
+  - The register's own falsifiability line is WRONG and is recorded as such in
+    `mutations.csv`: its mutant (stop absorbing the linked chain in `MergeCrossTreeLinks`,
+    `mutations/F-ghost-playback-012-01-phaseB.patch`) leaves BOTH the deleted cell and the
+    twin green - 148 passed / 1 failed, the one red being the #1724 cycle cell. The #1724
+    mutant (`mutations/C-ghost-playback-012-01-phaseB.patch`) gives the identical picture.
+    Neither discriminates, because neither cell's fixture reaches the absorption at all.
+  - Subsumption was proved instead with a probe mutant (`chain.SpawnUT = leaf.EndUT` ->
+    `leaf.StartUT`): the twin reds, the deleted cell stays green. Same input, strictly
+    weaker asserts, so the deleted cell could only fail where the twin already fails.
+  - Filtered suite (`GhostChainWalkerTests` plus every other class reaching
+    `MergeCrossTreeLinks` through `ComputeAllGhostChains`: `ChainEvalOnLoadTests`,
+    `ChainGhostTrajectoryTests`, `ChainSaveLoadTests`, `Bug171To174Tests`,
+    `DisassembledTerminalStateTests`, `SessionSuppressionWiringTests`): 149 passed / 0
+    failed before, 148 passed / 0 failed after - exactly the one removed cell.
 
 ## July crosswalk
 

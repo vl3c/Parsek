@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index e0d742cb5..c665b8df1 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -1823,8 +1823,9 @@ namespace Parsek
+             // the victim is found.
+             bool VisitRecordingId(string recId, string discoverySource)
+             {
+-                if (string.IsNullOrEmpty(recId) || !visitedRecs.Add(recId))
++                if (string.IsNullOrEmpty(recId))
+                     return false;
++                visitedRecs.Add(recId);
+ 
+                 parentTrace.Add(recId);
+                 if (string.Equals(recId, victimRecordingId, StringComparison.Ordinal))

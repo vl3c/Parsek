@@ -1243,6 +1243,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void StateVectorRemoval_RelativeFrameSection_SkipsRemovalThreshold()
+        {
+            // The two cells around this one pin the COMPONENTS (the frame test and the
+            // threshold) separately; this one pins the combination both state-vector
+            // removal call sites actually run, so the bypass cannot be deleted while
+            // they stay green. Same captured shape: anchor-local dz ~ -0.31 m at
+            // 2920 m/s, which the raw threshold reads as a vessel at ground level.
+            Assert.False(
+                GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                    inRelativeFrame: true,
+                    altitude: -0.31,
+                    speed: 2920.0,
+                    atmosphereDepth: 0),
+                "a Relative-frame dz must never reach the geographic threshold");
+        }
+
+        [Fact]
+        public void StateVectorRemoval_AbsoluteFrameSection_StillRemovesBelowThreshold()
+        {
+            // Mirror: the bypass is frame-scoped, not a blanket disable. Absolute-frame
+            // points with the same numbers still remove, and an Absolute point that is
+            // genuinely high and fast still does not.
+            Assert.True(
+                GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                    inRelativeFrame: false,
+                    altitude: -0.31,
+                    speed: 2920.0,
+                    atmosphereDepth: 0));
+            Assert.False(
+                GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                    inRelativeFrame: false,
+                    altitude: 80000.0,
+                    speed: 2000.0,
+                    atmosphereDepth: 70000.0));
+        }
+
+        [Fact]
         public void RelativeFrameGuard_AbsoluteFrame_StillEvaluatesThreshold()
         {
             // Discriminator: an Absolute-frame point with the same low alt

@@ -408,6 +408,38 @@ namespace Parsek
         /// <see cref="FreshLaunchUtAction.Leave"/> so the captured UT survives until the matching
         /// Revert-to-editor reads it.</para>
         /// </summary>
+        /// <summary>
+        /// Arms the post-revert spawned-vessel cleanup set, keeping an ALREADY-ARMED set
+        /// intact. A rewind arms this set and then zeroes live spawn tracking, so the
+        /// revert load that follows collects nothing: overwriting would drop the pids and
+        /// names of vessels that are still in the save and leave them uncleaned. The
+        /// collector is a delegate so the guard can be driven without a live scene; it is
+        /// only invoked when nothing is armed yet, which is also what the guard is for.
+        /// </summary>
+        internal static void ArmRevertCleanupData(
+            Func<(HashSet<uint> pids, HashSet<string> names)> collectSpawnedVesselInfo)
+        {
+            bool alreadyHasCleanupData = RecordingStore.PendingCleanupPids != null
+                                          || RecordingStore.PendingCleanupNames != null;
+            if (alreadyHasCleanupData)
+            {
+                ParsekLog.Info("Scenario",
+                    $"OnLoad: revert path skipping cleanup collection — " +
+                    $"already set ({RecordingStore.PendingCleanupPids?.Count ?? 0} pid(s), " +
+                    $"{RecordingStore.PendingCleanupNames?.Count ?? 0} name(s)) from prior rewind/revert");
+                return;
+            }
+
+            var info = collectSpawnedVesselInfo();
+            var spawnedPids = info.pids != null && info.pids.Count > 0 ? info.pids : null;
+            var spawnedNames = info.names != null && info.names.Count > 0 ? info.names : null;
+            RecordingStore.PendingCleanupPids = spawnedPids;
+            RecordingStore.PendingCleanupNames = spawnedNames;
+            ParsekLog.Verbose("Scenario",
+                $"OnLoad: revert cleanup collected — " +
+                $"{spawnedPids?.Count ?? 0} pid(s), {spawnedNames?.Count ?? 0} name(s)");
+        }
+
         internal static FreshLaunchUtAction DecideFreshLaunchUtAction(
             GameScenes loadedScene, bool isRevert, bool isVesselSwitch, bool isFreshLaunchStartup)
         {
@@ -860,6 +892,48 @@ namespace Parsek
             }
 
             return "none";
+        }
+
+        /// <summary>
+        /// What OnLoad's revert branch does with the pending tree. Extracted so the decision is
+        /// testable without a Unity lifecycle; the call site is a straight dispatch over the result
+        /// and keeps the same log lines and the same PendingStashedThisTransition clear.
+        /// </summary>
+        internal enum RevertPendingTreeDisposition
+        {
+            /// <summary>Stashed during THIS scene transition: fresh, so it must survive the revert
+            /// branch long enough for the current OnLoad to classify it.</summary>
+            KeepFreshlyStashed,
+
+            /// <summary>Nothing pending; the branch does nothing.</summary>
+            NothingPending,
+
+            /// <summary>A Limbo / LimboVesselSwitch tree: stashed for OnLoad dispatch, never
+            /// orphaned (#290), even though the flag has already been reset by
+            /// DiscardPendingOnQuickload.</summary>
+            KeepLimbo,
+
+            /// <summary>Stale from a previous flight: discard it so the OnFlightReady fallback does
+            /// not show the merge dialog again (#64).</summary>
+            DiscardOrphaned,
+        }
+
+        /// <summary>
+        /// PURE revert-branch decision for the pending tree (OnLoad, revert path). The freshly
+        /// stashed case wins over everything, then an absent pending tree, then Limbo state, and a
+        /// pending tree in any other state is the orphan.
+        /// </summary>
+        internal static RevertPendingTreeDisposition ClassifyRevertPendingTreeDisposition(
+            bool stashedThisTransition, bool hasPendingTree, PendingTreeState pendingTreeState)
+        {
+            if (stashedThisTransition)
+                return RevertPendingTreeDisposition.KeepFreshlyStashed;
+            if (!hasPendingTree)
+                return RevertPendingTreeDisposition.NothingPending;
+            if (pendingTreeState == PendingTreeState.Limbo
+                || pendingTreeState == PendingTreeState.LimboVesselSwitch)
+                return RevertPendingTreeDisposition.KeepLimbo;
+            return RevertPendingTreeDisposition.DiscardOrphaned;
         }
 
         /// <summary>
@@ -3613,26 +3687,7 @@ namespace Parsek
                     if (isRevert)
                     {
                         loadPhase = "revert-cleanup";
-                        bool alreadyHasCleanupData = RecordingStore.PendingCleanupPids != null
-                                                      || RecordingStore.PendingCleanupNames != null;
-                        if (alreadyHasCleanupData)
-                        {
-                            ParsekLog.Info("Scenario",
-                                $"OnLoad: revert path skipping cleanup collection — " +
-                                $"already set ({RecordingStore.PendingCleanupPids?.Count ?? 0} pid(s), " +
-                                $"{RecordingStore.PendingCleanupNames?.Count ?? 0} name(s)) from prior rewind/revert");
-                        }
-                        else
-                        {
-                            var info = RecordingStore.CollectSpawnedVesselInfo();
-                            var spawnedPids = info.pids.Count > 0 ? info.pids : null;
-                            var spawnedNames = info.names.Count > 0 ? info.names : null;
-                            RecordingStore.PendingCleanupPids = spawnedPids;
-                            RecordingStore.PendingCleanupNames = spawnedNames;
-                            ParsekLog.Verbose("Scenario",
-                                $"OnLoad: revert cleanup collected — " +
-                                $"{spawnedPids?.Count ?? 0} pid(s), {spawnedNames?.Count ?? 0} name(s)");
-                        }
+                        ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo);
 
                         // Clear pending tree/recording from a PREVIOUS flight — dialog was shown
                         // but user reverted before acting on it. Prevents OnFlightReady fallback
@@ -3642,40 +3697,29 @@ namespace Parsek
                         // survive long enough for the current OnLoad to classify it correctly.
                         // On true revert the later soft-unstash branch below clears it again;
                         // on quickload/non-revert paths other dispatch owns it.
-                        if (RecordingStore.PendingStashedThisTransition)
+                        var revertDisposition = ClassifyRevertPendingTreeDisposition(
+                            RecordingStore.PendingStashedThisTransition,
+                            RecordingStore.HasPendingTree,
+                            RecordingStore.PendingTreeStateValue);
+                        if (revertDisposition == RevertPendingTreeDisposition.KeepFreshlyStashed)
                         {
                             ParsekLog.Info("Scenario",
                                 "Revert: keeping freshly-stashed pending (stashed this transition) — " +
                                 $"tree={RecordingStore.HasPendingTree}");
                             RecordingStore.PendingStashedThisTransition = false;
                         }
-                        else
+                        else if (revertDisposition == RevertPendingTreeDisposition.KeepLimbo)
                         {
-                            if (RecordingStore.HasPendingTree)
-                            {
-                                // Limbo trees are stashed for OnLoad dispatch (merge dialog
-                                // accept → StashActiveTreeAsPendingLimbo). The quickload
-                                // discard path (DiscardPendingOnQuickload) correctly preserves
-                                // them but resets PendingStashedThisTransition, so the flag
-                                // is false by the time we get here. Check the state instead
-                                // of relying solely on the flag — Limbo trees are never
-                                // orphaned (#290).
-                                var treeState = RecordingStore.PendingTreeStateValue;
-                                if (treeState == PendingTreeState.Limbo
-                                    || treeState == PendingTreeState.LimboVesselSwitch)
-                                {
-                                    ParsekLog.Info("Scenario",
-                                        $"Revert: keeping pending Limbo tree " +
-                                        $"'{RecordingStore.PendingTree?.TreeName}' " +
-                                        $"(state={treeState}) — stashed for dispatch");
-                                }
-                                else
-                                {
-                                    ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert (stale from previous flight)");
-                                    DiscardPendingTreeAndAbandonDeferredFlightResults(
-                                        "orphaned pending tree discarded on revert");
-                                }
-                            }
+                            ParsekLog.Info("Scenario",
+                                $"Revert: keeping pending Limbo tree " +
+                                $"'{RecordingStore.PendingTree?.TreeName}' " +
+                                $"(state={RecordingStore.PendingTreeStateValue}) — stashed for dispatch");
+                        }
+                        else if (revertDisposition == RevertPendingTreeDisposition.DiscardOrphaned)
+                        {
+                            ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert (stale from previous flight)");
+                            DiscardPendingTreeAndAbandonDeferredFlightResults(
+                                "orphaned pending tree discarded on revert");
                         }
                     }
 

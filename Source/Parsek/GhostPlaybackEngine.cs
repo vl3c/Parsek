@@ -6450,7 +6450,10 @@ namespace Parsek
             CountFxForObservability(state, ref result);
         }
 
-        private static void CountFxForObservability(
+        // internal (was private) so the FX counting arithmetic is reachable headlessly:
+        // the two callers above gate on HasLoadedGhostVisuals, which needs a Unity
+        // GameObject and can never be satisfied in xUnit. Behaviour unchanged.
+        internal static void CountFxForObservability(
             GhostPlaybackState state, ref GhostObservability result)
         {
             int engineModulesForGhost = CountModulesAndParticleSystems(
@@ -6472,7 +6475,7 @@ namespace Parsek
             }
         }
 
-        private static int CountModulesAndParticleSystems<TGhostInfo>(
+        internal static int CountModulesAndParticleSystems<TGhostInfo>(
             Dictionary<ulong, TGhostInfo> infos, out int particleSystemCount)
             where TGhostInfo : class
         {

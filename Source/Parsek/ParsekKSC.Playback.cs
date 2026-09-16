@@ -567,7 +567,7 @@ namespace Parsek
         /// Reimplemented from ParsekFlight.TryComputeLoopPlaybackUT (instance version)
         /// because the static 6-param overload doesn't return pause-window state.
         /// </summary>
-        private static bool TryGetLoopSchedule(
+        internal static bool TryGetLoopSchedule(
             Recording rec,
             int recIdx,
             IReadOnlyDictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule> autoLoopScheduleCache,
@@ -625,7 +625,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryGetLoopSchedule(
+        internal static bool TryGetLoopSchedule(
             Recording rec,
             int recIdx,
             out double playbackStartUT,

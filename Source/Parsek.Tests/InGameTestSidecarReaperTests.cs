@@ -324,22 +324,45 @@ namespace Parsek.Tests
         [Fact]
         public void SuffixListMatches_RecordingPipeline()
         {
-            // Belt-and-braces: confirm the reaper's suffix coverage matches
-            // what RecordingPaths exposes builders for (plus the legacy .pcrf).
-            // If a new sidecar suffix is added to RecordingPaths, this test starts
-            // failing - forcing the reaper's list to be updated.
+            // Confirm the reaper's suffix coverage matches what RecordingPaths exposes
+            // PER-RECORDING builders for (plus the legacy .pcrf, which has no builder left).
+            //
+            // The builder set is DISCOVERED by reflection - every static string-returning method on
+            // RecordingPaths whose single parameter is a recordingId - so adding a builder actually
+            // reds this cell, which is what the old comment promised while the list beside it was a
+            // hand-written literal a new builder was invisible to. Builders keyed by something else
+            // (a rewind point id, a save file name) and the no-argument save-level paths are not
+            // per-recording sidecars and are excluded by that signature.
             const string id = "test_id";
 
-            string[] expectedFromPaths =
+            var builders = new List<System.Reflection.MethodInfo>();
+            foreach (System.Reflection.MethodInfo m in typeof(RecordingPaths).GetMethods(
+                         System.Reflection.BindingFlags.Static
+                         | System.Reflection.BindingFlags.Public
+                         | System.Reflection.BindingFlags.NonPublic))
             {
-                Path.GetFileName(RecordingPaths.BuildTrajectoryRelativePath(id)),
-                Path.GetFileName(RecordingPaths.BuildAnnotationsRelativePath(id)),
-                Path.GetFileName(RecordingPaths.BuildVesselSnapshotRelativePath(id)),
-                Path.GetFileName(RecordingPaths.BuildGhostSnapshotRelativePath(id)),
-                Path.GetFileName(RecordingPaths.BuildReadableTrajectoryMirrorRelativePath(id)),
-                Path.GetFileName(RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(id)),
-                Path.GetFileName(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(id)),
-            };
+                if (m.ReturnType != typeof(string))
+                    continue;
+                System.Reflection.ParameterInfo[] ps = m.GetParameters();
+                if (ps.Length != 1 || ps[0].ParameterType != typeof(string)
+                    || ps[0].Name != "recordingId")
+                    continue;
+                builders.Add(m);
+            }
+
+            var expectedList = new List<string>();
+            foreach (System.Reflection.MethodInfo m in builders)
+                expectedList.Add(Path.GetFileName((string)m.Invoke(null, new object[] { id })));
+            string[] expectedFromPaths = expectedList.ToArray();
+
+            // The reaper's own list carries the seven builder suffixes plus the legacy .pcrf.
+            Assert.Equal(7, expectedFromPaths.Length);
+            Assert.Equal(expectedFromPaths.Length + 1, AllSuffixes.Length);
+            foreach (string fileName in expectedFromPaths)
+            {
+                string suffix = fileName.Substring(id.Length);
+                Assert.Contains(suffix, AllSuffixes);
+            }
 
             // Write each pipeline-known sidecar; the reaper must delete them all.
             for (int i = 0; i < expectedFromPaths.Length; i++)

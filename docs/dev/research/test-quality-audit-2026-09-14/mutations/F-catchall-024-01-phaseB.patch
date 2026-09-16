@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs b/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+index d116e3973..0c66e975f 100644
+--- a/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
++++ b/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+@@ -6192,8 +6192,9 @@ namespace Parsek.Display
+                 // and left in the next, where each fragment alone spans < one period) reads as ONE
+                 // segment for the full-loop stop test. Single member -> its own coalesced list,
+                 // byte-identical to the pre-chain behaviour.
++                // MUTANT: the single-member window source is the RECORDED segment list.
+                 List<OrbitSegment> windowSegs = chainRunMemberScratch.Count <= 1
+-                    ? (chainRunMemberSegsScratch.Count > 0 ? chainRunMemberSegsScratch[0] : null)
++                    ? (chainRunMemberScratch.Count > 0 ? chainRunMemberScratch[0].rec.OrbitSegments : null)
+                     : TrajectoryMath.CoalesceSameOrbitFragments(chainRunConcatScratch);
+ 
+                 ForwardRenderWindow.ForwardWindow window =

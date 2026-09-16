@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..8c422910e 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -17818,7 +17818,7 @@ namespace Parsek
+ 
+             var visited = new HashSet<string>();
+             var current = startRec;
+-            while (current != null && !visited.Contains(current.RecordingId))
++            while (current != null)
+             {
+                 visited.Add(current.RecordingId);
+ 
