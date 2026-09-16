@@ -1270,8 +1270,12 @@ namespace Parsek.Tests
                 unit.ReaimPlan.Value.RecordedDepartureUT, 3);
             Assert.Equal(solo.ReaimPlan.Value.RecordedTransferTofSeconds,
                 unit.ReaimPlan.Value.RecordedTransferTofSeconds, 3);
-            // And the published transfer-member identity points at the transfer recording.
-            Assert.Equal(committed.IndexOf(committed[0]), unit.TransferMemberIndex);
+            // And the published transfer-member identity points at the TRANSFER recording, which is
+            // committed index 0: BuildFlownDunaDirectMission seeds the list with the flown
+            // Duna-direct recording alone and the parked station was appended after it (index 1).
+            // A flattened or last-supported-wins classification would publish 1, or the
+            // classifier-decline sentinel -1.
+            Assert.Equal(0, unit.TransferMemberIndex);
         }
 
         [Fact]

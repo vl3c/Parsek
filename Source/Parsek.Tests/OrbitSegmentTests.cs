@@ -1137,35 +1137,75 @@ namespace Parsek.Tests
             // not boundary * AngleAxis). Scanned over comment-stripped, literal-masked source
             // inside the brace-matched body of ComputeOrbitalRotation, so a commented-out or
             // relocated copy cannot satisfy it.
+            //
+            // SCOPE: this is a SOURCE gate, not a behavioural one. It proves the composition is
+            // SPELLED this way at the one site that runs it; an equivalent rewrite (Rad2Deg
+            // replaced by 180.0 / Math.PI, say) would red it even though nothing moved. A
+            // behavioural cell is impossible headless: ComputeOrbitalRotation needs a live Orbit.
+            //
+            // ParsekFlight.cs is stored with LF (git ls-files --eol says i/lf) and checked out
+            // with CRLF on a core.autocrlf=true Windows worktree, so every needle here is
+            // newline-free and the extraction normalizes line endings first. Both renderings are
+            // driven below, so an EOL-sensitive needle cannot pass locally and red on CI.
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekFlightSource());
-            int sigIdx = prepared.IndexOf(
-                "ComputeOrbitalRotation(\r\n            OrbitSegment segment", StringComparison.Ordinal);
-            if (sigIdx < 0)
-                sigIdx = prepared.IndexOf("ComputeOrbitalRotation(", StringComparison.Ordinal);
-            Assert.True(sigIdx >= 0, "ComputeOrbitalRotation not found in ParsekFlight.cs");
+            string lf = prepared.Replace("\r\n", "\n");
+            string crlf = lf.Replace("\n", "\r\n");
 
-            int bodyStart = prepared.IndexOf('{', sigIdx);
+            foreach (string rendering in new[] { lf, crlf })
+            {
+                string body = ExtractComputeOrbitalRotationBody(rendering);
+
+                Assert.Contains("Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;", body);
+                Assert.Contains(
+                    "(float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg)", body);
+                Assert.Contains("Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot", body);
+                // The non-spinning arm is the orbital-frame decode, not a second spin.
+                Assert.Contains("ghostRot = orbFrame * segment.orbitalFrameRotation;", body);
+            }
+        }
+
+        /// <summary>
+        /// The brace-matched body of <c>ParsekFlight.ComputeOrbitalRotation</c>, taken from
+        /// comment-stripped, literal-masked source. Anchors on the DECLARATION (return type
+        /// included), which occurs exactly once, so a CALL site can never be picked up; the
+        /// opening brace is then confirmed to be a method body via
+        /// <see cref="SourceScanText.EnclosingMethodBodyStart"/> (namespace -> type -> method)
+        /// rather than the block of some statement. Line endings are normalized first and the
+        /// anchor carries no newline, so the result is identical under LF and CRLF checkouts.
+        /// </summary>
+        private static string ExtractComputeOrbitalRotationBody(string preparedSource)
+        {
+            const string Decl =
+                "internal static (Quaternion ghostRot, Quaternion boundaryWorldRot) ComputeOrbitalRotation(";
+
+            string text = preparedSource.Replace("\r\n", "\n");
+            int declIdx = text.IndexOf(Decl, StringComparison.Ordinal);
+            Assert.True(declIdx >= 0,
+                "ComputeOrbitalRotation's declaration was not found in ParsekFlight.cs. If its "
+                + "signature changed, update this gate deliberately rather than loosening the "
+                + "anchor to a bare method name, which also matches every call site.");
+            Assert.Equal(declIdx, text.LastIndexOf(Decl, StringComparison.Ordinal));
+
+            int bodyStart = text.IndexOf('{', declIdx + Decl.Length);
             Assert.True(bodyStart >= 0, "ComputeOrbitalRotation has no body.");
+            // The brace must open a METHOD body (namespace -> type -> method). A call site's
+            // enclosing block resolves to a different opening brace, so this is what rules out
+            // having matched an invocation.
+            Assert.Equal(bodyStart, SourceScanText.EnclosingMethodBodyStart(text, bodyStart + 1));
+
             int depth = 0;
             int bodyEnd = -1;
-            for (int i = bodyStart; i < prepared.Length; i++)
+            for (int i = bodyStart; i < text.Length; i++)
             {
-                if (prepared[i] == '{') depth++;
-                else if (prepared[i] == '}')
+                if (text[i] == '{') depth++;
+                else if (text[i] == '}')
                 {
                     depth--;
                     if (depth == 0) { bodyEnd = i; break; }
                 }
             }
             Assert.True(bodyEnd > bodyStart, "ComputeOrbitalRotation body is not brace-balanced.");
-            string body = prepared.Substring(bodyStart, bodyEnd - bodyStart);
-
-            Assert.Contains("Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;", body);
-            Assert.Contains(
-                "(float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg)", body);
-            Assert.Contains("Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot", body);
-            // The non-spinning arm is the orbital-frame decode, not a second spin.
-            Assert.Contains("ghostRot = orbFrame * segment.orbitalFrameRotation;", body);
+            return text.Substring(bodyStart, bodyEnd - bodyStart);
         }
 
         private static string ReadParsekFlightSource()

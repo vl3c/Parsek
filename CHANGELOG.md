@@ -328,7 +328,9 @@ _(unreleased — entries accumulate here per commit)_
   expectation by calling the helper's own delegate, so a change inside the shift moved both
   sides together. The spin-forward cells drove copies of a formula that lives in
   ParsekFlight, which needs a live Orbit; they are renamed to the pure helpers they do
-  drive and the real composition gains a source gate, and the zero-angular-velocity cell -
+  drive and the real composition gains a source gate (a source gate, not a behavioural
+  proof: it pins how the composition is spelled, because the site needs a live Orbit), and
+  the zero-angular-velocity cell -
   two assertions verbatim-duplicated from the IsSpinning and HasOrbitalFrameRotation cells,
   which red under the same mutants - is deleted. The re-aim interloper cell ran no builder
   code, so the per-member cure it claimed was unwitnessed and its second half pinned the

@@ -1710,7 +1710,14 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     literal-masked) pinning the axis, the `|omega| * dt` angle in DEGREES, the
     `AngleAxis * boundary` order and the non-spinning arm's orbital-frame decode. The cells
     above can only drive COPIES of that arithmetic: the site needs a live `Orbit` for
-    `getOrbitalVelocityAtUT` / `getPositionAtUT`.
+    `getOrbitalVelocityAtUT` / `getPositionAtUT`. It is a SOURCE gate, not a behavioural
+    proof - it pins how the composition is SPELLED, so an equivalent rewrite (`Mathf.Rad2Deg`
+    replaced by `180.0 / Math.PI`) would red it although nothing moved; the mutations.csv row
+    says so too. It normalizes line endings, anchors on the DECLARATION (which occurs once,
+    so no call site can match) and confirms the brace it found opens a method body, then runs
+    its assertions against both an LF and a CRLF rendering: `ParsekFlight.cs` is stored with
+    LF and checked out CRLF on a `core.autocrlf=true` worktree, and the first version of this
+    gate carried a CRLF needle that passed locally and would have red on CI.
   - Reached through the real builder: F-trajectory-orbit-014-01 gains
     `MissionLoopUnitBuilderTests.ReaimClassification_IsPerMember_AParkedStationDoesNotCollapseTheTransfer`,
     which adds a station parked in Kerbin orbit for the whole heliocentric coast to the
