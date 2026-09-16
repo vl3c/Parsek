@@ -331,6 +331,48 @@ namespace Parsek.Tests
             Assert.Equal("last", r2.NextRecordingId);
         }
 
+        // ── Overlap-loop watch cadence (#443) ──
+
+        [Fact]
+        public void ResolveWatchPlaybackUT_CadenceAdjustedLoop_UsesEffectiveCadence()
+        {
+            // A 2000 s recording looped every 40 s exceeds the 20-cycle cap, so the
+            // engine launches cycles every 2000/20 = 100 s and numbers loopCycleIndex
+            // with THAT cadence. Watch mode must rebuild the cycle start the same way:
+            // cycle 3 starts at 1000 + 3*100 = 1300, so at UT 1400 the watched ghost is
+            // 100 s into its trajectory and the camera belongs at 1100. Rebuilding from
+            // the stored 40 s period puts cycle 3 at 1120 and the camera 180 s further
+            // along, at 1280 - the wrong-loop-phase defect.
+            double ut = WatchModeController.ComputeWatchOverlapPlaybackUT(
+                currentUT: 1400.0,
+                scheduleStartUT: 1000.0,
+                playbackStartUT: 1000.0,
+                duration: 2000.0,
+                userPeriodSeconds: 40.0,
+                loopCycleIndex: 3,
+                maxOverlapGhosts: 20);
+
+            Assert.Equal(1100.0, ut, 6);
+        }
+
+        [Fact]
+        public void ResolveWatchPlaybackUT_PeriodAboveTheCapFloor_UsesTheStoredPeriod()
+        {
+            // Mirror: a 250 s period over the same 2000 s recording already fits the cap
+            // (2000/250 = 8 live cycles), so nothing is raised and the stored period is
+            // the cadence. Cycle 3 starts at 1000 + 3*250 = 1750 and UT 1900 is 150 s in.
+            double ut = WatchModeController.ComputeWatchOverlapPlaybackUT(
+                currentUT: 1900.0,
+                scheduleStartUT: 1000.0,
+                playbackStartUT: 1000.0,
+                duration: 2000.0,
+                userPeriodSeconds: 250.0,
+                loopCycleIndex: 3,
+                maxOverlapGhosts: 20);
+
+            Assert.Equal(1150.0, ut, 6);
+        }
+
         // ── Lock mask sanity ──
 
         [Fact]

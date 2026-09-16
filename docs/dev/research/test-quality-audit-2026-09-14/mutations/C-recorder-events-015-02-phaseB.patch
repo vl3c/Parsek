@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/WatchModeController.cs b/Source/Parsek/WatchModeController.cs
+index be392683b..d847085c5 100644
+--- a/Source/Parsek/WatchModeController.cs
++++ b/Source/Parsek/WatchModeController.cs
+@@ -3592,7 +3592,7 @@ namespace Parsek
+                 scheduleStartUT,
+                 playbackStartUT,
+                 duration,
+-                effectiveCadence, loopCycleIndex);
++                userPeriodSeconds, loopCycleIndex);
+         }
+ 
+         private bool TryEnsurePrimaryWatchGhostLoaded(

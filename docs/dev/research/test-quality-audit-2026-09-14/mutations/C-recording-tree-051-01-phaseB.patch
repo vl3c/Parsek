@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 3057033f3..282a6d046 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -7895,7 +7895,7 @@ namespace Parsek
+             }
+ 
+             var chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
+-            if (chain != null && chain.IsTerminated && chain.TipRecordingId == rec.RecordingId)
++            if (chain != null && chain.IsTerminated)
+             {
+                 ParsekLog.VerboseRateLimited("ChainWalker",
+                     "terminated-spawn-" + rec.VesselPersistentId,

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/SegmentBoundaryLogic.cs b/Source/Parsek/SegmentBoundaryLogic.cs
+index 33b4b4932..1becb0236 100644
+--- a/Source/Parsek/SegmentBoundaryLogic.cs
++++ b/Source/Parsek/SegmentBoundaryLogic.cs
+@@ -443,7 +443,7 @@ namespace Parsek
+         /// split has at least 2 controllable outputs. A multi-controllable split
+         /// is the trigger for writing a <see cref="RewindPoint"/>.
+         /// </summary>
+-        internal static bool IsMultiControllableSplit(int controllableCount) => controllableCount >= 2;
++        internal static bool IsMultiControllableSplit(int controllableCount) => controllableCount >= 3;
+     }
+ 
+     /// <summary>

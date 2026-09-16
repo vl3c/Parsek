@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/ChainSegmentManager.cs b/Source/Parsek/ChainSegmentManager.cs
+index 32f814e0b..a51f443c6 100644
+--- a/Source/Parsek/ChainSegmentManager.cs
++++ b/Source/Parsek/ChainSegmentManager.cs
+@@ -440,11 +440,6 @@ namespace Parsek
+             };
+ 
+             rec.Points.Add(point);
+-            // Mark dirty so the next OnSave rewrites the .prec sidecar with
+-            // the extended trajectory. Continuation sampling extends a
+-            // committed recording's Points after commit, so without this the
+-            // .prec file stays frozen at the pre-continuation state on reload.
+-            rec.MarkFilesDirty();
+             lastUT = ut;
+             lastVel = velocity;
+         }
