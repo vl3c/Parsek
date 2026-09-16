@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Tests: two Low T1 cells from the unit-test quality audit now observe production decisions.**
+  Baseline keys compare separate findings with numeric drift and distinguish different rules,
+  rather than comparing a function call with itself. Rewind cleanup tests null and empty RP
+  identifiers independently against matching orphans, so removing the early return fails both
+  cases. No production behavior changed.
+
 - **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
   are closed, and the priority-2 register with them.** Eight rows were new coverage, five
   were guarded already by cells that landed after the audit snapshot, and one is deferred

@@ -82,11 +82,6 @@ namespace Parsek.Tests.Analyzer
             Assert.NotEqual(k, new BaselineKey("INV2", "rec", 3, "e"));
         }
 
-        // Guards: two SEPARATE finding instances carrying the same RuleId / Target /
-        // SectionIndex and numerically drifted messages produce identical keys, and a
-        // different RuleId still keys differently. Fails if the digest mask is
-        // dropped (value churn re-baselines the known five every run) or if the key
-        // stops distinguishing rules.
         [Fact]
         public void Key_SeparateInstancesSameShape_EqualKeys_RuleStillDistinguishes()
         {
