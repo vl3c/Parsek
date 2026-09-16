@@ -219,6 +219,12 @@ namespace Parsek.Tests
             Assert.Equal(0.0, window.StartTransportResources["Ore"].amount);
             Assert.Null(window.EndTransportResources);
             Assert.Equal("Minmus", window.BodyName);
+            // The name says LOCATION, so the three coordinates are pinned too: they feed
+            // the M2 Phase 5 harvest-origin endpoint, and swapping the latitude and
+            // longitude assignments left every other assertion here green.
+            Assert.Equal(-0.55, window.Latitude);
+            Assert.Equal(78.25, window.Longitude);
+            Assert.Equal(2412.5, window.Altitude);
             Assert.Equal((int)Vessel.Situations.LANDED, window.SituationAtOpen);
             Assert.Single(window.ActiveConverters);
             Assert.StartsWith("harvest-", window.WindowId);

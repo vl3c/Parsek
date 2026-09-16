@@ -331,9 +331,32 @@ namespace Parsek.Tests.Logistics
             var route = BuildLoopRoute();
             RouteStore.AddRoute(route);
             InstallUnitResolver(BuildUnit());
+
+            // The stock fake applier itself clears PendingDeliveryUT and transitions back to
+            // Active, so reading those fields AFTER the tick cannot see a production path that
+            // entered InTransit or armed a pending delivery BEFORE the applier ran. Capture
+            // them inside the applier, ahead of its own bookkeeping, and keep the post-tick
+            // reads as the second half.
+            RouteStatus statusAtDelivery = default(RouteStatus);
+            double? pendingAtDelivery = null;
+            double? cycleStartAtDelivery = null;
             InstallFakeDeliveryApplier();
+            var fake = RouteOrchestrator.DeliveryApplierForTesting;
+            RouteOrchestrator.DeliveryApplierForTesting = (r, currentUT, env) =>
+            {
+                statusAtDelivery = r.Status;
+                pendingAtDelivery = r.PendingDeliveryUT;
+                cycleStartAtDelivery = r.CurrentCycleStartUT;
+                fake(r, currentUT, env);
+            };
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            // What production had done by the moment the delivery ran: no InTransit hand-off
+            // state of any kind.
+            Assert.Equal(RouteStatus.Active, statusAtDelivery);
+            Assert.Null(pendingAtDelivery);
+            Assert.Null(cycleStartAtDelivery);
 
             // Status stays Active (ghost-driving); no InTransit hand-off state.
             Assert.Equal(RouteStatus.Active, route.Status);

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Logistics/RouteCreationFormatters.cs b/Source/Parsek/Logistics/RouteCreationFormatters.cs
+index 4af30d16b..d903d5cda 100644
+--- a/Source/Parsek/Logistics/RouteCreationFormatters.cs
++++ b/Source/Parsek/Logistics/RouteCreationFormatters.cs
+@@ -277,8 +277,6 @@ namespace Parsek.Logistics
+                     return "No delivery payload detected - check that cargo actually moved from transport to destination.";
+                 case RouteAnalysisStatus.MixedPickupDelivery:
+                     return "Unwitnessed inventory gain detected - the transport gained a stored part that the destination did not give it. Stored cargo is counted by kind (part, variant and how full it is), so only a kind the destination visibly gave up can be picked up. Re-record so the picked-up part comes from the destination.";
+-                case RouteAnalysisStatus.MissingEndpointProof:
+-                    return "Endpoint vessel could not be identified at dock time.";
+                 case RouteAnalysisStatus.UndockedStartOrigin:
+                     return "This run starts undocked with cargo already aboard, so the cargo's source was never witnessed. Start the supply run docked to the origin depot, record the mining that produced the cargo, or launch it from KSC.";
+                 case RouteAnalysisStatus.UntrackedCargoGain:

@@ -601,17 +601,25 @@ namespace Parsek.Tests
         [Fact]
         public void BackwardCompat_MissingKey_ReturnsNull_RecordingTree()
         {
-            // Simulate old save with no loopAnchorBodyName key
-            var recNode = new ConfigNode("RECORDING");
-            recNode.AddValue("recordingId", "old-rec");
-            recNode.AddValue("loopPlayback", "True");
-            recNode.AddValue("loopAnchorPid", "42");
-            // No loopAnchorBodyName key
+            // The _RecordingTree half must decode through RecordingTree.Load ->
+            // RecordingTreeRecordCodec, not through the ParsekScenario test helper its
+            // twin below already drives. A missing key alone cannot discriminate (the
+            // field defaults to null either way), so the tree node also carries a
+            // recording WITH the key: the codec's assignment is then the deciding term.
+            var missing = new Recording { RecordingId = "old-rec", LoopPlayback = true, LoopAnchorVesselId = 42 };
+            var present = new Recording { RecordingId = "new-rec", LoopPlayback = true, LoopAnchorBodyName = "Duna" };
 
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(recNode, loaded);
+            var tree = new RecordingTree { Id = "compat-test", TreeName = "Compat" };
+            tree.Recordings[missing.RecordingId] = missing;
+            tree.Recordings[present.RecordingId] = present;
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            tree.Save(treeNode);
 
-            Assert.Null(loaded.LoopAnchorBodyName);
+            var loadedTree = RecordingTree.Load(treeNode);
+
+            Assert.Equal(2, loadedTree.Recordings.Count);
+            Assert.Null(loadedTree.Recordings["old-rec"].LoopAnchorBodyName);
+            Assert.Equal("Duna", loadedTree.Recordings["new-rec"].LoopAnchorBodyName);
         }
 
         [Fact]

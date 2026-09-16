@@ -184,10 +184,18 @@ namespace Parsek.Tests
             Assert.True(needsSpawn, "Vessel segment should be spawn-eligible after boarding continuation stops");
         }
 
+        // NAME SCOPE (audit F-recording-tree-050-08): this cell never runs the
+        // boarding path - CommitChainSegment needs a live FlightRecorder - so
+        // the asserted [Chain] line is the ChainSegmentManager CONSTRUCTOR log,
+        // not a boarding-preservation message. What it owns is: building a
+        // manager with continuation fields set neither clears the committed
+        // snapshot nor skips the ctor log. The boarding write itself is pinned
+        // by EvaBoardingContinuationStop_PreservesVesselSnapshot above; the
+        // preservation wording at ChainSegmentManager.cs:846 is in-game
+        // territory and stays untested here.
         [Fact]
-        public void EvaBoardingContinuationStop_LogsPreservation()
+        public void ChainSegmentManagerWithContinuationFields_LogsCreation_AndLeavesCommittedSnapshot()
         {
-            // Verify that the boarding path logs snapshot preservation
             var rec = MakeCommittedRecording();
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             int recIdx = RecordingStore.CommittedRecordings.Count - 1;
@@ -207,9 +215,13 @@ namespace Parsek.Tests
             // The key invariant: after any chain operation, committed snapshot is preserved
             Assert.NotNull(RecordingStore.CommittedRecordings[recIdx].VesselSnapshot);
 
-            // Verify log message from chain manager setup
+            // The asserted line is the CONSTRUCTOR log, and the fields the
+            // ctor was handed are pinned alongside it so the cell cannot pass
+            // on a manager that dropped them.
             Assert.Contains(logLines, l =>
                 l.Contains("[Chain]") && l.Contains("ChainSegmentManager created"));
+            Assert.Equal(recIdx, mgr.ContinuationRecordingIdx);
+            Assert.Equal(rec.VesselPersistentId, mgr.ContinuationVesselPid);
         }
 
         // ────────────────────────────────────────────────────────────

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+index f397ac6c9..568ae82dd 100644
+--- a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
++++ b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+@@ -98,7 +98,7 @@ namespace Parsek
+ 
+         internal static bool ShouldSuppressVisualFx(float currentWarpRate)
+         {
+-            return currentWarpRate > WarpThresholds.FxSuppress;
++            return currentWarpRate < WarpThresholds.FxSuppress;
+         }
+ 
+         internal static bool ShouldSuppressGhosts(float currentWarpRate)

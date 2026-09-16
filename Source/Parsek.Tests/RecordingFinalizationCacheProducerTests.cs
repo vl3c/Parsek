@@ -79,12 +79,48 @@ namespace Parsek.Tests
         [Fact]
         public void HasMeaningfulThrust_UsesActiveEngineAndRcsThrottle()
         {
+            // RCS-only arm: the engine arm is false here (throttle 0.0 is below
+            // the meaningful-throttle threshold), so the RCS call decides.
             var engineKeys = new HashSet<ulong> { 1ul };
             var engineThrottle = new Dictionary<ulong, float> { [1ul] = 0.0f };
             var rcsKeys = new HashSet<ulong> { 2ul };
             var rcsThrottle = new Dictionary<ulong, float> { [2ul] = 0.25f };
 
             Assert.True(RecordingFinalizationCacheProducer.HasMeaningfulThrust(
+                engineKeys,
+                engineThrottle,
+                rcsKeys,
+                rcsThrottle));
+        }
+
+        [Fact]
+        public void HasMeaningfulThrust_EngineOnlyThrottle_IsTrue()
+        {
+            // Mirror of the RCS-only cell: with both RCS sets empty the ENGINE
+            // arm is the deciding term, so dropping the engine call at
+            // RecordingFinalizationCacheProducer.cs:631 reds here.
+            var engineKeys = new HashSet<ulong> { 1ul };
+            var engineThrottle = new Dictionary<ulong, float> { [1ul] = 0.5f };
+
+            Assert.True(RecordingFinalizationCacheProducer.HasMeaningfulThrust(
+                engineKeys,
+                engineThrottle,
+                new HashSet<ulong>(),
+                new Dictionary<ulong, float>()));
+        }
+
+        [Fact]
+        public void HasMeaningfulThrust_AllThrottlesBelowThreshold_IsFalse()
+        {
+            // Negative case: an active engine key and an active RCS key that both
+            // sit at zero throttle must not read as thrust, so neither arm may be
+            // relaxed into a bare key-count check.
+            var engineKeys = new HashSet<ulong> { 1ul };
+            var engineThrottle = new Dictionary<ulong, float> { [1ul] = 0.0f };
+            var rcsKeys = new HashSet<ulong> { 2ul };
+            var rcsThrottle = new Dictionary<ulong, float> { [2ul] = 0.0f };
+
+            Assert.False(RecordingFinalizationCacheProducer.HasMeaningfulThrust(
                 engineKeys,
                 engineThrottle,
                 rcsKeys,

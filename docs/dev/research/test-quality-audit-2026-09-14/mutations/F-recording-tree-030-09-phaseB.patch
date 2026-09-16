@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..61125d0f2 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -887,6 +887,7 @@ namespace Parsek
+                 DeleteRecordingFiles(committedRecordings[i]);
+             committedRecordings.Clear();
+             committedTrees.Clear();
++            pendingTree = null; // MUTATION: also wipe the stashed pending tree
+             ClearCommittedTreeRestoreAttempt("ClearCommitted");
+             ClearRewindReplayTargetScope();
+             BumpStateVersion();

@@ -241,13 +241,56 @@ namespace Parsek.Tests
             Assert.True(result);
         }
 
+        // Renamed from ZeroTimeDelta_NoRecord: there is no zero-delta guard in
+        // ShouldRecordPoint. With identical velocities no gate could fire whatever the
+        // elapsed handling did, so the old name credited a guard to a fixture that could
+        // not witness one. The three cells below pin the behaviour that actually exists.
         [Fact]
-        public void ZeroTimeDelta_NoRecord()
+        public void ZeroTimeDelta_IdenticalVelocity_NoRecord()
         {
             var vel = new Vector3(10, 0, 0);
             var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 100, lastRecordedUT: 100,
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ZeroTimeDelta_VelocityChange_RecordsADuplicateUtSample()
+        {
+            // Documented behaviour, not an endorsement: with minInterval = 0 the floor
+            // check (0 < 0) is false and the max backstop (0 >= 3) is false, so the
+            // speed gate alone decides and a 10 -> 11 m/s change at the SAME UT records.
+            // Production has no non-positive-elapsed guard; adding one would red this.
+            // The regime is FIXTURE-ONLY: minInterval 0 is this class's legacy constant,
+            // and ParsekSettings.GetMinSampleInterval returns 0.5 / 0.2 / 0.05 for Low /
+            // Medium / High, so no shipped density can reach the zero floor. What the
+            // cell pins is the pure function's contract, not an in-game duplicate sample.
+            var last = new Vector3(10, 0, 0);
+            var current = new Vector3(11, 0, 0);
+
+            var result = TrajectoryMath.ShouldRecordPoint(
+                current, last,
+                currentUT: 100, lastRecordedUT: 100,
+                MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void NegativeTimeDelta_VelocityChange_BlockedByTheMinIntervalFloor()
+        {
+            // The mirror of the cell above: at elapsed = -1 the same velocity change is
+            // refused, and the term that refuses it is the floor (-1 < 0), not any
+            // backward-time guard - which is why the zero-elapsed case above records.
+            var last = new Vector3(10, 0, 0);
+            var current = new Vector3(11, 0, 0);
+
+            var result = TrajectoryMath.ShouldRecordPoint(
+                current, last,
+                currentUT: 99, lastRecordedUT: 100,
                 MinInterval, MaxInterval, VelDirThreshold, SpeedThreshold);
 
             Assert.False(result);

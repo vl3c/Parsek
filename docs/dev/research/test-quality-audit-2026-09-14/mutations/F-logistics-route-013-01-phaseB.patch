@@ -1,0 +1,22 @@
+diff --git a/Source/Parsek/Logistics/RouteOrchestrator.cs b/Source/Parsek/Logistics/RouteOrchestrator.cs
+index c70f9af33..53992a095 100644
+--- a/Source/Parsek/Logistics/RouteOrchestrator.cs
++++ b/Source/Parsek/Logistics/RouteOrchestrator.cs
+@@ -2705,6 +2705,17 @@ namespace Parsek.Logistics
+             }
+ 
+             Dictionary<string, double> pickupManifest = stop.PickupManifest;
++            // MUTANT: a transport-disposition gate on the source debit (19.2.5 forbids one).
++            if (!string.IsNullOrEmpty(route.DockMemberRecordingId))
++            {
++                foreach (var t in RecordingStore.CommittedTrees)
++                {
++                    if (t == null || t.Recordings == null) continue;
++                    if (t.Recordings.TryGetValue(route.DockMemberRecordingId, out Recording dockRec)
++                        && dockRec != null && dockRec.TerminalStateValue == TerminalState.Destroyed)
++                        return;
++                }
++            }
+             OriginDebitOutcome pickup = ApplyPickupDebit(stop.Endpoint, pickupManifest, env, route.Id);
+ 
+             // M4b B3 (plan D11 / OQ7): RELEASE this window's escrow portion now that the

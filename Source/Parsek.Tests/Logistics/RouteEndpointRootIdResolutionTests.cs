@@ -163,6 +163,71 @@ namespace Parsek.Tests.Logistics
             // FAILS IF: the identity is captured but never reaches Route.Origin, or is
             // dropped by the codec - either way the resolver's first step would be dead and
             // proximity would silently own every start-docked origin again.
+            //
+            // The BUILDER half of that claim is driven first: the old cell only round-tripped
+            // a hand-built endpoint through the codec, so a builder that stopped copying
+            // RouteOriginProof.StartDockedOriginRootPartUId onto Route.Origin left it green.
+            Recording originRec = new Recording
+            {
+                RecordingId = "src-docked-origin",
+                TreeId = "tree-docked-origin",
+                TreeOrder = 1,
+                StartBodyName = "Mun",
+                LaunchSiteName = null,
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "w",
+                        DockUT = 5100.0,
+                        UndockUT = 5200.0,
+                        TransferTargetVesselPid = 9001u,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransferEndpointSituation = 4,
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = 9001u,
+                            BodyName = "Mun",
+                            Latitude = 12.345,
+                            Longitude = -45.678,
+                            Altitude = 612.5,
+                            IsSurface = true,
+                        },
+                    },
+                },
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 123u,
+                    StartDockedOriginRootPartUId = 4242u,
+                    StartDockedOriginBodyName = "Mun",
+                    StartDockedOriginLatitude = 1.0,
+                    StartDockedOriginLongitude = 2.0,
+                    StartDockedOriginAltitude = 3.0,
+                    StartDockedOriginIsSurface = true,
+                    StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock,
+                    StartDockedOriginPickupValidated = true,
+                    StartDockedOriginPickupKind = OriginPickupKind.Gain,
+                },
+            }.WithUtSpan(5000.0, 5600.0);
+
+            var analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = originRec,
+                ConnectionWindow = originRec.RouteConnectionWindows[0],
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 50.0 } },
+            };
+
+            RouteBuilder.RouteBuildOutcome built = RouteBuilder.BuildRoute(
+                analysis,
+                null,
+                new RouteBuilder.RouteCreationInputs { Name = "Depot run", DispatchIntervalSeconds = 600.0 },
+                Game.Modes.SANDBOX);
+
+            Assert.NotNull(built.Route);
+            Assert.Null(built.RejectReason);
+            Assert.Equal(4242u, built.Route.Origin.RootPartUId);
+
             var endpoint = new RouteEndpoint
             {
                 RootPartUId = 4242u,

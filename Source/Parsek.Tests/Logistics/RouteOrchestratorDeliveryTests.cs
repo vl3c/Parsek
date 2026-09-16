@@ -1145,8 +1145,13 @@ namespace Parsek.Tests.Logistics
         // both consumers must accept the SAME injected isLoaded and store it
         // verbatim, so the orchestrator-side capture in ApplyDelivery is the
         // single source of truth.
+        // Renamed: the construction half below stores the gate, it does not USE it - no probe
+        // or writer method was called, so a writer that re-derived vessel.loaded per call
+        // (the very divergence the comment describes) stayed green. The behavioural half at
+        // the end now drives WriteResource on both writers and reads the path= token off the
+        // delivery Info line, so the STORED gate has to decide the branch.
         [Fact]
-        public void Delivery_ProbeAndWriter_UseSameLoadedGate()
+        public void Delivery_ProbeAndWriter_StoreInjectedLoadedGate_AndTheWriterDispatchesOnIt()
         {
             // Same emptyish plan structure for both pure-construction cases;
             // we are pinning the gate-threading shape, not exercising the
@@ -1181,6 +1186,31 @@ namespace Parsek.Tests.Logistics
             // pass the symmetric checks above but fail here).
             Assert.NotEqual(probeLoaded.isLoaded, probeUnloaded.isLoaded);
             Assert.NotEqual(writerLoaded.isLoaded, writerUnloaded.isLoaded);
+
+            // BEHAVIOURAL half: drive a write on each writer and read the branch it took off
+            // the delivery Info line. Both writes move nothing (the vessel is null and every
+            // read / write is caught), but the path= token is emitted unconditionally, so a
+            // writer re-evaluating vessel.loaded per call instead of honouring the injected
+            // gate shows up here. The probe cannot be driven the same way: every probe entry
+            // point returns before its branch when vessel == null, which is why this cell
+            // pins the probe by construction and the writer by behaviour.
+            logLines.Clear();
+            writerUnloaded.WriteResource("LiquidFuel", 10.0);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("Delivery write:")
+                && l.Contains("resource=LiquidFuel")
+                && l.Contains("path=unloaded"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Delivery write:") && l.Contains("path=loaded"));
+
+            logLines.Clear();
+            writerLoaded.WriteResource("LiquidFuel", 10.0);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("Delivery write:")
+                && l.Contains("resource=LiquidFuel")
+                && l.Contains("path=loaded"));
         }
 
         // catches: status gate regression — would emit RouteCargoDelivered on

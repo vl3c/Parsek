@@ -230,6 +230,17 @@ namespace Parsek.Tests.Logistics
             Assert.False(string.IsNullOrEmpty(outcome.Route.Id));
             // GUID "N" is 32 hex chars.
             Assert.Equal(32, outcome.Route.Id.Length);
+
+            // FRESH is the word in the name, and non-empty + 32 chars does not carry it:
+            // a DefaultIdFactory returning one constant 32-char id would satisfy every
+            // assertion above while two routes collided in the store and the codec.
+            // Building a second route from the same analysis is the only thing that
+            // discriminates.
+            RouteBuilder.RouteBuildOutcome second =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(second.Route);
+            Assert.NotEqual(outcome.Route.Id, second.Route.Id);
         }
 
         [Fact]

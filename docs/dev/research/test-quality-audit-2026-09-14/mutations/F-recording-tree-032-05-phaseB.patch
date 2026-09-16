@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/EffectiveState.cs b/Source/Parsek/EffectiveState.cs
+index 35f60c54b..d832cd395 100644
+--- a/Source/Parsek/EffectiveState.cs
++++ b/Source/Parsek/EffectiveState.cs
+@@ -1601,6 +1601,12 @@ namespace Parsek
+                 {
+                     var a = source[i];
+                     if (a == null) continue;
++                    // MUTATION: skip actions tagged with a superseded recording id
++                    if (!string.IsNullOrEmpty(a.RecordingId)
++                        && !string.Equals(a.RecordingId,
++                            EffectiveRecordingId(a.RecordingId, ParsekScenario.Instance?.RecordingSupersedes),
++                            System.StringComparison.Ordinal))
++                        continue;
+                     if (retiredIds != null && !string.IsNullOrEmpty(a.ActionId)
+                         && retiredIds.Contains(a.ActionId))
+                     {

@@ -576,6 +576,72 @@ namespace Parsek.Tests
                 l.Contains("leaf=True"));
         }
 
+        /// <summary>
+        /// Mirror of the multi-debris cell: the SAME-PID continuation is the
+        /// SECOND child of the branch point, so a scan that stopped at the first
+        /// child would wrongly call the parent an effective leaf. This is the
+        /// shape that discriminates "every child" from "first child only"; the
+        /// all-different-PID cell above cannot.
+        /// </summary>
+        [Fact]
+        public void FinalizeIndividualRecording_SamePidChildIsNotFirst_ParentIsNotEffectiveLeaf()
+        {
+            var tree = new RecordingTree { Id = "tree-4", TreeName = "Debris then continuation" };
+
+            var parent = new Recording
+            {
+                RecordingId = "ordered-parent",
+                TreeId = tree.Id,
+                VesselName = "Kerbal W",
+                VesselPersistentId = 1000,
+                ChildBranchPointId = "bp-ordered",
+            };
+            parent.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 8.0 });
+
+            var debris = new Recording
+            {
+                RecordingId = "ordered-debris",
+                TreeId = tree.Id,
+                VesselPersistentId = 2000,
+                ParentBranchPointId = "bp-ordered",
+                IsDebris = true,
+            };
+            var continuation = new Recording
+            {
+                RecordingId = "ordered-continuation",
+                TreeId = tree.Id,
+                VesselPersistentId = 1000,   // same PID as the parent
+                ParentBranchPointId = "bp-ordered",
+            };
+
+            tree.Recordings[parent.RecordingId] = parent;
+            tree.Recordings[debris.RecordingId] = debris;
+            tree.Recordings[continuation.RecordingId] = continuation;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-ordered",
+                Type = BranchPointType.Breakup,
+                UT = 120.0,
+                ParentRecordingIds = new List<string> { parent.RecordingId },
+                // Order matters: different-PID debris FIRST, same-PID second.
+                ChildRecordingIds = new List<string> { debris.RecordingId, continuation.RecordingId },
+            });
+
+            ParsekFlight.FinalizeIndividualRecording(
+                parent,
+                commitUT: 200.0,
+                isSceneExit: true,
+                finalizationCache: null,
+                treeContext: tree);
+
+            Assert.False(parent.TerminalStateValue.HasValue);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Flight]") &&
+                l.Contains("FinalizeTreeRecordings:") &&
+                l.Contains("ordered-parent") &&
+                l.Contains("leaf=False"));
+        }
+
         private static RecordingFinalizationCache TestFinalizationCache(
             string recordingId,
             uint vesselPid,
