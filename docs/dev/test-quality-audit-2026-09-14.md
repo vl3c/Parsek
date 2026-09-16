@@ -1937,6 +1937,33 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   - Filtered suite after the slice: `SpawnCleanupGuardTests` 6 passed / 0 failed, the
     same count as before (a rename, not an added cell).
 
+- `testfix-t2-a` (2026-09-16): the Medium register's single T2 (duplicate) row
+  (`work/phase-b-slice-medium-t2-01.txt`). 0 strengthened, 1 deleted, 0 deferred, no
+  production change. With this row and Medium T3 slice 7 the Medium register is closed.
+  - F-ghost-playback-012-01, DELETED: `GhostChainWalkerTests.CrossTreeCycle_DetectedAndHandled`
+    built the same fixture as `CrossTree_TwoLinks_ChainsExtend` - identical recordings, pids,
+    branch points and UTs - and asserted a strict subset of its claims (non-null, key 100,
+    `Links.Count >= 1`, non-empty tip, against the twin's `Single`, `Links.Count == 2`,
+    tip `R2-leaf`, `SpawnUT == 1320`). Nothing in it was distinct, so nothing was kept.
+  - The cycle its name claimed is unreachable from that fixture: the tip vessel pid equals
+    the walk origin, so `MergeCrossTreeLinks` breaks at the `tipVesselPid == originPid`
+    test and never reaches the `chainVisited` guard. That guard is covered by
+    `MergeCrossTreeLinks_TwoChainsPointingAtEachOther_BreaksCycleAndWarns` (PR #1724).
+  - The register's own falsifiability line is WRONG and is recorded as such in
+    `mutations.csv`: its mutant (stop absorbing the linked chain in `MergeCrossTreeLinks`,
+    `mutations/F-ghost-playback-012-01-phaseB.patch`) leaves BOTH the deleted cell and the
+    twin green - 148 passed / 1 failed, the one red being the #1724 cycle cell. The #1724
+    mutant (`mutations/C-ghost-playback-012-01-phaseB.patch`) gives the identical picture.
+    Neither discriminates, because neither cell's fixture reaches the absorption at all.
+  - Subsumption was proved instead with a probe mutant (`chain.SpawnUT = leaf.EndUT` ->
+    `leaf.StartUT`): the twin reds, the deleted cell stays green. Same input, strictly
+    weaker asserts, so the deleted cell could only fail where the twin already fails.
+  - Filtered suite (`GhostChainWalkerTests` plus every other class reaching
+    `MergeCrossTreeLinks` through `ComputeAllGhostChains`: `ChainEvalOnLoadTests`,
+    `ChainGhostTrajectoryTests`, `ChainSaveLoadTests`, `Bug171To174Tests`,
+    `DisassembledTerminalStateTests`, `SessionSuppressionWiringTests`): 149 passed / 0
+    failed before, 148 passed / 0 failed after - exactly the one removed cell.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
