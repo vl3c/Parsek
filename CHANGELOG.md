@@ -370,6 +370,50 @@ _(unreleased — entries accumulate here per commit)_
   `IsManaged` was never called: it now injects a real module that manages a different
   kerbal, with the null-module fallback kept as its own cell.
 
+- **Tests: twenty rendering, harness-seam and legacy-bugfix cells from the audit's Medium
+  T3 register (weak or misleading) now turn on the production term their name names.**
+  Nineteen were strengthened, six of those also renamed; one was deleted as the duplicate
+  it was; none was premise-wrong. Four of them asserted a vocabulary against itself or
+  against a hand-written copy: the census `ctrl=` filter re-split its own comma-join, so it
+  now reads `GuiTreeAssembler.KindName` over every `GuiNodeKind`; the seam-endpoint skip
+  bucket list was a test-local array, so the reason set is read from the capture method's
+  own IL string operands (a comment cannot satisfy it) with the three seam-seed constants
+  excluded by the production constant; and the sidecar reaper's "adding a suffix starts
+  failing this test" promise is kept by discovering every `RecordingPaths` builder whose
+  single parameter is a recordingId. Two comma-locale round trips pinned no culture at all
+  - a codec formatting and parsing with the same ambient culture round-trips green on any
+  host - so both run under de-DE and read the raw written POINT / ORBIT_SEGMENT values.
+  Three assertions could not see a wrong answer: a tangent's `Assert.Equal(3f, t.x, 4f)`
+  binds xUnit's float TOLERANCE overload, so a halved or zeroed component passed; the
+  read-only classifier invariant value-checked only sample 0's ut, so an interior rewrite
+  passed; and the Cluster cell wrapped its assertion in a test-side recompute of the
+  production rate gate that measurement shows was never true (four consecutive kraken
+  velocities reject 2 of 16, under the 0.20 gate), so the assertion had never run. Five
+  cells never entered the branch they were named for: the two #411 KSC loop-subrange cells
+  hand-passed the effective bounds instead of reading them from the schedule resolver the
+  dispatch calls; the stable-orbit terminal inference asserted the SubOrbital DEFAULT
+  because `FlightGlobals` is null headless; and the two cycle-guard walks had no cycle to
+  cap. Three more asserted no value at all: the three map-trace cells claiming Info routing
+  asserted no level token under a verbose-forcing fixture; the time-jump event asserted key
+  PRESENCE only; and the debris-free commit put every assertion inside a foreach, so a
+  commit of nothing passed in silence. Renames: the seam stitcher's compose-after-remap
+  cell (its fixture made the re-anchored head numerically equal to the live UT, and its
+  independence assertion was a tautology), the Cluster cell, the pannotations stamp cell
+  (renamed to the round trip it proves, with a new drifted-stamp sibling), the time-jump
+  fields cell, and the two cycle cells (each keeping its old fixture under an honest name
+  beside a new genuine-cycle case). The delete is the unfinished-flights
+  `ImmutableDestroyedUnderRP_IsMember`, whose name said Immutable while its fixture passed
+  CommittedProvisional, making it an exact duplicate of the cell below it; the Immutable
+  case it left uncovered is guarded by a post-audit sibling that reds with five others when
+  the sealed-tip filter is disabled. Two production edits, both behaviour-identical: the
+  KSC loop schedule resolver is widened from private to internal, and OnLoad's revert-branch
+  pending-tree decision is extracted as a pure classifier the call site dispatches over with
+  the same log lines and the same flag clear. Six commits: four rendering rows, then four
+  more rendering rows, then the two KSC rows, then the three harness-seam rows, then the
+  two revert / commit-count rows with the time-jump grammar, then the four remaining
+  legacy-bugfix rows. Every row carries a mutation patch that reds its cell and applies
+  against a clean tree.
+
 - **Tests: twenty recording-tree cells from the audit's Medium T3 register (weak or
   misleading) now turn on the production line their name names.** Ten of them were decided
   by something other than the guard under test - an empty store, a lone committed record,

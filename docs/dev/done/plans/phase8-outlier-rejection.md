@@ -488,7 +488,7 @@ LogContractTests (`Source/Parsek.Tests/LogValidation/`) gets a new rule grepping
   - `OutlierClassifier_AltitudeOOR_RejectsBelowSurface` — altitude -200 m → rejected (below -100 m floor); altitude -50 m → kept.
   - `OutlierClassifier_AltitudeOOR_RejectsAboveSOI` — altitude > body.sphereOfInfluence + 1000 → rejected; below the cap → kept. Use TestBodyRegistry.CreateBody with a configured SOI.
   - `OutlierClassifier_AltitudeOOR_NullBody_NoRejection` — bodyResolver returns null → AltitudeOutOfRange never sets, even for absurd altitudes.
-  - `OutlierClassifier_Cluster_FlagsSection_When25PercentRejected` — 4 of 16 samples rejected → Cluster bit set on classifierMask. 2 of 16 → Cluster bit not set.
+  - `OutlierClassifier_Cluster_FlagsSection_WhenRejectionRateIsOverTheGate` - rejection rate over the 0.20 ClusterRateThreshold → Cluster bit set on classifierMask; `OutlierClassifier_Cluster_NotFlagged_WhenUnderTheRate` pins the mirror. (Renamed 2026-09-16 by the test-quality audit: the original fixture's four consecutive kraken velocities rejected only 2 of 16, under the gate.)
   - `OutlierClassifier_FirstAndLastSamples_NoNeighborChecksSkipped` — endpoint samples have no delta-based bit set even when their successor / predecessor is far away. Altitude bit still applies at endpoints.
   - `OutlierClassifier_Determinism_SameInputSameOutput` — call Classify twice; assert byte-equal outputs (HR-3 pin).
   - `OutlierClassifier_HR1_DoesNotMutateRecording` — call Classify; assert `Recording.Points` reference and contents are unchanged; `TrackSection.frames` unchanged. (HR-1 audit.)

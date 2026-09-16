@@ -1408,8 +1408,7 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Landed, ParsekFlight.InferTerminalStateFromTrajectory(rec));
         }
 
-        [Fact]
-        public void InferTerminal_StableOrbit_ReturnsOrbiting()
+        private static Recording StableOrbitRecording()
         {
             var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 100000.0 });
@@ -1421,8 +1420,68 @@ namespace Parsek.Tests
                 startUT = 50.0,
                 endUT = 200.0
             });
-            // FlightGlobals.GetBodyByName returns null in tests — falls through to SubOrbital
-            Assert.Equal(TerminalState.SubOrbital, ParsekFlight.InferTerminalStateFromTrajectory(rec));
+            return rec;
+        }
+
+        [Fact]
+        public void InferTerminal_StableOrbit_ReturnsOrbiting()
+        {
+            // The body radius is supplied through the production test seam
+            // (ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting), so the Orbiting branch
+            // this cell is named for actually runs. Without the seam FlightGlobals.GetBodyByName is
+            // null headless, the periapsis comparison never happens, and the cell asserted the
+            // SubOrbital DEFAULT - nothing in the suite pinned Orbiting from this helper.
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                name => name == "Kerbin" ? 600000.0 : (double?)null;
+            try
+            {
+                Assert.Equal(TerminalState.Orbiting,
+                    ParsekFlight.InferTerminalStateFromTrajectory(StableOrbitRecording()));
+            }
+            finally
+            {
+                ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void InferTerminal_StableOrbitShapeButUnresolvedBody_ReturnsSubOrbital()
+        {
+            // The mirror the old cell actually exercised, kept as its own case: with no resolvable
+            // body radius the stable-orbit evidence cannot be established, so the helper falls
+            // through to the SubOrbital default.
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = name => null;
+            try
+            {
+                Assert.Equal(TerminalState.SubOrbital,
+                    ParsekFlight.InferTerminalStateFromTrajectory(StableOrbitRecording()));
+            }
+            finally
+            {
+                ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void InferTerminal_SubSurfacePeriapsis_ReturnsSubOrbital()
+        {
+            // The periapsis comparison itself decides: same body radius, but a periapsis inside the
+            // surface is not a stable orbit.
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                name => name == "Kerbin" ? 600000.0 : (double?)null;
+            try
+            {
+                var rec = StableOrbitRecording();
+                OrbitSegment shallow = rec.OrbitSegments[0];
+                shallow.semiMajorAxis = 500000.0; // periapsis 475000 < 600000
+                rec.OrbitSegments[0] = shallow;
+                Assert.Equal(TerminalState.SubOrbital,
+                    ParsekFlight.InferTerminalStateFromTrajectory(rec));
+            }
+            finally
+            {
+                ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = null;
+            }
         }
 
         [Fact]

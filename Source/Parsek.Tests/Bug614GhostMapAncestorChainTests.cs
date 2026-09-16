@@ -376,6 +376,47 @@ namespace Parsek.Tests
         [Fact]
         public void HandlesChainCycleGracefully_VisitedSetCapsTheWalk()
         {
+            // A GENUINE cycle: rec-mid's parent BP names rec-active as a parent, and rec-active's
+            // chain predecessor is rec-mid again, so the walk re-reaches rec-mid. The recording
+            // visited set is what stops the second visit; the trace lists every recording
+            // encountered, so a revisit shows up there as a duplicate.
+            //
+            // The duplicate-ChainIndex cell below carries no cycle at all (ChainIndex 0 has no
+            // predecessor, as its own comment says), which is why it was renamed.
+            var tree = new RecordingTree { Id = TreeId };
+            tree.Recordings["rec-base"] = new Recording
+            {
+                RecordingId = "rec-base", TreeId = TreeId, ChainId = "chain-loop", ChainIndex = 0,
+            };
+            tree.Recordings["rec-mid"] = new Recording
+            {
+                RecordingId = "rec-mid", TreeId = TreeId, ChainId = "chain-loop", ChainIndex = 1,
+                ParentBranchPointId = "bp-loop",
+            };
+            tree.Recordings["rec-active"] = new Recording
+            {
+                RecordingId = "rec-active", TreeId = TreeId, ChainId = "chain-loop", ChainIndex = 2,
+            };
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-loop",
+                ParentRecordingIds = new List<string> { "rec-active" },
+                ChildRecordingIds = new List<string> { "rec-mid" },
+            });
+
+            Assert.False(GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
+                victimRecordingId: "rec-victim-not-in-tree",
+                activeRecordingId: "rec-active",
+                searchTrees: new List<RecordingTree> { tree },
+                walkTrace: out string cycleTrace));
+            Assert.Contains("exhausted-without-victim", cycleTrace);
+            Assert.Contains("parents=[rec-mid,rec-base,rec-active]", cycleTrace);
+            Assert.Contains("parentsEncountered=3", cycleTrace);
+        }
+
+        [Fact]
+        public void DuplicateChainIndexZero_TerminatesAtTheFirstMatch()
+        {
             // Pathological: two recordings claim ChainIndex 0 in the same
             // chain (legitimately rare — usually a corrupted save). The
             // chain-predecessor lookup for ChainIndex=1 returns the first

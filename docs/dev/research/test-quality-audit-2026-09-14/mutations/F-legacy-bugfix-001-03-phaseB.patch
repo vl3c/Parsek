@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 4768e2d27..56d4a9bc2 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -894,8 +894,6 @@ namespace Parsek
+         internal static RevertPendingTreeDisposition ClassifyRevertPendingTreeDisposition(
+             bool stashedThisTransition, bool hasPendingTree, PendingTreeState pendingTreeState)
+         {
+-            if (stashedThisTransition)
+-                return RevertPendingTreeDisposition.KeepFreshlyStashed;
+             if (!hasPendingTree)
+                 return RevertPendingTreeDisposition.NothingPending;
+             if (pendingTreeState == PendingTreeState.Limbo
