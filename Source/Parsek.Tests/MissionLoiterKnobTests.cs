@@ -222,6 +222,12 @@ namespace Parsek.Tests
         {
             // Incommensurate-ish: nothing within the tiny tolerance in a 2-step window; the
             // bounded-best is the k with the smaller min-over-d residual, ties to the earlier k.
+            // The geometry is hand-checkable, and the exact (k, d, residual) is pinned rather than
+            // an InRange over the scan window and the shift range - those bounds hold for EVERY
+            // possible return value, so the selection this cell is named for was not asserted.
+            //   k=1 (delta 1000): d=0 -> 266, d=-1 (749) -> 116, d=+1 (1251) -> 15   <- best
+            //   k=2 (delta 2000): d=0 -> 101, d=-1 (1749) -> 150, d=+1 (2251) -> 281
+            // so the bounded best over the window is (k=1, d=+1) at 15 s.
             bool ok = MissionPeriodicity.TryFindNextScheduleK(
                 1000.0, null, null, new[] { 633.0 }, new[] { 0.001 }, 251.0, -1, 1, 1, 2,
                 out long k, out long d, out double resid, out bool within);
@@ -229,8 +235,29 @@ namespace Parsek.Tests
             Assert.True(ok);
             Assert.False(within);
             Assert.True(resid > 0.001);
-            Assert.InRange(k, 1, 2);
-            Assert.InRange(d, -1, 1);
+            Assert.Equal(1, k);
+            Assert.Equal(1, d);
+            Assert.Equal(MissionPeriodicity.CircularPhaseError(1000.0 + 251.0, 633.0), resid, 9);
+            Assert.Equal(15.0, resid, 9);
+        }
+
+        [Fact]
+        public void ScheduleK_NothingReachable_BoundedBestLaterK()
+        {
+            // The mirror of the cell above, and the reason it can see the SELECTION at all: with the
+            // shift range pinned to d=0 the same anchor/period pair makes the LATER k the bounded
+            // best (k=1 -> 266, k=2 -> 101), so a scan that always kept the earliest k, or always the
+            // last one scanned, cannot satisfy both cells.
+            bool ok = MissionPeriodicity.TryFindNextScheduleK(
+                1000.0, null, null, new[] { 633.0 }, new[] { 0.001 }, 251.0, 0, 0, 1, 2,
+                out long k, out long d, out double resid, out bool within);
+
+            Assert.True(ok);
+            Assert.False(within);
+            Assert.Equal(2, k);
+            Assert.Equal(0, d);
+            Assert.Equal(MissionPeriodicity.CircularPhaseError(2000.0, 633.0), resid, 9);
+            Assert.Equal(101.0, resid, 9);
         }
 
         // ─── MissionRelaunchSchedule: per-launch timing + spacing ───────────────

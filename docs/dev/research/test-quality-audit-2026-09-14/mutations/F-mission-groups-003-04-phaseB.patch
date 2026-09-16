@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.SpanClock.cs b/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
+index cf957a81a..26679e60d 100644
+--- a/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
++++ b/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
+@@ -3195,7 +3195,7 @@ namespace Parsek
+         internal static bool ResolveUnitHandoffStoredRenderingEdge(
+             bool retargetFired, int watchedIndex, int newLiveMemberIndex, bool watchedIsRendering)
+         {
+-            if (retargetFired && watchedIndex != newLiveMemberIndex)
++            if (retargetFired)
+                 return true; // transfer pending (target ghost not spawned yet) -> re-fire next frame
+             return watchedIsRendering;
+         }

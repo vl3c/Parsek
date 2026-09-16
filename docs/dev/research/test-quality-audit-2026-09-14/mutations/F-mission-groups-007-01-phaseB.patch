@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/MissionPeriodicity.cs b/Source/Parsek/MissionPeriodicity.cs
+index ab3f49f5c..04867fb66 100644
+--- a/Source/Parsek/MissionPeriodicity.cs
++++ b/Source/Parsek/MissionPeriodicity.cs
+@@ -1222,7 +1222,6 @@ namespace Parsek
+                     if (worstShift < worstShiftAtChosen)
+                     {
+                         worstShiftAtChosen = worstShift;
+-                        chosenShift = d;
+                     }
+                 }
+             }

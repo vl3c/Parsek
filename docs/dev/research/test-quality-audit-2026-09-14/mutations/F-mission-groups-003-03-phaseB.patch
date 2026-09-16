@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.SpanClock.cs b/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
+index cf957a81a..b911f1388 100644
+--- a/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
++++ b/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
+@@ -3164,7 +3164,7 @@ namespace Parsek
+             // Only fire on the transition from "watched member rendering" to "watched member no
+             // longer rendering" (its window just ended), and only when there is a real different
+             // live member to move to. Steady state (still rendering) and "nothing live" hold.
+-            if (!watchedWasRendering || watchedIsRendering)
++            if (!watchedWasRendering)
+                 return false;
+             if (newLiveMemberIndex < 0 || newLiveMemberIndex == watchedIndex)
+                 return false;

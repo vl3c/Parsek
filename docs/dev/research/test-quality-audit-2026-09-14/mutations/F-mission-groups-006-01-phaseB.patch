@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+index f397ac6c9..ac4f76ea0 100644
+--- a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
++++ b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+@@ -257,7 +257,7 @@ namespace Parsek
+         internal static bool UnitMemberOverlaps(LoopUnit unit)
+         {
+             double span = unit.SpanEndUT - unit.SpanStartUT;
+-            return span > 0 && unit.OverlapCadenceSeconds < span;
++            return false;
+         }
+ 
+         /// <summary>

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/UI/RecordingsTableUI.cs b/Source/Parsek/UI/RecordingsTableUI.cs
+index 058f7c276..ad2f93074 100644
+--- a/Source/Parsek/UI/RecordingsTableUI.cs
++++ b/Source/Parsek/UI/RecordingsTableUI.cs
+@@ -5440,7 +5440,7 @@ namespace Parsek
+                     // Active recording -- prefer closest T- (= StartUT - now, which is negative;
+                     // we want the one closest to now, i.e., smallest |delta|)
+                     double delta = Math.Abs(rec.StartUT - now);
+-                    if (delta < bestActiveDelta)
++                    if (activeIdx < 0)
+                     {
+                         bestActiveDelta = delta;
+                         activeIdx = idx;
