@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..d27d6d738 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -16418,7 +16418,7 @@ namespace Parsek
+             if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+             {
+                 var lastOrbit = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+-                if (HasStableOrbitEvidenceForTerminalInference(lastOrbit))
++                if (false && HasStableOrbitEvidenceForTerminalInference(lastOrbit))
+                     return TerminalState.Orbiting;
+             }
+ 

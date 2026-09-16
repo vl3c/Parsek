@@ -1581,6 +1581,106 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `OverlapPerInstanceTests`, `WatchEntryAcceptanceWiringGateTests`,
     `RuntimePolicyTests`), plus `GrepAuditTests` each time. No gate needed re-anchoring.
 
+- `testfix-t3-e` (2026-09-16): the SIXTH slice of Medium T3 rows
+  (`work/phase-b-slice-medium-t3-06.txt`, 20 ids: 8 `map-render`, 7 `legacy-bugfix`,
+  3 `harness-seam`, 2 `io-serialization`). Counting rule: every row is strengthened, and
+  a rename is a SUBSET of that, never a separate bucket. Slice total: 19 strengthened,
+  6 of those also renamed, 1 deleted, 0 premise-wrong, 2 behaviour-identical production
+  edits. Each row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - Vocabulary asserted against itself (3): F-harness-seam-001-01 re-split
+    `ValidCtrlNames`, which is the comma-join of `CtrlValues`, so a kind rename on either
+    side stayed green; it compares against `GuiTreeAssembler.KindName` over every
+    `GuiNodeKind` now. F-harness-seam-007-01's reason set was a test-local array, so the
+    stated purpose (a capture reason added without a bucket is visible here) went unmet;
+    the set is read from `ComputeSeamEndpointGeometry`'s IL `ldstr` operands, with the
+    three seam-seed constants excluded BY the production constants and the oracle-owned
+    `no-usable-ratio` appended by name. F-harness-seam-015-02's comment promised a new
+    `RecordingPaths` builder would red it while listing seven by hand; the builder set is
+    discovered by reflection (static, string-returning, one `recordingId` parameter).
+  - Culture pins that pinned nothing (2): F-io-serialization-004-01 / -004-02 set no
+    culture, and a symmetric codec round-trips on every host, so both now pin de-DE around
+    the round trip and read the RAW written POINT / ORBIT_SEGMENT values. The mutant is
+    ambient culture on BOTH sides, which is green before and red after.
+  - Assertion windows too wide to see a wrong answer (3): F-map-render-006-01's
+    `Assert.Equal(3f, t.x, 4f)` binds xUnit's float TOLERANCE overload (a float literal
+    cannot bind the int precision overload), accepting x in [-1,7]; it is 1e-4f now, with
+    z and a non-zero-origin pair. F-map-render-014-02 value-checked only `frames[0].ut`
+    against a whole-payload read-only invariant; every frame's ut/lat/lon/alt/velocity/
+    body/rotation/flags is snapshotted now. F-map-render-014-01, renamed
+    `OutlierClassifier_Cluster_FlagsSection_WhenRejectionRateIsOverTheGate`: its Cluster
+    assertion sat inside a test-side recompute of the production rate gate, and the
+    measurement shows the gate was NEVER true - four consecutive kraken velocities reject
+    2 of 16 samples (0.125, under 0.20), because the interior samples of a run share their
+    neighbours' velocity. The fixture spikes alternating indices (8 of 16), pins the
+    counts first, and a new mirror cell pins the bit CLEAR under the gate.
+  - Never entered the named branch (5): F-map-render-001-03 / -001-04 hand-passed the
+    effective loop bounds, so a KSC dispatcher reverted to the raw span stayed green; both
+    read them from `ParsekKSC.TryGetLoopSchedule` now and the cycle-bounds cell feeds
+    `GetActiveCycles` the resolver's `(scheduleStartUT, scheduleStartUT + duration)`
+    exactly as `UpdateOverlapKsc` does. F-legacy-bugfix-005-01 asserted the SubOrbital
+    DEFAULT under a name promising Orbiting, because `FlightGlobals.GetBodyByName` is null
+    headless; the radius comes through `TerminalInferenceBodyRadiusResolverForTesting` now,
+    with the unresolved-body and sub-surface-periapsis mirrors as their own cells.
+    F-legacy-bugfix-004-01 and -018-01 both named a cycle guard over fixtures with no
+    reachable revisit (the first's victim was the first BP parent; the second's duplicate
+    `ChainIndex = 0` has no predecessor, as its own comment said). Each keeps its old
+    fixture under an honest name
+    (`IsRecordingInParentChainOfActiveReFly_DirectParentInCyclicBp_ReturnsTrue`,
+    `DuplicateChainIndexZero_TerminatesAtTheFirstMatch`) beside a new absent-victim case
+    where the walk must exhaust and the trace's `parents=[...]` list decides. The mutant
+    is the `visitedRecs` short-circuit alone: both fixtures still TERMINATE without it
+    (the BP-level visited set bounds them), so the evidence is a duplicate in the trace
+    rather than a hang that would take the test host down.
+  - Asserted no value at all (4): F-map-render-004-01's three Info-routing cells asserted
+    no level token under a fixture that forces verbose on, so a Verbose-routed line matched
+    every predicate; each asserts `[INFO]` now (the `EmitRaw_NonImportant` twin already
+    pinned `[VERBOSE]`, so the mirror direction was covered). F-map-render-009-03,
+    renamed `Probe_AlgorithmStampField_RoundTrips`, constructed neither the mismatch nor
+    the discard its name promised; a new sibling patches the stamp int in the header bytes
+    and asserts the probe reports the drifted value, which is what a probe echoing the
+    compiled-in constant would fail. F-legacy-bugfix-015-01, renamed
+    `CreateTimeJumpEvent_HeaderAndDetailKeyGrammar`: the values are already owned by the
+    post-audit `CreateTimeJumpEvent_DetailsValuesRoundTrip`, whose dictionary parse loses
+    ORDER, so this cell pins the eight keys in their declared order plus the header.
+    F-legacy-bugfix-002-01 put every assertion inside a `foreach` over
+    `CommittedRecordings`, so a `CommitTree` that committed nothing passed in silence; the
+    count comes first and the group is compared against the tree's own
+    `AutoGeneratedRootGroupName`.
+  - Production decision re-implemented in the test (1): F-legacy-bugfix-001-03 ran its own
+    copy of OnLoad's revert guard, so the production branch never executed. That decision
+    is extracted as the pure `ParsekScenario.ClassifyRevertPendingTreeDisposition` (fresh
+    stash wins, then no pending tree, then Limbo / LimboVesselSwitch, else orphan); the
+    call site is a straight dispatch over the result with the same log lines and the same
+    `PendingStashedThisTransition` clear, and a sibling covers the three arms.
+  - The one delete: F-legacy-bugfix-010-01's `ImmutableDestroyedUnderRP_IsMember` said
+    Immutable in its name, doc comment and claimed regression while its fixture passed
+    `MergeState.CommittedProvisional`, making it byte-identical to
+    `CommittedProvisionalDestroyedUnderRP_IsMember` below it. Under the cross-class rule
+    the sealed-tip mutant (disable `IsSlotEffectiveTipOpen`) reds six cells in four classes
+    - `ImmutableDestroyedUnderRP_NotMember_SealedTipClosed`, `SealedSlot_NotMember`,
+    `StashedThenSealedSlot_NotMember`,
+    `UnfinishedFlightClassifierTests.OpenClosedFilter_ImmutableTip_HidesShapeQualifyingSlotFromUf`,
+    `CollapseSealMergeStateRegressionTests.StashThenSeal_NotReStashable_AndHiddenFromUf`
+    and `RewindB9FixtureTests.Inject_CrashedBoosterClassifiesAsOpenUnfinishedFlight` - so
+    the Immutable case is covered and the duplicate was removed with a comment in its place.
+  - Two production edits, both behaviour-identical and both re-verified against the
+    source-scanning gates over the touched files: `ParsekKSC.TryGetLoopSchedule` widened
+    from `private static` to `internal static` (visibility only), and the revert-branch
+    classifier extracted above. After the `ParsekScenario.cs` edit every class that reads
+    that file was re-run (`Bug585InPlaceContinuationRestoreTests`,
+    `CareerSeedReadinessTests`, `ChainSaveLoadTests`, `CheckpointDoubleCoverRetireTests`,
+    `ObservabilityPersistencePhase3Tests`, `QuickloadResumeTests`, `RevertDiscardTests`,
+    `RewindB9FixtureTests`, `SaveActiveTreeSidecarBothOrNeitherTests`,
+    `ScenarioAutoCommitResourcesAppliedTests`, `ScenarioGameEventHandlerContractTests`,
+    `SceneChangeTerminalStateWiringGateTests`, `SwitchSegmentSaveLoadTests`,
+    `SwitchSegmentSuppressionNarrowingTests`, `TestBatchIsolationTests`), plus
+    `GrepAuditTests`, `GrepAuditNonLoopLivePidTests` and `LoopUnitSetCoherenceTests` after
+    the `ParsekKSC` one. No gate needed re-anchoring.
+  - One doc reference updated for a rename: `docs/dev/done/plans/phase8-outlier-rejection.md`
+    named the Cluster cell and its "2 of 16" claim.
+
 - `testfix-t3-c` (2026-09-16): the FOURTH slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-04.txt`, 20 ids: 12 `logistics-route`,
   7 `recorder-events`, 1 `ledger-career`). Counting rule: every row is strengthened, and

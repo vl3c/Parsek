@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MapRender/CrossMemberSeamStitcher.cs b/Source/Parsek/MapRender/CrossMemberSeamStitcher.cs
+index 6fc5380c6..055261f82 100644
+--- a/Source/Parsek/MapRender/CrossMemberSeamStitcher.cs
++++ b/Source/Parsek/MapRender/CrossMemberSeamStitcher.cs
+@@ -192,7 +192,7 @@ namespace Parsek.MapRender
+                 return Vector3.zero;
+             if (d.sqrMagnitude <= 1e-12f)
+                 return Vector3.zero;
+-            return d;
++            return d * 0.5f;
+         }
+ 
+         /// <summary>

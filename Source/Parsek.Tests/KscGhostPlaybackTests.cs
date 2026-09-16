@@ -1484,16 +1484,27 @@ namespace Parsek.Tests
         {
             // #411 regression guard: the KSC dispatcher must branch on the effective loop
             // subrange, not the recording's full [StartUT, EndUT] span.
+            //
+            // The duration is taken from the PRODUCTION schedule resolver
+            // (ParsekKSC.TryGetLoopSchedule, the same call UpdateKsc's overlap dispatch makes),
+            // not hand-computed here: the old cell compared two helper results and would have
+            // stayed green against a dispatcher reverted to the raw span.
             var rec = MakeKerbinRecording(
                 startUT: 0, endUT: 300, loopPlayback: true, loopInterval: 150.0);
             rec.LoopStartUT = 100;
             rec.LoopEndUT = 200;
 
-            double effectiveDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
-            double rawDuration = rec.EndUT - rec.StartUT;
+            Assert.True(ParsekKSC.TryGetLoopSchedule(
+                rec, -1, out double playbackStartUT, out double scheduleStartUT,
+                out double duration, out double intervalSeconds));
+            Assert.Equal(100.0, playbackStartUT, 6);
+            Assert.Equal(100.0, scheduleStartUT, 6);
+            Assert.Equal(100.0, duration, 6);          // the subrange, not the 300 s raw span
+            Assert.Equal(150.0, intervalSeconds, 6);
 
-            Assert.True(GhostPlaybackLogic.IsOverlapLoop(rec.LoopIntervalSeconds, rawDuration));
-            Assert.False(GhostPlaybackLogic.IsOverlapLoop(rec.LoopIntervalSeconds, effectiveDuration));
+            double rawDuration = rec.EndUT - rec.StartUT;
+            Assert.True(GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, rawDuration));
+            Assert.False(GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration));
         }
 
         [Fact]
@@ -1513,6 +1524,12 @@ namespace Parsek.Tests
             // #411 regression guard: UpdateOverlapKsc must anchor both active-cycle bounds
             // and phase math to the effective loop range, otherwise cycles start from the
             // recording's raw StartUT and stale overlap ghosts linger too long.
+            //
+            // The effective bounds come from the PRODUCTION schedule resolver
+            // (ParsekKSC.TryGetLoopSchedule) and are fed to GetActiveCycles exactly as
+            // UpdateOverlapKsc feeds them - (scheduleStartUT, scheduleStartUT + duration). The old
+            // cell hand-passed EffectiveLoopStartUT / EffectiveLoopEndUT, so a resolver that
+            // handed the dispatcher rec.StartUT / rec.EndUT stayed green.
             var rec = MakeKerbinRecording(
                 startUT: 0, endUT: 300, loopPlayback: true, loopInterval: 80.0);
             rec.LoopStartUT = 100;
@@ -1523,9 +1540,14 @@ namespace Parsek.Tests
             long rawFirstCycle;
             long rawLastCycle;
 
+            Assert.True(ParsekKSC.TryGetLoopSchedule(
+                rec, -1, out _, out double scheduleStartUT, out double duration, out _));
+            Assert.Equal(100.0, scheduleStartUT, 6);
+            Assert.Equal(100.0, duration, 6);
+
             GhostPlaybackLogic.GetActiveCycles(260,
-                GhostPlaybackEngine.EffectiveLoopStartUT(rec),
-                GhostPlaybackEngine.EffectiveLoopEndUT(rec),
+                scheduleStartUT,
+                scheduleStartUT + duration,
                 ParsekKSC.GetLoopIntervalSeconds(rec),
                 10, out effectiveFirstCycle, out effectiveLastCycle);
             GhostPlaybackLogic.GetActiveCycles(260,

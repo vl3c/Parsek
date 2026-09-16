@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading;
 using UnityEngine;
 using Xunit;
 
@@ -32,11 +33,53 @@ namespace Parsek.Tests
 
         private Recording RoundTrip(Recording original)
         {
-            var node = new ConfigNode("TEST");
+            ConfigNode node;
+            return RoundTrip(original, out node);
+        }
+
+        /// <summary>
+        /// Round trip that also hands back the serialized ConfigNode, so a locale test can
+        /// read the RAW written text instead of only the symmetric parse result.
+        /// </summary>
+        private Recording RoundTrip(Recording original, out ConfigNode node)
+        {
+            node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, original);
             var restored = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, restored);
             return restored;
+        }
+
+        /// <summary>
+        /// Every numeric value under <paramref name="node"/> must be dot-separated with no
+        /// thousands separator, whatever the ambient culture is. A symmetric round trip cannot
+        /// see this: a codec that formats AND parses with the ambient culture round-trips green
+        /// on every host, which is exactly the defect these two comma-locale cells exist to catch.
+        /// </summary>
+        private static void AssertRawValuesAreDotSeparated(ConfigNode node, params string[] keys)
+        {
+            foreach (string key in keys)
+            {
+                string raw = node.GetValue(key);
+                Assert.NotNull(raw);
+                Assert.DoesNotContain(",", raw);
+            }
+        }
+
+        /// <summary>Depth-first lookup of the first node named <paramref name="name"/>.</summary>
+        private static ConfigNode FindFirstNode(ConfigNode root, string name)
+        {
+            if (root == null)
+                return null;
+            foreach (ConfigNode child in root.GetNodes())
+            {
+                if (child.name == name)
+                    return child;
+                ConfigNode deeper = FindFirstNode(child, name);
+                if (deeper != null)
+                    return deeper;
+            }
+            return null;
         }
 
         #region Point serialization edge cases
@@ -44,10 +87,28 @@ namespace Parsek.Tests
         /// <summary>
         /// Catches: locale-dependent serialization bug where 1234.5 becomes "1234,5"
         /// on comma-locale systems, then fails to parse back.
-        /// Uses values with decimal parts that would break under comma locale.
+        /// The ambient culture is pinned to de-DE for the whole round trip and the RAW written
+        /// values are read back: a symmetric codec (ambient culture on BOTH the write and the
+        /// parse side) round-trips green on every host, so the parse result alone cannot see
+        /// the defect this cell names. The deciding term is the `ic` argument that
+        /// TrajectoryTextSidecarCodec.SerializePointValues passes to every ToString("R", ic).
         /// </summary>
         [Fact]
         public void Point_RoundTrip_InvariantCulture_CommaLocaleSafe()
+        {
+            CultureInfo previousCulture = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Point_RoundTrip_InvariantCulture_CommaLocaleSafe_Body();
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = previousCulture;
+            }
+        }
+
+        private void Point_RoundTrip_InvariantCulture_CommaLocaleSafe_Body()
         {
             var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint
@@ -64,7 +125,16 @@ namespace Parsek.Tests
                 reputation = 3.7f
             });
 
-            var restored = RoundTrip(rec);
+            ConfigNode node;
+            var restored = RoundTrip(rec, out node);
+
+            ConfigNode pointNode = FindFirstNode(node, "POINT");
+            Assert.NotNull(pointNode);
+            AssertRawValuesAreDotSeparated(
+                pointNode, "ut", "lat", "lon", "alt", "rotX", "rotY", "rotZ", "rotW",
+                "velX", "velY", "velZ", "funds", "science", "rep");
+            Assert.Equal("17123.456", pointNode.GetValue("ut"));
+            Assert.Equal("1234.567", pointNode.GetValue("alt"));
 
             Assert.Single(restored.Points);
             var p = restored.Points[0];
@@ -565,9 +635,27 @@ namespace Parsek.Tests
         /// <summary>
         /// Catches: InvariantCulture not applied to orbit segment doubles,
         /// causing comma-locale parse failure on values like 700000.5.
+        /// Same shape as the POINT twin: de-DE is pinned for the round trip and the RAW
+        /// ORBIT_SEGMENT values decide, because a codec that formats and parses with the same
+        /// ambient culture round-trips green whatever that culture is. The deciding term is the
+        /// `ic` argument TrajectoryTextSidecarCodec.SerializeOrbitSegment passes to ToString("R", ic).
         /// </summary>
         [Fact]
         public void OrbitSegment_RoundTrip_InvariantCulture_CommaLocaleSafe()
+        {
+            CultureInfo previousCulture = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                OrbitSegment_RoundTrip_InvariantCulture_CommaLocaleSafe_Body();
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = previousCulture;
+            }
+        }
+
+        private void OrbitSegment_RoundTrip_InvariantCulture_CommaLocaleSafe_Body()
         {
             var rec = new Recording();
             rec.OrbitSegments.Add(new OrbitSegment
@@ -586,7 +674,16 @@ namespace Parsek.Tests
                 angularVelocity = new Vector3(0.5f, 1.0f, 1.5f)
             });
 
-            var restored = RoundTrip(rec);
+            ConfigNode node;
+            var restored = RoundTrip(rec, out node);
+
+            ConfigNode segNode = FindFirstNode(node, "ORBIT_SEGMENT");
+            Assert.NotNull(segNode);
+            AssertRawValuesAreDotSeparated(
+                segNode, "startUT", "endUT", "inc", "ecc", "sma", "lan", "argPe", "mna", "epoch",
+                "ofrX", "ofrY", "ofrZ", "ofrW", "avX", "avY", "avZ");
+            Assert.Equal("1234.567", segNode.GetValue("startUT"));
+            Assert.Equal("700123.456", segNode.GetValue("sma"));
 
             Assert.Single(restored.OrbitSegments);
             var s = restored.OrbitSegments[0];

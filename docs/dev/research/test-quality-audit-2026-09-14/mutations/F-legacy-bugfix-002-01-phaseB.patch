@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..278228b10 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -1525,6 +1525,8 @@ namespace Parsek
+                     continue;
+                 }
+ 
++                if (!rec.IsDebris)
++                    continue;
+                 committedRecordings.Add(rec);
+                 addedFromTree++;
+             }

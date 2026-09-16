@@ -708,32 +708,42 @@ namespace Parsek.Tests
         #region CreateTimeJumpEvent
 
         /// <summary>
-        /// CreateTimeJumpEvent produces a SegmentEvent with correct type and details.
-        /// Guards: event creation with all state fields.
+        /// The event header (type, and ut = the POST-jump UT) plus the details KEY GRAMMAR: the
+        /// eight keys in their declared order.
+        ///
+        /// <para>Renamed from CreateTimeJumpEvent_FieldsCorrect, which asserted no argument VALUE
+        /// at all - swapping lat with lon, or preUT with postUT, in the format string left it green.
+        /// The values are owned by CreateTimeJumpEvent_DetailsValuesRoundTrip below, which parses
+        /// them into a dictionary and so cannot see the order; the order is the grammar the
+        /// TIME_JUMP log line and any positional splitter read, so it is pinned here.</para>
         /// </summary>
         [Fact]
-        public void CreateTimeJumpEvent_FieldsCorrect()
+        public void CreateTimeJumpEvent_HeaderAndDetailKeyGrammar()
         {
             var evt = TimeJumpManager.CreateTimeJumpEvent(
                 1000.0, 2000.0, -0.0972, -74.5575, 67.0, 100.5f, 200.3f, 50.1f);
 
             Assert.Equal(SegmentEventType.TimeJump, evt.type);
-            Assert.Equal(2000.0, evt.ut);
+            Assert.Equal(2000.0, evt.ut); // the POST-jump UT, not the pre-jump one
             Assert.NotNull(evt.details);
-            Assert.Contains("preUT=", evt.details);
-            Assert.Contains("postUT=", evt.details);
-            Assert.Contains("lat=", evt.details);
-            Assert.Contains("lon=", evt.details);
-            Assert.Contains("alt=", evt.details);
-            Assert.Contains("vx=", evt.details);
-            Assert.Contains("vy=", evt.details);
-            Assert.Contains("vz=", evt.details);
+
+            var keys = new List<string>();
+            foreach (string pair in evt.details.Split(';'))
+            {
+                int eq = pair.IndexOf('=');
+                Assert.True(eq > 0, "malformed details pair: " + pair);
+                keys.Add(pair.Substring(0, eq));
+            }
+            Assert.Equal(
+                new List<string> { "preUT", "postUT", "lat", "lon", "alt", "vx", "vy", "vz" },
+                keys);
         }
 
         /// <summary>
         /// Every details VALUE round-trips under InvariantCulture, not just the key
         /// tokens: a transposed or dropped format argument would corrupt every stored
-        /// TIME_JUMP SegmentEvent and CreateTimeJumpEvent_FieldsCorrect would stay green.
+        /// TIME_JUMP SegmentEvent and CreateTimeJumpEvent_HeaderAndDetailKeyGrammar, which
+        /// pins the header and the key order only, would stay green.
         /// </summary>
         [Fact]
         public void CreateTimeJumpEvent_DetailsValuesRoundTrip()
