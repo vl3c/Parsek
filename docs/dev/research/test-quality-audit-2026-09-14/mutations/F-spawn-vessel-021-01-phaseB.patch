@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 7b06f17eb..507b904bc 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -419,6 +419,7 @@ namespace Parsek
+         internal static void ArmRevertCleanupData(
+             Func<(HashSet<uint> pids, HashSet<string> names)> collectSpawnedVesselInfo)
+         {
++            return;
+             bool alreadyHasCleanupData = RecordingStore.PendingCleanupPids != null
+                                           || RecordingStore.PendingCleanupNames != null;
+             if (alreadyHasCleanupData)
