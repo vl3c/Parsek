@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/Logistics/RouteRunCostCalculator.cs b/Source/Parsek/Logistics/RouteRunCostCalculator.cs
+index e7c2d0c26..b4ba36e89 100644
+--- a/Source/Parsek/Logistics/RouteRunCostCalculator.cs
++++ b/Source/Parsek/Logistics/RouteRunCostCalculator.cs
+@@ -202,6 +202,7 @@ namespace Parsek.Logistics
+             // overload's null-guard never fires and emits no extra log: it only
+             // runs the shared foreach-into-HashSet tail.
+             ids = ResolveTreeRecordingIds(tree);
++            ids.IntersectWith(route.RecordingIds);
+ 
+             // (M-MIS-9-R1) Creation-time freeze: intersect with the snapshot
+             // captured at route creation so post-creation branches never enter

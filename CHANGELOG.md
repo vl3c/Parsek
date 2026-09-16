@@ -10,6 +10,35 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
+  are closed, and the priority-2 register with them.** Eight rows were new coverage, five
+  were guarded already by cells that landed after the audit snapshot, and one is deferred
+  because the witness it needs would break the committed scrape cell that currently guards
+  it, so thirteen new cells landed. Four of the eight needed a production seam, each the smallest hook that
+  leaves the live path behaving as before. On scene exit: a save that throws on the way to
+  the main menu is proved to refuse the transition, and the same throw on the way to the
+  space center to let it continue - the catch was unreachable headless because the
+  existing seam replaces the whole method and a test-built game reads as null to Unity's
+  overloaded equality, so the save step itself became injectable. On revert: the
+  spawned-vessel cleanup arming step moved out of OnLoad behind its collector, and is
+  proved to keep a set a rewind already armed rather than overwrite it with the empty one
+  a post-rewind load collects - the three cells that were there rebuilt the guard
+  condition inside the test, so none could witness it going away. On map presence: the two
+  state-vector removal call sites now share one frame-aware gate, proved to leave a
+  Relative-frame point (whose altitude is an anchor-local offset, not a height) alone while
+  still removing a genuine below-threshold Absolute one. On watch mode: the overlap-loop
+  camera is proved to rebuild its cycle start from the cadence the engine actually launches
+  at rather than the stored loop period, the wrong-loop-phase defect. The four rows that
+  needed no seam pin a rewind retirement whose restored recording vanished (kept, with a
+  warning, instead of silently un-hiding the fork), two walks that must terminate on a
+  corrupt cycle rather than freeze the game (cross-tree chain links, and the
+  preferred-child path walk - each bounded by a ten-second completion assertion so a
+  regression fails in seconds instead of stalling the run), and that a terminated ghost
+  chain suppresses only its own tip rather than every later recording of the same vessel.
+  One edge found while proving these is filed rather than closed: the `File.Replace` catch
+  in the safe-write path is reached by no test on any host. No player-visible change.
+
+
 - **Automated testing: both in-game test runner windows are now photographed in their
   real states, and the one reachable only by Ctrl+Shift+T is reachable by the census for
   the first time.** Two windows carry the title `Parsek - Test Runner`: the one Settings
@@ -264,17 +293,20 @@ _(unreleased — entries accumulate here per commit)_
   playback-cap count that a null audio source satisfies on its own. And a loop-playback
   forwarder was treated as a pass-through when it is really a debris mask.
 
-  Four behaviour-identical helpers were extracted so a test can reach a term without a
+  Three behaviour-identical helpers were extracted so a test can reach a term without a
   running game: ParsekFlight.NeedsPostSwitchModuleCacheRefresh (the module-cache
   invalidation the cell used to recompute itself),
-  GhostMapPresence.ShouldRemoveStateVectorOrbitInRefreshPass (the refresh pass's
-  Relative-frame exemption, with the atmosphere lookup still confined to the non-Relative
-  arm), GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees (the wheel-steering caller
+  GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees (the wheel-steering caller
   negate), and GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap (the deferred-batch
   cap flag, previously unreachable because no xUnit fixture can carry a Unity AudioSource);
   two FX counters in GhostPlaybackEngine were widened from private to internal, and the
   brace-matched body scan the three new source gates share moved into the test suite's
-  existing SourceScanText helper instead of being pasted per file. No behaviour, no log
+  existing SourceScanText helper instead of being pasted per file. The relative-frame cell
+  needed a fourth extraction when it was written, but the state-vector removal gate
+  GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame landed on main first and already
+  covers BOTH removal call sites, so the cell simply calls that one - deriving the frame
+  flag from the recording's own TrackSection, which is the tracking-station shape its
+  sibling in RuntimePolicyTests does not cover. No behaviour, no log
   text and nothing a player sees changes. Each strengthened cell was
   re-checked by breaking the named production line on purpose and confirming it goes red
   where it used to stay green.
@@ -361,6 +393,130 @@ _(unreleased — entries accumulate here per commit)_
   pixels, and the strip's text is now on one line in the log instead. Nothing is drawn
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
+
+- **Tests: twelve Supply Route cells from the audit's T3 (weak or misleading) register
+  now let the production term they name decide the verdict.** No production change; all
+  twelve strengthened, six of those also renamed to what they prove (renames are a subset
+  of the strengthened set, not a separate bucket). The "fresh guid" cell built
+  one route and checked the id was 32 characters, which a constant id satisfies - it now
+  builds twice and pins distinctness. The reject-message sweep asserted only
+  non-emptiness, which the switch default also produces, so it now asserts each status
+  produces copy that is NOT the fallback (with a control proving the fallback is still
+  reachable). The harvest-window cell claimed LOCATION coverage without asserting
+  latitude, longitude or altitude; all three are pinned, so swapping the assignments
+  reds. The recovery-credit scope cell claimed the G1 tree-scope guard but
+  `SumRecoveredCredits` takes the scope as a parameter - it is retitled, and a new cell
+  composes `ResolveTreeRecordingIds` with the sum so the real rescoping regression reds.
+  The root-part-id cell round-tripped a hand-built endpoint through the codec while
+  claiming the BUILDER stamps it; it now drives `RouteBuilder.BuildRoute` over a
+  docked-origin proof first. The loaded-gate cell called no probe or writer method at
+  all; the writer is now driven and the `path=` token read off the delivery log, so a
+  per-call re-evaluation of `vessel.loaded` reds (the probe stays construction-pinned -
+  every probe entry point returns before its branch on a null vessel, and that is stated
+  in the cell). The never-InTransit loop cell read fields the fake applier itself had
+  just cleared; it now captures them inside the applier, before its bookkeeping. The
+  endpoint-lost recovery-credit cell called the shared helper directly and conceded the
+  wiring was "verified by reading"; it is renamed after the helper and a new cell reaches
+  the endpoint-lost call site through a tick. The crashed-disposition cell never set a
+  disposition (its body was a twin of the shuttle cell); the route's backing recording
+  now carries the crashed terminal, so a disposition gate added later reds there and not
+  in the twin. The competing-route escrow cell asserted its headline with test-side
+  arithmetic; it now nets through the production `RoutePickupSourceGate.NettedAvailable`
+  and runs the competitor's gate, asserting the exact `source-reserved:` hold token. The
+  last two renames go to cells whose old names claimed something only Unity can witness:
+  the paint-membership cell cannot advance a frame, and the unloaded stored-part cell
+  does its own appending (the writer's append is private and needs a ProtoVessel).
+
+- **Tests: eight recorder, playback and crew cells from the audit's T3 (weak or
+  misleading) register now let the term they name decide the verdict.** No production
+  change; all eight strengthened, five of them also renamed to what they actually prove
+  (renames are a subset of the strengthened set, not a separate bucket).
+  The two warp / watch-protection predicates take the same two booleans, so a
+  single-pair cell could not tell the conjunction from a constant: both are now
+  theories over all four pairs, which pins the load-bearing arm (a watch-protected
+  NON-orbit-tail recording stays full fidelity and keeps the warp-zone hide exemption).
+  `ShouldTriggerExplosion_PassesButWarpSuppresses_LogsSuppression` promised a log
+  assertion neither helper could make - renamed
+  `ShouldTriggerExplosion_AllGuardsPass_WarpGateDecidesFxSuppression` and given rows at
+  and just above the 10x threshold, so the strict comparison and the constant decide.
+  The already-Destroyed fallback cell now also asserts `VesselDestroyed`, the field set
+  ahead of the early return and read by the no-op switch-segment classifier, with the
+  two not-destroyed cells asserting its absence. `ZeroTimeDelta_NoRecord` credited the
+  sampler with a guard that does not exist (both velocities were identical, so no gate
+  could fire either way): it is renamed to the identical-velocity case and joined by two
+  siblings pinning the real behaviour - a velocity change at the SAME UT does record a
+  duplicate-UT sample, and the negative-elapsed mirror is refused by the min-interval
+  floor rather than by any backward-time guard. The duplicate-UT regime is fixture-only:
+  it needs a zero min-interval floor, and `ParsekSettings.GetMinSampleInterval` returns
+  0.5 / 0.2 / 0.05, so no shipped sampling density can reach it. The cells pin the pure
+  function's contract, not an in-game sample. The tree-side missing-loop-anchor-body
+  cell decoded through the `ParsekScenario` test helper its own twin already drove, so
+  it now loads a real `RECORDING_TREE` through `RecordingTree.Load` and carries a second
+  recording WITH the key, making the codec's assignment the deciding term. The
+  cross-body terminal-orbit cell hand-passed the loop-synthesis flag as false, which made
+  it the same branch as the non-loop cell beside it; it now COMPUTES the flag through
+  `IsTerminalOrbitSynthesisSafeForLoopMember` the way the map-presence caller does, with
+  a same-body control proving the composition is not constant-false. And the unmanaged
+  crew cell injected no `KerbalsModule` at all, so only the null fallback ran and
+  `IsManaged` was never called: it now injects a real module that manages a different
+  kerbal, with the null-module fallback kept as its own cell.
+
+- **Tests: twenty recording-tree cells from the audit's Medium T3 register (weak or
+  misleading) now turn on the production line their name names.** Ten of them were decided
+  by something other than the guard under test - an empty store, a lone committed record,
+  or an earlier rejection - so deleting that guard left them green: the three degenerate
+  `IsChainMidSegment` cells now face a committed peer at a higher chain index, the
+  chain-end and chain-predecessor cells face an unrelated later recording and a peer at
+  exactly the expected predecessor index, the crew-exclusion cell faces a committed EVA
+  child whose parent id is also empty, the cross-tree debris cell got a resolvable branch
+  point in the OTHER tree so only the tree fence rejects it, the two unfinished-flight
+  cells got rewind points that actually carry a slot for their subject (one of them now
+  also pins the reject REASON, since the old assertion was equally true for a destroyed
+  tip), the ELS pass-through cell got a real supersede relation, and the endpoint cell's
+  orbit segment now ends past the last trajectory point so the persisted phase is the only
+  thing rejecting the orbit fallback. Two cells asserted only a bool where a value was
+  available (the Vector3 / Quaternion parsers now pin the parsed components, so a
+  component swap reds; the crew-replacement save now reads the written pairs back).
+  Two got their missing arm (engine-only and all-zero thrust; a branch point whose SAME-PID
+  child is not the first one, which is the only shape that tells "every child" from "first
+  child"). One sidecar-corruption cell was repurposed: its point count was rejected by the
+  up-front bound gate before the sparse header it was named for was ever read, so it now
+  carries a count of two with one complete sparse point and a truncated second, and asserts
+  the end-of-stream failure plus the surviving point's defaulted body name. One source gate
+  was bounded to the method it guards - run file-wide it was matching a different recorder
+  bind further down the file, so mutating the helper it names changed nothing - and one new
+  gate pins that every direct-forward call site, including the two wrappers that delegate
+  to the predicate, passes an `x.recordingId` stamped on the event rather than re-reading
+  the live tag; a bare parameter spelling is accepted only inside those two wrappers' own
+  bodies, so a local alias that re-resolves at decision time is refused everywhere else.
+  Three cells were renamed to what they prove,
+  each saying in its body what it cannot witness and why (a save-persist seam that
+  short-circuits before the main-menu hard block, a chain-manager cell whose asserted log
+  line is the constructor's, and a suppression cell whose boolean cannot discriminate -
+  its discriminating twin already exists in the same suite). No production code changed and
+  no log text changed; each strengthened cell carries a mutation patch that reds it.
+- **Tests: twelve more priority-2 recording-risk coverage gaps from the unit-test quality
+  audit are closed.** Six rows were new coverage, six were guarded already by cells that
+  landed after the audit was taken, and none is obsolete, so seven new cells landed with no
+  production change. On scene-exit finalization: a recording with no track sections at all
+  is proved to reseed its first predicted tail segment from the latest in-window flat
+  trajectory point, a fallback no fixture reached because the only section-less fixture
+  fails at anchor-point-missing by design; and a recovered controlled-decoupled child is
+  proved to hand back the segments it extrapolated AND to stamp its terminal orbit from the
+  last of them, so a recovered child cannot ship without ghost / map orbit metadata. On the
+  splitter: an already-mutated closure root whose chain predecessor ends at an
+  env-transition UT rather than the rewind UT is proved to abort the idempotent re-entry
+  instead of replaying the post-split steps against the wrong origin. On the supersede
+  closure: anchored debris is proved to stay out when its branch point is a docking-port
+  separation rather than a breakup or joint break, and when its parent anchor names a
+  recording other than the one being walked - the two gates the committed cells never made
+  load-bearing. On load-time sweep: a pre-Re-Fly anchor snapshot whose session is over is
+  proved to be cleared with its warning and counted in the sweep summary, and the live
+  session's own snapshot is proved to survive. The six already-guarded rows are the
+  committed split's section-annotation drop, the track-section sample-rate formula on both
+  the foreground and background close paths, the subtree walk's iteration cap, the two
+  marker-owned switch-segment narrowing predicates, and the staging load's marker clears;
+  each row's mutant reds a pre-existing cell, so no duplicate cells were written.
 
 - **Tests: twenty career-ledger cells from the audit's T3 (weak or misleading)
   register now let the production term they name decide the verdict.** Each already ran

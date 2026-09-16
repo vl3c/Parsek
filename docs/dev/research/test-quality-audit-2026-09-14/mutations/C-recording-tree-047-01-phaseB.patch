@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 3aa082d2f..bf1c74938 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -2633,9 +2633,6 @@ namespace Parsek
+             // Switch-segment auto-record statics are loaded fresh below from
+             // their dedicated nodes; null here so a pre-feature save (no
+             // serialized markers) leaves both fields cleared.
+-            activeStockActionIntent = null;
+-            activeSwitchSegmentSession = null;
+-
+             LoadStagingList(node, "REWIND_POINTS", "POINT", RewindPoints, RewindPoint.LoadFrom);
+             RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();
+ 

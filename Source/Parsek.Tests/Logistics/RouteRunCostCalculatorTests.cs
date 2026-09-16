@@ -116,19 +116,20 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(2, count);
         }
 
-        // The G1 REGRESSION GUARD: the recovery leg is post-undock, so its
-        // RecordingId is a TREE member but NOT in Route.RecordingIds. The sum is
-        // scoped to the whole source tree, so it must still be counted. Scoping
-        // to Route.RecordingIds would silently return zero on a transport that
-        // flies home after undocking.
+        // Retitled: SumRecoveredCredits takes the scope set as a PARAMETER and reads the
+        // route only for its log context, so the G1 rescoping regression (scoping to
+        // Route.RecordingIds instead of the tree) cannot be introduced at this level and
+        // this cell cannot witness it. What it does pin is that the passed set - not the
+        // route's own member list - is what the sum honours. The G1 claim itself now lives
+        // on the composed cell below, where ResolveTreeRecordingIds builds the scope.
         [Fact]
-        public void RecoveryInTreeButNotRouteMembers_StillCounted()
+        public void SumRecoveredCredits_HonoursThePassedScopeSet_NotRouteMembers()
         {
             var route = MakeKscRoute();
             // Route renders only [root..undock]; the route member set is just the
             // dock-child recording. The fly-home/recover leg "rec-flyhome" is a
             // DIFFERENT recording in the SAME tree, excluded from the route
-            // member set but present in the resolved tree-member id set.
+            // member set but present in the passed tree-member id set.
             route.RecordingIds.Add("rec-dockchild");
 
             var treeMembers = TreeMembers("rec-dockchild", "rec-flyhome");
@@ -140,8 +141,35 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(5400.0, sum, 3);
             Assert.Equal(1, count);
             // Prove the recovery row is NOT in the route member set, so the only
-            // reason it counted is the tree-scoping.
+            // reason it counted is the passed scope set.
             Assert.DoesNotContain("rec-flyhome", route.RecordingIds);
+        }
+
+        // The G1 REGRESSION GUARD, at the level that can actually carry it: the scope is
+        // RESOLVED from the committed tree by ResolveTreeRecordingIds and then handed to
+        // SumRecoveredCredits, exactly as the Compute path composes them. The post-undock
+        // fly-home leg is a tree member and NOT a route member; a resolver that intersected
+        // with Route.RecordingIds would silently return zero for a transport that flies
+        // home after undocking.
+        [Fact]
+        public void RecoveryInTreeButNotRouteMembers_StillCounted_ThroughResolvedScope()
+        {
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeTree("tree-1", "rec-dockchild", "rec-flyhome"));
+            var route = MakeKscRoute(backingTreeId: "tree-1");
+            route.RecordingIds.Add("rec-dockchild"); // creation snapshot left empty: fail-open
+
+            HashSet<string> scope = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
+
+            Assert.Contains("rec-flyhome", scope);
+            Assert.DoesNotContain("rec-flyhome", route.RecordingIds);
+
+            var els = new List<GameAction> { MakeRecoveryRow("rec-flyhome", 5400f) };
+            double sum = RouteRunCostCalculator.SumRecoveredCredits(
+                route, els, scope, out int count);
+
+            Assert.Equal(5400.0, sum, 3);
+            Assert.Equal(1, count);
         }
 
         // catches: cross-tree leakage where a same-named craft's recovery in a

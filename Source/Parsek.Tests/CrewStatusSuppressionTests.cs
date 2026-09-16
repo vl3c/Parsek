@@ -73,9 +73,36 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSuppress_UnmanagedKerbal_ReturnsFalse()
         {
-            // No recordings, no reservations — "Val" is not managed
-            var kerbals = new KerbalsModule();
-            Assert.False(kerbals.IsManaged("Val"));
+            // The module must be PRESENT and simply not manage the queried name: with no
+            // module injected the static call only reaches the `?? false` fallback, so
+            // IsManaged is never consulted and an IsManaged answering true for every name
+            // would keep this green. Jeb is the managed one here, Val is the query.
+            var rec = new Recording
+            {
+                RecordingId = "rec-crew",
+                VesselSnapshot = BuildSnapshotWithCrew("Jeb")
+            };
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { "Jeb", KerbalEndState.Aboard }
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
+            LedgerOrchestrator.SetKerbalsForTesting(kerbals);
+
+            Assert.NotNull(LedgerOrchestrator.Kerbals);
+            Assert.True(kerbals.IsManaged("Jeb"), "Jeb should be managed");
+            Assert.False(kerbals.IsManaged("Val"), "Val should not be managed");
+            Assert.False(GameStateRecorder.ShouldSuppressCrewStatusChange(
+                "Val", suppressFlag: false, isIdentity: false));
+        }
+
+        [Fact]
+        public void ShouldSuppress_NoKerbalsModule_ReturnsFalse()
+        {
+            // The null-module fallback, kept as its own cell: with no module injected the
+            // `?? false` arm decides and nothing is suppressed.
+            Assert.Null(LedgerOrchestrator.Kerbals);
             Assert.False(GameStateRecorder.ShouldSuppressCrewStatusChange(
                 "Val", suppressFlag: false, isIdentity: false));
         }

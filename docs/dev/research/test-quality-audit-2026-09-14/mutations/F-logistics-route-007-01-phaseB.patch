@@ -1,0 +1,31 @@
+diff --git a/Source/Parsek/Logistics/LiveDeliveryWriters.cs b/Source/Parsek/Logistics/LiveDeliveryWriters.cs
+index 02db70701..ce2fe4fd2 100644
+--- a/Source/Parsek/Logistics/LiveDeliveryWriters.cs
++++ b/Source/Parsek/Logistics/LiveDeliveryWriters.cs
+@@ -68,7 +68,7 @@ namespace Parsek.Logistics
+                 // on which branch (loaded vs unloaded) to mutate. See class
+                 // doc on <see cref="isLoaded"/> for why a per-call evaluation
+                 // here would race the probe's snapshot.
+-                if (isLoaded)
++                if (vessel != null && vessel.loaded && !vessel.packed)
+                 {
+                     actual = WriteResourceLoaded(resourceName, amount);
+                 }
+@@ -112,7 +112,7 @@ namespace Parsek.Logistics
+                 $"resource={resourceName} requested={amount.ToString("R", IC)} " +
+                 $"written={actual.ToString("R", IC)} " +
+                 $"tankBefore={tankBefore.ToString("R", IC)} tankAfter={tankAfter.ToString("R", IC)} " +
+-                $"capacity={capacity.ToString("R", IC)} path={(isLoaded ? "loaded" : "unloaded")}");
++                $"capacity={capacity.ToString("R", IC)} path={((vessel != null && vessel.loaded && !vessel.packed) ? "loaded" : "unloaded")}");
+         }
+ 
+         /// <summary>
+@@ -131,7 +131,7 @@ namespace Parsek.Logistics
+             if (string.IsNullOrEmpty(resourceName)) return;
+             try
+             {
+-                if (isLoaded)
++                if (vessel != null && vessel.loaded && !vessel.packed)
+                     ReadResourceTotalsLoaded(resourceName, ref stored, ref capacity);
+                 else
+                     ReadResourceTotalsUnloaded(resourceName, ref stored, ref capacity);

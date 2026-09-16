@@ -80,6 +80,16 @@ namespace Parsek
         /// </summary>
         internal static Func<GameScenes, bool> SafeWritePersistentForTesting;
 
+        /// <summary>
+        /// Test seam: when non-null, <see cref="SafeWritePersistent"/> calls this
+        /// INSIDE its try instead of the live-save step, so a unit test can make the
+        /// save throw and reach the catch. Distinct from
+        /// <see cref="SafeWritePersistentForTesting"/>, which replaces the whole
+        /// method and therefore never enters the try at all. Null in the game: the
+        /// live path is unchanged apart from one null check.
+        /// </summary>
+        internal static Action<GameScenes> PersistentSaveStepForTesting;
+
         internal enum DialogVariant
         {
             /// <summary>No dialog needed - prefix returns true.</summary>
@@ -108,6 +118,7 @@ namespace Parsek
             AutoDiscardIdleForTesting = null;
             AutoDiscardNoOpSwitchSegmentForTesting = null;
             SafeWritePersistentForTesting = null;
+            PersistentSaveStepForTesting = null;
         }
 
         /// <summary>
@@ -545,6 +556,13 @@ namespace Parsek
                         "stale pid mappings may persist into saved scenario state");
                 }
 
+                if (PersistentSaveStepForTesting != null)
+                {
+                    PersistentSaveStepForTesting(destination);
+                    ParsekLog.Info("SceneExit",
+                        $"SafeWritePersistent: persistent.sfs written dest={destination}");
+                    return true;
+                }
                 if (HighLogic.CurrentGame == null)
                 {
                     ParsekLog.Warn("SceneExit",

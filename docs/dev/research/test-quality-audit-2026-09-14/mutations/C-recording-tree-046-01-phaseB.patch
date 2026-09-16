@@ -1,0 +1,21 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..597677bbd 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -2483,16 +2483,6 @@ namespace Parsek
+             // committed-tree restore attempt is concurrently armed. Bypass before the
+             // existing same-id cutoff / pending-only checks so the suppression contract
+             // for original committed recording ids remains unchanged.
+-            if (IsMarkerOwnedSwitchSegmentRecordingId(recordingId))
+-            {
+-                var session = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
+-                ParsekLog.Verbose("RecordingStore",
+-                    $"event persistence not-suppressed reason=marker-owned-switch-segment " +
+-                    $"recId={recordingId} " +
+-                    $"sessionId={(session != null ? session.SessionId.ToString("D", CultureInfo.InvariantCulture) : "<null>")}");
+-                return false;
+-            }
+-
+             if (committedTreeRestoreAttemptEventCutoffs != null
+                 && committedTreeRestoreAttemptEventCutoffs.TryGetValue(
+                     recordingId,

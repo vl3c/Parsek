@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Logistics/RouteBuilder.cs b/Source/Parsek/Logistics/RouteBuilder.cs
+index e5dcd6f83..c994d9ba2 100644
+--- a/Source/Parsek/Logistics/RouteBuilder.cs
++++ b/Source/Parsek/Logistics/RouteBuilder.cs
+@@ -1155,7 +1155,7 @@ namespace Parsek.Logistics
+ 
+         private static string DefaultIdFactory()
+         {
+-            return Guid.NewGuid().ToString("N");
++            return "00000000000000000000000000000001";
+         }
+     }
+ }

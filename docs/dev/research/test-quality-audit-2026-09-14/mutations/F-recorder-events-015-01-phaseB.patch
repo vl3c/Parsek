@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/RecordingTreeRecordCodec.cs
+index d248a92b8..ecd4ef743 100644
+--- a/Source/Parsek/RecordingTreeRecordCodec.cs
++++ b/Source/Parsek/RecordingTreeRecordCodec.cs
+@@ -668,9 +668,6 @@ namespace Parsek
+ 
+             rec.LoopAnchorVesselId = ParseUintOr(recNode, "loopAnchorPid", rec.LoopAnchorVesselId);
+ 
+-            string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
+-            if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
+-                rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
+ 
+             rec.PlaybackEnabled = ParseBoolOr(recNode, "playbackEnabled", rec.PlaybackEnabled);
+             rec.Hidden = ParseBoolOr(recNode, "hidden", rec.Hidden);

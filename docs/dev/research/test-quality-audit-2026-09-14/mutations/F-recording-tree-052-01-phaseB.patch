@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingEndpointResolver.cs b/Source/Parsek/RecordingEndpointResolver.cs
+index 06b87d242..8ec5eb7dc 100644
+--- a/Source/Parsek/RecordingEndpointResolver.cs
++++ b/Source/Parsek/RecordingEndpointResolver.cs
+@@ -203,9 +203,7 @@ namespace Parsek
+             if (traj?.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                 return false;
+ 
+-            if (TryGetPersistedEndpointDecision(traj, out RecordingEndpointPhase phase, out _))
+-                return phase == RecordingEndpointPhase.OrbitSegment;
+-
++            // MUTATION: persisted-phase branch deleted
+             if (TryGetTerminalOrbitAlignedOrbitDecision(traj, out _))
+                 return true;
+ 

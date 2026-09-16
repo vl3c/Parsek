@@ -297,16 +297,27 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("1", payload.GetValue("quantity"));
         }
 
-        // catches: appending clobbering existing STOREDPART children on the
-        // targeted module (the writer appends the built node under STOREDPARTS).
+        // Renamed: the APPEND is done by the test (ConfigNode.AddNode), not by any
+        // production line - WriteInventoryUnloaded, which owns the real append, is private
+        // and needs a live ProtoVessel, so a clobbering append would stay green here. What
+        // this cell can prove is that the node BuildUnloadedStoredPartNode hands back is a
+        // fresh copy carrying the planner's slot and unit count, addressable alongside an
+        // existing sibling. The append itself is in-game coverage
+        // (LogisticsDeliveryRuntimeTests).
         [Fact]
-        public void UnloadedStoredPartNode_AppendsWithoutDisturbingExisting()
+        public void UnloadedStoredPartNode_IsAFreshCopyCarryingTheOverriddenSlotAndUnits()
         {
             ConfigNode mv = MakeInventoryModuleValues(3, 0);
             ConfigNode payload = MakeStoredPartPayload("newPart", 0);
 
             ConfigNode storedParts = mv.GetNode("STOREDPARTS");
-            storedParts.AddNode(LiveDeliveryWriters.BuildUnloadedStoredPartNode(payload, slot: 1, units: 1));
+            ConfigNode built = LiveDeliveryWriters.BuildUnloadedStoredPartNode(payload, slot: 1, units: 1);
+            storedParts.AddNode(built);
+
+            // The built node is a COPY: the recorded payload keeps its origin slot, so a
+            // writer that mutated the manifest in place would corrupt every later slot.
+            Assert.NotSame(payload, built);
+            Assert.Equal("0", payload.GetValue("slotIndex"));
 
             ConfigNode[] nodes = mv.GetNode("STOREDPARTS").GetNodes("STOREDPART");
             Assert.Equal(2, nodes.Length);
@@ -314,6 +325,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("dummyPart", nodes[0].GetValue("partName"));
             Assert.Equal("1", nodes[1].GetValue("slotIndex"));
             Assert.Equal("newPart", nodes[1].GetValue("partName"));
+            Assert.Equal("1", nodes[1].GetValue("quantity"));
         }
 
         // ==================================================================

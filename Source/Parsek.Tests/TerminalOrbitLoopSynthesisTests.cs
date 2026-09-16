@@ -346,17 +346,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveMapPresenceGhostSource_NoSegmentCrossBodyLoopMember_StillRejects()
+        public void ResolveMapPresenceGhostSource_CrossBodyLoopMember_PredicateComputedFlag_StillRejects()
         {
-            // Cross-body loop terminal (181 Mm bug class). Even with the loop-aware caller
-            // passing the flag in, the predicate-driven outer caller would have computed
-            // false, so the resolver receives acceptTerminalOrbitForLoopSynthesis=false.
-            // The relaxed inner gate must not fire.
+            // Cross-body loop terminal (181 Mm bug class). Renamed and rewired: the old
+            // cell hand-passed acceptTerminalOrbitForLoopSynthesis:false, which made it the
+            // same branch as the non-loop cell above and left the cross-body guard itself
+            // unwitnessed. The flag is now COMPUTED the way GhostMapPresence.cs:7067 and
+            // the flight pending-create pass compute it - a loop member (epoch shift live)
+            // AND IsTerminalOrbitSynthesisSafeForLoopMember - so the guard's own body-
+            // comparison is the deciding term. The same-body control below proves the
+            // composition is not constant-false.
             Recording rec = MakeNoSegmentTerminalOrbitRecording(
                 recordingId: "create-loop-cross-body",
                 terminalOrbitBody: "Kerbin",
                 lastPointBody: "Mun");
             InstallAcceptedTailSeed();
+
+            bool isLoopMember = true;
+            bool acceptForCrossBody =
+                isLoopMember && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(rec);
+            Assert.False(acceptForCrossBody);
 
             int cached = -1;
             GhostMapPresence.TrackingStationGhostSource source =
@@ -372,10 +381,34 @@ namespace Parsek.Tests
                     out _,
                     out _,
                     recordingIndex: 1,
-                    // A real loop-aware caller would have predicated this on
-                    // IsTerminalOrbitSynthesisSafeForLoopMember which returns false for
-                    // cross-body. Pass false here to mirror what such a caller would do.
-                    acceptTerminalOrbitForLoopSynthesis: false);
+                    acceptTerminalOrbitForLoopSynthesis: acceptForCrossBody);
+
+            // Control: the identical composition on a SAME-body loop member accepts, so a
+            // guard that answered false for every recording would red here.
+            Recording sameBody = MakeNoSegmentTerminalOrbitRecording(
+                recordingId: "create-loop-same-body-control",
+                terminalOrbitBody: "Kerbin",
+                lastPointBody: "Kerbin");
+            bool acceptForSameBody =
+                isLoopMember && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(sameBody);
+            Assert.True(acceptForSameBody);
+
+            int cachedControl = -1;
+            Assert.Equal(
+                GhostMapPresence.TrackingStationGhostSource.EndpointTail,
+                GhostMapPresence.ResolveMapPresenceGhostSource(
+                    sameBody,
+                    isSuppressed: false,
+                    alreadyMaterialized: false,
+                    currentUT: 600.0,
+                    allowTerminalOrbitFallback: true,
+                    logOperationName: "test-loop-same-body-control",
+                    ref cachedControl,
+                    out _,
+                    out _,
+                    out _,
+                    recordingIndex: 1,
+                    acceptTerminalOrbitForLoopSynthesis: acceptForSameBody));
 
             Assert.NotEqual(GhostMapPresence.TrackingStationGhostSource.EndpointTail, source);
         }

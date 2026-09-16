@@ -1041,6 +1041,75 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SweepOrphanRewindRetirements_LiveTargetMissingRestored_RetainedWithWarn()
+        {
+            // A retirement whose fork recording is still live but whose
+            // RestoredRecordingId no longer resolves is degraded metadata, not
+            // an orphan row: dropping it would un-hide the retired fork with
+            // nothing standing in for the old side it named. The sweep keeps
+            // the row and warns about the dangling restore target.
+            InstallTree("tree_missing_restored",
+                new List<Recording>
+                {
+                    Rec("rec_live_fork", MergeState.CommittedProvisional,
+                        treeId: "tree_missing_restored")
+                },
+                new List<BranchPoint>());
+            var retirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_missing_restored",
+                RecordingId = "rec_live_fork",
+                RestoredRecordingId = "rec_deleted_old_side",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { retirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("rrt_missing_restored",
+                scenario.RecordingRewindRetirements[0].RetirementId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Retained 1 rewind-retirement row(s) "
+                    + "whose restored recording no longer exists"));
+        }
+
+        [Fact]
+        public void SweepOrphanRewindRetirements_LiveTargetLiveRestored_RetainedWithoutWarn()
+        {
+            // Mirror of the row above: when the named old side is still in the
+            // committed store the same retirement is retained WITHOUT the
+            // dangling-restore warning, so the warning above discriminates the
+            // missing-restore shape rather than merely reporting retention.
+            InstallTree("tree_live_restored",
+                new List<Recording>
+                {
+                    Rec("rec_live_fork", MergeState.CommittedProvisional,
+                        treeId: "tree_live_restored"),
+                    Rec("rec_live_old_side", MergeState.CommittedProvisional,
+                        treeId: "tree_live_restored")
+                },
+                new List<BranchPoint>());
+            var retirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_live_restored",
+                RecordingId = "rec_live_fork",
+                RestoredRecordingId = "rec_live_old_side",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { retirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("whose restored recording no longer exists"));
+        }
+
+        [Fact]
         public void LegacyOldSideSweep_DeferredAndDurableForMultiOldSideToImmutableForkShape()
         {
             // Pre-canon-forks saves can carry the multi-old-side-to-one-Immutable
@@ -1992,6 +2061,84 @@ namespace Parsek.Tests
                 l.Contains("[Supersede]")
                 && l.Contains("Self-supersede row rel=rsr_self")
                 && l.Contains("removing"));
+        }
+
+        // ---------- Stray pre-Re-Fly anchor snapshots ---------------------
+
+        // Step 8 backstop: an anchor snapshot whose session id is not the live
+        // marker's belongs to a session that ended (the marker was cleared, or a
+        // different one is armed). The sweep clears it and reports the count in
+        // the summary line. Nothing else in the suite drives the anchor sweep, so
+        // stubbing it out to `return 0` without clearing stayed green while the
+        // bulk PreReFlyAnchor* lists leaked past session end on every load.
+        [Fact]
+        public void LoadTimeSweep_StrayPreReFlyAnchorSnapshot_ClearedWithWarning()
+        {
+            var stray = Rec("rec_stray_anchor", MergeState.Immutable);
+            var source = Rec("rec_anchor_source", MergeState.Immutable);
+            source.Points.Add(new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin" });
+            source.Points.Add(new TrajectoryPoint { ut = 20.0, bodyName = "Kerbin" });
+            // Captured under a session that is over: no marker is armed below.
+            stray.CapturePreReFlyAnchorTrajectoryFrom(source, "sess_dead");
+            Assert.True(stray.HasPreReFlyAnchorTrajectory("sess_dead"));
+
+            InstallTree("tree_1",
+                new List<Recording> { stray, source },
+                new List<BranchPoint>());
+            InstallScenario();
+
+            LoadTimeSweep.Run();
+
+            Recording after = FindRecording("rec_stray_anchor");
+            Assert.NotNull(after);
+            Assert.False(after.HasPreReFlyAnchorTrajectory("sess_dead"));
+            Assert.Null(after.PreReFlyAnchorSessionId);
+            Assert.Null(after.PreReFlyAnchorPoints);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Stray pre-Re-Fly anchor snapshot on rec=rec_stray_anchor")
+                && l.Contains("sess=sess_dead"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Cleared 1 stray pre-Re-Fly anchor snapshot(s) at load time"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("orphanReFlyAnchors=1"));
+        }
+
+        // Mirror direction: the snapshot of the LIVE session is exactly what the
+        // resolver paths read, so the sweep must leave it alone. A sweep that
+        // cleared unconditionally would pass the cell above.
+        [Fact]
+        public void LoadTimeSweep_LiveSessionPreReFlyAnchorSnapshot_Survives()
+        {
+            var active = Rec("rec_active", MergeState.NotCommitted, sessionId: "sess_1",
+                supersedeTarget: "rec_origin");
+            var origin = Rec("rec_origin", MergeState.CommittedProvisional);
+            origin.Points.Add(new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin" });
+            origin.Points.Add(new TrajectoryPoint { ut = 20.0, bodyName = "Kerbin" });
+            active.CapturePreReFlyAnchorTrajectoryFrom(origin, "sess_1");
+
+            InstallTree("tree_1",
+                new List<Recording> { active, origin },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
+                creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
+            var marker = Marker("sess_1", "tree_1", "rec_active", "rec_origin", "rp_1",
+                invokedUt: 500.0);
+            InstallScenario(rps: new List<RewindPoint> { rp }, marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Recording after = FindRecording("rec_active");
+            Assert.NotNull(after);
+            Assert.True(after.HasPreReFlyAnchorTrajectory("sess_1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("orphanReFlyAnchors=0"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("stray pre-Re-Fly anchor snapshot(s) at load time"));
         }
 
         // ---------- Internal helpers --------------------------------------

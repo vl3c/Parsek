@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RouteHarvestCapture.cs b/Source/Parsek/RouteHarvestCapture.cs
+index 7b00bcd80..bbb24caac 100644
+--- a/Source/Parsek/RouteHarvestCapture.cs
++++ b/Source/Parsek/RouteHarvestCapture.cs
+@@ -144,8 +144,8 @@ namespace Parsek
+                 StartTransportResources = startTransportResources,
+                 ActiveConverters = activeConverters,
+                 BodyName = bodyName,
+-                Latitude = latitude,
+-                Longitude = longitude,
++                Latitude = longitude,
++                Longitude = latitude,
+                 Altitude = altitude,
+                 SituationAtOpen = situationAtOpen
+             };

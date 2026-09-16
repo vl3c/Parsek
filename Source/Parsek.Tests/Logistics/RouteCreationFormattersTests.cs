@@ -98,12 +98,15 @@ namespace Parsek.Tests.Logistics
         // -----------------------------------------------------------------
 
         [Fact]
-        public void FormatRejectMessage_AllEnumValuesProduceNonEmptyText()
+        public void FormatRejectMessage_AllEnumValuesProduceDedicatedText()
         {
             // catches: a new RouteAnalysisStatus value being added without a
-            // matching reject-message branch. The default fallback would
-            // render an empty string in the dialog, leaving the player with
-            // no explanation for why the route is not eligible.
+            // matching reject-message branch. Non-emptiness alone cannot catch
+            // that - the switch default returns "Route source is not eligible
+            // (<status>).", which is non-empty, so a status with no branch
+            // passed the old assertion while the player got no real explanation.
+            // Each status must therefore produce copy that is NOT the fallback.
+            const string fallbackPrefix = "Route source is not eligible (";
             foreach (RouteAnalysisStatus status in
                 Enum.GetValues(typeof(RouteAnalysisStatus)))
             {
@@ -111,7 +114,15 @@ namespace Parsek.Tests.Logistics
                 string msg = RouteCreationFormatters.FormatRejectMessage(status);
                 Assert.False(string.IsNullOrEmpty(msg),
                     $"Reject message for {status} should be non-empty");
+                Assert.False(msg.StartsWith(fallbackPrefix, StringComparison.Ordinal),
+                    $"Reject message for {status} fell through to the switch default");
             }
+
+            // Control: the fallback is still reachable, so the check above is a real
+            // discriminator rather than a claim that the default branch is dead.
+            Assert.StartsWith(
+                fallbackPrefix,
+                RouteCreationFormatters.FormatRejectMessage((RouteAnalysisStatus)9999));
         }
 
         [Fact]

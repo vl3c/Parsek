@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Logistics/LiveDeliveryWriters.cs b/Source/Parsek/Logistics/LiveDeliveryWriters.cs
+index 02db70701..844724ec0 100644
+--- a/Source/Parsek/Logistics/LiveDeliveryWriters.cs
++++ b/Source/Parsek/Logistics/LiveDeliveryWriters.cs
+@@ -487,8 +487,6 @@ namespace Parsek.Logistics
+         {
+             ConfigNode storedPartCopy = storedPartSnapshot.CreateCopy();
+             storedPartCopy.name = "STOREDPART";
+-            storedPartCopy.RemoveValues("slotIndex");
+-            storedPartCopy.AddValue("slotIndex", slot.ToString(IC));
+             storedPartCopy.RemoveValues("quantity");
+             storedPartCopy.AddValue("quantity", units.ToString(IC));
+             return storedPartCopy;

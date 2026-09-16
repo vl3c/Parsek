@@ -2204,11 +2204,16 @@ namespace Parsek.Tests
 
             // ...and the COMPOSITION, which is what the name claims. The pair above is only a
             // tripwire: the refresh pass that joins them was never called here, so deleting the
-            // !IsInRelativeFrame condition reintroduced the per-tick create/remove flicker with
-            // both assertions still green.
+            // frame exemption reintroduced the per-tick create/remove flicker with both
+            // assertions still green. The frame flag is DERIVED from the recording's own
+            // TrackSection here, which is what the tracking-station refresh pass does;
+            // RuntimePolicyTests pins the same gate with the flag passed literally.
             Assert.False(
-                GhostMapPresence.ShouldRemoveStateVectorOrbitInRefreshPass(
-                    rec, currentUT, dzAsAltitude, worldVelocityMag, bodyName: "Kerbin"),
+                GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                    inRelativeFrame: GhostMapPresence.IsInRelativeFrame(rec, currentUT),
+                    altitude: dzAsAltitude,
+                    speed: worldVelocityMag,
+                    atmosphereDepth: airlessAtmosphereDepth),
                 "the refresh pass must NOT remove a Relative-frame state-vector ghost: its "
                 + "altitude is anchor-local dz, so the threshold is meaningless and firing it "
                 + "tears the ghost down every tick while the create path re-adds it next tick.");
@@ -2244,11 +2249,15 @@ namespace Parsek.Tests
                 "Absolute frame: alt~0 below threshold legitimately removes "
                 + "the ghost (state-vector subsurface drift case).");
 
-            // The mirror of the Relative cell, through the same refresh-pass composition: the
-            // gate applies ONLY to Relative frames, so the identical numbers DO remove here.
+            // The mirror of the Relative cell, through the same composition and with the frame
+            // flag derived from the recording: the gate applies ONLY to Relative frames, so the
+            // identical numbers DO remove here.
             Assert.True(
-                GhostMapPresence.ShouldRemoveStateVectorOrbitInRefreshPass(
-                    rec, currentUT, altitude: -0.31, speed: 2920.0, bodyName: "Kerbin"),
+                GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                    inRelativeFrame: GhostMapPresence.IsInRelativeFrame(rec, currentUT),
+                    altitude: -0.31,
+                    speed: 2920.0,
+                    atmosphereDepth: 0),
                 "Absolute frame: the refresh pass still evaluates the threshold.");
         }
 

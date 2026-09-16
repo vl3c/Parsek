@@ -200,6 +200,20 @@ namespace Parsek.Tests.Logistics
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
 
+        // The eligibility gate passes (TryResolveEndpoint), but ApplyDelivery's STEP 2
+        // re-resolution finds no live vessel - the EndpointLost-at-delivery shape.
+        private sealed class EligibleButDeliveryLostEnv : IRouteRuntimeEnvironment
+        {
+            public bool IsCareer { get; set; }
+            public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
+            { vessel = null; reason = "no-live-vessels"; return false; }
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
+            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
+            public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
+            public bool RouteHasValidSourcesInErs(Route route) => true;
+        }
+
         private sealed class BlockedEnv : IRouteRuntimeEnvironment
         {
             public bool IsCareer { get; set; }
@@ -665,15 +679,13 @@ namespace Parsek.Tests.Logistics
             Assert.Null(route.PendingRecoveryCreditCycleId);
         }
 
-        // catches: the EndpointLost-at-delivery transition (logistics-recovery-credit
-        // section 5.4) failing to flush the route's last dispatched cycle's credit.
-        // The live-Vessel ApplyDelivery wrapper is not xUnit-reachable, so this
-        // exercises the SAME EmitPendingRecoveryCredit call the EndpointLost path
-        // makes (route still Career-KSC, pending marker set, a real later UT), and
-        // asserts the credit lands exactly once. The call-site wiring at the
-        // EndpointLost transition is verified by reading.
+        // Renamed to name the helper: this cell drives EmitPendingRecoveryCredit DIRECTLY,
+        // so it re-exercises the shared helper (already pinned by
+        // EmitPendingRecoveryCredit_Amount_EqualsSumRecoveredCredits) and cannot witness the
+        // EndpointLost-at-delivery CALL SITE. That wiring now has its own cell below, which
+        // reaches RouteOrchestrator.cs:4246 through a Tick.
         [Fact]
-        public void EndpointLostAtDelivery_FlushCall_EmitsOwedRecoveryCredit()
+        public void EmitPendingRecoveryCreditCall_WithCareerKscPendingMarker_EmitsOwedCreditOnce()
         {
             InstallSourceTree();
             SeedRecoveryRow(Recovered);
@@ -690,6 +702,45 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("cycle-0", credit.RouteCycleId);
             Assert.Equal(1450.0, credit.UT);
             Assert.Single(liveCredits);
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+        }
+
+        // catches: the EndpointLost-at-delivery transition (logistics-recovery-credit
+        // section 5.4) failing to flush the route's last dispatched cycle's credit. Unlike
+        // the direct-call cell above, this one REACHES the call site: the first crossing
+        // arms cycle-0's pending marker, and the second crossing runs against an env whose
+        // delivery-time endpoint re-resolution fails, which is the branch that emits
+        // RouteEndpointLost and then flushes the owed credit before the route goes quiet.
+        [Fact]
+        public void EndpointLostAtDelivery_WiringFlushesTheOwedRecoveryCredit()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            var route = BuildLoopRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+
+            // FIRST crossing: cycle-0 dispatches and arms the pending credit.
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv { IsCareer = true });
+            Assert.Empty(Credits());
+            Assert.Equal("cycle-0", route.PendingRecoveryCreditCycleId);
+
+            // SECOND crossing: the real delivery path runs and loses the endpoint.
+            RouteOrchestrator.DeliveryApplierForTesting = null;
+            RouteOrchestrator.Tick(1450.0, new EligibleButDeliveryLostEnv { IsCareer = true });
+
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteEndpointLost);
+            Assert.Equal(RouteStatus.EndpointLost, route.Status);
+
+            // Two credits land on this tick and only the SECOND is this row's subject:
+            // cycle-0's is the ordinary top-of-EmitLoopCycle deferral flush, while cycle-1
+            // was armed by THIS crossing and can only be flushed by the endpoint-lost tail -
+            // the route goes quiet straight after, so no later crossing could pay it.
+            Assert.Equal(2, Credits().Count);
+            Assert.Contains(Credits(), c => c.RouteCycleId == "cycle-0" && c.UT == 1450.0);
+            var lostFlush = Assert.Single(Credits().Where(c => c.RouteCycleId == "cycle-1"));
+            Assert.Equal(1450.0, lostFlush.UT);
             Assert.Null(route.PendingRecoveryCreditCycleId);
         }
 

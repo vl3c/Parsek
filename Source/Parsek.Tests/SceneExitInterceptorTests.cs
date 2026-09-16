@@ -486,12 +486,66 @@ namespace Parsek.Tests
             Assert.Equal(GameScenes.MAINMENU, capturedDest);
         }
 
+        // NAME SCOPE (audit F-recording-tree-042-04): the test seam
+        // short-circuits BEFORE the try block, so the MAINMENU-specific
+        // hard-block catch (Error log + save-failed popup + false) is never
+        // reached here. This cell pins seam passthrough for a MAINMENU
+        // destination and nothing more; the hard-block contract has no
+        // headless test and needs a failure seam inside the try to get one.
         [Fact]
-        public void SafeWritePersistent_TestSeam_FailureOnMainMenu_ReturnsFalse()
+        public void SafeWritePersistent_TestSeamPassthrough_MainMenuDestination_ReturnsSeamValue()
         {
-            SceneExitInterceptor.SafeWritePersistentForTesting = _ => false;
+            GameScenes? capturedDest = null;
+            SceneExitInterceptor.SafeWritePersistentForTesting = dest =>
+            {
+                capturedDest = dest;
+                return false;
+            };
             bool result = SceneExitInterceptor.SafeWritePersistent(GameScenes.MAINMENU);
             Assert.False(result);
+            // The destination reaches the seam unchanged - that is the whole
+            // observable this cell owns.
+            Assert.Equal(GameScenes.MAINMENU, capturedDest);
+        }
+
+        [Fact]
+        public void SafeWritePersistent_SaveThrowsOnMainMenu_HardBlocksTransition()
+        {
+            // Drive the REAL body (not the whole-method seam) with the save step
+            // throwing, so the catch runs. MAINMENU is the one destination with no
+            // later save before unload, so the only correct answer is to refuse the
+            // transition; the whole-method seam cells never enter the try.
+            SceneExitInterceptor.PersistentSaveStepForTesting =
+                _ => throw new IOException("save volume is full");
+
+            bool result = SceneExitInterceptor.SafeWritePersistent(GameScenes.MAINMENU);
+
+            Assert.False(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SceneExit]")
+                && l.Contains("SafeWritePersistent threw IOException: save volume is full")
+                && l.Contains("dest=MAINMENU")
+                && l.Contains("hard-blocking transition"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("persistent.sfs written"));
+        }
+
+        [Fact]
+        public void SafeWritePersistent_SaveThrowsOnSpaceCenter_ContinuesTransition()
+        {
+            // Mirror: every other destination still has a save cycle ahead of it, so
+            // the same throw is a Warn and the transition proceeds.
+            SceneExitInterceptor.PersistentSaveStepForTesting =
+                _ => throw new IOException("save volume is full");
+
+            bool result = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
+
+            Assert.True(result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SceneExit]")
+                && l.Contains("SafeWritePersistent threw IOException: save volume is full")
+                && l.Contains("dest=SPACECENTER")
+                && l.Contains("continuing transition"));
         }
 
         [Fact]

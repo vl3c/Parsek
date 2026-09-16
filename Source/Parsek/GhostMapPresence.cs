@@ -4068,29 +4068,29 @@ namespace Parsek
             return altitude > minAltitude && speed > StateVectorCreateSpeed;
         }
 
-        /// <summary>
-        /// The tracking-station refresh pass's state-vector removal decision, extracted from
-        /// RefreshTrackingStationGhosts so the composition is testable without a scene: a
-        /// Relative-frame point is NEVER removed on the altitude/speed threshold (its
-        /// <c>altitude</c> is anchor-local dz, not geographic altitude, so the threshold is
-        /// meaningless and firing it tears the ghost down every refresh tick while the create
-        /// path re-adds it next tick - the #556 flicker); an Absolute-frame point is evaluated
-        /// normally. Byte-identical to the inline short-circuit it replaces: the atmosphere
-        /// lookup still runs only on the non-Relative arm.
-        /// </summary>
-        internal static bool ShouldRemoveStateVectorOrbitInRefreshPass(
-            Recording rec, double effUT, double altitude, double speed, string bodyName)
-        {
-            if (IsInRelativeFrame(rec, effUT))
-                return false;
-            return ShouldRemoveStateVectorOrbit(altitude, speed, GetAtmosphereDepth(bodyName));
-        }
-
         internal static bool ShouldRemoveStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
             if (atmosphereDepth > 0 && altitude < atmosphereDepth)
                 return true;
             return altitude < StateVectorRemoveAltitude || speed < StateVectorRemoveSpeed;
+        }
+
+        /// <summary>
+        /// Frame-aware form of <see cref="ShouldRemoveStateVectorOrbit"/>: a
+        /// Relative-frame point never trips the removal threshold. In a Relative
+        /// section a <c>TrajectoryPoint.altitude</c> is the anchor-local dz in metres,
+        /// not a geographic altitude, so feeding it to the threshold reads a vessel
+        /// flying centimetres from its anchor as a vessel at ground level and tears the
+        /// ghost down every cycle while the create path re-adds it (#547 P1). Both
+        /// state-vector removal call sites - the tracking-station refresh pass and the
+        /// flight-scene policy pass - go through here so the bypass cannot drift apart.
+        /// </summary>
+        internal static bool ShouldRemoveStateVectorOrbitForFrame(
+            bool inRelativeFrame, double altitude, double speed, double atmosphereDepth)
+        {
+            if (inRelativeFrame)
+                return false;
+            return ShouldRemoveStateVectorOrbit(altitude, speed, atmosphereDepth);
         }
 
         internal static double GetAtmosphereDepth(string bodyName)
@@ -7196,12 +7196,17 @@ namespace Parsek
                     // UpdateGhostOrbitFromStateVectors already dispatches on
                     // referenceFrame and resolves world position via the
                     // anchor for that branch.
-                    if (ShouldRemoveStateVectorOrbitInRefreshPass(
-                        rec,
-                        effUT,
+                    bool inRelativeFrame = IsInRelativeFrame(rec, effUT);
+                    // The atmosphere read stays behind the frame check: it touches
+                    // FlightGlobals, which a Relative-frame point must not pay for.
+                    double atmosphereDepth = inRelativeFrame
+                        ? 0.0
+                        : GetAtmosphereDepth(pt.Value.bodyName);
+                    if (ShouldRemoveStateVectorOrbitForFrame(
+                        inRelativeFrame,
                         pt.Value.altitude,
                         pt.Value.velocity.magnitude,
-                        pt.Value.bodyName))
+                        atmosphereDepth))
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, "below-state-vector-threshold"));
@@ -13012,19 +13017,21 @@ namespace Parsek
                     // `referenceFrame` and resolves the world position via
                     // anchor + offset for that branch.
                     bool inRelativeFrame = GhostMapPresence.IsInRelativeFrame(traj, effUT);
-                    if (!inRelativeFrame)
+                    // Same laziness as the tracking-station pass: no FlightGlobals read
+                    // for a Relative-frame point.
+                    double atmosRemove = inRelativeFrame
+                        ? 0.0
+                        : GhostMapPresence.GetAtmosphereDepth(pt.Value.bodyName);
+                    if (GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                        inRelativeFrame, pt.Value.altitude, pt.Value.velocity.magnitude, atmosRemove))
                     {
-                        double atmosRemove = GhostMapPresence.GetAtmosphereDepth(pt.Value.bodyName);
-                        if (GhostMapPresence.ShouldRemoveStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosRemove))
-                        {
-                            GhostMapPresence.RemoveGhostVesselForRecording(idx, "below-state-vector-threshold");
-                            if (toReDefer == null) toReDefer = new List<int>();
-                            toReDefer.Add(idx);
-                            ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
-                                "Removed state-vector ghost map vessel for #{0} — alt={1:F0} speed={2:F1} below threshold",
-                                idx, pt.Value.altitude, pt.Value.velocity.magnitude));
-                            continue;
-                        }
+                        GhostMapPresence.RemoveGhostVesselForRecording(idx, "below-state-vector-threshold");
+                        if (toReDefer == null) toReDefer = new List<int>();
+                        toReDefer.Add(idx);
+                        ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                            "Removed state-vector ghost map vessel for #{0} — alt={1:F0} speed={2:F1} below threshold",
+                            idx, pt.Value.altitude, pt.Value.velocity.magnitude));
+                        continue;
                     }
 
                     if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, effUT,
