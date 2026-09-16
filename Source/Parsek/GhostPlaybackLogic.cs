@@ -3572,11 +3572,29 @@ namespace Parsek
                     StopLoopedGhostAudio(info, "muted");
                 return true;
             }
-            if (ReferenceEquals(info.audioSource, null)) return true;
-
-            if (enforcePlaybackCap)
+            if (ShouldEnforceLoopedAudioPlaybackCap(
+                    hasAudioSource: !ReferenceEquals(info.audioSource, null),
+                    enforcePlaybackCap: enforcePlaybackCap))
+            {
                 EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
+            }
             return true;
+        }
+
+        /// <summary>
+        /// Whether a <see cref="SetEngineAudio"/> call that reached the play/stop stage should
+        /// run the looped-audio playback cap. BOTH terms are required: a ghost part with no
+        /// AudioSource has nothing to cap, and a DEFERRED batch member passes
+        /// <c>enforcePlaybackCap: false</c> so the cap runs once after the batch instead of on
+        /// every member. Extracted from the two guards it replaces (byte-identical: the old
+        /// null-source early return did nothing but skip this cap) so the flag is testable
+        /// headlessly - an AudioGhostInfo cannot carry a Unity AudioSource in xUnit, which is
+        /// why the flag used to be unreachable from any cell.
+        /// </summary>
+        internal static bool ShouldEnforceLoopedAudioPlaybackCap(
+            bool hasAudioSource, bool enforcePlaybackCap)
+        {
+            return hasAudioSource && enforcePlaybackCap;
         }
 
         internal static bool CanStartLoopedGhostAudio(bool sourceExists, bool sourceIsActiveAndEnabled)
@@ -5479,8 +5497,7 @@ namespace Parsek
                     // the one family where the deflection and the rate share a sign — the wheels
                     // point INTO the turn — so the two negations cancel. Shared clamp/deadband/NaN
                     // handling is worth the one confusing sign.
-                    float targetSteering = ComputeSynthDeflectionDegrees(
-                        -steeringHeadingRate, WheelSteeringGainDegPerDegPerSec, MaxWheelSteeringDegrees);
+                    float targetSteering = ComputeTargetWheelSteeringDegrees(steeringHeadingRate);
                     info.steeringAngleDegrees = SlewTowardDegrees(
                         info.steeringAngleDegrees, targetSteering,
                         WheelSteeringSlewDegPerSec, deltaSeconds);
@@ -5494,6 +5511,21 @@ namespace Parsek
 
                 info.lastUpdateUT = currentUT;
             }
+        }
+
+        /// <summary>
+        /// The wheel-caliper target angle for a ground-track heading rate. Extracted from the
+        /// ghost wheel-steering drive so the CALLER-SIDE negate is testable without a servo
+        /// transform: the rate is negated on the way in because
+        /// <see cref="ComputeSynthDeflectionDegrees"/> inverts (a control deflection OPPOSES the
+        /// body rate it produced), and steering is the one family where deflection and rate share
+        /// a sign - the wheels point INTO the turn - so the two negations cancel. Byte-identical
+        /// to the inline expression it replaces.
+        /// </summary>
+        internal static float ComputeTargetWheelSteeringDegrees(float headingRateDegPerSec)
+        {
+            return ComputeSynthDeflectionDegrees(
+                -headingRateDegPerSec, WheelSteeringGainDegPerDegPerSec, MaxWheelSteeringDegrees);
         }
 
         /// <summary>Degrees of caliper angle per deg/s of ground-track heading change.</summary>

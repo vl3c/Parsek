@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.SpanClock.cs b/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
+index cf957a81a..1833a45d1 100644
+--- a/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
++++ b/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
+@@ -1558,7 +1558,7 @@ namespace Parsek
+                 {
+                     // (a) ALIGNED loop, region B: OLD single-output early-launch flip (byte-identical). The single
+                     // output becomes the next instance N+1's early launch in this cycle's parked idle tail.
+-                    cycleIndex += 1;
++                    // MUTANT: the region-B early-launch cycle bump is dropped.
+                     phaseFromLaunch = phaseInCycle - (cycleDuration - advNext);
+                     effectiveLaunchAdvance = advNext;
+                     soiExitPhasePos = !double.IsNaN(soiExitAtUT)

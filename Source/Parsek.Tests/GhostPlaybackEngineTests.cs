@@ -3162,8 +3162,15 @@ namespace Parsek.Tests
 
         #region CaptureGhostObservability
 
+        // What this cell actually proves is the VISUALS GATE, not counting:
+        // CountPrimaryGhostForObservability / CountOverlapGhostForObservability early-return
+        // on HasLoadedGhostVisuals, which requires state.ghost (a Unity GameObject) and can
+        // never be satisfied in headless xUnit, so every populated state below is gated out
+        // and every field is 0. The name used to promise counts; the counting arithmetic is
+        // exercised directly by CountFxForObservability_SumsModulesAndParticleSystems below,
+        // and the positive end-to-end case belongs to the in-game GhostPlayback category.
         [Fact]
-        public void CaptureGhostObservability_CountsPrimaryOverlapAndFxInstances()
+        public void CaptureGhostObservability_StatesWithoutLoadedVisuals_CountNothing()
         {
             var engine = new GhostPlaybackEngine(null);
             engine.ghostStates[0] = new GhostPlaybackState
@@ -3236,6 +3243,78 @@ namespace Parsek.Tests
             Assert.Equal(0, result.activeOverlapGhostCount);
             Assert.Equal(0, result.zone1GhostCount);
             Assert.Equal(0, result.zone2GhostCount);
+            Assert.Equal(0, result.ghostsWithEngineFx);
+            Assert.Equal(0, result.engineModuleCount);
+            Assert.Equal(0, result.engineParticleSystemCount);
+            Assert.Equal(0, result.ghostsWithRcsFx);
+            Assert.Equal(0, result.rcsModuleCount);
+            Assert.Equal(0, result.rcsParticleSystemCount);
+        }
+
+        // The counting arithmetic the two cells above cannot reach (their states are gated
+        // out by HasLoadedGhostVisuals). CountFxForObservability is the shared body both
+        // per-ghost counters call once the gate passes, so driving it directly pins the
+        // per-ghost flags, the module tallies and the particle-system sums, including the
+        // "a module with zero particle systems still counts as a module" case.
+        [Fact]
+        public void CountFxForObservability_SumsModulesAndParticleSystems()
+        {
+            var state = new GhostPlaybackState
+            {
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                {
+                    [1] = BuildEngineGhostInfo(2),
+                    [2] = BuildEngineGhostInfo(1),
+                },
+                rcsInfos = new Dictionary<ulong, RcsGhostInfo>
+                {
+                    [3] = BuildRcsGhostInfo(3),
+                    [4] = BuildRcsGhostInfo(0),
+                },
+            };
+
+            GhostObservability result = default(GhostObservability);
+            GhostPlaybackEngine.CountFxForObservability(state, ref result);
+
+            Assert.Equal(1, result.ghostsWithEngineFx);
+            Assert.Equal(2, result.engineModuleCount);
+            Assert.Equal(3, result.engineParticleSystemCount);
+            Assert.Equal(1, result.ghostsWithRcsFx);
+            Assert.Equal(2, result.rcsModuleCount);
+            Assert.Equal(3, result.rcsParticleSystemCount);
+
+            // A SECOND ghost accumulates into the same result (the per-ghost flags count
+            // ghosts, the module/particle tallies accumulate across them).
+            var second = new GhostPlaybackState
+            {
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                {
+                    [5] = BuildEngineGhostInfo(4),
+                },
+            };
+            GhostPlaybackEngine.CountFxForObservability(second, ref result);
+
+            Assert.Equal(2, result.ghostsWithEngineFx);
+            Assert.Equal(3, result.engineModuleCount);
+            Assert.Equal(7, result.engineParticleSystemCount);
+            Assert.Equal(1, result.ghostsWithRcsFx); // unchanged: no RCS on the second ghost
+            Assert.Equal(2, result.rcsModuleCount);
+            Assert.Equal(3, result.rcsParticleSystemCount);
+        }
+
+        // Null / empty FX maps contribute nothing and do not raise the per-ghost flags.
+        [Fact]
+        public void CountFxForObservability_NullAndEmptyMaps_ContributeNothing()
+        {
+            var state = new GhostPlaybackState
+            {
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>(),
+                rcsInfos = null,
+            };
+
+            GhostObservability result = default(GhostObservability);
+            GhostPlaybackEngine.CountFxForObservability(state, ref result);
+
             Assert.Equal(0, result.ghostsWithEngineFx);
             Assert.Equal(0, result.engineModuleCount);
             Assert.Equal(0, result.engineParticleSystemCount);
@@ -6752,15 +6831,27 @@ namespace Parsek.Tests
         {
             // There is NO pad absence under borrow-repay: sweep across cycles and assert the watch resolver
             // always resolves an in-span loopUT (>= spanStart), never below the span.
+            //
+            // The resolved COUNT is asserted too. The in-span bound sits inside if (resolved), so a
+            // resolver that stopped resolving at every swept UT - the same inert-resolver state the
+            // NoUnits / BeforeSpanStart siblings model as real - would run the loop body zero times
+            // and leave this cell green: "never absent" and "never resolved" were indistinguishable.
             var engine = new GhostPlaybackEngine(null);
             engine.SetLoopUnits(BuildLaunchHoldUnit(0));
+            int swept = 0, resolvedCount = 0;
             for (double t = LhAnchor; t <= LhAnchor + 4.0 * LhCad; t += 23.0)
             {
+                swept++;
                 bool resolved = engine.TryResolveUnitMemberPlaybackUT(
                     0, currentUT: t, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
                 if (resolved)
+                {
+                    resolvedCount++;
                     Assert.True(watchUT >= LhS0 - 1e-6, $"t={t} watchUT {watchUT} below spanStart (pad absence)");
+                }
             }
+            Assert.True(swept > 0, "the sweep must visit at least one currentUT");
+            Assert.Equal(swept, resolvedCount);
         }
 
         #endregion

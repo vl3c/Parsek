@@ -1,0 +1,23 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 4068c7e92..2cc8a53a7 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -19796,8 +19796,6 @@ namespace Parsek
+ 
+         public void DestroyAllTimelineGhosts()
+         {
+-            ExitWatchModeBeforeTimelineGhostCleanup("DestroyAllTimelineGhosts");
+-
+             // Remove ghost map ProtoVessels before engine cleanup
+             GhostMapPresence.RemoveAllGhostVessels("rewind");
+ 
+@@ -19805,6 +19803,9 @@ namespace Parsek
+             // Fires OnAllGhostsDestroying so policy clears its own state.
+             engine.DestroyAllGhosts();
+ 
++            // MUTANT: the watch-mode exit now runs AFTER the ghosts are destroyed.
++            ExitWatchModeBeforeTimelineGhostCleanup("DestroyAllTimelineGhosts");
++
+             // Clear ParsekFlight-local state (positioning, proximity, diagnostics)
+             ClearOrbitPlaybackCaches();
+             loggedOrbitSegments.Clear();

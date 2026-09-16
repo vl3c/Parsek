@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GhostPlaybackEngine.cs b/Source/Parsek/GhostPlaybackEngine.cs
+index edebbab22..614116ad6 100644
+--- a/Source/Parsek/GhostPlaybackEngine.cs
++++ b/Source/Parsek/GhostPlaybackEngine.cs
+@@ -377,6 +377,10 @@ namespace Parsek
+             loopUT = currentUT;
+             if (!currentLoopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit))
+                 return false;
++            // MUTANT: the resolver goes inert on a launch-aligned unit past the third cycle.
++            if (unit.LaunchHoldEngaged
++                && currentUT > unit.PhaseAnchorUT + 3.0 * unit.OverlapCadenceSeconds)
++                return false;
+ 
+             // Interval-level start/end trim: track this member's trimmed render window (falls back
+             // to the passed recording bounds when untrimmed), so the watch camera follows the same

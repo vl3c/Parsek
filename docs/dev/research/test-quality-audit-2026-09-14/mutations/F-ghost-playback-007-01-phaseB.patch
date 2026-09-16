@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs b/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+index d116e3973..626e1b5c4 100644
+--- a/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
++++ b/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+@@ -2167,7 +2167,9 @@ namespace Parsek.Display
+             Vector3d an = a / am, bn = b / bm;
+             double cross = Vector3d.Cross(an, bn).magnitude;
+             double dot = Vector3d.Dot(an, bn);
+-            return System.Math.Atan2(cross, dot);
++            double ang = System.Math.Atan2(cross, dot);
++            // MUTANT: near-meet seams are snapped to zero (treated as already meeting the conic).
++            return ang < 0.15 ? 0.0 : ang;
+         }
+ 
+         /// <summary>How the decide-side gate treats a seam given its leg-to-conic angle.</summary>

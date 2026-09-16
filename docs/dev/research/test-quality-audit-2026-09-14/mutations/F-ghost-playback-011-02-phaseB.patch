@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/WatchModeController.Diagnostics.cs b/Source/Parsek/WatchModeController.Diagnostics.cs
+index bb5880d66..6289e7b57 100644
+--- a/Source/Parsek/WatchModeController.Diagnostics.cs
++++ b/Source/Parsek/WatchModeController.Diagnostics.cs
+@@ -157,11 +157,8 @@ namespace Parsek
+             bool hasMapObject,
+             bool hasPlanetariumCamera)
+         {
+-            return ClassifyMapFocusRestore(
+-                ghostPid,
+-                hasGhostVessel,
+-                hasMapObject,
+-                hasPlanetariumCamera) == "ready";
++            // MUTANT: the predicate is stuck at false; map-focus restore never fires.
++            return false;
+         }
+ 
+         internal static string ClassifyMapFocusRestore(

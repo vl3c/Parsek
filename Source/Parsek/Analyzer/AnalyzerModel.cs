@@ -211,10 +211,11 @@ namespace Parsek.Analyzer
         /// Note these are not the only rules that touch the filesystem: INV10
         /// round-trips the trajectory codec through a SCRATCH temp file (its own,
         /// never save-scoped, so it does not read this field). The core-purity gate
-        /// (InvariantRegistryTests.CorePurity_AllRules_RunOverInMemoryModel_WithoutFileAccess)
-        /// therefore asserts NO RULE THROWS over an in-memory model (SaveDirectory
-        /// null), NOT that no rule performs any file I/O -- a rule may touch scratch
-        /// files as long as it stays exception-safe when the model carries no save.
+        /// (InvariantRegistryTests.CorePurity_AllRules_NullSaveDirectory_DoNotThrow_AndProbeNoSaveFiles)
+        /// therefore asserts that no rule THROWS over an in-memory model (SaveDirectory
+        /// null) and that none of them derives a finding from a SAVE-scoped file, NOT
+        /// that no rule performs any file I/O -- a rule may touch scratch files as long
+        /// as it stays exception-safe when the model carries no save.
         /// </summary>
         public string SaveDirectory { get; set; }
 

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/Recording.cs b/Source/Parsek/Recording.cs
+index b7ecce655..c8039b0db 100644
+--- a/Source/Parsek/Recording.cs
++++ b/Source/Parsek/Recording.cs
+@@ -1437,7 +1437,8 @@ namespace Parsek
+         // through the table UI's BulkSetLoopPlayback (which skips non-loopable
+         // rows) still surfaces as a false at the engine boundary, so
+         // GhostPlaybackEngine.ShouldLoopPlayback(traj) can remain debris-naive.
+-        bool IPlaybackTrajectory.LoopPlayback => !IsDebris && LoopPlayback;
++        // MUTANT: the debris mask is dropped from the playback forwarder.
++        bool IPlaybackTrajectory.LoopPlayback => LoopPlayback;
+         double IPlaybackTrajectory.LoopIntervalSeconds => LoopIntervalSeconds;
+         LoopTimeUnit IPlaybackTrajectory.LoopTimeUnit => LoopTimeUnit;
+         uint IPlaybackTrajectory.LoopAnchorVesselId => LoopAnchorVesselId;

@@ -439,16 +439,16 @@ namespace Parsek.Tests
             Assert.Equal(0f, info.currentPower);
         }
 
+        // Renamed from ...WithoutEnforcingPlaybackCap: the cap half was unwitnessable here.
+        // Every AudioGhostInfo in an xUnit fixture has a null audioSource (an AudioSource needs a
+        // Unity GameObject), so SetEngineAudio never reaches the cap gate for ANY info in this
+        // file and an enforceCount of 0 was satisfied with the paused branch deleted. The
+        // injected override and its count assertion are dropped as inert; the cap flag itself is
+        // pinned by ShouldEnforceLoopedAudioPlaybackCap_RequiresBothASourceAndTheFlag below, and
+        // the play/stop side of the paused branch belongs to the in-game GhostPlayback category.
         [Fact]
-        public void SetEngineAudio_PausedTracksLatestPowerWithoutEnforcingPlaybackCap()
+        public void SetEngineAudio_Paused_TracksLatestPowerAndReturnsHandled()
         {
-            int enforceCount = 0;
-            GhostPlaybackLogic.EnforceLoopedAudioPlaybackCapOverrideForTesting = _ =>
-            {
-                enforceCount++;
-                return true;
-            };
-
             ulong key = FlightRecorder.EncodeEngineKey(42, 1);
             var info = new AudioGhostInfo
             {
@@ -471,7 +471,30 @@ namespace Parsek.Tests
                 power: 0f));
 
             Assert.Equal(0f, info.currentPower);
-            Assert.Equal(0, enforceCount);
+
+            // Paused tracks a POSITIVE power too, so unmute/resume restores the real state.
+            Assert.True(GhostPlaybackLogic.SetEngineAudio(
+                state,
+                new PartEvent { partPersistentId = 42, moduleIndex = 1 },
+                power: 0.75f));
+            Assert.Equal(0.75f, info.currentPower);
+        }
+
+        // The playback-cap gate SetEngineAudio consults once it reaches the play/stop stage.
+        // Both terms are load-bearing and neither is reachable through SetEngineAudio headlessly:
+        // a deferred batch member passes enforcePlaybackCap:false so the cap runs once after the
+        // batch, and a part with no AudioSource has nothing to cap.
+        [Fact]
+        public void ShouldEnforceLoopedAudioPlaybackCap_RequiresBothASourceAndTheFlag()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap(
+                hasAudioSource: true, enforcePlaybackCap: true));
+            Assert.False(GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap(
+                hasAudioSource: true, enforcePlaybackCap: false));
+            Assert.False(GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap(
+                hasAudioSource: false, enforcePlaybackCap: true));
+            Assert.False(GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap(
+                hasAudioSource: false, enforcePlaybackCap: false));
         }
 
         [Fact]
@@ -498,8 +521,15 @@ namespace Parsek.Tests
             Assert.Empty(GhostPlaybackLogic.CollectDeferredAudioPowerRestores(state));
         }
 
+        // Renamed from ...DeferredPlaybackCapEnforcesOnceAfterBatch. The enforceCount==0 half was
+        // satisfied by the null-audioSource gate rather than by enforcePlaybackCap:false (see the
+        // ceiling note above), and the enforceCount==1 half only re-checks that the explicit
+        // EnforceLoopedAudioPlaybackCapWithTestingOverride call routes through the injected
+        // delegate - which is worth keeping, but is a seam check, not the deferred-cap contract.
+        // What the batch really proves is that the per-member power writes drive the post-batch
+        // active selection, so the name says that.
         [Fact]
-        public void SetEngineAudio_DeferredPlaybackCapEnforcesOnceAfterBatch()
+        public void SetEngineAudio_PowerBatch_DrivesTheActiveSelection()
         {
             int enforceCount = 0;
             GhostPlaybackLogic.EnforceLoopedAudioPlaybackCapOverrideForTesting = _ =>
@@ -552,9 +582,17 @@ namespace Parsek.Tests
                     enforcePlaybackCap: false));
             }
 
+            // Seam check only: the explicit call routes through the injected override.
             Assert.Equal(0, enforceCount);
             GhostPlaybackLogic.EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
             Assert.Equal(1, enforceCount);
+
+            // The batch really did write each member's power: the first four back to 0, the last
+            // four to 1. This is what the selection below reads.
+            for (int i = 0; i < 4; i++)
+                Assert.Equal(0f, infos[i].currentPower);
+            for (int i = 4; i < 8; i++)
+                Assert.Equal(1f, infos[i].currentPower);
 
             var selected = GhostPlaybackLogic.SelectHighestPriorityActiveLoopedGhostAudioSources(
                 new List<AudioGhostInfo>(state.audioInfos.Values),

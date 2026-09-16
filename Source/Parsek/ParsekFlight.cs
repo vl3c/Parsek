@@ -8903,6 +8903,21 @@ namespace Parsek
             return PostSwitchAutoRecordSuppressionReason.None;
         }
 
+        /// <summary>
+        /// The post-switch module-cache INVALIDATION signal: the caches are stale when a
+        /// module edit marked them dirty, or when the vessel part count no longer matches
+        /// the count the caches were built from (undock / decouple / EVA). Extracted from
+        /// <c>EvaluatePostSwitchAutoRecordTrigger</c> so the derivation itself is testable
+        /// without a live Vessel; the call site is byte-identical to the inline expression.
+        /// </summary>
+        internal static bool NeedsPostSwitchModuleCacheRefresh(
+            bool moduleCachesDirty,
+            int cachedPartCount,
+            int currentPartCount)
+        {
+            return moduleCachesDirty || cachedPartCount != currentPartCount;
+        }
+
         internal static bool ShouldEvaluatePostSwitchManifestDiff(
             double currentUT,
             double nextManifestEvaluationUt,
@@ -10409,8 +10424,8 @@ namespace Parsek
             double currentUT)
         {
             int currentPartCount = v != null && v.parts != null ? v.parts.Count : 0;
-            bool needsCacheRefresh =
-                state.ModuleCachesDirty || state.CachedPartCount != currentPartCount;
+            bool needsCacheRefresh = NeedsPostSwitchModuleCacheRefresh(
+                state.ModuleCachesDirty, state.CachedPartCount, currentPartCount);
             bool evaluateManifestDiff = ShouldEvaluatePostSwitchManifestDiff(
                 currentUT,
                 state.NextManifestEvaluationUt,

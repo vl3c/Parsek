@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/GhostPlaybackEngine.cs b/Source/Parsek/GhostPlaybackEngine.cs
+index edebbab22..2d3d261ff 100644
+--- a/Source/Parsek/GhostPlaybackEngine.cs
++++ b/Source/Parsek/GhostPlaybackEngine.cs
+@@ -6489,10 +6489,7 @@ namespace Parsek
+                 if (info == null) continue;
+ 
+                 moduleCount++;
+-                if (info is EngineGhostInfo engineInfo)
+-                    particleSystemCount += engineInfo.particleSystems?.Count ?? 0;
+-                else if (info is RcsGhostInfo rcsInfo)
+-                    particleSystemCount += rcsInfo.particleSystems?.Count ?? 0;
++                // MUTANT: the per-module particle-system sum is dropped.
+             }
+ 
+             return moduleCount;

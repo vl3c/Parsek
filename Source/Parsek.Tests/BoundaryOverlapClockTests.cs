@@ -236,12 +236,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AlignedLoop_NeverHasSecondary_PrimaryByteIdenticalToCapHelper()
+        public void AlignedLoop_NeverHasSecondary_AndRegionBStillFlipsThePrimaryToNextInstance()
         {
-            // The byte-identity fence for invariant 2: on the ALIGNED fixture the boundary overlap NEVER engages,
-            // so HasSecondary is always false AND the primary loopUT equals the loopUT computed with the OLD capped
-            // advance (the LaunchHoldClockTests fixture already pins the capped-advance clock, so equality here
-            // proves the dual-clock change did not perturb the aligned-loop primary).
+            // Invariant 2 (regime (a), "byte-identical to today") has TWO halves and the sweep below only sees
+            // the first: on the ALIGNED fixture the boundary overlap never engages, so HasSecondary is always
+            // false, AND the OLD single-output region-B flip must still fire - inside the borrow window
+            // (phaseInCycle >= cadence - advNext) the PRIMARY becomes the next instance N+1's early launch in
+            // this cycle's parked idle tail, so CycleIndex is N+1 and the loopUT is a fresh launch near
+            // spanStart. Any primary-side perturbation of the aligned loop (dropping the cycleIndex bump,
+            // dropping the effectiveLaunchAdvance swap) leaves HasSecondary false, which is why the
+            // HasSecondary sweep alone could not see it. advNext comes from the production advance helper
+            // (pinned equal to the cap helper on this fixture by GatedAdvance_ReturnsCappedDelta_WhenRawUnderSlack),
+            // so nothing here replays the clock the frame computes.
             for (double t = AAnchor; t <= AAnchor + 5.0 * ACad; t += 13.0)
             {
                 var fr = GhostPlaybackLogic.ComputeSpanLoopFrame(
@@ -251,6 +257,29 @@ namespace Parsek.Tests
                     launchHoldEngaged: true, soiExitAtUT: ASoiExit);
                 Assert.False(fr.HasSecondary, $"aligned loop must never emit a secondary (t={t})");
             }
+
+            int checkedWindows = 0;
+            for (long n = 0; n <= 1; n++)
+            {
+                double advNext = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
+                    AAnchor, AS0, AS1, ACad, n + 1, ATsid, null, 0.0, double.NaN);
+                Assert.True(advNext > 0.0, $"aligned fixture must borrow on cycle {n + 1} (advNext={advNext})");
+
+                // Just inside the borrow window of cycle n: the early launch of instance n+1.
+                double t = AAnchor + n * ACad + (ACad - advNext) + 1.0;
+                var fr = GhostPlaybackLogic.ComputeSpanLoopFrame(
+                    t, AAnchor, AS0, AS1, ACad,
+                    schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                    arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: ATsid,
+                    launchHoldEngaged: true, soiExitAtUT: ASoiExit);
+
+                Assert.True(fr.Resolved, $"frame must resolve inside the borrow window (n={n}, t={t})");
+                Assert.False(fr.HasSecondary, $"aligned loop must never emit a secondary (n={n}, t={t})");
+                Assert.Equal(n + 1, fr.CycleIndex);
+                Assert.Equal(AS0 + 1.0, fr.LoopUT, 6);
+                checkedWindows++;
+            }
+            Assert.Equal(2, checkedWindows);
         }
 
         [Fact]

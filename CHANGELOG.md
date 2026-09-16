@@ -250,6 +250,67 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Tests: twenty ghost-playback, analyzer and flight-seam cells from the audit's T3
+  (weak or misleading) register now let the production term they name decide the
+  verdict.** Every one of them already ran the right code; none could see the branch,
+  value or ordering its name claimed. Nineteen were strengthened - nine of them renamed to
+  what they prove, since a rename is a subset of strengthening and not a separate bucket -
+  and one was deleted as a duplicate of a named twin, with nine sibling cells added. The
+  analyzer's "core purity" cell asserted only that nothing threw, which a rule that reads
+  a real file and succeeds also satisfies; it now carries the file-scoped trigger with a
+  null save directory and requires an EMPTY report, which is the only thing that proves
+  the save-directory gate. A rollout cell put its second emission 200 s outside a 60 s
+  duplicate window, so the window check alone kept it and the adoption rule the name
+  claimed was never reached - it was a copy of the out-of-window cell with an inert
+  adoption bolted on, and it is gone; the in-window twin one method above holds that
+  branch and is the only cell that reds when both adopted-row exclusions are deleted. An
+  aligned-loop sweep read one boolean that a primary-side perturbation leaves untouched,
+  so it now drives the borrow window and pins the region-B cycle flip. A forward-window
+  cell was named for which segment list the RENDERER supplies while testing a pure
+  function that takes the list as a parameter; it keeps the geometry claim it does prove
+  and the caller property moved to a source gate over the method that builds the window.
+  A commit-ordering cell asserted only order-independent end state, and a
+  watch-mode-cleanup cell compared the production log against a destroy line the TEST
+  wrote immediately after the call; both orderings are now source gates over the real
+  method bodies. A distance-aware terrain clamp computed its expectation from the very
+  call under test and now pins the repro's own 2.42 m and 285.52 m as literals. A
+  landing-only control wrapped its rotation assertions in an if on the hold length, so a
+  builder regression that dropped the hold skipped them; the hold is asserted
+  unconditionally. A ghost-observability cell asserted that every counter was zero - the
+  headless visuals gate zeroes them all - and is renamed to that gate, with the counting
+  arithmetic now exercised directly. A launch-alignment sweep hid its bound inside an if
+  on whether the resolver resolved, and now counts resolved steps. A seam-bridge cell
+  re-implemented the angle gate inline and described the 4.59 deg near-meet as a SKIP,
+  which is not what production does; every measured geometry now routes through the
+  production classifier. Seven tracking-station filter cells named a create/skip policy in
+  their comments and re-asserted the field the fixture had just set; each now calls
+  ShouldCreateTrackingStationGhost and asserts the (shouldCreate, skipReason) pair. A
+  relative-frame cell was a two-fact tripwire whose two facts were never joined. A
+  map-focus predicate had only its false arm pinned. A steering cell was handed the
+  already-negated value, so the caller-side sign that decides which way ghost wheels point
+  never ran - and the value it passed had the opposite sign of a real heading rate. A trace
+  reset never read back the cursors it claimed to clear. Two ghost-audio cells asserted a
+  playback-cap count that a null audio source satisfies on its own. And a loop-playback
+  forwarder was treated as a pass-through when it is really a debris mask.
+
+  Three behaviour-identical helpers were extracted so a test can reach a term without a
+  running game: ParsekFlight.NeedsPostSwitchModuleCacheRefresh (the module-cache
+  invalidation the cell used to recompute itself),
+  GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees (the wheel-steering caller
+  negate), and GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap (the deferred-batch
+  cap flag, previously unreachable because no xUnit fixture can carry a Unity AudioSource);
+  two FX counters in GhostPlaybackEngine were widened from private to internal, and the
+  brace-matched body scan the three new source gates share moved into the test suite's
+  existing SourceScanText helper instead of being pasted per file. The relative-frame cell
+  needed a fourth extraction when it was written, but the state-vector removal gate
+  GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame landed on main first and already
+  covers BOTH removal call sites, so the cell simply calls that one - deriving the frame
+  flag from the recording's own TrackSection, which is the tracking-station shape its
+  sibling in RuntimePolicyTests does not cover. No behaviour, no log
+  text and nothing a player sees changes. Each strengthened cell was
+  re-checked by breaking the named production line on purpose and confirming it goes red
+  where it used to stay green.
+
 - **Tests: the revert-path spawn-cleanup cell now arms through the production step
   instead of assigning the fields itself.** `RevertPath_SetsCleanupData_WhenNotAlreadySet`
   called `RecordingStore.CollectSpawnedVesselInfo` and then wrote `PendingCleanupPids` /

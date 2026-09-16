@@ -1074,6 +1074,33 @@ namespace Parsek.Tests
             Assert.False(canRestore);
         }
 
+        // The READY arm. Only the negative arm above was pinned and nothing else calls
+        // CanRestoreMapFocus, so a body reduced to "return false" kept the suite green while
+        // map-focus restore would never fire - the deferral is one-shot per map reopen, so a
+        // predicate stuck at false leaves the watched ghost unfocused for the whole session.
+        [Fact]
+        public void CanRestoreMapFocus_AllInputsSatisfied_True()
+        {
+            Assert.True(WatchModeController.CanRestoreMapFocus(
+                ghostPid: 123u,
+                hasGhostVessel: true,
+                hasMapObject: true,
+                hasPlanetariumCamera: true));
+        }
+
+        // ...and the remaining three deferral inputs, so every conjunct decides in at least one
+        // direction rather than only the map-object one.
+        [Fact]
+        public void CanRestoreMapFocus_MissingPidOrVesselOrCamera_StaysDeferred()
+        {
+            Assert.False(WatchModeController.CanRestoreMapFocus(
+                ghostPid: 0u, hasGhostVessel: true, hasMapObject: true, hasPlanetariumCamera: true));
+            Assert.False(WatchModeController.CanRestoreMapFocus(
+                ghostPid: 123u, hasGhostVessel: false, hasMapObject: true, hasPlanetariumCamera: true));
+            Assert.False(WatchModeController.CanRestoreMapFocus(
+                ghostPid: 123u, hasGhostVessel: true, hasMapObject: true, hasPlanetariumCamera: false));
+        }
+
         [Fact]
         public void ClassifyMapFocusRestore_ReturnsSpecificMissingReason()
         {
