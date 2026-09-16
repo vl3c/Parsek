@@ -1,0 +1,14 @@
+C-catchall-049-01	data-loss	Source/Parsek/ChainSegmentManager.cs:429	seam	SampleContinuationVessel_AppendsPoint_MarksContinuationRecordingDirty
+C-io-serialization-004-01	data-loss	Source/Parsek/FileIOUtils.cs:302	seam	SafeWriteConfigNode_ReplaceStepFails_DestinationPreserved_ViaForcedFailureSeam
+C-recorder-events-026-01	data-loss	Source/Parsek/BackgroundRecorder.cs:553	seam	HandleBackgroundVesselSplit_MultiControllable_CallsRewindPointAuthorBegin
+C-recording-tree-039-01	data-loss	Source/Parsek/RecordingStore.OrphanCleanup.cs:56	seam	DeleteRecordingFiles_UnlinksQuickloadResumeSave_AndLeavesRewindPointsAlone
+C-recording-tree-042-01	data-loss	Source/Parsek/SceneExitInterceptor.cs:565	seam	SafeWritePersistent_SaveThrowsOnMainMenu_HardBlocksTransition
+C-spawn-vessel-021-01	data-loss	Source/Parsek/ParsekScenario.cs:3550	seam	RevertCleanupArming_WhenRewindAlreadyArmedCleanup_DoesNotOverwrite
+C-rewind-refly-005-02	recording	Source/Parsek/LoadTimeSweep.cs:766	direct	SweepOrphanRewindRetirements_LiveTargetMissingRestored_RetainedWithWarn
+C-ghost-playback-008-01	playback	Source/Parsek/GhostMapPresence.cs:9221	direct	ShouldCreate_Landed_Skipped
+C-ghost-playback-012-01	playback	Source/Parsek/GhostChainWalker.cs:537	direct	MergeCrossTreeLinks_TwoChainsPointingAtEachOther_BreaksCycleAndWarns
+C-recorder-events-008-01	playback	Source/Parsek/GhostMapPresence.cs:12959	seam	StateVectorRemoval_RelativeFrameSection_SkipsRemovalThreshold
+C-recorder-events-015-02	playback	Source/Parsek/WatchModeController.cs:3488	seam	ResolveWatchPlaybackUT_CadenceAdjustedLoop_UsesEffectiveCadence
+C-recording-tree-034-02	playback	Source/Parsek/ParsekFlight.cs:17805	direct	FindExactChainRecordingAtUT_PreferredChildCycle_ReturnsNull
+C-recording-tree-051-01	playback	Source/Parsek/GhostPlaybackLogic.cs:7898	direct	TerminatedChain_SamePidNonTipRecording_SpawnAllowed
+C-spawn-vessel-020-01	playback	Source/Parsek/ParsekPlaybackPolicy.cs:230	direct	RunSpawnDeathChecks_AtMaxDeathCycles_SetsSpawnAbandonedAndKeepsPid

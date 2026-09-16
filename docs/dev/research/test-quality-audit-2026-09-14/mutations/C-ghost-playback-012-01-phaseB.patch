@@ -1,0 +1,20 @@
+diff --git a/Source/Parsek/GhostChainWalker.cs b/Source/Parsek/GhostChainWalker.cs
+index a1826a313..13cc67e94 100644
+--- a/Source/Parsek/GhostChainWalker.cs
++++ b/Source/Parsek/GhostChainWalker.cs
+@@ -545,15 +545,6 @@ namespace Parsek
+                     if (!chains.TryGetValue(tipVesselPid, out linkedChain))
+                         break;
+ 
+-                    if (chainVisited.Contains(tipVesselPid))
+-                    {
+-                        ParsekLog.Warn(Tag,
+-                            string.Format(ic,
+-                                "Cross-tree link cycle detected: vessel={0} already visited — breaking",
+-                                tipVesselPid));
+-                        break;
+-                    }
+-
+                     chainVisited.Add(tipVesselPid);
+                     visited.Add(tipVesselPid);
+ 

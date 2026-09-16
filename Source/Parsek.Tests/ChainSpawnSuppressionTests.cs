@@ -193,6 +193,30 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// A terminated chain only suppresses its OWN tip. A later recording of the same
+        /// vessel PID that the chain does not claim (its id is in no link, and it ends
+        /// after the chain's spawn UT, so the PID-based intermediate path does not bite
+        /// either) still spawns: the chain's termination says nothing about a recording
+        /// it never covered. The existing terminated-chain cells use the tip itself or an
+        /// unrelated PID, so neither reaches this conjunct.
+        /// </summary>
+        [Fact]
+        public void TerminatedChain_SamePidNonTipRecording_SpawnAllowed()
+        {
+            var (chains, _) = MakeTwoLinkChain(terminated: true);
+            var laterSamePid = MakeRecording("later-same-pid", 100, 2100, 2300, "LaterVessel");
+
+            var (suppressed, reason) = GhostPlaybackLogic.ShouldSuppressSpawnForChain(
+                chains, laterSamePid);
+
+            Assert.False(suppressed);
+            Assert.Equal("", reason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Terminated chain spawn suppressed")
+                && l.Contains("rec=later-same-pid"));
+        }
+
+        /// <summary>
         /// A looped recording at the chain tip should NOT be suppressed by chain logic.
         /// Loop dedup is handled separately by ShouldSpawnAtRecordingEnd via SpawnedVesselPersistentId.
         /// </summary>
