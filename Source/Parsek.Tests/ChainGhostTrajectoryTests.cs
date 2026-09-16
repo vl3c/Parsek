@@ -937,8 +937,17 @@ namespace Parsek.Tests
 
             // 5000 is past both recordings, so no walk step can answer and the walk is
             // forced all the way around the loop before the visited set stops it.
-            Assert.Null(ParsekFlight.FindExactChainRecordingAtUT(
-                new List<RecordingTree> { tree }, chain, 5000));
+            // Bounded: without the visited term the walk never returns, and an unbounded
+            // call would stall the whole run instead of failing. Ten seconds is orders of
+            // magnitude above the real cost (two recordings, microseconds).
+            Recording result = null;
+            var walk = System.Threading.Tasks.Task.Run(() =>
+                result = ParsekFlight.FindExactChainRecordingAtUT(
+                    new List<RecordingTree> { tree }, chain, 5000));
+            Assert.True(walk.Wait(TimeSpan.FromSeconds(10)),
+                "the preferred-child walk did not terminate: the visited guard is gone");
+
+            Assert.Null(result);
         }
 
         /// <summary>

@@ -625,10 +625,11 @@ scenario (Unity reports the fake-null as null, which is why `Run` itself uses
 `ReferenceEquals`); the recorded mutant stubs the body unconditionally instead.
 
 **Phase B status, ninth PR (2026-09-16).** The last fourteen priority-2 rows, a mixed
-`direct` / `seam` slice: eight are new coverage (thirteen cells, every mirror included) and
-six are `already-covered`, and none is obsolete. **The priority-2 register is now closed** -
-no `keep` row of priority 2 remains in `coverage-opportunities.csv`, leaving one `deferred`
-priority-2 row and 143 `keep` rows at priority 3 and below. The eight landed rows are
+`direct` / `seam` slice: eight are new coverage (thirteen cells, every mirror included),
+five are `already-covered` and one is `deferred`, and none is obsolete. **The priority-2
+register is now closed** - no `keep` row of priority 2 remains in
+`coverage-opportunities.csv`, leaving two `deferred` priority-2 rows and 144 `keep` rows at
+priority 3 and below (the count includes the new C-io-serialization-005-01 filed below). The eight landed rows are
 C-rewind-refly-005-02, C-ghost-playback-012-01, C-recording-tree-034-02,
 C-recording-tree-051-01, C-recording-tree-042-01, C-spawn-vessel-021-01,
 C-recorder-events-008-01 and C-recorder-events-015-02; four of them needed a production
@@ -642,9 +643,10 @@ step lifted out of `OnLoad` with the spawned-vessel collector as a delegate);
 BOTH state-vector removal call sites, with the `GetAtmosphereDepth` read kept behind the
 frame test so a Relative-frame point still never touches `FlightGlobals`); and
 `WatchModeController.ComputeWatchOverlapPlaybackUT` (the overlap branch of the private
-instance method, as a pure static over the cadence inputs). The six already-covered rows:
-C-ghost-playback-008-01, C-spawn-vessel-020-01, C-catchall-049-01, C-io-serialization-004-01,
-C-recorder-events-026-01 and C-recording-tree-039-01.
+instance method, as a pure static over the cadence inputs). The five already-covered rows:
+C-ghost-playback-008-01, C-spawn-vessel-020-01, C-io-serialization-004-01,
+C-recorder-events-026-01 and C-recording-tree-039-01. The deferred row is
+C-catchall-049-01.
 
 Four notes for whoever reads these rows again. First, C-ghost-playback-008-01's proposed
 mutant is EQUIVALENT: `Landed` is refused by three independent gates
@@ -654,19 +656,24 @@ so admitting it at any one site changes nothing observable - and the proposed ce
 `ShouldCreate_Landed_Skipped` is a cell that already exists and survives every single-gate
 mutant. The reachable form of the same site (admit `SubOrbital`) reds a committed
 `GhostMapEndpointTailTests` cell, which is what the recorded patch holds. Second,
-C-catchall-049-01 stays SOURCE-SCRAPED on purpose: its mutant reds only
+C-catchall-049-01 is DEFERRED rather than closed: its mutant reds only the source-scrape cell
 `PlaytestFollowupTests.Bug273_MethodBody_ContainsMarkFilesDirtyCall`, and the behavioural
 witness the row wants needs the append-plus-dirty pair moved out of
-`SampleContinuationVessel` - which that same scrape cell forbids. Third,
-C-io-serialization-004-01's residual gap is platform, not coverage: the committed
-forced-fallback cell reds the mutant on Windows and short-circuits on the Linux CI host via
-`SharingIsEnforced`; the proposed `ForceReplaceFailureForTesting` seam was NOT added because
-a forced replace failure with nothing locked lets the fallback SUCCEED, so it buys no
-mutation-proved cell. Fourth, two of the landed rows guard walks that do not terminate under
+`SampleContinuationVessel` - which that same scrape cell would itself red, so the seam is
+forbidden here and the row stays open. Third, C-io-serialization-004-01 keeps its
+`already-covered` verdict for the recorded mutant only. The `ForceReplaceFailureForTesting`
+seam buys no cell for THAT mutant (a forced replace failure with nothing locked lets the
+fallback SUCCEED, exactly as the drop-the-destination mutant does), but the `File.Replace`
+catch itself is executed by no cell at all: the four replace-failure cells reach it only
+through `FileShare.None`, which the Linux CI host does not enforce, and the forced-fallback
+cell that reds the destination-preserving mutant skips the catch entirely. That edge is filed
+as the new priority-3 row **C-io-serialization-005-01** (mutant: return inside the
+`File.Replace` catch, swallowing the failure and orphaning the `.tmp`). Fourth, two of the landed rows guard walks that do not terminate under
 their mutant: `GhostChainWalker.MergeCrossTreeLinks` and `ParsekFlight`'s preferred-child
-path walk both HANG rather than fail an assertion, so their evidence is the aborted run plus
-a green re-run of the same set with only the new cell excluded - and a two-chain cycle is not
-enough for the first one (the `tipVesselPid == originPid` short-circuit already catches it),
+path walk would both spin forever rather than fail an assertion, so both cells run the walk
+on a worker task and assert a 10 s completion bound - the mutant then reds in ten seconds
+instead of stalling the run (the chain-walker cell also installs its own log sink inside the
+task, since the sink is `[ThreadStatic]`). A two-chain cycle is not enough for the first one (the `tipVesselPid == originPid` short-circuit already catches it),
 so that fixture is a 100 -> 200 -> 300 -> 200 loop that excludes the walk origin.
 
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and

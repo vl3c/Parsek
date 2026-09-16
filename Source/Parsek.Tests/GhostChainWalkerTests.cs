@@ -1145,11 +1145,34 @@ namespace Parsek.Tests
                 1460, 300, new[] { "R3" }, new[] { "R3-leaf" });
             var tree3 = MakeTree("tree-3", new[] { r3, r3Leaf }, new[] { dock3 });
 
-            var chains = GhostChainWalker.ComputeAllGhostChains(
-                new List<RecordingTree> { tree1, tree2, tree3 }, 900);
+            // Bounded: without the break the walk never returns, and an unbounded call
+            // would stall the whole run instead of failing. Ten seconds is orders of
+            // magnitude above the real cost (three chains, microseconds). The log sink is
+            // ThreadStatic, so the walk installs its own on the worker thread and the
+            // captured lines come back through a locked list.
+            Dictionary<uint, GhostChain> chains = null;
+            var walkLines = new List<string>();
+            var walk = System.Threading.Tasks.Task.Run(() =>
+            {
+                ParsekLog.TestSinkForTesting = line =>
+                {
+                    lock (walkLines) walkLines.Add(line);
+                };
+                try
+                {
+                    chains = GhostChainWalker.ComputeAllGhostChains(
+                        new List<RecordingTree> { tree1, tree2, tree3 }, 900);
+                }
+                finally
+                {
+                    ParsekLog.ResetTestOverrides();
+                }
+            });
+            Assert.True(walk.Wait(TimeSpan.FromSeconds(10)),
+                "the cross-tree link walk did not terminate: the cycle guard is gone");
 
             Assert.NotNull(chains);
-            Assert.Contains(logLines, l =>
+            Assert.Contains(walkLines, l =>
                 l.Contains("[ChainWalker]")
                 && l.Contains("Cross-tree link cycle detected: vessel=200 already visited"));
             // The walk stops at the repeat: vessel 200 is absorbed exactly once, so the

@@ -11,9 +11,10 @@ _(unreleased — entries accumulate here per commit)_
 ### Added
 
 - **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
-  are closed, and the priority-2 register with them.** Eight rows were new coverage and
-  six were guarded already by cells that landed after the audit snapshot, so thirteen new
-  cells landed. Four of the eight needed a production seam, each the smallest hook that
+  are closed, and the priority-2 register with them.** Eight rows were new coverage, five
+  were guarded already by cells that landed after the audit snapshot, and one is deferred
+  because the witness it needs would break the committed scrape cell that currently guards
+  it, so thirteen new cells landed. Four of the eight needed a production seam, each the smallest hook that
   leaves the live path behaving as before. On scene exit: a save that throws on the way to
   the main menu is proved to refuse the transition, and the same throw on the way to the
   space center to let it continue - the catch was unreachable headless because the
@@ -31,8 +32,11 @@ _(unreleased — entries accumulate here per commit)_
   needed no seam pin a rewind retirement whose restored recording vanished (kept, with a
   warning, instead of silently un-hiding the fork), two walks that must terminate on a
   corrupt cycle rather than freeze the game (cross-tree chain links, and the
-  preferred-child path walk), and that a terminated ghost chain suppresses only its own
-  tip rather than every later recording of the same vessel. No player-visible change.
+  preferred-child path walk - each bounded by a ten-second completion assertion so a
+  regression fails in seconds instead of stalling the run), and that a terminated ghost
+  chain suppresses only its own tip rather than every later recording of the same vessel.
+  One edge found while proving these is filed rather than closed: the `File.Replace` catch
+  in the safe-write path is reached by no test on any host. No player-visible change.
 
 
 - **Automated testing: both in-game test runner windows are now photographed in their
