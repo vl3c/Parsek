@@ -271,13 +271,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveActions_ModuleLightWinsOverColorChanger()
+        public void ResolveActions_ModuleLightOffPlusColorChangerOn_IsAnAllFalseOpinion_Skipped()
         {
-            // The parser already nulls colorChangerOn when a ModuleLight exists; the
-            // resolver's ?? order is the second line of defence for that same rule. A
-            // ModuleLight saying OFF must not be overridden into ON by a ColorChanger —
-            // and it resolves to "no action" rather than an explicit off, because off IS
-            // the default state (see the all-false skip below).
+            // Renamed off the precedence claim: with lightOn=false the OPINION resolves to
+            // false, LightBaselineSaysSomething refuses it, and the whole light block is
+            // skipped - so lightPower comes back NULL and the ?? order never runs. The old
+            // NotEqual(true, ...) was satisfied by that null, which is why inverting the ??
+            // order left it green. The precedence itself is pinned by the blinking cell below,
+            // where the block IS entered.
             GhostPlaybackLogic.SnapshotBaselineActions actions =
                 GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
                 {
@@ -285,7 +286,28 @@ namespace Parsek.Tests
                     colorChangerOn = true,
                 });
 
-            Assert.NotEqual(true, actions.lightPower);
+            Assert.False(actions.lightPower.HasValue);
+            Assert.False(actions.blinkEnabled.HasValue);
+            Assert.False(actions.blinkRateHz.HasValue);
+        }
+
+        [Fact]
+        public void ResolveActions_ModuleLightOffWinsOverColorChangerOn_WhenBlinking()
+        {
+            // lightBlinking=true makes LightBaselineSaysSomething true, so the block runs and
+            // the `lightOn ?? colorChangerOn` ORDER decides: the ModuleLight's OFF must survive
+            // a ColorChanger saying ON. Swapping the two operands answers true here.
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
+                {
+                    lightOn = false,
+                    colorChangerOn = true,
+                    lightBlinking = true,
+                });
+
+            Assert.True(actions.lightPower.HasValue);
+            Assert.False(actions.lightPower.Value);
+            Assert.True(actions.blinkEnabled);
         }
 
         [Fact]

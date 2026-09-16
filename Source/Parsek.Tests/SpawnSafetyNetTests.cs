@@ -1491,16 +1491,24 @@ namespace Parsek.Tests
                 TerminalOrbitSemiMajorAxis = 1535076.0272732542
             };
 
-            double actual = VesselSpawner.ComputeRecordedTerminalOrbitMeanAnomalyAtUT(
-                rec, 3.5316e12, 2053.8556687927244);
-            double expected = TimeJumpManager.ComputeEpochShiftedMeanAnomaly(
-                rec.TerminalOrbitMeanAnomalyAtEpoch,
-                rec.TerminalOrbitEpoch,
-                rec.TerminalOrbitSemiMajorAxis,
-                3.5316e12,
-                2053.8556687927244);
+            const double mu = 3.5316e12;
+            const double spawnUT = 2053.8556687927244;
 
-            Assert.Equal(expected, actual, 10);
+            double actual = VesselSpawner.ComputeRecordedTerminalOrbitMeanAnomalyAtUT(
+                rec, mu, spawnUT);
+
+            // Hand-computed, NOT re-derived through the delegate: calling
+            // TimeJumpManager.ComputeEpochShiftedMeanAnomaly for the expectation made the
+            // oracle the SUT's own callee, so any change inside it moved both sides together
+            // and the SHIFT this cell is named for was never pinned.
+            //   n  = sqrt(mu / a^3) = sqrt(3.5316e12 / 1535076.0272732542^3)
+            //      = 0.0009880772950395605 rad/s   (period 6359.0018 s)
+            //   dt = 2053.8556687927244 - 2000 = 53.8556687927244 s
+            //   M  = 0.25 + n*dt = 0.30321356354326157 rad, no 2*pi wrap needed.
+            Assert.Equal(0.30321356354326157, actual, 10);
+            // The shift moved it at all: a helper that returned the epoch value would pass a
+            // delegate-derived expectation too.
+            Assert.NotEqual(rec.TerminalOrbitMeanAnomalyAtEpoch, actual);
         }
 
         [Fact]
