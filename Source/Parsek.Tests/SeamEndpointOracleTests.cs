@@ -295,23 +295,84 @@ namespace Parsek.Tests
                 line);
         }
 
+        /// <summary>
+        /// Every string literal loaded by <paramref name="method"/>'s IL, in first-seen order. Read
+        /// from the compiled method body rather than the source text so a reason mentioned only in a
+        /// comment cannot satisfy the set (the same shape as
+        /// <c>OnContractOfferedStoreTests.OnContractOffered_NoStoreAddEvent_ForAnyContract</c>).
+        /// </summary>
+        private static System.Collections.Generic.List<string> LoadedStringLiterals(
+            System.Reflection.MethodBase method)
+        {
+            var found = new System.Collections.Generic.List<string>();
+            System.Reflection.MethodBody body = method.GetMethodBody();
+            Assert.NotNull(body);
+            byte[] il = body.GetILAsByteArray();
+            Assert.NotNull(il);
+            System.Reflection.Module module = method.Module;
+            int i = 0;
+            while (i < il.Length)
+            {
+                if (il[i] == 0x72) // ldstr
+                {
+                    int token = System.BitConverter.ToInt32(il, i + 1);
+                    string literal = null;
+                    try { literal = module.ResolveString(token); }
+                    catch { /* not a string token after all: the coarse scan hit operand bytes */ }
+                    if (literal != null && !found.Contains(literal))
+                        found.Add(literal);
+                    i += 5;
+                }
+                else
+                {
+                    // Coarse scan, as in the OnContractOffered IL guard: ldstr is an unambiguous
+                    // single-byte opcode, so advancing one byte on everything else cannot miss one.
+                    i += 1;
+                }
+            }
+            return found;
+        }
+
         [Fact]
         public void EveryCaptureSkipReasonRendersAsItsOwnBucket()
         {
-            // The twelve reasons ComputeSeamEndpointGeometry can produce plus the one the ORACLE owns
-            // (`no-usable-ratio` - a non-finite endpoint distance OR a non-finite / non-positive SOI
-            // radius; see the bucket's comment at the TrySampleAndEmitSeamEndpoint call site). Pinned
-            // as a set so a reason added to the capture without a bucket is visible here; the counting
-            // itself lives in the Unity sampler and is not reachable headlessly.
+            // The reason set is DERIVED from the capture: every string literal
+            // ComputeSeamEndpointGeometry loads is one of its SeamEndpointSample.Skip reasons (the
+            // method carries no other literals), so a reason added there without a bucket reds here.
+            // The old body hard-coded a test-local array, which is exactly what let the stated
+            // purpose go unmet.
+            //
+            // `no-usable-ratio` is the ORACLE's own bucket, not the capture's - a non-finite endpoint
+            // distance OR a non-finite / non-positive SOI radius, decided at the
+            // TrySampleAndEmitSeamEndpoint call site - so it is appended here by name.
+            System.Reflection.MethodInfo capture = typeof(MapRenderProbe).GetMethod(
+                "ComputeSeamEndpointGeometry",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(capture);
+
+            System.Collections.Generic.List<string> literals = LoadedStringLiterals(capture);
+            // The method also inlines its three seam-seed KIND constants, which are emit-line
+            // vocabulary rather than skip reasons; they are excluded BY THE PRODUCTION CONSTANT, so
+            // a renamed constant does not quietly turn into a phantom reason.
+            var seedKinds = new System.Collections.Generic.List<string>
+            {
+                MapRenderProbe.SeamSeedKindNone,
+                MapRenderProbe.SeamSeedKindFaithful,
+                MapRenderProbe.SeamSeedKindReaimed,
+            };
+            var reasons = new System.Collections.Generic.List<string>();
+            foreach (string literal in literals)
+                if (!seedKinds.Contains(literal))
+                    reasons.Add(literal);
+            foreach (string seedKind in seedKinds)
+                Assert.Contains(seedKind, literals);
+            Assert.Equal(12, reasons.Count);
+            Assert.Contains("no-rendered-orbit", reasons);
+            Assert.Contains("propagation-threw", reasons);
+            reasons.Add("no-usable-ratio");
+
             var tally = new System.Collections.Generic.List<
                 System.Collections.Generic.KeyValuePair<string, int>>();
-            string[] reasons =
-            {
-                "no-rendered-orbit", "no-recId", "no-recording-or-segments", "no-covering-segment",
-                "no-covering-body", "body-mismatch", "no-cross-body-successor", "seam-ut-not-finite",
-                "seam-behind-clock", "to-body-unresolved", "reaimed-seam-instant-unknown",
-                "propagation-threw", "no-usable-ratio",
-            };
             foreach (string r in reasons)
                 tally.Add(new System.Collections.Generic.KeyValuePair<string, int>(r, 1));
 

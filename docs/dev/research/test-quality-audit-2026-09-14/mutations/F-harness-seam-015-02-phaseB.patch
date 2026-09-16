@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/RecordingPaths.cs b/Source/Parsek/RecordingPaths.cs
+index 3d4b90330..09bc5b820 100644
+--- a/Source/Parsek/RecordingPaths.cs
++++ b/Source/Parsek/RecordingPaths.cs
+@@ -16,6 +16,11 @@ namespace Parsek
+             return Path.Combine("Parsek", "Recordings", $"{recordingId}.prec");
+         }
+ 
++        internal static string BuildUnreapedProbeRelativePath(string recordingId)
++        {
++            return Path.Combine("Parsek", "Recordings", $"{recordingId}.pprobe");
++        }
++
+         /// <summary>
+         /// Relative path to the optional pipeline-annotation sidecar
+         /// <c>Parsek/Recordings/&lt;id&gt;.pann</c> (design doc §17.3.1).
