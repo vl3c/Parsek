@@ -20,10 +20,14 @@ namespace Parsek.Tests.Rendering
     ///       finite double).</item>
     ///   <item>v9 round-trip preserves a NaN clearance for non-surface
     ///       points (legacy sentinel within a v9 file).</item>
-    ///   <item>A pre-v9 file (e.g. v8) loaded under the v9 reader fills
-    ///       <c>recordedGroundClearance = NaN</c> AND keeps every other
-    ///       per-point field intact (positional sanity — a desync would
-    ///       mangle ut/lat/lon/alt or quaternion data).</item>
+    ///   <item>A NaN-clearance point restored from the CURRENT binary
+    ///       renders at its recorded altitude, and a finite-clearance point
+    ///       beside it is terrain-corrected, so the NaN test in
+    ///       <c>ResolvePhase7EffectiveAltitude</c> is what decides. There is
+    ///       no pre-v9 read path to cover: older generations are rejected
+    ///       outright by <c>RecordingStore.IsRecordingSchemaCompatible</c>
+    ///       and <c>TrajectorySidecarBinary.Write</c> always stamps
+    ///       <c>CurrentBinaryVersion</c>.</item>
     /// </list>
     /// </para>
     /// </summary>
@@ -250,37 +254,45 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(2.0, section.frames[2].recordedGroundClearance);
         }
 
-        // ----- P2-2 review pass: legacy v8 file → renderer fall-through end-to-end -----
+        // ----- P2-2 review pass: NaN clearance -> renderer fall-through end-to-end -----
 
         /// <summary>
-        /// P2-2: round-trip a v8 binary file through the codec, then route
-        /// every restored point through the renderer's
-        /// <see cref="ParsekFlight.ResolvePhase7EffectiveAltitude"/> helper
-        /// and assert the helper returns the recorded altitude unchanged.
+        /// P2-2: round-trip a binary file through the codec, then route every
+        /// restored point through the renderer's
+        /// <see cref="ParsekFlight.ResolvePhase7EffectiveAltitude"/> helper.
+        /// The NaN-clearance points must come back at their recorded altitude
+        /// with the terrain resolver never consulted; the one finite-clearance
+        /// point in the same file must be terrain-corrected. Both halves are
+        /// needed: with NaN points only, a helper stubbed to
+        /// <c>return recordedAltitude</c> would pass, so the NaN test at
+        /// <c>ParsekFlight.TailLift.cs</c> would not be the deciding term.
         /// Catches a regression where a future refactor wires the helper to
         /// the wrong altitude (e.g. stores effectiveAltitude back into
         /// <c>point.altitude</c>, or passes <c>recordedGroundClearance</c>
-        /// from the wrong field): the legacy fall-through contract — "v8
-        /// recordings render at their stored altitude" — must hold without
-        /// the recorder ever populating clearance.
+        /// from the wrong field). No pre-v9 file is involved: the writer
+        /// always stamps the current binary version, so the NaN sentinel is
+        /// what a non-surface point carries inside a current file.
         /// </summary>
         [Fact]
-        public void V8LegacyRead_EveryRestoredPoint_RoutesThroughRendererToRecordedAltitude()
+        public void NaNClearance_EveryRestoredPoint_RoutesThroughRendererToRecordedAltitude()
         {
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             TerrainCacheBuckets.ResetForTesting();
-            // The renderer helper SHOULD never call the resolver in this
-            // test (every point is NaN ⇒ legacy fall-through). Track to
-            // catch a regression that wires the helper to call the resolver
-            // with NaN clearance.
+            // The renderer helper must not call the resolver for the NaN
+            // points (silent fall-through), and must call it exactly once for
+            // the single finite-clearance control point. Track to catch both
+            // a regression that resolves terrain with NaN clearance and a
+            // helper that never resolves terrain at all.
             int resolverCalls = 0;
             TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) =>
             {
                 resolverCalls++;
-                return 999.0; // far from any of the recorded altitudes — a
+                return 999.0; // far from any of the recorded altitudes: a
                               // wrong-path regression would surface here.
             };
+            const double controlClearance = 3.25;
+            const double controlRecordedAltitude = 41.0;
             var fakeKerbin = TestBodyRegistry.CreateBody(
                 "Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
 
@@ -295,14 +307,21 @@ namespace Parsek.Tests.Rendering
                 MakePoint(t0 + 30, 0.020,    0.015, 78000.0, "Kerbin"),
                 MakePoint(t0 + 60, 0.050,    0.040, 80000.0, "Kerbin"),
             };
+            // The control: a surface point in the SAME file carrying a finite
+            // clearance. Without it an unconditional "return recordedAltitude"
+            // stub passes every assertion below.
+            var controlPoint = MakeSurfaceMobilePoint(
+                t0 + 90, 0.060, 0.050, controlRecordedAltitude, controlClearance);
+
             var rec = new Recording
             {
-                RecordingId = "phase7-v8-end-to-end",
+                RecordingId = "phase7-nan-clearance-end-to-end",
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             foreach (var p in pts) rec.Points.Add(p);
+            rec.Points.Add(controlPoint);
 
-            string path = Path.Combine(tempDir, "v8-end-to-end.prec");
+            string path = Path.Combine(tempDir, "nan-clearance-end-to-end.prec");
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
@@ -311,12 +330,12 @@ namespace Parsek.Tests.Rendering
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
 
-            Assert.Equal(pts.Count, restored.Points.Count);
-            for (int i = 0; i < restored.Points.Count; i++)
+            Assert.Equal(pts.Count + 1, restored.Points.Count);
+            for (int i = 0; i < pts.Count; i++)
             {
                 var p = restored.Points[i];
                 Assert.True(double.IsNaN(p.recordedGroundClearance),
-                    $"Point {i} from v8 file must have NaN clearance");
+                    $"Point {i} must carry the NaN clearance sentinel");
 
                 double effective = ParsekFlight.ResolvePhase7EffectiveAltitude(
                     fakeKerbin, p.latitude, p.longitude,
@@ -327,6 +346,20 @@ namespace Parsek.Tests.Rendering
             }
 
             Assert.Equal(0, resolverCalls);
+
+            var restoredControl = restored.Points[restored.Points.Count - 1];
+            Assert.Equal(controlClearance, restoredControl.recordedGroundClearance, 6);
+            double controlEffective = ParsekFlight.ResolvePhase7EffectiveAltitude(
+                fakeKerbin, restoredControl.latitude, restoredControl.longitude,
+                restoredControl.altitude, restoredControl.recordedGroundClearance,
+                ReferenceFrame.Absolute);
+
+            // terrain (999.0 from the injected resolver) + clearance, NOT the
+            // recorded altitude: this is the half the NaN branch is chosen
+            // against.
+            Assert.Equal(999.0 + controlClearance, controlEffective, 6);
+            Assert.NotEqual(controlRecordedAltitude, controlEffective);
+            Assert.Equal(1, resolverCalls);
             TerrainCacheBuckets.ResetForTesting();
         }
 

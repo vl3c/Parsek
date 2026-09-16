@@ -1,0 +1,24 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..976eeaf1a 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -22196,15 +22196,15 @@ namespace Parsek
+             bool allowNormalPlaybackHermite,
+             out string reason)
+         {
+-            if (splineApplied)
++            if (suppressHermite)
+             {
+-                reason = "spline-applied";
++                reason = "suppressed";
+                 return false;
+             }
+ 
+-            if (suppressHermite)
++            if (splineApplied)
+             {
+-                reason = "suppressed";
++                reason = "spline-applied";
+                 return false;
+             }
+ 

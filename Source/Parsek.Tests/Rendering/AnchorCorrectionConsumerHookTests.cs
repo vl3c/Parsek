@@ -140,17 +140,37 @@ namespace Parsek.Tests.Rendering
             Assert.Equal("suppressed", reason);
         }
 
-        [Fact]
-        public void AllowPointHermiteInterpolation_Suppressed_UsesLinearPath()
+        /// <summary>
+        /// The gate is a three-guard ladder (spline-applied, then suppressed,
+        /// then normal-playback-linearized, then eligible). A single suppressed
+        /// row pinned one of four outcomes and could not see the ORDER, so
+        /// swapping the first two guards stayed green. The rows that carry the
+        /// order are the ones where two guards would fire at once: the reason
+        /// says which one won.
+        /// </summary>
+        [Theory]
+        // suppressHermite, splineApplied, allowNormalPlaybackHermite, expected, reason
+        [InlineData(true, false, true, false, "suppressed")]
+        [InlineData(true, true, true, false, "spline-applied")]
+        [InlineData(false, true, true, false, "spline-applied")]
+        [InlineData(true, false, false, false, "suppressed")]
+        [InlineData(false, false, false, false, "normal-playback-linearized")]
+        [InlineData(false, false, true, true, "eligible")]
+        public void AllowPointHermiteInterpolation_AllOutcomes_GuardOrderDecidesReason(
+            bool suppressHermite,
+            bool splineApplied,
+            bool allowNormalPlaybackHermite,
+            bool expected,
+            string expectedReason)
         {
             bool result = ParsekFlight.allowPointHermiteInterpolation(
-                suppressHermite: true,
-                splineApplied: false,
-                allowNormalPlaybackHermite: true,
+                suppressHermite: suppressHermite,
+                splineApplied: splineApplied,
+                allowNormalPlaybackHermite: allowNormalPlaybackHermite,
                 out string reason);
 
-            Assert.False(result);
-            Assert.Equal("suppressed", reason);
+            Assert.Equal(expected, result);
+            Assert.Equal(expectedReason, reason);
         }
 
         [Fact]
