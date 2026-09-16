@@ -34,27 +34,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RevertPath_SetsCleanupData_WhenNotAlreadySet()
+        public void RevertCleanupArming_WithProductionCollector_ArmsOnlySpawnedVessels()
         {
-            // When PendingCleanupPids/Names are both null, the revert path
-            // should collect and set them.
+            // The collector half of the revert arming, wired the way OnLoad wires it:
+            // ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo). The two
+            // arming cells below inject a fake collector, so neither of them can see
+            // what the real one returns; this cell asserts the armed set IS that
+            // return value. The unspawned recording is the discriminator: cleanup must
+            // name the vessels Parsek actually spawned, not every recorded vessel
+            // (the all-names collector is a separate, deliberately wider set).
             Assert.Null(RecordingStore.PendingCleanupPids);
             Assert.Null(RecordingStore.PendingCleanupNames);
 
-            // Add a spawned recording so CollectSpawnedVesselInfo returns data
             RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Probe", SpawnedVesselPersistentId = 77 });
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+                { VesselName = "NeverSpawned", SpawnedVesselPersistentId = 0 });
 
-            var info = RecordingStore.CollectSpawnedVesselInfo();
-            var spawnedPids = info.pids.Count > 0 ? info.pids : null;
-            var spawnedNames = info.names.Count > 0 ? info.names : null;
-            RecordingStore.PendingCleanupPids = spawnedPids;
-            RecordingStore.PendingCleanupNames = spawnedNames;
+            ParsekScenario.ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo);
 
             Assert.NotNull(RecordingStore.PendingCleanupPids);
-            Assert.Contains(77u, RecordingStore.PendingCleanupPids);
+            Assert.Equal(new HashSet<uint> { 77u }, RecordingStore.PendingCleanupPids);
             Assert.NotNull(RecordingStore.PendingCleanupNames);
-            Assert.Contains("Probe", RecordingStore.PendingCleanupNames);
+            Assert.Equal(new HashSet<string> { "Probe" }, RecordingStore.PendingCleanupNames);
         }
 
         [Fact]
