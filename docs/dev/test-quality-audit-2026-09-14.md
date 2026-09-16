@@ -1212,10 +1212,17 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 
 - `testfix-t3-d`, slice 5 (2026-09-16): the FIFTH slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-05.txt`, 20 ids: 12 `ghost-playback`, 7 `catchall`,
-  1 `analyzer`). 17 strengthened, 2 renamed and strengthened, 1 deleted, 0 deferred, 0
-  premise-wrong. Each row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
-  that `git apply --check`s against a clean tree.
+  1 `analyzer`). Counted the slice-4 way (every kept row is strengthened; a rename is a
+  SUBSET of that, not a separate bucket): 19 strengthened, of which 9 renamed; 1 deleted;
+  0 deferred; 0 premise-wrong. Nine sibling cells were added. Per commit, derived from
+  `git diff origin/main...HEAD -- Source/Parsek.Tests`: e29d96489 3 renames + 1 new + the
+  deletion, e2ee3d67b 1 + 1, 41e91527e 0 + 0, 6338adcfd 1 + 2, 30419f2b6 1 + 0,
+  1a0d21bf9 0 + 0, eae1f2f75 0 + 2, 69d9af157 2 + 1, 8f2e4eef5 1 + 2. Each row has a proof
+  row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against a clean tree. The three source gates
+  this slice adds share `SourceScanText.BraceMatchedBlock` (moved there from the first
+  copy rather than pasted three times); every class that reads `SourceScanText` was re-run
+  after the move, and all three gates were re-proved RED under their recorded patches.
   - Given the production term the name claims (8): F-catchall-010-02 is the DELETION - its
     second rollout emission sat 200 s outside the 60 s duplicate window, so the window
     check alone kept the write and the cell was a copy of
@@ -1244,10 +1251,12 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     regression the control exists to catch used to skip them);
     F-ghost-playback-008-01 (all seven `TerminalFilter_` / `DebrisFilter_` cells now call
     `ShouldCreateTrackingStationGhost` and assert the `(shouldCreate, skipReason)` pair. The
-    mutant has to open BOTH `IsTerminalStateEligibleForMapPresence` and
-    `IsTerminalStateEligibleForTerminalOrbitMapPresence`: Destroyed and Landed are refused by
-    the first, SubOrbital only by the second, so either alone leaves the reason string
-    unchanged);
+    recorded mutant opens BOTH `IsTerminalStateEligibleForMapPresence` and
+    `IsTerminalStateEligibleForTerminalOrbitMapPresence` so all three refusals move at once,
+    but the two filters are NOT symmetric. Destroyed and Landed are refused by the first and
+    then again by the second, so opening the first ALONE leaves their `skipReason` unchanged
+    and the suite green. SubOrbital passes the first and is refused only by the second, so
+    opening the second alone already reds `SubOrbital_HasOrbitData_ReturnsTrue` on its own);
     F-ghost-playback-011-02 (the ready arm plus the three remaining deferral inputs - only
     the false arm was pinned and nothing else calls `CanRestoreMapFocus`);
     F-ghost-playback-015-02 (the trace cursors and completed-event set are seeded, asserted

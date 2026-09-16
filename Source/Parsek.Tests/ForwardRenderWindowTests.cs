@@ -305,7 +305,7 @@ namespace Parsek.Tests
 
             List<int> open = SourceScanText.OpenBlockStack(prepared, callIdx);
             Assert.Equal(4, open.Count); // namespace -> static class -> Driver -> method
-            string body = BraceMatchedBlock(prepared, open[3]);
+            string body = SourceScanText.BraceMatchedBlock(prepared, open[3]);
 
             // 1. The window is computed from windowSegs.
             int argStart = body.IndexOf(
@@ -342,20 +342,6 @@ namespace Parsek.Tests
             Assert.Contains("GhostMapPresence.ResolveEffectiveMapOrbitSegments(", effective);
         }
 
-        private static string BraceMatchedBlock(string prepared, int openBrace)
-        {
-            int depth = 0;
-            for (int i = openBrace; i < prepared.Length; i++)
-            {
-                if (prepared[i] == '{') depth++;
-                else if (prepared[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0) return prepared.Substring(openBrace, i - openBrace + 1);
-                }
-            }
-            throw new InvalidOperationException("unbalanced braces from " + openBrace);
-        }
 
         private static string LocatePolylineRendererSource()
         {

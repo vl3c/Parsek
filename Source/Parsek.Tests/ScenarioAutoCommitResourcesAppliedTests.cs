@@ -371,7 +371,7 @@ namespace Parsek.Tests
 
             int bodyStart = prepared.IndexOf('{', sigIdx);
             Assert.True(bodyStart > 0, "the seam has no body");
-            string body = BraceMatchedBlock(prepared, bodyStart);
+            string body = SourceScanText.BraceMatchedBlock(prepared, bodyStart);
 
             int commitIdx = body.IndexOf("RecordingStore.CommitPendingTree();", StringComparison.Ordinal);
             int markIdx = body.IndexOf("RecordingStore.MarkTreeAsApplied(tree);", StringComparison.Ordinal);
@@ -382,20 +382,6 @@ namespace Parsek.Tests
                 "it applied, so the mark lands on a tree that is already in committed storage.");
         }
 
-        private static string BraceMatchedBlock(string prepared, int openBrace)
-        {
-            int depth = 0;
-            for (int i = openBrace; i < prepared.Length; i++)
-            {
-                if (prepared[i] == '{') depth++;
-                else if (prepared[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0) return prepared.Substring(openBrace, i - openBrace + 1);
-                }
-            }
-            throw new InvalidOperationException("unbalanced braces from " + openBrace);
-        }
 
         private static string LocateParsekScenarioSource()
         {

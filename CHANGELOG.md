@@ -224,8 +224,9 @@ _(unreleased — entries accumulate here per commit)_
 - **Tests: twenty ghost-playback, analyzer and flight-seam cells from the audit's T3
   (weak or misleading) register now let the production term they name decide the
   verdict.** Every one of them already ran the right code; none could see the branch,
-  value or ordering its name claimed. Seventeen were strengthened in place, two were
-  renamed to what they prove, and one was deleted as a duplicate of a named twin. The
+  value or ordering its name claimed. Nineteen were strengthened - nine of them renamed to
+  what they prove, since a rename is a subset of strengthening and not a separate bucket -
+  and one was deleted as a duplicate of a named twin, with nine sibling cells added. The
   analyzer's "core purity" cell asserted only that nothing threw, which a rule that reads
   a real file and succeeds also satisfies; it now carries the file-scoped trigger with a
   null save directory and requires an EMPTY report, which is the only thing that proves
@@ -271,8 +272,10 @@ _(unreleased — entries accumulate here per commit)_
   arm), GhostPlaybackLogic.ComputeTargetWheelSteeringDegrees (the wheel-steering caller
   negate), and GhostPlaybackLogic.ShouldEnforceLoopedAudioPlaybackCap (the deferred-batch
   cap flag, previously unreachable because no xUnit fixture can carry a Unity AudioSource);
-  two FX counters in GhostPlaybackEngine were widened from private to internal. No
-  behaviour, no log text and nothing a player sees changes. Each strengthened cell was
+  two FX counters in GhostPlaybackEngine were widened from private to internal, and the
+  brace-matched body scan the three new source gates share moved into the test suite's
+  existing SourceScanText helper instead of being pasted per file. No behaviour, no log
+  text and nothing a player sees changes. Each strengthened cell was
   re-checked by breaking the named production line on purpose and confirming it goes red
   where it used to stay green.
 

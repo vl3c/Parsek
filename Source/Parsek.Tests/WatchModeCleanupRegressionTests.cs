@@ -81,7 +81,7 @@ namespace Parsek.Tests
 
             int bodyStart = prepared.IndexOf('{', sigIdx);
             Assert.True(bodyStart > 0, "DestroyAllTimelineGhosts has no body");
-            string body = BraceMatchedBlock(prepared, bodyStart);
+            string body = SourceScanText.BraceMatchedBlock(prepared, bodyStart);
 
             int exitIdx = body.IndexOf(
                 "ExitWatchModeBeforeTimelineGhostCleanup(", StringComparison.Ordinal);
@@ -95,20 +95,6 @@ namespace Parsek.Tests
                 + "GameObjects, or the stock camera keeps following a destroyed transform.");
         }
 
-        private static string BraceMatchedBlock(string prepared, int openBrace)
-        {
-            int depth = 0;
-            for (int i = openBrace; i < prepared.Length; i++)
-            {
-                if (prepared[i] == '{') depth++;
-                else if (prepared[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0) return prepared.Substring(openBrace, i - openBrace + 1);
-                }
-            }
-            throw new InvalidOperationException("unbalanced braces from " + openBrace);
-        }
 
         private static string LocateParsekFlightSource()
         {
