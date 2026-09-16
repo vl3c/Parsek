@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekKSC.Playback.cs b/Source/Parsek/ParsekKSC.Playback.cs
+index 98354a71e..848f4de44 100644
+--- a/Source/Parsek/ParsekKSC.Playback.cs
++++ b/Source/Parsek/ParsekKSC.Playback.cs
+@@ -583,7 +583,7 @@ namespace Parsek
+             if (rec == null || !GhostPlaybackEngine.ShouldLoopPlayback(rec))
+                 return false;
+ 
+-            playbackStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
++            playbackStartUT = rec.StartUT;
+             duration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
+             if (duration <= LoopTiming.MinLoopDurationSeconds)
+                 return false;

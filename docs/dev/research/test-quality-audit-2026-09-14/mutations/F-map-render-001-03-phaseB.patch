@@ -1,16 +1,7 @@
 diff --git a/Source/Parsek/ParsekKSC.Playback.cs b/Source/Parsek/ParsekKSC.Playback.cs
-index e12b2277d..1c8ff76f1 100644
+index 98354a71e..1c8ff76f1 100644
 --- a/Source/Parsek/ParsekKSC.Playback.cs
 +++ b/Source/Parsek/ParsekKSC.Playback.cs
-@@ -567,7 +567,7 @@ namespace Parsek
-         /// Reimplemented from ParsekFlight.TryComputeLoopPlaybackUT (instance version)
-         /// because the static 6-param overload doesn't return pause-window state.
-         /// </summary>
--        private static bool TryGetLoopSchedule(
-+        internal static bool TryGetLoopSchedule(
-             Recording rec,
-             int recIdx,
-             IReadOnlyDictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule> autoLoopScheduleCache,
 @@ -584,7 +584,7 @@ namespace Parsek
                  return false;
  
@@ -20,12 +11,3 @@ index e12b2277d..1c8ff76f1 100644
              if (duration <= LoopTiming.MinLoopDurationSeconds)
                  return false;
  
-@@ -625,7 +625,7 @@ namespace Parsek
-             return true;
-         }
- 
--        private static bool TryGetLoopSchedule(
-+        internal static bool TryGetLoopSchedule(
-             Recording rec,
-             int recIdx,
-             out double playbackStartUT,
