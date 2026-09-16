@@ -311,6 +311,18 @@ _(unreleased — entries accumulate here per commit)_
   re-checked by breaking the named production line on purpose and confirming it goes red
   where it used to stay green.
 
+- **Tests: the revert-path spawn-cleanup cell now arms through the production step
+  instead of assigning the fields itself.** `RevertPath_SetsCleanupData_WhenNotAlreadySet`
+  called `RecordingStore.CollectSpawnedVesselInfo` and then wrote `PendingCleanupPids` /
+  `PendingCleanupNames` by hand, so the revert arming it was named for never ran and
+  could have been deleted without the cell noticing. It is renamed
+  `RevertCleanupArming_WithProductionCollector_ArmsOnlySpawnedVessels` and now calls
+  `ParsekScenario.ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo)`, the
+  exact wiring `OnLoad` uses, asserting the armed sets ARE what the real collector
+  returned. A second recording with no spawned pid is the discriminator: cleanup names
+  the vessels Parsek actually spawned, not every recorded vessel. The two arming cells
+  added alongside it inject a fake collector, so neither of them can see what the real
+  one returns; this cell is the only one that does.
 
 - **The Kerbals window was rebuilt as two column tables, and its Roster tab now lists
   every kerbal instead of only the ones Parsek created a slot for.** Before this, on a

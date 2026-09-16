@@ -1813,6 +1813,29 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `SceneExitInterceptorTests`, `SessionSuppressedSubtreeTests`,
     `SwitchSegmentConsumeTests`, `SwitchSegmentSuppressionNarrowingTests` and
     `GrepAuditTests`.
+- `testfix-t3-g` (2026-09-16): slice 8 of the Medium T3 rows
+  (`work/phase-b-slice-medium-t3-08.txt`), a single row held back from slice 7 because
+  PR #1724 rewrote its file underneath it. 1 strengthened, 1 of those also renamed,
+  0 deleted, 0 deferred, no production change. With this row the Medium T3 register's
+  remaining work is slices 6 and 7, each on its own branch.
+  - F-spawn-vessel-021-01, renamed
+    `RevertCleanupArming_WithProductionCollector_ArmsOnlySpawnedVessels`: the cell called
+    `RecordingStore.CollectSpawnedVesselInfo` and then assigned `PendingCleanupPids` /
+    `PendingCleanupNames` itself, so the revert arming its old name claimed
+    (`RevertPath_SetsCleanupData_WhenNotAlreadySet`) never ran. PR #1724 lifted that step
+    out as `ParsekScenario.ArmRevertCleanupData(collector)` and added both guard arms
+    around it, which made the ALREADY-COVERED question worth asking first: it is not.
+    Both #1724 cells inject a FAKE collector, so the register's named mutant
+    (`CollectSpawnedVesselInfo` skipping nonzero `SpawnedVesselPersistentId`) leaves both
+    of them green - it reds only the three hand-rolled cells. The re-aimed cell closes
+    that gap by passing the production collector itself, exactly as `OnLoad` does, and
+    asserting the armed sets ARE its return value; a second recording with no spawned pid
+    is the discriminator between the spawned-vessel collector and the wider all-names one.
+    It is therefore not a duplicate of either #1724 cell, and it reds under both mutants:
+    the register's, and a stub of `ArmRevertCleanupData` that never arms (the recorded
+    patch), which the old cell survived.
+  - Filtered suite after the slice: `SpawnCleanupGuardTests` 6 passed / 0 failed, the
+    same count as before (a rename, not an added cell).
 
 ## July crosswalk
 
