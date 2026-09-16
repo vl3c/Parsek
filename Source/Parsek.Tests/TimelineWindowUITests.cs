@@ -90,6 +90,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldShowFastForwardButton_PastRow_ReturnsFalse()
+        {
+            // The gate is `isFuture && rec != null` and only the all-true input was pinned, so a
+            // body that ignored both arguments passed. Its sibling ShouldShowRewindButton has had
+            // both polarities from the start; these two cells give the fast-forward gate the same
+            // treatment.
+            var rec = new Recording();
+
+            Assert.False(TimelineWindowUI.ShouldShowFastForwardButton(rec, isFuture: false));
+        }
+
+        [Fact]
+        public void ShouldShowFastForwardButton_NullRecording_ReturnsFalse()
+        {
+            // A future row with no recording behind it (a bare timeline marker) draws no button.
+            Assert.False(TimelineWindowUI.ShouldShowFastForwardButton(null, isFuture: true));
+        }
+
+        [Fact]
         public void ShouldShowRewindButton_PastRecordingWithSave_ReturnsTrue()
         {
             var rec = new Recording { RewindSaveFileName = "rewind.sfs" };

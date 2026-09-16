@@ -154,7 +154,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Classify_InterloperParkedInLaunchOrbitDuringTransfer_FlattenedBreaks_PerMemberCorrect()
+        public void Classify_FlattenedGatherWithInterloper_CollapsesTheTransfer()
         {
             // Regression (playtest 2026-05-30, save s15 'Duna One'): a SECOND member parked in a
             // launch-body orbit DURING the transfer (a station / a jettisoned stage left in LKO)
@@ -162,8 +162,14 @@ namespace Parsek.Tests
             // multi-member gather. The classifier's backward walk from the target SOI coast then hits an
             // interleaved launch-body segment and STOPS, collapsing the transfer to the last coast alone
             // (a too-short tof -> a bogus re-aimed geometry; in game tof fell from ~79d to ~35d and the
-            // ghost aimed where Duna was not). The builder now classifies PER-MEMBER (each member's own
-            // segments), so the parked station never pollutes the transfer member. This pins both halves.
+            // ghost aimed where Duna was not). This cell CHARACTERIZES that collapse - what the
+            // classifier does when it is handed the flattened list - and nothing more: no builder code
+            // runs here, so it cannot witness the cure. The cure (the builder classifies PER MEMBER, so
+            // the parked station never reaches the transfer member's classification) is pinned by
+            // MissionLoopUnitBuilderTests.ReaimClassification_IsPerMember_AParkedStationDoesNotCollapseTheTransfer.
+            // The collapsed values below are therefore a KNOWN-WRONG-BY-DESIGN baseline for an input the
+            // builder never produces; if the classifier is ever taught to skip non-common-ancestor
+            // interlopers in its backward walk, this half is what has to change.
             var transferOnly = new List<OrbitSegment>
             {
                 SegA("Kerbin", 100, 1000, 700000),  // launch parking
@@ -314,9 +320,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Classify_DeepTargetIke_NotSupported_Deferred()
+        public void Classify_IkeAfterDunaArrival_TargetsDuna_Supported()
         {
-            // Guards: Ike is a moon of Duna (not a direct child of the Sun) -> deep/multi-hop, deferred.
+            // Renamed 2026-09-16: the old name (Classify_DeepTargetIke_NotSupported_Deferred) said the
+            // OPPOSITE of what the assertions prove, so a reader grepping for the deep-target decline
+            // landed on a cell that never exercises it. The real decline is the cell below.
+            // Ike is a moon of Duna, but the first arrival after the Sun coast here is DUNA (a direct
+            // child of the Sun), so Duna is the target and Ike is a later same-system leg: single-hop,
+            // Supported.
             var segs = new List<OrbitSegment>
             {
                 Seg("Kerbin", 100, 5000),
@@ -329,6 +340,25 @@ namespace Parsek.Tests
             // and Ike is just a later same-system leg; this is still single-hop to Duna. Supported.
             Assert.True(plan.Supported, plan.Reason);
             Assert.Equal("Duna", plan.TargetBody);
+        }
+
+        [Fact]
+        public void Classify_DeepTargetIkeWithNoDunaLeg_NotSupported_DirectChildDecline()
+        {
+            // The decline the previous cell's old name claimed but never reached: the chain warps
+            // Kerbin -> Sun and arrives straight at IKE with no Duna leg recorded, so the first
+            // non-ancestor, non-launch arrival IS Ike. Ike's parent is Duna, not the common ancestor
+            // Sun, so the single-hop guard declines it as deep/multi-hop.
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 5000),
+                Seg("Sun", 5000, 1000000),
+                Seg("Ike", 1000000, 1003000),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("Ike", plan.Reason);
+            Assert.Contains("not a direct child", plan.Reason);
         }
 
         [Fact]

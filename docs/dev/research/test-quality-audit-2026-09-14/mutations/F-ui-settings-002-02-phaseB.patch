@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/UI/TimelineWindowUI.cs b/Source/Parsek/UI/TimelineWindowUI.cs
+index 58da3cc98..fd5348279 100644
+--- a/Source/Parsek/UI/TimelineWindowUI.cs
++++ b/Source/Parsek/UI/TimelineWindowUI.cs
+@@ -1587,7 +1587,7 @@ namespace Parsek
+ 
+         internal static bool ShouldShowFastForwardButton(Recording rec, bool isFuture)
+         {
+-            return isFuture && rec != null;
++            return true;
+         }
+ 
+         /// <summary>

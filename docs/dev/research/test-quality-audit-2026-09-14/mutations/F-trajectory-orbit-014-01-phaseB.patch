@@ -1,0 +1,21 @@
+diff --git a/Source/Parsek/MissionLoopUnitBuilder.cs b/Source/Parsek/MissionLoopUnitBuilder.cs
+index 95b6adf2a..773a5da71 100644
+--- a/Source/Parsek/MissionLoopUnitBuilder.cs
++++ b/Source/Parsek/MissionLoopUnitBuilder.cs
+@@ -644,7 +644,15 @@ namespace Parsek
+                 if (mrec == null || mrec.OrbitSegments == null || mrec.OrbitSegments.Count == 0)
+                     continue;
+                 gatheredCount += mrec.OrbitSegments.Count;
+-                var msegs = new List<OrbitSegment>(mrec.OrbitSegments);
++                var msegs = new List<OrbitSegment>();
++                for (int gi = 0; gi < memberIndices.Count; gi++)
++                {
++                    int gidx = memberIndices[gi];
++                    if (gidx < 0 || gidx >= committed.Count) continue;
++                    Recording grec = committed[gidx];
++                    if (grec == null || grec.OrbitSegments == null) continue;
++                    msegs.AddRange(grec.OrbitSegments);
++                }
+                 msegs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+                 ReaimMissionPlan mp = ReaimClassifier.Classify(msegs, bodyInfo);
+                 if (diagEnabled)

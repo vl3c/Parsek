@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/SpawnCollisionDetector.cs b/Source/Parsek/SpawnCollisionDetector.cs
+index de5783db0..60992bc7a 100644
+--- a/Source/Parsek/SpawnCollisionDetector.cs
++++ b/Source/Parsek/SpawnCollisionDetector.cs
+@@ -790,8 +790,8 @@ namespace Parsek
+             double lonRad = pt.longitude * Math.PI / 180.0;
+ 
+             double x = r * Math.Cos(latRad) * Math.Cos(lonRad);
+-            double y = r * Math.Sin(latRad);
+-            double z = r * Math.Cos(latRad) * Math.Sin(lonRad);
++            double z = r * Math.Sin(latRad);
++            double y = r * Math.Cos(latRad) * Math.Sin(lonRad);
+ 
+             return new Vector3d(x, y, z);
+         }
