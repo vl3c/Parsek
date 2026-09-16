@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Reaim/ReaimClassifier.cs b/Source/Parsek/Reaim/ReaimClassifier.cs
+index 6101ff194..ebb5e7c66 100644
+--- a/Source/Parsek/Reaim/ReaimClassifier.cs
++++ b/Source/Parsek/Reaim/ReaimClassifier.cs
+@@ -160,7 +160,7 @@ namespace Parsek.Reaim
+             // parent == the heliocentric-leg body). A deeper target (Ike via Duna: parent Duna, not
+             // the Sun) is multi-hop and deferred.
+             string targetParent = bodyInfo.ReferenceBodyName(targetBody);
+-            if (targetParent != commonAncestor)
++            if (false)
+                 return ReaimMissionPlan.Unsupported(launchBody,
+                     $"target '{targetBody}' is not a direct child of the common ancestor '{commonAncestor}' (deep/multi-hop, deferred)");
+ 

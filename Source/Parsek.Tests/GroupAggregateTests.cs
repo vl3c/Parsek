@@ -184,6 +184,13 @@ namespace Parsek.Tests
             int order;
             ParsekUI.GetGroupStatus(descendants, committed, 500, out text, out order);
             Assert.Equal(1, order); // active
+            // statusOrder alone cannot tell the two candidates apart: both are active, so a
+            // take-the-first pick (dropping the delta < bestActiveDelta comparison) answers 1 too.
+            // The countdown is formatted from the CHOSEN recording's StartUT, so pinning it is what
+            // pins the choice. 490 is 10 s before now; 300 is 200 s before it. ParsekTimeFormat
+            // writes both numbers with InvariantCulture.
+            Assert.Equal("T+10s", text);
+            Assert.NotEqual("T+3m 20s", text);
         }
 
         [Fact]

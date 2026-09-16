@@ -1082,11 +1082,18 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region SpinForward
+        #region Spin-forward quaternion helpers (and the render site that composes them)
 
         [Fact]
-        public void SpinForward_SingleAxis_CorrectAngle()
+        public void PureAngleAxisSpin_SingleAxis_RotatesForwardByOmegaDt()
         {
+            // SCOPE: there is no production SpinForward method. What this drives is the pure
+            // quaternion helper trio (PureRotateVector / PureAngleAxis / PureMultiply). The
+            // COMPOSITION that turns an angular velocity and a dt into a ghost rotation lives in
+            // ParsekFlight.ComputeOrbitalRotation, which needs a live Orbit and cannot run
+            // headless; the angle formula below is a COPY of it, so a production change to that
+            // formula cannot red this cell. That wiring is pinned by
+            // ComputeOrbitalRotation_SpinForwardComposition_UsesOmegaTimesDtInDegrees below.
             // Angular velocity around Y axis: 0.5 rad/s, dt = 2s
             // Expected angle: 0.5 * 2 * Rad2Deg = ~57.296 degrees
             Vector3 angVel = new Vector3(0, 0.5f, 0);
@@ -1112,18 +1119,102 @@ namespace Parsek.Tests
             Assert.True(Mathf.Abs(fwd.y) < 0.01f, $"fwd.y={fwd.y} expected~=0");
         }
 
-        [Fact]
-        public void SpinForward_ZeroAngVel_FallsBackToOrbitalFrame()
-        {
-            // Segment with orbital-frame rotation but zero angular velocity
-            var seg = MakeSegment(100, 200);
-            seg.orbitalFrameRotation = new Quaternion(0, 0, 0, 1); // identity = prograde
-            seg.angularVelocity = Vector3.zero;
+        // SpinForward_ZeroAngVel_FallsBackToOrbitalFrame was DELETED (2026-09-16 audit slice):
+        // its name claimed an orbital-frame fallback but no fallback code ran, and its two
+        // assertions were verbatim duplicates of IsSpinning_DefaultSegment_ReturnsFalse and
+        // HasOrbitalFrameRotation_IdentityQuaternion_ReturnsTrue, which both red under the same
+        // mutants. The branch it named (spinning -> orbital-frame -> prograde) is decided in
+        // ParsekFlight.ComputeOrbitalRotation and is pinned by the composition gate below.
 
-            // IsSpinning should be false
-            Assert.False(TrajectoryMath.IsSpinning(seg));
-            // HasOrbitalFrameRotation should be true (w=1)
-            Assert.True(TrajectoryMath.HasOrbitalFrameRotation(seg));
+        [Fact]
+        public void ComputeOrbitalRotation_SpinForwardComposition_UsesOmegaTimesDtInDegrees()
+        {
+            // The spin-forward composition is unreachable headless (it needs a live Orbit for
+            // getOrbitalVelocityAtUT / getPositionAtUT), so the cells above can only drive COPIES
+            // of its arithmetic. This pins the real site instead: the axis is the angular velocity
+            // carried into world space by the boundary rotation, the angle is |omega| * dt in
+            // DEGREES, and the spin is applied BEFORE the boundary rotation (AngleAxis * boundary,
+            // not boundary * AngleAxis). Scanned over comment-stripped, literal-masked source
+            // inside the brace-matched body of ComputeOrbitalRotation, so a commented-out or
+            // relocated copy cannot satisfy it.
+            //
+            // SCOPE: this is a SOURCE gate, not a behavioural one. It proves the composition is
+            // SPELLED this way at the one site that runs it; an equivalent rewrite (Rad2Deg
+            // replaced by 180.0 / Math.PI, say) would red it even though nothing moved. A
+            // behavioural cell is impossible headless: ComputeOrbitalRotation needs a live Orbit.
+            //
+            // ParsekFlight.cs is stored with LF (git ls-files --eol says i/lf) and checked out
+            // with CRLF on a core.autocrlf=true Windows worktree, so every needle here is
+            // newline-free and the extraction normalizes line endings first. Both renderings are
+            // driven below, so an EOL-sensitive needle cannot pass locally and red on CI.
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekFlightSource());
+            string lf = prepared.Replace("\r\n", "\n");
+            string crlf = lf.Replace("\n", "\r\n");
+
+            foreach (string rendering in new[] { lf, crlf })
+            {
+                string body = ExtractComputeOrbitalRotationBody(rendering);
+
+                Assert.Contains("Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;", body);
+                Assert.Contains(
+                    "(float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg)", body);
+                Assert.Contains("Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot", body);
+                // The non-spinning arm is the orbital-frame decode, not a second spin.
+                Assert.Contains("ghostRot = orbFrame * segment.orbitalFrameRotation;", body);
+            }
+        }
+
+        /// <summary>
+        /// The brace-matched body of <c>ParsekFlight.ComputeOrbitalRotation</c>, taken from
+        /// comment-stripped, literal-masked source. Anchors on the DECLARATION (return type
+        /// included), which occurs exactly once, so a CALL site can never be picked up; the
+        /// opening brace is then confirmed to be a method body via
+        /// <see cref="SourceScanText.EnclosingMethodBodyStart"/> (namespace -> type -> method)
+        /// rather than the block of some statement. Line endings are normalized first and the
+        /// anchor carries no newline, so the result is identical under LF and CRLF checkouts.
+        /// </summary>
+        private static string ExtractComputeOrbitalRotationBody(string preparedSource)
+        {
+            const string Decl =
+                "internal static (Quaternion ghostRot, Quaternion boundaryWorldRot) ComputeOrbitalRotation(";
+
+            string text = preparedSource.Replace("\r\n", "\n");
+            int declIdx = text.IndexOf(Decl, StringComparison.Ordinal);
+            Assert.True(declIdx >= 0,
+                "ComputeOrbitalRotation's declaration was not found in ParsekFlight.cs. If its "
+                + "signature changed, update this gate deliberately rather than loosening the "
+                + "anchor to a bare method name, which also matches every call site.");
+            Assert.Equal(declIdx, text.LastIndexOf(Decl, StringComparison.Ordinal));
+
+            int bodyStart = text.IndexOf('{', declIdx + Decl.Length);
+            Assert.True(bodyStart >= 0, "ComputeOrbitalRotation has no body.");
+            // The brace must open a METHOD body (namespace -> type -> method). A call site's
+            // enclosing block resolves to a different opening brace, so this is what rules out
+            // having matched an invocation.
+            Assert.Equal(bodyStart, SourceScanText.EnclosingMethodBodyStart(text, bodyStart + 1));
+
+            int depth = 0;
+            int bodyEnd = -1;
+            for (int i = bodyStart; i < text.Length; i++)
+            {
+                if (text[i] == '{') depth++;
+                else if (text[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0) { bodyEnd = i; break; }
+                }
+            }
+            Assert.True(bodyEnd > bodyStart, "ComputeOrbitalRotation body is not brace-balanced.");
+            return text.Substring(bodyStart, bodyEnd - bodyStart);
+        }
+
+        private static string ReadParsekFlightSource()
+        {
+            string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = System.IO.Path.Combine(root, "Source", "Parsek", "ParsekFlight.cs");
+            Assert.True(System.IO.File.Exists(path), "Source file not found at " + path);
+            return System.IO.File.ReadAllText(path);
         }
 
         #endregion
@@ -1266,7 +1357,7 @@ namespace Parsek.Tests
         #region Edge Cases
 
         [Fact]
-        public void SpinForward_HighAngularVelocity_NoOverflow()
+        public void PureAngleAxisSpin_HighAngularVelocity_NoOverflow()
         {
             // Very high angular velocity: 5 rad/s, dt = 1000s
             Vector3 angVel = new Vector3(5f, 0, 0);

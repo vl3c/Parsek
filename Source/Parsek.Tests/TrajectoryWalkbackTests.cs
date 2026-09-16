@@ -257,6 +257,27 @@ namespace Parsek.Tests
             Assert.Equal(700000.0, result.x, 1);
             Assert.Equal(0.0, result.y, 1);
             Assert.Equal(0.0, result.z, 1);
+
+            // lat=0 lon=0 zeroes BOTH y and z, so on its own the case above survives an axis swap,
+            // a lat/lon transposition and a degree/radian conversion error: only the radius plus
+            // altitude term is pinned. A non-degenerate point where all three components differ:
+            //   r = 600000 + 250000 = 850000
+            //   x = r*cos(30deg)*cos(60deg) = 368060.7966083865
+            //   y = r*sin(30deg)            = 425000
+            //   z = r*cos(30deg)*sin(60deg) = 637500
+            var tilted = new TrajectoryPoint
+            {
+                latitude = 30.0,
+                longitude = 60.0,
+                altitude = 250000.0,
+                bodyName = "Kerbin"
+            };
+
+            Vector3d tiltedResult = SpawnCollisionDetector.SimplePointToWorldPos(tilted, 600000.0);
+
+            Assert.Equal(368060.7966083865, tiltedResult.x, 3);
+            Assert.Equal(425000.0, tiltedResult.y, 3);
+            Assert.Equal(637500.0, tiltedResult.z, 3);
         }
 
         // ────────────────────────────────────────────────────────────

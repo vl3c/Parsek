@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 3057033f3..a80a65b83 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -698,7 +698,7 @@ namespace Parsek
+             // Nothing is lost by skipping it: parts with a LightGhostInfo already get an
+             // entry pre-populated at spawn (PopulateGhostInfoDictionaries), and ColorChanger
+             // materials are initialised to their off colour at build time.
+-            if (LightBaselineSaysSomething(baseline))
++            if (baseline != null)
+             {
+                 actions.lightPower = baseline.lightOn ?? baseline.colorChangerOn;
+                 actions.blinkEnabled = baseline.lightBlinking;

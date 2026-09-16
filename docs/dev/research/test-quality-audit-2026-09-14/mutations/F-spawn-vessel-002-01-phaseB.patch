@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/TimeJumpManager.cs b/Source/Parsek/TimeJumpManager.cs
+index 4ec974f38..70b5cd236 100644
+--- a/Source/Parsek/TimeJumpManager.cs
++++ b/Source/Parsek/TimeJumpManager.cs
+@@ -163,7 +163,7 @@ namespace Parsek
+             double newEpoch)
+         {
+             double sma3 = sma * sma * sma;
+-            double meanMotion = Math.Sqrt(gravParam / sma3);
++            double meanMotion = Math.Sqrt(gravParam / (sma3 * 2.0));
+             double jumpDelta = newEpoch - oldEpoch;
+             double newM = oldMeanAnomalyAtEpoch + meanMotion * jumpDelta;
+ 

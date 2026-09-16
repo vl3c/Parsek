@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/PannotationsSidecarBinary.cs b/Source/Parsek/PannotationsSidecarBinary.cs
+index d90aba48c..2206b0826 100644
+--- a/Source/Parsek/PannotationsSidecarBinary.cs
++++ b/Source/Parsek/PannotationsSidecarBinary.cs
+@@ -414,9 +414,6 @@ namespace Parsek
+                 // = 12500 bytes — generous upper bound so a corrupt
+                 // length cannot force a multi-MB allocation.
+                 int bitmapByteCap = (MaxKnotsPerSpline + 7) / 8;
+-                if (!ValidateCount(stream, bitmapLength, bitmapByteCap,
+-                        1, $"outlier-flags[{i}].bitmap", out failureReason))
+-                    return false;
+                 byte[] bitmap = bitmapLength > 0
+                     ? reader.ReadBytes(bitmapLength)
+                     : new byte[0];

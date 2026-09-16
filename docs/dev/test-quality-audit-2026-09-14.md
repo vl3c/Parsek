@@ -1913,6 +1913,107 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `SceneExitInterceptorTests`, `SessionSuppressedSubtreeTests`,
     `SwitchSegmentConsumeTests`, `SwitchSegmentSuppressionNarrowingTests` and
     `GrepAuditTests`.
+- `testfix-t3-f` (2026-09-16): the SEVENTH and last slice of Medium T3 rows
+  (`work/phase-b-slice-medium-t3-07.txt`, 17 ids: 3 `map-render`, 6 `mission-groups`,
+  2 `spawn-vessel`, 5 `trajectory-orbit`, 1 `ui-settings`). Counting rule: every kept row
+  is strengthened, and a rename is a SUBSET of that, never a separate bucket. Slice total:
+  16 strengthened, 7 of those also renamed, 1 deleted, 0 premise-wrong, no production
+  change. Per-commit split, derived from the diff: 3 rows (`2cef68a22`), 6 rows
+  (`be908585b`), 4 rows (`8de257ffa`, one of them the deletion), 4 rows (`f4b2dc0e1`).
+  Each row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  that `git apply --check`s against a clean tree. The EIGHTEENTH row of the slice,
+  F-spawn-vessel-021-01 (`SpawnCleanupGuardTests`), was deliberately HELD BACK: another
+  open PR rewrites that file, so the fix would conflict; it stays untouched in the
+  register.
+  - Renamed off a claim the body does not make (each also strengthened):
+    F-map-render-020-01 ->
+    `NaNClearance_EveryRestoredPoint_RoutesThroughRendererToRecordedAltitude` (no v8 file
+    is ever written or read - `TrajectorySidecarBinary.Write` always stamps the current
+    version and older generations are rejected outright - and the all-NaN fixture let a
+    helper stubbed to `return recordedAltitude` pass, so a finite-clearance control point
+    was added); F-map-render-023-01 ->
+    `AllowPointHermiteInterpolation_AllOutcomes_GuardOrderDecidesReason` (a six-row theory
+    over the four outcomes, including the two rows where two guards would fire at once);
+    F-mission-groups-006-01 ->
+    `UnitMemberOverlaps_ScheduleCarryingUnitWithSpanFlooredCadence_False` (the cell floors
+    the cadence itself, so it says nothing about the builder; it now states that scope and
+    gains an overlapping mirror); F-spawn-vessel-007-01 ->
+    `ResolveActions_ModuleLightOffPlusColorChangerOn_IsAnAllFalseOpinion_Skipped` (the old
+    `NotEqual(true, ...)` was satisfied by a null from the all-false skip, not by the `??`
+    order); F-trajectory-orbit-006-01 -> `PureAngleAxisSpin_*` for the two surviving
+    SpinForward cells (there is no production SpinForward; the composition lives in
+    `ParsekFlight.ComputeOrbitalRotation`); F-trajectory-orbit-014-01 ->
+    `Classify_FlattenedGatherWithInterloper_CollapsesTheTransfer`;
+    F-trajectory-orbit-014-02 -> `Classify_IkeAfterDunaArrival_TargetsDuna_Supported` (the
+    old name said NotSupported / Deferred while the assertions proved the opposite).
+  - Strengthened by adding the arm or the polarity that was missing:
+    F-mission-groups-003-02 (a populated `LoopUnitSet` positive that resolves the owning
+    unit, plus the negative-parent guard re-asserted against that same populated set - the
+    empty set had masked it); F-mission-groups-003-04 (the false polarity, the only input
+    where the preserved value and the real value differ); F-ui-settings-002-02 (both
+    negatives of `isFuture && rec != null`, mirroring its `ShouldShowRewindButton`
+    sibling); and F-trajectory-orbit-014-02's new Kerbin -> Sun -> Ike cell, the
+    direct-child decline nothing in the suite reached - its mutant was green across every
+    Reaim test class.
+  - Strengthened by making the named term the deciding one:
+    F-map-render-021-01 (the byte edit was landing on the anchor-candidate count at the end
+    of the file, not the bitmap length nine bytes back, so a guard several steps past the
+    named one was doing the rejecting; the failure text is read now);
+    F-mission-groups-003-03 (`newLiveMemberIndex` equalled `watchedIndex`, so the later
+    guard answered on its own); F-mission-groups-007-01 (the `InRange` bounds were the scan
+    window and the shift range, which hold for every possible return value; k=1, d=+1 and
+    the 15 s residual are hand-derived now, with a later-k mirror); F-mission-groups-013-02
+    (`statusOrder` is 1 for either active candidate, so the chosen recording's countdown is
+    pinned instead); F-spawn-vessel-002-01 (the expectation was the helper's own delegate,
+    so a change inside the shift moved both sides; the hand-computed value is pinned);
+    F-trajectory-orbit-017-03 (lat=0 lon=0 zeroes both y and z, so an axis swap, a lat/lon
+    transposition and a degree/radian error all survived; a lat=30 lon=60 point pins all
+    three components).
+  - Pinned at the source because the site cannot run headless: F-trajectory-orbit-006-01
+    gains `ComputeOrbitalRotation_SpinForwardComposition_UsesOmegaTimesDtInDegrees`, a gate
+    over the brace-matched body of `ParsekFlight.ComputeOrbitalRotation` (comment-stripped,
+    literal-masked) pinning the axis, the `|omega| * dt` angle in DEGREES, the
+    `AngleAxis * boundary` order and the non-spinning arm's orbital-frame decode. The cells
+    above can only drive COPIES of that arithmetic: the site needs a live `Orbit` for
+    `getOrbitalVelocityAtUT` / `getPositionAtUT`. It is a SOURCE gate, not a behavioural
+    proof - it pins how the composition is SPELLED, so an equivalent rewrite (`Mathf.Rad2Deg`
+    replaced by `180.0 / Math.PI`) would red it although nothing moved; the mutations.csv row
+    says so too. It normalizes line endings, anchors on the DECLARATION (which occurs once,
+    so no call site can match) and confirms the brace it found opens a method body, then runs
+    its assertions against both an LF and a CRLF rendering: `ParsekFlight.cs` is stored with
+    LF and checked out CRLF on a `core.autocrlf=true` worktree, and the first version of this
+    gate carried a CRLF needle that passed locally and would have red on CI.
+  - Reached through the real builder: F-trajectory-orbit-014-01 gains
+    `MissionLoopUnitBuilderTests.ReaimClassification_IsPerMember_AParkedStationDoesNotCollapseTheTransfer`,
+    which adds a station parked in Kerbin orbit for the whole heliocentric coast to the
+    flown Duna-direct fixture and asserts the unit still engages re-aim on the transfer
+    member with the same departure UT and tof. The mutant is the flattened gather; it is
+    invisible to every other builder fixture, all of which are single-member.
+  - Deleted: F-trajectory-orbit-006-02
+    (`SpinForward_ZeroAngVel_FallsBackToOrbitalFrame`). No fallback code ran and both
+    assertions were verbatim duplicates of `IsSpinning_DefaultSegment_ReturnsFalse` and
+    `HasOrbitalFrameRotation_IdentityQuaternion_ReturnsTrue`, which red under the same
+    mutants (the inverted `IsSpinning` reds five OrbitSegmentTests cells with the deleted
+    cell gone; the constant-false `HasOrbitalFrameRotation` reds its twin plus two
+    `BallisticExtrapolatorTests` cells). The branch its NAME claimed is the 3-way branch in
+    `ComputeOrbitalRotation`, now pinned by the composition gate above.
+  - Already covered, so no duplicate cell was written: the register's builder-level
+    proposal for F-mission-groups-006-01 (the `minSpacing = 0.0` mutant reds the
+    pre-existing
+    `MissionPeriodicityTests.Build_DriftingLongSpan_ThrottleFlooredAtSpan_NonOverlappingByConstruction`,
+    which IS that proposal), and the ON direction of the light precedence for
+    F-spawn-vessel-007-01 (the `??` swap reds the pre-existing
+    `ResolveActions_ModuleLightOnWinsOverColorChangerOff`; the OFF direction was the
+    unguarded half, and it is what the new blinking cell covers).
+  - Doc references updated for the renames: `docs/dev/done/design-orbital-rotation.md`
+    (items 13, 14, 21) and `docs/dev/done/todo-and-known-bugs-v5.md` (the P2-2 entry).
+  - Filtered suite after the slice: 0 failed across `TrajectorySidecarBinaryTerrainTests`,
+    `OutlierFlagsSidecarRoundTripTests`, `AnchorCorrectionConsumerHookTests`,
+    `MissionSpanClockTests`, `MissionZeroDriftScheduleTests`, `MissionLoiterKnobTests`,
+    `GroupAggregateTests`, `SpawnSafetyNetTests`, `SnapshotBaselineApplicationTests`,
+    `OrbitSegmentTests`, `ReaimClassifierTests`, `MissionLoopUnitBuilderTests`,
+    `MissionPeriodicityTests`, `TrajectoryWalkbackTests` and `TimelineWindowUITests`.
 - `testfix-t3-g` (2026-09-16): slice 8 of the Medium T3 rows
   (`work/phase-b-slice-medium-t3-08.txt`), a single row held back from slice 7 because
   PR #1724 rewrote its file underneath it. 1 strengthened, 1 of those also renamed,

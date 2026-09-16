@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..26d5c95b6 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -23095,7 +23095,7 @@ namespace Parsek
+ 
+                 double dt = ut - segment.startUT;
+                 Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;
+-                float angle = (float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg);
++                float angle = (float)((double)segment.angularVelocity.magnitude * dt * Mathf.Deg2Rad);
+                 ghostRot = Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot;
+             }
+             else if (hasOfr && velocity.sqrMagnitude > 0.001)

@@ -1,0 +1,21 @@
+diff --git a/Source/Parsek/ParsekFlight.TailLift.cs b/Source/Parsek/ParsekFlight.TailLift.cs
+index 5728aca85..98e483e6f 100644
+--- a/Source/Parsek/ParsekFlight.TailLift.cs
++++ b/Source/Parsek/ParsekFlight.TailLift.cs
+@@ -327,6 +327,8 @@ namespace Parsek
+             double recordedAltitude, double recordedGroundClearance,
+             ReferenceFrame referenceFrame)
+         {
++            return recordedAltitude;
++#pragma warning disable 0162
+             if (double.IsNaN(recordedGroundClearance))
+                 return recordedAltitude;
+             if (referenceFrame != ReferenceFrame.Absolute)
+@@ -370,6 +372,7 @@ namespace Parsek
+             }
+ 
+             return currentTerrain + recordedGroundClearance;
++#pragma warning restore 0162
+         }
+     }
+ }

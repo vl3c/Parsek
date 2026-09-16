@@ -887,11 +887,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoopUnit_WithSchedule_IsNonOverlapping_Invariant()
+        public void UnitMemberOverlaps_ScheduleCarryingUnitWithSpanFlooredCadence_False()
         {
-            // Guards the INVARIANT: a unit carrying a schedule is built non-overlapping
-            // (OverlapCadenceSeconds >= span), so UnitMemberOverlaps is false and the overlap engine
-            // path never sees a scheduled unit.
+            // SCOPE, stated because the old name (LoopUnit_WithSchedule_IsNonOverlapping_Invariant)
+            // overclaimed: this pins GhostPlaybackLogic.UnitMemberOverlaps on a HAND-BUILT unit whose
+            // OverlapCadenceSeconds the test itself floors at the span. It says nothing about the
+            // BUILDER, which is where the floor is actually decided. That production guarantee is
+            // already pinned behaviourally by MissionPeriodicityTests.
+            // Build_DriftingLongSpan_ThrottleFlooredAtSpan_NonOverlappingByConstruction, which drives
+            // MissionLoopUnitBuilder.Build over a drifting Mun config whose span outruns every
+            // faithful window gap and reds when the throttle loses its span floor.
             var schedule = SyntheticSchedule();
             double span = 50.0;
             var unit = new GhostPlaybackLogic.LoopUnit(
@@ -902,6 +907,21 @@ namespace Parsek.Tests
                 memberWindows: null, relaunchSchedule: schedule);
             Assert.NotNull(unit.RelaunchSchedule);
             Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(unit));
+            // The floor is a NO-OP for this fixture: the synthetic schedule relaunches about every
+            // 400 s, well past the 50 s span, so Math.Max returns the schedule's own interval either
+            // way. That is precisely why this cell cannot witness the floor. What it CAN witness is
+            // that UnitMemberOverlaps is not a constant false: the same schedule-carrying unit with
+            // an overlap cadence BELOW the span answers true.
+            Assert.True(schedule.MinIntervalSeconds > span,
+                "fixture note: the synthetic schedule's shortest interval already exceeds the span, " +
+                "so the span floor does not bite here");
+            var overlapping = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 }, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: span * 0.5,
+                phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: span * 0.5,
+                memberWindows: null, relaunchSchedule: schedule);
+            Assert.True(GhostPlaybackLogic.UnitMemberOverlaps(overlapping));
         }
 
         // ===================== Transited-body rotation A/B mode (Drop / Loose / Tight) =====================

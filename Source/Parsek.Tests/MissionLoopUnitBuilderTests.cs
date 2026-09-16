@@ -1203,6 +1203,81 @@ namespace Parsek.Tests
             Assert.Equal(0, unit.TransferMemberIndex);
         }
 
+        // A station parked in a Kerbin orbit for the WHOLE heliocentric coast: its Kerbin-bodied
+        // segments interleave with the transfer member's Sun coasts in any flattened gather.
+        // ReaimClassifierTests.Classify_FlattenedGatherWithInterloper_CollapsesTheTransfer pins what
+        // the classifier does when it IS handed that flattened list (playtest 2026-05-30, save s15
+        // 'Duna One': tof collapsed from ~79 d to ~35 d). This cell pins the builder side: it
+        // classifies PER MEMBER, so the station never reaches the transfer member's classification.
+        private static Recording BuildParkedKerbinStation()
+        {
+            var builder = new Generators.RecordingBuilder("Parked Station DD1")
+                .WithRecordingId("parkedstation00000000000000dd18")
+                .WithSegmentBodyName("Kerbin")
+                .WithLaunchIdentity("Launch Pad")
+                .WithTerminalState((int)global::Parsek.TerminalState.Orbiting);
+            // Three Kerbin coasts straddling the transfer's Sun legs (4.83M -> 9.12M).
+            builder.AddOrbitSegment(startUT: 4836036.0, endUT: 6000000.0,
+                ecc: 0.001, sma: 2360000.0, epoch: 4836036.0, body: "Kerbin");
+            builder.AddOrbitSegment(startUT: 6000000.0, endUT: 8000000.0,
+                ecc: 0.001, sma: 2360000.0, epoch: 6000000.0, body: "Kerbin");
+            builder.AddOrbitSegment(startUT: 8000000.0, endUT: 9128000.0,
+                ecc: 0.001, sma: 2360000.0, epoch: 8000000.0, body: "Kerbin");
+            builder.AddPoint(4836036.0, 0.0, 0.0, 200000.0, "Kerbin");
+            builder.AddPoint(9128000.0, 0.0, 0.0, 200000.0, "Kerbin");
+
+            var rec = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(builder.BuildV3Metadata(), rec);
+            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            return rec;
+        }
+
+        [Fact]
+        public void ReaimClassification_IsPerMember_AParkedStationDoesNotCollapseTheTransfer()
+        {
+            BuildFlownDunaDirectMission(
+                out Mission mission, out RecordingTree tree, out List<Recording> committed);
+            Recording station = BuildParkedKerbinStation();
+            tree.Recordings[station.RecordingId] = station;
+            committed.Add(station);
+
+            bool built = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
+                mission,
+                new List<RecordingTree> { tree },
+                committed,
+                DefaultAutoInterval,
+                new ReaimFakeBodyInfo(),
+                TransitedBodyRotationMode.Loose,
+                forceFaithful: false,
+                out GhostPlaybackLogic.LoopUnit unit);
+            Assert.True(built, "the two-member mission must resolve a loop unit");
+            Assert.Equal(2, unit.MemberIndices.Length);   // fixture precondition: the station IS a member
+
+            // The verdict: re-aim still engages, on the TRANSFER member, with the transfer's own
+            // launch and target. A flattened classification would break the backward walk on the
+            // station's Kerbin coast and either decline or collapse the transfer.
+            Assert.True(unit.IsReaim,
+                "the parked station must not knock the mission off the re-aim path");
+            Assert.NotNull(unit.ReaimPlan);
+            Assert.True(unit.ReaimPlan.Value.Supported, unit.ReaimPlan.Value.Reason);
+            Assert.Equal("Kerbin", unit.ReaimPlan.Value.LaunchBody);
+            Assert.Equal("Duna", unit.ReaimPlan.Value.TargetBody);
+
+            // Byte-for-byte the same transfer the single-member build resolves: the tof is the whole
+            // heliocentric run, not the last coast alone.
+            GhostPlaybackLogic.LoopUnit solo = BuildFlownDunaDirectUnit(forceFaithful: false);
+            Assert.Equal(solo.ReaimPlan.Value.RecordedDepartureUT,
+                unit.ReaimPlan.Value.RecordedDepartureUT, 3);
+            Assert.Equal(solo.ReaimPlan.Value.RecordedTransferTofSeconds,
+                unit.ReaimPlan.Value.RecordedTransferTofSeconds, 3);
+            // And the published transfer-member identity points at the TRANSFER recording, which is
+            // committed index 0: BuildFlownDunaDirectMission seeds the list with the flown
+            // Duna-direct recording alone and the parked station was appended after it (index 1).
+            // A flattened or last-supported-wins classification would publish 1, or the
+            // classifier-decline sentinel -1.
+            Assert.Equal(0, unit.TransferMemberIndex);
+        }
+
         [Fact]
         public void ForceFaithfulOn_TheSameMissionStaysFaithfulWithNoReaimState()
         {

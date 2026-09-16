@@ -932,6 +932,39 @@ namespace Parsek.Tests
                 parentIdx: 3, GhostPlaybackLogic.LoopUnitSet.Empty, out _));
             Assert.False(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                 parentIdx: -1, GhostPlaybackLogic.LoopUnitSet.Empty, out _));
+            // The parentIdx < 0 guard is masked here (the EMPTY set refuses
+            // every index); it is re-asserted against a POPULATED set in the
+            // positive cell below.
+        }
+
+        [Fact]
+        public void ShouldSourceDebrisFromUnitSpan_ParentIsUnitMember_TrueWithOwningUnit()
+        {
+            // Without this half the predicate had only false cases, so an
+            // always-false regression - loop-synced debris never sourcing the
+            // unit's SHARED span clock, playing instead on the parent's own
+            // per-recording clock, which never sweeps into a sibling window -
+            // left the suite green.
+            var unit = ThreeMemberUnit();
+            var units = new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 5, unit } },
+                new Dictionary<int, int> { { 5, 5 }, { 6, 5 }, { 7, 5 } });
+
+            Assert.True(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                parentIdx: 6, units, out GhostPlaybackLogic.LoopUnit resolved));
+            // The OWNING unit must come back, not default(LoopUnit): the debris
+            // reads its span clock off exactly these fields.
+            Assert.Equal(unit.OwnerIndex, resolved.OwnerIndex);
+            Assert.Equal(unit.SpanStartUT, resolved.SpanStartUT, 6);
+            Assert.Equal(unit.SpanEndUT, resolved.SpanEndUT, 6);
+
+            // A non-member parent against the SAME populated set: the lookup,
+            // not an empty-set short-circuit, is what refuses it.
+            Assert.False(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                parentIdx: 99, units, out _));
+            // The parentIdx < 0 guard, now unmasked.
+            Assert.False(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                parentIdx: -1, units, out _));
         }
 
         // ─── Watch retarget on unit handoff (shared-clock transition) ───────────
@@ -960,11 +993,14 @@ namespace Parsek.Tests
         public void ShouldRetargetWatchOnUnitHandoff_StillRendering_False()
         {
             // Steady state inside one segment: the watched member is still rendering -> no retarget
-            // (fires once per boundary, not every frame).
+            // (fires once per boundary, not every frame). newLiveMemberIndex is a DIFFERENT member
+            // (#7) on purpose: with 6 the later "newLiveMemberIndex == watchedIndex" guard returns
+            // false on its own and dropping the still-rendering clause - the regression that fires
+            // the retarget every frame - stayed invisible.
             var unit = ThreeMemberUnit();
             Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
                 watchedIndex: 6, watchedWasRendering: true, watchedIsRendering: true,
-                newLiveMemberIndex: 6, unit));
+                newLiveMemberIndex: 7, unit));
         }
 
         [Fact]
@@ -1114,11 +1150,18 @@ namespace Parsek.Tests
         public void ResolveUnitHandoffStoredRenderingEdge_TransferLanded_StoresRealValue()
         {
             // The watch camera has landed on the live member (watchedIndex == newLiveMemberIndex):
-            // the transfer succeeded, so store the real rendering value (true here) and stop
-            // re-firing. WHAT MAKES IT FAIL: preserving true unconditionally would re-fire forever.
+            // the transfer succeeded, so store the real rendering value and stop re-firing.
+            // WHAT MAKES IT FAIL: preserving true unconditionally would re-fire forever.
             Assert.True(GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
                 retargetFired: true, watchedIndex: 7, newLiveMemberIndex: 7,
                 watchedIsRendering: true));
+            // The mirror polarity is what makes "the REAL value" the deciding term: with
+            // watchedIsRendering true the preserved value and the real value coincide, so the
+            // unconditional preserve (the infinite re-fire the method doc names) survived. With
+            // false they differ, and only the landed-transfer guard can produce false.
+            Assert.False(GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
+                retargetFired: true, watchedIndex: 7, newLiveMemberIndex: 7,
+                watchedIsRendering: false));
         }
 
         [Fact]

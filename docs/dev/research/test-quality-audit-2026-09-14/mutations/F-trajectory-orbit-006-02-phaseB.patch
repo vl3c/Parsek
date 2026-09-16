@@ -1,0 +1,21 @@
+diff --git a/Source/Parsek/TrajectoryMath.Quaternions.cs b/Source/Parsek/TrajectoryMath.Quaternions.cs
+index 76f5f8c45..bee5758b8 100644
+--- a/Source/Parsek/TrajectoryMath.Quaternions.cs
++++ b/Source/Parsek/TrajectoryMath.Quaternions.cs
+@@ -124,14 +124,13 @@ namespace Parsek
+         /// Default struct value (0,0,0,0) = no data.
+         /// </summary>
+         internal static bool HasOrbitalFrameRotation(OrbitSegment seg)
+-            => seg.orbitalFrameRotation.x != 0f || seg.orbitalFrameRotation.y != 0f
+-            || seg.orbitalFrameRotation.z != 0f || seg.orbitalFrameRotation.w != 0f;
++            => false;
+ 
+         /// <summary>
+         /// Returns true if the segment has spin data (angular velocity above threshold).
+         /// </summary>
+         internal static bool IsSpinning(OrbitSegment seg)
+-            => seg.angularVelocity.sqrMagnitude > SpinThreshold * SpinThreshold;
++            => seg.angularVelocity.sqrMagnitude <= SpinThreshold * SpinThreshold;
+ 
+         /// <summary>
+         /// Computes vessel rotation relative to the orbital velocity frame.

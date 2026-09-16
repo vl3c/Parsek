@@ -717,15 +717,15 @@ No format version bump. No migration. No breaking changes.
     - Expected: reconstructed matches original world rotation
     - Guards against: encode/decode asymmetry
 
-13. **`SpinForward_SingleAxis_CorrectAngle`**
+13. **`PureAngleAxisSpin_SingleAxis_RotatesForwardByOmegaDt`** (renamed 2026-09-16)
     - Input: boundary rotation + angular velocity around single axis, known dt
     - Expected: rotation matches `AngleAxis(angle, axis) * boundaryRot`
     - Guards against: incorrect spin-forward formula, wrong axis/angle computation
 
-14. **`SpinForward_ZeroAngVel_FallsBackToOrbitalFrame`**
-    - Input: segment with orbital-frame rotation but zero angular velocity
-    - Expected: `IsSpinning` returns false, orbital-frame path used
-    - Guards against: spin-forward activating on non-spinning vessels
+14. **`ComputeOrbitalRotation_SpinForwardComposition_UsesOmegaTimesDtInDegrees`** (2026-09-16: replaced `SpinForward_ZeroAngVel_FallsBackToOrbitalFrame`, whose two assertions duplicated the `IsSpinning` / `HasOrbitalFrameRotation` predicate cells)
+    - Input: the source text of `ParsekFlight.ComputeOrbitalRotation`
+    - Expected: the spin arm composes `AngleAxis(|omega| * dt * Rad2Deg, boundaryWorldRot * angularVelocity) * boundaryWorldRot`, and the non-spinning arm decodes `orbFrame * orbitalFrameRotation`
+    - Guards against: a changed spin-forward formula, a swapped composition order, spin-forward activating on non-spinning vessels
 
 ### Serialization Tests (OrbitSegmentTests)
 
@@ -761,7 +761,7 @@ No format version bump. No migration. No breaking changes.
     - Expected: `true`
     - Guards against: sentinel failing for negative values
 
-21. **`SpinForward_HighAngularVelocity_NoOverflow`**
+21. **`PureAngleAxisSpin_HighAngularVelocity_NoOverflow`** (renamed 2026-09-16)
     - Input: angular velocity = (5, 0, 0) rad/s, dt = 1000s
     - Expected: valid quaternion, no overflow/NaN
     - Guards against: numerical issues at extreme spin rates

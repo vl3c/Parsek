@@ -406,6 +406,46 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: seventeen render, mission-group, spawn, orbit and timeline cells from the
+  audit's Medium T3 (weak or misleading) register now let the production term they name
+  decide the verdict.** No production change. Sixteen strengthened (seven of those also
+  renamed to what they prove - renames are a subset of the strengthened set, not a separate
+  bucket), one deleted as a duplicate, none premise-wrong; split across four commits as
+  3 / 6 / 4 / 4 rows. Two register proposals turned out to be already covered and no
+  duplicate cell was written for either: the builder-side span floor for a scheduled unit
+  already reds an existing MissionPeriodicity builder cell, and the ModuleLight-ON half of
+  the light precedence already reds a sibling. The clearance fall-through cell wrote only
+  NaN-clearance points, so a helper stubbed to return the recorded altitude passed; it
+  carries a finite-clearance control point now and is renamed off a legacy-v8 read that
+  never happens. The negative-bitmap-length cell was corrupting the anchor-candidate count
+  at the end of the file rather than the bitmap length, and never read the failure reason,
+  so it was proving a guard several steps past the one it named. The Hermite gate had one
+  of four outcomes pinned and could not see its guard order; it is a six-row theory. The
+  debris-on-unit-span predicate had only false cases, all of them satisfied by the empty
+  set. The still-rendering retarget cell passed the watched index as the new live member,
+  so a later guard answered on its own. The stored-rendering-edge cell asserted a value the
+  preserve and the real branch share. The bounded-best loiter scan asserted InRange bounds
+  that every possible return value satisfies; k, d and the residual are hand-checked now,
+  with a later-k mirror. The group-status cell asserted an order both candidates produce;
+  it pins the chosen recording's countdown. The terminal-orbit anomaly cell built its
+  expectation by calling the helper's own delegate, so a change inside the shift moved both
+  sides together. The spin-forward cells drove copies of a formula that lives in
+  ParsekFlight, which needs a live Orbit; they are renamed to the pure helpers they do
+  drive and the real composition gains a source gate (a source gate, not a behavioural
+  proof: it pins how the composition is spelled, because the site needs a live Orbit), and
+  the zero-angular-velocity cell -
+  two assertions verbatim-duplicated from the IsSpinning and HasOrbitalFrameRotation cells,
+  which red under the same mutants - is deleted. The re-aim interloper cell ran no builder
+  code, so the per-member cure it claimed was unwitnessed and its second half pinned the
+  known-wrong collapse; a two-member builder cell now proves the cure. The cell named for
+  the deep-target decline asserted the opposite (a Supported Duna arrival), and the real
+  decline - a chain that reaches Ike with no Duna leg - was reached by nothing in the
+  suite. The walkback conversion was pinned only at lat=0 lon=0, where an axis swap, a
+  lat/lon transposition and a degree/radian error are all invisible. The fast-forward gate
+  had only its all-true input, so a body ignoring both arguments passed. One further row in
+  the slice (the spawn-cleanup guard cell) was held back because another open PR rewrites
+  that file.
+
 - **Tests: twelve Supply Route cells from the audit's T3 (weak or misleading) register
   now let the production term they name decide the verdict.** No production change; all
   twelve strengthened, six of those also renamed to what they prove (renames are a subset

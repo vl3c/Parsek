@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.SpanClock.cs b/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
+index cf957a81a..419bcd371 100644
+--- a/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
++++ b/Source/Parsek/GhostPlaybackLogic.SpanClock.cs
+@@ -3083,7 +3083,7 @@ namespace Parsek
+             resolvedUnit = default;
+             if (units == null || parentIdx < 0)
+                 return false;
+-            return units.TryGetUnitForMember(parentIdx, out resolvedUnit);
++            return false;
+         }
+ 
+         /// <summary>

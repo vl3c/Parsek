@@ -262,25 +262,16 @@ namespace Parsek.Tests.Rendering
             // + spline-list count int32 (0)
             // + outlier-list count int32 (1)
             // + sectionIndex (4) + classifierMask (1) + bitmapLength (4) ...
-            // We can't compute the offset rigidly without inspecting the LEB128
-            // recId byte — search for the marker bytes (RejectedCount=2 at end:
-            // 02 00 00 00). For robustness, do a simple linear scan to find the
-            // four 0x01 0x00 0x00 0x00 outlier-count, then walk forward to the
-            // bitmapLength.
+            // + bitmap bytes + rejectedCount (4) + anchor-candidate count (4).
+            // The trailing bytes are known exactly: bitmap = 1 byte (0x05),
+            // rejectedCount = 4 and the empty anchor-candidate block's count =
+            // 4, so the bitmapLength int32 sits at bytes[len-13..len-10].
+            // The last int32 in the file is the ANCHOR-CANDIDATE count, not
+            // rejectedCount: writing -2 there (what this cell used to do) is
+            // refused by the anchor-candidate validator, several guards past
+            // the one this cell names. rejectedCount is not validated at all.
             byte[] bytes = File.ReadAllBytes(path);
-            // Mutate the LAST int32 in the file (rejectedCount = 2 → -1).
-            bytes[bytes.Length - 4] = 0xFE;
-            bytes[bytes.Length - 3] = 0xFF;
-            bytes[bytes.Length - 2] = 0xFF;
-            bytes[bytes.Length - 1] = 0xFF;
-            // Note: this mutation hits rejectedCount, which the reader does
-            // NOT validate. To exercise the bitmap-length validator we mutate
-            // the bitmap-length int32 instead. It sits 5 bytes before the
-            // bitmap data: we know bitmap = 1 byte (0x05), rejectedCount = 4,
-            // so total trailing bytes = 1 (bitmap) + 4 (rejected) = 5. The
-            // bitmapLength int32 sits 4 bytes before the bitmap, i.e. at
-            // bytes[len-9..len-6]. Mutate that to a negative value.
-            int lenOffset = bytes.Length - 9;
+            int lenOffset = bytes.Length - 13;
             bytes[lenOffset] = 0xFF;
             bytes[lenOffset + 1] = 0xFF;
             bytes[lenOffset + 2] = 0xFF;
@@ -294,6 +285,15 @@ namespace Parsek.Tests.Rendering
                 out string failure);
             Assert.False(ok);
             Assert.NotNull(failure);
+            // The NEGATIVE-count validator must be what refuses the file, not
+            // the later truncation check: with -1 the reader allocates an empty
+            // bitmap and the length comparison would also return false, so
+            // without reading the reason this cell cannot tell the two apart.
+            // The field name and the "(negative)" tag are culture-free literals
+            // written by PannotationsSidecarBinary.ValidateCount.
+            Assert.Contains("outlier-flags[0].bitmap", failure);
+            Assert.Contains("(negative)", failure);
+            Assert.DoesNotContain("truncated bitmap", failure);
         }
     }
 }
