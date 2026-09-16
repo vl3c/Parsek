@@ -517,6 +517,16 @@ _(unreleased — entries accumulate here per commit)_
   legacy-bugfix rows. Every row carries a mutation patch that reds its cell and applies
   against a clean tree.
 
+- **Tests: the audit's one Medium T2 row (duplicate) is closed by deleting the duplicate
+  cell.** `GhostChainWalkerTests.CrossTreeCycle_DetectedAndHandled` fed the exact fixture of
+  `CrossTree_TwoLinks_ChainsExtend` (same recordings, pids, branch points and UTs) and then
+  asserted strictly less about the result: a non-null dictionary, the key, at least one link
+  and a non-empty tip, against the twin's single chain, two links, named tip and exact spawn
+  UT. The cycle its name claimed never ran: in that fixture the tip vessel pid equals the
+  walk origin, so `MergeCrossTreeLinks` breaks before the `chainVisited` guard. The real
+  cycle is covered by `MergeCrossTreeLinks_TwoChainsPointingAtEachOther_BreaksCycleAndWarns`,
+  which landed with the previous wave. No production change.
+
 - **Tests: twenty recording-tree cells from the audit's Medium T3 register (weak or
   misleading) now turn on the production line their name names.** Ten of them were decided
   by something other than the guard under test - an empty store, a lone committed record,
