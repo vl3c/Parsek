@@ -34,8 +34,9 @@ tier = "operator"
 #     shortfall is the WHOLE manifest rather than a remainder:
 #     `RouteOriginCargoCheck.HasRequired` reports `need - stored` and stored is 0, giving
 #     154.3999999999952. `DescribePickupSourceShort` renders
-#     `name + " is short " + FormatShortfallAmount(shortfall) + " " + shortToken + " - delivers when it has the full amount"`
-#     (`LogisticsHoldPresentation.cs:282-285`) with `FormatShortfallAmount` at F1
+#     `LogisticsHoldClauses.NamedSourceShortOfResource` = `"{0} is short {1} {2} - delivers
+#     when it has the full amount"` (since 2026-09-22 the clause is a named constant; the
+#     rendered text is unchanged) with `FormatShortfallAmount` at F1
 #     InvariantCulture (`:500-503`), i.e. `B is short 154.4 LiquidFuel - delivers when it
 #     has the full amount`. GUI-20's is 108.8. One decimal each, same formatter, two
 #     genuinely different numbers out of two genuinely different world states.

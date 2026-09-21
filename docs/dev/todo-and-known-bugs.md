@@ -201,6 +201,10 @@ return a bare phrase, so only `Paused` doubles - which is also the status every 
 capture lands on. **Fix:** either drop the `{route.Status} - ` prefix (the reason strings
 already name their status where it matters) or make `StatusReason` return reason-only text
 for every member. Cosmetic, one line, but it is on the most-photographed row in the window.
+STILL OPEN after the 2026-09-22 clause-constant extraction, deliberately: `StatusReason` is
+the per-STATUS sentence family, not the hold or reject vocabulary, so neither site was in
+that refactor's scope and the doubled text is byte-for-byte what it was. The fix is an
+owner decision about wording, not a mechanical move.
 
 **15. The Gloops recorder's idle state shows a raw localization key,**
 `Vessel: #autoLOC_501232`, where the saved state two steps later reads
@@ -240,6 +244,33 @@ a reader of the dumps will otherwise take it for a capture fault - and because i
 `op=rect` exempts the main window from its size read-back
 (`TestCommandUiAction.RectAppliedWithinTolerance`'s `sizeIsHostControlled`). **No fix
 wanted.**
+
+**19. A Logistics hold can quote a generic noun as if it were a route name:**
+`Depot B has LiquidFuel reserved by route 'another route'`, and its compact Status-cell
+form `LiquidFuel reserved by 'another route'`. The escrow-hold token is
+`source-reserved:<pid>:<name>:<resource>:<reservingRouteName>`, and when the reserving
+route's name slot is empty the parse substitutes the fallback noun `another route`
+(`Source/Parsek/UI/LogisticsHoldPresentation.cs`, `DescribeReservedPickupSource` and
+`CompactOriginLacksCargo`) into a clause that wraps its argument in quotes
+(`LogisticsHoldClauses.NamedSourceResourceReserved`,
+`CompactResourceReservedByNamedRoute`). The quotes are what makes it read wrong: every
+other route name in the window is a real name in quotes, so this one reads as a route
+actually called "another route". Found while extracting the clause constants, and pinned
+as-is by `LogisticsReasonClauseCharacterizationTests` (case
+`ReservedPickupSourceResourceUnnamedRoute`) so a fix has to be deliberate. **Fix:** give
+the unnamed case its own unquoted clause ("... reserved by another route"), the way the
+four-field parse failure already does. Cosmetic, and it needs a reserving route whose name
+never resolved, which is rare.
+
+**20. Two hold clauses print a raw internal token to the player,** by design and with the
+reason written down: `origin vessel could not be found - it may have moved, been
+recovered, or been destroyed (origin-unresolved:7)` and the same shape for
+`pickup-source-unresolved:*`. The comment at the site says the raw token is kept "so the
+log-grep handle survives into the UI text". That is a real debugging benefit, and it is
+also the one place the legible-token work left an internal code on screen - every other
+arm was rewritten precisely to remove them. Recorded, not fixed: it is a deliberate
+trade the owner may want to keep. **Fix (if wanted):** drop the parenthesised token from
+the UI clause and keep it in the Warn that records the hold.
 
 **NOT A FINDING, checked and cleared:** the Warn
 `SaveActiveTreeIfAny: skipped active tree '<name>' because at least one recording could
@@ -333,8 +364,19 @@ photographing them needs a rewound career first.
 ---
 ## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]
 
+**PART LANDED 2026-09-22 (owner ruling question 3): the reason constants.** Every
+Logistics hold and reject clause is now a named `internal const string` format -
+`LogisticsHoldClauses` (**64**: 29 long-form, 29 compact Status-cell, 6 frames) and
+`LogisticsRejectClauses` (**12**), enumerable through `LogisticsClauseCatalog.All` - so
+the completeness guard of design section 11.2 can walk the vocabulary mechanically instead
+of scraping literals that an interpolated clause defeats. No behavior change, proved by a
+characterization suite written against the unrefactored code and left untouched across the
+extraction. The "17 hold clauses" below was an estimate over long-form reason FAMILIES; it
+missed the compact Status-cell vocabulary and the frames. The reject count was exact.
+Details and the corrected table: design section 11.3.
+
 **What is true.** The census photographs healthy resting states because that is what a
-fixture save plus an op sequence can reach. The gap is the product's failure surface: 17
+fixture save plus an op sequence can reach. The gap is the product's failure surface: 64
 Logistics hold clauses and 12 reject reasons with ZERO captures, 6 of 9 route statuses, the
 Career divergence banner (the window's whole point), `Lost` and `Retired` kerbals in the
 current design, Timeline supersede / rewind-armed / live Re-Fly, the Test Runner running
