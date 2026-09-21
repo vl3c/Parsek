@@ -15,6 +15,34 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]
+
+**What is true.** The census photographs healthy resting states because that is what a
+fixture save plus an op sequence can reach. The gap is the product's failure surface: 17
+Logistics hold clauses and 12 reject reasons with ZERO captures, 6 of 9 route statuses, the
+Career divergence banner (the window's whole point), `Lost` and `Retired` kerbals in the
+current design, Timeline supersede / rewind-armed / live Re-Fly, the Test Runner running
+and failed rows, 6 of 10 Structure terminal statuses, and 8 of 11 marker skip buckets that
+have never fired program-wide.
+
+**Design.** Mock at the DATA level and let the real IMGUI draw it: an automation-only
+`UiAction op=mock` paired with a clear, a compiled C# catalogue of synthetic view models
+beside the presentation types, and a `GalleryRun` batch verb that walks it in one boot.
+Measured cost: 5.42 seam commands per capture pair at 0.252 s each (the cost is
+`run.py`'s 0.25 s poll, not the game - a whole `DumpGuiTree` is 86 ms) over 52.3 s of fixed
+boot, so ~300 states is 7.7 min step-driven or ~4 min through the batch verb. Two windows
+(Kerbals, Career State) are settable today with no production change; Logistics is ~70
+states for ~180-280 lines and is the largest single win. Headless IMGUI is REFUSED with
+evidence (no readable `guiDepth` outside a GUI pass, no real `GUISkin`, no native text
+measurement, and the mirror's own 13px font calibration shows how visible that error is).
+
+**Blockers and cautions recorded with the design.** `ARTIFACT_MAX_SCREENSHOTS = 64`
+(`harness/lib/hlib.py:9496`) caps a run at 32 states because a pair is two files, so a
+300-state run would drop 536 files into `skipped_over_cap`; the Missions and Recordings
+windows are store-shaped (frame-keyed caches, index-into-the-live-list row identity) and
+belong to synthetic SAVE fixtures rather than an in-memory mock; and any such fixture work
+must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE`.
+
 ## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
 
 **What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
