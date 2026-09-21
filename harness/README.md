@@ -336,8 +336,8 @@ Numbers, what they found and what is still different:
 
 ### Running a GUI census end to end
 
-TEN FLOWN CENSUS LANES, in four waves, all `tier = "operator"` and all flown on request
-only. (`GUI-9-playback-toggle-map-scope` carries the `gui-census` tag and drives the same
+TEN FLOWN CENSUS LANES IN FOUR WAVES, PLUS AN ELEVEN-LANE FIFTH WAVE AUTHORED
+2026-09-21, all `tier = "operator"` and all flown on request only. (`GUI-9-playback-toggle-map-scope` carries the `gui-census` tag and drives the same
 ops, but it is a LIVE PROOF of the playback tick box's map scope rather than a census of
 chrome, so it is not in the table below and step 1 does not apply to it.
 `GUI-11-census-kerbals-crewed` is committed and `tier = "operator"` too; nothing in this
@@ -368,7 +368,48 @@ two are the last rows below:
 | `GUI-10-census-dialogs` (run `2026-09-15_1538`, PASS attempt 1, 67 s, 8 + 8) | `bdock-recorded`, at the Space Center (`scene = "spacecenter"`: this host's activeVessel is focusable, so the default route would boot into FLIGHT) | six of the 21 modals STANDING - the two informational popups (`actionblocked`, `savefailed`), both Settings wipe confirmations, and the two that need a committed recording (`fastforward`, `seal`) - each with `op=dialog` reporting its name, title and ordered buttons beside the PNG, plus the two typed refusals (`dialog-target-unavailable` for `rewind`, which has no rewind owner on this host, and `dialog-already-open` for a second modal) |
 | `GUI-12-census-testrunners` (run `2026-09-15_2057`, PASS attempt 1, 89 s, 7 + 7) | `career-earned-ksc`, at the Space Center (`scene = "spacecenter"`) - the one census lane whose CONTENT is host-independent, since both runner windows read the assembly's `[InGameTest]` attributes rather than the save | BOTH in-game test runner windows in their real states: the Settings-launched one (`testrunner`) idle, every fold closed, one category expanded, and with REAL RESULTS after running the `GuiTree` category through its own runner (`discovered=1 total=1 passed=1 failed=0`, the summary moving to `1 passed` and the header to `GuiTree (1/1)`), plus the global Ctrl+Shift+T one (`testrunnerglobal`) idle, closed and one category expanded - ITS FIRST PICTURES OF ANY KIND. The two differ by exactly 3 nodes at every comparable state, which the dumps name as the `Search:` label, the text field and the 24 px clear button the global window does not draw |
 
-Steps 2 to 6 below apply to any of the ten. In order:
+WAVE 5 (2026-09-21, ALL ELEVEN FLOWN GREEN the same day, plus both amended lanes -
+twenty flights on one pinned automation DLL, 18 PASS and 2 PARSEK-FAIL, with both
+failures one lane's own log-contract regex casing rather than a product failure, and every
+lane's final verdict PASS on attempt 1 at 53-92 s wall) is ELEVEN lanes, `GUI-13` through `GUI-23`, plus amendments to `GUI-1` and
+`GUI-6`. It is a different kind of wave from the four above it, and
+the difference is the input: waves 1 to 4 walked SURFACES (which window, which tab, which
+modal), while wave 5 came from a read-only STATE-COVERAGE AUDIT that enumerated the
+visibly distinct draw branches of those surfaces from the source and checked each against
+the `.gui.json` dumps the census had already written. Its reading was that all 14 windows
+were MODELLED and none was COVERED: what had been photographed was the product's RESTING
+state, with every in-progress, blocked, held, refused, superseded and authoring state
+absent. NO NEW C# LANDED WITH IT - every lane uses ops and verbs that already shipped, and
+the single highest-yield lever (`MissionConfig tree=... loop=true`, used by ten-plus
+non-GUI specs and by zero GUI ones) had simply never been pointed at a window.
+
+Seven of the eleven are ordinary census lanes on committed hosts (`GUI-13`..`GUI-19`).
+THE OTHER FOUR ARE A NEW SHAPE: `GUI-20`..`GUI-23` CLONE the `RVR-8` / `RVR-10` /
+`RVR-13` / `RVR-17` driver chains and append a census capture tail, which no non-GUI spec
+had ever carried. They exist because the Logistics window's whole failure vocabulary - the
+`Held:` status-cell override, the yellow `Last cycle blocked: ...` detail line, the
+`Delivering` badge, `Recent cycles:`, `Cyc = N / M skipped` - is only on screen while a
+route is actually holding, and no static fixture can be in that state. The clones
+deliberately declare NO `[expectations.routes]` block: the ORIGINALS keep that gating, and
+dropping it is what lets a clone append the extra `TimeJump` that ages a hold into its
+`(checked N ago)` form without reding a cycle-count window. RVR-14's clone was DROPPED
+rather than written - its required-token set is byte-identical to RVR-13's and its hold
+renders the same literal, so it reaches no distinct window state.
+
+| lane | host | what it photographs |
+|---|---|---|
+| `GUI-13-census-logistics-candidates` | `rover-route-recorded` (SPACECENTER) | the Logistics window's Candidates section POPULATED, collapsed then with every `cand:<treeId>` detail panel open - the route-CREATION workflow, which GUI-3's own header records as still owed. That host is the route-CANDIDATE fixture by construction: two fully sealed trees and no `ROUTES` node |
+| `GUI-14-census-settings-and-facility` | `fresh-career` (SPACECENTER) | both Settings Wipe buttons GREYED (the window's only two disabled controls, claimed from the dump's `enabled` field rather than from hover), Low and High sample density, all five Diagnostics toggles armed - then a driven `KscAction upgrade-facility` so Career State's Facilities tab has a row above level 1 and Milestones a credited row, both also at the declared 520x200 floor |
+| `GUI-15-census-career-contracts` | `career-contract-pad` (SPACECENTER) | the Career State Contracts tab with REAL ROWS, on the one fixture whose ledger sidecar carries two accepts and no terminal row - every prior capture, including the operator's own dense career, read `Active (0)` |
+| `GUI-16-census-gloops-states` | `b2-lko-craft` (FLIGHT) | the Gloops recorder RECORDING and holding a finished TAKE (all four existing Gloops captures are the same IDLE state), plus the Settings Interface section with `Basic` greyed and its extended hint while that recording runs |
+| `GUI-17-census-missions-loop-mun` / `GUI-18-census-missions-loop-duna` | `mun-orbit-recorded` / `duna-direct-recorded` (FLIGHT - `MissionConfig` is `RequiresFlight`) | the Missions tab with a loop ARMED: eight states behind one switch, against every prior dump reading `value=False`. The pair takes the two LABEL forms of the period cell (phase-locked, re-aim), which are a different control set from the editable field rather than a different string |
+| `GUI-19-census-timeline-supersede` | `refly-a-recorded` (FLIGHT) | the Timeline window over the one committed fixture carrying a `RECORDING_SUPERSEDES` entry, across all four tabs in FLIGHT - three of which had ZERO captures in that scene, and FLIGHT is the only scene the `W` column draws in. Plus the third and last period rendering, the editable form |
+| `GUI-20-census-logistics-hold-second-cycle` | RVR-8's `rover-relay-c-recorded` (FLIGHT) | the richest of the four clones, because RVR-8 delivers a cycle before it blocks: the Paused row with its aged hold detail line, `Recent cycles:`, `Last cycle:`, `Total delivered:`, `Cyc = 1 / 1 skipped` - then the ACTIVE section with `Pause`, the `Delivering` badge and (declared a MAY) the `Held:` override |
+| `GUI-21-census-logistics-hold-origin-empty` | RVR-10's host + its `liveState` patch (FLIGHT) | the `OriginLacksCargo` hold over a drained source, the cyan `New (not yet run)` cell with its send-once guidance line, `Cyc = 0 / 1 skipped`, and NO `Recent cycles:` header - a blocked cycle emits no ledger cargo rows, so the ABSENCE is the state |
+| `GUI-22-census-logistics-hold-destination-full` | RVR-13's host + its `liveState` patch (FLIGHT) | the `DestinationFull` hold over a topped-out endpoint. The `<dest> tanks full:` capacity line is NOT bought and cannot be: it is gated on `RouteStatus == DestinationFull`, which the loop dispatch path never assigns |
+| `GUI-23-census-logistics-hold-funds-short` | RVR-17's `rover-route-career` (FLIGHT) | the `FundsShort` hold on the CAREER route host, and `Cyc = 0 / 2 skipped` - the only two-skip reading of the four |
+
+Steps 2 to 6 below apply to any census lane. In order:
 
 1. **Stage the host - WAVE 1 ONLY.** Those two lanes need a save with rows in every
    window, which is the operator's own long-lived career - it cannot be committed and

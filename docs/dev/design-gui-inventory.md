@@ -41,6 +41,70 @@ whole of 3.11 - which alone carries re-derived line numbers for BOTH runner file
 that is where this authoring pass hit them - and the two Test Runner rows of section 7's size
 table. Sections 3 to 5 and the rest of 7 are still the 2026-09-11 reading against `4eb427e9e`.
 
+COVERAGE NOT YET RE-MEASURED FOR WAVE 5, AND THIS PARAGRAPH SAYS SO ON PURPOSE. Eleven
+new census lanes were AUTHORED AND FLOWN GREEN 2026-09-21 (GUI-13..GUI-23, twenty
+flights on one pinned automation DLL - 18 PASS and 2 PARSEK-FAIL, both of them one lane's
+own log-contract regex casing rather than a product failure, and every lane's final
+verdict PASS on attempt 1) plus two
+amendments to GUI-1 and GUI-6, off a read-only STATE-COVERAGE AUDIT that is a different
+measurement from this file's: where this document enumerates SURFACES (windows, tabs, dialogs, overlays, gate keys)
+and asks which are reachable, the audit enumerated visibly distinct STATES of those surfaces
+and asked which were photographed. Its headline reading was that all 14 windows were
+MODELLED - each had at least one capture, which is what section 2's 14 of 14 records - and
+that none was COVERED, because what had been photographed was the product's RESTING state:
+every in-progress, blocked, held, refused, superseded and authoring state was absent, and
+roughly 60 hover / disabled-reason strings remain unreachable for the cause the `pointer` row
+of 6.2 already states. Section 2's tally is therefore CORRECT AS WRITTEN and is not the number
+the audit moves; a per-window state tally is a different axis and belongs with the audit, not
+here. What DOES belong here and is recorded now, because it corrects claims this file makes:
+
+- **Four census captures were STALE against HEAD** and are re-shot by the act of re-flying
+  their lane. `ksc-settings-advanced` / `ksc-settings-basic` photographed a button reading
+  `Wipe All Game Actions (N)` where HEAD draws `Wipe All Milestones (N)`;
+  `ksc-career-milestones-advanced` photographed the Rewards column at 180 px with cells
+  wrapping, where HEAD sets `ColW_Rewards = 320f` - widened BECAUSE of that dump, so
+  `cek-career-milestones-advanced` already carries the 320; and the two GUI-1 Kerbals labels
+  (`ksc-kerbals-roster-advanced`, `ksc-kerbals-outcomes-advanced`) photographed the
+  PRE-REDESIGN single-line shape that the 2026-09-15 rebuild replaced with four-column
+  tables. Nothing in any spec names the old labels, so re-flying is the whole fix. The
+  Kerbals pair is KEPT rather than dropped: the lane photographs whatever HEAD draws, and
+  those two are the census's only DENSE Kerbals pictures.
+- **Two draw branches this file lists as surfaces are DEAD.** `SpawnControlUI`'s
+  `No nearby craft to spawn.` branch can never execute - `DrawIfOpen` reads the same
+  candidate list into `ResolveAutoCloseReason` a few lines earlier and closes the window on
+  `zero-candidates` - and the un-indexed capture `flight-spawncontrol-advanced` is exactly
+  that outcome: no Spawn Control window in the dump at all. And `MainButtonGloops` is RETIRED
+  in BOTH complexity modes (`UI/UiComplexityMode.cs`, `IsRetired`), so no player can open the
+  Gloops Recorder; its three states are photographed through the seam's own `IsOpen` write
+  and are DIAGNOSTIC in practice. Both are filed with their source gates as todo
+  `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`.
+- **The Timeline's grey `!IsEffective` row is neither a supersede's trace nor a
+  tombstone's, and it is not a strike.** `TimelineEntry.IsEffective` is written only from
+  `action.Effective` and from the milestone-compaction merge
+  (`Timeline/TimelineBuilder.cs`) - never from a recording supersede, which produces no
+  Timeline pixel at all. And the Timeline's grey `!IsEffective` row is neither a supersede's trace nor a tombstone's: the window is fed `EffectiveState.ComputeELS()` (`UI/TimelineWindowUI.cs:477-483`), so a tombstoned action is filtered out before the builder, and the only writers of `Effective = false` are `GameActions/ContractsModule.cs:399/408/417/428` (a duplicate / already-resolved contract completion) and `GameActions/MilestonesModule.cs:108` (a duplicate milestone), reset at `RecalculationEngine.cs:519`. It also is not a STRIKE - `timelineStrikethroughStyle` differs from the label style only by `normal.textColor = Color.gray` (`UI/TimelineWindowUI.cs:395-396`), so the state is a colour and therefore a PNG verdict. So it needs a duplicate-contract or
+  duplicate-milestone host. Measured on GUI-19's first flight over the one committed
+  fixture carrying a `RECORDING_SUPERSEDES` entry: it loaded, the Details tab drew one
+  launch row, nothing was grey. Filed as
+  GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-DUPLICATE-CREDIT-NOT-SUPERSEDE-OR-TOMBSTONE.
+- **The Career State window's Facilities tab CAN see upgrades**, which this file could not
+  say before. Every capture across three fixtures read nine rows of `L1`, consistent both
+  with "nothing was upgraded" and with "the window is blind". GUI-14 drove one
+  `KscAction upgrade-facility` and the tab then read one row at `L2` (Tracking Station)
+  beside eight at `L1`. A `FacilityUpgrade` is NOT a Milestones row, though: that tab
+  still read `(no milestones credited)` on the same ledger in the same frame.
+- **Three surfaces this file treats as reachable are not, from any committed host.** The
+  Structure window's Route-mode `Origin: depot` step (all three committed routes read
+  `isKscOrigin = True`); the Logistics capacity line `<dest> tanks full: ...` (gated on
+  `RouteStatus == DestinationFull`, a status the loop dispatch path never assigns - it records
+  a hold and transitions only to `Paused`); and the Career State window's populated Strategies
+  rows (that tab reads Parsek's effective LEDGER, and `strategy-career` carries no Parsek
+  footprint at all, so it draws `(no active strategies)` like every other host).
+
+Sections 3 to 5 and 7 still carry the 2026-09-11 reading against `4eb427e9e`. A full
+re-measure against the wave-5 captures is its own task; the per-lane reading lives in each
+new spec's header and in `docs/dev/autotest-status.md`, the single status authority.
+
 ## 1. Purpose and scope
 
 This document is the structural map of Parsek's player-facing surface as it exists today:
