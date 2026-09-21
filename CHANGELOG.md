@@ -386,6 +386,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The Logistics refusal vocabulary is now a named, enumerable catalogue instead of
+  seventy-six literals spread over four files.** Every sentence the window can show for a
+  route that will not dispatch (the yellow blocked line, the `Held: ...` cell, its tooltip,
+  the Send Once toast) and every reason a committed flight is refused as a Supply Run
+  candidate is now a named `internal const string` format in `LogisticsHoldClauses` (64: 29
+  long-form, 29 compact, 6 frames) or `LogisticsRejectClauses` (12), walkable as one list
+  through `LogisticsClauseCatalog`. Nothing the player reads changed - not a character of
+  spacing, punctuation or number formatting - and a characterization suite written against
+  the old code and left untouched across the extraction is what says so. The point is the
+  GUI state gallery's completeness guard: it can now enumerate the vocabulary and prove
+  every reason is reachable, where before it would have had to scrape literals out of the
+  source, which an interpolated clause defeats by being stored split at its holes. A side
+  benefit for debugging: the reason vocabulary is greppable by name.
+
 - **Tests: every Logistics hold and reject clause the player can read is now pinned,
   character for character, before anything touches it.** A new characterization suite
   renders each one through the real producer and compares it against a literal written
