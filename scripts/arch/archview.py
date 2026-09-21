@@ -947,8 +947,12 @@ GIANT_TYPE_LINES = 5000
 LONG_METHOD_LINES = 90
 SIZE_TOP_N = 25
 SIZE_TOP_FILES = 15
-PURE_POOL_METHODS = 8
-PURE_POOL_LINES = 400
+PURE_POOL_METHODS = 25
+PURE_POOL_LINES = 1200
+# ... and the pool must be this share of the type, or S2 fires on every large
+# type and discriminates nothing: with the size gate alone it fired on 25 of
+# the top 25. A third of a type already reading as helper-shaped is the signal.
+PURE_POOL_SHARE = 0.30
 MUTABLE_STATIC_FLOOR = 10
 NESTED_TYPE_FLOOR = 5
 SIBLING_TYPE_FLOOR = 3
@@ -997,6 +1001,9 @@ FIELD_MODIFIERS = (
     "new",
     "unsafe",
     "required",
+    # A field-like event is a delegate field: subscribing mutates it, so a
+    # static one is reassignable static state like any other.
+    "event",
 )
 # One nesting level of generic arguments is enough for the shapes that occur
 # (`Dictionary<string, List<int>>`); anything deeper fails to match and the
@@ -1010,15 +1017,49 @@ _GENERIC_ARGS_WITH_TUPLES = r"<[^<>;{}]*(?:<[^<>;{}]*>[^<>;{}]*)*>"
 _FIELD_TYPE_TOKEN = (
     r"[A-Za-z_][A-Za-z0-9_.]*(?:\s*%s)?(?:\s*\?)?(?:\s*\[\s*[,\s]*\])*" % _GENERIC_ARGS_WITH_TUPLES
 )
+# A tuple return type (`(bool ok, int n) Parse(...)`), one nesting level, with
+# optional element names and an optional `?`. Without it the header pattern
+# reads `internal static (bool, int) Foo(` as return type `internal`, method
+# name `static`, which is how `static 110 lines at ...` reached the output.
+# The comma is required: a C# tuple type has at least two elements, and
+# without it `if (ready) Draw(` would read as a tuple return.
+_TUPLE_TYPE = r"\((?:[^()]|\([^()]*\))*,(?:[^()]|\([^()]*\))*\)\s*\??"
 METHOD_HEADER_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(?P<mods>(?:\b(?:%s)\b[ \t\r\n]+)*)"
-    r"(?P<ret>%s)[ \t\r\n]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*(?:%s[ \t\r\n]*)?\("
-    % ("|".join(MEMBER_MODIFIERS), _TYPE_TOKEN, _GENERIC_ARGS)
+    r"(?P<ret>(?:%s)[ \t\r\n]*|(?:%s)[ \t\r\n]+)"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*(?:%s[ \t\r\n]*)?\("
+    % ("|".join(MEMBER_MODIFIERS), _TUPLE_TYPE, _TYPE_TOKEN, _GENERIC_ARGS)
 )
+# A constructor has no return type, so the header pattern cannot see it. It is
+# counted as a member with a body (a long constructor is a valid
+# extract-method target); the name must equal the declaring type's and at
+# least one access modifier or `static` must be present, which keeps
+# `= new Thing(` out (its only modifier would be `new`).
+CTOR_HEADER_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])(?P<mods>(?:\b(?:%s)\b[ \t\r\n]+)+)"
+    r"(?P<name>[A-Z][A-Za-z0-9_]*)[ \t\r\n]*\(" % "|".join(MEMBER_MODIFIERS)
+)
+CTOR_REQUIRED_MODIFIERS = frozenset(("public", "private", "protected", "internal", "static"))
 FIELD_DECL_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(?P<mods>(?:\b(?:%s)\b[ \t\r\n]+)+)"
-    r"(?P<type>%s)[ \t\r\n]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*(?P<term>[;=,])"
+    # `=(?!>)`: the `=` of an expression-bodied property (`static Foo Instance
+    # => instance;`) is not a field initializer, and counting it made every
+    # such forward read as reassignable static state.
+    r"(?P<type>%s)[ \t\r\n]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*(?P<term>;|,|=(?!>))"
     % ("|".join(FIELD_MODIFIERS), _FIELD_TYPE_TOKEN)
+)
+# `static T Name { get; set; }`: an auto-property is a field with accessors, so
+# a static one with a setter is reassignable static state. The body may hold
+# no braces, which is what separates an auto-property from a real one.
+AUTO_PROPERTY_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])(?P<mods>(?:\b(?:%s)\b[ \t\r\n]+)+)"
+    r"(?P<type>%s)[ \t\r\n]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*\{(?P<accessors>[^{}]*)\}"
+    % ("|".join(FIELD_MODIFIERS), _FIELD_TYPE_TOKEN)
+)
+AUTO_PROPERTY_GET_RE = re.compile(r"\bget\s*;")
+AUTO_PROPERTY_SET_RE = re.compile(r"\b(?:set|init)\s*;")
+DECLARATION_KEYWORDS = frozenset(
+    ("class", "struct", "interface", "enum", "delegate", "event", "namespace", "record")
 )
 # A statement reads like a declaration to the header pattern (`return Foo(x)`),
 # so a match whose return token or name is one of these is dropped outright
@@ -1055,21 +1096,79 @@ IMMUTABLE_TYPE_MARKERS = ("ReadOnly", "Immutable", "Frozen")
 # an `internal static` helper with unit tests. Deliberately short - this is a
 # candidate pool to read, not a purity proof.
 LIVE_KSP_IDENTIFIERS = (
+    # live vessels, parts and crew
     "Vessel",
     "ProtoVessel",
+    "Part",
+    "PartModule",
+    "ProtoPartSnapshot",
+    "ProtoCrewMember",
+    "KerbalRoster",
+    "PartLoader",
+    "ShipConstruction",
+    # the world
+    "CelestialBody",
+    "Orbit",
+    "OrbitDriver",
+    "Planetarium",
+    "Krakensbane",
+    "FloatingOrigin",
+    "ScaledSpace",
+    # scene, game and career singletons
     "FlightGlobals",
+    "HighLogic",
+    "GameEvents",
+    "GamePersistence",
+    "FlightDriver",
+    "ScenarioRunner",
+    "TimeWarp",
+    "Funding",
+    "Reputation",
+    "ResearchAndDevelopment",
+    "ScenarioUpgradeableFacilities",
+    "ContractSystem",
+    "Contracts",
+    "ProgressTracking",
+    "CommNetNetwork",
+    "KSPUtil",
+    "GameSettings",
+    "GameDatabase",
+    # view, input and messages
     "MapView",
     "PlanetariumCamera",
-    "OrbitDriver",
-    "GameEvents",
-    "Time",
-    "Planetarium",
-    "HighLogic",
+    "FlightCamera",
+    "ScreenMessages",
+    "PopupDialog",
+    "InputLockManager",
+    "Input",
+    "GUI",
+    "GUILayout",
+    "GUIUtility",
+    "Screen",
+    "Camera",
+    # Unity
     "GameObject",
     "Transform",
+    "MonoBehaviour",
+    "Resources",
+    "Application",
+    "UnityEngine",
+    "Time",
     "Debug",
+    # process-level I/O
+    "File",
+    "Directory",
+    "Environment",
 )
 LIVE_KSP_RE = re.compile(r"\b(?:%s)\b" % "|".join(LIVE_KSP_IDENTIFIERS))
+# `.Instance` / `.fetch` is how KSP and Parsek spell "reach the live
+# singleton", whatever the type in front of it is called.
+LIVE_SINGLETON_ACCESS_RE = re.compile(r"\.\s*(?:Instance|fetch)\b")
+QUALIFIED_ACCESS_RE = re.compile(r"\b([A-Z][A-Za-z0-9_]*)\s*\.")
+# Logging is not state for this purpose: every test that lifts a helper
+# captures the sink (ParsekLog.TestSinkForTesting), so a ParsekLog call never
+# stood between a method and its unit test.
+PURITY_STATE_EXEMPT_TYPES = frozenset(("ParsekLog",))
 WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # What may sit between a parameter list and a body: whitespace and generic
 # constraint syntax (`where T : class, new()`). Anything else means the scan
@@ -1200,6 +1299,87 @@ def _member_body(text, index, limit):
     return ("skip", limit, None)
 
 
+def is_enumerator_return(ret):
+    """True when a return type is IEnumerator, however it is spelled (pure).
+
+    `System.Collections.IEnumerator` and `IEnumerator<T>` are the same
+    coroutine as a bare `IEnumerator`, so the comparison is on the last dotted
+    segment with the generic arguments removed.
+    """
+    bare = ret.split("<")[0].strip()
+    return bare.split(".")[-1] == "IEnumerator"
+
+
+def constructor_headers(text, start, end, type_name):
+    """Return the constructor headers declared in one body run (pure).
+
+    A constructor is a member with no return type, so the method pattern
+    cannot see it. It is recognised by name (the declaring type's) plus at
+    least one access modifier or `static`, which keeps `= new Thing(` out.
+    Collected once per run rather than searched per member, because a rescan
+    from every position is quadratic on a 27,000-line file.
+    """
+    found = []
+    for match in CTOR_HEADER_RE.finditer(text, start, end):
+        if match.group("name") != type_name:
+            continue
+        modifiers = set(re.findall(r"[a-z]+", match.group("mods"))) & set(MEMBER_MODIFIERS)
+        if modifiers & CTOR_REQUIRED_MODIFIERS:
+            found.append(match)
+    return found
+
+
+def _next_member_header(text, pos, limit, ctors, ctor_index):
+    """Return (match, return type, name, is_ctor, next ctor index), or None.
+
+    Takes the earlier of the next method header and the next constructor
+    header from `ctors`. The return type is None when the match is a statement
+    dressed as a declaration (`return Compute(x)`), which the caller skips
+    without counting.
+    """
+    method = METHOD_HEADER_RE.search(text, pos, limit)
+    while ctor_index < len(ctors) and ctors[ctor_index].start() < pos:
+        ctor_index += 1
+    ctor = ctors[ctor_index] if ctor_index < len(ctors) else None
+    if method is None and ctor is None:
+        return None
+    if ctor is not None and (method is None or ctor.start() <= method.start()):
+        return (ctor, "", ctor.group("name"), True, ctor_index + 1)
+    ret = method.group("ret").strip()
+    name = method.group("name")
+    if ret.split(".")[-1] in STATEMENT_KEYWORDS or ret in DECLARATION_KEYWORDS:
+        return (method, None, name, False, ctor_index)
+    return (method, ret, name, False, ctor_index)
+
+
+def _field_entry(match, kind):
+    """Return one field-shaped member's facts, or None when it is a declaration."""
+    type_text = match.group("type").strip()
+    if type_text.split(".")[-1] in DECLARATION_KEYWORDS:
+        return None
+    modifiers = set(re.findall(r"[a-z]+", match.group("mods"))) & set(FIELD_MODIFIERS)
+    is_static = "static" in modifiers
+    is_const = "const" in modifiers
+    is_readonly = "readonly" in modifiers
+    return {
+        "name": match.group("name"),
+        "type": type_text,
+        "kind": kind,
+        "mods": sorted(modifiers),
+        "static": is_static,
+        # Reassignable static state. An auto-property with a setter is one:
+        # the compiler's backing field is as mutable as a written field.
+        "mutableStatic": is_static and not is_const and not is_readonly,
+        # Fixed handle, mutable contents: the other half of the static state
+        # map. Only a real field can be readonly.
+        "readonlyCollectionStatic": kind == "field"
+        and is_static
+        and is_readonly
+        and not is_const
+        and is_mutable_collection_type(type_text),
+    }
+
+
 def scan_declaration_members(text, declarations, index, line_at=None, by_parent=None):
     """Return one declaration part's member facts (pure).
 
@@ -1209,9 +1389,12 @@ def scan_declaration_members(text, declarations, index, line_at=None, by_parent=
     comment or multi-line string was dropped).
 
     Keys: methods (name, mods, ret, static, coroutine, startLine, lines, body
-    span), fields (name, mods, static, mutableStatic), skipped (members the
-    scan could not delimit), nested (types declared inside this one),
-    startLine, endLine and lines for the declaration itself.
+    span; constructors included, bodyless declarations not), fields (name,
+    type, mods, static, mutableStatic, readonlyCollectionStatic; static auto-
+    properties with a setter count as fields, because a backing field is
+    state), bodyless (interface / abstract / extern / partial declarations),
+    skipped (members the scan could not delimit), nested (types declared inside
+    this one), startLine, endLine and lines for the declaration itself.
     """
     if line_at is None:
         line_at = line_index(text, [])
@@ -1221,17 +1404,27 @@ def scan_declaration_members(text, declarations, index, line_at=None, by_parent=
     methods = []
     fields = []
     skipped = 0
+    bodyless = 0
     for seg_start, seg_end in own_body_segments(declarations, index, by_parent):
         gaps = []
         gap_start = seg_start
         pos = seg_start
+        ctors = constructor_headers(text, seg_start, seg_end, declaration["name"])
+        ctor_index = 0
         while True:
-            match = METHOD_HEADER_RE.search(text, pos, seg_end)
-            if match is None:
+            header = _next_member_header(text, pos, seg_end, ctors, ctor_index)
+            if header is None:
                 break
-            ret = match.group("ret").strip()
-            name = match.group("name")
-            if ret.split(".")[-1] in STATEMENT_KEYWORDS or name in STATEMENT_KEYWORDS:
+            match, ret, name, is_ctor, ctor_index = header
+            if ret is None and not is_ctor:
+                # A statement that reads like a declaration, or a name that is
+                # a keyword: not a member, and not a scan failure either.
+                pos = match.end()
+                continue
+            if name in STATEMENT_KEYWORDS or name in MEMBER_MODIFIERS:
+                # `internal static (bool ok, int n) Foo(` misparsed as name
+                # `static` is a scan failure, and has to be visible as one.
+                skipped += 1
                 pos = match.end()
                 continue
             close = _match_parens(text, match.end() - 1, seg_end)
@@ -1244,49 +1437,51 @@ def scan_declaration_members(text, declarations, index, line_at=None, by_parent=
                 skipped += 1
                 pos = close + 1
                 continue
+            gaps.append((gap_start, match.start()))
+            if kind == "none":
+                # An interface / abstract / extern / partial declaration has no
+                # body to extract from, so it is not a method here.
+                bodyless += 1
+                pos = marker + 1
+                gap_start = pos
+                continue
             modifiers = set(re.findall(r"[a-z]+", match.group("mods"))) & set(MEMBER_MODIFIERS)
             start_line = line_at(match.start())
             methods.append(
                 {
                     "name": name,
-                    "ret": ret,
+                    "ret": "" if is_ctor else ret,
+                    "constructor": is_ctor,
                     "mods": sorted(modifiers),
                     "static": "static" in modifiers,
-                    "coroutine": ret == "IEnumerator" or ret.startswith("IEnumerator<"),
+                    "coroutine": (not is_ctor) and is_enumerator_return(ret),
                     "startLine": start_line,
-                    "lines": 0 if kind == "none" else line_at(end) - start_line + 1,
-                    "bodyStart": None if kind == "none" else marker,
-                    "bodyEnd": None if kind == "none" else end,
+                    "lines": line_at(end) - start_line + 1,
+                    "bodyStart": marker,
+                    "bodyEnd": end,
                 }
             )
-            gaps.append((gap_start, match.start()))
-            pos = (marker + 1) if kind == "none" else (end + 1)
+            pos = end + 1
             gap_start = pos
         gaps.append((gap_start, seg_end))
         for gap_start, gap_end in gaps:
             if gap_end <= gap_start:
                 continue
             for field in FIELD_DECL_RE.finditer(text, gap_start, gap_end):
-                modifiers = set(re.findall(r"[a-z]+", field.group("mods"))) & set(FIELD_MODIFIERS)
-                is_static = "static" in modifiers
-                is_const = "const" in modifiers
-                is_readonly = "readonly" in modifiers
-                fields.append(
-                    {
-                        "name": field.group("name"),
-                        "type": field.group("type").strip(),
-                        "mods": sorted(modifiers),
-                        "static": is_static,
-                        # Reassignable static state.
-                        "mutableStatic": is_static and not is_const and not is_readonly,
-                        # Fixed handle, mutable contents: the other half of the
-                        # static state map.
-                        "readonlyCollectionStatic": is_static
-                        and is_readonly
-                        and not is_const
-                        and is_mutable_collection_type(field.group("type")),
-                    }
-                )
+                entry = _field_entry(field, "field")
+                if entry is not None:
+                    fields.append(entry)
+            for prop in AUTO_PROPERTY_RE.finditer(text, gap_start, gap_end):
+                accessors = prop.group("accessors")
+                if not AUTO_PROPERTY_GET_RE.search(accessors):
+                    continue
+                if not AUTO_PROPERTY_SET_RE.search(accessors):
+                    # Get-only: no reassignment, and its initializer is read
+                    # like a readonly field would be. Left out on purpose.
+                    continue
+                entry = _field_entry(prop, "autoProperty")
+                if entry is not None:
+                    fields.append(entry)
     span_start, span_end = declaration["span"]
     nested = sum(
         1
@@ -1297,6 +1492,7 @@ def scan_declaration_members(text, declarations, index, line_at=None, by_parent=
     return {
         "methods": methods,
         "fields": fields,
+        "bodyless": bodyless,
         "skipped": skipped,
         "nested": nested,
         "startLine": start_line,
@@ -1305,35 +1501,77 @@ def scan_declaration_members(text, declarations, index, line_at=None, by_parent=
     }
 
 
-def method_is_pure_candidate(body, shared_statics):
-    """True when a static method's body names no live KSP type and no shared static.
+def method_is_pure_candidate(body, shared_statics, stateful_types=(), own_type=None):
+    """True when a static method's body reaches no live state by name (pure).
 
-    `body` is the stripped body text and `shared_statics` the set of the type's
-    static state field names: both the reassignable ones and the readonly
-    collections, because a method reading a shared dictionary is not a pure
-    helper either. A text test, so it can be fooled by a helper that reaches
-    live state one call away; the pool is a reading list, not a proof.
+    Four tests, all textual: the body must name no identifier from
+    LIVE_KSP_IDENTIFIERS, must not reach a singleton through `.Instance` or
+    `.fetch`, must not name one of its own type's static state fields
+    (`shared_statics`, reassignable and readonly collections alike), and must
+    not use `OtherType.member` where `OtherType` is an in-repo type that
+    carries static state of its own (`stateful_types`, minus its own type and
+    minus the logging exemption).
+
+    It is an ESTIMATE, not a proof: a helper that reaches live state one call
+    deeper, through a parameter, or through a type this scan does not know,
+    still reads as pure. Verify each candidate before lifting it.
     """
     if LIVE_KSP_RE.search(body):
         return False
-    if not shared_statics:
-        return True
-    return not (set(WORD_RE.findall(body)) & set(shared_statics))
+    if LIVE_SINGLETON_ACCESS_RE.search(body):
+        return False
+    if shared_statics and (set(WORD_RE.findall(body)) & set(shared_statics)):
+        return False
+    if stateful_types:
+        for qualifier in QUALIFIED_ACCESS_RE.findall(body):
+            if qualifier == own_type or qualifier in PURITY_STATE_EXEMPT_TYPES:
+                continue
+            if qualifier in stateful_types:
+                return False
+    return True
 
 
-def merge_type_size(parts, body_text=None):
+def size_type_key(declaration):
+    """Return the size view's key for a declaration: `Enclosing.Name` or `Name`."""
+    enclosing = declaration.get("enclosing")
+    return "%s.%s" % (enclosing, declaration["name"]) if enclosing else declaration["name"]
+
+
+def stateful_type_keys(parts_by_key):
+    """Return the keys whose parts declare any static state (pure).
+
+    The purity estimate's second pass needs to know which in-repo types carry
+    static state before it can judge a method that reaches into one, so the
+    measurement runs first and this reads its result.
+    """
+    stateful = set()
+    for key, parts in parts_by_key.items():
+        for part in parts:
+            if any(
+                field["mutableStatic"] or field["readonlyCollectionStatic"]
+                for field in part["facts"]["fields"]
+            ):
+                stateful.add(key)
+                break
+    return stateful
+
+
+def merge_type_size(parts, body_text=None, stateful_types=(), own_type=None):
     """Merge one type's declaration parts into its size facts (pure).
 
     `parts` is a list of {"file", "facts"} where facts is what
     `scan_declaration_members` returned, and `body_text(file, start, end)`
     returns the stripped body text for the purity estimate (omit it to skip the
-    estimate). Partials merge here: lines, methods and fields are summed across
-    every part, so a type spread over ten files reads as one type.
+    estimate). `stateful_types` and `own_type` are the purity estimate's
+    cross-type inputs (see `method_is_pure_candidate`). Partials merge here:
+    lines, methods and fields are summed across every part, so a type spread
+    over ten files reads as one type.
     """
     files = []
     methods = []
     fields = []
     skipped = 0
+    bodyless = 0
     nested = 0
     for part in parts:
         facts = part["facts"]
@@ -1344,6 +1582,7 @@ def merge_type_size(parts, body_text=None):
             methods.append(entry)
         fields.extend(facts["fields"])
         skipped += facts["skipped"]
+        bodyless += facts.get("bodyless", 0)
         nested += facts["nested"]
     files.sort(key=lambda row: (-row["lines"], row["file"]))
     mutable_statics = sorted({field["name"] for field in fields if field["mutableStatic"]})
@@ -1360,7 +1599,7 @@ def merge_type_size(parts, body_text=None):
             if not entry["static"] or entry["bodyStart"] is None or entry["coroutine"]:
                 continue
             body = body_text(entry["file"], entry["bodyStart"], entry["bodyEnd"])
-            if method_is_pure_candidate(body, shared_statics):
+            if method_is_pure_candidate(body, shared_statics, stateful_types, own_type):
                 pure_methods += 1
                 pure_lines += entry["lines"]
     return {
@@ -1386,6 +1625,7 @@ def merge_type_size(parts, body_text=None):
         "nestedTypes": nested,
         "pureStaticMethods": pure_methods,
         "pureStaticLines": pure_lines,
+        "bodylessMembers": bodyless,
         "skippedMembers": skipped,
     }
 
@@ -1959,9 +2199,17 @@ def build_model(source_root, rules, tooling, measure_sizes=True):
                 )
             )
             if measure_sizes:
-                size_parts[name].append(
+                # Size rows key on the ENCLOSING-QUALIFIED name, so the parts
+                # of one partial class still merge (same enclosing, same name)
+                # while two nested types that happen to share a name
+                # (Outer.Handlers, Other.Handlers) stay two rows. The type
+                # graph keeps keying on the bare name; changing that is a
+                # separate question (see README, "Size view").
+                size_parts[size_type_key(declaration)].append(
                     {
                         "file": rel_path,
+                        "name": name,
+                        "enclosing": declaration["enclosing"],
                         "facts": scan_declaration_members(
                             stripped[rel_path], declarations, index, line_at, by_parent
                         ),
@@ -2050,16 +2298,37 @@ def build_model(source_root, rules, tooling, measure_sizes=True):
         return stripped[rel_path][start:end]
 
     top_level_in_file = {row["file"]: row["topLevelTypes"] for row in size_files}
+    # Two passes: which types carry static state has to be known before the
+    # purity estimate can judge a method that reaches into one of them.
+    stateful = stateful_type_keys(size_parts)
     size_types = []
-    for name in sorted(graph_names, key=lambda n: (first_declaration[n][0], n)):
-        merged = merge_type_size(size_parts[name], body_text)
-        merged["name"] = name
-        merged["module"] = first_declaration[name][0]
-        merged["file"] = merged["files"][0]["file"] if merged["files"] else first_declaration[name][1]
+    for key in sorted(size_parts):
+        parts = size_parts[key]
+        base_name = parts[0]["name"]
+        if base_name not in graph_names:
+            continue
+        merged = merge_type_size(parts, body_text, stateful, key)
+        merged["name"] = key
+        merged["typeName"] = base_name
+        merged["enclosing"] = parts[0]["enclosing"]
+        merged["module"] = first_declaration[base_name][0]
+        merged["file"] = (
+            merged["files"][0]["file"] if merged["files"] else first_declaration[base_name][1]
+        )
         merged["topLevelTypesInFile"] = top_level_in_file.get(merged["file"], 1)
         size_types.append(merged)
     size_types.sort(key=lambda row: (-row["lines"], row["name"]))
     size_files.sort(key=lambda row: (-row["lines"], row["file"]))
+    # Which row owns each file, so only that row is told about its siblings.
+    primary_type_of_file = {}
+    for row in size_types:
+        for part in row["files"]:
+            current = primary_type_of_file.get(part["file"])
+            if current is None or part["lines"] > current[1]:
+                primary_type_of_file[part["file"]] = (row["name"], part["lines"])
+    for row in size_types:
+        owner = primary_type_of_file.get(row["file"])
+        row["primaryTypeOfItsFile"] = owner is not None and owner[0] == row["name"]
 
     histogram = defaultdict(int)
     for entry in types:
@@ -3993,17 +4262,21 @@ def size_recommendations(entry, runtime_coupled=()):
         if entry["coroutines"]:
             text += " %d IEnumerator method(s) stay whole (guidelines item 6)." % entry["coroutines"]
         rows.append({"rule": "S1", "text": text})
-    if (
+    pool_is_big = (
         entry["pureStaticMethods"] >= PURE_POOL_METHODS
         or entry["pureStaticLines"] >= PURE_POOL_LINES
-    ):
+    )
+    pool_share = entry["pureStaticLines"] / float(entry["lines"]) if entry["lines"] else 0.0
+    if pool_is_big and pool_share >= PURE_POOL_SHARE:
         rows.append(
             {
                 "rule": "S2",
-                "text": "%d static method(s), %d lines, name no live KSP type and no static"
-                " state of this type: candidate internal static helper with unit tests. No"
-                " pre-existing access modifier changes (guidelines items 7 and 13)."
-                % (entry["pureStaticMethods"], entry["pureStaticLines"]),
+                "text": "%d static method(s), %d lines, %.0f%% of the type, READ AS PURE by a"
+                " name scan (no live KSP identifier, no singleton access, no static state of"
+                " this or any other type): candidate internal static helpers with unit tests,"
+                " but verify each one before lifting it. No pre-existing access modifier"
+                " changes (guidelines items 7 and 13)."
+                % (entry["pureStaticMethods"], entry["pureStaticLines"], pool_share * 100),
             }
         )
     # S3 keys on the LARGEST SINGLE FILE, not the total: a type already spread
@@ -4035,17 +4308,20 @@ def size_recommendations(entry, runtime_coupled=()):
                 % (static_state, entry["mutableStatics"], entry.get("readonlyCollectionStatics", 0)),
             }
         )
-    top_level = entry.get("topLevelTypesInFile", 1)
+    # Sibling advice belongs to the row that OWNS the file (its largest type),
+    # and never to a nested type, which has no siblings of its own.
+    owns_file = entry.get("primaryTypeOfItsFile", True) and not entry.get("enclosing")
+    top_level = entry.get("topLevelTypesInFile", 1) if owns_file else 1
     siblings = max(0, top_level - 1)
     nested = entry["nestedTypes"]
     if nested >= NESTED_TYPE_FLOOR or top_level >= SIBLING_TYPE_FLOOR:
         parts = []
-        if nested:
+        if nested >= NESTED_TYPE_FLOOR:
             parts.append(
                 "%d nested type(s) move to a partial file of %s itself (it is %spartial today)"
                 % (nested, entry["name"], "" if entry.get("partial") else "not ")
             )
-        if siblings:
+        if top_level >= SIBLING_TYPE_FLOOR:
             parts.append("%d sibling top-level type(s) in %s move to their own files"
                          % (siblings, entry["file"]))
         rows.append({"rule": "S5", "text": "; ".join(parts) + "."})
@@ -4151,7 +4427,9 @@ def size_report(model, history=None, growth=None, settings=None):
         entry = dict(row)
         entry.pop("mutableStaticNames", None)
         entry.pop("readonlyCollectionStaticNames", None)
-        meta = type_meta.get(entry["name"], {})
+        # The ladder keys types by the bare name, so the join uses that even
+        # where the size row is qualified (`Outer.Handlers`).
+        meta = type_meta.get(entry.get("typeName", entry["name"]), {})
         entry["partial"] = "partial" in meta.get("modifiers", [])
         entry["role"] = meta.get("role")
         entry["level"] = meta.get("level")

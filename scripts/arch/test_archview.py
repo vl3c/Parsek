@@ -1644,6 +1644,26 @@ SIZE_SAMPLE = """namespace N
         private static readonly int[] Steps = { 1, 2, 3 };
         private static readonly string Label = "x";
         private static readonly IReadOnlyList<int> Fixed = new List<int>();
+        private static SampleThing instance;
+        internal static SampleThing Instance => instance;
+        internal static bool Armed { get; set; }
+        internal static int Seen { get; }
+        internal static event Action<int> Changed;
+
+        public SampleThing(int seed)
+        {
+            instanceField = seed;
+        }
+
+        internal static (bool ok, int size) Measure(string key)
+        {
+            return (true, key.Length);
+        }
+
+        internal static System.Collections.IEnumerator Walk()
+        {
+            yield return null;
+        }
 
         internal static int Cached(string key)
         {
@@ -1744,12 +1764,46 @@ class MemberScanTests(unittest.TestCase):
         self.facts, self.stripped = _scan_sample(SIZE_SAMPLE, "SampleThing")
         self.methods = {method["name"]: method for method in self.facts["methods"]}
 
-    def test_block_expression_and_generic_members_are_delimited(self):
+    def test_block_expression_generic_tuple_and_constructor_members_are_delimited(self):
         self.assertEqual(
             sorted(self.methods),
-            ["Bumped", "Cached", "Doubled", "IsBig", "Run", "Touch", "TryPick"],
+            [
+                "Bumped",
+                "Cached",
+                "Doubled",
+                "IsBig",
+                "Measure",
+                "Run",
+                "SampleThing",
+                "Touch",
+                "TryPick",
+                "Walk",
+            ],
         )
         self.assertEqual(self.facts["skipped"], 0)
+
+    def test_a_constructor_is_a_member_with_a_body(self):
+        ctor = self.methods["SampleThing"]
+        self.assertTrue(ctor["constructor"])
+        self.assertEqual(ctor["lines"], 4)
+        self.assertFalse(ctor["static"])
+        self.assertFalse(any(m["constructor"] for name, m in self.methods.items() if name != "SampleThing"))
+
+    def test_a_tuple_return_type_is_read_as_the_return_type(self):
+        measure = self.methods["Measure"]
+        self.assertEqual(measure["ret"], "(bool ok, int size)")
+        self.assertEqual(measure["lines"], 4)
+
+    def test_a_name_that_is_a_modifier_is_a_scan_failure_not_a_member(self):
+        # The shape that used to print `static 110 lines at ...`.
+        source = "class Oddity\n{\n    internal static (bool a, int b) Go(int x) { return (true, x); }\n}\n"
+        facts, _stripped = _scan_sample(source, "Oddity")
+        self.assertEqual([m["name"] for m in facts["methods"]], ["Go"])
+        self.assertEqual(facts["skipped"], 0)
+        blind = "class Oddity\n{\n    internal Thing static (int x) { }\n}\n"
+        facts, _stripped = _scan_sample(blind, "Oddity")
+        self.assertEqual(facts["methods"], [])
+        self.assertEqual(facts["skipped"], 1)
 
     def test_start_lines_are_the_real_source_lines(self):
         lines = SIZE_SAMPLE.splitlines()
@@ -1769,19 +1823,36 @@ class MemberScanTests(unittest.TestCase):
     def test_statements_inside_a_property_body_are_not_members(self):
         # `return Doubled(instanceField);` and `if (instanceField == 0)` read
         # like declarations to the header pattern; neither may be counted.
-        self.assertEqual(len(self.facts["methods"]), 7)
+        self.assertEqual(len(self.facts["methods"]), 10)
 
     def test_mutable_static_detection(self):
         fields = {field["name"]: field for field in self.facts["fields"]}
         self.assertEqual(
             sorted(fields),
-            ["Cache", "Cap", "Fixed", "Label", "Limit", "Spans", "Steps", "counter",
-             "instanceField"],
+            ["Armed", "Cache", "Cap", "Changed", "Fixed", "Label", "Limit", "Spans", "Steps",
+             "counter", "instance", "instanceField"],
         )
         self.assertTrue(fields["counter"]["mutableStatic"])
         self.assertFalse(fields["Cap"]["mutableStatic"])
         self.assertFalse(fields["Limit"]["mutableStatic"])
         self.assertFalse(fields["instanceField"]["mutableStatic"])
+
+    def test_an_expression_bodied_property_is_not_a_field(self):
+        # `internal static SampleThing Instance => instance;` is a forward, not
+        # state; counting its `=` made every such property read as a
+        # reassignable static.
+        self.assertNotIn("Instance", {field["name"] for field in self.facts["fields"]})
+
+    def test_a_static_auto_property_with_a_setter_is_reassignable_state(self):
+        fields = {field["name"]: field for field in self.facts["fields"]}
+        self.assertTrue(fields["Armed"]["mutableStatic"])
+        self.assertEqual(fields["Armed"]["kind"], "autoProperty")
+        # Get-only has no setter to reassign through, so it is left out.
+        self.assertNotIn("Seen", fields)
+
+    def test_a_static_event_is_reassignable_state(self):
+        fields = {field["name"]: field for field in self.facts["fields"]}
+        self.assertTrue(fields["Changed"]["mutableStatic"])
 
     def test_readonly_collection_statics_are_counted_as_static_state(self):
         fields = {field["name"]: field for field in self.facts["fields"]}
@@ -1797,20 +1868,63 @@ class MemberScanTests(unittest.TestCase):
         self.assertTrue(self.methods["Run"]["coroutine"])
         self.assertFalse(self.methods["IsBig"]["coroutine"])
 
+    def test_a_qualified_or_generic_enumerator_is_still_a_coroutine(self):
+        self.assertTrue(self.methods["Walk"]["coroutine"])
+        self.assertTrue(archview.is_enumerator_return("System.Collections.IEnumerator"))
+        self.assertTrue(archview.is_enumerator_return("IEnumerator<int>"))
+        self.assertTrue(archview.is_enumerator_return("System.Collections.Generic.IEnumerator<T>"))
+        self.assertFalse(archview.is_enumerator_return("IEnumerable"))
+        self.assertFalse(archview.is_enumerator_return("int"))
+
     def test_purity_estimate_rejects_live_types_and_shared_statics(self):
         merged = archview.merge_type_size(
             [{"file": "One/A.cs", "facts": self.facts}],
             lambda _file, start, end: self.stripped[start:end],
         )
-        self.assertEqual(merged["mutableStaticNames"], ["counter"])
+        self.assertEqual(merged["mutableStaticNames"], ["Armed", "Changed", "counter", "instance"])
         self.assertEqual(merged["readonlyCollectionStaticNames"], ["Cache", "Spans", "Steps"])
-        self.assertEqual(merged["mutableStatics"], 1)
+        self.assertEqual(merged["mutableStatics"], 4)
         self.assertEqual(merged["readonlyCollectionStatics"], 3)
-        # IsBig, Doubled and TryPick are static and name no shared state;
-        # Bumped reads `counter`, Cached reads the shared `Cache`; Touch is
-        # not static; Run is a coroutine.
-        self.assertEqual(merged["pureStaticMethods"], 3)
-        self.assertEqual(merged["coroutines"], 1)
+        # IsBig, Doubled, TryPick and Measure are static and name no shared
+        # state; Bumped reads `counter`, Cached reads the shared `Cache`;
+        # Touch is not static; Run and Walk are coroutines.
+        self.assertEqual(merged["pureStaticMethods"], 4)
+        self.assertEqual(merged["coroutines"], 2)
+
+
+class PurityEstimateTests(unittest.TestCase):
+    def test_a_live_ksp_identifier_is_impure(self):
+        for body in [
+            "{ return ResearchAndDevelopment.Instance != null; }",
+            "{ File.WriteAllText(path, text); }",
+            "{ var r = Resources.Load(name); }",
+            "{ return part.vessel != null && Part.Count > 0; }",
+            "{ return CelestialBody.Count; }",
+        ]:
+            self.assertFalse(archview.method_is_pure_candidate(body, []), body)
+
+    def test_a_singleton_access_is_impure_whatever_the_type(self):
+        self.assertFalse(archview.method_is_pure_candidate("{ return Whatever.Instance.X; }", []))
+        self.assertFalse(archview.method_is_pure_candidate("{ return Widget.fetch.Y; }", []))
+        self.assertTrue(archview.method_is_pure_candidate("{ return instanceCount; }", []))
+
+    def test_reaching_another_type_that_holds_static_state_is_impure(self):
+        body = "{ return RecordingStore.CommittedRecordings.Count; }"
+        self.assertFalse(
+            archview.method_is_pure_candidate(body, [], {"RecordingStore"}, "Other")
+        )
+        # The same call into a type with no static state stays pure.
+        self.assertTrue(archview.method_is_pure_candidate(body, [], {"SomethingElse"}, "Other"))
+
+    def test_a_types_own_name_does_not_disqualify_it(self):
+        body = "{ return Thing.Parse(text); }"
+        self.assertTrue(archview.method_is_pure_candidate(body, [], {"Thing"}, "Thing"))
+
+    def test_logging_is_exempt(self):
+        body = "{ ParsekLog.Verbose(\"[Size] x\"); return 1; }"
+        self.assertTrue(
+            archview.method_is_pure_candidate(body, [], {"ParsekLog", "RecordingStore"}, "Thing")
+        )
 
 
 class MutableCollectionTypeTests(unittest.TestCase):
@@ -1856,11 +1970,13 @@ class MutableCollectionTypeTests(unittest.TestCase):
         self.assertEqual(archview._member_body(";", 0, 1)[0], "none")
         self.assertEqual(archview._member_body(" % {", 0, 4)[0], "skip")
 
-    def test_bodyless_declarations_count_as_members_with_no_lines(self):
-        source = "interface IShape\n{\n    bool Fits(int size);\n}\n"
+    def test_bodyless_declarations_are_counted_apart_from_methods(self):
+        # An interface or abstract declaration has no body to extract from, so
+        # it is not a method here; it is not a scan failure either.
+        source = "interface IShape\n{\n    bool Fits(int size);\n    void Draw();\n}\n"
         facts, _stripped = _scan_sample(source, "IShape")
-        self.assertEqual([m["name"] for m in facts["methods"]], ["Fits"])
-        self.assertEqual(facts["methods"][0]["lines"], 0)
+        self.assertEqual(facts["methods"], [])
+        self.assertEqual(facts["bodyless"], 2)
         self.assertEqual(facts["skipped"], 0)
 
 
@@ -1906,6 +2022,8 @@ def _size_entry(**overrides):
         "readonlyCollectionStatics": 0,
         "nestedTypes": 0,
         "topLevelTypesInFile": 1,
+        "primaryTypeOfItsFile": True,
+        "enclosing": None,
         "partial": False,
         "pureStaticMethods": 0,
         "pureStaticLines": 0,
@@ -1945,13 +2063,46 @@ class SizeRuleTests(unittest.TestCase):
         self.assertIn("3 IEnumerator", rules["S1"])
         self.assertNotIn("S1", self._rules(_size_entry(longMethods=0)))
 
-    def test_s2_fires_on_either_pure_pool_threshold(self):
-        self.assertIn("S2", self._rules(_size_entry(pureStaticMethods=archview.PURE_POOL_METHODS)))
-        self.assertIn("S2", self._rules(_size_entry(pureStaticLines=archview.PURE_POOL_LINES)))
+    def test_s2_needs_a_big_pool_and_a_big_share(self):
+        lines = 4000
+        share = int(lines * archview.PURE_POOL_SHARE) + 10
+        self.assertIn(
+            "S2",
+            self._rules(
+                _size_entry(
+                    lines=lines,
+                    pureStaticMethods=archview.PURE_POOL_METHODS,
+                    pureStaticLines=share,
+                )
+            ),
+        )
+        self.assertIn(
+            "S2",
+            self._rules(
+                _size_entry(
+                    lines=lines,
+                    pureStaticMethods=1,
+                    pureStaticLines=max(archview.PURE_POOL_LINES, share),
+                )
+            ),
+        )
+        # A big pool that is a small share of a huge type does not fire: that
+        # was the shape that made S2 hit 25 of the top 25 types.
         self.assertNotIn(
             "S2",
             self._rules(
                 _size_entry(
+                    lines=30000,
+                    pureStaticMethods=300,
+                    pureStaticLines=6000,
+                )
+            ),
+        )
+        self.assertNotIn(
+            "S2",
+            self._rules(
+                _size_entry(
+                    lines=lines,
                     pureStaticMethods=archview.PURE_POOL_METHODS - 1,
                     pureStaticLines=archview.PURE_POOL_LINES - 1,
                 )
@@ -1997,6 +2148,19 @@ class SizeRuleTests(unittest.TestCase):
                 _size_entry(mutableStatics=half, readonlyCollectionStatics=half - 1)
             ),
         )
+
+    def test_s5_gives_sibling_advice_only_to_the_row_that_owns_the_file(self):
+        crowded = dict(topLevelTypesInFile=archview.SIBLING_TYPE_FLOOR + 5)
+        # A nested type has no siblings of its own to move.
+        self.assertNotIn(
+            "S5", self._rules(_size_entry(enclosing="Outer", **crowded))
+        )
+        # Neither does a small top-level type sharing a file it does not own;
+        # otherwise all 17 types in one file each get the same advice.
+        self.assertNotIn(
+            "S5", self._rules(_size_entry(primaryTypeOfItsFile=False, **crowded))
+        )
+        self.assertIn("S5", self._rules(_size_entry(**crowded)))
 
     def test_s5_sends_nested_types_to_a_partial_file_and_siblings_to_their_own(self):
         nested = self._rules(
@@ -2140,6 +2304,37 @@ class PartialFileAttributionTests(unittest.TestCase):
                 % "\n".join("    int f%d;" % index for index in range(30)),
             )
             return archview.build_model(root, [{"name": "One", "folder": "One"}], set())
+
+    def test_two_nested_types_sharing_a_name_are_two_size_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(
+                root,
+                "One/AlphaOwner.cs",
+                "public class AlphaOwner\n{\n    internal class Handlers\n    {\n"
+                "        internal static void Go() { }\n    }\n}\n",
+            )
+            self._write(
+                root,
+                "One/BetaOwner.cs",
+                "public class BetaOwner\n{\n    internal class Handlers\n    {\n"
+                "        internal static void Stop() { }\n        internal static void Wait() { }\n"
+                "    }\n}\n",
+            )
+            model = archview.build_model(root, [{"name": "One", "folder": "One"}], set())
+        rows = {row["name"]: row for row in model["sizes"]["types"]}
+        # `Handlers` is declared twice and is not partial: one row each, keyed
+        # by the enclosing type, instead of one row with both bodies in it.
+        self.assertIn("AlphaOwner.Handlers", rows)
+        self.assertIn("BetaOwner.Handlers", rows)
+        self.assertEqual(rows["AlphaOwner.Handlers"]["methods"], 1)
+        self.assertEqual(rows["BetaOwner.Handlers"]["methods"], 2)
+        self.assertEqual(rows["AlphaOwner.Handlers"]["typeName"], "Handlers")
+
+    def test_a_partial_type_still_merges_across_files(self):
+        model = self._partial_model()
+        rows = {row["name"]: row for row in model["sizes"]["types"]}
+        self.assertEqual(len(rows["BigThing"]["files"]), 2)
 
     def test_primary_file_is_the_one_holding_the_most_body_lines(self):
         model = self._partial_model()
@@ -2968,6 +3163,37 @@ class RealTreeSmokeTests(unittest.TestCase):
         methods = sum(row["methods"] for row in self.sizes["types"])
         self.assertGreater(methods, 5000)
         self.assertLess(skipped, methods / 100)
+
+    def test_no_member_is_named_after_a_modifier(self):
+        # `internal static (bool ok, int n) Foo(` misparsed as name `static`
+        # used to reach the output as a 110-line method called "static".
+        for row in self.sizes["types"]:
+            for method in row["topMethods"]:
+                self.assertNotIn(method["name"], archview.MEMBER_MODIFIERS, row["name"])
+
+    def test_the_purity_pool_discriminates(self):
+        # It fired on 25 of the top 25 before the estimate was tightened,
+        # which told a reader nothing.
+        top = self.sizes["types"][:archview.SIZE_TOP_N]
+        firing = [
+            row["name"]
+            for row in top
+            if any(item["rule"] == "S2" for item in row["recommendations"])
+        ]
+        self.assertLess(len(firing), len(top) / 2)
+        self.assertTrue(firing)
+
+    def test_expression_bodied_properties_are_not_counted_as_static_state(self):
+        # RecordingStore forwards about twenty of them; each used to read as a
+        # reassignable static.
+        row = self.size_types["RecordingStore"]
+        self.assertLess(row["mutableStatics"], 45)
+        self.assertGreater(row["mutableStatics"], 20)
+
+    def test_nested_types_that_share_a_name_are_separate_rows(self):
+        names = [row["name"] for row in self.sizes["types"]]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertTrue(any("." in name for name in names))
 
     def test_no_record_declarations_in_the_tree(self):
         # The literal `\brecord\b` grep would also match a local variable named

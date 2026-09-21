@@ -191,10 +191,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `docs/dev/arch/README.md`.
 - **The report predates the SIZE view and its hotspot list is under-ranked.** The generator
   had no notion of size when the report was written, which is why it says almost nothing
-  about `GhostMapPresence` (13.5k lines). It now has one: `sizes.json` plus the SIZE section
-  rank the largest files and types with partials merged, their long methods, mutable
-  statics and pure static pools, and print rule-based split candidates with a tier
-  (README, "Size view"). The same pass fixed the partial-class file attribution behind the
+  about `GhostMapPresence` (13.5k lines, a partial class whose members are all static). It
+  now has one: `sizes.json` plus the SIZE section rank the largest files and types with
+  partials merged, their long methods, their static state (reassignable slots plus
+  `static readonly` collections whose contents change) and an ESTIMATE of their pure
+  static pool, and print rule-based split candidates with a tier (README, "Size view").
+  Read the pure pool as an estimate to verify, never as a list to lift. The same pass fixed the partial-class file attribution behind the
   omission - a partial type was credited to whichever file the walk met first, so every
   large partial class (`ParsekFlight`, `GhostMapPresence`, `RecordingStore`,
   `FlightRecorder`, `GhostPlaybackEngine`) was scored on a tiny part's commit count and

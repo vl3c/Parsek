@@ -410,8 +410,8 @@ and top 10 hotspots.
 
 The module graph says what references what and the history says what changes
 together; neither looks at how big anything is. `sizes.json` and the SIZE
-section do, because a 13,500-line static partial class is a fact about the
-codebase that no edge count shows. It is the mechanical backbone for the next
+section do, because a 13,500-line partial class whose members are all static is
+a fact about the codebase that no edge count shows. It is the mechanical backbone for the next
 refactor inventory, in the shape the past passes used (`refactor-5-inventory.md`
 counted production files, files at or above 400 lines, and methods at or above
 90 lines); the vocabulary it speaks is `docs/dev/refactor-guidelines.md` and
@@ -439,34 +439,54 @@ Per type, with partials merged (every part of `ParsekFlight` is one row):
   of them is the type's PRIMARY file, which is what the churn, hotspot and
   co-change columns read.
 - **methods**, **long methods** (at or above 90 lines) and the longest few by
-  name, file and start line.
-- **coroutines**: methods returning `IEnumerator`. They are reported and never
-  recommended for extraction, because guideline item 6 forbids restructuring a
-  coroutine body.
+  name, file and start line. Constructors count: a long one is as good an
+  extract-method target as any other body. Declarations with no body
+  (interface, abstract, extern, partial) do not; they are tallied separately.
+- **coroutines**: methods returning `IEnumerator`, however it is spelled
+  (`System.Collections.IEnumerator`, `IEnumerator<T>`: the comparison is on the
+  last dotted segment with generic arguments stripped). They are reported and
+  never recommended for extraction, because guideline item 6 forbids
+  restructuring a coroutine body.
 - **fields** and **static state**, counted as two numbers because they are two
   different problems under one owner. **Mutable statics** are the reassignable
-  ones: `static`, neither `const` nor `readonly`. **Readonly collection
-  statics** are `static readonly` fields whose declared type names a mutable
-  collection (`Dictionary`, `List`, `HashSet`, `SortedSet`, `Queue`, `Stack`,
-  `Bag`, `Collection`, `Lookup`, `StringBuilder`, `Array`) or is an array of
-  anything: the handle is fixed, the contents are not, and the static state map
-  the remaining-opportunities doc asks for has to cover both. `ReadOnly`,
-  `Immutable` or `Frozen` in the type name vetoes the match, so
-  `IReadOnlyList<T>` does not count. `--check` prints the pair as
-  `statics=16+35`; S4 and the tier read their sum.
-- **pure static pool**: static methods whose body names none of `Vessel`,
-  `ProtoVessel`, `FlightGlobals`, `MapView`, `PlanetariumCamera`,
-  `OrbitDriver`, `GameEvents`, `Time`, `Planetarium`, `HighLogic`,
-  `GameObject`, `Transform` or `Debug`, and none of the type's own static
-  state of either kind, because a method reading a shared dictionary is not a
-  pure helper either. That is the pool the past passes lifted into
-  `internal static` helpers with unit tests, the cheapest extraction there is.
-  It is a text test: a helper that reaches live state one call away still reads
-  as pure.
+  ones: `static`, neither `const` nor `readonly`. A static auto-property with a
+  setter (`static bool Armed { get; set; }`) counts, because its backing field
+  is exactly that, and so does a field-like `static event`, because
+  subscribing mutates it. An expression-bodied property
+  (`static Foo Instance => instance;`) does NOT: it is a forward, not a slot,
+  and counting its `=` made about a quarter of the tree's "reassignable
+  statics" wrong. **Readonly collection statics** are `static readonly` fields
+  whose declared type names a mutable collection (`Dictionary`, `List`,
+  `HashSet`, `SortedSet`, `Queue`, `Stack`, `Bag`, `Collection`, `Lookup`,
+  `StringBuilder`, `Array`) or is an array of anything: the handle is fixed,
+  the contents are not, and the static state map the remaining-opportunities
+  doc asks for has to cover both. `ReadOnly`, `Immutable` or `Frozen` in the
+  type name vetoes the match, so `IReadOnlyList<T>` does not count. `--check`
+  prints the pair as `statics=17+35`; S4 and the tier read their sum.
+- **pure static pool**: an ESTIMATE of the static methods that could move to an
+  `internal static` helper with unit tests, the cheapest extraction the past
+  passes did. A method reads as pure when its body passes four name tests: it
+  mentions no identifier from the live list (`Vessel`, `ProtoVessel`, `Part`,
+  `CelestialBody`, `Orbit`, `FlightGlobals`, `HighLogic`, `GameEvents`,
+  `ResearchAndDevelopment`, `Funding`, `Reputation`, `ScreenMessages`,
+  `TimeWarp`, `File`, `Resources`, `GameObject`, ... - the full tuple is
+  `LIVE_KSP_IDENTIFIERS` in `archview.py`, covering live vessels and parts, the
+  world, the scene and career singletons, view and input, Unity and process
+  I/O); it does not reach a singleton through `.Instance` or `.fetch`; it names
+  none of its own type's static state of either kind, because a method reading
+  a shared dictionary is not a pure helper; and it does not use
+  `OtherType.member` where `OtherType` is an in-repo type that carries static
+  state of its own. `ParsekLog` is the one exemption there: logging never stood
+  between a helper and its unit test, because the tests capture the sink. It
+  stays an estimate - a helper that reaches live state one call deeper, through
+  a parameter, or through a type this scan does not know, still reads as pure -
+  so S2 says to verify each candidate before lifting it.
 - **nested types** and the number of top-level types in the primary file.
-- **skipped members**: headers the scan could not follow to a body. The scan
-  prefers under-claiming, so anything it cannot delimit confidently is skipped
-  and counted here; `--check` prints the total (9 across the current tree).
+- **skipped members**: headers the scan could not follow to a body, including a
+  header whose parsed name is a C# modifier (the shape that used to print a
+  110-line method called `static`). The scan prefers under-claiming, so
+  anything it cannot delimit confidently is skipped and counted here; `--check`
+  prints the total (1 across the current tree).
 - **growth**: net lines added (`added - deleted`) in the history window, from
   one extra `git log --numstat` call over `Source/Parsek`, summed over the
   type's files. Binary rows, rename rows and sweep commits (more than 40
@@ -475,17 +495,19 @@ Per type, with partials merged (every part of `ParsekFlight` is one row):
 
 ### The heuristics' blind spots
 
-Method detection is a regex for a header (`modifiers type Name(`) followed by
-brace, `=>` or `;` matching, not a parser. It does not see:
+Method detection is a regex for a header (`modifiers type Name(`, a tuple type
+counting as a type) followed by brace, `=>` or `;` matching, plus a second
+pattern for constructors, not a parser. It does not see:
 
-- **constructors, destructors, operators and conversions** (no return type, or
-  a keyword where the return type would be);
-- **properties and indexers**, with or without bodies, and events; a statement
-  inside a property accessor is deliberately not counted as a member, but a
-  field-shaped declaration inside one would be counted as a field;
-- **tuple-returning methods** (`(bool ok, int n) Parse(...)`) and return types
-  with two or more levels of generic nesting, which the type token does not
-  match;
+- **destructors, operators and conversions** (no return type, or a keyword
+  where the return type would be);
+- **properties and indexers with real bodies**; a statement inside a property
+  accessor is deliberately not counted as a member, but a field-shaped
+  declaration inside one would be counted as a field. A get-only static auto-
+  property is not counted as state, and a `readonly` field holding a custom
+  class with mutable fields of its own is missed entirely;
+- **return types with two or more levels of generic nesting**, which the type
+  token does not match (one level of nesting, and one tuple, do match);
 - **local functions and lambdas**: they live inside a delimited body, so they
   are part of their host method's line count and never a member of their own;
 - **`#if` blocks**: preprocessor lines are stripped before the scan, so both
@@ -496,6 +518,12 @@ holding a custom class with mutable fields of its own (`private static readonly
 GhostCache cache`) reads as neither kind and is missed. So is a mutable
 collection hidden behind an interface the veto list catches. Both are
 under-claims: the two numbers are a floor on the static state, not a ceiling.
+
+One more keying note, inherited from the type ladder: a size row is keyed by
+the ENCLOSING-QUALIFIED name, so the parts of one partial class merge while two
+nested types that happen to share a name (`Outer.Handlers`, `Other.Handlers`)
+stay two rows. The type graph in `types.json` still keys on the bare name and
+merges them, which is a pre-existing approximation this view does not change.
 
 Line numbers are the original file's: block comments and multi-line string
 bodies are dropped by the strip, and the offsets that survive carry the count
@@ -511,14 +539,16 @@ input, `runtimeCoupled`, is the `[size]` table in `modules.toml`.
 | Rule | Fires when | Reads |
 | --- | --- | --- |
 | S1 | at least one method is at or above 90 lines | a same-file extract-method pass (the Pass 1 shape) is the cheapest slice; names the longest few with file and line, and how many coroutines stay whole |
-| S2 | the pure static pool reaches 8 methods or 400 lines | lift it into an `internal static` helper with unit tests; no pre-existing access modifier may change (guideline items 7 and 13) |
+| S2 | the pure static pool reaches 25 methods or 1,200 lines AND is at least 30% of the type's lines | lift it into an `internal static` helper with unit tests, verifying each candidate first (the pool is a name-scan estimate); no pre-existing access modifier may change (guideline items 7 and 13). The share gate is what makes the rule discriminate: on size alone it fired on 25 of the top 25 types, now on 6 |
 | S3 | the type's LARGEST SINGLE FILE reaches 5,000 lines | split that file by responsibility into further partial-class files, which moves no call site; cites the file, its lines, the type's total and how many files already hold parts. A type already spread over six 1,000-line files has done what this rule asks, so it does not fire |
 | S4 | 10 or more fields of static state (reassignable plus readonly collections) | build the static mutable state map before moving anything, and keep the type as a compatibility facade in the first slice; cites both numbers |
-| S5 | 5 or more nested types, or 3 or more top-level types in the primary file | nested types move to a partial file of the enclosing type itself (the row says whether that type is already `partial`); sibling top-level types move to their own files. The two counts are cited separately, because they are different moves |
+| S5 | 5 or more nested types, or 3 or more top-level types in the primary file | nested types move to a partial file of the enclosing type itself (the row says whether that type is already `partial`); sibling top-level types move to their own files. The two counts are cited separately, because they are different moves. Sibling advice goes only to the row that OWNS the file (its largest type) and never to a nested type, so a file holding 17 small types gets one S5 row, not 17 |
 | S6 | the module is in `[size] runtimeCoupled` | a note, not a slice: needs in-game validation, and log text and rate-limit keys must stay byte-identical |
 | S7 | the type is inside the top 10 hotspots | a note: churn times fan-in raises the priority of whatever else fired |
 
-Defaults: large file 1,000 lines, giant 5,000, long method 90, top N 25.
+Defaults: large file 1,000 lines, giant 5,000, long method 90, pure pool 25
+methods / 1,200 lines / 30% share, 10 fields of static state, 5 nested or 3
+top-level types, top-10 hotspot, top N 25.
 
 ### Tiers
 

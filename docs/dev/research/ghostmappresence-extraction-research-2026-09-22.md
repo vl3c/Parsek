@@ -1,8 +1,8 @@
 # GhostMapPresence extraction research, 2026-09-22
 
-Read-only structural study of the `GhostMapPresence` static partial class: what is in
-it, what each part touches, who calls it, what is already pure, what the tests and
-gates pin, and which extractions are worth doing in what order. This is evidence plus
+Read-only structural study of `GhostMapPresence`, a partial class whose members are all
+static: what is in it, what each part touches, who calls it, what is already pure, what
+the tests and gates pin, and which extractions are worth doing in what order. This is evidence plus
 a ranked candidate list, in the vocabulary of
 `docs/dev/research/architecture-opportunities-2026-09-14.md`. Nothing here has been
 started; no file under the repo was modified.
@@ -17,6 +17,15 @@ a test run. Its mutable-static count (55) used a wider definition than the size 
 (16 reassignable plus 35 static readonly collections). Treat every candidate as a
 candidate: each still needs a focused proposal and a clean-context review against
 `docs/dev/refactor-guidelines.md`.
+
+Two numbers in it have since been re-derived by the fixed tool and should be read from
+there instead. Its "second in the tree" hotspot rank was computed for
+`GhostMapPresence` alone against the unfixed, misattributed list; with every partial
+class re-attributed, `GhostMapPresence` ranks **seventh** (`ParsekFlight`,
+`RecordingStore`, `ParsekScenario`, `Recording`, `GhostPlaybackLogic` and
+`FlightRecorder` are ahead of it). And the static-state count is now measured as 17
+reassignable fields (16 fields plus one static auto-property with a setter) and 35
+`static readonly` collections whose contents change.
 
 Worktree: `C:\Users\vlad3\Documents\Code\Parsek\Parsek\.claude\worktrees\vigorous-greider-b5560b`
 at `ce9a875ae`. Architecture views regenerated with
@@ -916,11 +925,15 @@ written at **six** sites spread across five clusters:
 | 10472, 10484 | `TrackRecordingGhostVessel` / `TrackRecordingGhostIdentityForTesting` | Registry |
 | 11928 | `CreateOverlapInstanceVessel` | OverlapInstances |
 
-plus six removal sites. The cited line numbers 9032 / 9044 now land in
-`ShouldPreserveIdentityForTrackingStationSpawn` territory, so both the scope claim and
-its citation are stale. The doc's conclusion ("that reverse map is currently INCOMPLETE")
-may still hold, but it needs re-deriving from the six-site write set rather than from the
-one it names. Treat the comment as a hypothesis, per CLAUDE.md.
+Those six are the ASSIGNMENT sites. Re-grepped 2026-09-22 during the review of the size
+view, the map is emptied at ten more: seven `vesselPidToRecordingId.Remove` calls and
+three `.Clear` calls. An earlier draft of this paragraph said "plus six removal sites",
+which mirrored the write count instead of counting them. The cited line numbers
+9032 / 9044 now land in `ShouldPreserveIdentityForTrackingStationSpawn` territory, so
+both the scope claim and its citation are stale. The doc's conclusion ("that reverse map
+is currently INCOMPLETE") may still hold, but it needs re-deriving from the full
+six-write / ten-clear set rather than from the one site it names. Treat the comment as a
+hypothesis, per CLAUDE.md.
 
 ---
 
