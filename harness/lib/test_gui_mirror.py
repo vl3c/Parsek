@@ -45,7 +45,7 @@ import gui_mirror as gmi  # noqa: E402
 # --------------------------------------------------------------------------
 
 def node(kind, rect, text=None, style=None, tooltip=None, children=None,
-         enabled=True, value=None, text_value=None):
+         enabled=True, value=None, text_value=None, selected_index=None):
     n = {"kind": kind, "rect": list(rect), "localRect": list(rect),
          "clipDepth": 1, "style": style if style is not None else kind,
          "enabled": enabled, "text": text, "children": children or []}
@@ -55,6 +55,8 @@ def node(kind, rect, text=None, style=None, tooltip=None, children=None,
         n["value"] = value
     if text_value is not None:
         n["textValue"] = text_value
+    if selected_index is not None:
+        n["selectedIndex"] = selected_index
     return n
 
 
@@ -945,12 +947,34 @@ class TabNameResolutionTests(unittest.TestCase):
             self.assertTrue(own.endswith("Classic"),
                             "the older capture lost its own text: " + own)
 
-    def test_the_page_marks_the_selected_cell_by_token_not_by_name(self):
+    def test_the_page_marks_the_selected_cell_by_recorded_index_then_token(self):
+        # Never by NAME: a stale heading is what lost the marker once. The dump's
+        # own selectedIndex wins when it is there, and the seam's tab token stays
+        # the fallback for every capture taken before the recorder wrote it.
         html = gmi.render_html(self.build())
-        self.assertIn("var b = el('div','gi' + (t.token === opts.tab ? ' on' : ''));",
-                      html)
+        self.assertIn("var on = (typeof n.si === 'number') ? (i === n.si) : "
+                      "(t.token === opts.tab);", html)
+        self.assertIn("var b = el('div','gi' + (on ? ' on' : ''));", html)
         self.assertNotIn("norm(t.name) === norm(n.tv", html,
                          "the selected cell is still matched on names")
+
+    def test_a_recorded_selected_index_is_carried_into_the_page(self):
+        grid = node("buttongrid", [280, 43, 980, 21], None, style="button",
+                    text_value="Flights", selected_index=1)
+        self.assertEqual(gmi.compact_tree(grid, [270, 8])["si"], 1)
+
+    def test_without_a_recorded_index_the_page_falls_back_to_the_token(self):
+        # Every committed capture is in this state, so the absence must leave the
+        # compact node exactly as it was.
+        grid = node("buttongrid", [280, 43, 980, 21], None, style="button",
+                    text_value="Roster")
+        self.assertNotIn("si", gmi.compact_tree(grid, [270, 8]))
+
+    def test_a_recorded_index_is_only_read_off_a_grid(self):
+        # The recorder emits the key on buttongrid alone; a stray one on another
+        # kind is not a selection and must not reach the page.
+        other = node("button", [280, 43, 100, 21], "Go", selected_index=3)
+        self.assertNotIn("si", gmi.compact_tree(other, [270, 8]))
 
     def test_the_page_takes_the_names_from_the_capture(self):
         html = gmi.render_html(self.build())

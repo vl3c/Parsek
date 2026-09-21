@@ -510,6 +510,97 @@ namespace Parsek
         private MissionSortColumn sortColumn = MissionSortColumn.Index;
         private bool sortAscending = true;
 
+        /// <summary>
+        /// The Missions tab's sort column (as an INDEX into
+        /// <see cref="MissionSortColumn"/>'s declaration order) and direction, for the
+        /// automation-only <c>UiAction op=sort</c> seam op. An int for the reason
+        /// <c>RecordingsTableUI.SortColumnIndexForTesting</c> is one, and an out-of-range
+        /// write is ignored.
+        ///
+        /// <para>No cache to invalidate here, unlike the Recordings tab's: this tab sorts its
+        /// row list live in the draw pass, and the header click's own callback only
+        /// logs.</para>
+        /// </summary>
+        internal int SortColumnIndexForTesting
+        {
+            get { return (int)sortColumn; }
+            set
+            {
+                if (value < (int)MissionSortColumn.Index
+                    || value > (int)MissionSortColumn.StartTime)
+                    return;
+                sortColumn = (MissionSortColumn)value;
+            }
+        }
+
+        internal bool SortAscendingForTesting
+        {
+            get { return sortAscending; }
+            set { sortAscending = value; }
+        }
+
+        /// <summary>
+        /// The flattened per-vessel rows for a tree, for the automation-only
+        /// <c>UiAction op=select</c> seam op: the SAME list the draw pass reads, through the
+        /// same per-frame cache, so the rows the op writes inclusion for are the rows the
+        /// capture beside it photographs.
+        ///
+        /// <para>Safe from outside a draw pass: the cache behind it is keyed on
+        /// <c>Time.frameCount</c> and the first lookup in a new frame rebuilds, so a caller
+        /// in <c>Update</c> gets this frame's rows rather than the previous frame's.</para>
+        /// </summary>
+        internal List<MissionVesselRow> VesselRowsForTesting(RecordingTree tree)
+            => tree == null || string.IsNullOrEmpty(tree.Id)
+                ? new List<MissionVesselRow>()
+                : GetVesselRows(tree);
+
+        /// <summary>The derived cross-tree partner-journey links for a tree, for the same op.
+        /// Routed through the window's own cache, which already wraps the walk in
+        /// <c>MissionCrossTreeDock.SuppressLogging</c>.</summary>
+        internal List<ForeignDockLink> ForeignDockLinksForTesting(
+            RecordingTree tree, List<RecordingTree> trees)
+            => tree == null || string.IsNullOrEmpty(tree.Id) || trees == null
+                ? new List<ForeignDockLink>()
+                : GetForeignDockLinks(tree, trees);
+
+        /// <summary>The one selection-edit stamp every <c>ExcludedIntervalKeys</c> write site
+        /// must pair with its mutation (<see cref="StampSelectionEdit"/>), for the same op. A
+        /// wrapper rather than a copy of the one line, so the seam cannot drift from what the
+        /// click does if the stamp ever gains a second field.</summary>
+        // ----- the mission-title rename editor, for UiAction op=edit -----
+        //
+        // Same three-write arming contract as the recordings window's two editors (row
+        // key, draft, focus sentinel), and the same reason the commit is a separate call:
+        // committing a MAIN mission's title runs MissionGroupLink.RenameMissionGroup, which
+        // renames the root group plus its auto subgroups plus Mission.Name atomically and
+        // rejects both halves on a collision. The census wants the mid-edit layout.
+
+        /// <summary>Arms the mission-title rename editor on a Mission id with a draft.
+        /// False when no mission carries that id.</summary>
+        internal bool TryBeginMissionRenameForTesting(string missionId, string draft)
+        {
+            if (string.IsNullOrEmpty(missionId)) return false;
+            if (FindMissionById(missionId) == null) return false;
+            renamingMissionId = missionId;
+            renamingMissionText = draft ?? string.Empty;
+            renamingMissionFocused = false;
+            return true;
+        }
+
+        internal string RenamingMissionIdForTesting => renamingMissionId;
+
+        internal string RenamingMissionTextForTesting => renamingMissionText;
+
+        /// <summary>Runs the mission rename's own commit body for the armed id, the way the
+        /// Enter key and the click-away path do.</summary>
+        internal void CommitMissionRenameForTesting()
+            => CommitMissionRenameById(renamingMissionId);
+
+        internal static void StampSelectionEditForTesting(Mission mission)
+        {
+            if (mission != null) StampSelectionEdit(mission);
+        }
+
         // Inline mission-title rename (double-click the name), mirroring the recordings
         // window group rename. renamingMissionId is the Mission.Id currently being edited.
         private string renamingMissionId;

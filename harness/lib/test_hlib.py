@@ -15138,18 +15138,302 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             5, {"op": "expand", "window": "logistics", "key": "row:dormant:section"}))
 
     def test_uiaction_expand_args_are_flagged_on_other_ops(self):
-        # `key=` is op=expand's alone; `state=` is SHARED with op=playback (GUI-P1), so
-        # its message names both owners. Asserted per arg rather than over one phrase:
-        # a single shared substring would have gone on passing if one of the two rules
+        # Both messages name EVERY owner of the arg, and both arg keys have gained one:
+        # `key=` is read by FOUR ops (op=expand, op=state, op=select, op=edit - and the
+        # four parses differ: a <prefix>:<value> pair, a bare field name, a row key whose
+        # meaning depends on field=, plus the bulk tokens on two of them), and `state=` by
+        # op=expand, op=playback and op=state. Asserted per arg rather than over one
+        # phrase: a single shared substring would have gone on passing if one of the rules
         # had stopped firing.
         errors = hlib.validate_ui_action_step(
             0, {"op": "open", "window": "missions", "key": "all"})
         self.assertTrue(
-            any("only op=expand reads it" in e for e in errors), errors)
+            any("only op=expand, op=state, op=select and op=edit read it" in e
+                for e in errors), errors)
         errors = hlib.validate_ui_action_step(
             0, {"op": "open", "window": "missions", "state": "true"})
         self.assertTrue(
-            any("only op=expand and op=playback read it" in e for e in errors), errors)
+            any("only op=expand, op=playback and op=state read it" in e
+                for e in errors), errors)
+
+    def test_uiaction_state_keys_are_validated_against_that_windows_table(self):
+        """Wave 6. The key table is CLOSED and per-window, the `op=tab` rule: a spec names
+        the key in a step and again inside the capture label, so an unknown key must fail
+        pre-launch instead of costing a KSP boot to learn."""
+        ok = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "srcActions",
+                "state": "false"})
+        self.assertEqual([], ok)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "expandedStats",
+                "state": "true"})
+        self.assertTrue(any("is not a state key of window" in e for e in errors), errors)
+        # A window with no scalar state names the two that have it.
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "settings", "key": "archived",
+                "state": "true"})
+        self.assertTrue(
+            any("state-unsupported-window" in e for e in errors), errors)
+        # And the key is REQUIRED.
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "state": "true"})
+        self.assertTrue(
+            any("state-key-arg-missing" in e for e in errors), errors)
+
+    def test_uiaction_state_refuses_the_wrong_half_of_its_two_shaped_grammar(self):
+        """A BOOL key takes `state=`, a VALUE key takes `value=`, and each REFUSES the
+        other rather than ignoring it - the `expand-state-with-bulk-key` rule: a step
+        carrying the wrong half has misunderstood the key, and applying the other half
+        would report OK over a state nobody asked for."""
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "preset", "state": "true"})
+        self.assertTrue(
+            any("state-bool-arg-not-for-key" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "archived",
+                "value": "Last Day"})
+        self.assertTrue(
+            any("state-value-arg-not-for-key" in e for e in errors), errors)
+        # Each half is REQUIRED for its own kind of key.
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "archived"})
+        self.assertTrue(any("state-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "scrollY"})
+        self.assertTrue(any("state-value-arg-missing" in e for e in errors), errors)
+
+    def test_uiaction_state_value_shapes_are_checked_per_key(self):
+        for value in hlib.UIACTION_PRESET_VALUES:
+            with self.subTest(preset=value):
+                self.assertEqual([], hlib.validate_ui_action_step(
+                    0, {"op": "state", "window": "timeline", "key": "preset",
+                        "value": value}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "preset",
+                "value": "Yesterday"})
+        self.assertTrue(
+            any("is not one of the preset row's buttons" in e for e in errors), errors)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "state", "window": "timeline", "key": "scrollY", "value": "412"}))
+        for bad in ("-1", "412,5", "nope"):
+            with self.subTest(value=bad):
+                errors = hlib.validate_ui_action_step(
+                    0, {"op": "state", "window": "timeline", "key": "scrollY",
+                        "value": bad})
+                self.assertTrue(
+                    any("state-value-arg-invalid" in e for e in errors), errors)
+
+    def test_uiaction_value_arg_is_flagged_on_ops_that_ignore_it(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "timeline", "value": "Last Day"})
+        self.assertTrue(
+            any("only op=state reads it" in e for e in errors), errors)
+
+    def test_uiaction_sort_requires_a_column_and_a_direction(self):
+        """Wave 6. Both REQUIRED: there is no default column, and a defaulted direction
+        would silently photograph the other half of the state a lane asked for (the
+        `op=playback state=` rationale)."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "sort", "window": "logistics", "column": "status", "dir": "desc"}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "sort", "window": "logistics", "dir": "asc"})
+        self.assertTrue(
+            any("sort-column-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "sort", "window": "logistics", "column": "status"})
+        self.assertTrue(any("sort-dir-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "sort", "window": "logistics", "column": "craft", "dir": "asc"})
+        self.assertTrue(
+            any("is not a sortable column of window" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "sort", "window": "settings", "column": "name", "dir": "asc"})
+        self.assertTrue(
+            any("sort-unsupported-window" in e for e in errors), errors)
+
+    def test_uiaction_sort_on_the_missions_window_validates_the_union_of_both_tabs(self):
+        """That ONE window hosts two tabs whose column sets COLLIDE (both have an index
+        and a name column), so the seam applies the sort to the CURRENTLY SELECTED tab and
+        narrows the vocabulary to it. This table cannot know the live tab pre-launch, so
+        it validates the union and the seam owns the narrowing - the `op=expand` division
+        of labour: shape here, state at the seam."""
+        for column in ("index", "name", "start", "phase", "site", "launch", "duration",
+                       "status"):
+            with self.subTest(column=column):
+                self.assertEqual([], hlib.validate_ui_action_step(
+                    0, {"op": "sort", "window": "missions", "column": column,
+                        "dir": "asc"}))
+        # The two tabs' own sets, stated rather than implied by the union above.
+        self.assertEqual(
+            {"index", "name", "start"} | {"index", "phase", "name", "site", "launch",
+                                          "duration", "status"},
+            set(hlib.UIACTION_SORT_COLUMNS["missions"]))
+
+    def test_uiaction_sort_args_are_flagged_on_other_ops(self):
+        for key in (hlib.UIACTION_SORT_COLUMN_KEY, hlib.UIACTION_SORT_DIR_KEY):
+            with self.subTest(arg=key):
+                errors = hlib.validate_ui_action_step(
+                    0, {"op": "open", "window": "missions", key: "name"})
+                self.assertTrue(
+                    any("only op=sort reads it" in e for e in errors), errors)
+
+    def test_uiaction_select_keys_and_include_direction(self):
+        """Wave 6. The key grammar is `op=expand`'s - a `<prefix>:<value>` pair split at
+        the FIRST colon, so a mission interval key keeps its own inner colons - plus the
+        two shared bulk tokens, which CARRY their direction."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "vessel:m17:head4",
+                "include": "false"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "link:abc-123",
+                "include": "true"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "all"}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "none",
+                "include": "true"})
+        self.assertTrue(
+            any("select-include-with-bulk-key" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "vessel:m17"})
+        self.assertTrue(any("include-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "group:X",
+                "include": "true"})
+        self.assertTrue(
+            any("must be 'all' or 'none' or <prefix>:<value>" in e for e in errors),
+            errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "timeline", "key": "vessel:m17",
+                "include": "true"})
+        self.assertTrue(
+            any("select-unsupported-window" in e for e in errors), errors)
+
+    def test_uiaction_include_arg_is_flagged_on_other_ops(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "missions", "include": "true"})
+        self.assertTrue(
+            any("only op=select reads it" in e for e in errors), errors)
+
+    def test_uiaction_run_await_is_optional_and_run_only(self):
+        """Wave 6. ABSENT MEANS TRUE, so every lane written before it is byte-identical;
+        `await=false` returns as soon as the batch is confirmed dispatched, which is the
+        only way a capture can show the runner's RUNNING control bar."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "run", "window": "testrunner", "category": "LogContract",
+                "await": "false"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "run", "window": "testrunner", "category": "LogContract"}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "testrunner", "await": "false"})
+        self.assertTrue(any("only op=run reads it" in e for e in errors), errors)
+
+    def test_the_state_key_table_mirrors_the_c_sharp_one(self):
+        """Reads OUTSIDE harness/. A key is named in a step and again inside the capture
+        label, so a key this table carries and the C# does not is a typed REJECTED after a
+        whole KSP boot - and the closed-value validator would pass the stale spelling.
+
+        Read off the const DECLARATIONS rather than by bare substring, for the reason the
+        window mirror parses the table: an `assertIn('"archived"', text)` passes against a
+        file that merely MENTIONS the word, including in the class header that explains why
+        the key is spelled once."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandUiWindowState.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# op=state key table moved; this mirror is vacuous: %s"
+                        % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        declared = set(re.findall(r'internal const string \w+Key = "([A-Za-z]+)";', text))
+        mirrored = set()
+        for keys in hlib.UIACTION_STATE_KEYS.values():
+            mirrored.update(keys)
+        self.assertEqual(mirrored, declared,
+                         "hlib.UIACTION_STATE_KEYS %r vs the C# key consts %r"
+                         % (sorted(mirrored), sorted(declared)))
+        # The VALUE-shaped half, read off the same table: the C# const for a wire key is
+        # its name with an initial capital plus `Key`, and the table row states the kind.
+        # Without this half the two-shaped grammar could drift silently - a key the C#
+        # calls Value and hlib calls Bool would be validated pre-launch with the wrong
+        # required arg and then REJECTED by the seam.
+        value_rows = set(re.findall(
+            r"NewKey\((\w+)Key, UiStateKeyKind\.Value\)", text))
+        expected_rows = set(k[0].upper() + k[1:] for k in
+                            hlib.UIACTION_STATE_VALUE_KEYS)
+        self.assertEqual(expected_rows, value_rows,
+                         "hlib.UIACTION_STATE_VALUE_KEYS %r vs the C# Value rows %r"
+                         % (sorted(expected_rows), sorted(value_rows)))
+        # The five preset tokens are the button LABELS, so they are pinned as literals.
+        for preset in hlib.UIACTION_PRESET_VALUES:
+            with self.subTest(preset=preset):
+                self.assertIn('Token = "%s";' % preset, text)
+
+    def test_uiaction_edit_requires_a_field_and_a_row_key(self):
+        """Wave 6. `field=` is REQUIRED because a window owns several editors and there is
+        no \"the\" one; `key=` is REQUIRED because every one of them is keyed by a ROW, so
+        an unkeyed arm would have to pick a row for the lane."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "edit", "window": "missions", "field": "groupname",
+                "key": "X / Debris", "draft": "Renamed"}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "edit", "window": "missions", "key": "X"})
+        self.assertTrue(any("edit-field-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "edit", "window": "missions", "field": "groupname"})
+        self.assertTrue(any("edit-key-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "edit", "window": "missions", "field": "nosuchfield", "key": "X"})
+        self.assertTrue(
+            any("is not an editor of window" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "edit", "window": "timeline", "field": "groupname", "key": "X"})
+        self.assertTrue(
+            any("edit-unsupported-window" in e for e in errors), errors)
+
+    def test_uiaction_edit_commit_is_opt_in_and_its_args_are_edit_only(self):
+        """`commit=` ABSENT MEANS FALSE, the opposite of how the seam's other write ops
+        default: none of these commits is \"write a name\" (a group or mission-title commit
+        renames a root group plus its auto subgroups plus Mission.Name atomically and can
+        reject both halves), so a lane that only wanted the mid-edit picture must not be
+        able to rename the fixture's history by omission."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "edit", "window": "missions", "field": "recordingname",
+                "key": "rec-1", "commit": "true"}))
+        self.assertEqual(("true", "false"), hlib.UIACTION_COMMIT_VALUES)
+        self.assertEqual(("UiAction", hlib.UIACTION_COMMIT_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.UIACTION_COMMIT_KEY])
+        for key in (hlib.UIACTION_EDIT_FIELD_KEY, hlib.UIACTION_DRAFT_KEY,
+                    hlib.UIACTION_COMMIT_KEY):
+            with self.subTest(arg=key):
+                errors = hlib.validate_ui_action_step(
+                    0, {"op": "open", "window": "missions", key: "x"})
+                self.assertTrue(
+                    any("only op=edit reads it" in e for e in errors), errors)
+
+    def test_the_edit_field_table_mirrors_the_c_sharp_one(self):
+        """Reads OUTSIDE harness/. A field token is named in a step and again inside the
+        capture label, so a field this table carries and the C# does not is a typed
+        REJECTED after a whole KSP boot."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiEdit.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# op=edit field table moved; this mirror is vacuous: %s"
+                        % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        declared = set(re.findall(
+            r'internal const string \w+Field = "([a-z]+)";', text))
+        mirrored = set()
+        for fields in hlib.UIACTION_EDIT_FIELDS.values():
+            mirrored.update(fields)
+        self.assertEqual(mirrored, declared,
+                         "hlib.UIACTION_EDIT_FIELDS %r vs the C# field consts %r"
+                         % (sorted(mirrored), sorted(declared)))
+        # And the three arg keys, off their own const declarations.
+        for const, key in (("FieldArg", hlib.UIACTION_EDIT_FIELD_KEY),
+                           ("DraftArg", hlib.UIACTION_DRAFT_KEY),
+                           ("CommitArg", hlib.UIACTION_COMMIT_KEY)):
+            with self.subTest(arg=key):
+                self.assertIn('%s = "%s";' % (const, key), text)
 
     def test_uiaction_playback_requires_state_and_takes_no_window(self):
         """GUI-P1. `state=` is REQUIRED (unlike on op=expand, where absent means true):

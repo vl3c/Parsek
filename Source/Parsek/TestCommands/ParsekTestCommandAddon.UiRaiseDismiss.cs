@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek.TestCommands
@@ -85,26 +86,29 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            Recording target = null;
-            if (spec.NeedsRecording)
+            // ONE resolver per declared capability, each answering its own detail token.
+            // Walked in table-field order; a row declares at most one, but the loop does
+            // not rely on that - the first missing capability names itself.
+            var host = new RaiseHost();
+            if (!TryResolveRaiseHost(spec, ref host, out string unavailable))
             {
-                if (!TryResolveRaiseRecording(spec, out target, out string unavailable))
-                {
-                    ParsekLog.Warn(Tag, "uiaction rejected reason="
-                        + TestCommandUiDialogRaise.TargetUnavailableReason
-                        + $" popup={spec.Name} detail={unavailable}");
-                    SetExecResult("REJECTED", null,
-                        $"{TestCommandUiDialogRaise.TargetUnavailableReason} "
-                        + $"popup={spec.Name} detail={unavailable}");
-                    return;
-                }
+                ParsekLog.Warn(Tag, "uiaction rejected reason="
+                    + TestCommandUiDialogRaise.TargetUnavailableReason
+                    + $" popup={spec.Name} detail={unavailable}");
+                SetExecResult("REJECTED", null,
+                    $"{TestCommandUiDialogRaise.TargetUnavailableReason} "
+                    + $"popup={spec.Name} detail={unavailable}");
+                return;
             }
 
             ParsekLog.Info(Tag, $"uiaction raise popup={spec.Name} name={spec.PopupName} "
-                + $"title={spec.Title} rec={(target != null ? (target.RecordingId ?? "-") : "-")} "
+                + $"title={spec.Title} "
+                + $"rec={(host.Recording != null ? (host.Recording.RecordingId ?? "-") : "-")} "
+                + $"route={(host.Route != null ? (host.Route.Id ?? "-") : "-")} "
+                + $"candidate={(host.Candidate?.Tree != null ? (host.Candidate.Tree.Id ?? "-") : "-")} "
                 + $"pressable={TestCommandUiDialogRaise.PressableButtonsOf(spec)}");
 
-            SpawnRaisableDialog(spec, target);
+            SpawnRaisableDialog(spec, host);
 
             uiActionPending = new UiActionPending
             {
@@ -125,8 +129,9 @@ namespace Parsek.TestCommands
         /// the settle's name comparison rather than by the type system - which is the
         /// stronger check of the two, because it is made against the live popup.</para>
         /// </summary>
-        private static void SpawnRaisableDialog(UiRaisableDialog spec, Recording target)
+        private static void SpawnRaisableDialog(UiRaisableDialog spec, RaiseHost host)
         {
+            Recording target = host.Recording;
             switch (spec.Name)
             {
                 case TestCommandUiDialogRaise.ActionBlockedDialog:
@@ -169,6 +174,21 @@ namespace Parsek.TestCommands
                     UnfinishedFlightSealHandler.ShowConfirmation(target);
                     return;
 
+                case TestCommandUiDialogRaise.DeleteRouteDialog:
+                    ParsekUI.ActiveInstance.GetLogisticsUI()
+                        .SpawnDeleteRouteConfirmationForTesting(host.Route);
+                    return;
+
+                case TestCommandUiDialogRaise.DeleteDormantRouteDialog:
+                    ParsekUI.ActiveInstance.GetLogisticsUI()
+                        .SpawnDeleteDormantRouteConfirmationForTesting(host.Route);
+                    return;
+
+                case TestCommandUiDialogRaise.CreateRouteDialog:
+                    ParsekUI.ActiveInstance.GetLogisticsUI()
+                        .SpawnCreateRouteConfirmationForTesting(host.Candidate);
+                    return;
+
                 default:
                     // Unreachable: TryResolveDialog admitted the token from the same table
                     // this switch covers. Thrown rather than ignored so a row added to the
@@ -177,6 +197,134 @@ namespace Parsek.TestCommands
                     throw new InvalidOperationException(
                         "no spawn arm for raisable dialog '" + (spec.Name ?? "<null>") + "'");
             }
+        }
+
+        /// <summary>
+        /// Everything the live host supplied for one raise: at most one of these is
+        /// non-null today, and the struct exists so the spawn switch takes ONE parameter
+        /// however many capabilities the table grows.
+        /// </summary>
+        private struct RaiseHost
+        {
+            internal Recording Recording;
+            internal Route Route;
+            internal RouteCandidate Candidate;
+        }
+
+        /// <summary>
+        /// Runs the resolver for each capability a row declares, filling
+        /// <paramref name="host"/>. False names the FIRST missing one in
+        /// <paramref name="detail"/>, which rides on the PRE-CALL
+        /// <c>dialog-target-unavailable</c> reject - the alternative is calling a spawn
+        /// site whose own guard returns silently and then reporting a modal that is not
+        /// there.
+        /// </summary>
+        private static bool TryResolveRaiseHost(UiRaisableDialog spec, ref RaiseHost host,
+                                                out string detail)
+        {
+            detail = null;
+            if (spec.NeedsRecording
+                && !TryResolveRaiseRecording(spec, out host.Recording, out detail))
+            {
+                return false;
+            }
+            if (spec.NeedsCommittedRoute
+                && !TryResolveRaiseCommittedRoute(out host.Route, out detail))
+            {
+                return false;
+            }
+            if (spec.NeedsDormantRoute
+                && !TryResolveRaiseDormantRoute(out host.Route, out detail))
+            {
+                return false;
+            }
+            if (spec.NeedsRouteCandidate
+                && !TryResolveRaiseRouteCandidate(out host.Candidate, out detail))
+            {
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>The FIRST stored route, the <see cref="TryResolveRaiseRecording"/>
+        /// rule: the dialog's SUBJECT does not matter to a census, only that it is a route
+        /// that really exists.</summary>
+        private static bool TryResolveRaiseCommittedRoute(out Route route, out string detail)
+        {
+            route = null;
+            detail = null;
+            IReadOnlyList<Route> routes = RouteStore.CommittedRoutes;
+            int count = routes != null ? routes.Count : 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (routes[i] == null) continue;
+                route = routes[i];
+                return true;
+            }
+            detail = count == 0
+                ? "no-committed-routes"
+                : $"no-usable-committed-route-among={count}";
+            return false;
+        }
+
+        /// <summary>The FIRST dormant route. A disjoint population from the committed one,
+        /// so a host can carry routes and still answer unavailable here.</summary>
+        private static bool TryResolveRaiseDormantRoute(out Route route, out string detail)
+        {
+            route = null;
+            detail = null;
+            IReadOnlyList<Route> routes = RouteStore.DormantRoutes;
+            int count = routes != null ? routes.Count : 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (routes[i] == null) continue;
+                route = routes[i];
+                return true;
+            }
+            detail = count == 0
+                ? "no-dormant-routes"
+                : $"no-usable-dormant-route-among={count}";
+            return false;
+        }
+
+        /// <summary>
+        /// The FIRST candidate the Logistics window is DRAWING that carries both
+        /// <c>Tree</c> and <c>Analysis</c> - the pair the spawn site's own guard requires.
+        ///
+        /// <para>Read off the window's throttled cache rather than from a fresh
+        /// <c>RouteCandidateFinder.DeriveCandidates()</c> call. A live derivation would
+        /// answer candidates the window is not drawing this second, so the census could
+        /// photograph a Create Route confirm over a row that is not on screen; and
+        /// deriving off the ~1 Hz throttle is the one thing that cache exists to prevent.
+        /// The cost is that the window must have DRAWN once for the cache to be
+        /// populated, which is the <c>run-runner-not-ready</c> shape and is named in the
+        /// detail token.</para>
+        /// </summary>
+        private static bool TryResolveRaiseRouteCandidate(out RouteCandidate candidate,
+                                                          out string detail)
+        {
+            candidate = null;
+            detail = null;
+            ParsekUI ui = ParsekUI.ActiveInstance;
+            LogisticsWindowUI window = ui != null ? ui.GetLogisticsUI() : null;
+            if (window == null)
+            {
+                detail = "no-logistics-window";
+                return false;
+            }
+            IReadOnlyList<RouteCandidate> cached = window.CachedCandidatesForTesting;
+            int count = cached != null ? cached.Count : 0;
+            for (int i = 0; i < count; i++)
+            {
+                RouteCandidate c = cached[i];
+                if (c == null || c.Tree == null || c.Analysis == null) continue;
+                candidate = c;
+                return true;
+            }
+            detail = count == 0
+                ? "no-drawn-route-candidates"
+                : $"no-usable-route-candidate-among={count}";
+            return false;
         }
 
         /// <summary>

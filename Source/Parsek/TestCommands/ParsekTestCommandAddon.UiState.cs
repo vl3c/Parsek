@@ -260,6 +260,53 @@ namespace Parsek.TestCommands
                 });
                 return sets;
             }
+            if (window == TestCommandUiAction.CareerWindow)
+            {
+                // ONE set, two keys, and the wire value is the TAB the fold belongs to
+                // rather than the dotted production key the collection is keyed by
+                // (`Contracts.Pending`): a spec author already knows the tab, and the
+                // dotted form is an implementation detail of the window's own set.
+                //
+                // INVERTED, like the Kerbals flights row: membership in `foldedGroups`
+                // means FOLDED, so "expanded" on the wire is ABSENCE from the set. The
+                // window's SetSectionFolded does the flip, and the wire keeps speaking
+                // "expanded" like every other row here.
+                //
+                // BOTH FOLDS ONLY DRAW UNDER THE DIVERGENCE LAYOUT, which needs a career
+                // whose timeline ends later than now. On any other save this op answers OK
+                // with a real changed count over a fold nothing is drawing - the residue
+                // recorded for op=expand generally, and a lane rule rather than a gate.
+                CareerStateWindowUI cw = ui.GetCareerStateUI();
+                sets.Add(new UiExpandSet
+                {
+                    Prefix = TestCommandUiState.PendingKeyPrefix,
+                    Enumerate = () => new List<string>(
+                        TestCommandUiState.CareerPendingFoldValues),
+                    Set = (value, expanded) =>
+                    {
+                        string key = TestCommandUiState.CareerFoldKeyFor(value);
+                        if (key == null) return false;
+                        bool wasExpanded = !cw.foldedGroups.Contains(key);
+                        CareerStateWindowUI.SetSectionFolded(
+                            cw.foldedGroups, !expanded, key);
+                        return wasExpanded != expanded;
+                    },
+                    // The count of EXPANDED folds is the enumeration minus the folded set,
+                    // clamped at zero: the set can hold a key the enumeration no longer
+                    // produces only if the two ever disagree, and a negative `expanded=` on
+                    // the wire would read as a seam defect.
+                    Count = () =>
+                    {
+                        int folded = 0;
+                        for (int i = 0; i < CareerStateWindowUI.FoldGroupKeys.Length; i++)
+                            if (cw.foldedGroups.Contains(CareerStateWindowUI.FoldGroupKeys[i]))
+                                folded++;
+                        return Math.Max(
+                            0, CareerStateWindowUI.FoldGroupKeys.Length - folded);
+                    },
+                });
+                return sets;
+            }
             if (window == TestCommandUiAction.LogisticsWindow)
             {
                 LogisticsWindowUI lw = ui.GetLogisticsUI();

@@ -83,6 +83,30 @@ namespace Parsek.TestCommands
         /// button.</summary>
         Dismiss = 15,
 
+        /// <summary><c>op=state window=&lt;name&gt; key=&lt;name&gt; state=|value=</c>: drive one
+        /// of a window's SCALAR view states - a filter toggle, an archive filter, the
+        /// Recordings tab's expanded-stats columns, the Timeline's time-range preset or its
+        /// scroll offset. The sibling of <c>expand</c> for the states that are single fields
+        /// rather than sets of keys; the key table lives in
+        /// <see cref="TestCommandUiWindowState"/>.</summary>
+        State = 17,
+
+        /// <summary><c>op=sort window=&lt;name&gt; column=&lt;name&gt; dir=asc|desc</c>: select a
+        /// sortable table's column and direction through the same two fields its own header
+        /// click writes, plus that window's own cache invalidation.</summary>
+        Sort = 18,
+
+        /// <summary><c>op=select window=missions key=vessel:|link: include=</c>: drive the
+        /// Missions tab's per-vessel include affordance and its cross-tree partner-journey
+        /// include. The one op in the family that writes MISSION state rather than view
+        /// state.</summary>
+        Select = 19,
+
+        /// <summary><c>op=edit window= field= [key=] [draft=] [commit=]</c>: put one of the
+        /// in-place text editors into edit mode with a given draft, and commit only when
+        /// asked.</summary>
+        Edit = 20,
+
         /// <summary><c>op=run window=testrunner|testrunnerglobal category=&lt;name&gt;</c>:
         /// run one in-game test category through THAT RUNNER WINDOW'S OWN runner, the
         /// category header's "Run" button body verbatim, so a capture can show the window's
@@ -238,6 +262,10 @@ namespace Parsek.TestCommands
         internal const string RaiseOpToken = "raise";
         internal const string DismissOpToken = "dismiss";
         internal const string RunOpToken = "run";
+        internal const string StateOpToken = "state";
+        internal const string SortOpToken = "sort";
+        internal const string SelectOpToken = "select";
+        internal const string EditOpToken = "edit";
 
         /// <summary>The <c>recording=</c>-less spelling the payload and the log line echo
         /// for an ALL-recordings flip. A sentinel token rather than an empty value, the
@@ -600,7 +628,8 @@ namespace Parsek.TestCommands
             OpenOpToken, CloseOpToken, TabOpToken, ComplexityOpToken, RectOpToken,
             DescribeOpToken, PointerOpToken, FindOpToken, ExpandOpToken, TargetOpToken,
             PickerOpToken, DialogOpToken, PlaybackOpToken, RaiseOpToken,
-            DismissOpToken, RunOpToken,
+            DismissOpToken, RunOpToken, StateOpToken, SortOpToken, SelectOpToken,
+            EditOpToken,
         });
 
         /// <summary>A window's tab tokens, comma-joined, or the empty string when it has
@@ -639,6 +668,10 @@ namespace Parsek.TestCommands
                 case RaiseOpToken: op = UiActionOp.Raise; break;
                 case DismissOpToken: op = UiActionOp.Dismiss; break;
                 case RunOpToken: op = UiActionOp.Run; break;
+                case StateOpToken: op = UiActionOp.State; break;
+                case SortOpToken: op = UiActionOp.Sort; break;
+                case SelectOpToken: op = UiActionOp.Select; break;
+                case EditOpToken: op = UiActionOp.Edit; break;
                 default:
                     rejectReason = OpArgInvalidReason;
                     return false;
@@ -668,6 +701,10 @@ namespace Parsek.TestCommands
                 case UiActionOp.Raise: return RaiseOpToken;
                 case UiActionOp.Dismiss: return DismissOpToken;
                 case UiActionOp.Run: return RunOpToken;
+                case UiActionOp.State: return StateOpToken;
+                case UiActionOp.Sort: return SortOpToken;
+                case UiActionOp.Select: return SelectOpToken;
+                case UiActionOp.Edit: return EditOpToken;
                 default: return string.Empty;
             }
         }
@@ -692,7 +729,9 @@ namespace Parsek.TestCommands
                || op == UiActionOp.Tab || op == UiActionOp.Rect
                || op == UiActionOp.Find || op == UiActionOp.Expand
                || op == UiActionOp.Target || op == UiActionOp.Picker
-               || op == UiActionOp.Run;
+               || op == UiActionOp.Run || op == UiActionOp.State
+               || op == UiActionOp.Sort || op == UiActionOp.Select
+               || op == UiActionOp.Edit;
 
         // ----- the two-phase ops -----
 
@@ -752,6 +791,18 @@ namespace Parsek.TestCommands
         /// <c>Recording</c> rather than on a window host, so a hidden Parsek surface
         /// cannot fake it, and driving the box with that surface closed is a legitimate
         /// thing for a lane to do.</para>
+        /// <para><c>state</c>, <c>sort</c>, <c>select</c> and <c>edit</c> are here for the
+        /// <c>expand</c> reason: each changes DRAWN state, so the read-back is only a
+        /// statement about the game once a frame has run - and for <c>state</c> one key needs
+        /// the frame to be meaningful at all, since a scroll offset is CLAMPED by the scroll
+        /// view during the draw, exactly as <c>rect</c> is resolved by <c>GUILayout</c>. None
+        /// of the four is in <see cref="SettleChecksHostShowUi"/>: like <c>expand</c> they
+        /// write model state whose only other writer is a button handler this seam never
+        /// synthesises, so a hidden host cannot fake the read-back, and arranging state now
+        /// to photograph it after a later mode switch is a legitimate thing for a lane to do.
+        /// The known consequence recorded there applies verbatim - an <c>op=sort</c> over a
+        /// tab the current complexity mode is not drawing answers OK and photographs
+        /// nothing, and the fix belongs in the lane.</para>
         /// <para><c>run</c> is two-phase for a reason none of the others has: its
         /// completion signal is a BATCH ENDING, which takes as many frames as the tests
         /// take, so it owns its own poll (<c>!runner.IsRunning</c>) exactly as
@@ -765,7 +816,9 @@ namespace Parsek.TestCommands
                || op == UiActionOp.Expand || op == UiActionOp.Target
                || op == UiActionOp.Picker || op == UiActionOp.Playback
                || op == UiActionOp.Raise || op == UiActionOp.Dismiss
-               || op == UiActionOp.Run;
+               || op == UiActionOp.Run || op == UiActionOp.State
+               || op == UiActionOp.Sort || op == UiActionOp.Select
+               || op == UiActionOp.Edit;
 
         /// <summary>
         /// Whether a SETTLED two-phase op's read-back must additionally be refused when the

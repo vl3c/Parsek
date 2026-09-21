@@ -135,6 +135,47 @@ namespace Parsek
         /// read-back.</summary>
         internal bool LinkPickerOpenForTesting => linkPickerOpen;
 
+        // The three route confirms the GUI census raises (UiAction op=raise popup=
+        // deleteroute | deletedormantroute | createroute). Wrappers over the SAME private
+        // spawn methods the row buttons reach through ApplyPendingActions, so each dialog
+        // is spawned by its own production path (body text, button labels and callbacks
+        // included) and the seam adds no second spawn site. Each returns false when its own
+        // guard would have returned silently, so the caller can answer
+        // dialog-target-unavailable instead of reporting a modal that is not there.
+
+        internal bool SpawnDeleteRouteConfirmationForTesting(Route route)
+        {
+            if (route == null) return false;
+            SpawnDeleteRouteConfirmation(route);
+            return true;
+        }
+
+        internal bool SpawnDeleteDormantRouteConfirmationForTesting(Route route)
+        {
+            if (route == null) return false;
+            SpawnDeleteDormantRouteConfirmation(route);
+            return true;
+        }
+
+        internal bool SpawnCreateRouteConfirmationForTesting(RouteCandidate candidate)
+        {
+            if (candidate?.Tree == null || candidate.Analysis == null) return false;
+            SpawnCreateRouteConfirmation(candidate);
+            return true;
+        }
+
+        /// <summary>The candidate list the window is CURRENTLY DRAWING.
+        ///
+        /// <para>The cache rather than a fresh <c>RouteCandidateFinder.DeriveCandidates()</c>
+        /// call, for <see cref="EnumerateRowKeysForTesting"/>'s reason: the cache is what
+        /// <c>DrawCandidateRow</c> draws from (rebuilt on the ~1 Hz refresh), so a live
+        /// derivation here could hand back a candidate the window is not drawing this
+        /// second - and deriving candidates off the throttle is the one thing the cache
+        /// exists to prevent. A census that raises the Create Route confirm over a
+        /// candidate row nobody can see is exactly the dishonest picture the closed dialog
+        /// set exists to avoid.</para></summary>
+        internal IReadOnlyList<RouteCandidate> CachedCandidatesForTesting => cachedCandidates;
+
         internal Rect WindowRectForTesting
         {
             get { return windowRect; }
@@ -221,6 +262,42 @@ namespace Parsek
         // Name ascending so the table reads alphabetically until the player sorts.
         private LogisticsRouteSortColumn routeSortColumn = LogisticsRouteSortColumn.Name;
         private bool routeSortAscending = true;
+
+        /// <summary>
+        /// The route tables' shared sort column (as the
+        /// <see cref="LogisticsRouteSortColumn"/> value's own explicit number) and direction,
+        /// for the automation-only <c>UiAction op=sort</c> seam op. ONE sort state drives
+        /// BOTH the Active and the Paused table, exactly as the header click does.
+        ///
+        /// <para>The setter clears both section row counts, which is what the header click's
+        /// <c>onChanged</c> callback does: the two caches re-sort only when their row count,
+        /// the sort tuple or the legibility stamp moves, and clearing the counts guarantees
+        /// the miss even when the row count is unchanged.</para>
+        /// </summary>
+        internal int RouteSortColumnIndexForTesting
+        {
+            get { return (int)routeSortColumn; }
+            set
+            {
+                if (value < (int)LogisticsRouteSortColumn.Name
+                    || value > (int)LogisticsRouteSortColumn.Delivery)
+                    return;
+                routeSortColumn = (LogisticsRouteSortColumn)value;
+                cachedActiveCount = -1;
+                cachedPausedCount = -1;
+            }
+        }
+
+        internal bool RouteSortAscendingForTesting
+        {
+            get { return routeSortAscending; }
+            set
+            {
+                routeSortAscending = value;
+                cachedActiveCount = -1;
+                cachedPausedCount = -1;
+            }
+        }
 
         // L2 cached-sorted route lists, one independent cache PER section (Active and
         // Paused are two disjoint row sets), mirroring the SpawnControlUI cached-sorted

@@ -137,6 +137,83 @@ namespace Parsek
         private bool showActionEntries = true;
         private bool showEventEntries = true;
 
+        /// <summary>
+        /// The three source toggles, the Custom-range reveal and the entry list's scroll
+        /// offset, readable and writable from outside the draw pass for the automation-only
+        /// <c>UiAction op=state</c> seam op.
+        ///
+        /// <para>Plain properties over the same private fields the toggles write, for the
+        /// <c>TierFilterModeIndexForTesting</c> reason: every one of these is a bool whose
+        /// only other writer is a <c>GUILayout.Toggle</c> handler in this file, so the seam
+        /// does the same write and reads it back after a drawn frame. The ARCHIVE filter is
+        /// deliberately absent - it already has a cross-window accessor
+        /// (<see cref="ShowArchivedRecordings"/>), which is the one the seam uses.</para>
+        ///
+        /// <para>Writing <see cref="ShowRecordingEntriesForTesting"/> false is legal here and
+        /// REFUSED at the seam while the tier filter is Rewind/FF or Re-Fly: those tabs'
+        /// draw pass forces it back on, so the seam names that rather than letting a lane
+        /// photograph an unchanged window. This property does not carry the gate, because
+        /// the production draw is its own authority on it.</para>
+        /// </summary>
+        internal bool ShowRecordingEntriesForTesting
+        {
+            get { return showRecordingEntries; }
+            set { showRecordingEntries = value; }
+        }
+
+        internal bool ShowActionEntriesForTesting
+        {
+            get { return showActionEntries; }
+            set { showActionEntries = value; }
+        }
+
+        internal bool ShowEventEntriesForTesting
+        {
+            get { return showEventEntries; }
+            set { showEventEntries = value; }
+        }
+
+        internal bool ShowCustomRangeForTesting
+        {
+            get { return showCustomRange; }
+            set { showCustomRange = value; }
+        }
+
+        /// <summary>The entry list's vertical scroll offset in pixels. Read back AFTER a
+        /// drawn frame it carries the value the scroll view CLAMPED to its own content, which
+        /// is why the seam reports the observed number rather than echoing the commanded
+        /// one.</summary>
+        internal float EntryScrollYForTesting
+        {
+            get { return timelineScrollPos.y; }
+            set { timelineScrollPos.y = value; }
+        }
+
+        /// <summary>The active time-range preset name, or null for a custom range or no
+        /// filter. Reads the shared filter <see cref="ParsekUI"/> owns, so it agrees with the
+        /// Recordings tab's view of the same filter.</summary>
+        internal string ActiveTimeRangePresetForTesting =>
+            parentUI == null || parentUI.TimeRangeFilter == null
+                ? null
+                : (parentUI.TimeRangeFilter.IsActive
+                    ? parentUI.TimeRangeFilter.ActivePresetName
+                    : TestCommands.TestCommandUiWindowState.PresetAllToken);
+
+        /// <summary>
+        /// Runs the preset row's own click body for a named preset, from outside the draw
+        /// pass, for <c>UiAction op=state key=preset</c>.
+        ///
+        /// <para>Goes through <see cref="ApplyTimeRangePreset"/> - the SAME method the button
+        /// calls - so the clamp to the slider bounds and the stored preset name are the
+        /// production ones. The slider bounds themselves are only computed inside
+        /// <see cref="DrawTimeRangeFilterBar"/>, so a preset applied before this window's
+        /// first draw clamps against the un-initialised (zero) bounds; the seam's own
+        /// one-drawn-frame settle is what makes that a non-issue in a census lane, which
+        /// opens the window first.</para>
+        /// </summary>
+        internal void ApplyTimeRangePresetForTesting(string presetName, double currentUT)
+            => ApplyTimeRangePreset(parentUI?.TimeRangeFilter, presetName, currentUT);
+
         // Cross-link: tracks which recordingId was last set externally
         // so we can scroll to it once
         private string pendingScrollToRecordingId;
@@ -964,29 +1041,26 @@ namespace Parsek
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
 
-            int secsPerDay = ParsekTimeFormat.SecsPerDay;
-            int secsPerYear = ParsekTimeFormat.SecsPerYear;
-
+            // The four preset ranges come from the shared pure resolver
+            // (TimeRangeFilterLogic.TryResolvePresetRange) rather than from expressions
+            // here, so the automation-only `UiAction op=state key=preset` applier drives
+            // the SAME arithmetic instead of a second copy of it.
             DrawPresetButton(filter,
                 new GUIContent("Last Day",
                     "Narrows the list to rows from the last day of game time."),
-                currentUT - secsPerDay, currentUT, currentUT, btnW);
+                currentUT, btnW);
             DrawPresetButton(filter,
                 new GUIContent("Last 7d",
                     "Narrows the list to rows from the last seven days of game time."),
-                currentUT - 7.0 * secsPerDay, currentUT, currentUT, btnW);
+                currentUT, btnW);
             DrawPresetButton(filter,
                 new GUIContent("Last 30d",
                     "Narrows the list to rows from the last thirty days of game time."),
-                currentUT - 30.0 * secsPerDay, currentUT, currentUT, btnW);
-
-            // "This Year" = current Kerbin/Earth calendar year boundaries
-            double yearStart = System.Math.Floor(currentUT / secsPerYear) * secsPerYear;
-            double yearEnd = yearStart + secsPerYear;
+                currentUT, btnW);
             DrawPresetButton(filter,
                 new GUIContent("This Year",
                     "Narrows the list to rows from the current game year."),
-                yearStart, yearEnd, currentUT, btnW);
+                currentUT, btnW);
 
             // "All" = clear filter
             bool allActive = !filter.IsActive;
@@ -1075,24 +1149,54 @@ namespace Parsek
         /// <c>content.text</c>, so label and stored preset name cannot drift apart.
         /// </summary>
         private void DrawPresetButton(TimeRangeFilterState filter, GUIContent content,
-            double minUT, double maxUT, double currentUT, float width)
+            double currentUT, float width)
         {
             string name = content.text;
             bool isActive = filter.IsActive && filter.ActivePresetName == name;
             if (GUILayout.Toggle(isActive, content, toggleButtonStyle,
                     GUILayout.Width(width)) && !isActive)
             {
-                // Clamp to slider bounds so we don't filter outside the data range
-                double clampedMin = System.Math.Max(minUT, sliderBoundMin);
-                double clampedMax = System.Math.Min(maxUT, sliderBoundMax);
-                if (clampedMax < clampedMin) clampedMax = clampedMin;
-                filter.SetRange(clampedMin, clampedMax, name);
-                sliderMin = (float)clampedMin;
-                sliderMax = (float)clampedMax;
-                ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
-                    $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} - " +
-                    $"{TimeRangeFilterLogic.FormatSliderLabel(clampedMax)}]");
+                ApplyTimeRangePreset(filter, name, currentUT);
             }
+        }
+
+        /// <summary>
+        /// The preset button's own click body: resolve the named range, clamp it to the
+        /// slider bounds so the filter never runs outside the data, store it under the
+        /// preset name and move the thumbs.
+        ///
+        /// <para>Extracted from <see cref="DrawPresetButton"/> so the automation-only
+        /// <c>UiAction op=state key=preset</c> applier runs THIS body rather than a copy:
+        /// the clamp is what makes a preset agree with the sliders, and a seam that
+        /// re-implemented it would photograph a filter no button can produce. Callable
+        /// outside the draw pass - it touches the filter state and two floats, nothing
+        /// IMGUI.</para>
+        /// </summary>
+        internal void ApplyTimeRangePreset(TimeRangeFilterState filter, string name,
+                                           double currentUT)
+        {
+            if (filter == null) return;
+            if (!TimeRangeFilterLogic.TryResolvePresetRange(name, currentUT,
+                                                            out double minUT, out double maxUT))
+            {
+                // "All": the row's clear button, whose handler calls Clear() and resets the
+                // thumbs to the bounds.
+                filter.Clear();
+                sliderMin = sliderBoundMin;
+                sliderMax = sliderBoundMax;
+                ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
+                return;
+            }
+            // Clamp to slider bounds so we don't filter outside the data range
+            double clampedMin = System.Math.Max(minUT, sliderBoundMin);
+            double clampedMax = System.Math.Min(maxUT, sliderBoundMax);
+            if (clampedMax < clampedMin) clampedMax = clampedMin;
+            filter.SetRange(clampedMin, clampedMax, name);
+            sliderMin = (float)clampedMin;
+            sliderMax = (float)clampedMax;
+            ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
+                $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} - " +
+                $"{TimeRangeFilterLogic.FormatSliderLabel(clampedMax)}]");
         }
 
         private void DrawEntryList()

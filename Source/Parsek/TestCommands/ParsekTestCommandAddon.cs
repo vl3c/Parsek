@@ -103,6 +103,14 @@ namespace Parsek.TestCommands
         // CLAIMED and completion leaves the id at CLAIMED -> INTERRUPTED on restart.
         private const string PendingVerdict = TestCommandExecution.PendingVerdict;
         private bool awaitingCompletion;
+
+        // The ONE opt-in that relaxes the batch gate, written ONLY by
+        // `UiAction op=run await=false` when the batch it dispatched is still running, and
+        // cleared in Update the first frame IsBatchRunning() answers false. While it is
+        // set, ResolveBatchGateForHead admits the non-mutating verbs and holds the rest;
+        // while it is unset the gate is byte-identically what it was.
+        private bool detachedBatchArmed;
+
         private string completionId;
         private string completionVerb;
         private long completionSeq;
@@ -287,9 +295,56 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (IsBatchRunning()) return;
+            // The batch gate, with the ONE opt-in relaxation `UiAction op=run await=false`
+            // arms (see ParsekTestCommandAddon.UiRun.cs). Unarmed, this is the original
+            // unconditional early return; armed, the pump runs and BuildDispatchState
+            // decides PER HEAD VERB whether the gate still holds, so every verb that could
+            // perturb the batch is deferred exactly as before.
+            if (IsBatchRunning())
+            {
+                if (!detachedBatchArmed) return;
+            }
+            else if (detachedBatchArmed)
+            {
+                // Self-clearing: the relaxation cannot outlive the batch it was armed for,
+                // so no later frame can find it set over a batch this seam did not start.
+                detachedBatchArmed = false;
+                ParsekLog.Info(Tag, "batch gate relaxation cleared: the detached batch "
+                    + "started by uiaction op=run await=false has stopped");
+            }
 
             Pump();
+        }
+
+        /// <summary>
+        /// Resolves the <c>DispatchState.BatchRunning</c> bit for ONE head verb, and logs
+        /// the decision so a collected KSP.log says why a command waited.
+        ///
+        /// <para>Identical to <see cref="IsBatchRunning"/> unless
+        /// <see cref="detachedBatchArmed"/> is set, which only
+        /// <c>UiAction op=run await=false</c> does and only while that batch runs.</para>
+        /// </summary>
+        private bool ResolveBatchGateForHead(string verb)
+        {
+            if (!IsBatchRunning()) return false;
+            if (!detachedBatchArmed) return true;
+
+            if (TestCommandUiState.IsBatchGateRelaxableVerb(verb))
+            {
+                ParsekLog.InfoRateLimited(Tag, "batchgate-release|" + (verb ?? "?"),
+                    $"batch gate released verb={verb ?? "?"} "
+                    + "reason=nonmutating-verb-during-detached-batch (the batch was started "
+                    + "by uiaction op=run await=false and this verb cannot perturb it)",
+                    5.0);
+                return false;
+            }
+
+            ParsekLog.InfoRateLimited(Tag, "batchgate-hold|" + (verb ?? "?"),
+                $"batch gate held verb={verb ?? "?"} "
+                + "reason=state-mutating-verb-during-detached-batch (it waits for the batch "
+                + "started by uiaction op=run await=false to stop)",
+                5.0);
+            return true;
         }
 
         // ----- Startup: channel paths + lock + journal reconcile (P4.3 / P4.4) -----
@@ -1151,7 +1206,7 @@ namespace Parsek.TestCommands
                 HasTree = flight != null && flight.HasActiveTree,
                 Transitioning = sceneTransitioning,
                 SettleCounter = settleCounter,
-                BatchRunning = IsBatchRunning(),
+                BatchRunning = ResolveBatchGateForHead(head.Verb),
                 LoadInFlight = loadInFlight,
                 // M-C1 seam-verb bits.
                 ReFlyMergeDialogPresent = markerLive && FindReFlyMergePopup() != null,

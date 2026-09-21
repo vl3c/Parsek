@@ -679,8 +679,14 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Records one leaf node. <paramref name="selectedIndex"/> is trailing and
+        /// optional because exactly one funnel (ButtonGrid) has one; a separate overload
+        /// would have duplicated the fault plumbing, which must stay single.
+        /// </summary>
         internal static void RecordLeaf(GuiFunnel funnel, GuiNodeKind kind, Rect rect,
-            GUIContent content, GUIStyle style, int? controlId, bool? toggleValue, string textValue)
+            GUIContent content, GUIStyle style, int? controlId, bool? toggleValue, string textValue,
+            int? selectedIndex = null)
         {
             try
             {
@@ -690,6 +696,7 @@ namespace Parsek
                 e.ControlId = controlId;
                 e.ToggleValue = toggleValue;
                 e.TextValue = textValue;
+                e.SelectedIndex = selectedIndex;
                 events.Add(e);
             }
             catch (Exception ex)

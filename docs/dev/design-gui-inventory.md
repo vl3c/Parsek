@@ -1347,6 +1347,46 @@ overlays are covered by section 7 and carry no todo entry of their own.
 
 ## 6. Coverage plan
 
+### 6.0 What the wave-6 seam ops unlock (2026-09-21)
+
+The read-only state audit of 2026-09-21 enumerated about 380 visibly distinct window states
+against about 150 captured. Five automation-only seam additions landed for the reachable
+part of the gap. This table is what a spec author aims a lane at; the exact steps are in the
+wave-6 lane plan, the grammar and refusals in
+`docs/dev/design-autotest-command-seam.md` -> `#### UiAction`.
+
+| seam addition | states it unlocks | window |
+| --- | --- | --- |
+| `op=state key=srcRecordings\|srcActions\|srcEvents` | the three source-OFF row-population branches, all reading `true` in every existing dump | Timeline |
+| `op=state key=archived` | the Archived toggle ON plus the `[archived]` row marker (zero hits program-wide today); the same flag from the Recordings tab's Archive checkbox | Timeline + Missions |
+| `op=state key=customRange` + `key=preset` | the Custom reveal, the window's only two sliders, the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout | Timeline |
+| `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
+| `op=state key=expandedStats` | the Info toggle's six extra columns (`MaxAlt` / `MaxSpd` / `Dist` / `Pts` / `Start` / `End`, in zero dumps) at +458 px - the largest single layout change in the window | Missions (Recordings tab) |
+| `op=state key=archivedMissions` | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |
+| `op=sort` | 20 Missions sort states, 16 Logistics, 8 Spawn Control - all zero captured, and each is materially different (the arrow moves AND the row order does, including group-vs-recording interleaving) | Missions, Logistics, Spawn Control |
+| `op=select key=vessel:` | the greyed include-OFF row and the `" (partial)"` suffix, which test the non-cascading `ExcludedIntervalKeys` contract | Missions |
+| `op=select key=link:` | the foreign partner-journey subtree - an entire recursive renderer with zero coverage | Missions |
+| `op=edit field=recordingname\|groupname\|missiontitle` | three label-becomes-a-text-field layout changes | Missions |
+| `op=raise popup=deleteroute\|deletedormantroute\|createroute` | the three Logistics modals, PNG-only (a `PopupDialog` is uGUI and contributes zero nodes to any dump) | Logistics |
+| `op=run await=false` | the Test Runner's RUNNING control bar - Run All / Run+ / Reset disabled, Cancel enabled, a yellow Running row. The awaiting form can never photograph it, returning only once the batch has ended | Test Runner x2 |
+| `RouteCommand action=link\|unlink\|set-cadence` | the `Unlink` button, the `Round-trip linked to 'X'` note, `WaitingForPartner`, and the `-` stepper enabled at a cadence of 2 or more | Logistics |
+| `selectedIndex` in the dump | not a state: it makes every tab verdict READABLE from a dump instead of derived from the tab body, which is how every tab row in the audit had to be established | all tabbed windows |
+
+TWO LANE RULES THE OPS CANNOT ENFORCE. `op=select` and `op=state key=archived` write state
+that PERSISTS with the save (`Mission.ExcludedIntervalKeys` /
+`IncludedForeignDockLinkIds` through the Mission codec; `GroupHierarchyStore.HideActive`
+with the save), so a lane using either runs on a THROWAWAY staged copy of its fixture. And
+every op in this family answers OK over a surface the current complexity mode is not
+drawing, so a lane selects its tab and sets Advanced before it captures.
+
+WHAT STAYS UNREACHABLE, so no lane should be aimed at it: about 60 hover / disabled-reason
+strings (measured, not assumed - `focus=true nudge=true` delivered a real `WM_MOUSEMOVE`
+and `GUI.tooltip` was still empty), the Gloops window's three in-progress states (its
+launcher is retired in BOTH modes, so no player can open it), the map marker label and its
+sticky icon alpha, and `popup=rewind` on the whole committed fixture set. Full reasoning:
+`docs/dev/todo-and-known-bugs.md` -> `GUI-SEAM-WAVE6-RESIDUE-2026-09-21`.
+
+
 The spec for the next census lanes. Grouped by the three causes from section 2; within each
 group the cheapest route is named, with the fixture and the verb steps. No TOML here - the lane
 authoring is the implementing task's job.
