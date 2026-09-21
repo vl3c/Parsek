@@ -15,6 +15,109 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, and the eight window states the census still cannot reach [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23). Items 1 and 2 are DEAD CODE verified from source; items 3-10 are INSTRUMENT or FIXTURE gaps, not product defects. OPEN; each names what it needs]
+
+**Where this came from.** A read-only audit enumerated every visibly distinct draw branch
+of the 14 IMGUI windows from the source and checked each against the `.gui.json` control-
+tree dumps the census had already written (node `text`, `enabled`, `value`, `tooltip`,
+`rect`). Eleven new census lanes landed off it. These are the leftovers.
+
+**1. `SpawnControlUI`'s zero-candidate draw branch is UNREACHABLE.** `DrawIfOpen` reads
+`flight.NearbySpawnCandidates.Count` into `ResolveAutoCloseReason`, which returns
+`"zero-candidates"` for `candidateCount <= 0`; the caller then logs, sets
+`showSpawnControlWindow = false`, releases the input lock and RETURNS
+(`Source/Parsek/UI/SpawnControlUI.cs:142-153`). The branch at `:243-250` that draws
+`No nearby craft to spawn.` plus a `Close` button reads the SAME list a few lines later and
+can therefore never execute: the window vanishes instead of showing its empty message. The
+evidence that this is not theoretical is a capture: the un-indexed census label
+`flight-spawncontrol-advanced` contains no Spawn Control window at all (roots: kRPC,
+Parsek, MechJeb), and GUI-2 now asserts the self-close as `ERROR window-self-closed`.
+**Fix:** delete the dead branch, or move the auto-close behind a "was open and had rows"
+check if the empty message is wanted. No behaviour change either way - nobody has ever
+seen that label.
+
+**2. The Gloops launcher is RETIRED in both complexity modes, so no player can open that
+window.** `UiSurfaceVisibility.IsRetired` returns true for exactly one surface,
+`UiSurface.MainButtonGloops` (`Source/Parsek/UI/UiComplexityMode.cs:141-143`), and retired
+surfaces are hidden in BOTH modes. The window is still drawn, still has three states, and
+`GUI-16-census-gloops-states` now photographs them - but it reaches the window by writing
+its own `IsOpen` through the seam, which no player can do. Every Gloops state is therefore
+DIAGNOSTIC in practice, and a reviewer judging the player-facing UI should read the whole
+window as out of scope. **Fix:** either un-retire the surface (one line) or record the
+window as automation-only in the GUI inventory. Not a defect; a standing decision that had
+never been written down beside the states it affects.
+
+**3. No fixture carries a depot-ORIGIN supply route,** so the Structure window's
+`Origin: depot` step form is unreachable from every committed host. All three committed
+routes in the fixture set read `isKscOrigin = True` (one in `depot-route-recorded`, two in
+`interbody-route-recorded`); `depot-route-recorded` is named for its flight shape, not for
+its route's origin. **Fix:** harvest or construct a fixture whose route origin is a
+player-typed depot, which also needs
+`ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT` resolved first.
+
+**4. The Logistics capacity line `<dest> tanks full: ...` is unreachable from a
+loop-dispatch chain,** including in the destination-full lane. Both the compute site and
+the draw site gate on `route.Status == RouteStatus.DestinationFull`
+(`Source/Parsek/UI/LogisticsWindowUI.cs:1702` and `:3192`), not on `LastHoldKind` - and the
+loop path never transitions to that status: a blocked cycle calls `route.RecordHold(...)`
+and the only transition it makes is
+`TransitionTo(RouteStatus.Paused, BlockedThenPausedReason)`. So `RVR-13`'s clone holds
+`LastHoldKind=DestinationFull` with `Status=Paused` and `leg.CapacityContext` stays null.
+Same reasoning retires six more RouteStatus values (`InTransit`,
+`WaitingForResources`, `WaitingForFunds`, `EndpointLost`, `MissingSourceRecording`,
+`SourceChanged`) from census reach. **Fix (if the line is wanted):** either drive the
+legacy wait-state path that assigns those statuses, or re-gate the capacity line on
+`LastHoldKind`. The second is a product question, not an instrument one.
+
+**5. `strategy-career` cannot photograph populated Strategies rows.** It is `fresh-career`
+plus one reputation seed: its stock `STRATEGIES` node is empty and it carries no Parsek
+footprint, while `CareerStateWindowUI`'s Strategies tab reads Parsek's own effective ledger
+(`EffectiveState.ComputeELS()`). With no ledger row it draws `(no active strategies)`,
+which three existing captures already show. The only driver that activates a strategy is
+the in-game `StrategyLifecycle` category, and an in-game batch captures and RESTORES a
+`persistent.sfs` baseline around itself, so nothing it activates survives to be
+photographed. **Fix:** a fixture with a strategy-activation ledger row, built by
+construction the way `career-contract-pad` was.
+
+**6. The Career State window's DIVERGENCE banner and its two `Pending in timeline` folds
+have no route.** The banner's `(timeline ends at UT N)` form and the split
+`Active now (N)` + `Pending in timeline (K)` layout need committed actions in the FUTURE of
+the live clock, i.e. a rewind; and `career` is absent from
+`TestCommandUiState`'s expandable-window set, so no `op=expand` reaches the two folds.
+**Fix:** a rewound host plus a `career` row with a `pending:` prefix in
+`ExpandableWindowNames`.
+
+**7. There is no `GloopsPreview` verb,** so the Gloops recorder's `Previewing` state (the
+Preview button's label becomes `Stop Preview`) cannot be photographed. The seam's Gloops
+pair is exactly `GloopsStart` / `GloopsStop`, and the playback-side `StopPlayback` is
+deliberately RESERVED. **Fix:** an automation-only preview start/stop pair, if the state is
+judged worth it - see item 2 on why the whole window is diagnostic.
+
+**8. A MULTI-ROW Real Spawn Control capture needs a MEASURED UT first.** The one existing
+capture read ONE candidate at UT 55 on `gloops-airshow`, and no UT at which several ghosts
+pass inside `NearbySpawnRadius` is derivable from the fixture or from any collected log. A
+warp that lands on zero candidates makes the window self-close (item 1), which turns
+`op=open window=spawncontrol` into an ERROR and reds the lane, so guessing a UT is a
+fishing expedition dressed as a step. **Fix:** log or compute the pass geometry over that
+corpus once, then pin the UT. Until then the window's comparison-table shape - which is its
+whole point - has no picture.
+
+**9. A LIVE rewind, an armed `R`, and a merge journal have no census host.** Every
+`rewindff` capture shows `R` buttons ENABLED with resolved targets, i.e.
+rewind-AVAILABLE and never rewind-ARMED, and `refly-a-recorded`'s own README records that
+its RewindPoint is gone so it cannot re-fly. **Fix:** a census lane on a fixture that
+carries a usable RewindPoint (`bdock-recorded` and `refly-autopilot-recorded` both do),
+which is a larger lane than this wave's shape because the rewind mutates the host.
+
+**10. Roughly sixty hover and disabled-reason strings remain unreachable,** which is the
+one item on this list that is MEASURED rather than merely unattempted. Filed separately and
+unchanged as `GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT`: `focus=true nudge=true`
+is already refuted (a real `WM_MOUSEMOVE` was delivered after an `AttachThreadInput`
+foreground steal and `GUI.tooltip` was still empty). This wave routed around it everywhere
+it could by reading `enabled` from the dump instead - which is how the two greyed Wipe
+buttons and the greyed Basic radio are claimed without hover - but a REASON STRING has no
+such substitute.
+
 ## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
 
 **What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are

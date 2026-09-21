@@ -1,0 +1,222 @@
+schema = 1
+id = "GUI-16-census-gloops-states"
+tier = "operator"
+# THE GUI CENSUS: THE GLOOPS FLIGHT RECORDER'S THREE STATES, AND THE SETTINGS WINDOW'S
+# ONE GREYED INTERFACE CONTROL.
+#
+# WHY THIS LANE EXISTS. The census has FOUR Gloops Recorder captures and a state-coverage
+# audit measured all four as the SAME state: per dump, `Start Recording` 1, `Ghost-only`
+# 1, `Vessel:` 1, and `Start New Recording` / `Stop Recording` / `Stop Preview` /
+# `Saved:` / `Recording...` all ZERO. So the window's other two states - the one where it
+# is RECORDING (three of four controls change label or enablement and the status block
+# changes entirely) and the one where it holds a finished TAKE (the only state in which
+# Preview is live) - had no picture at all.
+#
+# AND ONE MORE CONTROL RIDES ON THE SAME RECORDING. The Settings window's Interface
+# section disables the `Basic` option while a Gloops recording runs, and swaps in an
+# extended hint ending `Stop the Gloops recording first.`
+# (`SettingsWindowUI.IsModeOptionDisabled`). That is the ONLY greyed control in that
+# section, and the one-label-either-way trick that keeps the control count stable across
+# the two forms. `enabled` is recorded on every `.gui.json` node, so BOTH halves - the
+# greyed radio and the longer hint - verify from the tree rather than from hover, which
+# is refuted at the strongest available setting
+# (GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT). One capture buys both.
+#
+# WHY IT IS A NEW LANE AND NOT AN AMENDMENT TO GUI-7, which is the flight-recording
+# census on `b1-pad-craft` and was the obvious host. GUI-7 ends with `DiscardTree` and
+# gates `[expectations.recordings] count = {min = 0, max = 0}`, which is the verifier
+# behind its D1 `discard-rollback` claim. A Gloops STOP that commits writes a recording
+# of its own, and `DeleteRecording` cannot take it back: that verb is typed REJECTED
+# `flight-delete-blocked` in the FLIGHT scene. So amending GUI-7 would have meant either
+# loosening its count gate (making a leaked flight recording indistinguishable from the
+# Gloops take) or dropping the take. A separate lane keeps GUI-7's gate exact and lets
+# this one pin its own.
+#
+# WHY `b2-lko-craft` AND NOT THE PAD CRAFT. The Gloops recorder samples trajectory
+# points, and `RecordingStore.CreateRecordingFromFlightData` trims leading STATIONARY
+# points and re-applies the fewer-than-two test to what is left - which is why
+# `GL-1-gloops-manual-lifecycle`'s one open question is whether a motionless PRELAUNCH
+# pod reaches two points at all, and why its sibling `GL-2` exists to prove the DROP.
+# An orbiting craft is moving in every frame, so the take is not balanced on that
+# derivation and the `Saved:` state is reachable. `samplingDensity = 2` (High, 1.0 s max
+# interval) plus eight inert `RecordingState` round trips is GL-1's own spacing, borrowed
+# rather than invented.
+#
+# THE COUNT IS RANGED 0..1 AND THAT IS HONEST RATHER THAN LOOSE. Whether this particular
+# take commits is GL-1's open derivation, not this lane's claim: the PRODUCT here is the
+# three pictures, and the `gloopsstop committed=` line below is matched
+# outcome-agnostically for the same reason GL-1 matches it that way. A commit gives 1, a
+# drop gives 0, and either is a true reading of the same window walk. Nothing else in
+# this lane records: there is no `StartRecording` step at all, and `autoRecordOnLaunch`
+# is off against an already-orbiting craft that never takes a launch transition.
+#
+# THE STATE THIS LANE STILL DOES NOT BUY is `Previewing` (the Preview button's label
+# becomes `Stop Preview`). There is no `GloopsPreview` verb: the seam's Gloops pair is
+# exactly `GloopsStart` and `GloopsStop` (`TestCommandVerbs.cs`), and the playback-side
+# `StopPlayback` is deliberately RESERVED. Filed as
+# GUI-CENSUS-GLOOPS-PREVIEW-NEEDS-A-VERB rather than attempted.
+#
+# AND ONE JUDGEMENT THE READER SHOULD HAVE: `MainButtonGloops` is RETIRED in BOTH
+# complexity modes (`UiComplexityMode.cs`), so no player can open this window today -
+# the seam reaches it by writing the window's own `IsOpen`. Every state here is therefore
+# diagnostic in practice, and a reviewer judging the PLAYER-facing UI should read the
+# whole window as low priority. The captures are still worth their one flight: the window
+# is still drawn, one un-retire line brings it back, and the Settings half of this lane
+# is a control a player CAN reach.
+description = "GUI census: the Gloops Flight Recorder in all three of its reachable states - idle, recording, and holding a finished take - over an orbiting craft, plus the Settings window's Interface section with the Basic option greyed and its extended hint while that recording runs."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "gloops", "GUI-16", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot. No `scene=`: the focusable activeVessel takes the default FLIGHT route,
+  # which is the only scene either window draws in.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # GL-1's own density, for the reason in the header: High is a 1.0 s max sample interval
+  # (`ParsekSettings.GetMaxSampleInterval`), so eight inert round trips are many samples
+  # on a moving craft rather than a bet on a stationary one.
+  { cmd = "SetSetting", args = { name = "samplingDensity", value = "2" }, expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is a precondition: a non-`main` open
+  # or rect settle REFUSES while the host's `showUI` is false. The complexity op is here
+  # and nowhere later. The refusal it could hit is narrower than an earlier draft of this
+  # header said, and this lane is the one place in the suite where it is live at all:
+  # `ParsekUI.ShouldRefuseModeChange` is exactly `next == Basic && gloopsRecording`, so
+  # a switch to BASIC after `GloopsStart` below would answer
+  # `complexity-refused-gloops-recording` - which is the guard working (Basic hides the
+  # Gloops window without stopping the recorder, leaving it sampling with no reachable
+  # Stop or Discard control). ADVANCED is never refused. This lane never asks for Basic,
+  # so it never meets the refusal; the ordering above is preamble tidiness, not a
+  # workaround.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- STATE 1 of 3: IDLE. `Start Recording`, Preview disabled, Discard disabled,
+  # `Vessel: <name>` and the `Ghost-only - loops by default` note. Retaken here rather
+  # than borrowed from GUI-6 so the three states sit side by side under labels the mirror
+  # can group, and so the diff between them is one host and one frame apart.
+  { cmd = "UiAction", args = { op = "open", window = "gloops" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "gloops", x = "270", y = "8", w = "340", h = "300" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b2-gloops-idle-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b2-gloops-idle-advanced" }, expect = "OK" },
+
+  # --- STATE 2 of 3: RECORDING. `Stop Recording`, Discard now ENABLED, and the
+  # `Recording...` section with `Points:` and `Duration:` where the idle status block was.
+  # The eight round trips are GL-1's spacing: they are inert probes whose only purpose is
+  # to let real physics frames pass between the start and the read.
+  { cmd = "GloopsStart", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b2-gloops-recording-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b2-gloops-recording-advanced" }, expect = "OK" },
+
+  # --- THE SETTINGS HALF, taken WHILE that recording is live. The Gloops window is
+  # closed first so that at most one sub-window is open per capture, which is the census's
+  # standing rule and what keeps the `describe` echo below an exact claim. Closing the
+  # WINDOW does not stop the RECORDER - `IsOpen` and `IsGloopsRecording` are independent -
+  # so the Interface section's disabled branch is still armed.
+  { cmd = "UiAction", args = { op = "close", window = "gloops" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "580", y = "8", w = "400", h = "718" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b2-settings-gloopslocked-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b2-settings-gloopslocked-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
+
+  # --- STATE 3 of 3: A FINISHED TAKE. `Start New Recording`, Preview ENABLED (the only
+  # state in which it is), Discard enabled, and `Saved: "<name>"` with its own Points and
+  # Duration. Reachable only if the take COMMITTED - see the header on why that is ranged
+  # rather than pinned - and the `gloopsstop committed=` line below records which way it
+  # went either way.
+  { cmd = "UiAction", args = { op = "open", window = "gloops" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "gloops", x = "270", y = "8", w = "340", h = "300" }, expect = "OK" },
+  { cmd = "GloopsStop", expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b2-gloops-saved-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b2-gloops-saved-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "gloops" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY. `GL-1` and `GL-2` are the lanes that claim the manual Gloops recorder's
+# behaviour and gate its commit-or-drop decision; this one drives the same pair for
+# PICTURES and claims nothing behavioural.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RANGED 0..1 for the reason in the header, which is a derivation this lane does not own:
+# `GL-1`'s open question is whether a manual take reaches two points, and
+# `CreateRecordingFromFlightData` re-applies that test after trimming leading stationary
+# points. A commit gives 1, a drop gives 0. What the range still gates is everything
+# ELSE: this lane has no `StartRecording` step, so a 2 would mean something recorded that
+# nothing in the spec asked for.
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+# This lane's OWN seam records. The describe echoes are the in-run mapping check:
+# `open=<n> openWindows=<names>` pinned as a literal is an EXACT claim, since a third
+# open window would move the count. `scene=FLIGHT` on every one proves the census ran
+# where the two flight-only windows exist.
+#
+# THE GLOOPS PAIR. `gloopsstart started=true` is a whole pin: the verb drives production
+# unconditionally and classifies the outcome from the before/after flags, so a
+# `rejected` line there would mean the recorder never armed and the RECORDING capture
+# photographs the idle window under a recording label. `gloopsstop committed=` is matched
+# OUTCOME-AGNOSTICALLY - `committed=(True|False)` - for the reason in the header and in
+# GL-1's own: which way a take goes is a derivation, and this lane's product is the
+# picture of whichever state resulted.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,gloops",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] gloopsstart started=true vessel=",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] gloopsstop committed=(True|False) points=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=b2-gloops-recording-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b2-gloops-idle-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b2-gloops-recording-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b2-settings-gloopslocked-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b2-gloops-saved-advanced .*patched=17/17",
+]
+# EMPTY. GL-2's header records the one open question about the validator here - whether
+# `validate-ksp-log` treats a DESIGNED sub-two-point refusal Warn on the WRN surface as
+# an unexpected one - and this lane must not answer it by forbidding the Warn: if the
+# take drops, that Warn is production working, and a forbid would red a census over it.
+forbidden = []
+
+[runtime]
+# Four captures and four dumps, a 300 s cold-load allowance, one Gloops start/stop pair,
+# eight inert round trips and ~25 single-phase UI ops on a small orbital fixture. GUI-7
+# measures a comparable flight-scene window walk on a pad craft; GUI-12 measured seven
+# captures plus seven dumps at 89 s. 900 s is an order of magnitude over the sum and
+# stays generous because the PRODUCT is the images and the trees, and a KILLED run leaves
+# neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

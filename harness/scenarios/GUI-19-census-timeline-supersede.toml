@@ -1,0 +1,192 @@
+schema = 1
+id = "GUI-19-census-timeline-supersede"
+tier = "operator"
+# THE GUI CENSUS: THE TIMELINE WINDOW OVER A SUPERSEDED RECORDING.
+#
+# WHY THIS LANE EXISTS. A supersede produces exactly ONE pixel in the Timeline window: a
+# STRIKETHROUGH row, drawn when `EffectiveState` says a recording is not effective
+# (`TimelineWindowUI`). A state-coverage audit verified four ways that no capture has it -
+# no census lane runs on either supersede-carrying fixture; the one populated Re-Fly
+# capture (`bd-timeline-refly-advanced`) is static, with three `Fly` and three `Seal`
+# buttons all enabled, no marker, no journal and no HEAD/TIP split; the `ksc-` and `cek-`
+# Re-Fly captures are the EMPTY view with no `Fly` node at all; and no timeline dump
+# anywhere contains a struck row. So the only visual trace of Parsek's Rewind-to-
+# Separation feature is unphotographed.
+#
+# THE HOST CARRIES THE ROW ON DISK. `refly-a-recorded`'s `persistent.sfs` holds one
+# `RECORDING_SUPERSEDES` `ENTRY`: `oldRecordingId = d096297d815647de988c380fb6931d0a`
+# superseded by `newRecordingId = rec_d4b696b61b544c1e8013073c611c8477` at `ut =
+# 4376.60418224251`, plus two `mergeState = CommittedProvisional` recordings. That is a
+# committed, staged fact rather than something this lane has to drive - which matters,
+# because DRIVING a supersede means a rewind, and this fixture's README records the
+# limitation that makes that impossible here: its RewindPoint is gone, so it cannot
+# re-fly. A census that only needs the RESULT is exactly the lane this fixture can host.
+#
+# THREE TABS IN FLIGHT, WHICH IS A SECOND GAP ON THE SAME FLIGHT. The audit's tab-by-
+# scene matrix measured `details`, `rewindff` and `refly` at ZERO captures in FLIGHT
+# across the whole census, and the `W` (Watch) column draws ONLY in FLIGHT - so three of
+# this window's four row layouts had never been seen carrying the column a player sees
+# there. `GUI-6` now takes the same four tabs over a 243-ghost playback corpus; this lane
+# takes them over a two-vessel tree with a supersede in it, which is the shape that has
+# the struck row.
+#
+# AND THE THIRD PERIOD RENDERING RIDES ALONG. `GUI-17` and `GUI-18` photograph the two
+# LABEL forms of the Missions tab's period cell (phase-locked and re-aim). The EDITABLE
+# form - a text field plus a live unit button, which is what an ordinary non-window-locked
+# loop draws - needs a loop armed on a subject with no transfer window, and this host is
+# a two-vessel Kerbin-local sandbox tree. One extra `MissionConfig` step and one capture
+# complete the set of three on this flight rather than costing a fourth.
+#
+# THIS LANE RUNS IN FLIGHT, AND THAT IS FORCED rather than chosen: `MissionConfig` is
+# `VerbSceneRequirement.RequiresFlight` in the dispatcher's precondition table. The
+# Timeline and Missions windows are both drawn in FLIGHT by `ParsekFlight`, so every
+# capture is honest, and the FLIGHT-only tab gap above is bought by the same constraint.
+#
+# THE `StopRecording` + `DiscardTree` PREAMBLE is `RF-7M-predicted-tail-map-render`'s
+# verbatim on this fixture, and it is a precondition rather than tidiness: the save
+# resumes a live recording on a FLIGHT load, and a live tree left standing would be
+# written into the produced save by `FlushAndQuit`.
+#
+# THE ONE PRODUCTION REFUSAL `op=complexity` HAS IS NARROWER THAN THE AUDIT SAID, and
+# it is worth stating because an earlier draft of this header got it wrong:
+# `ParsekUI.ShouldRefuseModeChange` is exactly `next == Basic && gloopsRecording` -
+# BASIC only, and a manual GLOOPS recording only, never a flight recording. Advanced
+# is never refused, because it only ever reveals surfaces. So this lane's single
+# `mode=advanced` op could stand anywhere; it is placed after the two teardown steps
+# because that is where the rest of the preamble belongs, not because a recorder
+# would have blocked it.
+#
+# WHAT THIS LANE DOES NOT CLAIM. It asserts that each window DREW and that the supersede
+# row is on disk to be drawn; it does NOT pin the strikethrough itself, because a
+# strikethrough is a STYLE and `parsek-gui-tree/1` nodes carry no style field - the
+# evidence is the PNG plus the row's presence in the dump. Nor does it claim a live
+# rewind, an armed `R`, or a journal: all three need a RewindPoint this fixture does not
+# have (GUI-CENSUS-LIVE-REWIND-NEEDS-AN-RP-CARRYING-HOST).
+description = "GUI census: the Timeline window over the one committed fixture that carries a recording-supersede relation, across all four tabs in FLIGHT - three of which no capture had in that scene, and which is the only scene the Watch column draws in - plus the editable form of the Missions tab's loop period cell, the third of its three renderings."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "timeline", "rewind", "GUI-19", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/refly-a-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot to FLIGHT (the default route) and clear the resumed recorder ---
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree",   expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is a precondition: a non-`main` open
+  # or rect settle REFUSES while the host's `showUI` is false.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- THE FOUR TABS. The rect matches the KSC siblings' exactly (270,8,1000,700) so a
+  # reviewer can put the two sets side by side and the only difference is the scene.
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ra-timeline-overview-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ra-timeline-overview-flight-advanced" }, expect = "OK" },
+  # `details` is the tab that lists per-recording rows, so it is where the superseded
+  # recording's struck row is.
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "details" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ra-timeline-details-superseded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ra-timeline-details-superseded-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "rewindff" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ra-timeline-rewindff-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ra-timeline-rewindff-flight-advanced" }, expect = "OK" },
+  # `refly` on a host whose two recordings are BOTH CommittedProvisional, which is the
+  # state the Fly / Seal descriptor pair is written for.
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "refly" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ra-timeline-refly-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ra-timeline-refly-flight-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  # --- THE THIRD PERIOD RENDERING. The tree id is this fixture's own committed
+  # RECORDING_TREE id, read from the staged bytes - the house pattern for this verb.
+  { cmd = "MissionConfig", args = { tree = "47cea2fe7d9e4e9eb6a729a7e280cc41", loop = "true" }, expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ra-missions-loopon-editable-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ra-missions-loopon-editable-advanced" }, expect = "OK" },
+  # And the Recordings tab, where the supersede's effect is row ABSENCE rather than a
+  # struck row - the pair is what makes that difference readable.
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ra-missions-recordings-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ra-missions-recordings-flight-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY. The `RF-*` family claims this fixture's re-fly and predicted-tail
+# dimensions and gates their behaviour; a census over the same bytes claims nothing
+# behavioural.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# TEN TO ELEVEN, and not this lane's derivation: two committed lanes fly this fixture and
+# read different numbers off different chains - `RF-7M-predicted-tail-map-render` pins 10,
+# `RF-10-fixed-tip-loads-open` pins 11 - so the window spans both rather than betting on
+# which shape this shorter chain lands in. The floor is the anti-vacuity gate: a Timeline
+# over a host that staged nothing would photograph the empty view under a populated
+# label.
+count = { min = 10, max = 11 }
+
+[expectations.logContracts]
+# This lane's OWN seam records plus the ONE production line that says the supersede
+# relation loaded, without which every capture here photographs a tree with no struck
+# row. The describe echoes are the in-run mapping check: `open=<n> openWindows=<names>`
+# pinned as a literal is an EXACT claim.
+#
+# THE SUPERSEDE LINE is matched on the relation's own id-bearing load record rather than
+# on a rendering: `d096297d815647de988c380fb6931d0a` is the superseded recording, and
+# that string appearing in the ERS/supersede load surface is the mechanical half of the
+# claim - the PNG is the other half, because a strikethrough is a STYLE and the dump
+# carries no style field.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "d096297d815647de988c380fb6931d0a",
+  "missionconfig applied: mission='.*' tree=47cea2fe7d9e4e9eb6a729a7e280cc41 loop=True",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ra-timeline-details-superseded-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-overview-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-details-superseded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-rewindff-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-refly-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-missions-loopon-editable-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-missions-recordings-flight-advanced .*patched=17/17",
+]
+forbidden = []
+
+[runtime]
+# Six captures and six dumps, a 300 s cold-load allowance, one loop arming and ~30
+# single-phase UI ops over a two-vessel sandbox tree with five asteroids. GUI-6 measures
+# a comparable flight-scene window walk; GUI-12 measured seven captures plus seven dumps
+# at 89 s. 900 s is an order of magnitude over the sum and stays generous because the
+# PRODUCT is the images and the trees, and a KILLED run leaves neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,159 @@
+schema = 1
+id = "GUI-15-census-career-contracts"
+tier = "operator"
+# THE GUI CENSUS: THE CAREER STATE WINDOW'S CONTRACTS TAB, POPULATED.
+#
+# WHY THIS LANE EXISTS. Every Career State capture the census has taken - across three
+# fixtures including the operator's own dense career - reads `Active (0)` and then
+# `(no active contracts)`. So tab 1 of 4 of this window has only ever been photographed
+# EMPTY, and the populated row layout (Title, Deadline, Rewards, Penalties, Status) has
+# no picture at all. That is not a host accident either: the tab reads Parsek's own
+# EFFECTIVE LEDGER (`EffectiveState.ComputeELS()`), not stock's `CONTRACTS` node, so a
+# save full of stock contracts still draws zero rows unless Parsek's ledger carries
+# contract-lifecycle actions.
+#
+# THE HOST IS THE ONE FIXTURE WHOSE WHOLE POINT IS THOSE ROWS.
+# `career-contract-pad` differs from its donor on ONE line of the save plus ONE sidecar,
+# `Parsek/GameState/ledger.pgld`, which carries exactly TWO `type = 5` (contract accept)
+# rows and NO terminal row of any kind - asserted by its builder's `--check` and wired
+# through `CareerContractPadFixtureDriftTests`. Contract state in this window is derived
+# from Accept-minus-{Complete,Fail,Cancel} set membership, so two accepts with no
+# terminal row is exactly two ACTIVE rows. Its README records `activeSlots=2/2` on the
+# cold-load walk, which is the same reading from the ledger side.
+#
+# A SECOND, RARER FORM RIDES ALONG FOR FREE and is worth naming so a reviewer knows to
+# look for it: this fixture's stock `CONTRACTS` node is EMPTY by assertion (it makes no
+# claim about KSP-side contract state), so the window has no stock contract to read a
+# title from and the Title cell falls back to the raw contract id. That fallback branch
+# had never drawn either.
+#
+# THE MIN-SIZE CAPTURE. `CareerStateWindowUI` declares a 520x200 drag floor. The
+# Contracts table's fixed columns do not fit it and IMGUI does not reflow, so the
+# declared minimum is a size at which the window's own table is clipped - and no picture
+# proved it. Taken on the POPULATED tab, because an empty table clips nothing. Position
+# is exact in the read-back and both size axes are floors, so a window that refuses to
+# shrink reports the size it kept rather than erroring.
+#
+# `scene = "spacecenter"` IS REQUIRED. This host's `activeVessel = 0` names a focusable
+# vessel, so a plain LoadGame takes `TestCommandLoadGame.DecideLoadRoute`'s Focusable
+# branch and boots into FLIGHT, where `ParsekKSC` draws nothing. R12's additive `scene=`
+# arg forces the NoVesselSpaceCenter route.
+#
+# NOT PHOTOGRAPHED HERE, and each is a measurement rather than a gap:
+#   - the DIVERGENCE banner `(timeline ends at UT N)` and the split
+#     `Active now (N)` + `Pending in timeline (K)` layout. Both need committed actions to
+#     sit in the FUTURE of the live clock, which means a rewind, and the two
+#     `Pending in timeline` folds have no `op=expand` route at all (`career` is absent
+#     from `TestCommandUiState`'s expandable-window set). Filed as
+#     GUI-CENSUS-CAREER-DIVERGENCE-NEEDS-A-REWOUND-HOST.
+#   - the eleven hover strings (four tab labels, six column headers, two pending
+#     toggles). Blocked by GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT, which is
+#     refuted at the strongest available setting rather than untried.
+description = "GUI census: the Career State window's Contracts tab with real rows, on the one fixture whose ledger sidecar carries two contract accepts and no terminal row - the populated form of a tab every previous capture photographed empty - plus the same tab at the window's own 520x200 drag floor."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "career", "GUI-15", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-contract-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot, forced to the Space Center (activeVessel = 0 is focusable) ---
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is a precondition: a non-`main` open
+  # or rect settle REFUSES while the host's `showUI` is false.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cc-main-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cc-main-advanced" }, expect = "OK" },
+
+  # --- THE CAPTURE THIS LANE EXISTS FOR ---
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cc-career-contracts-active-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cc-career-contracts-active-advanced" }, expect = "OK" },
+
+  # --- AND AT THE DECLARED DRAG FLOOR, on the same populated tab ---
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "520", h = "200" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cc-career-contracts-minsize-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cc-career-contracts-minsize-advanced" }, expect = "OK" },
+
+  # --- back to the generous rect, and the other three tabs on a CAREER host that has a
+  # ledger. Cheap, and it makes the four-tab set comparable within one contact sheet page
+  # instead of across three fixtures.
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cc-career-strategies-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cc-career-strategies-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cc-career-milestones-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cc-career-milestones-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY. `L5-career-contract-complete` is the lane that claims this fixture's D8
+# contract-lifecycle values and gates the state machine; a census over the same bytes
+# claims nothing behavioural - a dimension value records that a value was exercised with
+# a verdict attached, and the verdict here is an image.
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO. This host carries a ledger sidecar and NO recordings, and nothing in this lane
+# records: the anti-vacuity direction here is the other way round (the ledger rows are
+# what the captures read, and the analyzer row below is what would notice a staging
+# defect in them).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# This lane's OWN seam records plus the ONE production line that says the ledger sidecar
+# loaded at all - without it the Contracts tab would draw zero rows and every capture
+# here would photograph the empty state under a populated label. That line is the
+# fixture's own documented signal (its README: "Its `Accept:` line is what says the
+# sidecar loaded at all"), matched loosely on the row's accept wording rather than on
+# either contract guid, because the guids are the FIXTURE's pins and are asserted by
+# `CareerContractPadFixtureDriftTests` rather than by a flight.
+#
+# The describe echoes are the in-run mapping check: `open=<n> openWindows=<names>`
+# pinned as a literal is an EXACT claim, since a third open window would move the count.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
+  "Accept:",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=cc-career-contracts-active-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-main-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-contracts-active-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-contracts-minsize-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-strategies-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-milestones-advanced .*patched=17/17",
+]
+forbidden = []
+
+[runtime]
+# Five captures and five dumps, a 300 s cold-load allowance and ~20 single-phase UI ops
+# on a one-vessel career with a two-row ledger sidecar. GUI-12 measured seven captures
+# plus seven dumps at 89 s on a comparable host. 900 s is an order of magnitude over
+# that and stays generous because the PRODUCT is the images and the trees, and a KILLED
+# run leaves neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

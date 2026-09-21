@@ -8700,6 +8700,83 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "authoring time (2026-09-15) - the seven PNGs and "
                                        "seven dumps ARE the deliverable - so the tag "
                                        "names the cadence decision only.",
+        # THE STATE-COVERAGE WAVE, 2026-09-21 (GUI-13..GUI-23). Eleven lanes authored off
+        # a read-only audit that enumerated every visibly distinct state of the 14 IMGUI
+        # windows and measured which the census had photographed. All eleven are
+        # `tier=operator` by CADENCE for the same reason every census lane before them is:
+        # the deliverable is a set of PNGs plus `.gui.json` control-tree dumps that a human
+        # or a supervising agent reads, and a cadence tier would spend a KSP boot per lane
+        # per night producing pictures nobody asked for that night. None owes a human
+        # CALL; what each owes is its first flight and then the ordinary promotion
+        # decision. They are grouped here rather than one comment each because the reason
+        # is identical across all eleven and the per-lane reading lives in each spec's own
+        # header and in `docs/dev/autotest-status.md`, the single status authority.
+        #
+        # The last four are a different SHAPE from the first seven and it is worth naming:
+        # GUI-20..GUI-23 are CLONES of the RVR-8 / RVR-10 / RVR-13 / RVR-17 driver chains
+        # with a census capture tail appended, and they deliberately carry NO
+        # `[expectations.routes]` block. The ORIGINALS keep that gating; the clones exist to
+        # photograph the Logistics window while a hold is live, and dropping the block is
+        # what lets them append the extra `TimeJump` that ages a hold into its
+        # `(checked N ago)` form without reding a cycle-count window.
+        "GUI-13-census-logistics-candidates.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: the "
+                                       "first flight, whose Candidates-section PNGs ARE the "
+                                       "deliverable, and then the ordinary promotion call. "
+                                       "NEVER FLOWN at authoring time.",
+        "GUI-14-census-settings-and-facility.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: the "
+                                       "first flight and then the ordinary promotion call. "
+                                       "NEVER FLOWN at authoring time.",
+        "GUI-15-census-career-contracts.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: the "
+                                       "first flight and then the ordinary promotion call. "
+                                       "NEVER FLOWN at authoring time.",
+        "GUI-16-census-gloops-states.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: the "
+                                       "first flight, which is also the READING of whether "
+                                       "this take commits or drops (GL-1's open "
+                                       "derivation, which is why the count is ranged 0..1), "
+                                       "and then the ordinary promotion call. NEVER FLOWN "
+                                       "at authoring time.",
+        "GUI-17-census-missions-loop-mun.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: the "
+                                       "first flight and then the ordinary promotion call. "
+                                       "NEVER FLOWN at authoring time.",
+        "GUI-18-census-missions-loop-duna.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: the "
+                                       "first flight, which is also the READING of WHICH "
+                                       "label form the re-aim period cell draws at this UT, "
+                                       "and then the ordinary promotion call. NEVER FLOWN "
+                                       "at authoring time.",
+        "GUI-19-census-timeline-supersede.toml":
+                                       "tier=operator by CADENCE (capture host). Owed: the "
+                                       "first flight and then the ordinary promotion call. "
+                                       "NEVER FLOWN at authoring time.",
+        "GUI-20-census-logistics-hold-second-cycle.toml":
+                                       "tier=operator by CADENCE (capture host); an RVR-8 "
+                                       "driver clone with a capture tail and no "
+                                       "`[expectations.routes]` block. Owed: the first "
+                                       "flight and then the ordinary promotion call. NEVER "
+                                       "FLOWN at authoring time.",
+        "GUI-21-census-logistics-hold-origin-empty.toml":
+                                       "tier=operator by CADENCE (capture host); an RVR-10 "
+                                       "driver clone with a capture tail and no "
+                                       "`[expectations.routes]` block. Owed: the first "
+                                       "flight and then the ordinary promotion call. NEVER "
+                                       "FLOWN at authoring time.",
+        "GUI-22-census-logistics-hold-destination-full.toml":
+                                       "tier=operator by CADENCE (capture host); an RVR-13 "
+                                       "driver clone with a capture tail and no "
+                                       "`[expectations.routes]` block. Owed: the first "
+                                       "flight and then the ordinary promotion call. NEVER "
+                                       "FLOWN at authoring time.",
+        "GUI-23-census-logistics-hold-funds-short.toml":
+                                       "tier=operator by CADENCE (capture host); an RVR-17 "
+                                       "driver clone with a capture tail and no "
+                                       "`[expectations.routes]` block. Owed: the first "
+                                       "flight and then the ordinary promotion call. NEVER "
+                                       "FLOWN at authoring time.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are

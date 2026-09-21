@@ -10,6 +10,62 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI census can now photograph the product FAILING, refusing and
+  being authored, not only resting.** Eleven new operator-tier census lanes
+  (GUI-13..GUI-23) plus three amendments to existing ones, all authored off a read-only
+  state-coverage audit that enumerated every visibly distinct draw branch of the 14 IMGUI
+  windows from the source and checked each one against the `.gui.json` control-tree dumps
+  the census had already written. Its finding was that all 14 windows were MODELLED and
+  none was COVERED: what had been photographed was the product's resting state, with every
+  in-progress, blocked, held, refused, superseded and authoring state absent. NO NEW C#
+  anywhere in the wave - every lane uses seam verbs and ops that already shipped, and the
+  single highest-yield lever (`MissionConfig tree=... loop=true`, used by ten-plus non-GUI
+  specs and by zero GUI specs) had simply never been pointed at a window. What the wave
+  buys: the Logistics window's Candidates section populated and its near-miss subsection
+  expanded (the route-creation workflow and twelve reject strings, none of which had ever
+  drawn); that same window with a hold LIVE in three different hold kinds, which is the
+  first capture anywhere of it refusing to dispatch; the Missions tab with a loop armed, in
+  all three renderings of its period cell, against every prior dump reading `value=False`;
+  the Timeline window's three FLIGHT-only tabs and the `W*` watching marker, both measured
+  at zero captures program-wide, plus the strikethrough row a supersede draws; the Settings
+  window's two greyed Wipe buttons, its Low and High density states, its Diagnostics
+  section armed, and its Basic radio greyed behind a live Gloops recording; the Career State
+  window's Contracts tab with real rows and a Facilities row above level 1 after a driven
+  upgrade; and the Gloops recorder recording and holding a take, against four prior
+  captures the audit measured as the same idle state. Four of the eleven are a new shape:
+  GUI-20..GUI-23 clone the RVR-8 / RVR-10 / RVR-13 / RVR-17 driver chains and append a
+  capture tail, which no non-GUI spec had ever carried. They deliberately declare no
+  `[expectations.routes]` block - the originals keep that gating - which is what lets them
+  append the extra `TimeJump` that ages a hold into its `(checked N ago)` form without
+  reding a cycle-count window.
+- **Automated testing: four census captures were STALE against HEAD and are re-shot by the
+  act of re-flying their lane.** `ksc-settings-advanced` / `ksc-settings-basic`
+  photographed a button reading `Wipe All Game Actions (N)` where HEAD draws
+  `Wipe All Milestones (N)`; `ksc-career-milestones-advanced` photographed the Rewards
+  column at 180 px with cells wrapping where HEAD sets `ColW_Rewards = 320f` (widened
+  BECAUSE of that dump); and the two GUI-1 Kerbals captures photographed the pre-redesign
+  single-line shape that HEAD replaced with four-column tables. Nothing in the spec named
+  the old labels, so re-flying is the whole fix. The Kerbals pair is KEPT rather than
+  dropped, correcting the audit's own recommendation: the lane photographs whatever HEAD
+  draws, and those two are the census's only DENSE Kerbals pictures. The Basic Settings
+  capture additionally moved from `h = 700` to `h = 350` so the picture shows the height a
+  player gets rather than 363 px of dead space - `op=rect` treats both size axes as floors,
+  so the window fits to its own content minimum.
+- **Automated testing: two DEAD draw branches and eight unreachable window states are now
+  filed with the source gate that makes each one so** (todo
+  `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`). The dead pair, both verified from source rather
+  than inferred: `SpawnControlUI`'s `No nearby craft to spawn.` branch can never execute,
+  because `DrawIfOpen` reads the same candidate list into `ResolveAutoCloseReason` a few
+  lines earlier and closes the window on `zero-candidates`; and the Gloops launcher is
+  retired in BOTH complexity modes, so no player can open a window whose three states this
+  wave now photographs through the seam. Also recorded, because each cost an authoring
+  decision: no committed fixture carries a depot-ORIGIN route (all three read
+  `isKscOrigin = True`), so the Structure window's `Origin: depot` form is unreachable;
+  the Logistics capacity line is gated on `RouteStatus == DestinationFull`, a status the
+  loop dispatch path never assigns, so it is unreachable even in the destination-full lane;
+  and `strategy-career` cannot photograph populated Strategies rows, because that tab reads
+  Parsek's effective ledger and the fixture carries no Parsek footprint at all.
+
 - **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
   are closed, and the priority-2 register with them.** Eight rows were new coverage, five
   were guarded already by cells that landed after the audit snapshot, and one is deferred

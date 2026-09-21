@@ -41,6 +41,52 @@ whole of 3.11 - which alone carries re-derived line numbers for BOTH runner file
 that is where this authoring pass hit them - and the two Test Runner rows of section 7's size
 table. Sections 3 to 5 and the rest of 7 are still the 2026-09-11 reading against `4eb427e9e`.
 
+COVERAGE NOT YET UPDATED FOR WAVE 5, AND THIS PARAGRAPH SAYS SO ON PURPOSE. Eleven new
+census lanes were AUTHORED 2026-09-21 (GUI-13..GUI-23) plus three amendments to GUI-1, GUI-6
+and GUI-7, off a read-only STATE-COVERAGE AUDIT that is a different measurement from this
+file's: where this document enumerates SURFACES (windows, tabs, dialogs, overlays, gate keys)
+and asks which are reachable, the audit enumerated visibly distinct STATES of those surfaces
+and asked which were photographed. Its headline reading was that all 14 windows were
+MODELLED - each had at least one capture, which is what section 2's 14 of 14 records - and
+that none was COVERED, because what had been photographed was the product's RESTING state:
+every in-progress, blocked, held, refused, superseded and authoring state was absent, and
+roughly 60 hover / disabled-reason strings remain unreachable for the cause the `pointer` row
+of 6.2 already states. Section 2's tally is therefore CORRECT AS WRITTEN and is not the number
+the audit moves; a per-window state tally is a different axis and belongs with the audit, not
+here. What DOES belong here and is recorded now, because it corrects claims this file makes:
+
+- **Four census captures were STALE against HEAD** and are re-shot by the act of re-flying
+  their lane. `ksc-settings-advanced` / `ksc-settings-basic` photographed a button reading
+  `Wipe All Game Actions (N)` where HEAD draws `Wipe All Milestones (N)`;
+  `ksc-career-milestones-advanced` photographed the Rewards column at 180 px with cells
+  wrapping, where HEAD sets `ColW_Rewards = 320f` - widened BECAUSE of that dump, so
+  `cek-career-milestones-advanced` already carries the 320; and the two GUI-1 Kerbals labels
+  (`ksc-kerbals-roster-advanced`, `ksc-kerbals-outcomes-advanced`) photographed the
+  PRE-REDESIGN single-line shape that the 2026-09-15 rebuild replaced with four-column
+  tables. Nothing in any spec names the old labels, so re-flying is the whole fix. The
+  Kerbals pair is KEPT rather than dropped: the lane photographs whatever HEAD draws, and
+  those two are the census's only DENSE Kerbals pictures.
+- **Two draw branches this file lists as surfaces are DEAD.** `SpawnControlUI`'s
+  `No nearby craft to spawn.` branch can never execute - `DrawIfOpen` reads the same
+  candidate list into `ResolveAutoCloseReason` a few lines earlier and closes the window on
+  `zero-candidates` - and the un-indexed capture `flight-spawncontrol-advanced` is exactly
+  that outcome: no Spawn Control window in the dump at all. And `MainButtonGloops` is RETIRED
+  in BOTH complexity modes (`UI/UiComplexityMode.cs`, `IsRetired`), so no player can open the
+  Gloops Recorder; its three states are photographed through the seam's own `IsOpen` write
+  and are DIAGNOSTIC in practice. Both are filed with their source gates as todo
+  `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`.
+- **Three surfaces this file treats as reachable are not, from any committed host.** The
+  Structure window's Route-mode `Origin: depot` step (all three committed routes read
+  `isKscOrigin = True`); the Logistics capacity line `<dest> tanks full: ...` (gated on
+  `RouteStatus == DestinationFull`, a status the loop dispatch path never assigns - it records
+  a hold and transitions only to `Paused`); and the Career State window's populated Strategies
+  rows (that tab reads Parsek's effective LEDGER, and `strategy-career` carries no Parsek
+  footprint at all, so it draws `(no active strategies)` like every other host).
+
+Sections 3 to 5 and 7 still carry the 2026-09-11 reading against `4eb427e9e`. A full
+re-measure against the wave-5 captures is its own task; the per-lane reading lives in each
+new spec's header and in `docs/dev/autotest-status.md`, the single status authority.
+
 ## 1. Purpose and scope
 
 This document is the structural map of Parsek's player-facing surface as it exists today:
