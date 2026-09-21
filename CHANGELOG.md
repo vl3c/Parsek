@@ -10,6 +10,93 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI census can now photograph the product FAILING, refusing and
+  being authored, not only resting.** Eleven new operator-tier census lanes
+  (GUI-13..GUI-23) plus three amendments to existing ones, all authored off a read-only
+  state-coverage audit that enumerated every visibly distinct draw branch of the 14 IMGUI
+  windows from the source and checked each one against the `.gui.json` control-tree dumps
+  the census had already written. Its finding was that all 14 windows were MODELLED and
+  none was COVERED: what had been photographed was the product's resting state, with every
+  in-progress, blocked, held, refused, superseded and authoring state absent. NO NEW C#
+  anywhere in the wave - every lane uses seam verbs and ops that already shipped, and the
+  single highest-yield lever (`MissionConfig tree=... loop=true`, used by ten-plus non-GUI
+  specs and by zero GUI specs) had simply never been pointed at a window. What the wave
+  buys: the Logistics window's Candidates section populated and its near-miss subsection
+  expanded (the route-creation workflow, and two of the twelve reject strings - all that
+  the operator's own career reaches); that same window with a hold LIVE in three hold
+  kinds, which is the
+  first capture anywhere of it refusing to dispatch; the Missions tab with a loop armed, in
+  three LOCKED renderings of its period cell, against every prior dump reading
+  `value=False`;
+  the Timeline window's three non-overview tabs in the FLIGHT scene and the `W*` watching
+  marker, both measured at zero captures program-wide, plus the first `W` with
+  `enabled=false` anywhere (the tabs exist at the Space Center too; the `W` column does
+  not); the Settings
+  window's two greyed Wipe buttons, its Low and High density states, its Diagnostics
+  section armed, and its Basic radio greyed behind a live Gloops recording; the Career State
+  window's Contracts tab with real rows and a Facilities row above level 1 after a driven
+  upgrade; and the Gloops recorder recording and holding a take, against four prior
+  captures the audit measured as the same idle state. Four of the eleven are a new shape:
+  GUI-20..GUI-23 clone the RVR-8 / RVR-10 / RVR-13 / RVR-17 driver chains and append a
+  capture tail, which no non-GUI spec had ever carried. They deliberately declare no
+  `[expectations.routes]` block - the originals keep that gating - which is what lets them
+  append the extra `TimeJump` that ages a hold into its `(checked N ago)` form without
+  reding a cycle-count window. ALL THIRTEEN LANES FLEW GREEN the same day, twenty
+  flights on one pinned automation DLL - 18 PASS and 2 PARSEK-FAIL, both of them one
+  lane's own log-contract regex casing rather than a product failure, and every lane's
+  final verdict PASS on attempt 1 at 53-92 s wall - and every capture was then read back out of its own control-tree dump rather than
+  assumed. The readings that were not predictions: the Missions tab's period cell is a
+  DISABLED LABEL under a loop (`~13d-19d (Mun window, varies)` on the Mun subject,
+  `~2.1y (Duna transfer)` on Duna) rather than the editable field every prior capture
+  shows; the Gloops recorder committed its take at 15 points, so all three of its states
+  landed including `Saved: "Kerbal X"` with Preview finally enabled; the Settings
+  Interface section drew `Basic` greyed beside the extended hint ending
+  `Stop the Gloops recording first.`; a driven Tracking Station upgrade put one row at
+  `L2` beside eight at `L1`; and the four Logistics clones produced the whole refusal
+  vocabulary at once - `Held: B short 108.8 LiquidFuel`, the `Delivering` badge, the
+  `Pause` button, `Recent cycles:` with a real per-cycle line, `Total delivered:`,
+  `Cyc = 1 / 3 skipped`, and a yellow `Last cycle blocked: ... (checked 10.0m ago)` line
+  in three different hold vocabularies.
+- **Automated testing: the Timeline's grey `!IsEffective` row is neither a supersede's
+  trace nor a tombstone's, and the census lane authored to photograph one refuted its own
+  premise on its first flight.** `TimelineEntry.IsEffective` is written in exactly two
+  places (`Timeline/TimelineBuilder.cs`: seeded from `action.Effective`, merged on
+  milestone compaction), so a recording supersede produces no Timeline pixel at all - only
+  row absence. The follow-up claim that a struck row means a TOMBSTONED action is refuted
+  too: the Timeline's grey `!IsEffective` row is neither a supersede's trace nor a tombstone's: the window is fed `EffectiveState.ComputeELS()` (`UI/TimelineWindowUI.cs:477-483`), so a tombstoned action is filtered out before the builder, and the only writers of `Effective = false` are `GameActions/ContractsModule.cs:399/408/417/428` (a duplicate / already-resolved contract completion) and `GameActions/MilestonesModule.cs:108` (a duplicate milestone), reset at `RecalculationEngine.cs:519`. It also is not a STRIKE - `timelineStrikethroughStyle` differs from the label style only by `normal.textColor = Color.gray` (`UI/TimelineWindowUI.cs:395-396`), so the state is a colour and therefore a PNG verdict. So the state needs a duplicate-contract or duplicate-milestone
+  host, which no census fixture is, and it would be a PNG verdict even then. Measured on
+  the flight: the fixture's supersede relation loaded, the Details tab drew one launch
+  row, nothing was grey. The capture was relabelled and the finding filed rather than left
+  standing in a spec header. The lane keeps its flight for what it did buy - the three
+  non-overview Timeline tabs in the FLIGHT scene, a `W` button with `enabled=false` (zero
+  hits program-wide before), and the measured EMPTY forms of Rewind/FF and Re-Fly there.
+- **Automated testing: four census captures were STALE against HEAD and are re-shot by the
+  act of re-flying their lane.** `ksc-settings-advanced` / `ksc-settings-basic`
+  photographed a button reading `Wipe All Game Actions (N)` where HEAD draws
+  `Wipe All Milestones (N)`; `ksc-career-milestones-advanced` photographed the Rewards
+  column at 180 px with cells wrapping where HEAD sets `ColW_Rewards = 320f` (widened
+  BECAUSE of that dump); and the two GUI-1 Kerbals captures photographed the pre-redesign
+  single-line shape that HEAD replaced with four-column tables. Nothing in the spec named
+  the old labels, so re-flying is the whole fix. The Kerbals pair is KEPT rather than
+  dropped, correcting the audit's own recommendation: the lane photographs whatever HEAD
+  draws, and those two are the census's only DENSE Kerbals pictures. The Basic Settings
+  capture additionally moved from `h = 700` to `h = 350` so the picture shows the height a
+  player gets rather than 363 px of dead space - `op=rect` treats both size axes as floors,
+  so the window fits to its own content minimum.
+- **Automated testing: two DEAD draw branches and eight unreachable window states are now
+  filed with the source gate that makes each one so** (todo
+  `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`). The dead pair, both verified from source rather
+  than inferred: `SpawnControlUI`'s `No nearby craft to spawn.` branch can never execute,
+  because `DrawIfOpen` reads the same candidate list into `ResolveAutoCloseReason` a few
+  lines earlier and closes the window on `zero-candidates`; and the Gloops launcher is
+  retired in BOTH complexity modes, so no player can open a window whose three states this
+  wave now photographs through the seam. Also recorded, because each cost an authoring
+  decision: no committed fixture carries a depot-ORIGIN route (all three read
+  `isKscOrigin = True`), so the Structure window's `Origin: depot` form is unreachable;
+  the Logistics capacity line is gated on `RouteStatus == DestinationFull`, a status the
+  loop dispatch path never assigns, so it is unreachable even in the destination-full lane;
+  and `strategy-career` cannot photograph populated Strategies rows, because that tab reads
+  Parsek's effective ledger and the fixture carries no Parsek footprint at all.
 - **Automated testing: five new automation-only seam surfaces for the GUI census, plus the
   selected tab in the GUI-tree dump.** A read-only audit of every IMGUI draw branch put
   about 380 visibly distinct window states against about 150 captured, with the gap

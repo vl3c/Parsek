@@ -1,0 +1,338 @@
+schema = 1
+id = "GUI-23-census-logistics-hold-funds-short"
+tier = "operator"
+# THE GUI CENSUS: THE CAREER FUNDS HOLD, AND THE ONE LOGISTICS DETAIL LINE THAT ONLY A
+# CAREER SAVE CAN DRAW.
+#
+# WHY THIS LANE EXISTS ALONGSIDE GUI-21 AND GUI-22. Those two are the two ends of a physical
+# route - the origin has no cargo, the destination has no room - and both run in SANDBOX.
+# This one is the third arm of `LogisticsHoldPresentation.DescribeHold`'s switch and the only
+# one gated on a game MODE:
+#
+#     string.Format(CultureInfo.InvariantCulture,
+#         "not enough funds at KSC - short {0:F0} funds for this dispatch", shortfall)
+#
+# (`LogisticsHoldPresentation.cs:50-54`), i.e. `not enough funds at KSC - short 1 funds for
+# this dispatch`. Note the `{0:F0}`: this arm is the only one in the whole hold family that
+# rounds to WHOLE units, where the origin arm renders one decimal through
+# `FormatShortfallAmount` (`:500-503`) and the destination arm renders no number at all. The
+# measured shortfall is 1.000002384185791, so the rendered text is `short 1 funds` and the
+# float tail that RVR-17's log tokens pin to the digit is INVISIBLE in the UI. That is worth
+# an image on its own: it is the one place a reader can see how much of a precisely-measured
+# refusal actually reaches the player.
+#
+# AND THE CAREER-ONLY DETAIL BLOCK. `LogisticsCostPresentation.FormatDetailLine` builds
+# `"Cost/run: " + FormatFunds(NetCost) + "  (" + ...` (`Logistics/LogisticsCostPresentation.cs:55-66`,
+# with a `"launch N - recovered M"` body or the no-recovery caption), and the draw path
+# renders it ONLY when `leg.RunCost.Applicable && leg.RunCost.CostKnown`
+# (`LogisticsWindowUI.cs:1760-1765`) - which is false outside Career plus a KSC origin, so no
+# sandbox census lane has ever been able to draw it. It is declared a MAY below rather than a
+# claim: `Applicable` and `CostKnown` are computed in `ComputeRouteRunCost` off the live
+# Career probe and a resolved launch cost, this lane has never measured either from a census
+# capture, and a route whose cost resolved to 0 draws NOTHING by design (the G7 "no n/a, no
+# 0 funds" rule). The lane's own required `FundsCost basis=launch-manifest ... cost=7410`
+# token proves the cost WAS computed, which is the strongest evidence available before the
+# image exists; whether the UI's separate cache agreed is what the dump answers.
+#
+# Everything else is GUI-21's and GUI-22's inherited picture, so only the clause and the cost
+# block move: the cyan `New (not yet run)` cell with its `New - use Send Once to test`
+# guidance line (`CompletedCycles` is 0 here too), the ABSENCE of the `Recent cycles:` section
+# and of the `Last cycle:` / `Total delivered:` pair (a blocked cycle writes no `RouteCargo*`
+# ledger rows, so `leg.FlowLines` is null and `leg.HasDeliveries` false -
+# `LogisticsWindowUI.cs:1739` and `:1724` draw no empty header and no placeholder), and the
+# grey `Paused` badge.
+#
+# `Cyc = 0 / 2 skipped` IS THIS LANE'S OWN, and it is the only two-skip reading in the census.
+# `FormatCycleCount` (`LogisticsWindowUI.cs:3843-3848`) suffixes when `skipped > 0`, and
+# RVR-17 drives TWO send-once cycles that both refuse - the funds gate is re-evaluated per
+# crossing and a blocked cycle moves no funds, so both read the identical shortfall. GUI-21
+# and GUI-22 read `0 / 1 skipped` and GUI-20 reads `1 / 1 skipped`, so between the four the
+# column is sampled at three shapes.
+#
+# ------------------------------------------------------------------------------------
+# A CORRECTION TO THE BRIEF: THE AGE SUFFIX IS **NOT** FREE HERE, AND THIS LANE NEEDS AN
+# EXTRA TIMEJUMP LIKE THE OTHER THREE.
+#
+# The brief's reasoning was that RVR-17 already carries a 1600 -> 2200 gap, so the hold
+# recorded at 1600 would read `(checked 10.0m ago)` at the capture. THAT IS WRONG, and the
+# reason is one line of `Route.cs`: `RecordHold` writes `LastHoldUT = ut` UNCONDITIONALLY
+# (`Route.cs:661`), OUTSIDE the `changed` guard that suppresses its log line. RVR-17's step 9
+# re-arms and its step 10 jumps to 2200, which produces the cycle-1 crossing that RVR-17's own
+# `cycle=cycle-1 BLOCKED kind=FundsShort` token requires - and that crossing calls `RecordHold`
+# again with the SAME kind and detail, so it logs nothing (the `changed` guard) while still
+# RESETTING `LastHoldUT` to the cycle-1 crossing UT. The age at RVR-17's end point is therefore
+# `2200 - <cycle-1 crossing UT>`, an unmeasured value somewhere between ~0 and one loop span,
+# and `FormatDuration` returns `"-"` for `seconds <= 0` (`LogisticsWindowUI.cs:3828`) which
+# `FormatHoldDetailLine` turns into the BARE `Last cycle blocked: ...` form
+# (`LogisticsHoldPresentation.cs:117-122`). A capture appended to RVR-17 unchanged would
+# render an unpredictable suffix or none.
+#
+# SO ut=2800 IS ADDED, +600 s, and it is safe for the same reason it is on the other three:
+# once the blocked cycle-1 consumed the armed pause the route is Paused, and
+# `ProcessLoopRoute` early-returns at `RouteOrchestrator.cs:694-701` on
+# `!GhostDriving(route.Status)` with `GhostDriving(Paused) == false`
+# (`RouteStatusPolicy.cs:79`). No further crossing runs, so `LastHoldUT` is FROZEN at the
+# cycle-1 crossing UT while the clock advances 600 s.
+#
+# WHAT IS NOT CERTAIN, stated rather than glossed: the exact rendered age. `LastHoldUT` is the
+# cycle-1 CROSSING UT rather than 2200 exactly, so the age is 600 s plus however far short of
+# 2200 that crossing fell, and `FormatDuration` renders it as `{0:F1}m` for anything under
+# 3600 s (`:3832-3833`) - so somewhere at or above "10.0m". The upper end is less tightly
+# bounded than on GUI-20 / GUI-21 / GUI-22, because this host is `rover-route-career` rather
+# than the relay and its loop span has never been measured by any lane (RVR-7's 162.74 s is
+# the RELAY tree's). The lane asserts nothing about the value - the dump is the evidence - and
+# what IS certain is that it is non-degenerate, because 600 s is the floor.
+#
+# ------------------------------------------------------------------------------------
+# NO `[expectations.routes]` BLOCK. RVR-17 carries that block ARMED (`gating = true`, armed
+# 2026-09-10 off `_1727`), with `skippedCycles = { min = 2, max = 2 }` as half its whole
+# product expressed in the produced bytes. Dropping it here is what frees the extra TimeJump:
+# a census lane that copied that exact window would red on its own age-generating step if that
+# step ever produced a further crossing. The ORIGINAL keeps the gating; the census is
+# DREW-only. `SaveGame` is dropped alongside, since nothing reads a produced save.
+#
+# ------------------------------------------------------------------------------------
+# WHAT THIS LANE CANNOT PHOTOGRAPH BY APPENDING, FILED RATHER THAN FAKED. Measured, with the
+# gate named:
+#
+#   * `<dest> tanks full: ...` (`LogisticsDeliveryPresentation.cs:578-605`). Gated on the
+#     route's STATUS being `RouteStatus.DestinationFull` at both the compute site
+#     (`LogisticsWindowUI.cs:3192`) and the draw site (`:1702`), not on `LastHoldKind`. The
+#     loop dispatch path never assigns that status: its blocked branch calls only `RecordHold`
+#     (`RouteOrchestrator.cs:1394`) and its sole transition is to `Paused` (`:3832`). Doubly
+#     out of reach here: RVR-17's whole point is that the walk stops at gate 7 (funds) and
+#     never consults gate 8, and it FORBIDS `BLOCKED kind=DestinationFull` to say so.
+#   * `Held: short 1 funds` in the Status cell (`CompactHold`'s FundsShort arm,
+#     `LogisticsHoldPresentation.cs:370-377`, via `StatusCellText` at `:337-346`). Drawn ONLY
+#     in the non-Paused branch of the row (`LogisticsWindowUI.cs:1177`), so on this Paused
+#     route the compact clause reaches the TOOLTIP (`StatusCellTooltip`, `:1164`) and nothing
+#     else. GUI-20 is where that override is photographed, and it needs an `activate` this
+#     lane's host has no reason to drive - and driving one here would also mean activating a
+#     route the player cannot afford, which is not the state this lane is about.
+#   * `Pausing after this cycle...` (`LogisticsWindowUI.cs:1549-1550`). Needs
+#     `ArmedSendKind.PauseAfterCycle`, i.e. a Pause-while-InTransit arm; a `send-once` arm
+#     resolves to `"Sending one cycle..."` (`:1551-1553`), and no seam verb drives Pause on an
+#     InTransit route.
+#   * The partial-delivery report (`FormatPartialDeliveryLine`,
+#     `LogisticsHoldPresentation.cs:594-604`). Needs `Route.LastPartialDeliverySummary`,
+#     written only by a mid-transit capacity shrink. Nothing here ever delivers - the lane's
+#     product is five negatives, `Delivery write:` among them.
+#   * `Delivering` and `Flying, not delivering` (`LogisticsDeliveryPresentation.cs:329-332`).
+#     `ClassifyDeliveryBadge` short-circuits `!ghostDriving -> Paused` (`:309-310`) and
+#     `GhostDriving(Paused)` is false, so this row's badge is grey `Paused`.
+#   * EVERY `RouteStatus` BEYOND Active AND Paused, and with them the whole `StatusReason`
+#     table (`LogisticsWindowUI.cs:3882-3897`) - including its own
+#     `"Insufficient funds - ghost flies but delivers nothing this cycle"` row at `:3889`,
+#     unreachable for the same status reason - and the red `statusStyleRed` treatment
+#     (`:3929-3932`). Filed as GUI-CENSUS-SEVEN-ROUTESTATUS-VALUES-HAVE-NO-DRIVEN-HOST.
+#
+# TWO CORRECTIONS TO THE AUTHORING BRIEF beyond the age-suffix one above, measured before the
+# preamble was placed; recorded in each of the four specs so they stand alone.
+#   1. `op=complexity mode=advanced` IS NEVER REFUSED. `ParsekUI.ShouldRefuseModeChange`
+#      (`ParsekUI.cs:690-693`) is `next == UiComplexityMode.Basic && gloopsRecording` - Basic
+#      only, and GLOOPS recording (`WouldRefuseModeChange` -> `IsGloopsRecordingNow()`,
+#      `:705-708`), not a flight recording. The preamble still sits after `StopRecording` /
+#      `DiscardTree` because that reads best, but the placement is not load-bearing.
+#   2. `windows=12` IS SCENE-INDEPENDENT: the echo prints `windows={Int(rows.Count)}` over the
+#      whole window TABLE (`ParsekTestCommandAddon.UiAction.cs:835`, rows built at `:796-821`),
+#      not the scene-available subset. GUI-2 and GUI-6 already pin
+#      `scene=FLIGHT ... windows=12`.
+#
+# THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 / GUI-13 residue: `MinWindowWidth` is
+# 1410 px against the profile's 1280x720 screen and `op=rect` clamps to that floor, so the
+# picture is honestly CLIPPED at the client edge
+# (GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH). The detail panel, where both of this
+# lane's subjects live, is full-width and photographs cleanly.
+#
+# Basic is NOT photographed, for GUI-13's measured reason: zero `UiSurface` /
+# `UiComplexityMode` references in `LogisticsWindowUI` or its presentation helpers, the only
+# gate is the launcher, and GUI-3's basic and advanced dumps yield an identical text set.
+description = "GUI census: the CAREER funds hold, the only arm of DescribeHold's switch gated on a game MODE, on RVR-17's chain plus a capture tail. The rendered clause is 'not enough funds at KSC - short 1 funds for this dispatch' (LogisticsHoldPresentation.cs:50-54), and its {0:F0} is the point: this is the one hold arm that rounds to WHOLE units, where the origin arm renders one decimal and the destination arm renders no number, so the measured 1.000002384185791 that RVR-17 pins to the digit is INVISIBLE in the UI - an image of how much of a precisely-measured refusal reaches the player. Second subject, declared a MAY: the Career-only 'Cost/run: ...' detail block (LogisticsCostPresentation.cs:55-66), drawn only when leg.RunCost.Applicable && CostKnown (LogisticsWindowUI.cs:1760-1765), which is false outside Career plus a KSC origin so no sandbox census lane could ever draw it; a MAY rather than a claim because those two flags come from the live Career probe and a resolved launch cost that no capture has measured, and a cost of 0 draws nothing by design. Also this lane's own 'Cyc = 0 / 2 skipped', the census's only two-skip reading (both driven cycles refuse; a blocked cycle moves no funds so both report the identical shortfall). A CORRECTION TO THE BRIEF: the (checked N ago) suffix is NOT free here. The brief assumed the hold recorded at 1600 would age across the 1600->2200 gap, but RecordHold writes LastHoldUT UNCONDITIONALLY (Route.cs:661, outside the changed guard that suppresses its log line), so the cycle-1 crossing that RVR-17's own token requires silently RESETS it - leaving an unmeasured age between ~0 and one span, which FormatDuration may render as '-' and FormatHoldDetailLine then drops entirely. So an extra TimeJump to ut=2800 is added like the other three lanes, safe because a Paused route runs no crossings (RouteOrchestrator.cs:694-701) and LastHoldUT is frozen. The rendered age is at or above 10.0m with a looser upper bound than the relay lanes, since this host's loop span has never been measured. NO [expectations.routes] block: the ORIGINAL keeps that gating armed, and dropping it frees the extra jump from its exact skippedCycles=2 window. FILED AS UNREACHABLE BY APPENDING, each with its gate: the <dest> tanks full: capacity line (status-gated on RouteStatus.DestinationFull, and doubly out of reach since this lane's whole point is that the walk stops at gate 7 and forbids the gate-8 token), the Held: status-cell override (non-Paused branch only), Pausing after this cycle..., the partial-delivery report, both non-grey badges, and all seven RouteStatus values beyond Active/Paused."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "logistics", "GUI-23", "pending-operator"]
+
+[fixture]
+# RVR-17's host and its career seed, verbatim. `rover-route-career` is `rover-route-recorded`
+# stamped into CAREER by construction, with the ParsekScenario node, the whole FLIGHTSTATE and
+# every sidecar byte-identical to the sandbox sibling - which is what makes it the only census
+# host that can draw a Career-gated Logistics surface at all.
+saveTemplate       = "fixtures/saves/rover-route-career"
+injectedRecordings = "none"
+craft              = []
+
+[fixture.career]
+# ONE FUND SHORT OF THE COMPUTED DISPATCH COST, verbatim from RVR-17. 7410.0000023841858 -
+# 7409 = 1.000002384185791, and the UI's `{0:F0}` renders that as `short 1 funds`. The seed is
+# what the gate actually reads: the committed ledger's five milestone awards would put the
+# RUNNING balance at 7409 + 18200, but `KspStatePatcher.PatchFunds` runs the target through
+# `ApplyDrawdownGuard` and the keep-what-you-earned guard clamps the uplift back to the live
+# pool, which RVR-17's flight measured verbatim as
+# `GUARDED UPLIFT clamped resource=Funds running=25609 live=7409 clampedTo=7409`. That line
+# stays UNPINNED here for RVR-17's reason: it is a property of a file-constructed career, not
+# a product contract.
+funds = 7409
+
+[driver]
+kind = "seam"
+steps = [
+  # --- RVR-17's steps 0-4 verbatim. `activeVessel = 7` is focusable and no `scene=` arg is
+  # passed, so this boots FLIGHT, where the Logistics window is drawn from the flight-scene
+  # launcher (`logistics` is `InFlight = true`, `TestCommandUiAction.cs:535`).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is the real precondition: the settle for a
+  # non-`main` open / rect REFUSES while the host's `showUI` is false
+  # (`ERROR window-host-hidden`).
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- RVR-17's steps 5-10 verbatim: seal, create, send-once, cycle 0 (refuses at gate 7),
+  # send-once, cycle 1 (refuses identically and consumes the arm into Paused).
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "RVR17 Broke Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR17 Broke Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR17 Broke Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "2200" },                             expect = "OK", budget = 300 },
+
+  # --- THE ONE ADDED STEP, and the brief expected none: the cycle-1 crossing inside the
+  # 1600 -> 2200 jump silently RESET `LastHoldUT` (`RecordHold` writes it outside the
+  # `changed` guard, `Route.cs:661`), so the age at step 10 is unmeasured and may render as
+  # nothing. +600 s over a route that is now Paused and runs no further crossings.
+  { cmd = "TimeJump",     args = { ut = "2800" },                             expect = "OK", budget = 300 },
+
+  # --- THE CAPTURE. `expand key=all` opens the route detail panel, which is where BOTH of
+  # this lane's subjects live: the route's own `Id` IS the panel's `expandedRows` key
+  # (`LogisticsWindowUI.cs:1075` draws from `route.Id ?? "<no-id>"` and
+  # `EnumerateRowKeysForTesting` at `:98-114` emits exactly that id), so the bulk form is the
+  # right one - the id is minted per run and no committed spec could name it.
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rvr17-logistics-hold-funds-short-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "rvr17-logistics-hold-funds-short-advanced" }, expect = "OK" },
+
+  # RVR-17's `SaveGame` is DROPPED with its `[expectations.routes]` block: nothing here reads a
+  # produced save, and the step would only be a clobber risk against a sibling run sharing the
+  # template.
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 ONLY, and RVR-17's own block is the precedent rather than an exception to it: its header
+# records that it declines BOTH rows it might have earned (`ksc-origin` is BDOCK-1's,
+# `hold-reasons` is H38's) because RVR-4 measured the career branch first and deliberately
+# declared nothing, and that "the first measurer's abstention stands". A census clone claiming
+# a behavioural row its host lane declined twice over would be bookkeeping. The D14 values are
+# RVR-17's, which differ from the other three census lanes' because this host is a career save.
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RVR-17's exact window, inherited as a MEASURED number: RVR-4 observed 5 on all three of its
+# flights over the identical career payload, the career stamp touches no RECORDING node and the
+# career patch touches one SCENARIO key. It is the anti-vacuity floor for the whole lane as
+# much as an anti-data-loss one: the route holds SOURCE references into this corpus, so a
+# destroyed sidecar would flip it to `SourceChanged`, `ShouldDisplayHold` would then SUPPRESS
+# the hold text (`LogisticsHoldPresentation.cs:143-145`), and the capture would photograph an
+# empty detail panel under a label claiming a held route.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# RVR-17's THIRTEEN required tokens are carried forward UNCHANGED. The chain edits are one
+# appended TimeJump and a dropped `SaveGame`, and no token reads either: every one is a boot /
+# seal / create / cycle-0 / cycle-1 line emitted at or before RVR-17's own step 10. Nothing was
+# dropped as invalidated.
+#
+# TWO OF THEM DO MORE THAN SET UP THE CAPTURE. `FundsCost basis=launch-manifest ... fallback=0
+# snapshotSurface=ghost cost=7410` is the only token proving the CAREER branch was taken at all
+# on a non-dispatching cycle (`KscFundsAvailable` is the sole caller of
+# `ComputeDispatchFundsCostForRoute` there, and it runs only under
+# `env.IsCareer && route.IsKscOrigin`), so it is also the strongest available evidence for the
+# `Cost/run:` MAY - the cost WAS computed; whether the UI's separate legibility cache agreed is
+# what the dump answers. And the hold token's `detail=funds-short` is the evaluator reason
+# string the rendered clause is derived from, which is what makes the photographed sentence
+# attributable to gate 7 rather than to a status label.
+#
+# THE SEAM RECORDS ARE THIS LANE'S OWN, in the GUI-13 style and DREW-ONLY. Nothing is pinned
+# about WHAT the window drew - the dump is the evidence a human or an agent reads. The two
+# describe echoes are the in-run mapping check and are EXACT claims (a third open window would
+# move `open=`).
+#
+# THE EXPAND LINE is the only seam token that is not bookkeeping: `changed=[1-9][0-9]*` says at
+# least one addressable row went from collapsed to expanded. `key=all` finds the three fixed
+# section keys plus the one route id here, and two of those sections (Dormant, Dismissed)
+# render nothing, so a floor of 1 is not vacuous - a zero would mean the window drew no route
+# and the label photographs an empty table.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=73e50f1e3aa24c299919016cd9e92269 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='RVR17 Broke Supply' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "FundsCost basis=launch-manifest route=\\S+ source=cf8d06fc7bf74e1a82bc70fc79290847 snapshotSource=cf8d06fc7bf74e1a82bc70fc79290847 fallback=0 snapshotSurface=ghost cost=7410(\\.[0-9]+)?",
+  "cycle=cycle-0 BLOCKED kind=FundsShort reason=funds-short shortfall=1(\\.[0-9]+)?[ ]",
+  "cycle=cycle-1 BLOCKED kind=FundsShort reason=funds-short shortfall=1(\\.[0-9]+)?[ ]",
+  "Route [0-9a-f]{8} hold recorded kind=FundsShort detail=funds-short",
+  "ArmedPause: route .* BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused armedBy=send-once hold kind=FundsShort",
+  "EmitPendingRecoveryCredit: route [0-9a-f]{8} no pending credit at ut=",
+  "LifecycleMarker: route .* type=RoutePaused reason=blocked-then-paused",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=all state=true changed=[1-9][0-9]* expanded=[1-9][0-9]* total=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rvr17-logistics-hold-funds-short-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rvr17-logistics-hold-funds-short-advanced .*patched=17/17",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # RVR-17's five negatives verbatim. Nothing was priced INTO a charge, nothing left the pool,
+  # nothing arrived at the endpoint - and here the middle three are also the CAPTURE's
+  # precondition, because each is a ledger row that would populate `leg.FlowLines` /
+  # `leg.HasDeliveries` and draw the flow section and the H2 pair this lane photographs the
+  # ABSENCE of.
+  "DispatchDebit:",
+  "Career KSC funds debited",
+  "Delivery write:",
+  "Inventory store:",
+  # AND THE WALK STOPPED AT STEP 7. Gate 8 would have PASSED on these bytes (102.4 of tank
+  # headroom against a 97.6 manifest, 3 free slots), so a `DestinationFull` reading would mean
+  # the career patch did not take - and the photographed clause under this label would be
+  # GUI-22's `destination has no room for LiquidFuel` instead of this lane's funds sentence.
+  "BLOCKED kind=DestinationFull",
+]
+
+[runtime]
+# RVR-17's 2400 unchanged. The capture tail adds ~6 UI ops and one capture/dump pair, and those
+# are single-phase or two-phase settles measured at seconds each (GUI-12 measured seven
+# captures plus seven dumps at 89 s wall), not another deferred verb. The added TimeJump does
+# add deferred budget - `run.py` gives every deferred seam verb
+# `max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600)` = 660 s regardless of the declared
+# budget, so this lane has FOUR deferred steps (LoadGame + three TimeJumps) = 2640 s worst case
+# against RVR-17's three at 1980. The 2400 is kept anyway rather than raised, because RVR-17
+# came in at 50 s wall and RVR-4's runs at 50-74 s on the identical driver; the worst case is a
+# timeout bound nothing has approached, and a KILLED run loses the image, which is the product.
+# 900 s, the figure every other census lane uses, and it is a REDUCTION from the 3000 /
+# 2400 this lane inherited from its RVR original. The original's budget is sized for a
+# behaviour lane that may retry a long chain; this clone's MEASURED wall is 55 s
+# (run `2026-09-21_2119`), and its longest single step is the mid-chain `TimeJump`, whose own
+# step budget is declared inline and unchanged. 900 s is therefore still 15x the
+# measurement and stays generous because the PRODUCT is the images and the trees, and a
+# KILLED run leaves neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

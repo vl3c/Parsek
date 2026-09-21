@@ -80,11 +80,34 @@ tier = "operator"
 # all draw in one pass, and three are hidden in Basic), so the Advanced/Basic pair IS its
 # section coverage; Logistics' bubbles are expand-collapse, not a selector.
 #
-# 22 PNGs (17 Advanced + 5 Basic) and 22 dumps beside them: 44 files, plus ONE more the
+# 23 PNGs (18 Advanced + 5 Basic) and 23 dumps beside them: 46 files, plus ONE more the
 # `GuiTree` batch below writes itself (`parsek-guitree-probe.gui.json`, its probe
-# window's own capture) = 45, against the harvest's 64-file cap
+# window's own capture) = 47, against the harvest's 64-file cap
 # (hlib.ARTIFACT_MAX_SCREENSHOTS). That is why the dump steps do not need the cap raised
-# and why a 23rd capture would want the arithmetic re-checked rather than just added.
+# and why a 24th capture would want the arithmetic re-checked rather than just added.
+#
+# THE 23rd IS `ksc-logistics-nearmiss-advanced`, added 2026-09-21 off a state-coverage
+# audit of every capture this census had taken. It is the highest-yield single step the
+# audit found: the Logistics window's near-miss subsection header is present and
+# COLLAPSED in every existing capture, so all twelve of its reject reason strings had
+# never been photographed anywhere, while this host alone had 18 rows waiting under it.
+#
+# TWO EXISTING LABELS CHANGED MEANING RATHER THAN NAME in the same pass, and both are
+# re-shot by the act of re-flying this lane against HEAD:
+#   - `ksc-settings-advanced` / `ksc-settings-basic` photographed a button reading
+#     `Wipe All Game Actions (N)`; HEAD draws `Wipe All Milestones (N)`
+#     (SettingsWindowUI.cs, renamed after the first flight). Nothing in this spec named
+#     the old label, so the re-fly is the whole fix. The Basic capture ALSO changed rect
+#     (see its step) so that it shows the height a player gets.
+#   - `ksc-career-milestones-advanced` photographed the Rewards column at 180 px with
+#     cells wrapping; HEAD sets `ColW_Rewards = 320f`, widened BECAUSE of that dump.
+# And `ksc-kerbals-roster-advanced` / `ksc-kerbals-outcomes-advanced` photographed the
+# PRE-REDESIGN single-line Kerbals shape, which HEAD replaced with four-column tables.
+# They are KEPT rather than dropped, which is a correction to the audit's own
+# recommendation: the lane photographs whatever HEAD draws, so a re-fly makes them
+# current, and they are this census's only DENSE Kerbals pictures (the committed-fixture
+# lanes GUI-11 / GUI-6 hold a handful of kerbals each). Dropping them would have traded a
+# stale picture for no picture.
 # The batch's own dump is a BONUS artefact, not a product of this lane: it is the probe
 # window, not a Parsek one, and the viewer will render it beside the census pages.
 #
@@ -261,6 +284,24 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
+  # THE NEAR-MISS SUBSECTION, EXPANDED. The one line item this host buys that no other
+  # can: the collapsed header `Recently committed trees not yet eligible (N)` is already
+  # in the capture above, and every one of the reject strings under it
+  # (LogisticsRejectPresentation.DescribeNearMiss over RouteCreationFormatters) has been
+  # dark in every census dump, because nothing ever expanded it. The key is the window's
+  # own fixed section key, published as `LogisticsWindowUI.NearMissSectionKeyForTesting`
+  # ("nearmiss:section") and enumerated by `EnumerateRowKeysForTesting`, so the wire form
+  # is `key=row:nearmiss:section` - the `row` prefix is the Logistics window's only one.
+  # NAMED RATHER THAN `key=all`: `all` would also open every route detail panel and every
+  # candidate row, which is `ib-logistics-expanded-advanced`'s picture on GUI-3 and would
+  # bury the subsection this capture exists for under the rest of the stack.
+  # The near-miss list is built on the window's own ~1 Hz timer (`GetNearMisses`), and the
+  # header above is drawn from the same cache, so a non-zero count in the collapsed
+  # picture is what makes the expanded one non-empty. It is also this window's first
+  # scroll-extent picture on this host.
+  { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "row:nearmiss:section" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-nearmiss-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-logistics-nearmiss-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
 
   # structure list (empty chrome - see KNOWN THIN CAPTURE above)
@@ -323,7 +364,17 @@ steps = [
 
   { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "700" }, expect = "OK" },
+  # `h = 350`, NOT the 700 every other step here commands, and the number is the point.
+  # `op=rect` treats BOTH size axes as FLOORS (RectAppliedWithinTolerance), so a commanded
+  # height BELOW the window's own content minimum is applied and the window then grows to
+  # exactly that minimum - which is the height a PLAYER gets. At 700 the Basic capture
+  # carried ~363 px of dead space under its last control, so the picture showed a window
+  # shape nobody sees; Basic drops the Looping (3) + Diagnostics (10) + Sample Density (5)
+  # = 18 controls of Advanced (UiComplexityMode.cs), and this is the capture that shows
+  # what that does to the window's size rather than only to its contents. 350 is below the
+  # measured Basic content height and above nothing, so the read-back reports the fitted
+  # rect and the step is still an assertion.
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "350" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-settings-basic" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-settings-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
@@ -433,6 +484,10 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,timeline",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,logistics",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,settings",
+  # --- the near-miss expand, pinned `changed=1` so a key the window no longer enumerates
+  # reds here rather than producing a picture of the collapsed section under the expanded
+  # label. `expanded=` / `total=` are left open: they count this host's live row set. ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=row:nearmiss:section state=true changed=1 expanded=[0-9]+ total=[0-9]+",
   # --- and one capture, proving the write-and-settle path end to end ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ksc-main-advanced",
   # --- every dump, each pinning the arm-time funnel reading for its own frame ---
@@ -450,6 +505,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-facilities-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-milestones-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-nearmiss-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-structure-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-settings-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-testrunner-advanced .*patched=17/17",

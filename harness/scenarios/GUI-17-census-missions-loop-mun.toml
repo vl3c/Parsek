@@ -1,0 +1,180 @@
+schema = 1
+id = "GUI-17-census-missions-loop-mun"
+tier = "operator"
+# THE GUI CENSUS: THE MISSIONS TAB WITH A LOOP ARMED, PHASE-LOCKED FORM.
+#
+# WHY THIS LANE EXISTS. A state-coverage audit scanned every `*missions*.gui.json` the
+# census has written and measured the same reading in all of them: every Loop tick box
+# reads `value=False` and every period field reads `enabled=false`. So the Missions tab
+# has only ever been photographed with looping OFF, and the whole authoring cluster that
+# appears when it is ON has no picture: the checked box, the editable period field, the
+# live unit button, the `Loops ~P` clause in the mission summary, the `Next launch T- ...`
+# cell and the enabled `Warp to...`. That is eight states behind one switch.
+#
+# AND THE SWITCH ALREADY EXISTS. `MissionConfig tree=<treeId> loop=true` drives
+# `MissionStore.SetLoopEnabled` through the production path (the same anchor stamping and
+# one-loop-per-tree conflict clearing the Missions window's own tick box does), and it is
+# used by more than ten non-GUI specs - V10 through V17, S0.11, B26 - and by ZERO GUI
+# specs. This lane is the first census use of the single highest-yield lever the seam
+# already had.
+#
+# WHY THE PERIOD CELL HERE IS A DIFFERENT CONTROL SET, not just a different string, and
+# why that makes this host worth its own flight. When a loop's schedule is PHASE-LOCKED
+# to a transfer window, `BuildPeriodCellDisplay` renders a LABEL (`~6.4d (Mun window)`
+# shape) instead of the editable field-plus-unit-button pair - so the row's layout
+# changes, not merely its text. The audit measured `" window)"`, `"varies"` and
+# `"transfer)"` at ZERO hits across every dump. `mun-orbit-recorded` is the phase-locked
+# subject: `V6M-mun-player-loop` flies this exact tree and this exact `MissionConfig`
+# step, and its header records the measured schedule (k=13 pad rotations, phase anchor
+# 280,176.947) - so the shape is borrowed from a green lane rather than predicted. Its
+# sibling `GUI-18-census-missions-loop-duna` takes the RE-AIM rendering on
+# `duna-direct-recorded` for the same reason.
+#
+# THE TREE ID IS A LITERAL, which is the house pattern for this verb rather than a
+# shortcut: every one of the ten-plus specs that arms `MissionConfig` names its fixture's
+# tree id verbatim, because a committed fixture's tree id is stable bytes. The runtime
+# `${label.field}` route through `ListHandles kind=committed` exists and would also work,
+# but it would make this spec's central step unreadable for no gain.
+#
+# THIS LANE RUNS IN FLIGHT, AND THAT IS FORCED. `MissionConfig` is
+# `VerbSceneRequirement.RequiresFlight` in the dispatcher's precondition table, so no
+# amount of `scene=` could put this walk at the Space Center. The Missions window is
+# drawn in FLIGHT by `ParsekFlight` (GUI-6 and GUI-7 photograph it there), so the capture
+# is honest - and it rides along on a second gap the audit measured, which is that the
+# flight-only Watch column sits beside every row here.
+#
+# THE `StopRecording` + `DiscardTree` PREAMBLE is V6M's and V4's verbatim, and it is a
+# precondition rather than tidiness: this fixture resumes a live recording on a FLIGHT
+# load, and a live tree left standing would be written into the produced save by
+# `FlushAndQuit` - so the analyzer would then read a census's own output as a recording.
+#
+# THE ONE PRODUCTION REFUSAL `op=complexity` HAS IS NARROWER THAN THE AUDIT SAID, and
+# it is worth stating because an earlier draft of this header got it wrong:
+# `ParsekUI.ShouldRefuseModeChange` is exactly `next == Basic && gloopsRecording` -
+# BASIC only, and a manual GLOOPS recording only, never a flight recording. Advanced
+# is never refused, because it only ever reveals surfaces. So this lane's single
+# `mode=advanced` op could stand anywhere; it is placed after the two teardown steps
+# because that is where the rest of the preamble belongs, not because a recorder
+# would have blocked it.
+description = "GUI census: the Missions tab with a mission loop ARMED through the production path on the phase-locked Mun subject - the checked tick box, the label-form period cell a window-locked schedule renders instead of an editable field, the Next launch cell and the enabled Warp affordance, none of which any capture had - plus the vessel rows expanded."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "missions", "loop", "GUI-17", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/mun-orbit-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot to FLIGHT (the default route; see the header on why this lane cannot be at
+  # the Space Center) and clear the resumed recorder.
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree",   expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is a precondition: a non-`main` open
+  # or rect settle REFUSES while the host's `showUI` is false.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- STATE 1: loop OFF. The baseline, taken on THIS host and THIS frame so the pair
+  # below is a one-variable diff rather than a comparison across fixtures.
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "mo-missions-loopoff-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "mo-missions-loopoff-advanced" }, expect = "OK" },
+
+  # --- THE SWITCH. `V6M-mun-player-loop`'s step verbatim, tree id included.
+  { cmd = "MissionConfig", args = { tree = "d18969d6121444c1a30e4a55ae87a442", loop = "true" }, expect = "OK" },
+  # Two inert round trips so a real frame passes between the mutation and the read: the
+  # Missions window rebuilds its presentation from `MissionStore` on its own refresh, and
+  # a capture in the same frame as the write could photograph the pre-write layout.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- STATE 2: loop ON. The capture this lane exists for.
+  { cmd = "CaptureScreenshot", args = { label = "mo-missions-loopon-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "mo-missions-loopon-advanced" }, expect = "OK" },
+
+  # --- STATE 3: loop ON with every addressable row open. The Missions window's expand
+  # prefixes are group / chain / vessel / leg / digest, and `key=all` opens all five
+  # families at once - which buys the per-vessel interval detail sub-rows (a different
+  # label grammar, `BuildIntervalRowLabel`) that no capture expands, and any STASH
+  # virtual group this host has, whose member rows suppress the loop UI entirely.
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "mo-missions-loopon-expanded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "mo-missions-loopon-expanded-advanced" }, expect = "OK" },
+
+  # --- and the Recordings tab under the same armed loop, because the per-RECORDING loop
+  # tick box is a DIFFERENT switch from the mission one (`MissionConfig` does not write
+  # `Recording.LoopPlayback`) and the pair in one contact sheet is what makes that
+  # readable.
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "mo-missions-recordings-loopon-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "mo-missions-recordings-loopon-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY. `V6M-mun-player-loop` and `V6T-mun-ts-arrival` are the lanes that claim
+# this tree's loop-arrival dimensions and gate the schedule arithmetic; a census over the
+# same switch claims nothing behavioural.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# NINE, and not this lane's derivation: `V6M`, `V6T` and `H51-save-load` all fly this
+# fixture and all three pin `count = {min = 9, max = 9}` off measured runs. A census
+# neither records nor deletes, and the `DiscardTree` above rolls back the resumed tree, so
+# the same number holds - and it is also the anti-vacuity floor, because a loop armed on
+# a host that staged nothing would photograph an empty tab.
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+# This lane's OWN seam records. The describe echoes are the in-run mapping check:
+# `open=<n> openWindows=<names>` pinned as a literal is an EXACT claim.
+#
+# THE MISSIONCONFIG LINE IS THIS LANE'S CENTRAL CLAIM: `loop=True` in the verb's own
+# applied record is what says the switch really flipped through production, so a capture
+# labelled `loopon` cannot be a picture of the off state. The mission NAME is regexed
+# rather than pinned - it is the fixture's own generated group name and not this lane's
+# subject.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "missionconfig applied: mission='.*' tree=d18969d6121444c1a30e4a55ae87a442 loop=True",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=mo-missions-loopon-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=mo-missions-loopoff-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=mo-missions-loopon-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=mo-missions-loopon-expanded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=mo-missions-recordings-loopon-advanced .*patched=17/17",
+]
+forbidden = []
+
+[runtime]
+# Four captures and four dumps, a 300 s cold-load allowance, one loop arming and ~25
+# single-phase UI ops over a nine-recording sandbox tree. GUI-6 measures a comparable
+# flight-scene window walk; GUI-12 measured seven captures plus seven dumps at 89 s.
+# 900 s is an order of magnitude over the sum and stays generous because the PRODUCT is
+# the images and the trees, and a KILLED run leaves neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

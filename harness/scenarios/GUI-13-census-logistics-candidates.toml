@@ -1,0 +1,175 @@
+schema = 1
+id = "GUI-13-census-logistics-candidates"
+tier = "operator"
+# THE GUI CENSUS: THE LOGISTICS CANDIDATES SECTION, POPULATED.
+#
+# WHY THIS LANE EXISTS, and it is the one gap GUI-3's own header names as still owed:
+# every Logistics capture the census has taken shows the `Candidates` section EMPTY. On
+# `interbody-route-recorded` (GUI-3's host) that is structural - it carries a DISMISSED
+# list and two created routes, not live candidates - and on the operator's own career
+# (GUI-1) the eligible trees have all already become routes. So the whole
+# route-CREATION workflow, which is the only way a player ever gets a supply route, has
+# no picture at all: not the candidate row (its caret, generated name, origin,
+# destination, `Would deliver` manifest, `Transit`, `Create Route`, `Dismiss`), not the
+# candidate DETAIL panel, and not the per-run cost suffix.
+#
+# THE HOST IS THE ROUTE-CANDIDATE FIXTURE, by construction rather than by luck.
+# `rover-route-recorded` carries TWO fully sealed recording trees and NO `ROUTES` node
+# at all - `harness/fixtures/saves/README.md` states that as one of the three properties
+# its builder's `--check` asserts, and it is what gives `RVR-2`'s driven
+# `RouteCommand action=create` something to do. A census over it therefore photographs
+# the section in the one state the other hosts cannot reach. Verified against the
+# committed bytes: zero `ROUTE` nodes, so the `Routes` section above is EMPTY here and
+# `Candidates` is the whole picture - the mirror image of GUI-3.
+#
+# `op=expand window=logistics key=all` IS THE STEP THAT BUYS IT. The window's candidate
+# detail panels are keyed `cand:<treeId>`, and `EnumerateRowKeysForTesting` emits one per
+# row of the window's OWN cached candidate list (the ~1 Hz refresh's output, which is
+# also what `DrawCandidateRow` draws from - a live re-derivation there would answer keys
+# for rows the window is not drawing this second). Those keys were fixed on 2026-09-11
+# and have never drawn a row on any host, because no capture on a candidate-carrying
+# host has ever expanded them. The collapsed capture is taken FIRST so the pair is the
+# diff.
+#
+# `scene = "spacecenter"` IS REQUIRED: this host's `activeVessel = 7` names a focusable
+# vessel, so a plain LoadGame takes TestCommandLoadGame.DecideLoadRoute's Focusable
+# branch and boots into FLIGHT. R12's `scene=` arg forces the NoVesselSpaceCenter route.
+#
+# WHAT THIS LANE DOES NOT PHOTOGRAPH, and the reason is a CORRECTION to the audit that
+# proposed it. The audit asked for a second capture here of the Structure window in
+# Route mode showing `Origin: depot`, on the theory that `depot-route-recorded` carries
+# a depot-origin route. It does not: all THREE committed routes in the whole fixture set
+# (one in `depot-route-recorded`, two in `interbody-route-recorded`) read
+# `isKscOrigin = True`, so `Origin: depot` is unreachable from every committed host and
+# `depot-route-recorded` is named for its flight shape rather than for its route's
+# origin. Filed as GUI-CENSUS-NO-FIXTURE-CARRIES-A-DEPOT-ORIGIN-ROUTE rather than faked
+# from a KSC-origin route under a depot label.
+#
+# THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 residue verbatim: its own
+# `MinWindowWidth` is 1410 px against the profile's 1280x720 screen, and `op=rect`
+# clamps to that floor, so the picture is honestly CLIPPED at the client edge rather
+# than squeezed into a layout no drag can produce
+# (GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH).
+#
+# Basic is NOT photographed and that is measured, not skipped: `LogisticsWindowUI` and
+# all thirteen of its presentation helpers contain zero `UiSurface` / `UiComplexityMode`
+# references, the only gate is the launcher and Basic keeps it, and GUI-3's own
+# `ib-logistics-basic` / `ib-logistics-expanded-advanced` dumps yield an IDENTICAL
+# 92-string text set. One mode is the whole coverage.
+description = "GUI census: the Logistics window's Candidates section POPULATED, on the route-candidate fixture that carries two sealed trees and no routes - collapsed, then with every candidate row and candidate detail panel expanded, the route-creation workflow's first picture."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "logistics", "GUI-13", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot, forced to the Space Center (activeVessel = 7 is focusable) ---
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is a precondition, not just order: the
+  # settle for a non-`main` open / rect REFUSES while the host's `showUI` is false
+  # (`ERROR window-host-hidden`), because the frame that advanced the count never drew
+  # the window and the read-back would only be reading the write back.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rr-main-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "rr-main-advanced" }, expect = "OK" },
+
+  # --- STATE 1: every section collapsed. The baseline the expanded picture is read
+  # against, and the one that shows the candidate ROW shape (caret, name, origin,
+  # destination, manifest, Transit, Create Route, Dismiss) without its detail panel.
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rr-logistics-candidates-collapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "rr-logistics-candidates-collapsed-advanced" }, expect = "OK" },
+
+  # --- STATE 2: every addressable row expanded. On this host that set is the three fixed
+  # section keys plus one `cand:<treeId>` per candidate row and NO route ids at all, so
+  # `key=all` is exactly "open every candidate detail panel" here - which is what makes
+  # the bulk form the right one rather than a named key a committed spec could not carry
+  # (a tree id is save-specific). `changed=` is pinned as a floor below: a zero would
+  # mean the window drew no candidates and this label photographs nothing.
+  { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rr-logistics-candidates-expanded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "rr-logistics-candidates-expanded-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
+
+  # --- and the Missions window over the two sealed trees, because the near-miss and
+  # candidate wording both name TREES and a reviewer wants the rows they name in the same
+  # contact sheet. Recordings tab: this host's trees are the only committed pair in the
+  # suite whose baked pids DIFFER, so the table's row identity is not the shared-pid case
+  # every other fixture shows.
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rr-missions-recordings-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "rr-missions-recordings-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The two committed trees this host is, and the anti-vacuity floor for the whole lane: a
+# candidate is DERIVED from committed trees, so a run that staged nothing would draw an
+# empty Candidates section under a label claiming a populated one. FIVE EXACTLY, which is
+# not this lane's derivation: `RVR-1` and `RVR-16` fly the same host and both pin
+# `count = {min = 5, max = 5}` off measured runs, and a census neither records nor
+# deletes, so the same number holds here and any drift is a staging defect rather than a
+# layout one.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# Only this lane's OWN seam records. The describe echoes are the in-run mapping check:
+# each `open` is followed by a `describe` whose `open=<n> openWindows=<names>` echo is
+# pinned as a literal, which is an EXACT claim - a third open window would move the
+# count.
+#
+# THE EXPAND LINE IS THIS LANE'S CENTRAL CLAIM and the only one that is not bookkeeping:
+# `changed=[1-9][0-9]*` says at least one addressable row went from collapsed to
+# expanded. On a host with no candidates the three fixed section keys are all that
+# `key=all` could find, and two of those (Dormant, Dismissed) render nothing here, so a
+# floor of 1 is not vacuous - `expanded=` and `total=` are left open because they count
+# the live candidate set, which is derived per run rather than stored.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=all state=true changed=[1-9][0-9]* expanded=[1-9][0-9]* total=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rr-main-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rr-main-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rr-logistics-candidates-collapsed-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rr-logistics-candidates-expanded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rr-missions-recordings-advanced .*patched=17/17",
+]
+forbidden = []
+
+[runtime]
+# Four captures and four dumps, a 300 s cold-load allowance and ~20 single-phase UI ops
+# over a two-tree sandbox save. GUI-3 measures the same window walk on a comparable host;
+# GUI-12 measured seven captures plus seven dumps at 89 s. 900 s is an order of magnitude
+# over any of those and stays generous because the PRODUCT is the images and the trees,
+# and a KILLED run leaves neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

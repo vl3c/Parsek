@@ -1,0 +1,272 @@
+schema = 1
+id = "GUI-14-census-settings-and-facility"
+tier = "operator"
+# THE GUI CENSUS: THE SETTINGS WINDOW'S GREYED HALF, ITS THREE DENSITY STATES AND ITS
+# DIAGNOSTICS SECTION ARMED - then a REAL facility upgrade so the Career State window's
+# Facilities tab finally has a row above level 1.
+#
+# WHY THIS HOST. `fresh-career` is the empty-career fixture, and empty is exactly what
+# two of this window's controls need in order to be GREY: `Wipe All Recordings` is
+# disabled when there are no recordings and `Wipe All Milestones` when there are no
+# milestones (SettingsWindowUI). Every existing Settings capture was taken on a dense
+# career or a pad craft, so both buttons were live in all of them and the window's only
+# two disabled controls had no picture. The greyed halves verify FROM THE TREE - a
+# `.gui.json` node carries `enabled` - so this lane's central claim does not depend on
+# hover, which is refuted at the strongest available setting
+# (GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT). The REASON strings beside them
+# still need the hover fix and are not claimed here.
+#
+# ORDER: EVERY SETTINGS CAPTURE COMES FIRST, while the save is still untouched, and the
+# Career captures come after. The reason first written here was that the facility upgrade
+# writes a milestone which would ENABLE `Wipe All Milestones`, and THE FIRST FLIGHT
+# REFUTED THAT: a `FacilityUpgrade` is not a Milestones row, that tab still read
+# `(no milestones credited)` after the upgrade, and the button would presumably have
+# stayed greyed. The ordering STAYS, for a weaker but still real reason - a census should
+# photograph the empty-career state of a window before anything in the lane mutates the
+# save, because the next action that DOES credit a milestone would silently change the
+# picture under the label - and the corrected reading is recorded rather than smoothed
+# over, because "the upgrade enables the wipe" is the kind of claim a later author would
+# build on.
+#
+# THE THREE DENSITY STATES AND THE FIVE DIAGNOSTICS TOGGLES are `SetSetting` work, not
+# new seam work: `samplingDensity` (Int 0..2) and all five tracing flags
+# (`verboseLogging`, `ghostRenderTracing`, `mapRenderTracing`, `ledgerTracing`,
+# `writeReadableSidecarMirrors`) are on the whitelist (`SettingWhitelist.cs`). `Medium`
+# was the only density ever photographed; `Low` and `High` each draw their own summary
+# string, and the Diagnostics section had never been photographed with a single toggle
+# on.
+#
+# THE FACILITY ROW ABOVE L1 is the Career window's own P1, and the census could not
+# answer a correctness question without it: `CreateFacilitiesTabVM` defaults any facility
+# with no ledger `FacilityUpgrade` action to `Level = 1`, so every capture across three
+# fixtures read nine rows of `L1` - which is consistent both with "nothing was upgraded"
+# and with "the window cannot see upgrades". One driven upgrade separates the two.
+# `KscAction action=upgrade-facility facility=SpaceCenter/TrackingStation` is
+# `L1-upgrade-facility-career`'s own step, LIVE-PROVEN on THIS fixture
+# (`2026-07-23_1955`), including the -150,000 funds debit against the save's 500,000
+# seed - so the step is borrowed rather than invented, and it requires SPACECENTER,
+# which this host's zero-vessel `FLIGHTSTATE` gives by the `NoVesselSpaceCenter` route
+# with no `scene=` arg.
+#
+# THE MIN-SIZE CAPTURE. `CareerStateWindowUI` declares a 520x200 drag floor, and at
+# 520 px a four-fixed-column table (the Milestones one totals 90 + 200 + 320 + 70 =
+# 680 px) CANNOT fit while IMGUI does not reflow - so the window's own minimum is a size
+# at which its own tables are clipped, and no picture proved it. It is taken on
+# FACILITIES rather than Milestones, and that is a correction from this lane's first
+# flight: on this host Milestones is one empty-state label, so a min-size picture of it
+# clips nothing. Facilities draws nine rows over four fixed columns after the upgrade
+# below. `op=rect` position is exact and both size axes are FLOORS, so the read-back
+# reports whatever the window resolved to.
+#
+# WHAT THIS LANE REPLACED, and it is a correction to the audit that proposed it. The
+# audit asked for a `strategy-career` lane to photograph populated Strategies rows and
+# the Flow column. That fixture cannot produce them: it is `fresh-career` plus a single
+# reputation seed, its stock `STRATEGIES` node is EMPTY, it has no Parsek footprint at
+# all, and the Career window's Strategies tab reads Parsek's own effective LEDGER
+# (`EffectiveState.ComputeELS()`) rather than stock's strategy system - so with no
+# ledger row it draws `(no active strategies)`, which three existing captures already
+# show. The only driver that activates a strategy is the in-game `StrategyLifecycle`
+# category, and an in-game batch captures and RESTORES a `persistent.sfs` baseline
+# around itself, so nothing it activates survives to be photographed. Filed as
+# GUI-CENSUS-STRATEGY-ROWS-NEED-A-LEDGER-SEEDED-HOST.
+#
+# FLOWN 2026-09-21. First flight `2026-09-21_2033`, PASS attempt 1, 63 s wall, every
+# verifier PASS or SKIPPED, `expectations mismatches=0`, ten captures and ten dumps. It
+# MEASURED four things this spec now states rather than guesses, and two of them changed
+# the lane: (i) both Wipe buttons read `(0)` with `enabled=false`, so the central claim
+# landed; (ii) the Facilities tab after the upgrade reads ONE row at `L2`
+# (Tracking Station) beside eight at `L1`, which also ANSWERS the audit's open
+# correctness question - the window CAN see upgrades, so the uniform `L1` on the other
+# three fixtures means nothing was upgraded rather than that the window is blind;
+# (iii) the three density summary strings differ in the TREE
+# (`0.50-8.0s / 6.0 deg / 12%`, `0.20-3.0s / 2.0 deg / 5%`, `0.05-1.0s / 0.5 deg / 1%`),
+# so the density state does not depend on the PNG to be readable; and (iv) a
+# `FacilityUpgrade` is NOT a Milestones row - that tab still read
+# `(no milestones credited)` under a label saying `credited`, which is the failed capture
+# the relabel and the moved min-size step below fix.
+description = "GUI census: the Settings window with both Wipe buttons greyed on an empty career, its Low and High sample-density states and its five Diagnostics toggles armed, then a real Tracking Station upgrade so the Career State window's Facilities tab has a row above level 1 - which also answers whether that tab can see upgrades at all - and the populated Facilities tab again at the window's own 520x200 drag floor."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "settings", "career", "GUI-14", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot. NO `scene=`: this host has zero vessels, so DecideLoadRoute takes the
+  # NoVesselSpaceCenter route by itself - the same reading L1-upgrade-facility-career
+  # relies on.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is a precondition: a non-`main` open
+  # or rect settle REFUSES while the host's `showUI` is false.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-main-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-main-advanced" }, expect = "OK" },
+
+  # ================== SETTINGS, while the save is still untouched ==================
+  # `verboseLogging` is set AFTER the window opens rather than in the preamble, because
+  # the Diagnostics capture below wants it as one of the five toggles rather than as a
+  # boot default - and the seam's own log lines are INFO, not verbose, so nothing this
+  # lane pins depends on it being on earlier.
+  { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "718" }, expect = "OK" },
+
+  # STATE 1: BOTH Wipe buttons greyed, measured reading `Wipe All Recordings (0)` and
+  # `Wipe All Milestones (0)` with `enabled=false` in the dump. This is the capture the
+  # lane exists for. Density here is Medium (`Sampling: every 0.20-3.0s, 2.0 deg / 5%
+  # thresholds`), the baseline the two below are read against. NOT "every Diagnostics
+  # toggle off", which an earlier draft claimed and the first flight refuted:
+  # `verboseLogging` is armed by `run.py`'s own settings baseline and
+  # `writeReadableSidecarMirrors` ships on, so two of the five are already true here and
+  # the STATE 4 capture moves the other three.
+  { cmd = "CaptureScreenshot", args = { label = "fc-settings-wipesdisabled-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-settings-wipesdisabled-advanced" }, expect = "OK" },
+
+  # STATE 2 and 3: the two sample-density states no capture had. Each selection redraws
+  # its own summary string beside the radio set.
+  { cmd = "SetSetting", args = { name = "samplingDensity", value = "0" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-settings-densitylow-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-settings-densitylow-advanced" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "samplingDensity", value = "2" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-settings-densityhigh-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-settings-densityhigh-advanced" }, expect = "OK" },
+
+  # STATE 4: the whole Diagnostics section armed, in one picture. All five are
+  # whitelisted; three of them route through the PluginData sidecar as well as
+  # GameParameters (`SettingWhitelist.PersistenceRoute.GameParametersPlusSidecar`), which
+  # `run.py` rewrites at teardown, so nothing here leaks into the next run.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ledgerTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "writeReadableSidecarMirrors", value = "true" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-settings-diagnosticson-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-settings-diagnosticson-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
+
+  # ============ THE CAREER WINDOW BEFORE AND AFTER A REAL FACILITY UPGRADE ============
+  # BEFORE: nine facilities at L1, which is what every existing capture shows. Retaken
+  # here so the pair is the diff rather than a comparison across two fixtures.
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-preupgrade-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-preupgrade-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+
+  # THE UPGRADE. L1-upgrade-facility-career's step verbatim, including the facility: a
+  # NON-R&D building, pinned in that fixture's README, whose funds debit lives in the
+  # scene SpaceCenterBuilding instance and therefore requires SPACECENTER.
+  { cmd = "KscAction", args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
+  { cmd = "RecordingState", expect = "OK" },
+
+  # AFTER: the same tab, with one row now reading a level above 1 and its Status cell
+  # populated - and the Milestones tab with a credited row, which on an empty career is
+  # its first one. `op=open` rather than a reopen shortcut so the describe echo below
+  # says the window really came back.
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-upgraded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-upgraded-advanced" }, expect = "OK" },
+  # THE MILESTONES TAB AFTER THE UPGRADE, AND ITS LABEL NOW SAYS WHAT IT ACTUALLY SHOWS.
+  # The first flight (`2026-09-21_2033`, PASS) photographed this tab under the label
+  # `...-credited-...` and the dump read `  (no milestones credited)`, so the picture
+  # contradicted its own label - a failed capture however green the run. THE READING
+  # BEHIND IT IS WORTH KEEPING: a `FacilityUpgrade` ledger action is NOT a Milestones
+  # row. Both tabs read the same effective ledger and select different action families,
+  # so an upgrade populates Facilities and leaves Milestones empty. Relabelled rather
+  # than dropped, because the PAIR - Facilities populated and Milestones still empty, on
+  # one ledger in one frame - is what makes that fact visible.
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-career-milestones-postupgrade-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-career-milestones-postupgrade-advanced" }, expect = "OK" },
+
+  # AND AT THE WINDOW'S OWN DRAG FLOOR, ON THE POPULATED TAB. 520x200 is the declared
+  # minimum and IMGUI does not reflow, so the point of this capture is a table whose
+  # fixed columns cannot fit it. FACILITIES, not Milestones: the first flight took it on
+  # Milestones, which on this host is one empty-state label - it clips nothing and the
+  # picture proved nothing. Facilities draws nine rows over four fixed columns here. Both
+  # size axes are floors in the read-back, so a window that refuses to shrink reports the
+  # size it kept rather than erroring.
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "520", h = "200" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-minsize-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-minsize-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY. The upgrade is driven for a PICTURE; `L1-upgrade-facility-career` is the
+# lane that claims the D8 facilities / funds values and gates the ledger arithmetic, and
+# this lane deliberately claims neither - a dimension value records that a value was
+# exercised with a verdict attached, and the verdict here is an image.
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, and this is the anti-vacuity gate for the Settings half rather than a formality:
+# `Wipe All Recordings` is greyed BECAUSE there are no recordings, so a run that somehow
+# staged one would have photographed the enabled form under the disabled label. Nothing
+# in this lane records.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# This lane's OWN seam records plus the two production lines that say the upgrade really
+# happened (borrowed verbatim from L1-upgrade-facility-career, which proved them on this
+# fixture). The describe echoes are the in-run mapping check: `open=<n>
+# openWindows=<names>` pinned as a literal is an EXACT claim, since a third open window
+# would move the count.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
+  # --- the upgrade itself, the two lines L1 pins ---
+  "kscaction action=upgrade-facility .* applied=true",
+  "Game state: FacilityUpgraded",
+  # --- one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=fc-settings-wipesdisabled-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-main-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-wipesdisabled-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-densitylow-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-densityhigh-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-diagnosticson-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-preupgrade-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-upgraded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-milestones-postupgrade-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-minsize-advanced .*patched=17/17",
+]
+forbidden = []
+
+[runtime]
+# Ten captures and ten dumps, a 300 s cold-load allowance, one driven KSC action and ~30
+# single-phase UI ops on the smallest committed career. GUI-12 measured seven captures
+# plus seven dumps at 89 s on a comparable host; L1-upgrade-facility-career's whole chain
+# is a handful of steps. 900 s is an order of magnitude over the sum and stays generous
+# because the PRODUCT is the images and the trees, and a KILLED run leaves neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
