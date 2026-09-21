@@ -23,7 +23,7 @@ go stale on every commit that touches `Source/`; regenerate before reading):
 | `edges.json` | The module data: file counts and metrics, and every module edge with weight, `cyclic` and `upward` flags, referencing files and referenced type names. |
 | `types.json` | The type data: name, module, primary file, every file the type is declared in, kind, modifiers, bases, enclosing, role, level, knot, sublevel, fan-in, fan-out, references to and references from; plus a top-level `levels` summary with the max level and the count per level. |
 | `history.json` | The co-change history (see "Change history"): the window, per-file churn ranks, type hotspots, module commit counts, module-pair Jaccard, and the cross-module file pairs that keep changing together. |
-| `sizes.json` | The size view (see "Size view"): the largest files and types with their long methods, coroutines, mutable statics and pure static pools, the growth column, and the rules that fired per type with a tier. |
+| `sizes.json` | The size view (see "Size view"): the largest files and types with their long methods, coroutines, static state (reassignable and readonly collections) and pure static pools, the growth column, and the rules that fired per type with a tier. |
 | `modules.dot`, `modules.svg` | Graphviz layered dependency graph of the production modules. |
 | `matrix.html` | Dependency structure matrix. |
 | `explore.html` | Interactive neighbourhood explorer. |
@@ -431,18 +431,26 @@ Per type, with partials merged (every part of `ParsekFlight` is one row):
 - **coroutines**: methods returning `IEnumerator`. They are reported and never
   recommended for extraction, because guideline item 6 forbids restructuring a
   coroutine body.
-- **fields** and **mutable statics**: a field declaration that is `static` and
-  neither `const` nor `readonly`. This is the "static mutable state map"
-  signal the remaining-opportunities doc asks for before any move. A
-  `static readonly` collection whose CONTENTS mutate does not count, by this
-  definition.
+- **fields** and **static state**, counted as two numbers because they are two
+  different problems under one owner. **Mutable statics** are the reassignable
+  ones: `static`, neither `const` nor `readonly`. **Readonly collection
+  statics** are `static readonly` fields whose declared type names a mutable
+  collection (`Dictionary`, `List`, `HashSet`, `SortedSet`, `Queue`, `Stack`,
+  `Bag`, `Collection`, `Lookup`, `StringBuilder`, `Array`) or is an array of
+  anything: the handle is fixed, the contents are not, and the static state map
+  the remaining-opportunities doc asks for has to cover both. `ReadOnly`,
+  `Immutable` or `Frozen` in the type name vetoes the match, so
+  `IReadOnlyList<T>` does not count. `--check` prints the pair as
+  `statics=16+35`; S4 and the tier read their sum.
 - **pure static pool**: static methods whose body names none of `Vessel`,
   `ProtoVessel`, `FlightGlobals`, `MapView`, `PlanetariumCamera`,
   `OrbitDriver`, `GameEvents`, `Time`, `Planetarium`, `HighLogic`,
-  `GameObject`, `Transform` or `Debug`, and none of the type's own mutable
-  statics. That is the pool the past passes lifted into `internal static`
-  helpers with unit tests, the cheapest extraction there is. It is a text
-  test: a helper that reaches live state one call away still reads as pure.
+  `GameObject`, `Transform` or `Debug`, and none of the type's own static
+  state of either kind, because a method reading a shared dictionary is not a
+  pure helper either. That is the pool the past passes lifted into
+  `internal static` helpers with unit tests, the cheapest extraction there is.
+  It is a text test: a helper that reaches live state one call away still reads
+  as pure.
 - **nested types** and the number of top-level types in the primary file.
 - **skipped members**: headers the scan could not follow to a body. The scan
   prefers under-claiming, so anything it cannot delimit confidently is skipped
@@ -471,6 +479,12 @@ brace, `=>` or `;` matching, not a parser. It does not see:
 - **`#if` blocks**: preprocessor lines are stripped before the scan, so both
   arms of a conditional compile count.
 
+Static state is classified by the declared type's NAME, so a `readonly` field
+holding a custom class with mutable fields of its own (`private static readonly
+GhostCache cache`) reads as neither kind and is missed. So is a mutable
+collection hidden behind an interface the veto list catches. Both are
+under-claims: the two numbers are a floor on the static state, not a ceiling.
+
 Line numbers are the original file's: block comments and multi-line string
 bodies are dropped by the strip, and the offsets that survive carry the count
 of what went with them, so a reported `File.cs:1420` opens the right line.
@@ -486,9 +500,9 @@ input, `runtimeCoupled`, is the `[size]` table in `modules.toml`.
 | --- | --- | --- |
 | S1 | at least one method is at or above 90 lines | a same-file extract-method pass (the Pass 1 shape) is the cheapest slice; names the longest few with file and line, and how many coroutines stay whole |
 | S2 | the pure static pool reaches 8 methods or 400 lines | lift it into an `internal static` helper with unit tests; no pre-existing access modifier may change (guideline items 7 and 13) |
-| S3 | the type reaches 5,000 lines | split by responsibility into partial-class files first, which moves no call site; names how many files already hold parts |
-| S4 | 10 or more mutable statics | build the static state map before moving anything, and keep the type as a compatibility facade in the first slice |
-| S5 | 5 or more nested types, or 3 or more top-level types in the primary file | move the nested or sibling types to their own files |
+| S3 | the type's LARGEST SINGLE FILE reaches 5,000 lines | split that file by responsibility into further partial-class files, which moves no call site; cites the file, its lines, the type's total and how many files already hold parts. A type already spread over six 1,000-line files has done what this rule asks, so it does not fire |
+| S4 | 10 or more fields of static state (reassignable plus readonly collections) | build the static mutable state map before moving anything, and keep the type as a compatibility facade in the first slice; cites both numbers |
+| S5 | 5 or more nested types, or 3 or more top-level types in the primary file | nested types move to a partial file of the enclosing type itself (the row says whether that type is already `partial`); sibling top-level types move to their own files. The two counts are cited separately, because they are different moves |
 | S6 | the module is in `[size] runtimeCoupled` | a note, not a slice: needs in-game validation, and log text and rate-limit keys must stay byte-identical |
 | S7 | the type is inside the top 10 hotspots | a note: churn times fan-in raises the priority of whatever else fired |
 
@@ -498,9 +512,13 @@ Defaults: large file 1,000 lines, giant 5,000, long method 90, top N 25.
 
 Four axes, one point each unless stated, and a tier from the sum:
 
-- size: 2 at or above 5,000 lines, 1 at or above 1,000;
+- size: 2 at or above 5,000 lines, 1 at or above 1,000. This reads the type's
+  TOTAL lines, not its largest file: a 30,000-line type is a big type however
+  many files hold it. S3 is the rule that reads the largest file, because it
+  asks for one file to be split;
 - long methods: 1 at 3 or more, 2 at 8 or more;
-- mutable statics: 1 at 10 or more;
+- static state: 1 at 10 or more, counting reassignable statics and readonly
+  collections together;
 - hotspot: 1 inside the top 10.
 
 **Tier 1** at 4 or more, **Tier 2** at 2 or 3, **watch** below. A tier ranks

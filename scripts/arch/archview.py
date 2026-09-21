@@ -35,6 +35,7 @@ import json
 import re
 import subprocess
 import sys
+import textwrap
 import tomllib
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -953,6 +954,7 @@ NESTED_TYPE_FLOOR = 5
 SIBLING_TYPE_FLOOR = 3
 HOTSPOT_PRIORITY_RANK = 10
 TOP_METHODS_PER_TYPE = 5
+SIZE_CHECK_WIDTH = 96
 DEFAULT_RUNTIME_COUPLED = (
     "Controllers",
     "Display",
@@ -1001,6 +1003,13 @@ FIELD_MODIFIERS = (
 # member is skipped rather than guessed at.
 _GENERIC_ARGS = r"<[^<>;{}()]*(?:<[^<>;{}()]*>[^<>;{}()]*)*>"
 _TYPE_TOKEN = r"[A-Za-z_][A-Za-z0-9_.]*(?:\s*%s)?(?:\s*\?)?(?:\s*\[\s*[,\s]*\])*" % _GENERIC_ARGS
+# A field's type may carry a tuple inside its generic arguments
+# (`Dictionary<uint, (double startUT, double endUT)>`), which the method-header
+# token deliberately does not allow: there a `(` is the parameter list.
+_GENERIC_ARGS_WITH_TUPLES = r"<[^<>;{}]*(?:<[^<>;{}]*>[^<>;{}]*)*>"
+_FIELD_TYPE_TOKEN = (
+    r"[A-Za-z_][A-Za-z0-9_.]*(?:\s*%s)?(?:\s*\?)?(?:\s*\[\s*[,\s]*\])*" % _GENERIC_ARGS_WITH_TUPLES
+)
 METHOD_HEADER_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(?P<mods>(?:\b(?:%s)\b[ \t\r\n]+)*)"
     r"(?P<ret>%s)[ \t\r\n]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*(?:%s[ \t\r\n]*)?\("
@@ -1009,7 +1018,7 @@ METHOD_HEADER_RE = re.compile(
 FIELD_DECL_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(?P<mods>(?:\b(?:%s)\b[ \t\r\n]+)+)"
     r"(?P<type>%s)[ \t\r\n]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*(?P<term>[;=,])"
-    % ("|".join(FIELD_MODIFIERS), _TYPE_TOKEN)
+    % ("|".join(FIELD_MODIFIERS), _FIELD_TYPE_TOKEN)
 )
 # A statement reads like a declaration to the header pattern (`return Foo(x)`),
 # so a match whose return token or name is one of these is dropped outright
@@ -1020,8 +1029,29 @@ STATEMENT_KEYWORDS = frozenset(
     nameof default base this var where select from let orderby out ref params delegate
     operator""".split()
 )
+# A `static readonly Dictionary` cannot be reassigned but its CONTENTS change,
+# so it is shared mutable state and belongs in the static state map beside the
+# reassignable statics. Matched on the declared type text: any array, or a name
+# carrying one of these markers. `ReadOnly`, `Immutable` and `Frozen` in the
+# name veto the match, because `IReadOnlyList<T>` is not a mutable handle. A
+# readonly field holding a custom class with mutable fields is still missed:
+# text cannot see that.
+MUTABLE_COLLECTION_TYPE_MARKERS = (
+    "Dictionary",
+    "List",
+    "HashSet",
+    "SortedSet",
+    "Queue",
+    "Stack",
+    "Bag",
+    "Collection",
+    "Lookup",
+    "StringBuilder",
+    "Array",
+)
+IMMUTABLE_TYPE_MARKERS = ("ReadOnly", "Immutable", "Frozen")
 # The identifiers that make a method "live": if a static method's body mentions
-# none of them, and none of its type's mutable statics, it is a candidate for
+# none of them, and none of its type's shared statics, it is a candidate for
 # an `internal static` helper with unit tests. Deliberately short - this is a
 # candidate pool to read, not a purity proof.
 LIVE_KSP_IDENTIFIERS = (
@@ -1074,6 +1104,21 @@ def own_body_segments(declarations, index, by_parent=None):
         pos = child["span"][1]
     segments.append((pos, declaration["span"][1] - 1))
     return [(start, end) for start, end in segments if end > start]
+
+
+def is_mutable_collection_type(type_text):
+    """True when a declared type names a collection whose contents can change (pure).
+
+    Any array counts, as does any name carrying a marker from
+    MUTABLE_COLLECTION_TYPE_MARKERS, unless the name also carries a
+    ReadOnly / Immutable / Frozen marker.
+    """
+    compact = "".join(type_text.split())
+    if any(marker in compact for marker in IMMUTABLE_TYPE_MARKERS):
+        return False
+    if "[" in compact:
+        return True
+    return any(marker in compact for marker in MUTABLE_COLLECTION_TYPE_MARKERS)
 
 
 def _match_parens(text, index, limit):
@@ -1224,14 +1269,22 @@ def scan_declaration_members(text, declarations, index, line_at=None, by_parent=
             for field in FIELD_DECL_RE.finditer(text, gap_start, gap_end):
                 modifiers = set(re.findall(r"[a-z]+", field.group("mods"))) & set(FIELD_MODIFIERS)
                 is_static = "static" in modifiers
+                is_const = "const" in modifiers
+                is_readonly = "readonly" in modifiers
                 fields.append(
                     {
                         "name": field.group("name"),
+                        "type": field.group("type").strip(),
                         "mods": sorted(modifiers),
                         "static": is_static,
-                        "mutableStatic": is_static
-                        and "const" not in modifiers
-                        and "readonly" not in modifiers,
+                        # Reassignable static state.
+                        "mutableStatic": is_static and not is_const and not is_readonly,
+                        # Fixed handle, mutable contents: the other half of the
+                        # static state map.
+                        "readonlyCollectionStatic": is_static
+                        and is_readonly
+                        and not is_const
+                        and is_mutable_collection_type(field.group("type")),
                     }
                 )
     span_start, span_end = declaration["span"]
@@ -1252,19 +1305,20 @@ def scan_declaration_members(text, declarations, index, line_at=None, by_parent=
     }
 
 
-def method_is_pure_candidate(body, mutable_statics):
-    """True when a static method's body names no live KSP type and no mutable static.
+def method_is_pure_candidate(body, shared_statics):
+    """True when a static method's body names no live KSP type and no shared static.
 
-    `body` is the stripped body text and `mutable_statics` the set of the
-    type's mutable static field names. A text test, so it can be fooled by a
-    helper that reaches live state one call away; the pool is a reading list,
-    not a proof.
+    `body` is the stripped body text and `shared_statics` the set of the type's
+    static state field names: both the reassignable ones and the readonly
+    collections, because a method reading a shared dictionary is not a pure
+    helper either. A text test, so it can be fooled by a helper that reaches
+    live state one call away; the pool is a reading list, not a proof.
     """
     if LIVE_KSP_RE.search(body):
         return False
-    if not mutable_statics:
+    if not shared_statics:
         return True
-    return not (set(WORD_RE.findall(body)) & set(mutable_statics))
+    return not (set(WORD_RE.findall(body)) & set(shared_statics))
 
 
 def merge_type_size(parts, body_text=None):
@@ -1293,6 +1347,10 @@ def merge_type_size(parts, body_text=None):
         nested += facts["nested"]
     files.sort(key=lambda row: (-row["lines"], row["file"]))
     mutable_statics = sorted({field["name"] for field in fields if field["mutableStatic"]})
+    readonly_collections = sorted(
+        {field["name"] for field in fields if field["readonlyCollectionStatic"]}
+    )
+    shared_statics = sorted(set(mutable_statics) | set(readonly_collections))
     long_methods = [entry for entry in methods if entry["lines"] >= LONG_METHOD_LINES]
     ranked = sorted(methods, key=lambda entry: (-entry["lines"], entry["name"], entry["file"]))
     pure_methods = 0
@@ -1302,7 +1360,7 @@ def merge_type_size(parts, body_text=None):
             if not entry["static"] or entry["bodyStart"] is None or entry["coroutine"]:
                 continue
             body = body_text(entry["file"], entry["bodyStart"], entry["bodyEnd"])
-            if method_is_pure_candidate(body, mutable_statics):
+            if method_is_pure_candidate(body, shared_statics):
                 pure_methods += 1
                 pure_lines += entry["lines"]
     return {
@@ -1323,6 +1381,8 @@ def merge_type_size(parts, body_text=None):
         "fields": len(fields),
         "mutableStatics": len(mutable_statics),
         "mutableStaticNames": mutable_statics,
+        "readonlyCollectionStatics": len(readonly_collections),
+        "readonlyCollectionStaticNames": readonly_collections,
         "nestedTypes": nested,
         "pureStaticMethods": pure_methods,
         "pureStaticLines": pure_lines,
@@ -3297,7 +3357,8 @@ def _atlas_sizes(sizes):
             '<div class="wide"><table>',
             '<tr><th>Type</th><th>Module</th><th class="num">Lines</th>'
             '<th class="num">Files</th><th class="num">Methods</th>'
-            '<th class="num">&ge;%d lines</th><th class="num">Mutable statics</th>'
+            '<th class="num">&ge;%d lines</th>'
+            '<th class="num">Static state<br>set + collection</th>'
             "<th>Tier</th></tr>" % LONG_METHOD_LINES,
         ]
     )
@@ -3305,7 +3366,7 @@ def _atlas_sizes(sizes):
         lines.append(
             '<tr><td class="name">%s</td><td>%s</td><td class="num">%s</td>'
             '<td class="num">%d</td><td class="num">%d</td><td class="num">%d</td>'
-            '<td class="num">%d</td><td>%s</td></tr>'
+            '<td class="num">%d + %d</td><td>%s</td></tr>'
             % (
                 html.escape(row["name"]),
                 html.escape(row["module"]),
@@ -3314,6 +3375,7 @@ def _atlas_sizes(sizes):
                 row["methods"],
                 row["longMethods"],
                 row["mutableStatics"],
+                row.get("readonlyCollectionStatics", 0),
                 html.escape(row["tier"]),
             )
         )
@@ -3938,40 +4000,55 @@ def size_recommendations(entry, runtime_coupled=()):
         rows.append(
             {
                 "rule": "S2",
-                "text": "%d static method(s), %d lines, name no live KSP type and no mutable"
-                " static of this type: candidate internal static helper with unit tests. No"
+                "text": "%d static method(s), %d lines, name no live KSP type and no static"
+                " state of this type: candidate internal static helper with unit tests. No"
                 " pre-existing access modifier changes (guidelines items 7 and 13)."
                 % (entry["pureStaticMethods"], entry["pureStaticLines"]),
             }
         )
-    if entry["lines"] >= GIANT_TYPE_LINES:
+    # S3 keys on the LARGEST SINGLE FILE, not the total: a type already spread
+    # over six 1,000-line partial files has done exactly what this rule asks
+    # for, and telling it to split again says nothing.
+    largest_part = entry["files"][0] if entry["files"] else None
+    if largest_part and largest_part["lines"] >= GIANT_TYPE_LINES:
         rows.append(
             {
                 "rule": "S3",
-                "text": "%d lines across %d file(s): split by responsibility into partial-class"
-                " files first, which moves no call site."
-                % (entry["lines"], len(entry["files"])),
+                "text": "%s holds %s of %s lines across %d file(s): split that file by"
+                " responsibility into further partial-class files, which moves no call site."
+                % (
+                    largest_part["file"],
+                    _thousands(largest_part["lines"]),
+                    _thousands(entry["lines"]),
+                    len(entry["files"]),
+                ),
             }
         )
-    if entry["mutableStatics"] >= MUTABLE_STATIC_FLOOR:
+    static_state = entry["mutableStatics"] + entry.get("readonlyCollectionStatics", 0)
+    if static_state >= MUTABLE_STATIC_FLOOR:
         rows.append(
             {
                 "rule": "S4",
-                "text": "%d mutable static field(s): build the static mutable state map before"
-                " moving anything, and keep this type as a compatibility facade in the first"
-                " slice." % entry["mutableStatics"],
+                "text": "%d field(s) of static state (%d reassignable, %d readonly collections"
+                " whose contents change): build the static mutable state map before moving"
+                " anything, and keep this type as a compatibility facade in the first slice."
+                % (static_state, entry["mutableStatics"], entry.get("readonlyCollectionStatics", 0)),
             }
         )
     top_level = entry.get("topLevelTypesInFile", 1)
     siblings = max(0, top_level - 1)
-    if entry["nestedTypes"] >= NESTED_TYPE_FLOOR or top_level >= SIBLING_TYPE_FLOOR:
-        rows.append(
-            {
-                "rule": "S5",
-                "text": "%d nested type(s) and %d sibling type(s) in %s: move them to their own"
-                " files." % (entry["nestedTypes"], siblings, entry["file"]),
-            }
-        )
+    nested = entry["nestedTypes"]
+    if nested >= NESTED_TYPE_FLOOR or top_level >= SIBLING_TYPE_FLOOR:
+        parts = []
+        if nested:
+            parts.append(
+                "%d nested type(s) move to a partial file of %s itself (it is %spartial today)"
+                % (nested, entry["name"], "" if entry.get("partial") else "not ")
+            )
+        if siblings:
+            parts.append("%d sibling top-level type(s) in %s move to their own files"
+                         % (siblings, entry["file"]))
+        rows.append({"rule": "S5", "text": "; ".join(parts) + "."})
     if entry["module"] in set(runtime_coupled):
         rows.append(
             {
@@ -3997,9 +4074,14 @@ def size_tier(entry):
 
     Four points, one axis each, and a tier from their sum: size (2 at or above
     GIANT_TYPE_LINES, 1 at or above LARGE_FILE_LINES), long methods (1 at 3 or
-    more, 2 at 8 or more), mutable statics (1 at MUTABLE_STATIC_FLOOR or more)
-    and hotspot rank (1 inside the top HOTSPOT_PRIORITY_RANK). Tier 1 at 4 or
-    more, Tier 2 at 2 or 3, watch below that.
+    more, 2 at 8 or more), static state (1 at MUTABLE_STATIC_FLOOR or more,
+    counting reassignable statics and readonly collections together) and
+    hotspot rank (1 inside the top HOTSPOT_PRIORITY_RANK). Tier 1 at 4 or more,
+    Tier 2 at 2 or 3, watch below that.
+
+    Size here is the type's TOTAL lines, not its largest file: a 30,000-line
+    type is a big type however many files hold it. S3, which asks for a split
+    of one file, reads the largest file instead.
     """
     score = 0
     if entry["lines"] >= GIANT_TYPE_LINES:
@@ -4010,7 +4092,7 @@ def size_tier(entry):
         score += 2
     elif entry["longMethods"] >= 3:
         score += 1
-    if entry["mutableStatics"] >= MUTABLE_STATIC_FLOOR:
+    if entry["mutableStatics"] + entry.get("readonlyCollectionStatics", 0) >= MUTABLE_STATIC_FLOOR:
         score += 1
     rank = entry.get("hotspotRank")
     if rank and rank <= HOTSPOT_PRIORITY_RANK:
@@ -4068,7 +4150,9 @@ def size_report(model, history=None, growth=None, settings=None):
     for row in sizes.get("types", []):
         entry = dict(row)
         entry.pop("mutableStaticNames", None)
+        entry.pop("readonlyCollectionStaticNames", None)
         meta = type_meta.get(entry["name"], {})
+        entry["partial"] = "partial" in meta.get("modifiers", [])
         entry["role"] = meta.get("role")
         entry["level"] = meta.get("level")
         entry["knot"] = meta.get("knot")
@@ -4264,20 +4348,23 @@ def print_size_section(sizes):
                 ("%+d" % net) if net is not None else "n/a",
             )
         )
-    print("  Top %d types by lines (partials merged):" % SIZE_TOP_N)
+    print(
+        "  Top %d types by lines (partials merged; mth=methods, coro=IEnumerator,"
+        " statics=reassignable+readonly collections):" % SIZE_TOP_N
+    )
     for row in sizes["types"][:SIZE_TOP_N]:
         print(
-            "    %7s  %-34s %-13s files=%-2d methods=%-4d long=%-3d coroutines=%-3d"
-            " statics=%-3d pure=%-4d %s"
+            "    %7s %-32s %-12s files=%-2d mth=%-4d long=%-3d coro=%-2d statics=%-6s"
+            " pure=%-4d %s"
             % (
                 _thousands(row["lines"]),
-                row["name"],
+                row["name"][:32],
                 row["module"],
                 len(row["files"]),
                 row["methods"],
                 row["longMethods"],
                 row["coroutines"],
-                row["mutableStatics"],
+                "%d+%d" % (row["mutableStatics"], row.get("readonlyCollectionStatics", 0)),
                 row["pureStaticMethods"],
                 row["tier"],
             )
@@ -4301,7 +4388,17 @@ def print_size_section(sizes):
             )
         )
         for recommendation in row["recommendations"]:
-            print("      %s %s" % (recommendation["rule"], recommendation["text"]))
+            # Wrapped for a terminal; the atlas renders the same text unwrapped.
+            print(
+                textwrap.fill(
+                    recommendation["text"],
+                    width=SIZE_CHECK_WIDTH,
+                    initial_indent="      %s " % recommendation["rule"],
+                    subsequent_indent="         ",
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                )
+            )
 
 
 def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None):

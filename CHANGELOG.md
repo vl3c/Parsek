@@ -2755,10 +2755,12 @@ _(unreleased — entries accumulate here per commit)_
   a SIZE section in `--check` (and a "Largest files and types" section in `atlas.html`):
   the largest files and, with the parts of a partial class merged into one row, the
   largest types with their method count, methods at or above 90 lines with file and start
-  line, `IEnumerator` coroutines, mutable static fields, the pool of static methods that
-  name no live KSP type, nested and sibling types, and net lines added over the history
-  window. Over those numbers a rule table (S1 to S7, cheapest and safest first, every row
-  citing the numbers that fired it) and a four-axis tier suggest where a later refactor
+  line, `IEnumerator` coroutines, static state counted as two numbers (fields that can be
+  reassigned, and `static readonly` collections whose contents change - `GhostMapPresence`
+  has 16 of the first and 35 of the second), the pool of static methods that name neither a
+  live KSP type nor any of that state, nested and sibling types, and net lines added over
+  the history window. Over those numbers a rule table (S1 to S7, cheapest and safest first,
+  every row citing the numbers that fired it) and a four-axis tier suggest where a later refactor
   pass would start; the rules speak the vocabulary of `docs/dev/refactor-guidelines.md`
   (coroutines are never recommended for extraction, no pre-existing access modifier
   changes, a compatibility facade in the first slice) and flag runtime-coupled modules as

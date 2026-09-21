@@ -1638,6 +1638,17 @@ SIZE_SAMPLE = """namespace N
         private static readonly int Cap = 4;
         private const int Limit = 8;
         private int instanceField;
+        private static readonly Dictionary<string, int> Cache = new Dictionary<string, int>();
+        private static readonly Dictionary<int, (double a, double b)> Spans =
+            new Dictionary<int, (double a, double b)>();
+        private static readonly int[] Steps = { 1, 2, 3 };
+        private static readonly string Label = "x";
+        private static readonly IReadOnlyList<int> Fixed = new List<int>();
+
+        internal static int Cached(string key)
+        {
+            return Cache[key];
+        }
 
         internal static bool IsBig(int value)
         {
@@ -1736,7 +1747,7 @@ class MemberScanTests(unittest.TestCase):
     def test_block_expression_and_generic_members_are_delimited(self):
         self.assertEqual(
             sorted(self.methods),
-            ["Bumped", "Doubled", "IsBig", "Run", "Touch", "TryPick"],
+            ["Bumped", "Cached", "Doubled", "IsBig", "Run", "Touch", "TryPick"],
         )
         self.assertEqual(self.facts["skipped"], 0)
 
@@ -1758,30 +1769,80 @@ class MemberScanTests(unittest.TestCase):
     def test_statements_inside_a_property_body_are_not_members(self):
         # `return Doubled(instanceField);` and `if (instanceField == 0)` read
         # like declarations to the header pattern; neither may be counted.
-        self.assertEqual(len(self.facts["methods"]), 6)
+        self.assertEqual(len(self.facts["methods"]), 7)
 
     def test_mutable_static_detection(self):
         fields = {field["name"]: field for field in self.facts["fields"]}
-        self.assertEqual(sorted(fields), ["Cap", "Limit", "counter", "instanceField"])
+        self.assertEqual(
+            sorted(fields),
+            ["Cache", "Cap", "Fixed", "Label", "Limit", "Spans", "Steps", "counter",
+             "instanceField"],
+        )
         self.assertTrue(fields["counter"]["mutableStatic"])
         self.assertFalse(fields["Cap"]["mutableStatic"])
         self.assertFalse(fields["Limit"]["mutableStatic"])
         self.assertFalse(fields["instanceField"]["mutableStatic"])
 
+    def test_readonly_collection_statics_are_counted_as_static_state(self):
+        fields = {field["name"]: field for field in self.facts["fields"]}
+        # Fixed handle, mutable contents. `Spans` also proves a tuple inside
+        # the generic arguments does not hide the field from the scan.
+        for name in ["Cache", "Spans", "Steps"]:
+            self.assertTrue(fields[name]["readonlyCollectionStatic"], name)
+            self.assertFalse(fields[name]["mutableStatic"], name)
+        for name in ["Cap", "Label", "Fixed", "counter", "instanceField"]:
+            self.assertFalse(fields[name]["readonlyCollectionStatic"], name)
+
     def test_coroutine_flag(self):
         self.assertTrue(self.methods["Run"]["coroutine"])
         self.assertFalse(self.methods["IsBig"]["coroutine"])
 
-    def test_purity_estimate_rejects_live_types_and_own_mutable_statics(self):
+    def test_purity_estimate_rejects_live_types_and_shared_statics(self):
         merged = archview.merge_type_size(
             [{"file": "One/A.cs", "facts": self.facts}],
             lambda _file, start, end: self.stripped[start:end],
         )
         self.assertEqual(merged["mutableStaticNames"], ["counter"])
-        # IsBig, Doubled and TryPick are static and name neither; Bumped reads
-        # `counter`; Touch is not static; Run is a coroutine.
+        self.assertEqual(merged["readonlyCollectionStaticNames"], ["Cache", "Spans", "Steps"])
+        self.assertEqual(merged["mutableStatics"], 1)
+        self.assertEqual(merged["readonlyCollectionStatics"], 3)
+        # IsBig, Doubled and TryPick are static and name no shared state;
+        # Bumped reads `counter`, Cached reads the shared `Cache`; Touch is
+        # not static; Run is a coroutine.
         self.assertEqual(merged["pureStaticMethods"], 3)
         self.assertEqual(merged["coroutines"], 1)
+
+
+class MutableCollectionTypeTests(unittest.TestCase):
+    def test_collections_arrays_and_builders_count(self):
+        for text in [
+            "Dictionary<string, int>",
+            "HashSet<uint>",
+            "List<Recording>",
+            "ConcurrentDictionary<int, string>",
+            "SortedSet<int>",
+            "Queue<string>",
+            "Stack<int>",
+            "StringBuilder",
+            "int[]",
+            "Vector3[,]",
+            "Dictionary<int, (double a, double b)>",
+        ]:
+            self.assertTrue(archview.is_mutable_collection_type(text), text)
+
+    def test_scalars_and_read_only_handles_do_not(self):
+        for text in [
+            "int",
+            "string",
+            "double",
+            "CultureInfo",
+            "IReadOnlyList<int>",
+            "ReadOnlyCollection<string>",
+            "ImmutableArray<int>",
+            "FrozenDictionary<int, int>",
+            "GhostState",
+        ]:
+            self.assertFalse(archview.is_mutable_collection_type(text), text)
 
     def test_a_header_the_scan_cannot_follow_is_skipped_not_guessed(self):
         source = "class Broken\n{\n    public void Cut(int a) % { }\n}\n"
@@ -1842,8 +1903,10 @@ def _size_entry(**overrides):
         "coroutines": 0,
         "fields": 4,
         "mutableStatics": 0,
+        "readonlyCollectionStatics": 0,
         "nestedTypes": 0,
         "topLevelTypesInFile": 1,
+        "partial": False,
         "pureStaticMethods": 0,
         "pureStaticLines": 0,
         "skippedMembers": 0,
@@ -1895,25 +1958,58 @@ class SizeRuleTests(unittest.TestCase):
             ),
         )
 
-    def test_s3_fires_on_a_giant_and_names_the_part_count(self):
+    def test_s3_fires_on_the_largest_file_and_cites_it(self):
         entry = _size_entry(
-            lines=archview.GIANT_TYPE_LINES,
-            files=[{"file": "One/Thing.cs", "lines": archview.GIANT_TYPE_LINES}],
+            lines=archview.GIANT_TYPE_LINES + 2000,
+            files=[
+                {"file": "One/Thing.cs", "lines": archview.GIANT_TYPE_LINES},
+                {"file": "One/Thing.Extra.cs", "lines": 2000},
+            ],
         )
-        self.assertIn("across 1 file(s)", self._rules(entry)["S3"])
-        self.assertNotIn("S3", self._rules(_size_entry(lines=archview.GIANT_TYPE_LINES - 1)))
+        text = self._rules(entry)["S3"]
+        self.assertIn("One/Thing.cs holds", text)
+        self.assertIn("across 2 file(s)", text)
 
-    def test_s4_fires_on_the_mutable_static_floor(self):
-        self.assertIn("S4", self._rules(_size_entry(mutableStatics=archview.MUTABLE_STATIC_FLOOR)))
-        self.assertNotIn(
-            "S4", self._rules(_size_entry(mutableStatics=archview.MUTABLE_STATIC_FLOOR - 1))
+    def test_s3_does_not_fire_on_a_type_already_split_into_ordinary_files(self):
+        # Six 1,000-line partial files: the total clears the giant threshold,
+        # but the rule asks for a split that has already happened.
+        entry = _size_entry(
+            lines=6000,
+            files=[{"file": "One/Thing.%d.cs" % index, "lines": 1000} for index in range(6)],
         )
+        self.assertNotIn("S3", self._rules(entry))
 
-    def test_s5_fires_on_nested_or_sibling_types(self):
-        self.assertIn("S5", self._rules(_size_entry(nestedTypes=archview.NESTED_TYPE_FLOOR)))
+    def test_s4_fires_on_the_sum_of_both_static_kinds(self):
+        half = archview.MUTABLE_STATIC_FLOOR // 2
+        entry = _size_entry(
+            mutableStatics=half,
+            readonlyCollectionStatics=archview.MUTABLE_STATIC_FLOOR - half,
+        )
+        text = self._rules(entry)["S4"]
+        self.assertIn("%d reassignable" % half, text)
+        self.assertIn("%d readonly collections" % (archview.MUTABLE_STATIC_FLOOR - half), text)
         self.assertIn(
-            "S5", self._rules(_size_entry(topLevelTypesInFile=archview.SIBLING_TYPE_FLOOR))
+            "S4", self._rules(_size_entry(readonlyCollectionStatics=archview.MUTABLE_STATIC_FLOOR))
         )
+        self.assertNotIn(
+            "S4",
+            self._rules(
+                _size_entry(mutableStatics=half, readonlyCollectionStatics=half - 1)
+            ),
+        )
+
+    def test_s5_sends_nested_types_to_a_partial_file_and_siblings_to_their_own(self):
+        nested = self._rules(
+            _size_entry(nestedTypes=archview.NESTED_TYPE_FLOOR, partial=True)
+        )["S5"]
+        self.assertIn("partial file of Thing itself (it is partial today)", nested)
+        self.assertNotIn("their own files", nested)
+        not_partial = self._rules(_size_entry(nestedTypes=archview.NESTED_TYPE_FLOOR))["S5"]
+        self.assertIn("it is not partial today", not_partial)
+        siblings = self._rules(
+            _size_entry(topLevelTypesInFile=archview.SIBLING_TYPE_FLOOR)
+        )["S5"]
+        self.assertIn("sibling top-level type(s) in One/Thing.cs move to their own files", siblings)
         self.assertNotIn(
             "S5",
             self._rules(
@@ -1959,6 +2055,27 @@ class SizeTierTests(unittest.TestCase):
         self.assertEqual(
             archview.size_tier(_size_entry(lines=archview.LARGE_FILE_LINES, longMethods=3)),
             ("Tier 2", 2),
+        )
+
+    def test_the_static_point_reads_both_kinds_together(self):
+        half = archview.MUTABLE_STATIC_FLOOR // 2
+        entry = _size_entry(
+            lines=100,
+            mutableStatics=half,
+            readonlyCollectionStatics=archview.MUTABLE_STATIC_FLOOR - half,
+        )
+        self.assertEqual(archview.size_tier(entry), ("watch", 1))
+
+    def test_size_points_follow_the_total_not_the_largest_file(self):
+        # The same 6,000 lines spread over six files: still a big type (2
+        # points), even though S3 does not fire on it.
+        spread = _size_entry(
+            lines=6000,
+            files=[{"file": "One/Thing.%d.cs" % index, "lines": 1000} for index in range(6)],
+        )
+        self.assertEqual(archview.size_tier(spread), ("Tier 2", 2))
+        self.assertNotIn(
+            "S3", [row["rule"] for row in archview.size_recommendations(spread)]
         )
 
 
@@ -2084,8 +2201,10 @@ def _size_model():
                     ],
                     "coroutines": 0,
                     "fields": 20,
-                    "mutableStatics": 12,
+                    "mutableStatics": 8,
                     "mutableStaticNames": ["one"],
+                    "readonlyCollectionStatics": 4,
+                    "readonlyCollectionStaticNames": ["cache"],
                     "nestedTypes": 1,
                     "topLevelTypesInFile": 1,
                     "pureStaticMethods": 2,
@@ -2125,7 +2244,11 @@ class SizeReportTests(unittest.TestCase):
             sorted(item["rule"] for item in row["recommendations"]),
             ["S1", "S3", "S4", "S6", "S7"],
         )
+        # S4 fired on 8 reassignable plus 4 readonly collections.
+        self.assertEqual(row["mutableStatics"], 8)
+        self.assertEqual(row["readonlyCollectionStatics"], 4)
         self.assertNotIn("mutableStaticNames", row)
+        self.assertNotIn("readonlyCollectionStaticNames", row)
         self.assertEqual(payload["files"][0]["netLinesAdded"], 1234)
         self.assertTrue(payload["growth"]["available"])
 
@@ -2149,6 +2272,20 @@ class SizeReportTests(unittest.TestCase):
         self.assertIn("One/Thing.cs", text)
         self.assertIn("S3", text)
         self.assertIn("no git history", text)
+
+    def test_recommendation_lines_are_wrapped_for_a_terminal(self):
+        payload = archview.size_report(_size_model(), None, None, {"runtimeCoupled": ["Ghost"]})
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.print_size_section(payload)
+        body = captured.getvalue().splitlines()
+        rules = body[body.index("  Recommendations (candidates and evidence, never a verdict):"):]
+        self.assertTrue(any(line.strip().startswith("S1") for line in rules))
+        for line in rules:
+            self.assertLessEqual(len(line), archview.SIZE_CHECK_WIDTH, line)
+        # A wrapped rule keeps its continuation indented under the rule text.
+        continuations = [line for line in rules if line.startswith("         ") and line.strip()]
+        self.assertTrue(continuations)
 
     def test_empty_size_data_says_so(self):
         captured = io.StringIO()
