@@ -420,11 +420,22 @@ def text_metric(frame_box, mirror_box, rect):
 
 
 def _thumb_run(img, rect):
-    """The generator's own thumb reader, over a decoded RGB image. One source for
-    where a thumb is: the page positions its handle with this, so the instrument
-    grades it with the same function rather than a second opinion."""
+    """The generator's own thumb reader, over a decoded RGB image.
+
+    One source for where a thumb is: the page positions its handle with this, so
+    the instrument grades it with the same function rather than a second opinion.
+
+    A generator that predates the reader - measuring an OLD page as a baseline,
+    which is exactly what a before/after pair does - simply yields no run, and
+    the luminance half of the slider metric carries on alone. It must degrade,
+    not raise: a baseline that cannot be measured is worse than one measured a
+    little less finely.
+    """
+    reader = getattr(gmi, "slider_thumb_run", None)
+    if reader is None:
+        return None
     w, h, bpp, px = img
-    return gmi.slider_thumb_run(w, h, bpp, px, rect)
+    return reader(w, h, bpp, px, rect)
 
 
 def slider_metric(frame, mirror, rect, thumb_run=None):
@@ -645,6 +656,36 @@ def unscoped_bare_selectors(css):
             if not ok:
                 bad.append(sel)
     return bad
+
+
+# `gui_mirror.classify_foreign` calls a root another mod's only when the SAME
+# root repeats under this many different window subjects. Below that many windows
+# in a run, the rule cannot fire at all.
+FOREIGN_MIN_WINDOWS = 4
+
+
+def foreign_classification_warning(captures, min_windows=FOREIGN_MIN_WINDOWS):
+    """Why a `--shots` SUBSET may measure another mod's window as Parsek's.
+
+    The generator decides a root belongs to another mod by seeing it repeat,
+    identically, under four or more different windows. That is a property of the
+    CORPUS, not of a capture, so a run given a few shots directories can fall
+    below the threshold and classify nothing - on a four-directory sample a
+    MechJeb title bar was measured as a Parsek window in 13 captures.
+
+    The instrument cannot fix the rule (it is the page's, and the page needs the
+    whole corpus to apply it), but it can refuse to be quiet about it. Returns
+    the warning, or "" when the run carries enough windows for the rule to work.
+    """
+    windows = {c.get("window") for c in captures if c.get("window")}
+    if len(windows) >= min_windows:
+        return ""
+    return (
+        "this run covers %d window%s, and a root is only classified as another "
+        "mod's when it repeats under %d or more - so nothing can be classified "
+        "foreign here and another mod's window may be measured as Parsek's. "
+        "Pass the full corpus for a number you intend to quote."
+        % (len(windows), "" if len(windows) == 1 else "s", min_windows))
 
 
 def find_browser(override=None, candidates=BROWSER_CANDIDATES, exists=None):

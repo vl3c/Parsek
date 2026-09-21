@@ -308,8 +308,15 @@ compares that screenshot against the census PNG **inside the Parsek window rects
 only** - the rest of the frame is the game's scene.
 
 ```
-python tools/gui_mirror_fidelity.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out-dir <a scratch folder>   [--browser PATH] [--window main] [--capture <id>] [--limit N] [--jobs 4]
+python tools/gui_mirror_fidelity.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out-dir <a scratch folder>   [--browser PATH] [--window main] [--capture <id>] [--limit N]   [--jobs 4] [--browser-jobs 1] [--page an-existing-mirror.html]   [--triples 10] [--budget-ms 2500] [--timeout 120]
 ```
+
+`--jobs` is worker threads (they overlap the browser wait with the measurement,
+which is the Python-bound half); `--browser-jobs` is how many browser launches
+may be in flight, separately, because four heavy pages at once made Edge exit 0
+with no screenshot and no stderr. `--page` reuses an already-generated page,
+which is what makes a before/after pair comparable. Exit codes: 3 no browser,
+4 the batch halted part-way and the report covers only what came before it.
 
 Four metrics, per capture and aggregated per window and per control class
 (`kind|style|text`): **TEXT** - the ink bounding box of every text-bearing leaf
@@ -322,9 +329,12 @@ with ink in the frame and none in the mirror, or the reverse, grouped so each
 group is one fixable class; **WINDOW** - the mean absolute luminance difference
 over the window rect, for ranking only.
 
-It writes `report.json` and a self-contained `index.html` (worst captures first,
-with a frame crop / mirror crop / difference heatmap triple for the worst N) into
-`--out-dir` and nowhere else. The browser is optional equipment: with none
+It writes `report.json`, a self-contained `index.html` (worst captures first,
+with a frame crop / mirror crop / difference heatmap triple for the worst N) and,
+unless `--page` names one, the `mirror-bare.html` it measured, all into
+`--out-dir`. The browser's own working files - one profile per worker, one
+screenshot per capture - go to short temp directories and are removed at the end,
+with anything that would not go named on stderr. The browser is optional equipment: with none
 installed it exits 3 saying which paths it probed, and every unit test
 (`lib/test_gui_mirror_fidelity.py`) passes without one. Nothing it produces is
 committed - the outputs are screenshots and heatmaps by the hundred, and one test

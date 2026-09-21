@@ -183,10 +183,34 @@ _(unreleased — entries accumulate here per commit)_
   PNG has the thumb, and it reads on 81 of the corpus's 137 sliders including the Settings
   ghost-audio one. A scroll view did not scroll, leaving up to 23 529 px of rows per view
   unreachable. And a toggle's tick was an ASCII `x`. Corpus: worst text offset 643 px -> 22,
-  p95 52 -> 5, width-ratio p95 2.21 -> 1.11, fill-colour p95 11 -> 0, runs the page clipped
+  p95 52 -> 5, width-ratio p95 2.21 -> 1.11, fill-colour p95 5 -> 0, runs the page clipped
   and the game did not 554 -> 63, controls with ink in the frame and none on the page
-  587 -> 115. Numbers, method and what is still different: `docs/dev/design-gui-mirror.md`
+  587 -> 115, and - on the metric the review added afterwards - slider luminance error p50
+  34.2 -> 18.1 with the thumb resolving on both sides for 41 of 41 sliders against 0 of 41. Numbers, method and what is still different: `docs/dev/design-gui-mirror.md`
   section 11. No player-visible change - the mirror is a harness page, not game code.
+
+- **Tooling: the review of that work found one of its own fixes had moved the page AWAY
+  from the game, and the metric that was supposed to notice could not see it.** The slider
+  handle was drawn in a typed light grey (luminance 185) where KSP's scroll bar thumb has a
+  dark face (17 to 50) under a one-pixel bevel (85 to 101) over a groove of 45 - and
+  PRESENCE, being a binary "at least four ink pixels in this rect", is satisfied by a
+  groove's own border whatever is drawn inside it, so deleting the handle entirely moved no
+  number at all while the report counted "slider frame-only 41 -> 0". Both halves are fixed:
+  the thumb's face and bevel and the groove are now sampled per capture off the PNG (the
+  groove with the thumb excluded, or the median of a scroll bar that is mostly thumb paints
+  the groove in the thumb's own colour), and sliders get a metric of their own - the mean
+  absolute luminance error over the control's rect plus the thumb run's position and length
+  where both sides resolve one. On the structure capture that error is 19.9 with the thumb
+  against 41 without it and 86 with the typed colour, and deleting the handle now takes the
+  mirror's thumb run from resolved to unresolved. Four more from the same review: the
+  scroll-view fix had given every overflowing view a white NATIVE browser scroll bar over
+  the mirrored KSP one, which the instrument's own `--hide-scrollbars` was hiding from the
+  measurement (the page hides its own now, and the flag is gone); browser profile
+  directories leaked 320 MB into the owner's temp folder because they were deleted with
+  errors ignored while the browser still held them; a halted batch exited 0; and the
+  no-typed-UI-text guard now walks the AST, which caught the product's own name typed into
+  the page as a regex and twice more in the vocabulary builder - derived from the window
+  titles now. No player-visible change.
 
 - **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
   are closed, and the priority-2 register with them.** Eight rows were new coverage, five

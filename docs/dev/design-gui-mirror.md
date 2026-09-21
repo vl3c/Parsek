@@ -476,11 +476,30 @@ python harness/tools/gui_mirror_fidelity.py \
 else - the run produces one screenshot per capture plus crops and heatmaps, none
 of which belongs in the repository, and a test cell fails if any tracked file
 under `harness/` or `docs/` is an image or carries an inlined image payload.
-`--window`, `--capture` and `--limit` narrow a re-measure to seconds; `--jobs`
-(4 by default) bounds the browser calls. The browser is optional equipment: with
-none installed it exits 3 naming the paths it probed, and every unit test
-(`harness/lib/test_gui_mirror_fidelity.py`) passes without one - which is the
-machine CI runs on.
+`--window`, `--capture` and `--limit` narrow a re-measure to seconds. `--jobs`
+(4) is the worker threads, which overlap the browser wait with the measurement -
+the Python-bound half - and `--browser-jobs` (1) is how many browser launches
+may be in flight at once, which is separate because four heavy pages at once made
+Edge exit 0 with no screenshot and no stderr. `--page` reuses an already-built
+page instead of generating one, which is what makes a before/after pair
+comparable; `--budget-ms`, `--timeout` and `--triples` tune the browser's virtual
+time, the wait for a screenshot, and how many worst captures get an image triple.
+
+`--out-dir` receives `report.json`, `index.html` and - unless `--page` names one -
+the `mirror-bare.html` the measurement was taken against. The browser's own
+working files go to short temp directories and are removed at the end.
+
+The browser is optional equipment: with none installed it exits 3 naming the
+paths it probed, and every unit test (`harness/lib/test_gui_mirror_fidelity.py`)
+passes without one - which is the machine CI runs on.
+
+One caveat about running a SUBSET. Whether a root belongs to another mod is a
+property of the CORPUS: the generator calls it foreign only when the same root
+repeats under four or more different windows. A run given a few shots directories
+can fall below that and classify nothing - on a four-directory sample a MechJeb
+title bar was measured as a Parsek window in 13 captures - so the instrument
+warns when the run covers fewer than four windows. Quote numbers from a full-corpus
+run.
 
 Two things about driving a headless Chromium on Windows that cost a run each.
 `msedge.exe` is a LAUNCHER: it returns in tens of milliseconds and a child writes
@@ -498,6 +517,35 @@ times. The screenshots themselves go to a short temp directory too, numbered
 rather than named after their capture: written beside the report they came to 264
 characters for the long labels, and those launches returned 0, wrote nothing and
 said nothing, which cost 240 s of timeout and retry each before it was understood.
+Those temp directories are removed from a `finally`, with a retry and a backoff,
+and the run REPORTS any it could not remove: deleting them with
+`ignore_errors=True` ran while the browser's children still held files, failed
+silently because errors were ignored, and left 43 of them (320 MB) in the owner's
+temp directory. And the launch carries no `--hide-scrollbars`: it hid a
+difference the page itself had introduced (a native scroll bar over the mirrored
+KSP one), which is the opposite of what an instrument is for. A run that cannot
+finish exits non-zero - 3 with no browser, 4 when the batch halted part-way - so
+a partial corpus cannot be read as a whole one.
+
+### What a metric cannot see, and what to do about it
+
+PRESENCE asks one binary question - are there at least four ink pixels in this
+rect - and that is enough for text, where the answer flips when a label is
+missing. It is NOT enough for a control whose own border satisfies it whatever is
+drawn inside. The slider is the case that proved it: the page drew its handle in
+a typed light grey (luminance 185) where KSP's scroll bar thumb has a dark face
+(17 to 50) under a one-pixel bevel (85 to 101) over a groove of 45, so the page
+moved AWAY from the game while the report counted "slider frame-only 41 -> 0",
+and DELETING the handle element entirely moved no number at all.
+
+Two things follow, and they are the general lesson rather than a slider story.
+First, a fix and a metric are not independent when the fix is judged by the
+metric that motivated it: a class whose count went to zero deserves the question
+"what would this number do if I removed the fix?" before it is quoted. Second,
+when the answer is "nothing", the metric is wrong for that class and needs one of
+its own - here the mean absolute luminance error over the control's rect, plus
+the thumb run's position and length where both sides resolve one, which moves
+from a resolved `[4, 242]` to unresolved the moment the handle goes.
 
 ### What it found, and the corpus before and after
 
@@ -510,11 +558,19 @@ is the same corpus through the same instrument with the classes below fixed.
 | text ink dx, p50 / p95 / worst | 2 / 52 / 643 px | 2 / **5** / **22** px |
 | text ink dy, p50 / p95 / worst | 1 / 4 / 16 px | 1 / 4 / 16 px |
 | text width ratio, p50 / p95 | 1.000 / 2.214 | 1.000 / **1.111** |
-| fill colour delta, p50 / p95 / worst | 0 / 11 / 43 | 0 / **0** / **16** |
+| fill colour delta, p50 / p95 / worst | 0 / 5 / 43 | 0 / **0** / **16** |
+| slider luminance error, p50 / p95 / worst | 34.2 / 39.7 / 45.2 | **18.1** / **28.0** / **28.1** |
+| sliders whose thumb resolves on BOTH sides | 0 of 41 | **41** of 41, p50 offset 1 px |
 | runs the page clipped and the game did not | 554 | **63** |
 | ink in the frame, none in the mirror | 587 | **115** |
 | ink in the mirror, none in the frame | 122 | 99 |
-| window luminance score, p50 | 8.86 | 9.16 |
+| window luminance score, p50 | 8.86 | 9.04 |
+
+The two slider rows are the ones this table did not have when the work was first
+reported, and they are the reason it did not: see "What a metric cannot see"
+above. The thumb-run row is the sharpest single number here - 0 of 41 sliders had
+a thumb the frame and the page BOTH resolved before, 41 of 41 do now, and the
+page puts it within a pixel of where the game did.
 
 The window score is the one number that went UP, and it is the one number that is
 not a quality measure: it is a raw luminance difference over the whole window
@@ -546,6 +602,19 @@ Fixed, worst class first, each measured rather than assumed:
    MEASURED off the frame (`text_ink_offset`), the same move the tab bar's labels
    already used. `label|box|text` worst dx 643 -> 5; `button|box|text` p95 dx
    195 -> 4 and clipped 128 -> 7.
+
+   **Read the dx of those two classes with that in mind.** The page places their
+   text at an offset taken off the same PNG the instrument then grades it
+   against, so for `label|box` and `button|box` the text dx is a measurement
+   graded against itself and near zero by construction. It says the page applied
+   what it measured; it does not say the page is in the right place. The
+   INDEPENDENT evidence for those classes is the width ratio and the clipped
+   flag, neither of which the offset can flatter - and both moved for real
+   (clipped 128 -> 7). The same circularity has a second edge: a box that
+   another window covers takes its offset from the COVERING window's pixels,
+   because the covering window is what is in the frame at that rect. That is one
+   more reason the overlap share in section 12 is worth reading before any
+   per-class number here.
 4. **A toggle in the BUTTON style was drawn as a checkbox** - 987 of the corpus's
    8154 toggles. KSP draws `Toggle(v, text, "button")` as a button that sits
    pushed in while it is on; the page drew "x label" on bare window fill. It now

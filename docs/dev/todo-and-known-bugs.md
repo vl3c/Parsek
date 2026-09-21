@@ -16449,11 +16449,15 @@ defect in the product - they are all differences between the page and the game.
    from; this is as close as the page gets without shipping the game's atlas.
 4. **A control hidden behind another Parsek window is still measured.** The dump records
    every window's controls, including the ones another window covers, and neither the page
-   nor the game publishes its stacking order. 57 of the 218 measured captures have two
-   Parsek window rects that overlap; 7% of the frame-only controls and 13% of the clipped
-   runs sit in a region two windows both cover, and those readings are about which window
-   won rather than about the rendering. Fix: record which root a control came from and skip
-   it when a later root covers it.
+   nor the game publishes its stacking order. Of the 222 measured captures, 170 carry more
+   than one Parsek window and 61 have two whose rects actually OVERLAP; 46 of the 115
+   remaining frame-only controls (40%) and 32 of the 63 remaining clipped runs (51%) sit
+   fully inside two window rects at once, which makes them readings about which window won
+   rather than about the rendering. (The counting rule matters and is worth stating: a
+   control counts when its rect is fully contained in two or more window rects. A looser
+   rule - the rect INTERSECTS a second window - gives a slightly higher clipped count, 34
+   rather than 32, and the difference is entirely controls that straddle an edge.) Fix:
+   record which root a control came from and skip it when a later root covers it.
 5. **A capture with a stock modal is not measured at all** (6 of 230). A `PopupDialog` is a
    centred uGUI canvas that overdraws the window rects in the FRAME and appears in no
    control tree, so every rect under it would read as a difference the page could not have

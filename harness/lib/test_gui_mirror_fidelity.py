@@ -881,6 +881,22 @@ class SliderMetricTests(unittest.TestCase):
         self.assertIsNone(m["mirrorRun"])
         self.assertIsNone(m["dStart"])
 
+    def test_a_generator_without_the_reader_degrades_instead_of_raising(self):
+        # Measuring an OLD page as a baseline is exactly what a before/after
+        # pair does, and the baseline generator predates the thumb reader.
+        img = self.bar(17)
+        saved = getattr(fid.gmi, "slider_thumb_run", None)
+        try:
+            if hasattr(fid.gmi, "slider_thumb_run"):
+                del fid.gmi.slider_thumb_run
+            self.assertIsNone(fid._thumb_run(img, self.RECT))
+            m = fid.slider_metric(img, img, self.RECT, thumb_run=fid._thumb_run)
+            self.assertEqual(m["mae"], 0.0)
+            self.assertIsNone(m["frameRun"])
+        finally:
+            if saved is not None:
+                fid.gmi.slider_thumb_run = saved
+
     def test_without_a_reader_only_the_luminance_error_is_reported(self):
         img = self.bar(17)
         m = fid.slider_metric(img, img, self.RECT)
@@ -955,6 +971,27 @@ class TempDirCleanupTests(unittest.TestCase):
         body = src.split("def main(", 1)[1]
         self.assertIn("finally:", body)
         self.assertIn("remove_temp_dirs(list(profiles.values()))", body)
+
+
+class SubsetWarningTests(unittest.TestCase):
+    """A `--shots` subset can silently measure another mod's window as Parsek's:
+    the generator only calls a root foreign when it repeats under four or more
+    different windows, which is a property of the CORPUS. On a four-directory
+    sample a MechJeb title bar was measured as a Parsek window in 13 captures."""
+
+    def test_a_run_with_too_few_windows_says_so(self):
+        w = fid.foreign_classification_warning(
+            [{"window": "main"}, {"window": "timeline"}])
+        self.assertIn("2 windows", w)
+        self.assertIn("4 or more", w)
+
+    def test_a_run_with_enough_windows_is_quiet(self):
+        caps = [{"window": w} for w in ("main", "timeline", "career", "kerbals")]
+        self.assertEqual(fid.foreign_classification_warning(caps), "")
+
+    def test_captures_without_a_window_do_not_count(self):
+        caps = [{"window": "main"}, {"window": None}, {}]
+        self.assertIn("1 window,", fid.foreign_classification_warning(caps))
 
 
 class ExitCodeTests(unittest.TestCase):
@@ -1264,11 +1301,14 @@ class NoTypedWindowTextTests(unittest.TestCase):
         # that justifies it beside it.
         with open(fid.__file__, encoding="utf-8") as fh:
             src = fh.read()
-        consts = re.findall(r"^([A-Z_]+) = (\d+)$", src, re.M)
+        # A trailing comment is still a constant: the exit codes carry one, and
+        # a guard that cannot see them is a guard with a gap.
+        consts = re.findall(r"^([A-Z_]+) = (\d+)\s*(?:#.*)?$", src, re.M)
         self.assertEqual(sorted(k for k, _v in consts),
-                         ["INK_INSET", "INK_THRESHOLD", "MAX_BROWSER_PATH",
-                          "MIN_INK_PIXELS", "MIN_NODE_SIDE",
-                          "WINDOW_INK_INSET"])
+                         ["EXIT_HALTED", "EXIT_NO_BROWSER",
+                          "FOREIGN_MIN_WINDOWS", "INK_INSET", "INK_THRESHOLD",
+                          "MAX_BROWSER_PATH", "MIN_INK_PIXELS",
+                          "MIN_NODE_SIDE", "WINDOW_INK_INSET"])
 
 
 if __name__ == "__main__":
