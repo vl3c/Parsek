@@ -2747,6 +2747,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Research: a structural study of `GhostMapPresence`.**
+  `docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md` inventories the
+  14k-line class (clusters, state footprint, callers, pure pool, tests and gates that pin
+  the file) and ranks eight extraction candidates beside a do-not-extract list. Read-only
+  evidence; no code moved.
+
 - **Dev tooling: the architecture viewer now reports SIZE, and stops mis-attributing a
   partial class to one file.** `scripts/arch/archview.py` measured what references what
   and what changes together, but never how big anything is, so the 2026-09-14 findings

@@ -200,6 +200,9 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `FlightRecorder`, `GhostPlaybackEngine`) was scored on a tiny part's commit count and
   dropped out of the hotspot table. Re-read the regenerated HISTORY and SIZE sections
   before ranking anything from the 2026-09-14 hotspot list.
+  The hand study of the motivating case, with a cluster table, ranked extraction
+  candidates and a do-not-extract list tied to the render contracts, is
+  `docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md`.
 - The ranked list behind the report is `docs/dev/research/architecture-opportunities-2026-09-14.md`;
   the VesselSpawner member-level plan is `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`.
 - Landed so far (2026-09-14): #1682 tooling, #1683 ParsekLog leaf, #1684 Recording data-only,
