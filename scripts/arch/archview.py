@@ -19,13 +19,16 @@ docs/dev/arch/README.md.
 Every decision function here (assign_module, strip_comments_and_strings,
 declared_types, references, metrics, sccs, type_declarations, type_references,
 type_role, type_levels, type_fanin, knots, knot_hubs, greedy_sink_cuts,
-sublevels) is pure: it takes data and returns data, and performs no I/O, so the
-unit tests can drive it directly.
+sublevels, own_body_segments, scan_declaration_members, merge_type_size,
+size_recommendations, size_tier, size_report, parse_growth) is pure: it takes
+data and returns data, and performs no I/O, so the unit tests can drive it
+directly.
 """
 
 from __future__ import annotations
 
 import argparse
+import bisect
 import datetime
 import html
 import json
@@ -232,7 +235,7 @@ def _skip_string_literal(source, i, out):
     return _skip_regular_body(source, i + 1, verbatim, interpolated, out)
 
 
-def strip_comments_and_strings(source):
+def strip_comments_and_strings(source, newline_drops=None):
     """Remove // and /* */ comments and string / char literals.
 
     A single left-to-right scan, so a `//` or `/*` inside a string is not a
@@ -240,11 +243,28 @@ def strip_comments_and_strings(source):
     keep their code (recursively stripped) so a reference inside `$"{...}"`
     still counts; string text, including text inside holes of nested strings,
     is discarded.
+
+    A `//` comment and a preprocessor line keep their trailing newline, so the
+    line structure only breaks where a block comment or a multi-line string
+    body is dropped. Pass a list as `newline_drops` to record those: it
+    receives one `(offset in the returned text, newlines dropped there)` tuple
+    per such span, which is what `line_index` turns back into original file
+    line numbers. The returned text is identical either way, so no caller that
+    ignores the argument is affected.
     """
     out = []
     i = 0
     n = len(source)
     at_line_start = True
+    track = newline_drops is not None
+
+    def record_drop(start, end, appended_before):
+        dropped = source.count("\n", start, end)
+        if appended_before is not None:
+            dropped -= "".join(out[appended_before:]).count("\n")
+        if dropped > 0:
+            newline_drops.append((len(out), dropped))
+
     while i < n:
         c = source[i]
         nxt = source[i + 1] if i + 1 < n else ""
@@ -265,10 +285,17 @@ def strip_comments_and_strings(source):
             continue
         if c == "/" and nxt == "*":
             j = source.find("*/", i + 2)
-            i = n if j == -1 else j + 2
+            end = n if j == -1 else j + 2
+            if track:
+                record_drop(i, end, None)
+            i = end
             continue
         if _starts_string_at(source, i):
-            i = _skip_string_literal(source, i, out)
+            before = len(out)
+            end = _skip_string_literal(source, i, out)
+            if track:
+                record_drop(i, end, before)
+            i = end
             continue
         if c == "'":
             i = _skip_char_literal(source, i + 1)
@@ -276,6 +303,36 @@ def strip_comments_and_strings(source):
         out.append(c)
         i += 1
     return "".join(out)
+
+
+def line_index(stripped, newline_drops):
+    """Return a callable mapping a stripped-text offset to an original line number.
+
+    `stripped` is what `strip_comments_and_strings` returned and `newline_drops`
+    the list it filled: the newlines that went out with block comments and
+    multi-line string bodies. Line numbers are 1-based and count the original
+    file, so a reported start line opens the right line in an editor.
+    """
+    newlines = []
+    start = stripped.find("\n")
+    while start != -1:
+        newlines.append(start)
+        start = stripped.find("\n", start + 1)
+    drop_offsets = []
+    drop_prefix = []
+    running = 0
+    for offset, dropped in newline_drops:
+        running += dropped
+        drop_offsets.append(offset)
+        drop_prefix.append(running)
+
+    def line_at(offset):
+        kept = bisect.bisect_left(newlines, offset)
+        index = bisect.bisect_right(drop_offsets, offset)
+        dropped = drop_prefix[index - 1] if index else 0
+        return kept + dropped + 1
+
+    return line_at
 
 
 def declared_types(source):
@@ -621,20 +678,10 @@ def type_references(source, declarations, type_table):
     included. Duplicate names in one call are merged.
     """
     result = defaultdict(set)
-    by_parent = defaultdict(list)
+    by_parent = declarations_by_parent(declarations)
     for index, declaration in enumerate(declarations):
-        by_parent[declaration["parent"]].append((index, declaration))
-    for index, declaration in enumerate(declarations):
-        segments = []
-        pos = declaration["span"][0] + 1
-        for _child_index, child in sorted(by_parent.get(index, []), key=lambda pair: pair[1]["start"]):
-            segments.append((pos, child["start"]))
-            pos = child["span"][1]
-        segments.append((pos, declaration["span"][1] - 1))
         found = result[declaration["name"]]
-        for seg_start, seg_end in segments:
-            if seg_end <= seg_start:
-                continue
+        for seg_start, seg_end in own_body_segments(declarations, index, by_parent):
             text = source[seg_start:seg_end]
             for match in IDENT_RE.finditer(text):
                 ident = match.group(0)
@@ -885,6 +932,402 @@ def sublevels(component, type_graph, cuts):
         for name in component
     }
     return type_levels(subgraph)
+
+
+# ---------------------------------------------------------------------------
+# size view: measurement
+# ---------------------------------------------------------------------------
+
+# Thresholds live here, as named constants, and nowhere else. The runtime
+# coupling list is the one size input that names modules, so it lives in
+# modules.toml ([size] runtimeCoupled) where every other module name is.
+LARGE_FILE_LINES = 1000
+GIANT_TYPE_LINES = 5000
+LONG_METHOD_LINES = 90
+SIZE_TOP_N = 25
+SIZE_TOP_FILES = 15
+PURE_POOL_METHODS = 8
+PURE_POOL_LINES = 400
+MUTABLE_STATIC_FLOOR = 10
+NESTED_TYPE_FLOOR = 5
+SIBLING_TYPE_FLOOR = 3
+HOTSPOT_PRIORITY_RANK = 10
+TOP_METHODS_PER_TYPE = 5
+DEFAULT_RUNTIME_COUPLED = (
+    "Controllers",
+    "Display",
+    "Ghost",
+    "MapRender",
+    "Patches",
+    "Rendering",
+    "UI",
+)
+
+MEMBER_MODIFIERS = (
+    "public",
+    "private",
+    "protected",
+    "internal",
+    "static",
+    "virtual",
+    "override",
+    "sealed",
+    "abstract",
+    "extern",
+    "unsafe",
+    "async",
+    "new",
+    "partial",
+    "readonly",
+    "const",
+    "volatile",
+    "required",
+)
+FIELD_MODIFIERS = (
+    "public",
+    "private",
+    "protected",
+    "internal",
+    "static",
+    "readonly",
+    "const",
+    "volatile",
+    "new",
+    "unsafe",
+    "required",
+)
+# One nesting level of generic arguments is enough for the shapes that occur
+# (`Dictionary<string, List<int>>`); anything deeper fails to match and the
+# member is skipped rather than guessed at.
+_GENERIC_ARGS = r"<[^<>;{}()]*(?:<[^<>;{}()]*>[^<>;{}()]*)*>"
+_TYPE_TOKEN = r"[A-Za-z_][A-Za-z0-9_.]*(?:\s*%s)?(?:\s*\?)?(?:\s*\[\s*[,\s]*\])*" % _GENERIC_ARGS
+METHOD_HEADER_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])(?P<mods>(?:\b(?:%s)\b[ \t\r\n]+)*)"
+    r"(?P<ret>%s)[ \t\r\n]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*(?:%s[ \t\r\n]*)?\("
+    % ("|".join(MEMBER_MODIFIERS), _TYPE_TOKEN, _GENERIC_ARGS)
+)
+FIELD_DECL_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])(?P<mods>(?:\b(?:%s)\b[ \t\r\n]+)+)"
+    r"(?P<type>%s)[ \t\r\n]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*(?P<term>[;=,])"
+    % ("|".join(FIELD_MODIFIERS), _TYPE_TOKEN)
+)
+# A statement reads like a declaration to the header pattern (`return Foo(x)`),
+# so a match whose return token or name is one of these is dropped outright
+# rather than counted as a member the scan could not delimit.
+STATEMENT_KEYWORDS = frozenset(
+    """if else for foreach while do switch case return yield throw new using lock fixed
+    catch try finally await in is as when goto checked unchecked stackalloc sizeof typeof
+    nameof default base this var where select from let orderby out ref params delegate
+    operator""".split()
+)
+# The identifiers that make a method "live": if a static method's body mentions
+# none of them, and none of its type's mutable statics, it is a candidate for
+# an `internal static` helper with unit tests. Deliberately short - this is a
+# candidate pool to read, not a purity proof.
+LIVE_KSP_IDENTIFIERS = (
+    "Vessel",
+    "ProtoVessel",
+    "FlightGlobals",
+    "MapView",
+    "PlanetariumCamera",
+    "OrbitDriver",
+    "GameEvents",
+    "Time",
+    "Planetarium",
+    "HighLogic",
+    "GameObject",
+    "Transform",
+    "Debug",
+)
+LIVE_KSP_RE = re.compile(r"\b(?:%s)\b" % "|".join(LIVE_KSP_IDENTIFIERS))
+WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# What may sit between a parameter list and a body: whitespace and generic
+# constraint syntax (`where T : class, new()`). Anything else means the scan
+# lost the member.
+_CONSTRAINT_CHARS = frozenset(
+    " \t\r\n_:,.<>[]()?abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+)
+
+
+def declarations_by_parent(declarations):
+    """Return {parent index or None: [(index, declaration)]} for a file's declarations."""
+    by_parent = defaultdict(list)
+    for index, declaration in enumerate(declarations):
+        by_parent[declaration["parent"]].append((index, declaration))
+    return by_parent
+
+
+def own_body_segments(declarations, index, by_parent=None):
+    """Return the (start, end) runs of a declaration's body that are its own.
+
+    A nested type's whole range, header included, belongs to the nested type,
+    so it is cut out of the enclosing declaration's runs. Empty runs are
+    dropped.
+    """
+    declaration = declarations[index]
+    if by_parent is None:
+        by_parent = declarations_by_parent(declarations)
+    segments = []
+    pos = declaration["span"][0] + 1
+    for _child_index, child in sorted(by_parent.get(index, []), key=lambda pair: pair[1]["start"]):
+        segments.append((pos, child["start"]))
+        pos = child["span"][1]
+    segments.append((pos, declaration["span"][1] - 1))
+    return [(start, end) for start, end in segments if end > start]
+
+
+def _match_parens(text, index, limit):
+    """Return the offset of the `)` closing the `(` at index, or None."""
+    depth = 0
+    i = index
+    while i < limit:
+        char = text[i]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def _match_braces(text, index, limit):
+    """Return the offset of the `}` closing the `{` at index, or None."""
+    depth = 0
+    i = index
+    while i < limit:
+        char = text[i]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def _expression_body_end(text, index, limit):
+    """Return the offset of the `;` ending an expression body, or None.
+
+    Depth-aware, so a `;` inside a statement lambda (`x => { a(); }`) or inside
+    a `for` header written in a lambda does not end the member.
+    """
+    depth = 0
+    i = index
+    while i < limit:
+        char = text[i]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                return None
+            depth -= 1
+        elif char == ";" and depth == 0:
+            return i
+        i += 1
+    return None
+
+
+def _member_body(text, index, limit):
+    """Return (kind, marker, end) for what follows a member's parameter list.
+
+    Kinds: "block" (a braced body; marker is the `{`, end the `}`),
+    "expression" (an `=>` body; marker is the `=`, end the `;`), "none" (a
+    declaration with no body: interface, abstract, extern, partial) and "skip"
+    (the scan cannot delimit it; end is None).
+    """
+    i = index
+    while i < limit:
+        char = text[i]
+        if char == "{":
+            end = _match_braces(text, i, limit)
+            return ("block", i, end) if end is not None else ("skip", i, None)
+        if char == ";":
+            return ("none", i, i)
+        if char == "=" and i + 1 < limit and text[i + 1] == ">":
+            end = _expression_body_end(text, i + 2, limit)
+            return ("expression", i, end) if end is not None else ("skip", i, None)
+        if char not in _CONSTRAINT_CHARS:
+            return ("skip", i, None)
+        i += 1
+    return ("skip", limit, None)
+
+
+def scan_declaration_members(text, declarations, index, line_at=None, by_parent=None):
+    """Return one declaration part's member facts (pure).
+
+    `text` is stripped source, `declarations` what `type_declarations` returned
+    for it, and `line_at` maps a stripped offset to an original file line
+    (default: count the newlines in `text`, which is exact when no block
+    comment or multi-line string was dropped).
+
+    Keys: methods (name, mods, ret, static, coroutine, startLine, lines, body
+    span), fields (name, mods, static, mutableStatic), skipped (members the
+    scan could not delimit), nested (types declared inside this one),
+    startLine, endLine and lines for the declaration itself.
+    """
+    if line_at is None:
+        line_at = line_index(text, [])
+    if by_parent is None:
+        by_parent = declarations_by_parent(declarations)
+    declaration = declarations[index]
+    methods = []
+    fields = []
+    skipped = 0
+    for seg_start, seg_end in own_body_segments(declarations, index, by_parent):
+        gaps = []
+        gap_start = seg_start
+        pos = seg_start
+        while True:
+            match = METHOD_HEADER_RE.search(text, pos, seg_end)
+            if match is None:
+                break
+            ret = match.group("ret").strip()
+            name = match.group("name")
+            if ret.split(".")[-1] in STATEMENT_KEYWORDS or name in STATEMENT_KEYWORDS:
+                pos = match.end()
+                continue
+            close = _match_parens(text, match.end() - 1, seg_end)
+            if close is None:
+                skipped += 1
+                pos = match.end()
+                continue
+            kind, marker, end = _member_body(text, close + 1, seg_end)
+            if kind == "skip":
+                skipped += 1
+                pos = close + 1
+                continue
+            modifiers = set(re.findall(r"[a-z]+", match.group("mods"))) & set(MEMBER_MODIFIERS)
+            start_line = line_at(match.start())
+            methods.append(
+                {
+                    "name": name,
+                    "ret": ret,
+                    "mods": sorted(modifiers),
+                    "static": "static" in modifiers,
+                    "coroutine": ret == "IEnumerator" or ret.startswith("IEnumerator<"),
+                    "startLine": start_line,
+                    "lines": 0 if kind == "none" else line_at(end) - start_line + 1,
+                    "bodyStart": None if kind == "none" else marker,
+                    "bodyEnd": None if kind == "none" else end,
+                }
+            )
+            gaps.append((gap_start, match.start()))
+            pos = (marker + 1) if kind == "none" else (end + 1)
+            gap_start = pos
+        gaps.append((gap_start, seg_end))
+        for gap_start, gap_end in gaps:
+            if gap_end <= gap_start:
+                continue
+            for field in FIELD_DECL_RE.finditer(text, gap_start, gap_end):
+                modifiers = set(re.findall(r"[a-z]+", field.group("mods"))) & set(FIELD_MODIFIERS)
+                is_static = "static" in modifiers
+                fields.append(
+                    {
+                        "name": field.group("name"),
+                        "mods": sorted(modifiers),
+                        "static": is_static,
+                        "mutableStatic": is_static
+                        and "const" not in modifiers
+                        and "readonly" not in modifiers,
+                    }
+                )
+    span_start, span_end = declaration["span"]
+    nested = sum(
+        1
+        for other in declarations
+        if other is not declaration and span_start < other["start"] < span_end
+    )
+    start_line = line_at(declaration["start"])
+    return {
+        "methods": methods,
+        "fields": fields,
+        "skipped": skipped,
+        "nested": nested,
+        "startLine": start_line,
+        "endLine": line_at(span_end - 1),
+        "lines": line_at(span_end - 1) - start_line + 1,
+    }
+
+
+def method_is_pure_candidate(body, mutable_statics):
+    """True when a static method's body names no live KSP type and no mutable static.
+
+    `body` is the stripped body text and `mutable_statics` the set of the
+    type's mutable static field names. A text test, so it can be fooled by a
+    helper that reaches live state one call away; the pool is a reading list,
+    not a proof.
+    """
+    if LIVE_KSP_RE.search(body):
+        return False
+    if not mutable_statics:
+        return True
+    return not (set(WORD_RE.findall(body)) & set(mutable_statics))
+
+
+def merge_type_size(parts, body_text=None):
+    """Merge one type's declaration parts into its size facts (pure).
+
+    `parts` is a list of {"file", "facts"} where facts is what
+    `scan_declaration_members` returned, and `body_text(file, start, end)`
+    returns the stripped body text for the purity estimate (omit it to skip the
+    estimate). Partials merge here: lines, methods and fields are summed across
+    every part, so a type spread over ten files reads as one type.
+    """
+    files = []
+    methods = []
+    fields = []
+    skipped = 0
+    nested = 0
+    for part in parts:
+        facts = part["facts"]
+        files.append({"file": part["file"], "lines": facts["lines"]})
+        for method in facts["methods"]:
+            entry = dict(method)
+            entry["file"] = part["file"]
+            methods.append(entry)
+        fields.extend(facts["fields"])
+        skipped += facts["skipped"]
+        nested += facts["nested"]
+    files.sort(key=lambda row: (-row["lines"], row["file"]))
+    mutable_statics = sorted({field["name"] for field in fields if field["mutableStatic"]})
+    long_methods = [entry for entry in methods if entry["lines"] >= LONG_METHOD_LINES]
+    ranked = sorted(methods, key=lambda entry: (-entry["lines"], entry["name"], entry["file"]))
+    pure_methods = 0
+    pure_lines = 0
+    if body_text is not None:
+        for entry in methods:
+            if not entry["static"] or entry["bodyStart"] is None or entry["coroutine"]:
+                continue
+            body = body_text(entry["file"], entry["bodyStart"], entry["bodyEnd"])
+            if method_is_pure_candidate(body, mutable_statics):
+                pure_methods += 1
+                pure_lines += entry["lines"]
+    return {
+        "lines": sum(row["lines"] for row in files),
+        "files": files,
+        "methods": len(methods),
+        "longMethods": len(long_methods),
+        "topMethods": [
+            {
+                "name": entry["name"],
+                "file": entry["file"],
+                "startLine": entry["startLine"],
+                "lines": entry["lines"],
+            }
+            for entry in ranked[:TOP_METHODS_PER_TYPE]
+        ],
+        "coroutines": sum(1 for entry in methods if entry["coroutine"]),
+        "fields": len(fields),
+        "mutableStatics": len(mutable_statics),
+        "mutableStaticNames": mutable_statics,
+        "nestedTypes": nested,
+        "pureStaticMethods": pure_methods,
+        "pureStaticLines": pure_lines,
+        "skippedMembers": skipped,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1301,8 +1744,13 @@ def iter_source_files(source_root):
     return files
 
 
-def build_model(source_root, rules, tooling):
-    """Scan the source tree and return the JSON-ready model dict."""
+def build_model(source_root, rules, tooling, measure_sizes=True):
+    """Scan the source tree and return the JSON-ready model dict.
+
+    `measure_sizes=False` skips the per-member size scan (and leaves
+    `model["sizes"]` empty) for callers that only need the graph, such as the
+    two historical models `--place` rebuilds.
+    """
     source_root = Path(source_root)
     assignments = []
     unclassified = []
@@ -1314,9 +1762,14 @@ def build_model(source_root, rules, tooling):
             assignments.append((rel.as_posix(), module))
 
     stripped = {}
+    newline_drops = {}
+    raw_lines = {}
     for rel_path, _module in assignments:
         text = (source_root / rel_path).read_text(encoding="utf-8-sig", errors="replace")
-        stripped[rel_path] = strip_comments_and_strings(text)
+        drops = []
+        stripped[rel_path] = strip_comments_and_strings(text, drops)
+        newline_drops[rel_path] = drops
+        raw_lines[rel_path] = len(text.splitlines())
 
     declaring_modules = defaultdict(set)
     for rel_path, module in assignments:
@@ -1405,18 +1858,55 @@ def build_model(source_root, rules, tooling):
     declaring_files = defaultdict(set)
     declared_counts = {}
     file_references = {}
+    size_files = []
+    size_parts = defaultdict(list)
+    # A partial type has no single file. Its PRIMARY file is the one holding
+    # the most of its body lines (ties by name), because that is the file the
+    # churn and hotspot join reads: attributing GhostMapPresence to whichever
+    # part the walk met first hid it from every history table.
+    part_lines = defaultdict(list)
     for rel_path, module in assignments:
         if module in tooling:
             continue
         declarations = type_declarations(stripped[rel_path])
         declared_counts[rel_path] = len(declarations)
         file_references[rel_path] = file_type_references(stripped[rel_path], graph_names)
-        for declaration in declarations:
+        line_at = line_index(stripped[rel_path], newline_drops[rel_path])
+        by_parent = declarations_by_parent(declarations)
+        size_files.append(
+            {
+                "file": rel_path,
+                "module": module,
+                "lines": raw_lines[rel_path],
+                "declaredTypes": len(declarations),
+                "topLevelTypes": sum(1 for d in declarations if d["parent"] is None),
+                "types": sorted({d["name"] for d in declarations}),
+            }
+        )
+        for index, declaration in enumerate(declarations):
             name = declaration["name"]
             if name not in graph_names:
                 continue
             declaring_files[name].add(rel_path)
             all_declarations[name].append(declaration)
+            # The part's own line span is always measured (it decides the
+            # primary file below); the member scan is what `measure_sizes`
+            # gates, because it is the expensive half.
+            part_lines[name].append(
+                (
+                    line_at(declaration["span"][1] - 1) - line_at(declaration["start"]) + 1,
+                    rel_path,
+                )
+            )
+            if measure_sizes:
+                size_parts[name].append(
+                    {
+                        "file": rel_path,
+                        "facts": scan_declaration_members(
+                            stripped[rel_path], declarations, index, line_at, by_parent
+                        ),
+                    }
+                )
             if name not in first_declaration:
                 first_declaration[name] = (module, rel_path, declaration)
         for name, refs in type_references(stripped[rel_path], declarations, graph_names).items():
@@ -1450,6 +1940,13 @@ def build_model(source_root, rules, tooling):
     types = []
     for name in sorted(graph_names, key=lambda n: (first_declaration[n][0], n)):
         module, rel_path, declaration = first_declaration[name]
+        ordered_files = [
+            file_name
+            for _lines, file_name in sorted(
+                part_lines.get(name, []), key=lambda pair: (-pair[0], pair[1])
+            )
+        ]
+        primary_file = ordered_files[0] if ordered_files else rel_path
         # A partial type declares its base and modifiers on one part only, so
         # the merged name sees the union of every part rather than whichever
         # file the walk met first.
@@ -1470,7 +1967,8 @@ def build_model(source_root, rules, tooling):
             {
                 "name": name,
                 "module": module,
-                "file": rel_path,
+                "file": primary_file,
+                "files": ordered_files or [rel_path],
                 "kind": declaration["kind"],
                 "modifiers": modifiers,
                 "bases": bases,
@@ -1485,6 +1983,24 @@ def build_model(source_root, rules, tooling):
                 "referencedBy": sorted(reverse_references.get(name, set())),
             }
         )
+    # Size facts are measured here because this is where the stripped text, the
+    # declarations and the partial-merge rule already live; the history join,
+    # the rules and the tiers are a separate pure pass (size_report).
+    def body_text(rel_path, start, end):
+        return stripped[rel_path][start:end]
+
+    top_level_in_file = {row["file"]: row["topLevelTypes"] for row in size_files}
+    size_types = []
+    for name in sorted(graph_names, key=lambda n: (first_declaration[n][0], n)):
+        merged = merge_type_size(size_parts[name], body_text)
+        merged["name"] = name
+        merged["module"] = first_declaration[name][0]
+        merged["file"] = merged["files"][0]["file"] if merged["files"] else first_declaration[name][1]
+        merged["topLevelTypesInFile"] = top_level_in_file.get(merged["file"], 1)
+        size_types.append(merged)
+    size_types.sort(key=lambda row: (-row["lines"], row["name"]))
+    size_files.sort(key=lambda row: (-row["lines"], row["file"]))
+
     histogram = defaultdict(int)
     for entry in types:
         histogram[entry["level"]] += 1
@@ -1503,6 +2019,7 @@ def build_model(source_root, rules, tooling):
         "knots": knot_list,
         "fileModules": {rel_path: module for rel_path, module in assignments},
         "declaredTypeCounts": declared_counts,
+        "sizes": {"files": size_files, "types": size_types},
         "catchAll": rules[-1]["name"] if rules else None,
     }
 
@@ -2750,7 +3267,82 @@ def _atlas_history(history):
     return "\n".join(lines)
 
 
-def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None):
+def _atlas_sizes(sizes):
+    """Return the atlas size tables, or a one-line notice when there is no size data."""
+    if not sizes or not sizes.get("types"):
+        return '<p class="layer">No size data.</p>'
+    lines = [
+        "<h3>Largest files</h3>",
+        '<div class="wide"><table>',
+        '<tr><th>File</th><th>Module</th><th class="num">Lines</th>'
+        '<th class="num">Types</th><th class="num">Growth</th></tr>',
+    ]
+    for row in sizes["files"][:10]:
+        net = row.get("netLinesAdded")
+        lines.append(
+            '<tr><td><span class="id">%s</span></td><td>%s</td><td class="num">%s</td>'
+            '<td class="num">%d</td><td class="num">%s</td></tr>'
+            % (
+                html.escape(row["file"]),
+                html.escape(row["module"]),
+                _thousands(row["lines"]),
+                row["declaredTypes"],
+                ("%+d" % net) if net is not None else "&ndash;",
+            )
+        )
+    lines.extend(
+        [
+            "</table></div>",
+            "<h3>Largest types, partials merged</h3>",
+            '<div class="wide"><table>',
+            '<tr><th>Type</th><th>Module</th><th class="num">Lines</th>'
+            '<th class="num">Files</th><th class="num">Methods</th>'
+            '<th class="num">&ge;%d lines</th><th class="num">Mutable statics</th>'
+            "<th>Tier</th></tr>" % LONG_METHOD_LINES,
+        ]
+    )
+    for row in sizes["types"][:10]:
+        lines.append(
+            '<tr><td class="name">%s</td><td>%s</td><td class="num">%s</td>'
+            '<td class="num">%d</td><td class="num">%d</td><td class="num">%d</td>'
+            '<td class="num">%d</td><td>%s</td></tr>'
+            % (
+                html.escape(row["name"]),
+                html.escape(row["module"]),
+                _thousands(row["lines"]),
+                len(row["files"]),
+                row["methods"],
+                row["longMethods"],
+                row["mutableStatics"],
+                html.escape(row["tier"]),
+            )
+        )
+    lines.extend(
+        [
+            "</table></div>",
+            "<h3>What a split would start with</h3>",
+            '<div class="wide"><table>',
+            '<tr><th>Type</th><th>Tier</th><th>Candidates</th></tr>',
+        ]
+    )
+    ranked = [row for row in sizes["types"][:10] if row["recommendations"]]
+    if not ranked:
+        lines.append('<tr><td colspan="3">No rule fired.</td></tr>')
+    for row in ranked:
+        items = "".join(
+            "<li><code>%s</code> %s</li>"
+            % (html.escape(item["rule"]), html.escape(item["text"]))
+            for item in row["recommendations"]
+        )
+        lines.append(
+            '<tr><td class="name">%s</td><td>%s</td><td><ul>%s</ul></td></tr>'
+            % (html.escape(row["name"]), html.escape(row["tier"]), items)
+        )
+    lines.append("</table></div>")
+    return "\n".join(lines)
+
+
+def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None, sizes=None):
     """Return the Parsek Atlas page: prose from `prose`, everything else generated."""
     page = prose.get("page", {})
     replacements = {
@@ -2772,6 +3364,8 @@ def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None)
         "@@UPWARD@@": _atlas_upward_rows(model, prose, forbidden),
         "@@HISTORY_READING@@": page.get("history_reading", ""),
         "@@HISTORY_BODY@@": _atlas_history(history),
+        "@@SIZE_NOTE@@": page.get("size_note", ""),
+        "@@SIZE_BODY@@": _atlas_sizes(sizes),
         "@@READING_NOTE@@": page.get("reading_note", ""),
         "@@READING@@": _atlas_reading_order(prose),
         "@@VIEWS_NOTE@@": page.get("views_note", ""),
@@ -2902,6 +3496,10 @@ dd { margin: 0; color: var(--ink-2); }
 <p>@@HISTORY_READING@@</p>
 @@HISTORY_BODY@@
 
+<h2>Largest files and types</h2>
+<p>@@SIZE_NOTE@@</p>
+@@SIZE_BODY@@
+
 <h2>Reading order</h2>
 <p>@@READING_NOTE@@</p>
 <ol class="steps">
@@ -2916,7 +3514,8 @@ dd { margin: 0; color: var(--ink-2); }
   <dt>ladder.html</dt><dd>Every type placed by module and abstraction level, with the knot split into sub-rows and its cut sinks marked.</dd>
   <dt>modules.svg</dt><dd>The static map shown above.</dd>
   <dt>core-placement.md</dt><dd>The evidence table behind where each former root file went.</dd>
-  <dt>archview.py --check</dt><dd>The text report: metrics, upward edges, couplings, hubs, roles, level profile, knots, forbidden edges.</dd>
+  <dt>sizes.json</dt><dd>The size view: the largest files and types, their long methods, mutable statics and pure static pools, with the rules that fired.</dd>
+  <dt>archview.py --check</dt><dd>The text report: metrics, upward edges, couplings, hubs, roles, level profile, knots, forbidden edges, sizes.</dd>
 </dl>
 
 <p class="foot">@@FOOT@@</p>
@@ -2981,6 +3580,98 @@ def git_log_lines(repo_root, since=None):
     return completed.stdout
 
 
+def growth_git_args(since):
+    """Return the single git log invocation the per-file growth is built from."""
+    return [
+        "git",
+        "log",
+        "--no-merges",
+        "--since=%s" % since,
+        "--numstat",
+        "--pretty=format:COMMIT%x09%H",
+        "--",
+        "Source/Parsek",
+    ]
+
+
+def git_numstat_lines(repo_root, since=None):
+    """Return raw `git log --numstat` text for Source/Parsek, or "" on failure."""
+    if since is None:
+        since = default_since()
+    try:
+        completed = subprocess.run(
+            growth_git_args(since),
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        print("WARN archview: git log --numstat unavailable: %s" % exc, file=sys.stderr)
+        return ""
+    if completed.returncode != 0:
+        print(
+            "WARN archview: git log --numstat failed (exit %d): %s"
+            % (completed.returncode, completed.stderr.strip()),
+            file=sys.stderr,
+        )
+        return ""
+    return completed.stdout
+
+
+def parse_growth(text):
+    """Parse `git log --numstat` text into net added lines per file (pure).
+
+    Returns {"files": {rel path: added - deleted}, "commits": kept, "skipped":
+    sweeps}. Binary rows (`-` counts) are ignored and a commit touching more
+    than HISTORY_SWEEP_LIMIT source files is skipped, the same sweep rule the
+    co-change history uses, so a bulk rename does not read as growth. An empty
+    string (git missing or the window empty) returns empty tables.
+    """
+    commits = []
+    current = None
+    for raw_line in text.split("\n"):
+        line = raw_line.rstrip("\r")
+        if not line.strip():
+            continue
+        if line.startswith("COMMIT\t"):
+            current = []
+            commits.append(current)
+            continue
+        if current is None:
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        added, deleted, path = parts[0], parts[1], parts[2]
+        if added == "-" or deleted == "-":
+            continue
+        if "=>" in path:
+            # A rename row (`a => b`, `dir/{a => b}/f.cs`) names no single file;
+            # its counts are the move, not growth.
+            continue
+        rel_path = _history_path(path)
+        if rel_path is None:
+            continue
+        try:
+            current.append((rel_path, int(added) - int(deleted)))
+        except ValueError:
+            continue
+    totals = defaultdict(int)
+    kept = 0
+    skipped = 0
+    for rows in commits:
+        if not rows:
+            continue
+        if len({rel_path for rel_path, _net in rows} ) > HISTORY_SWEEP_LIMIT:
+            skipped += 1
+            continue
+        kept += 1
+        for rel_path, net in rows:
+            totals[rel_path] += net
+    return {"files": dict(totals), "commits": kept, "skipped": skipped}
+
+
 def _history_path(line):
     """Return the build_model-style rel path for a git log file line, or None."""
     if line.startswith('"') and line.endswith('"'):
@@ -3042,13 +3733,14 @@ def parse_history(text):
 def history_metrics(commits, model, rules):
     """Return the co-change tables for the scanned commits (pure).
 
-    `commits` is parse_history's list, `model` supplies the file-to-module map
-    and the type fan-ins, and `rules` is the fallback assigner for files the
-    model does not know. Tooling modules are excluded everywhere. Tables:
-    files (commits, lastTouched, churnRank), hotspots (top 30 by
-    fileCommits * fanIn), modules (commits touching it) and modulePairs (every
-    unordered production pair with both/either/jaccard), and filePairs (top 40
-    cross-module pairs with count >= 5).
+    `commits` is parse_history's list, `model` supplies the file-to-module map,
+    the per-type file lists and the type fan-ins, and `rules` is the fallback
+    assigner for files the model does not know. Tooling modules are excluded
+    everywhere. Tables: files (commits, lastTouched, churnRank), hotspots (top
+    30 by fileCommits * fanIn, where fileCommits is the union of the commits
+    touching any file the type is declared in), modules (commits touching it)
+    and modulePairs (every unordered production pair with both/either/jaccard),
+    and filePairs (top 40 cross-module pairs with count >= 5).
     """
     tooling = {module["name"] for module in model["modules"] if module["tooling"]}
     module_of_file = {}
@@ -3075,9 +3767,12 @@ def history_metrics(commits, model, rules):
                 last_touched[rel_path] = date
 
     module_commits = defaultdict(set)
+    file_commit_index = defaultdict(set)
     file_pair_counts = Counter()
     for index, commit in enumerate(commits):
         files = sorted({rel_path for rel_path in commit["files"] if rel_path in module_of_file})
+        for rel_path in files:
+            file_commit_index[rel_path].add(index)
         for module in {module_of_file[rel_path] for rel_path in files}:
             module_commits[module].add(index)
         for i in range(len(files)):
@@ -3102,17 +3797,29 @@ def history_metrics(commits, model, rules):
 
     hotspots = []
     for entry in model.get("types", []):
-        if entry["file"] not in module_of_file:
+        # A partial type counts the UNION of the commits that touched any of
+        # its files: summing per-file counts would count a commit twice when it
+        # edited two parts of the same type.
+        type_files = [
+            rel_path
+            for rel_path in entry.get("files", [entry["file"]])
+            if rel_path in module_of_file
+        ]
+        if not type_files:
             continue
-        commits_for_file = file_commits.get(entry["file"], 0)
+        touching = set()
+        for rel_path in type_files:
+            touching |= file_commit_index.get(rel_path, set())
+        commits_for_type = len(touching)
         hotspots.append(
             {
                 "name": entry["name"],
                 "module": entry["module"],
                 "file": entry["file"],
-                "fileCommits": commits_for_file,
+                "files": type_files,
+                "fileCommits": commits_for_type,
                 "fanIn": entry["fanIn"],
-                "hotspot": commits_for_file * entry["fanIn"],
+                "hotspot": commits_for_type * entry["fanIn"],
             }
         )
     hotspots.sort(key=lambda row: (-row["hotspot"], row["name"]))
@@ -3163,6 +3870,260 @@ def history_metrics(commits, model, rules):
 
 
 def write_history_json(payload, out_path):
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+# ---------------------------------------------------------------------------
+# size view: rules, tiers and the report
+# ---------------------------------------------------------------------------
+
+
+def load_size_settings(path):
+    """Return the [size] table from a modules.toml file, with defaults filled in."""
+    try:
+        with open(path, "rb") as handle:
+            data = tomllib.load(handle)
+    except Exception:
+        data = {}
+    table = data.get("size", {}) if isinstance(data, dict) else {}
+    coupled = table.get("runtimeCoupled")
+    if not isinstance(coupled, list) or not all(isinstance(name, str) for name in coupled):
+        coupled = list(DEFAULT_RUNTIME_COUPLED)
+    return {"runtimeCoupled": sorted(set(coupled))}
+
+
+def _method_citation(entry):
+    return "%s %d lines at %s:%d" % (
+        entry["name"],
+        entry["lines"],
+        entry["file"],
+        entry["startLine"],
+    )
+
+
+def size_recommendations(entry, runtime_coupled=()):
+    """Return the recommendation rows for one type's size facts (pure).
+
+    Rules are additive and ordered cheapest and safest first (S1) to riskiest
+    (S5), with S6 and S7 as notes that change how a slice is run rather than
+    what it is. Every row cites the numbers that fired it. Nothing here says a
+    split is safe: the rows are candidates and evidence, the same contract the
+    knot cut table carries.
+    """
+    rows = []
+    if entry["longMethods"] >= 1:
+        longest = [
+            _method_citation(method)
+            for method in entry["topMethods"]
+            if method["lines"] >= LONG_METHOD_LINES
+        ][:3]
+        text = (
+            "%d method(s) at or above %d lines (longest: %s): a same-file extract-method"
+            " pass is the cheapest slice."
+            % (entry["longMethods"], LONG_METHOD_LINES, "; ".join(longest) or "not delimited")
+        )
+        if entry["coroutines"]:
+            text += " %d IEnumerator method(s) stay whole (guidelines item 6)." % entry["coroutines"]
+        rows.append({"rule": "S1", "text": text})
+    if (
+        entry["pureStaticMethods"] >= PURE_POOL_METHODS
+        or entry["pureStaticLines"] >= PURE_POOL_LINES
+    ):
+        rows.append(
+            {
+                "rule": "S2",
+                "text": "%d static method(s), %d lines, name no live KSP type and no mutable"
+                " static of this type: candidate internal static helper with unit tests. No"
+                " pre-existing access modifier changes (guidelines items 7 and 13)."
+                % (entry["pureStaticMethods"], entry["pureStaticLines"]),
+            }
+        )
+    if entry["lines"] >= GIANT_TYPE_LINES:
+        rows.append(
+            {
+                "rule": "S3",
+                "text": "%d lines across %d file(s): split by responsibility into partial-class"
+                " files first, which moves no call site."
+                % (entry["lines"], len(entry["files"])),
+            }
+        )
+    if entry["mutableStatics"] >= MUTABLE_STATIC_FLOOR:
+        rows.append(
+            {
+                "rule": "S4",
+                "text": "%d mutable static field(s): build the static mutable state map before"
+                " moving anything, and keep this type as a compatibility facade in the first"
+                " slice." % entry["mutableStatics"],
+            }
+        )
+    top_level = entry.get("topLevelTypesInFile", 1)
+    siblings = max(0, top_level - 1)
+    if entry["nestedTypes"] >= NESTED_TYPE_FLOOR or top_level >= SIBLING_TYPE_FLOOR:
+        rows.append(
+            {
+                "rule": "S5",
+                "text": "%d nested type(s) and %d sibling type(s) in %s: move them to their own"
+                " files." % (entry["nestedTypes"], siblings, entry["file"]),
+            }
+        )
+    if entry["module"] in set(runtime_coupled):
+        rows.append(
+            {
+                "rule": "S6",
+                "text": "module %s is runtime-coupled: needs in-game validation, and log text"
+                " and rate-limit keys must stay byte-identical." % entry["module"],
+            }
+        )
+    rank = entry.get("hotspotRank")
+    if rank and rank <= HOTSPOT_PRIORITY_RANK:
+        rows.append(
+            {
+                "rule": "S7",
+                "text": "hotspot rank %d (file commits %d times fan-in %d): raises priority."
+                % (rank, entry.get("fileCommits", 0), entry.get("fanIn", 0)),
+            }
+        )
+    return rows
+
+
+def size_tier(entry):
+    """Return (tier, score) for one type's size facts (pure).
+
+    Four points, one axis each, and a tier from their sum: size (2 at or above
+    GIANT_TYPE_LINES, 1 at or above LARGE_FILE_LINES), long methods (1 at 3 or
+    more, 2 at 8 or more), mutable statics (1 at MUTABLE_STATIC_FLOOR or more)
+    and hotspot rank (1 inside the top HOTSPOT_PRIORITY_RANK). Tier 1 at 4 or
+    more, Tier 2 at 2 or 3, watch below that.
+    """
+    score = 0
+    if entry["lines"] >= GIANT_TYPE_LINES:
+        score += 2
+    elif entry["lines"] >= LARGE_FILE_LINES:
+        score += 1
+    if entry["longMethods"] >= 8:
+        score += 2
+    elif entry["longMethods"] >= 3:
+        score += 1
+    if entry["mutableStatics"] >= MUTABLE_STATIC_FLOOR:
+        score += 1
+    rank = entry.get("hotspotRank")
+    if rank and rank <= HOTSPOT_PRIORITY_RANK:
+        score += 1
+    if score >= 4:
+        return "Tier 1", score
+    if score >= 2:
+        return "Tier 2", score
+    return "watch", score
+
+
+def size_report(model, history=None, growth=None, settings=None):
+    """Return the sizes.json payload: measurement joined with history, ruled and tiered.
+
+    Pure: `model["sizes"]` is what build_model measured, `history` the
+    history.json payload (churn ranks and hotspots), `growth` what parse_growth
+    returned, and `settings` the [size] table. Missing history or growth simply
+    leaves those columns null.
+    """
+    sizes = model.get("sizes", {})
+    settings = settings or {"runtimeCoupled": list(DEFAULT_RUNTIME_COUPLED)}
+    runtime_coupled = settings.get("runtimeCoupled", [])
+    growth = growth or {"files": {}, "commits": 0, "skipped": 0}
+    history = history or {}
+    churn = {row["file"]: row for row in history.get("files", [])}
+    hotspot_rank = {}
+    hotspot_row = {}
+    for rank, row in enumerate(history.get("hotspots", []), 1):
+        hotspot_rank.setdefault(row["name"], rank)
+        hotspot_row.setdefault(row["name"], row)
+    partners = defaultdict(list)
+    for row in history.get("filePairs", []):
+        partners[row["a"]].append((row["b"], row["count"]))
+        partners[row["b"]].append((row["a"], row["count"]))
+    type_meta = {entry["name"]: entry for entry in model.get("types", [])}
+
+    files = []
+    for row in sizes.get("files", []):
+        churn_row = churn.get(row["file"], {})
+        files.append(
+            {
+                "file": row["file"],
+                "module": row["module"],
+                "lines": row["lines"],
+                "declaredTypes": row["declaredTypes"],
+                "topLevelTypes": row["topLevelTypes"],
+                "types": row["types"],
+                "netLinesAdded": growth["files"].get(row["file"]),
+                "commits": churn_row.get("commits"),
+                "churnRank": churn_row.get("churnRank"),
+            }
+        )
+
+    types = []
+    for row in sizes.get("types", []):
+        entry = dict(row)
+        entry.pop("mutableStaticNames", None)
+        meta = type_meta.get(entry["name"], {})
+        entry["role"] = meta.get("role")
+        entry["level"] = meta.get("level")
+        entry["knot"] = meta.get("knot")
+        entry["fanIn"] = meta.get("fanIn", 0)
+        churn_row = churn.get(entry["file"], {})
+        entry["commits"] = churn_row.get("commits")
+        entry["churnRank"] = churn_row.get("churnRank")
+        if growth["files"]:
+            entry["netLinesAdded"] = sum(
+                growth["files"].get(part["file"], 0) for part in entry["files"]
+            )
+        else:
+            entry["netLinesAdded"] = None
+        entry["hotspotRank"] = hotspot_rank.get(entry["name"])
+        hot = hotspot_row.get(entry["name"], {})
+        entry["hotspot"] = hot.get("hotspot")
+        entry["fileCommits"] = hot.get("fileCommits", churn_row.get("commits", 0) or 0)
+        entry["coChangePartners"] = [
+            {"file": name, "count": count}
+            for name, count in sorted(
+                partners.get(entry["file"], []), key=lambda pair: (-pair[1], pair[0])
+            )[:2]
+        ]
+        tier, score = size_tier(entry)
+        entry["tier"] = tier
+        entry["score"] = score
+        entry["recommendations"] = size_recommendations(entry, runtime_coupled)
+        types.append(entry)
+
+    return {
+        "thresholds": {
+            "largeFileLines": LARGE_FILE_LINES,
+            "giantTypeLines": GIANT_TYPE_LINES,
+            "longMethodLines": LONG_METHOD_LINES,
+            "purePoolMethods": PURE_POOL_METHODS,
+            "purePoolLines": PURE_POOL_LINES,
+            "mutableStaticFloor": MUTABLE_STATIC_FLOOR,
+            "nestedTypeFloor": NESTED_TYPE_FLOOR,
+            "siblingTypeFloor": SIBLING_TYPE_FLOOR,
+            "hotspotPriorityRank": HOTSPOT_PRIORITY_RANK,
+            "topN": SIZE_TOP_N,
+        },
+        "runtimeCoupledModules": list(runtime_coupled),
+        "growth": {
+            "since": history.get("since"),
+            "commits": growth.get("commits", 0),
+            "skippedSweeps": growth.get("skipped", 0),
+            "available": bool(growth.get("files")),
+        },
+        "files": files,
+        "types": types,
+    }
+
+
+def write_sizes_json(payload, out_path):
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
@@ -3272,14 +4233,86 @@ def level_profile(model):
     return profile, overall
 
 
-def run_check(model, forbidden, allowed, prose=None, history=None):
+def print_size_section(sizes):
+    """Print the SIZE section: largest files, largest types, then the rules that fired."""
+    print()
+    print(
+        "SIZE (text-scan approximation; large file >= %d lines, giant >= %d, long method >= %d):"
+        % (LARGE_FILE_LINES, GIANT_TYPE_LINES, LONG_METHOD_LINES)
+    )
+    if not sizes or not sizes.get("files"):
+        print("  no size data.")
+        return
+    growth = sizes.get("growth", {})
+    if growth.get("available"):
+        print(
+            "  growth column: net lines added since %s over %d commits (%d sweeps skipped)."
+            % (growth.get("since"), growth.get("commits", 0), growth.get("skippedSweeps", 0))
+        )
+    else:
+        print("  growth column: no git history (git unavailable or the window is empty).")
+    print("  Top %d files by lines:" % SIZE_TOP_FILES)
+    for row in sizes["files"][:SIZE_TOP_FILES]:
+        net = row.get("netLinesAdded")
+        print(
+            "    %7s  %-52s %-13s types=%-3d growth=%s"
+            % (
+                _thousands(row["lines"]),
+                row["file"],
+                row["module"],
+                row["declaredTypes"],
+                ("%+d" % net) if net is not None else "n/a",
+            )
+        )
+    print("  Top %d types by lines (partials merged):" % SIZE_TOP_N)
+    for row in sizes["types"][:SIZE_TOP_N]:
+        print(
+            "    %7s  %-34s %-13s files=%-2d methods=%-4d long=%-3d coroutines=%-3d"
+            " statics=%-3d pure=%-4d %s"
+            % (
+                _thousands(row["lines"]),
+                row["name"],
+                row["module"],
+                len(row["files"]),
+                row["methods"],
+                row["longMethods"],
+                row["coroutines"],
+                row["mutableStatics"],
+                row["pureStaticMethods"],
+                row["tier"],
+            )
+        )
+    skipped = sum(row["skippedMembers"] for row in sizes["types"])
+    print("  Members the scan could not delimit, and so did not count: %d." % skipped)
+    print("  Recommendations (candidates and evidence, never a verdict):")
+    ranked = [row for row in sizes["types"][:SIZE_TOP_N] if row["recommendations"]]
+    if not ranked:
+        print("    none.")
+    for row in ranked:
+        print(
+            "    [%s score=%d] %s (%s, %s lines in %d file(s))"
+            % (
+                row["tier"],
+                row["score"],
+                row["name"],
+                row["module"],
+                _thousands(row["lines"]),
+                len(row["files"]),
+            )
+        )
+        for recommendation in row["recommendations"]:
+            print("      %s %s" % (recommendation["rule"], recommendation["text"]))
+
+
+def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None):
     """Print the report-only architecture check.
 
     Never raises on a malformed policy spec: a bad "From -> To" string is
     reported and skipped, because the final line and the exit code are part of
-    the report contract. `prose` is the atlas prose dict and `history` the
-    history.json payload (None for callers that do not have them); the ATLAS
-    and HISTORY sections report what no longer matches the model.
+    the report contract. `prose` is the atlas prose dict, `history` the
+    history.json payload and `sizes` the sizes.json payload (None for callers
+    that do not have them); the ATLAS and HISTORY sections report what no
+    longer matches the model, and SIZE is the last section before the marker.
     """
     print()
     hidden = sorted(m["name"] for m in model["modules"] if m["tooling"])
@@ -3490,6 +4523,8 @@ def run_check(model, forbidden, allowed, prose=None, history=None):
             print("  none.")
         for edge in unexpected:
             print("  %s -> %s: weight=%d" % (edge["from"], edge["to"], edge["weight"]))
+
+    print_size_section(sizes)
     print()
     print("ARCH-CHECK report-only")
 
@@ -3534,9 +4569,12 @@ def main(argv=None):
     allowed = []
     prose = {}
     history_payload = None
+    sizes_payload = None
     model = None
+    size_settings = {"runtimeCoupled": list(DEFAULT_RUNTIME_COUPLED)}
     try:
         rules, tooling, forbidden, allowed = load_rules(args.modules)
+        size_settings = load_size_settings(args.modules)
         model = build_model(args.source, rules, tooling)
     except Exception as exc:
         print("WARN archview: %s" % exc, file=sys.stderr)
@@ -3568,6 +4606,8 @@ def main(argv=None):
                 "largestSweep": parsed["largest"],
             }
             history_payload.update(history_metrics(parsed["commits"], model, rules))
+            growth = parse_growth(git_numstat_lines(REPO_ROOT, since))
+            sizes_payload = size_report(model, history_payload, growth, size_settings)
 
             json_path = out_dir / "edges.json"
             write_json(model, json_path)
@@ -3602,13 +4642,19 @@ def main(argv=None):
             write_history_json(history_payload, history_path)
             print("Wrote %s" % history_path)
 
+            sizes_path = out_dir / "sizes.json"
+            write_sizes_json(sizes_payload, sizes_path)
+            print("Wrote %s" % sizes_path)
+
             atlas_path = out_dir / "atlas.html"
             svg_text = None
             if svg_rendered and svg_path.exists():
                 svg_text = svg_path.read_text(encoding="utf-8")
             _write_text(
                 atlas_path,
-                render_atlas_html(model, prose, svg_text, forbidden, history_payload),
+                render_atlas_html(
+                    model, prose, svg_text, forbidden, history_payload, sizes_payload
+                ),
             )
             print("Wrote %s" % atlas_path)
 
@@ -3625,8 +4671,12 @@ def main(argv=None):
                         if not rule.get("placement") or rule.get("placement") == "R1"
                     ]
                 )
-                before_model = build_model(args.source, before_rules, tooling)
-                after_r1_model = build_model(args.source, after_r1_rules, tooling)
+                # Placement evidence needs the graph only, so these two skip
+                # the member scan.
+                before_model = build_model(args.source, before_rules, tooling, measure_sizes=False)
+                after_r1_model = build_model(
+                    args.source, after_r1_rules, tooling, measure_sizes=False
+                )
                 report_path = out_dir / "core-placement.md"
                 _write_text(
                     report_path,
@@ -3641,7 +4691,7 @@ def main(argv=None):
     if args.check:
         if model is not None:
             try:
-                run_check(model, forbidden, allowed, prose, history_payload)
+                run_check(model, forbidden, allowed, prose, history_payload, sizes_payload)
             except Exception as exc:
                 print("WARN arch-check: %s" % exc, file=sys.stderr)
                 print()

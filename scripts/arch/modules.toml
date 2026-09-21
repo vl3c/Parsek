@@ -346,6 +346,18 @@ modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer", "GuiTree", 
 #            entirely. Once any edge is listed, every production edge not
 #            listed here is reported.
 
+# --- size view -------------------------------------------------------------
+# runtimeCoupled: the modules whose code is Unity / IMGUI / Harmony / map-render
+# bound, so a size recommendation over one of them carries the "needs in-game
+# validation, preserve log text and rate-limit keys" note. The list is the set
+# docs/dev/plans/refactor-remaining-opportunities.md calls coupled (runtime,
+# ghost and rendering owners, the stateful UI surfaces) plus Patches, whose
+# Harmony bodies docs/dev/done/refactor/refactor-5-inventory.md marks the same
+# way. Size THRESHOLDS are not here: they are named constants in archview.py.
+
+[size]
+runtimeCoupled = ["Controllers", "Display", "Ghost", "MapRender", "Patches", "Rendering", "UI"]
+
 [forbidden]
 edges = [
   "Missions -> Logistics",

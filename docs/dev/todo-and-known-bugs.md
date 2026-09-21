@@ -185,9 +185,21 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `python scripts/arch/archview.py --check --place` writes the live views under
   `docs/dev/arch/` (gitignored: `atlas.html`, `explore.html`, `matrix.html`,
   `ladder.html`, `modules.svg`, `edges.json`, `types.json`, `history.json`,
-  `core-placement.md`) and prints the check report. Hand-authored inputs are
-  `scripts/arch/modules.toml` (file to module, forbidden edges) and
-  `scripts/arch/atlas.toml` (prose). Contract and reading guide: `docs/dev/arch/README.md`.
+  `sizes.json`, `core-placement.md`) and prints the check report. Hand-authored inputs are
+  `scripts/arch/modules.toml` (file to module, forbidden edges, the runtime-coupled module
+  list) and `scripts/arch/atlas.toml` (prose). Contract and reading guide:
+  `docs/dev/arch/README.md`.
+- **The report predates the SIZE view and its hotspot list is under-ranked.** The generator
+  had no notion of size when the report was written, which is why it says almost nothing
+  about `GhostMapPresence` (13.5k lines). It now has one: `sizes.json` plus the SIZE section
+  rank the largest files and types with partials merged, their long methods, mutable
+  statics and pure static pools, and print rule-based split candidates with a tier
+  (README, "Size view"). The same pass fixed the partial-class file attribution behind the
+  omission - a partial type was credited to whichever file the walk met first, so every
+  large partial class (`ParsekFlight`, `GhostMapPresence`, `RecordingStore`,
+  `FlightRecorder`, `GhostPlaybackEngine`) was scored on a tiny part's commit count and
+  dropped out of the hotspot table. Re-read the regenerated HISTORY and SIZE sections
+  before ranking anything from the 2026-09-14 hotspot list.
 - The ranked list behind the report is `docs/dev/research/architecture-opportunities-2026-09-14.md`;
   the VesselSpawner member-level plan is `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`.
 - Landed so far (2026-09-14): #1682 tooling, #1683 ParsekLog leaf, #1684 Recording data-only,

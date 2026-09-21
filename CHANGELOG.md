@@ -2747,6 +2747,33 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Dev tooling: the architecture viewer now reports SIZE, and stops mis-attributing a
+  partial class to one file.** `scripts/arch/archview.py` measured what references what
+  and what changes together, but never how big anything is, so the 2026-09-14 findings
+  report said almost nothing about `GhostMapPresence` - a 13.5k-line static partial class
+  and one of the three largest things in the mod. A new size layer writes `sizes.json` and
+  a SIZE section in `--check` (and a "Largest files and types" section in `atlas.html`):
+  the largest files and, with the parts of a partial class merged into one row, the
+  largest types with their method count, methods at or above 90 lines with file and start
+  line, `IEnumerator` coroutines, mutable static fields, the pool of static methods that
+  name no live KSP type, nested and sibling types, and net lines added over the history
+  window. Over those numbers a rule table (S1 to S7, cheapest and safest first, every row
+  citing the numbers that fired it) and a four-axis tier suggest where a later refactor
+  pass would start; the rules speak the vocabulary of `docs/dev/refactor-guidelines.md`
+  (coroutines are never recommended for extraction, no pre-existing access modifier
+  changes, a compatibility facade in the first slice) and flag runtime-coupled modules as
+  needing in-game validation. It is a text scan under the same "approximation, never
+  proof" contract as the rest of the tool, it never says a split is safe, and its blind
+  spots are documented in `docs/dev/arch/README.md`.
+  The same pass fixes a real defect in the existing views: a partial class was attributed
+  to whichever of its files the walk met first, so `GhostMapPresence` read as its 2-commit
+  `Observability` part and `ParsekFlight` as its `BreakupChildSeed` part, and both fell out
+  of the co-change hotspot table entirely. A type now carries every file it is declared in,
+  its primary file is the one holding most of its body lines, and a hotspot counts the
+  union of the commits touching any of its parts (never the sum, which double counts a
+  commit that edited two parts). `ParsekFlight` and `GhostMapPresence` are now the first
+  and seventh hotspots. Report-only tooling; no gameplay or build change.
+
 - **Dev tooling: a code and test counting script.** `python scripts/count-code.py` prints
   the line count per area of the repository (mod source, the xUnit project, the harness,
   scripts, scenario specs, docs) over git-tracked files, and the test totals: xUnit facts,

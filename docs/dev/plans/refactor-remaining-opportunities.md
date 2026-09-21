@@ -12,6 +12,15 @@ implementation notes are archived under `docs/dev/done/refactor/`; do not
 re-open those slices unless a new behavior-changing design explicitly requires
 it.
 
+**Mechanical backbone for the next inventory:** `python scripts/arch/archview.py --check`
+writes `docs/dev/arch/sizes.json` and prints a SIZE section - the largest files
+and types with partials merged, methods at or above 90 lines with file and
+line, coroutines, mutable static fields, the pure static pool, and rule-based
+split candidates with a tier. It regenerates in seconds and replaces hand
+counting for the "which giants remain, and how big are they now" part of a pass
+(see `docs/dev/arch/README.md`, "Size view"). It ranks; this document still
+decides, because it knows which of those are deliberately deferred.
+
 **New-file audit (2026-06-14):** the production code more than doubled since
 refactor-4 (176 → 380 files). The files created since that pass — the new
 `Logistics/`, `Rendering/`, `MapRender/`, `Reaim/`, `Display/` subsystems plus

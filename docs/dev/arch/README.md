@@ -21,8 +21,9 @@ go stale on every commit that touches `Source/`; regenerate before reading):
 | File | View |
 | --- | --- |
 | `edges.json` | The module data: file counts and metrics, and every module edge with weight, `cyclic` and `upward` flags, referencing files and referenced type names. |
-| `types.json` | The type data: name, module, file, kind, modifiers, bases, enclosing, role, level, knot, sublevel, fan-in, fan-out, references to and references from; plus a top-level `levels` summary with the max level and the count per level. |
+| `types.json` | The type data: name, module, primary file, every file the type is declared in, kind, modifiers, bases, enclosing, role, level, knot, sublevel, fan-in, fan-out, references to and references from; plus a top-level `levels` summary with the max level and the count per level. |
 | `history.json` | The co-change history (see "Change history"): the window, per-file churn ranks, type hotspots, module commit counts, module-pair Jaccard, and the cross-module file pairs that keep changing together. |
+| `sizes.json` | The size view (see "Size view"): the largest files and types with their long methods, coroutines, mutable statics and pure static pools, the growth column, and the rules that fired per type with a tier. |
 | `modules.dot`, `modules.svg` | Graphviz layered dependency graph of the production modules. |
 | `matrix.html` | Dependency structure matrix. |
 | `explore.html` | Interactive neighbourhood explorer. |
@@ -71,13 +72,13 @@ reflection.
 ## Regenerating
 
 Nothing under `docs/dev/arch/` except this README is tracked. Run the script
-first; the nine files it writes (ten with `--place`) are the current truth for
+first; the ten files it writes (eleven with `--place`) are the current truth for
 the checkout you ran it in, and nothing else.
 
 From the repo root:
 
 ```bash
-python scripts/arch/archview.py            # writes the nine files in docs/dev/arch/
+python scripts/arch/archview.py            # writes the ten files in docs/dev/arch/
 python scripts/arch/archview.py --check    # same, plus the report on stdout
 python scripts/arch/archview.py --place    # same, plus core-placement.md (leaves it stale otherwise)
 python -m unittest scripts/arch/test_archview.py
@@ -102,7 +103,7 @@ Options:
 
 Requirements: Python 3.11+ (the TOML reader is `tomllib`) and, for the SVG
 only, Graphviz `dot` on PATH. If `dot` is missing the script prints a warning
-and still writes the other eight files (`atlas.html` shows a one-line notice
+and still writes the other nine files (`atlas.html` shows a one-line notice
 where the map would be). When a source file matches no rule in
 `modules.toml`, the script warns and skips it.
 
@@ -120,10 +121,10 @@ entries naming a missing type, stale glossary entries, readings for vanished
 edges, missing reading-order types), the HISTORY co-change section (the window
 and commit counts, the top 15 hotspots, the top 10 module pairs by Jaccard,
 the top 15 cross-module file pairs, and one line per forbidden edge with how
-many commits touched both of its sides), and every `[forbidden]` edge that
-exists
-with its weight, referenced types and referencing files. When `[allowed]` is
-non-empty it also lists every production edge not in that list; while
+many commits touched both of its sides), every `[forbidden]` edge that exists
+with its weight, referenced types and referencing files, and last the SIZE
+section (see "Size view"). When `[allowed]` is non-empty it also lists every
+production edge not in that list, between the forbidden edges and SIZE; while
 `[allowed]` is empty that section is skipped. The last line is always
 `ARCH-CHECK report-only`.
 
@@ -366,7 +367,16 @@ arrays:
 - **files**: commits and last-touched date per production file, with a churn
   rank;
 - **hotspots**: `file commits * fan-in` for every production type, top 30,
-  which finds types that are both widely referenced and frequently edited;
+  which finds types that are both widely referenced and frequently edited.
+  For a partial class, `file commits` is the **union** of the commits that
+  touched any file the type is declared in: a commit that edited two parts of
+  the same type counts once, where summing the per-file counts would count it
+  twice. Attributing the type to one file instead (the first the walk met)
+  read `GhostMapPresence` as a 2-commit file and dropped both it and
+  `ParsekFlight` out of this table entirely, which is how the 2026-09-14
+  findings report came to say almost nothing about them. A file that declares
+  several types lends its commits to each of them, so two types in one file
+  carry the same commit count;
 - **modules**: commits touching each module;
 - **modulePairs**: for every production pair, the commits touching both, the
   union, and their Jaccard ratio;
@@ -380,9 +390,124 @@ verdict: two files can share commits because one change touches both sides of
 a real boundary, and that is what the list is for.
 
 `--check` prints the HISTORY section after ATLAS. The atlas has a "What
-changes together" section between "Where the layering breaks" and "Reading
-order" with the top 10 module pairs, top 10 cross-module file pairs and top 10
-hotspots.
+changes together" section between "Where the layering breaks" and "Largest
+files and types" with the top 10 module pairs, top 10 cross-module file pairs
+and top 10 hotspots.
+
+## Size view
+
+The module graph says what references what and the history says what changes
+together; neither looks at how big anything is. `sizes.json` and the SIZE
+section do, because a 13,500-line static partial class is a fact about the
+codebase that no edge count shows. It is the mechanical backbone for the next
+refactor inventory, in the shape the past passes used (`refactor-5-inventory.md`
+counted production files, files at or above 400 lines, and methods at or above
+90 lines); the vocabulary it speaks is `docs/dev/refactor-guidelines.md` and
+the candidate list it feeds is `docs/dev/plans/refactor-remaining-opportunities.md`.
+
+Like everything else here it is a **text-scan approximation, never proof**.
+
+### What it measures
+
+Production files only: tooling modules (`[tooling]` in `modules.toml`) are
+excluded, the same as the module metrics table and the type ladder, so the
+in-game tests and the harness support code cannot dominate the list.
+
+Per file: the raw line count (blank lines and comments included, so it matches
+`wc -l`), the module, how many types it declares, how many of those are
+top-level, and the growth column.
+
+Per type, with partials merged (every part of `ParsekFlight` is one row):
+
+- **lines**: the sum of each part's declaration span, header line to closing
+  brace. Nested types count inside their enclosing type's span as well as in
+  their own row, and the namespace and `using` lines outside every type belong
+  to no type, so a file's type lines total slightly less than the file.
+- **files**: every file a part is declared in, largest part first. The first
+  of them is the type's PRIMARY file, which is what the churn, hotspot and
+  co-change columns read.
+- **methods**, **long methods** (at or above 90 lines) and the longest few by
+  name, file and start line.
+- **coroutines**: methods returning `IEnumerator`. They are reported and never
+  recommended for extraction, because guideline item 6 forbids restructuring a
+  coroutine body.
+- **fields** and **mutable statics**: a field declaration that is `static` and
+  neither `const` nor `readonly`. This is the "static mutable state map"
+  signal the remaining-opportunities doc asks for before any move. A
+  `static readonly` collection whose CONTENTS mutate does not count, by this
+  definition.
+- **pure static pool**: static methods whose body names none of `Vessel`,
+  `ProtoVessel`, `FlightGlobals`, `MapView`, `PlanetariumCamera`,
+  `OrbitDriver`, `GameEvents`, `Time`, `Planetarium`, `HighLogic`,
+  `GameObject`, `Transform` or `Debug`, and none of the type's own mutable
+  statics. That is the pool the past passes lifted into `internal static`
+  helpers with unit tests, the cheapest extraction there is. It is a text
+  test: a helper that reaches live state one call away still reads as pure.
+- **nested types** and the number of top-level types in the primary file.
+- **skipped members**: headers the scan could not follow to a body. The scan
+  prefers under-claiming, so anything it cannot delimit confidently is skipped
+  and counted here; `--check` prints the total (9 across the current tree).
+- **growth**: net lines added (`added - deleted`) in the history window, from
+  one extra `git log --numstat` call over `Source/Parsek`, summed over the
+  type's files. Binary rows, rename rows and sweep commits (more than 40
+  source files, the same rule the co-change history uses) are ignored. With
+  git missing the column reads `n/a` and nothing else changes.
+
+### The heuristics' blind spots
+
+Method detection is a regex for a header (`modifiers type Name(`) followed by
+brace, `=>` or `;` matching, not a parser. It does not see:
+
+- **constructors, destructors, operators and conversions** (no return type, or
+  a keyword where the return type would be);
+- **properties and indexers**, with or without bodies, and events; a statement
+  inside a property accessor is deliberately not counted as a member, but a
+  field-shaped declaration inside one would be counted as a field;
+- **tuple-returning methods** (`(bool ok, int n) Parse(...)`) and return types
+  with two or more levels of generic nesting, which the type token does not
+  match;
+- **local functions and lambdas**: they live inside a delimited body, so they
+  are part of their host method's line count and never a member of their own;
+- **`#if` blocks**: preprocessor lines are stripped before the scan, so both
+  arms of a conditional compile count.
+
+Line numbers are the original file's: block comments and multi-line string
+bodies are dropped by the strip, and the offsets that survive carry the count
+of what went with them, so a reported `File.cs:1420` opens the right line.
+
+### The rules
+
+Rules are additive: every one that fires adds a row, and each row cites the
+numbers that fired it. They are ordered cheapest and safest first. Thresholds
+are named constants in `archview.py` and nowhere else; the one module-naming
+input, `runtimeCoupled`, is the `[size]` table in `modules.toml`.
+
+| Rule | Fires when | Reads |
+| --- | --- | --- |
+| S1 | at least one method is at or above 90 lines | a same-file extract-method pass (the Pass 1 shape) is the cheapest slice; names the longest few with file and line, and how many coroutines stay whole |
+| S2 | the pure static pool reaches 8 methods or 400 lines | lift it into an `internal static` helper with unit tests; no pre-existing access modifier may change (guideline items 7 and 13) |
+| S3 | the type reaches 5,000 lines | split by responsibility into partial-class files first, which moves no call site; names how many files already hold parts |
+| S4 | 10 or more mutable statics | build the static state map before moving anything, and keep the type as a compatibility facade in the first slice |
+| S5 | 5 or more nested types, or 3 or more top-level types in the primary file | move the nested or sibling types to their own files |
+| S6 | the module is in `[size] runtimeCoupled` | a note, not a slice: needs in-game validation, and log text and rate-limit keys must stay byte-identical |
+| S7 | the type is inside the top 10 hotspots | a note: churn times fan-in raises the priority of whatever else fired |
+
+Defaults: large file 1,000 lines, giant 5,000, long method 90, top N 25.
+
+### Tiers
+
+Four axes, one point each unless stated, and a tier from the sum:
+
+- size: 2 at or above 5,000 lines, 1 at or above 1,000;
+- long methods: 1 at 3 or more, 2 at 8 or more;
+- mutable statics: 1 at 10 or more;
+- hotspot: 1 inside the top 10.
+
+**Tier 1** at 4 or more, **Tier 2** at 2 or 3, **watch** below. A tier ranks
+reading order, nothing else: the tool never says a split is safe, and an S6
+type in Tier 1 is more expensive to touch than a Tier 2 pure one. Read a tier
+next to `refactor-remaining-opportunities.md`, which knows which of these are
+deliberately deferred.
 
 ## Editing `modules.toml`
 
