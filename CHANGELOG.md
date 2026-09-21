@@ -386,6 +386,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Tests: every Logistics hold and reject clause the player can read is now pinned,
+  character for character, before anything touches it.** A new characterization suite
+  renders each one through the real producer and compares it against a literal written
+  out by hand, twice: once under the host culture and once under `de-DE`, because the
+  three numeric clauses (the whole-unit funds shortfall, the one-decimal resource
+  shortfall, the re-flyable recording count) are contractually invariant and a
+  comma-locale host is exactly how that would ship unnoticed. Nothing in the product
+  changed; the suite exists so that the clause-constant extraction that follows it can be
+  proved to have changed nothing either.
+
+### Changed
+
 - **Tests: twenty ghost-playback, analyzer and flight-seam cells from the audit's T3
   (weak or misleading) register now let the production term they name decide the
   verdict.** Every one of them already ran the right code; none could see the branch,
