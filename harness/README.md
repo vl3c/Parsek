@@ -373,7 +373,8 @@ renders the same literal, so it reaches no distinct window state.
 | `GUI-22-census-logistics-hold-destination-full` | RVR-13's host + its `liveState` patch (FLIGHT) | the `DestinationFull` hold over a topped-out endpoint. The `<dest> tanks full:` capacity line is NOT bought and cannot be: it is gated on `RouteStatus == DestinationFull`, which the loop dispatch path never assigns |
 | `GUI-23-census-logistics-hold-funds-short` | RVR-17's `rover-route-career` (FLIGHT) | the `FundsShort` hold on the CAREER route host, and `Cyc = 0 / 2 skipped` - the only two-skip reading of the four |
 
-WAVE 6 (authored 2026-09-22) is FOUR lanes, `GUI-24` through `GUI-27`, and its input is
+WAVE 6 (authored AND FLOWN 2026-09-22, all four PASS on attempt 1 at 55-88 s wall, nine
+flights on one pinned DLL) is FOUR lanes, `GUI-24` through `GUI-27`, and its input is
 the SEAM rather than an audit: PR #1734 added the automation-only operations that write
 the window state a player writes with a click - `UiAction op=state` (a window's scalar
 view state), `op=sort` (a table's column and direction), `op=select` (the Missions tab's
@@ -403,8 +404,30 @@ CONTROL moving, never a row), no fixture carries a DORMANT route (so
 states cannot be reached because `op=sort` refuses a closed window and that window
 FORCE-CLOSES itself when there is no nearby spawn candidate. A fourth, the `" (partial)"`
 inclusion suffix, is not reachable through `op=select` at all: that op resolves a ROW and
-applies to ALL of its own interval keys, so the classified outcome is `All` or `None`. All
-four are in `docs/dev/todo-and-known-bugs.md`.
+applies to ALL of its own interval keys, so the classified outcome is `All` or `None`.
+
+**THREE MORE CAME OUT OF THE FLIGHTS, and if you author a census lane read these first**
+- each was a run that PASSED every pinned line over a picture showing the wrong thing, a
+failure mode no log contract can catch:
+
+1. **A full-width IMGUI window HIDES a raised `PopupDialog` in the PNG.** A `PopupDialog`
+   is uGUI; KSP's legacy `OnGUI` pass paints over it. Both Logistics modals were invisible
+   in their first captures while `op=dialog` reported `open=true count=1` and the dismiss
+   confirmed the modal had stood through the capture. `op=close` the covering window before
+   any raise. GUI-10 never hit it because only the 250 px `main` window was open.
+2. **`op=run await=false` is a RACE the seam cannot win for a fast category.** `running=` is
+   read at DISPATCH. `TrajectoryMath`'s whole eight-cell batch ran in 149 ms and the capture
+   landed 58 ms later, so the PNG read `idle | 8 passed` under a label claiming a running
+   batch. Pick a category whose batch outlives the command poll - `Periodicity` (nine
+   batch-eligible Lambert-solving cells) does - and read the PNG afterwards regardless.
+3. **`op=expand key=all` cannot open a GROUPED display block**, so a recording inside one is
+   undrawable and `op=edit field=recordingname` on it answers `edit-not-drawn`. The
+   Recordings tab has two block kinds and only `ChainId` is enumerated;
+   `DrawGroupedRecordingBlock` keys its block `"<groupName>::<identity>"`. Key such an edit
+   to a single-member block.
+
+All seven are in `docs/dev/todo-and-known-bugs.md` under
+`GUI-CENSUS-WAVE6-RESIDUE-2026-09-22`.
 
 Steps 2 to 6 below apply to any census lane. In order:
 

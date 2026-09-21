@@ -1450,9 +1450,11 @@ launcher is retired in BOTH modes, so no player can open it), the map marker lab
 sticky icon alpha, and `popup=rewind` on the whole committed fixture set. Full reasoning:
 `docs/dev/todo-and-known-bugs.md` -> `GUI-SEAM-WAVE6-RESIDUE-2026-09-21`.
 
-### 6.0.1 The lanes authored against those ops (2026-09-22), and four predictions the sources corrected
+### 6.0.1 The lanes flown against those ops (2026-09-22), and seven predictions the sources and the flights corrected
 
-FOUR LANES CLAIM THE TABLE ABOVE: `GUI-24-census-timeline-filters`
+FOUR LANES CLAIM THE TABLE ABOVE, all FLOWN PASS 2026-09-22 on one pinned automation DLL
+(`d3a4dbbfc23d9d1e9c6cd166075c53e769e3e89d8629b6cfcfb3b89fd0f5518e`), nine flights, every
+lane's final verdict PASS on attempt 1 at 55-88 s: `GUI-24-census-timeline-filters`
 (`fixtures/local-saves/c1-gui`, SPACECENTER - every Timeline row plus the Career
 `pending:` folds), `GUI-25-census-missions-state-sort-edit` (`interbody-route-recorded`,
 SPACECENTER - `expandedStats`, both archive keys, three `op=sort` states, all three
@@ -1490,7 +1492,30 @@ or from the applier, not from the op's name:
     reason. The other two modals are photographed, on two different hosts - a host with
     routes has no live candidate and a host with candidates has no routes.
 
-All four are filed as `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22` in
+AND THREE MORE THE FLIGHTS CORRECTED, each measured rather than reasoned, and each a run
+that PASSED every pinned line over a picture showing the wrong thing:
+
+  * the **`op=raise popup=...`** row's PNG-only note is right about the dump and silent
+    about the thing that actually breaks the picture: a `PopupDialog` is uGUI and KSP's
+    legacy IMGUI pass paints OVER it, so a full-width Parsek window over the screen centre
+    HIDES the modal in the capture while `op=dialog` reports `open=true count=1`. Both
+    Logistics modals were invisible in their first captures; both lanes now `op=close` the
+    covering window before the raise.
+  * the **`op=run await=false`** row promises the RUNNING control bar and delivers a RACE:
+    `running=` is read at DISPATCH, and an eight-cell `TrajectoryMath` batch completed in
+    149 ms before the screenshot landed, so the PNG read `idle | 8 passed` with `Cancel`
+    greyed. A category whose batch outlives the seam's command poll is required;
+    `Periodicity` (nine batch-eligible Lambert-solving cells) is the one this wave uses,
+    and the re-flight reads `RUNNING | 2 passed 0 failed 4 skipped` with `Cancel` enabled.
+  * the **`op=edit field=recordingname`** row needs a row the seam can DRAW, and
+    `op=expand key=all` cannot open every block that hides one: the Recordings tab draws
+    two collapsible block kinds and only `DrawChainBlock`'s `ChainId` is enumerated, while
+    `DrawGroupedRecordingBlock` keys its block `"<groupName>::<identity>"`. `key=all`
+    answered `changed=29 expanded=52 total=52` and a multi-member grouped block still drew
+    collapsed, so the editor answered `edit-not-drawn`. Key such an edit to a single-member
+    block, or add a `block:` expand prefix.
+
+All seven are filed as `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22` in
 `docs/dev/todo-and-known-bugs.md`.
 
 The spec for the next census lanes. Grouped by the three causes from section 2; within each

@@ -65,6 +65,19 @@ tier = "operator"
 # inside a collapsed group leaves the row key standing while the text field never draws -
 # which answers `ERROR edit-not-drawn` naming the remedy.
 #
+# AND `key=all` IS NOT ENOUGH FOR EVERY ROW, which this lane's first flight measured
+# (`2026-09-21_2254`, INVALID at the recording-rename step with `edit-not-drawn`). The
+# Recordings tab draws TWO kinds of collapsible block and the seam enumerates only one:
+# `DrawChainBlock` keys its block by `Recording.ChainId`, which
+# `EnumerateChainIdsForTesting` walks, while `DrawGroupedRecordingBlock` keys its block
+# `"<groupName>::<identity>"` (`RecordingsTableUI.cs:5713`), a shape NO expand set
+# produces. The multi-member `Kerbal X (2)` block on this host is the second kind, so
+# `key=all` answered `changed=29 expanded=52 total=52` - every key it knows - and that
+# block still drew its collapsed caret. Any recording inside such a block is therefore
+# UNDRAWABLE through the seam today. The remedy taken here is the lane's: key the edit to
+# a SINGLE-member block, which draws as a plain row. Filed as
+# GUI-CENSUS-GROUPED-DISPLAY-BLOCKS-ARE-NOT-EXPANDABLE-THROUGH-THE-SEAM.
+#
 # TWO REFUSALS ARE DECLARED RATHER THAN AVOIDED, and both are the gate working. This host
 # carries NO dormant route (the dormant list is disjoint from the committed one) and NO
 # live route candidate (its eligible trees have already become routes - GUI-13's header
@@ -135,9 +148,12 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-archivedfilter-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "state", window = "missions", key = "archived", state = "false" }, expect = "OK" },
 
-  # --- EDIT 1: the recording-name editor, armed on this host's first tree ROOT recording
-  # (a committed literal). Photographed BEFORE the group editor, which commits it.
-  { cmd = "UiAction", args = { op = "edit", window = "missions", field = "recordingname", key = "f496fdcf08034e61970572ec3be4fa94", draft = "Draft recording name" }, expect = "OK" },
+  # --- EDIT 1: the recording-name editor. THE KEY IS `Kerbal X Probe`, NOT the tree's
+  # root recording, and the swap is a MEASUREMENT rather than a preference - see the
+  # header's grouped-display-block note. This row is a SINGLE-member display block, so it
+  # draws as a plain row directly under its group and its text field really appears.
+  # Photographed BEFORE the group editor, which commits it.
+  { cmd = "UiAction", args = { op = "edit", window = "missions", field = "recordingname", key = "fdb510bf72a049448d812cb2cb54eed9", draft = "Draft recording name" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ib-missions-recordings-recordingrename-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-recordingrename-advanced" }, expect = "OK" },
 
@@ -174,10 +190,18 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ib-logistics-sortstatusdesc-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-logistics-sortstatusdesc-advanced" }, expect = "OK" },
 
-  # --- THE DELETE ROUTE CONFIRM. A PopupDialog is uGUI and contributes ZERO dump nodes,
-  # so the raise is paired with `op=dialog` (whose log line carries the live name, title
-  # and button list) and a PNG, and there is no dump. `press=` is deliberately absent on
-  # the dismiss: `Delete` removes the route from the store and the seam refuses it anyway.
+  # --- THE DELETE ROUTE CONFIRM. THE LOGISTICS WINDOW IS CLOSED FIRST, and that is a
+  # capture requirement rather than tidiness: a `PopupDialog` is uGUI and KSP's legacy
+  # IMGUI pass draws AFTER it, so a full-width Parsek window over the screen centre HIDES
+  # the modal in the PNG even though the seam reports it standing. This lane's first
+  # flight measured exactly that (`2026-09-21_2258`: `dialog open=true count=1
+  # name=ParsekLogisticsDeleteRouteConfirm` and a picture of the Logistics window with no
+  # dialog in it). GUI-10 never hit it because only the 250 px `main` window was open.
+  # Filed as GUI-CENSUS-AN-IMGUI-WINDOW-HIDES-A-RAISED-POPUPDIALOG-IN-THE-CAPTURE.
+  #
+  # The raise resolves the FIRST committed route straight off `RouteStore.CommittedRoutes`
+  # and needs no window at all, so closing costs the capture nothing.
+  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "raise", popup = "deleteroute" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ib-dlg-deleteroute" }, expect = "OK" },
@@ -193,6 +217,8 @@ steps = [
   # `-` cadence stepper (disabled at 1x). Both are persisted writes on the throwaway copy.
   { cmd = "RouteCommand", args = { action = "link", route = "8f644e71b1164df3bb735330127d2ee7", partner = "71a983a16dc04d78bc2a2b90f1d184b0" }, expect = "OK" },
   { cmd = "RouteCommand", args = { action = "set-cadence", route = "8f644e71b1164df3bb735330127d2ee7", cadence = "2" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "all" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ib-logistics-linked-cadence-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-logistics-linked-cadence-advanced" }, expect = "OK" },
@@ -243,7 +269,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=missions key=archived want=true after=true changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=missions key=archivedMissions want=true after=true changed=true frames=[0-9]+",
 
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction edit window=missions field=recordingname key=f496fdcf08034e61970572ec3be4fa94 draft=Draft recording name committed=false armed=true drew=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction edit window=missions field=recordingname key=fdb510bf72a049448d812cb2cb54eed9 draft=Draft recording name committed=false armed=true drew=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction edit window=missions field=groupname key=Kerbal X #3 draft=Draft group name committed=false armed=true drew=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction edit window=missions field=missiontitle key=8f8c436d348f40e1b58ad0867325d317 draft=Draft mission title committed=false armed=true drew=true frames=[0-9]+",
 

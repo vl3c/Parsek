@@ -34,20 +34,29 @@ tier = "operator"
 # follows it. That is a lane-ordering rule, not a preference: a `UiAction` step after it
 # would simply wait for the batch.
 #
-# `category = "TrajectoryMath"` AND THE REASON IS THREE-PART. (a) It is NOT `GuiTree`:
-# that category's cell arms the same single GUI-tree recorder this lane's own
-# `DumpGuiTree` step arms, and the dump that landed would be whichever won - a capture
-# that proves nothing with no error to say so. (b) All EIGHT of its declarations are
-# scene-agnostic (`Scene` unset), so at SPACECENTER none is scene-skipped and the batch
-# really runs eight tests; `RunBatch` yields at least one frame per executed test, so the
-# window is still drawing its running state when the capture lands. (c) They are pure
-# math over `TrajectoryMath.cs` - no scene load, no save write, nothing that could move
-# the window under the capture.
+# `category = "Periodicity"` AND THE FIRST CHOICE WAS MEASURED WRONG, which is worth the
+# paragraph because the failure mode is silent. (a) It must NOT be `GuiTree`: that
+# category's cell arms the same single GUI-tree recorder this lane's own `DumpGuiTree`
+# step arms, and the dump that landed would be whichever won - a capture that proves
+# nothing with no error to say so. (b) It must run for LONGER THAN THE SEAM'S OWN COMMAND
+# POLL, and that is the part the first flight measured: `TrajectoryMath` (eight
+# scene-agnostic declarations) ran the whole batch in 149 ms
+# (`Starting test run` 02:00:51.213 -> `BATCH_COMPLETE` 02:00:51.362) while the capture
+# landed at 02:00:51.420, so the PNG read `idle | 8 passed` with `Cancel` greyed - a
+# picture of RESULTS under a label claiming a running batch. `Periodicity` is NINE
+# batch-eligible SPACECENTER declarations of re-aim END-TO-END tests, each solving
+# Lambert transfers across five synodic windows, which is orders of magnitude more work
+# per test than a `TrajectoryMath` assertion. (c) Its four `*_FeasibilitySweep_Diagnostic`
+# cells carry `AllowBatchExecution = false` and are batch-skipped by design, so
+# `discovered=` counts thirteen and the batch runs nine - which is why `discovered=` is
+# REGEXED here rather than pinned.
 #
 # `running=true` IS PINNED as a log contract and that is the instrument rather than a
 # decoration: if the batch had already finished when the op answered, this lane's PNG is
-# a picture of results under a label claiming a running batch, and a silent pass would be
-# the exact false reading the census exists to prevent.
+# a picture of results under a label claiming a running batch. NOTE WHAT IT DOES AND DOES
+# NOT PROVE - it is read at DISPATCH, and the first flight passed it while the picture was
+# already stale, so the pin is necessary and not sufficient. The sufficient check is the
+# PNG itself, read after the flight.
 #
 # `scene = "spacecenter"` IS REQUIRED: this host's `activeVessel = 7` names a focusable
 # vessel, so a plain LoadGame takes `TestCommandLoadGame.DecideLoadRoute`'s Focusable
@@ -80,15 +89,25 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "all" }, expect = "OK" },
 
-  # --- THE CREATE ROUTE CONFIRM. A PopupDialog is uGUI and contributes ZERO dump nodes,
-  # so the raise is paired with `op=dialog` (whose log line carries the live popup name,
-  # title and button list) and a PNG, and there is no dump beside it. NO `press=`: two of
-  # the three buttons build a route and the seam refuses them anyway.
+  # --- THE CREATE ROUTE CONFIRM. THE WINDOW IS CLOSED FIRST, and that is a capture
+  # requirement rather than tidiness: a `PopupDialog` is uGUI and KSP's legacy IMGUI pass
+  # draws AFTER it, so a full-width Parsek window over the screen centre HIDES the modal
+  # in the PNG even though the seam reports it standing. This lane's first flight measured
+  # exactly that (`2026-09-21_2300`, PASS on every contract, with a picture of the
+  # Logistics window and no dialog in it). Closing costs the raise nothing: the candidate
+  # cache is a FIELD on the window object, populated by the draws above and not cleared by
+  # the close. Filed as
+  # GUI-CENSUS-AN-IMGUI-WINDOW-HIDES-A-RAISED-POPUPDIALOG-IN-THE-CAPTURE.
+  #
+  # A PopupDialog contributes ZERO dump nodes, so the raise is paired with `op=dialog`
+  # (whose log line carries the live popup name, title and button list) and a PNG, and
+  # there is no dump beside it. NO `press=`: two of the three buttons build a route and
+  # the seam refuses them anyway.
+  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "raise", popup = "createroute" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "rr-dlg-createroute" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "dismiss", popup = "createroute" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
 
   # --- the Settings-launched runner, opened and sized at GUI-1's rect for it. Both must
   # happen BEFORE the run step: `op=run` needs the window to have drawn once (both runners
@@ -98,11 +117,11 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "testrunner", x = "270", y = "8", w = "620", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "expand", window = "testrunner", key = "none" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "expand", window = "testrunner", key = "category:TrajectoryMath", state = "true" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "testrunner", key = "category:Periodicity", state = "true" }, expect = "OK" },
 
   # --- THE RUNNING STATE. Everything after this step but the capture pair waits for the
   # batch; the pair is admitted by the six-verb relaxation.
-  { cmd = "UiAction", args = { op = "run", window = "testrunner", category = "TrajectoryMath", await = "false" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "run", window = "testrunner", category = "Periodicity", await = "false" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "rr-testrunner-running-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "rr-testrunner-running-advanced" }, expect = "OK" },
 
@@ -129,9 +148,11 @@ count = { min = 5, max = 5 }
 # returned silently": the `raise` line is written BEFORE the spawn and `raise ok` AFTER
 # the settle confirmed a popup with that exact name is standing.
 #
-# `running=true` IS THE LANE'S CENTRAL CLAIM - see the header. `discovered=8` is EXACT and
-# derived from the source (eight `[InGameTest(Category = "TrajectoryMath")]` declarations,
-# all scene-agnostic, so none is scene-skipped at SPACECENTER). NO TALLY IS PINNED and
+# `running=true` IS THE LANE'S CENTRAL CLAIM - see the header for what it does and does
+# not prove. `discovered=` is REGEXED rather than pinned: the runner discovers all
+# thirteen `[InGameTest(Category = "Periodicity")]` declarations and batch-skips the four
+# `AllowBatchExecution = false` diagnostic sweeps, and a lane that pinned the number would
+# red on an added cell without saying anything about the picture. NO TALLY IS PINNED and
 # none is emitted: the `await=false` payload deliberately carries no counts, because a row
 # that is currently Running lands in none of the passed / failed / skipped buckets.
 required = [
@@ -143,7 +164,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=true count=1 name=ParsekLogisticsCreateRouteConfirm ",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=createroute press=- open=false",
 
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction run started window=testrunner category=TrajectoryMath discovered=8 await=false running=true batchGateRelaxed=true",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction run started window=testrunner category=Periodicity discovered=[1-9][0-9]* await=false running=true batchGateRelaxed=true",
 
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rr-dlg-createroute",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rr-testrunner-running-advanced",

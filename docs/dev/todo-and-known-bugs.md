@@ -15,7 +15,11 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: four window states the new seam ops still cannot photograph, and why each has no host [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). FOUR items. 1 to 3 are FIXTURE gaps; 4 is an OP-SCOPE correction to the wave's own lane plan. None is a product defect. OPEN; each names what it needs]
+## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and why [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). SEVEN items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan. None is a product defect. OPEN; each names what it needs]
+
+**Read 5 and 6 before authoring any census lane.** Both are cases where every log contract
+PASSED over a picture that showed the wrong thing, which is the failure mode a census is
+least able to notice: a spec cannot assert what a PNG contains.
 
 **Where this came from.** PR #1734 shipped the automation-only seam operations that write
 the window state a player writes with a click (`op=state`, `op=sort`, `op=select`,
@@ -61,7 +65,56 @@ GUI-STATE-COVERAGE-RESIDUE-2026-09-21 (which records that window's zero-candidat
 branch as dead) seen from the other side, and it NEEDS the same thing: a FLIGHT fixture
 with a spawnable committed recording close to the active vessel.
 
-**4. `" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`**
+**4. THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE**
+(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MEASURED by GUI-24's first
+flight (`2026-09-21_2252`) rather than derived. `op=expand window=career key=none` ran
+correctly and answered `state=false expanded=0 total=2`, and the two captures beside it
+showed NO FOLD: `CareerStateWindowUI` draws `Pending in timeline (N)` only in the `else`
+arm of `RowsEqual(tab.CurrentRows, tab.ProjectedRows)` (`:1478`), i.e. only when the
+recorded future DIVERGES from now. The operator's own 110-recording career reads
+`Mission Control L1 - slots 0/2 now, 0/2 at timeline end` and
+`Administration L1 - slots 0/1 now, 0/1 at timeline end`, so the same-as-projected arm
+draws and there is no fold to collapse. The two steps were REMOVED from GUI-24 rather
+than relabelled - GUI-1 already photographs both tabs resting on this host. NEEDS a host
+whose ledger carries a pending contract accept or a pending strategy activation in the
+FUTURE; `career-contract-pad` (GUI-15's host) carries two accepts but GUI-15's reading
+records them as CURRENT, so it is a candidate to re-measure rather than a known answer.
+
+**5. GROUPED DISPLAY BLOCKS ARE NOT EXPANDABLE THROUGH THE SEAM, so a recording inside
+one cannot be edited or photographed**
+(`GUI-CENSUS-GROUPED-DISPLAY-BLOCKS-ARE-NOT-EXPANDABLE-THROUGH-THE-SEAM`). MEASURED by
+GUI-25's first flight (`2026-09-21_2254`, INVALID at the recording-rename step with
+`edit-not-drawn`). The Recordings tab draws TWO kinds of collapsible block and the seam's
+`op=expand` enumerates only one: `DrawChainBlock` keys its block by `Recording.ChainId`,
+which `RecordingsTableUI.EnumerateChainIdsForTesting` walks, while
+`DrawGroupedRecordingBlock` keys its block `"<groupName>::<identity>"` (`:5713`, built in
+`:5741-5754`), a shape no expand set produces. So `key=all` answered
+`changed=29 expanded=52 total=52` - every key it knows - and the multi-member
+`Kerbal X (2)` block still drew its collapsed caret, leaving both of its member
+recordings undrawable. Consequences beyond this lane: `op=edit field=recordingname` and
+any capture of a grouped block's MEMBER ROWS are unreachable on any host that groups two
+same-identity recordings under one group. The lane's remedy is to key the edit to a
+SINGLE-member block (which draws as a plain row); the instrument remedy is a `block:`
+expand prefix over `EnumerateDisplayBlockKeys`, which does not exist. NEEDS that prefix,
+or an enumeration of the grouped keys folded into `chain:`.
+
+**6. AN IMGUI WINDOW OVER THE SCREEN CENTRE HIDES A RAISED `PopupDialog` IN THE CAPTURE**
+(`GUI-CENSUS-AN-IMGUI-WINDOW-HIDES-A-RAISED-POPUPDIALOG-IN-THE-CAPTURE`). MEASURED TWICE,
+by GUI-25's `2026-09-21_2258` and GUI-26's `2026-09-21_2300` - both PASS on every log
+contract, with `uiaction dialog open=true count=1 name=ParsekLogisticsDeleteRouteConfirm`
+/ `...CreateRouteConfirm` and a `dismiss ok` afterwards proving the modal stood through
+the capture, and both PNGs showing the full-width Logistics window with NO DIALOG in it. A
+`PopupDialog` is uGUI on `UIMasterController`'s dialog canvas; KSP's legacy IMGUI
+(`OnGUI`) renders after it, so any Parsek window covering the screen centre paints over
+the modal. GUI-10 never hit this because only the 250 px `main` window was open beside its
+six dialogs. THE SEAM CANNOT SEE IT: `op=dialog` reports the modal's own open flag, which
+is true either way, so the log contract passes over a false picture - the PNG is the only
+check. The lane remedy, taken in both specs, is `op=close` on the covering window before
+the raise. NEEDS, if it is ever to be automatic: an `op=raise` post-settle that refuses
+when a non-`main` window's rect covers the dialog's own rect, which nothing computes
+today.
+
+**7. `" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`**
 (`GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT`). A CORRECTION to the
 wave-6 lane plan, which asked for the suffix by driving ONE of a vessel's own interval
 keys with `include=false`. The op cannot express that: `TryParseSelectKey` yields a

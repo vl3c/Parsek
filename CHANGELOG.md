@@ -39,7 +39,20 @@ _(unreleased — entries accumulate here per commit)_
   route; Real Spawn Control cannot be opened without a nearby spawn candidate, so its four
   sort states are unreachable; and `" (partial)"` inclusion is not expressible through
   `op=select`, which resolves a ROW and applies to all of its own interval keys) - see
-  `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22` in `docs/dev/todo-and-known-bugs.md`.
+  `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22` in `docs/dev/todo-and-known-bugs.md`. ALL FOUR
+  FLEW GREEN 2026-09-22 on one pinned automation DLL (nine flights, every lane's final
+  verdict PASS on attempt 1, 55-88 s wall), and the flights forced four corrections that
+  no log contract could have caught - three of them runs that passed every pinned line
+  over a picture showing the wrong thing: a raised `PopupDialog` is uGUI and a full-width
+  IMGUI window paints over it, so both Logistics modals were invisible in their first
+  captures while the seam correctly reported them standing; `op=run await=false` reads
+  `running=` at DISPATCH, and an eight-cell `TrajectoryMath` batch finished in 149 ms
+  before the screenshot landed, so the runner photographed results under a running label;
+  `op=expand key=all` cannot open a GROUPED display block (the Recordings tab has two
+  block kinds and only `ChainId` is enumerated), so a recording inside one is undrawable
+  and its rename editor answers `edit-not-drawn`; and the Career `Pending in timeline`
+  fold needs a career whose recorded future DIVERGES from now rather than merely a long
+  one, so those two captures were dropped. Each is filed with what it needs.
 
 - **Automated testing: the GUI census can now photograph the product FAILING, refusing and
   being authored, not only resting.** Eleven new operator-tier census lanes
