@@ -534,9 +534,18 @@ class BrowserArgvTests(unittest.TestCase):
         argv = fid.browser_argv("/br", "u", "/o.png", (10, 10), self.tmp)
         for flag in ("--headless=new", "--no-first-run",
                      "--no-default-browser-check", "--disable-gpu",
-                     "--disable-extensions", "--hide-scrollbars",
+                     "--disable-extensions",
                      "--force-device-scale-factor=1"):
             self.assertIn(flag, argv)
+
+    def test_the_browsers_own_scrollbars_are_not_hidden(self):
+        # `--hide-scrollbars` made the instrument blind to a regression the page
+        # introduced: `overflow:auto` on a scroll view gives it a white NATIVE
+        # scroll bar over the mirrored KSP one, on all 52 overflowing views. The
+        # page hides its own (`scrollbar-width:none`); the instrument must see
+        # what a reader sees.
+        argv = fid.browser_argv("/br", "u", "/o.png", (10, 10), self.tmp)
+        self.assertNotIn("--hide-scrollbars", argv)
 
     def test_the_url_is_last_and_the_screenshot_path_is_its_own_argument(self):
         argv = fid.browser_argv("/br", "file:///p#bare=1", "/o.png", (4, 4),
@@ -628,7 +637,9 @@ class ScreenshotDrivingTests(unittest.TestCase):
         cmd = seen["cmd"]
         self.assertIn("--headless=new", cmd)
         self.assertIn("--force-device-scale-factor=1", cmd)
-        self.assertIn("--hide-scrollbars", cmd)
+        self.assertNotIn("--hide-scrollbars", cmd,
+                         "the flag hid a difference the page itself introduced: "
+                         "a native scroll bar over the mirrored KSP one")
         self.assertIn("--window-size=1280,720", cmd)
         self.assertIn("--screenshot=" + out, cmd)
         self.assertEqual(cmd[-1], "file:///p.html#bare=1")
@@ -815,6 +826,150 @@ class MeasureCaptureTests(unittest.TestCase):
 # the report
 # --------------------------------------------------------------------------
 
+
+class SliderMetricTests(unittest.TestCase):
+    """PRESENCE cannot see a slider: it asks "are there four ink pixels in this
+    rect", and a groove has a border, so the answer is yes whatever the page
+    draws inside it. Deleting the handle element moved NO metric in the report
+    while the page's handle was 168 luminance away from the game's - the corpus
+    said "slider frame-only 41 -> 0" about a change that had moved the page
+    AWAY from the frame. Hence a metric of the slider's own."""
+
+    def bar(self, thumb_lum, groove_lum=45, start=20, length=60):
+        px = bytearray(bytes((0, 0, 0)) * (40 * 200))
+        for y in range(10, 190):
+            for x in range(10, 30):
+                o = (y * 40 + x) * 3
+                px[o:o + 3] = bytes((groove_lum,) * 3)
+        for y in range(10 + start, 10 + start + length):
+            for x in range(10, 30):
+                o = (y * 40 + x) * 3
+                px[o:o + 3] = bytes((thumb_lum,) * 3)
+        return (40, 200, 3, bytes(px))
+
+    RECT = (10, 10, 20, 180)
+
+    def test_two_identical_sliders_read_zero_error(self):
+        img = self.bar(17)
+        m = fid.slider_metric(img, img, self.RECT)
+        self.assertEqual(m["mae"], 0.0)
+
+    def test_a_wrong_coloured_thumb_is_an_error_the_metric_sees(self):
+        # The defect this metric exists for: the page drew the handle at
+        # luminance 185 where the game draws 17.
+        frame = self.bar(17)
+        mirror = self.bar(185)
+        m = fid.slider_metric(frame, mirror, self.RECT)
+        self.assertGreater(m["mae"], 40)
+
+    def test_the_thumb_run_is_compared_on_both_sides_when_both_resolve(self):
+        frame = self.bar(180, groove_lum=45, start=20, length=60)
+        mirror = self.bar(180, groove_lum=45, start=26, length=60)
+        m = fid.slider_metric(frame, mirror, self.RECT,
+                              thumb_run=fid._thumb_run)
+        self.assertEqual(m["frameRun"], [20, 60])
+        self.assertEqual(m["mirrorRun"], [26, 60])
+        self.assertEqual((m["dStart"], m["dLen"]), (6, 0))
+
+    def test_a_missing_thumb_leaves_the_run_unresolved_on_that_side(self):
+        # The mutation the reviewer asked for: remove the handle and a metric
+        # must move. This is the one that moves decisively.
+        frame = self.bar(180, start=20, length=60)
+        flat = self.bar(45, start=20, length=60)
+        m = fid.slider_metric(frame, flat, self.RECT, thumb_run=fid._thumb_run)
+        self.assertEqual(m["frameRun"], [20, 60])
+        self.assertIsNone(m["mirrorRun"])
+        self.assertIsNone(m["dStart"])
+
+    def test_without_a_reader_only_the_luminance_error_is_reported(self):
+        img = self.bar(17)
+        m = fid.slider_metric(img, img, self.RECT)
+        self.assertIsNone(m["frameRun"])
+        self.assertIsNone(m["dStart"])
+
+    def test_the_reading_reaches_the_capture_record_and_the_tables(self):
+        root = {"k": "window", "x": 0, "y": 0, "w": 40, "h": 200, "bg": "#2d2d2d",
+                "c": [{"k": "slider", "s": "verticalscrollbar",
+                       "x": 10, "y": 10, "w": 20, "h": 180}]}
+        cap = _cap([root], screen=(40, 200))
+        rec = fid.measure_capture(cap, self.bar(17), self.bar(185))
+        self.assertEqual(len(rec["sliders"]), 1)
+        self.assertGreater(rec["sliders"][0]["mae"], 40)
+        agg = fid.aggregate([rec])
+        self.assertEqual(agg["totals"]["slider"]["n"], 1)
+        self.assertIn("slider|verticalscrollbar|notext", agg["classes"])
+
+
+class TempDirCleanupTests(unittest.TestCase):
+    """43 profile directories (320 MB) accumulated in the owner's %TEMP%:
+    `shutil.rmtree(ignore_errors=True)` ran while the browser's children still
+    held files, failed silently BECAUSE errors were ignored, and left them."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-fidelity-test-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a_directory_that_goes_is_gone_and_reported_as_such(self):
+        d = tempfile.mkdtemp(dir=self.tmp)
+        self.assertEqual(fid.remove_temp_dirs([d], sleep=lambda s: None), [])
+        self.assertFalse(os.path.isdir(d))
+
+    def test_a_locked_directory_is_retried_and_then_NAMED(self):
+        d = tempfile.mkdtemp(dir=self.tmp)
+        tries = []
+
+        def rmtree(path):
+            tries.append(path)
+            raise OSError(32, "in use")
+
+        left = fid.remove_temp_dirs([d], attempts=4, sleep=lambda s: None,
+                                    rmtree=rmtree)
+        self.assertEqual(left, [d])
+        self.assertEqual(len(tries), 4, "it has to RETRY, not give up at once")
+
+    def test_it_succeeds_on_a_later_attempt(self):
+        d = tempfile.mkdtemp(dir=self.tmp)
+        state = {"n": 0}
+
+        def rmtree(path):
+            state["n"] += 1
+            if state["n"] < 3:
+                raise OSError(32, "the browser still holds it")
+            shutil.rmtree(path)
+
+        self.assertEqual(fid.remove_temp_dirs([d], sleep=lambda s: None,
+                                              rmtree=rmtree), [])
+        self.assertEqual(state["n"], 3)
+
+    def test_a_path_that_is_not_there_is_not_an_error(self):
+        self.assertEqual(
+            fid.remove_temp_dirs([os.path.join(self.tmp, "gone"), None, ""],
+                                 sleep=lambda s: None), [])
+
+    def test_the_cleanup_runs_from_a_finally(self):
+        # An interrupted run must not leak either.
+        with open(fid.__file__, encoding="utf-8") as fh:
+            src = fh.read()
+        body = src.split("def main(", 1)[1]
+        self.assertIn("finally:", body)
+        self.assertIn("remove_temp_dirs(list(profiles.values()))", body)
+
+
+class ExitCodeTests(unittest.TestCase):
+    def test_the_codes_are_distinct_and_non_zero(self):
+        self.assertNotEqual(fid.EXIT_NO_BROWSER, fid.EXIT_HALTED)
+        self.assertTrue(fid.EXIT_NO_BROWSER and fid.EXIT_HALTED)
+
+    def test_a_halted_batch_does_not_exit_zero(self):
+        # It has a report, and the report covers only what was measured before
+        # the browser gave up; exiting 0 would let a caller read a partial
+        # corpus as a whole one.
+        with open(fid.__file__, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn('return EXIT_HALTED if halt["why"] else 0', src)
+
 class ReportAssemblyTests(unittest.TestCase):
     def setUp(self):
         self.rec = {"id": "r/a", "label": "a", "window": "main", "score": 1.0,
@@ -922,15 +1077,35 @@ class BareModeTests(unittest.TestCase):
         # This is what makes "the page without the hash is unchanged" mechanical.
         # A selector that is not scoped would restyle the page every reader opens.
         css = re.sub(r"/\*.*?\*/", "", gmi.BARE_CSS, flags=re.S)
-        blocks = re.findall(r"([^{}]+)\{[^{}]*\}", css)
-        self.assertGreater(len(blocks), 4, "no bare rules were found to check")
-        for sel in blocks:
-            for one in sel.split(","):
-                one = one.strip()
-                if not one:
-                    continue
-                self.assertIn("bare", one,
-                              "the bare skin restyles the ordinary page: %r" % one)
+        self.assertGreater(len(re.findall(r"\{", css)), 4,
+                           "no bare rules were found to check")
+        self.assertEqual(fid.unscoped_bare_selectors(gmi.BARE_CSS), [],
+                         "the bare skin restyles the ordinary page")
+
+    def test_a_selector_that_merely_mentions_bare_does_not_pass(self):
+        # The substring test this replaced let both of these through, and both
+        # restyle the page a reader opens without the hash.
+        self.assertEqual(
+            fid.unscoped_bare_selectors("body:not(.bare) .stagewrap{color:red}"),
+            ["body:not(.bare) .stagewrap"])
+        self.assertEqual(
+            fid.unscoped_bare_selectors(".stagewrap:not(.barely){color:red}"),
+            [".stagewrap:not(.barely)"])
+
+    def test_a_longer_class_name_does_not_pass_as_the_bare_one(self):
+        self.assertEqual(fid.unscoped_bare_selectors("body.barely .x{color:red}"),
+                         ["body.barely .x"])
+
+    def test_the_two_scoped_prefixes_pass_and_every_selector_in_a_list_is_checked(self):
+        self.assertEqual(fid.unscoped_bare_selectors(
+            'body.bare #top,html[data-ready="1"] body.bare .stagewrap{display:none}'),
+            [])
+        self.assertEqual(fid.unscoped_bare_selectors(
+            "body.bare #top,.stagewrap{display:none}"), [".stagewrap"])
+
+    def test_a_comment_mentioning_a_selector_is_not_a_selector(self):
+        self.assertEqual(fid.unscoped_bare_selectors(
+            "/* .stagewrap is hidden */ body.bare .stagewrap{display:none}"), [])
 
     def test_the_ordinary_stylesheet_carries_no_bare_mode_rule(self):
         # Comments stripped: the word appears in prose about a groove that stays
@@ -974,7 +1149,7 @@ def _tiny_model():
     """The smallest page model `render_html` accepts, so the bare-mode cells can
     check the generated file without a census corpus."""
     return {
-        "schema": gmi.MIRROR_SCHEMA, "seamWindows": ["main"],
+        "schema": gmi.MIRROR_SCHEMA, "seamWindows": ["main"], "titlePrefix": "",
         "clickKinds": list(gmi.CLICK_KINDS), "seamOps": list(gmi.SEAM_VERBS),
         "closeOp": gmi.VERB_CLOSE, "fixtures": [{"key": "fix", "specIds": ["S"]}],
         "windows": [{"token": "main", "titles": [], "tabs": [],

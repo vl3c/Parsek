@@ -552,9 +552,19 @@ def text_ink_offset(w, h, bpp, px, rect, inset=3, cut=0.45):
     roughly a cell wide on the other.
 
     The middle of the rect only, inset from every edge, so a box's own border is
-    never mistaken for its first glyph. `cut` is a fraction of the rect's own
-    contrast range rather than an absolute level, because the same style is drawn
-    on three different fills across the corpus.
+    never mistaken for its first glyph.
+
+    The three numbers, each measured rather than chosen. `inset=3`: KSP's box
+    style draws a one-pixel outline with a one-pixel inner shadow, and the
+    Logistics header cells put their first glyph 4 to 5 px in (measured: "#" at
+    4, "Actions" at 4, "Origin" at 5, "Interval" at 5) - so 3 clears the frame
+    and still sits before the earliest glyph. `cut=0.45`: a fraction of the
+    rect's OWN contrast range rather than an absolute level, because the same
+    style is drawn on #444444, #292929 and #313131 across the corpus; at 0.45
+    the anti-aliased left edge of a glyph counts and the shadow does not.
+    `spread < 20` is the "nothing here to read" floor - an empty box varies by
+    2 or 3 across its own surface, and the weakest real run in the corpus (the
+    dimmed Missions interval field) spreads 30.
 
     Returns None when there is no ink to measure, and the page then keeps its CSS
     alignment.
@@ -595,10 +605,18 @@ def slider_thumb_run(w, h, bpp, px, rect, min_contrast=12):
     The dump records a slider's rect and no value, so the page had nothing to
     position a knob from and drew a bare groove - a Settings row that reads as an
     empty channel where the game shows a handle at about 70%, and a scroll bar
-    with no bar in it. But the thumb is IN the pixels: KSP draws it lighter than
-    its groove, so the brightest contiguous run along the control's long axis is
-    the thumb, the same way `grid_label_runs` reads a tab bar's labels rather
-    than assuming them.
+    with no bar in it. But the thumb IS in the pixels.
+
+    What is bright is the thumb's BEVEL, not its face, and the difference
+    matters. Measured across the `ib-structure-mission-advanced` vertical scroll
+    bar: the groove is a flat luminance 45, and the thumb's own columns read
+    14, 0, 101, 85, 68, 50, 17, 17, 17, 17, 34, 50, 50, 0, 14 - a one-pixel
+    highlight at 101/85 over a FACE of 17 to 50, which is DARKER than the groove
+    it sits in. So this profiles the MAXIMUM along each step of the control's
+    long axis, where the bevel shows, and the longest run above two thirds of the
+    control's own range is the thumb. Taking "lighter than its groove" literally
+    and colouring the face light is exactly the mistake that made the page's
+    handle read at luminance 185 against the game's 17.
 
     Returns `(start, length, vertical)` in the control's own axis - `start`
     relative to the rect - or None when the rect carries no contrast to read
@@ -632,9 +650,15 @@ def slider_thumb_run(w, h, bpp, px, rect, min_contrast=12):
     lo, hi = min(prof), max(prof)
     if hi - lo < min_contrast:
         return None
-    # Two thirds of the way up the control's own range: the thumb's face against
-    # the groove's shadow. An absolute cut would work on the Settings slider and
-    # not on a scroll bar, which is darker overall.
+    # `min_contrast` of 12: the smallest real separation in the corpus is the
+    # Settings horizontal slider, whose groove profiles at 36-40 against a handle
+    # at 54 - a range of about 18. A flat groove (no thumb to find, or a thumb
+    # that fills it) profiles within 2 or 3 of itself, so 12 sits clear of the
+    # noise and below every genuine thumb measured.
+    #
+    # Two thirds of the way up the control's OWN range, not an absolute level:
+    # the bevel tops out at 101 over a 45 groove on a scroll bar and at 54 over
+    # a 36 groove on the Settings slider, and no single threshold separates both.
     cut = lo + (hi - lo) * 2.0 / 3.0
     best = None
     start = None
@@ -754,6 +778,7 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
         off = text_offsets(rect)
         if off is not None:
             out["tx"] = off
+    thumb_rect = None
     if out["k"] == "slider" and thumb_runs is not None:
         run = thumb_runs(rect)
         if run:
@@ -761,6 +786,23 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
             # that is. Read off THIS frame, so the page draws the handle where
             # the game drew it rather than at a position nothing recorded.
             out["th"] = [run[0], run[1]]
+            if sampler is not None:
+                # And its COLOURS, off the same frame, by the same rule as every
+                # other surface on this page. A typed colour was wrong by 168
+                # luminance: KSP's scroll bar thumb has a dark face (17 to 50)
+                # under a one-pixel bevel (85 to 101), and the page drew the
+                # whole handle at #b9b9b9. `sample_colors` answers with exactly
+                # the two the thumb has - the median of its own surface, and the
+                # extreme tail, which IS the bevel.
+                trect = ([rect[0], rect[1] + run[0], rect[2], run[1]]
+                         if run[2] else
+                         [rect[0] + run[0], rect[1], run[1], rect[3]])
+                thumb_rect = trect
+                tbg, tfg = sampler(trect, ())
+                if tbg:
+                    out["tc"] = tbg
+                if tfg:
+                    out["te"] = tfg
         out["vt"] = 1 if rect[3] > rect[2] else 0
     if node.get("horizontal") is not None:
         out["hz"] = 1 if node["horizontal"] else 0
@@ -768,6 +810,13 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
     if sampler is not None and out["w"] > 0 and out["h"] > 0:
         kid_rects = [c.get("rect") or [0, 0, 0, 0]
                      for c in (node.get("children") or ())]
+        if thumb_rect is not None:
+            # The groove is the slider's surface MINUS its thumb, the same rule
+            # a container's colour follows. Sampling the whole rect took the
+            # median of a scroll bar that is more thumb than groove, so the page
+            # painted the groove in the thumb's own colour - and then drawing the
+            # thumb on top of it changed nothing a measurement could see.
+            kid_rects = list(kid_rects) + [thumb_rect]
         bg, fg = sampler(rect, kid_rects)
         # A background identical to the parent's is what CSS already inherits,
         # so storing it again would only make the page bigger.
@@ -775,7 +824,12 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
         # worth storing; the 7000 checkbox-styled ones draw no surface of their
         # own and storing a colour for them was only payload.
         paints = (out["k"] in BG_KINDS or style == "box"
-                  or (out["k"] == "toggle" and style == "button"))
+                  or (out["k"] == "toggle" and style == "button")
+                  # A slider's GROOVE is a surface like any other, and the page
+                  # was drawing a 3 px line at #666 (luminance 102) where KSP
+                  # fills the whole 15 px width at 45. Measured on the
+                  # ib-structure-mission scroll bar.
+                  or out["k"] == "slider")
         if bg and bg != parent_bg and paints:
             out["bg"] = bg
         if fg and (text or out["k"] in ("box", "toggle")):
@@ -1078,6 +1132,47 @@ def _rect_owner(rect, log_rects, subject, open_windows):
     return None
 
 
+def title_prefix(titles):
+    """The leading words every window title shares - the product's own name.
+
+    Derived, not typed. Titles read "Parsek", "Parsek - Logistics",
+    "Parsek - Real Spawn Control": the longest run of leading words common to all
+    of them is the head the page must strip before it can compare a control's
+    label to a window's name.
+
+    Returns "" unless at least two distinct titles agree on a prefix AND at least
+    one title is longer than it - a single title would otherwise "share" the
+    whole of itself and strip every window's name to nothing.
+    """
+    words = []
+    for title in titles:
+        parts = [p for p in re.split(r"[\s-]+", (title or "").strip()) if p]
+        if parts:
+            words.append(parts)
+    if len(words) < 2:
+        return ""
+    head = []
+    for i in range(min(len(w) for w in words)):
+        first = words[0][i].lower()
+        if any(w[i].lower() != first for w in words):
+            break
+        head.append(words[0][i])
+    if not head or not any(len(w) > len(head) for w in words):
+        return ""
+    return " ".join(head)
+
+
+def strip_title_prefix(title, prefix):
+    """`title` with the product's own name taken off the front, if it is there."""
+    if not prefix:
+        return (title or "").strip()
+    low, plow = (title or "").strip(), prefix.strip()
+    if low.lower().startswith(plow.lower()):
+        rest = low[len(plow):]
+        return rest.lstrip(" -\t").strip()
+    return low
+
+
 def window_vocabulary(window_tokens, window_titles, window_tabs=None):
     """Per window, the words a repo record may name it by, and the words a SOURCE
     FILE may name it by.
@@ -1094,26 +1189,31 @@ def window_vocabulary(window_tokens, window_titles, window_tabs=None):
     * `file` - the same words plus the product name, so the main window, whose
       title IS the product name, can still be matched to `ParsekUI.cs`.
     """
+    # The product's own name, DERIVED from the titles rather than typed: it is
+    # the run of leading words every window title shares.
+    prefix = title_prefix([t for tok in window_tokens
+                           for t in (window_titles.get(tok) or ()) if t])
     product = set()
     for tok in window_tokens:
         for title in window_titles.get(tok, ()):
-            raw = (title or "").lower().strip()
-            if raw and not re.sub(r"^parsek\b[\s-]*", "", raw).strip():
+            raw = (title or "").strip()
+            if raw and not strip_title_prefix(raw, prefix):
                 product.add(norm(raw))
     vocab = {}
     for tok in window_tokens:
         titles = [t for t in (window_titles.get(tok) or ()) if t]
         per_title = []
         for title in titles:  # e.g. "Parsek - Real Spawn Control"
-            cleaned = re.sub(r"^parsek\b[\s-]*", "", title.lower()).strip()
+            cleaned = strip_title_prefix(title, prefix).lower()
             if not cleaned:
                 continue
             # A multi-word title contributes only its concatenation. Its
             # individual words are generic ("Real Spawn Control" -> real, spawn,
             # control; "Gloops Flight Recorder" -> flight, recorder) and each one
             # pulled in records about something else entirely.
+            generic = {norm(prefix), "state", "window"} - {""}
             parts = [w for w in re.findall(r"[a-z]{4,}", cleaned)
-                     if w not in ("parsek", "state", "window")]
+                     if w not in generic]
             words = {norm(cleaned)} | (set(parts) if len(parts) == 1 else set())
             per_title.append(words)
         stable = set()
@@ -1638,6 +1738,9 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         # mirror because it WAS photographed but left out of Compare, which is
         # about the product's windows.
         "seamWindows": list(window_tokens.keys()),
+        # The product's own name, derived from the window titles the captures
+        # carry, so the page can strip it without knowing it.
+        "titlePrefix": title_prefix([t for w in windows for t in w["titles"]]),
         "clickKinds": list(CLICK_KINDS),
         # The op vocabulary, so the page can recognise the one op that is also a
         # button label without a window string being typed into this file.
@@ -1830,8 +1933,17 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 .gn.k-toggle.s-button{background:var(--btn);border:1px solid #141414;
   border-radius:3px;justify-content:center;color:var(--ink);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.17)}
+/* Pushed in: the bevel goes and the outline darkens, which is the same move the
+   selection grid's selected cell makes - measured there as a grey profile of
+   130,30,32,35,40,43,44..60 against an unselected 14,102,88,78,68,41..59. The
+   two use the same #242424 because they are the same skin state. */
 .gn.k-toggle.s-button.on{box-shadow:none;border-color:#242424}
 .gn.k-toggle.s-button .cb{display:none}
+/* A text field is SUNKEN: KSP draws the same near-black outline as a button
+   (measured 5 to 25 on the ib-logistics frame) with no top bevel, over a fill
+   darker than the window's. The #666 line this replaced was brighter than the
+   field it enclosed, which is what made 55 disabled fields read as having no
+   text at all. */
 .gn.k-textfield{background:#1e1e1e;border:1px solid #141414;border-radius:2px;
   padding-left:3px}
 /* A scroll view SCROLLS. Its children are laid out at the rects the dump
@@ -1843,19 +1955,35 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
    of its own containing block DOES create scrollable overflow, so the extent
    needs no content sizer: the rects are the extent. The initial offset stays
    zero, which is the offset the frame was taken at. */
-.gn.k-scrollview{overflow:auto}
+.gn.k-scrollview{overflow:auto;scrollbar-width:none}
+/* The BROWSER's own scroll bar, hidden. KSP's scroll bar is a control in the
+   dump and the page draws it from that control's own rect, so leaving the
+   native one visible put a white bar over the mirrored one on all 52
+   overflowing scroll views - a difference from the game that the page itself
+   introduced. Wheel and drag still scroll; the mirrored bar is the visible one,
+   as it is in the game. */
+.gn.k-scrollview::-webkit-scrollbar{display:none}
 .gn.k-slider{display:flex;align-items:center}
-/* The groove, oriented by the control's own rect: 130 of the corpus's 142
-   sliders are SCROLL BARS and 130 of those are vertical, and a horizontal rule
-   drew a 15x546 scroll bar as a short bar across its middle. */
+/* The groove. Where the frame gave a colour for it (`sg`) the control is filled
+   with it across its own rect, which is what KSP draws - the
+   ib-structure-mission scroll bar is a flat luminance 45 over its whole 15 px
+   width. The drawn line below is the FALLBACK for a groove that would not
+   sample, oriented by the control's own rect: 130 of the corpus's 142 sliders
+   are scroll bars and 130 of those are vertical, and a horizontal rule drew a
+   15x546 scroll bar as a short bar across its middle. */
 .gn.k-slider::before{content:"";position:absolute;left:0;right:0;top:50%;height:3px;
   margin-top:-1px;background:#666;border-radius:2px}
 .gn.k-slider.vt::before{left:50%;right:auto;top:0;bottom:0;width:3px;height:auto;
   margin-top:0;margin-left:-1px}
-/* The handle, at the position MEASURED off the frame (`slider_thumb_run`).
-   Absent when the frame carried no contrast to read, and then the groove stays
-   bare rather than showing a knob at a position nothing recorded. */
-.gn.k-slider .th{position:absolute;background:#b9b9b9;border:1px solid #6f6f6f;
+.gn.k-slider.sg::before{display:none}
+/* The handle, at the position AND in the colours MEASURED off the frame
+   (`slider_thumb_run` plus the same sampler every other surface uses). Absent
+   when the frame carried no contrast to read, and then the groove stays bare
+   rather than showing a knob at a position nothing recorded.
+   The fallback greys are for a thumb whose colours would not sample; the face is
+   the one a scroll bar actually has (dark, under a light bevel), not the light
+   one a "handle" suggests. */
+.gn.k-slider .th{position:absolute;background:#2b2b2b;border:1px solid #5a5a5a;
   border-radius:2px}
 .gn.k-slider:not(.vt) .th{top:1px;bottom:1px}
 .gn.k-slider.vt .th{left:1px;right:1px}
@@ -1996,6 +2124,15 @@ function el(tag, cls, txt){
   return e;
 }
 function norm(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+/* A window title with the product's own name taken off the front. The prefix is
+   the generator's, derived from the titles; this page types no part of it. */
+function stripPrefix(t){
+  var s = (t || '').trim(), p = (M.titlePrefix || '').trim();
+  if (p && s.toLowerCase().indexOf(p.toLowerCase()) === 0){
+    return s.slice(p.length).replace(/^[\s-]+/, '').trim();
+  }
+  return s;
+}
 function capsFor(win){ return M.captures.filter(function(c){ return c.window === win; }); }
 function status(msg, warn){
   var s = document.getElementById('status');
@@ -2110,11 +2247,15 @@ function renderNode(n, out, opts){
   }
   if (n.k === 'slider'){
     if (n.vt) d.classList.add('vt');
+    if (n.bg){ d.style.background = n.bg; d.classList.add('sg'); }
     /* The handle at its MEASURED position. No measurement, no handle. */
     if (n.th && n.th[1] > 0){
       var th = el('div','th');
       if (n.vt){ th.style.top = n.th[0] + 'px'; th.style.height = n.th[1] + 'px'; }
       else { th.style.left = n.th[0] + 'px'; th.style.width = n.th[1] + 'px'; }
+      /* Sampled off this capture's own frame - the face and its bevel. */
+      if (n.tc) th.style.background = n.tc;
+      if (n.te) th.style.borderColor = n.te;
       d.appendChild(th);
     }
   }
@@ -2331,8 +2472,11 @@ function routeClick(ev, cap){
   var wins = M.windows.filter(function(w){ return w.captureCount > 0; });
   for (var i=0;i<wins.length;i++){
     var w = wins[i];
+    /* `M.titlePrefix` is the product's own name, derived by the generator from
+       the run of leading words every window title shares - not a word typed
+       into this page. */
     var names = [norm(w.token)].concat(w.titles.map(function(t){
-      return norm((t||'').replace(/^Parsek\s*-?\s*/i,'')); }));
+      return norm(stripPrefix(t)); }));
     if (names.indexOf(txt) >= 0 && w.token !== cap.window){
       go(w.token, null, null, S.mode); return;
     }
@@ -3024,6 +3168,7 @@ def _page_model(model):
     return {
         "schema": model["schema"],
         "seamWindows": model["seamWindows"],
+        "titlePrefix": model["titlePrefix"],
         "clickKinds": model["clickKinds"],
         "seamOps": model["seamOps"],
         "closeOp": model["closeOp"],

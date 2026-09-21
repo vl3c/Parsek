@@ -46,9 +46,14 @@ Usage::
         --out-dir <a scratch folder>            # report.json + index.html
         [--browser PATH] [--limit N] [--window main] [--capture <id>]
 
-Outputs go where `--out-dir` says and nowhere else; nothing it writes belongs in
-the repository. Stdlib only; the browser is an external tool, and every unit test
-passes with no browser installed.
+`--out-dir` receives `report.json`, `index.html` and - unless `--page` names an
+existing one - the `mirror-bare.html` the measurement was taken against. Nothing
+else is written there, and nothing it writes belongs in the repository. The
+browser's own working files (one profile per worker, one screenshot per capture)
+go to `tempfile.mkdtemp` directories and are removed when the run ends.
+
+Stdlib only; the browser is an external tool, and every unit test passes with no
+browser installed.
 
 Unit tests: `harness/lib/test_gui_mirror_fidelity.py`.
 """
@@ -59,6 +64,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -72,6 +78,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gui_mirror as gmi  # noqa: E402
 
 FIDELITY_SCHEMA = "parsek-gui-fidelity/1"
+
+# Exit codes. 0 is a whole corpus measured; anything else means the numbers in
+# the report do not cover what was asked for, and a caller must not read them as
+# if they did.
+EXIT_NO_BROWSER = 3      # nothing was measured; no headless Chromium was found
+EXIT_HALTED = 4          # the browser stopped producing screenshots part-way
 
 # Where a headless Chromium lives on this machine. Probed in order; `--browser`
 # overrides. Nothing else in the tool knows a path.
@@ -407,6 +419,48 @@ def text_metric(frame_box, mirror_box, rect):
     return out
 
 
+def _thumb_run(img, rect):
+    """The generator's own thumb reader, over a decoded RGB image. One source for
+    where a thumb is: the page positions its handle with this, so the instrument
+    grades it with the same function rather than a second opinion."""
+    w, h, bpp, px = img
+    return gmi.slider_thumb_run(w, h, bpp, px, rect)
+
+
+def slider_metric(frame, mirror, rect, thumb_run=None):
+    """A slider's own reading, because PRESENCE cannot see one.
+
+    PRESENCE asks "are there at least four ink pixels in this rect", and a
+    slider's groove has a border, so the answer is yes whatever the page draws
+    inside it. Deleting the handle element entirely moved NO metric in the
+    report, while the page's handle was 168 luminance away from the game's - the
+    corpus said "slider frame-only 41 -> 0" about a change that had moved the
+    page further from the frame. So a slider gets a metric of its own:
+
+      * `mae`  - the mean absolute luminance error over the control's own rect,
+                 which a wrong-coloured handle moves and a missing one moves the
+                 other way;
+      * `dStart` / `dLen` - where each side's thumb run sits and how long it is,
+                 when both sides resolve one, which says whether the page put the
+                 handle in the right PLACE as well as the right colour.
+
+    `thumb_run` is injected (the generator's own `slider_thumb_run`) so this stays
+    testable without importing a frame.
+    """
+    out = {"rect": list(rect), "mae": mean_abs_lum_diff(frame, mirror, rect),
+           "frameRun": None, "mirrorRun": None, "dStart": None, "dLen": None}
+    if thumb_run is None:
+        return out
+    fr = thumb_run(frame, rect)
+    mr = thumb_run(mirror, rect)
+    out["frameRun"] = list(fr[:2]) if fr else None
+    out["mirrorRun"] = list(mr[:2]) if mr else None
+    if fr and mr:
+        out["dStart"] = mr[0] - fr[0]
+        out["dLen"] = mr[1] - fr[1]
+    return out
+
+
 def presence_key(node):
     """The grouping key for PRESENCE. Kind plus style plus whether the control
     carries text, because the fix for a textless `button` (an icon the mirror
@@ -452,13 +506,14 @@ def aggregate(records):
     per_window = defaultdict(lambda: {"captures": 0, "dx": [], "dy": [], "wr": [],
                                       "clipped": 0, "texts": 0, "fill": [],
                                       "frameOnly": 0, "mirrorOnly": 0,
-                                      "score": []})
+                                      "score": [], "slider": [], "sliderRun": []})
     per_class = defaultdict(lambda: {"texts": 0, "dx": [], "dy": [], "wr": [],
+                                     "slider": [], "sliderRun": [],
                                      "clipped": 0, "fill": [], "frameOnly": 0,
                                      "mirrorOnly": 0, "nodes": 0})
     totals = {"captures": 0, "texts": 0, "dx": [], "dy": [], "wr": [],
               "clipped": 0, "fill": [], "frameOnly": 0, "mirrorOnly": 0,
-              "score": []}
+              "score": [], "slider": [], "sliderRun": []}
 
     for rec in records:
         win = rec.get("window") or "-"
@@ -490,6 +545,15 @@ def aggregate(records):
             per_class[f["class"]]["fill"].append(f["delta"])
             pw["fill"].append(f["delta"])
             totals["fill"].append(f["delta"])
+        for sm in rec.get("sliders") or ():
+            pc = per_class[sm["class"]]
+            if sm.get("mae") is not None:
+                pc["slider"].append(sm["mae"])
+                pw["slider"].append(sm["mae"])
+                totals["slider"].append(sm["mae"])
+            if sm.get("dStart") is not None:
+                for bucket in (pw, pc, totals):
+                    bucket["sliderRun"].append(sm["dStart"])
         for p in rec.get("presence") or ():
             pc = per_class[p["class"]]
             pc["nodes"] += 1
@@ -504,7 +568,8 @@ def aggregate(records):
 
     def finish(d):
         out = {k: v for k, v in d.items()
-               if k not in ("dx", "dy", "wr", "fill", "score")}
+               if k not in ("dx", "dy", "wr", "fill", "score", "slider",
+                            "sliderRun")}
         out["dx"] = _stat_block(d["dx"])
         out["dy"] = _stat_block(d["dy"])
         out["wr"] = {"n": len(d["wr"]),
@@ -513,6 +578,8 @@ def aggregate(records):
                      "worst": (max(d["wr"], key=lambda v: abs(v - 1.0))
                                if d["wr"] else None)}
         out["fill"] = _stat_block(d["fill"])
+        out["slider"] = _stat_block(d.get("slider") or [])
+        out["sliderRun"] = _stat_block(d.get("sliderRun") or [])
         if "score" in d:
             out["score"] = _stat_block(d["score"])
         return out
@@ -539,6 +606,46 @@ def worst_captures(records, limit):
 # --------------------------------------------------------------------------
 # pure: the browser, located but not run
 # --------------------------------------------------------------------------
+
+# The only two prefixes a bare-mode selector may start with. Anything else can
+# reach the page a reader opens without the hash, which is the one thing bare
+# mode must not do.
+BARE_PREFIXES = ('body.bare', 'html[data-ready="1"] body.bare')
+
+
+def unscoped_bare_selectors(css):
+    """Every selector in the bare stylesheet that is NOT scoped to bare mode.
+
+    A substring test for "bare" was not enough and the gap is not theoretical:
+    `body:not(.bare) .stagewrap{...}` and `.stagewrap:not(.barely){...}` both
+    contain the word and both restyle the ordinary page. So each selector in each
+    comma-separated list has to START with one of `BARE_PREFIXES`, and the next
+    character has to be a separator rather than more identifier - otherwise
+    `.barely` passes as `.bare`.
+
+    Returns the offending selectors, so a failure names them.
+    """
+    stripped = re.sub(r"/\*.*?\*/", "", css or "", flags=re.S)
+    bad = []
+    for sel_list in re.findall(r"([^{}]+)\{[^{}]*\}", stripped):
+        for sel in sel_list.split(","):
+            sel = sel.strip()
+            if not sel:
+                continue
+            ok = False
+            for prefix in BARE_PREFIXES:
+                if not sel.startswith(prefix):
+                    continue
+                rest = sel[len(prefix):]
+                # `body.barely` must not pass as `body.bare`.
+                if rest and (rest[0].isalnum() or rest[0] in "-_"):
+                    continue
+                ok = True
+                break
+            if not ok:
+                bad.append(sel)
+    return bad
+
 
 def find_browser(override=None, candidates=BROWSER_CANDIDATES, exists=None):
     """The headless Chromium to drive, or None.
@@ -655,7 +762,13 @@ def browser_argv(browser, url, out_png, size, profile_dir, budget_ms=4000):
                 % (label, len(path), MAX_BROWSER_PATH, path))
     return [browser, "--headless=new", "--user-data-dir=" + profile_dir,
             "--disable-gpu", "--no-first-run", "--no-default-browser-check",
-            "--disable-extensions", "--hide-scrollbars",
+            # NOT `--hide-scrollbars`. It hid a difference the page itself
+            # introduced: making a scroll view scroll gave every overflowing one
+            # a white native scroll bar over the mirrored KSP bar, and the flag
+            # meant the instrument never saw what a reader sees. The page hides
+            # its own native bars now (`scrollbar-width:none`), which is a fix
+            # rather than a blindfold.
+            "--disable-extensions",
             "--force-device-scale-factor=1",
             "--virtual-time-budget=%d" % int(budget_ms),
             "--window-size=%d,%d" % (int(size[0]), int(size[1])),
@@ -746,6 +859,51 @@ def _profile_for_thread(pool):
 _PROFILE_LOCK = threading.Lock()
 
 
+def _fresh_profile(pool):
+    """A new profile directory for a RETRY, tracked for cleanup like any other.
+
+    Keyed by a counter rather than by thread, so the thread's own warm profile is
+    not replaced by the one its retry used.
+    """
+    with _PROFILE_LOCK:
+        path = tempfile.mkdtemp(prefix="parsek-fidelity-")
+        pool["retry-%d" % len(pool)] = path
+    return path
+
+
+def remove_temp_dirs(paths, attempts=6, sleep=time.sleep, rmtree=None):
+    """Delete the run's temp directories, and say which ones would not go.
+
+    `shutil.rmtree(ignore_errors=True)` on its own leaked every one of them: it
+    runs while the browser's child processes still hold files inside the profile,
+    fails silently BECAUSE errors are ignored, and the directory stays. 43 of them
+    (320 MB) piled up in the owner's %TEMP% before anyone looked. So: retry with a
+    backoff, and REPORT what is left rather than swallowing it.
+
+    `sleep` and `rmtree` are injected so a test can drive both outcomes. Called
+    from a `finally`, so an interrupt cleans up too.
+
+    Returns the paths that survived.
+    """
+    rm = rmtree or shutil.rmtree
+    left = []
+    for path in paths:
+        if not path or not os.path.isdir(path):
+            continue
+        for attempt in range(attempts):
+            try:
+                rm(path)
+                break
+            except OSError:
+                if attempt == attempts - 1:
+                    left.append(path)
+                    break
+                # Edge's children exit a moment after their parent, and Windows
+                # keeps a handle open on the profile until they do.
+                sleep(0.25 * (attempt + 1))
+    return left
+
+
 # --------------------------------------------------------------------------
 # shell: measure one capture
 # --------------------------------------------------------------------------
@@ -807,6 +965,7 @@ def measure_capture(cap, frame_img, mirror_img):
         "texts": [],
         "fills": [],
         "presence": [],
+        "sliders": [],
         "score": None,
         "clippedCount": 0,
         "skipped": "",
@@ -890,6 +1049,13 @@ def measure_capture(cap, frame_img, mirror_img):
                     "mirror": (gmi._hex(mc) if mc else None),
                     "delta": rgb_delta(fc, mc),
                 })
+
+            # ---- SLIDER: its own reading, since PRESENCE cannot see one ---
+            if n["k"] == "slider":
+                sm = slider_metric(frame_img, mirror_img, vis,
+                                   thumb_run=_thumb_run)
+                sm["class"] = cls
+                rec["sliders"].append(sm)
 
             # ---- PRESENCE: ink on one side only --------------------------
             # Leaves only (see above), on the INSET rect, so a control the page
@@ -1015,6 +1181,17 @@ def render_report_html(report, triples):
                 '<td class="n">%s</td></tr>'
                 % (t["fill"]["n"], _fmt(t["fill"]["p50"], 0),
                    _fmt(t["fill"]["p95"], 0), _fmt(t["fill"]["worst"], 0)))
+    rows.append('<tr><td>slider luminance error (mean abs, over the rect)</td>'
+                '<td class="n">%s</td><td class="n">%s</td><td class="n">%s</td>'
+                '<td class="n">%s</td></tr>'
+                % (t["slider"]["n"], _fmt(t["slider"]["p50"]),
+                   _fmt(t["slider"]["p95"]), _fmt(t["slider"]["worst"])))
+    rows.append('<tr><td>slider thumb start delta (px)</td>'
+                '<td class="n">%s</td><td class="n">%s</td><td class="n">%s</td>'
+                '<td class="n">%s</td></tr>'
+                % (t["sliderRun"]["n"], _fmt(t["sliderRun"]["p50"], 0),
+                   _fmt(t["sliderRun"]["p95"], 0),
+                   _fmt(t["sliderRun"]["worst"], 0)))
     rows.append('<tr><td>window luminance score</td><td class="n">%s</td>'
                 '<td class="n">%s</td><td class="n">%s</td><td class="n">%s</td></tr>'
                 % (t["score"]["n"], _fmt(t["score"]["p50"]),
@@ -1050,6 +1227,7 @@ def render_report_html(report, triples):
         rows.append('<table><tr><th>%s</th><th>texts</th><th>dx p50</th>'
                     '<th>dx p95</th><th>dx worst</th><th>wr p50</th>'
                     '<th>wr worst</th><th>clipped</th><th>fill p95</th>'
+                    '<th>slider err</th>'
                     '<th>frame-only</th><th>mirror-only</th></tr>' % label)
         tbl = report["aggregate"][table_key]
         order = sorted(tbl.items(),
@@ -1061,7 +1239,8 @@ def render_report_html(report, triples):
                         "<td class=\"n\">%s</td><td class=\"n\">%s</td>"
                         "<td class=\"n\">%s</td><td class=\"n\">%s</td>"
                         "<td class=\"n\">%s</td><td class=\"n%s\">%s</td>"
-                        "<td class=\"n\">%s</td><td class=\"n%s\">%s</td>"
+                        "<td class=\"n\">%s</td><td class=\"n\">%s</td>"
+                        "<td class=\"n%s\">%s</td>"
                         "<td class=\"n\">%s</td></tr>"
                         % (gmi.esc(k), v["texts"],
                            _fmt(v["dx"]["p50"], 0), _fmt(v["dx"]["p95"], 0),
@@ -1069,6 +1248,7 @@ def render_report_html(report, triples):
                            _fmt(v["wr"]["p50"], 3), _fmt(v["wr"]["worst"], 3),
                            " worse" if v["clipped"] else "", v["clipped"],
                            _fmt(v["fill"]["p95"], 0),
+                           _fmt(v["slider"]["p50"]),
                            " bad" if v["frameOnly"] else "", v["frameOnly"],
                            v["mirrorOnly"]))
         rows.append("</table>")
@@ -1123,7 +1303,11 @@ def main(argv=None):
                     help="only this capture id (repeatable)")
     ap.add_argument("--triples", type=int, default=10,
                     help="how many worst captures get a frame/mirror/diff triple")
-    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--jobs", type=int, default=4,
+                    help="worker threads. They overlap the browser wait with "
+                         "the measurement, which is the Python-bound half; the "
+                         "browser launches are bounded separately by "
+                         "--browser-jobs")
     ap.add_argument("--browser-jobs", type=int, default=1,
                     help="how many browser launches may be in flight at once. "
                          "One by default: four heavy pages at once made Edge "
@@ -1146,7 +1330,7 @@ def main(argv=None):
             "Pass --browser PATH to one, or install Edge or Chrome. Nothing was "
             "measured.\n" % "\n  ".join(
                 ([args.browser] if args.browser else list(BROWSER_CANDIDATES))))
-        return 3
+        return EXIT_NO_BROWSER
 
     out_dir = os.path.abspath(args.out_dir)
     os.makedirs(out_dir, exist_ok=True)
@@ -1201,6 +1385,9 @@ def main(argv=None):
 
     sys.stderr.write("gui-mirror-fidelity: %d captures, page %s, browser %s\n"
                      % (len(caps), page, browser))
+    subset = foreign_classification_warning(caps)
+    if subset:
+        sys.stderr.write("gui-mirror-fidelity: WARNING - %s\n" % subset)
 
     records, skipped = [], []
     profiles = {}
@@ -1232,9 +1419,14 @@ def main(argv=None):
         # not a fidelity finding. A capture that fails twice is recorded as
         # unmeasured WITH the error - never dropped, and never fatal to a run
         # that has already photographed two hundred others.
-        prof = _profile_for_thread(profiles)
         last = None
-        for budget in (args.budget_ms, args.budget_ms * 3):
+        for attempt, budget in enumerate((args.budget_ms, args.budget_ms * 3)):
+            # The RETRY gets a profile of its own. Reusing the one that just
+            # failed retries the launch with whatever state made it fail; a
+            # fresh directory is the cheap half of "try again differently", and
+            # the thread's own profile stays for the captures that work.
+            prof = (_profile_for_thread(profiles) if attempt == 0
+                    else _fresh_profile(profiles))
             try:
                 # The browser calls go through a semaphore of their own, one by
                 # default. Four heavy pages launched at once - the Missions
@@ -1275,19 +1467,28 @@ def main(argv=None):
 
     from concurrent.futures import ThreadPoolExecutor
     done = 0
-    with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        for rec in pool.map(one, list(enumerate(caps))):
-            done += 1
-            if rec.get("skipped"):
-                skipped.append({"id": rec["id"], "skipped": rec["skipped"]})
-            else:
-                records.append(rec)
-            if args.verbose or done % 20 == 0:
-                sys.stderr.write("  %d/%d\n" % (done, len(caps)))
-    # The browser's own temp profiles, gone: they are a few megabytes each and
-    # nothing reads them after the run.
-    for path in profiles.values():
-        shutil.rmtree(path, ignore_errors=True)
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+            for rec in pool.map(one, list(enumerate(caps))):
+                done += 1
+                if rec.get("skipped"):
+                    skipped.append({"id": rec["id"], "skipped": rec["skipped"]})
+                else:
+                    records.append(rec)
+                if args.verbose or done % 20 == 0:
+                    sys.stderr.write("  %d/%d\n" % (done, len(caps)))
+    finally:
+        # In a `finally` so an interrupt cleans up too, and with the profiles
+        # last: the browser's children hold files inside them for a moment after
+        # their parent exits. The screenshots are removed further down, after the
+        # report's triples have read them.
+        stuck = remove_temp_dirs(list(profiles.values()))
+        if stuck:
+            sys.stderr.write(
+                "gui-mirror-fidelity: %d browser profile director%s could not be "
+                "removed and are left in your temp directory:\n  %s\n"
+                % (len(stuck), "y" if len(stuck) == 1 else "ies",
+                   "\n  ".join(stuck)))
     if halt["why"]:
         sys.stderr.write(
             "gui-mirror-fidelity: STOPPED - the browser failed to produce a "
@@ -1321,7 +1522,10 @@ def main(argv=None):
         rec.pop("_shot", None)
     # The screenshots have been read into the report's triples; they are a
     # gigabyte of intermediate frames and nothing reads them again.
-    shutil.rmtree(shots_dir, ignore_errors=True)
+    stuck = remove_temp_dirs([shots_dir])
+    if stuck:
+        sys.stderr.write("gui-mirror-fidelity: could not remove the screenshot "
+                         "directory %s\n" % stuck[0])
 
     with open(os.path.join(out_dir, "report.json"), "w", encoding="utf-8",
               newline="\n") as fh:
@@ -1335,13 +1539,17 @@ def main(argv=None):
     sys.stderr.write(
         "gui-mirror-fidelity: %d measured, %d skipped | text n=%s dx p50=%s "
         "p95=%s worst=%s | wr p50=%s worst=%s | clipped=%s | fill p95=%s | "
-        "frame-only=%s mirror-only=%s -> %s\n"
+        "slider err p50=%s | frame-only=%s mirror-only=%s -> %s\n"
         % (len(records), len(skipped), t["dx"]["n"], _fmt(t["dx"]["p50"], 0),
            _fmt(t["dx"]["p95"], 0), _fmt(t["dx"]["worst"], 0),
            _fmt(t["wr"]["p50"], 3), _fmt(t["wr"]["worst"], 3), t["clipped"],
-           _fmt(t["fill"]["p95"], 0), t["frameOnly"], t["mirrorOnly"],
+           _fmt(t["fill"]["p95"], 0), _fmt(t["slider"]["p50"]),
+           t["frameOnly"], t["mirrorOnly"],
            os.path.join(out_dir, "index.html")))
-    return 0
+    # A halted batch has a report, and the report covers only what was measured
+    # before the browser gave up. Exiting 0 on it would let a caller read a
+    # partial corpus as a whole one.
+    return EXIT_HALTED if halt["why"] else 0
 
 
 if __name__ == "__main__":

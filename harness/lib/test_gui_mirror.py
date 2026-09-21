@@ -25,9 +25,11 @@ Runnable with the stdlib runner only (NO pytest, NO KSP, NO network)::
     cd harness && python -m unittest discover -s lib -q
 """
 
+import ast
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -492,6 +494,26 @@ class SliderThumbMeasurementTests(unittest.TestCase):
                     px[o:o + 3] = bytes((face, face, face))
         return w, h, 3, bytes(px)
 
+    def ksp_bar(self, rect, start, length, groove=45, face=17, bevel=101):
+        """A scroll bar shaped like KSP's own: a groove at `groove`, a thumb whose
+        FACE is darker than it, and the one-pixel bevel that is the only part
+        brighter. Measured on ib-structure-mission-advanced: groove 45, thumb
+        columns 14, 0, 101, 85, 68, 50, 17, 17, 17, 17, 34, 50, 50, 0, 14."""
+        w, h = 300, 400
+        px = bytearray(bytes((0x44, 0x44, 0x44)) * (w * h))
+        x, y, rw, rh = rect
+        for yy in range(y, y + rh):
+            for xx in range(x, x + rw):
+                o = (yy * w + xx) * 3
+                px[o:o + 3] = bytes((groove,) * 3)
+        for yy in range(y + start, y + start + length):
+            for xx in range(x, x + rw):
+                o = (yy * w + xx) * 3
+                px[o:o + 3] = bytes((face,) * 3)
+            o = (yy * w + x + 2) * 3
+            px[o:o + 3] = bytes((bevel,) * 3)
+        return w, h, 3, bytes(px)
+
     def test_a_horizontal_handle_is_read_at_its_own_offset(self):
         rect = [30, 50, 200, 12]
         w, h, bpp, px = self.bar(300, 100, rect, (140, 152), False)
@@ -525,6 +547,51 @@ class SliderThumbMeasurementTests(unittest.TestCase):
                 px[o:o + 3] = bytes((0xc0, 0xc0, 0xc0))
         self.assertEqual(gmi.slider_thumb_run(w, h, bpp, bytes(px), rect),
                          (100, 40, False))
+
+    def test_the_thumbs_own_colours_are_sampled_not_typed(self):
+        # The page drew every handle at #b9b9b9 (luminance 185) where KSP's
+        # scroll bar thumb has a DARK face under a one-pixel bevel.
+        rect = [200, 20, 15, 300]
+        w, h, bpp, px = self.ksp_bar(rect, 10, 110)
+        out = gmi.compact_tree(
+            node("slider", rect, style="verticalscrollbar"), [0, 0],
+            sampler=lambda r, ex=(): gmi.sample_colors(w, h, bpp, px, r,
+                                                       exclude=ex),
+            thumb_runs=lambda r: gmi.slider_thumb_run(w, h, bpp, px, r))
+        self.assertEqual(out["th"], [10, 110])
+        self.assertEqual(out["tc"], "#111111", "the FACE, luminance 17")
+        self.assertEqual(out["te"], "#656565", "the bevel, the extreme tail")
+
+    def test_the_groove_is_sampled_WITHOUT_the_thumb_over_it(self):
+        # A scroll bar is more thumb than groove, so the median of the whole rect
+        # is the THUMB's colour - the page then painted the groove in it, and
+        # drawing the thumb on top changed nothing a measurement could see.
+        rect = [200, 20, 15, 300]
+        w, h, bpp, px = self.ksp_bar(rect, 10, 260)
+        out = gmi.compact_tree(
+            node("slider", rect, style="verticalscrollbar"), [0, 0],
+            sampler=lambda r, ex=(): gmi.sample_colors(w, h, bpp, px, r,
+                                                       exclude=ex),
+            thumb_runs=lambda r: gmi.slider_thumb_run(w, h, bpp, px, r))
+        self.assertEqual(out["bg"], "#2d2d2d", "45, the groove - not the thumb")
+
+    def test_no_thumb_means_no_thumb_colours(self):
+        rect = [30, 50, 200, 12]
+        w, h, bpp, px = self.bar(300, 100, rect, (0, 0), False, groove=0x38,
+                                 face=0x38)
+        out = gmi.compact_tree(
+            node("slider", rect, style="horizontalslider"), [0, 0],
+            sampler=lambda r, ex=(): gmi.sample_colors(w, h, bpp, px, r,
+                                                       exclude=ex),
+            thumb_runs=lambda r: gmi.slider_thumb_run(w, h, bpp, px, r))
+        self.assertNotIn("tc", out)
+        self.assertNotIn("te", out)
+
+    def test_the_page_paints_the_sampled_thumb_and_groove(self):
+        self.assertIn("th.style.background = n.tc", gmi.JS)
+        self.assertIn("th.style.borderColor = n.te", gmi.JS)
+        self.assertIn(".gn.k-slider.sg::before{display:none}", gmi.CSS)
+        self.assertNotIn("background:#b9b9b9", gmi.CSS)
 
     def test_the_measurement_reaches_the_compact_node(self):
         rect = [30, 50, 200, 12]
@@ -699,7 +766,16 @@ class ScrollViewTests(unittest.TestCase):
         # 52 scroll views in the corpus carry content below their fold, up to
         # 23529 px of it, and `overflow:hidden` made every one of them
         # unreachable.
-        self.assertIn(".gn.k-scrollview{overflow:auto}", gmi.CSS)
+        self.assertIn(".gn.k-scrollview{overflow:auto;scrollbar-width:none}",
+                      gmi.CSS)
+
+    def test_the_page_hides_the_browsers_own_scrollbar(self):
+        # Making a scroll view scroll gave every overflowing one a white NATIVE
+        # scroll bar over the mirrored KSP bar - a difference from the game that
+        # the page itself introduced. The instrument used to launch with
+        # `--hide-scrollbars`, which hid it from the measurement too.
+        self.assertIn("scrollbar-width:none", gmi.CSS)
+        self.assertIn(".gn.k-scrollview::-webkit-scrollbar{display:none}", gmi.CSS)
 
     def test_the_bare_link_can_scroll_them_so_a_screenshot_can_prove_it(self):
         # "Reachable" is a claim about a browser, so it needs a browser to check:
@@ -846,6 +922,62 @@ class FixtureResolutionTests(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
 
+def _source_literals(src):
+    """Every literal a window string could hide in, normalised.
+
+    Quoted Python strings alone were not enough - a typed 'Active Routes' inside
+    a longer expression and a `/^Kerbals$/` regex both slipped past a
+    quoted-substring test - and a plain regex over the source was worse, because
+    it read the module's own DOCSTRINGS as literals and reported the product's
+    name in a sentence about the product.
+
+    So: walk the AST. Every string constant that is not a docstring is code, and
+    the big ones are the page's own CSS and JS, which are scanned again for the
+    literal forms JavaScript adds - single- and double-quoted strings, template
+    literals and REGEX literals. Comments never enter, because the AST does not
+    carry them, and a comment quoting a window's text to explain a measurement is
+    prose.
+    """
+    tree = ast.parse(src)
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            body = getattr(node, "body", None) or []
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                docstrings.add(id(body[0].value))
+
+    out = set()
+    js_pats = (
+        r"'((?:[^'\\\n]|\\.)*)'",                        # single-quoted
+        r'"((?:[^"\\\n]|\\.)*)"',                        # double-quoted
+        r"`((?:[^`\\]|\\.)*)`",                          # template literal
+        r"/((?:[^/\\\n\[]|\\.|\[[^\]]*\])+)/[gimsuy]*",  # regex literal
+    )
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            continue
+        if id(node) in docstrings:
+            continue
+        text = node.value
+        n = gmi.norm(text)
+        if n:
+            out.add(n)
+        if len(text) > 200:
+            # The page's own CSS and JS: scan them for the literal forms
+            # JavaScript adds, with its comments taken out first.
+            body = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+            body = re.sub(r"(?m)//.*$", " ", body)
+            for pat in js_pats:
+                for m in re.findall(pat, body):
+                    n2 = gmi.norm(m)
+                    if n2:
+                        out.add(n2)
+    return out
+
+
 class EndToEndRenderTests(unittest.TestCase):
     """A synthetic two-capture dump must render BOTH states and the switch
     between them, with no window text typed anywhere in the generator."""
@@ -918,13 +1050,45 @@ class EndToEndRenderTests(unittest.TestCase):
                 needles |= _strings_of(root)
         needles |= _strings_of_dump(REAL_EXCERPT)
         self.assertGreater(len(needles), 8, "the corpus yielded no strings to check")
+        # The literals the generator's SOURCE carries, of every kind a window
+        # string could hide in. Quoted strings alone let two through: a typed
+        # 'Active Routes' and a `/^Kerbals$/` regex, neither of which is a
+        # quoted literal by that test's reckoning.
+        literals = _source_literals(src)
         for text in sorted(needles):
             n = gmi.norm(text)
             if len(n) < 4 or n in exempt:
                 continue
-            for quoted in ("'%s'" % text, '"%s"' % text):
-                self.assertNotIn(quoted, src,
-                                 "%r is typed into the generator" % text)
+            # ONE check, over the AST's literals. The raw-substring test this
+            # replaced read the module's own docstrings as code, so a sentence
+            # explaining a measurement counted as a typed window label.
+            self.assertNotIn(gmi.norm(text), literals,
+                             "%r is typed into the generator" % text)
+
+    def test_the_guard_catches_the_two_forms_a_quoted_scan_missed(self):
+        # The reviewer's finding: a typed 'Active Routes' inside a longer
+        # expression and a `/^Kerbals$/` regex both passed a quoted-substring
+        # scan. Both are literals in the AST, and both are caught now.
+        typed_string = "X = 1" + chr(10) + "Y = ['Active Routes', 'x']" + chr(10)
+        self.assertIn(gmi.norm("Active Routes"), _source_literals(typed_string))
+        blob = "var re = /^Kerbals$/; " * 12
+        typed_regex = 'X = 1' + chr(10) + 'JS = "' + blob + '"' + chr(10)
+        self.assertIn(gmi.norm("Kerbals"), _source_literals(typed_regex),
+                      "a regex literal is a typed window string too")
+
+    def test_the_guard_does_not_read_prose_as_code(self):
+        # And the trap on the other side, which the repo's own guidance names: a
+        # docstring that QUOTES a window's text to explain a measurement is
+        # documentation, not a typed label.
+        doc = chr(34) * 3
+        src = (doc + "The heading reads 'Active Routes' in a 1358 px box." + doc
+               + chr(10) + "X = 1" + chr(10))
+        self.assertNotIn(gmi.norm("Active Routes"), _source_literals(src))
+
+    def test_a_comment_quoting_a_window_string_is_not_a_literal(self):
+        src = ("# the heading reads 'Active Routes' here" + chr(10)
+               + "X = 1" + chr(10))
+        self.assertNotIn(gmi.norm("Active Routes"), _source_literals(src))
 
     def test_the_colours_are_sampled_from_the_frame(self):
         cap = self.model["captures"][0]
