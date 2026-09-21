@@ -2657,6 +2657,15 @@ over a picture showing the wrong thing:
 
 All four are filed in `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22`.
 
+WHICH BUILD THE NINE FLIGHTS RAN, stated because the branch merged `origin/main` AFTER
+them: the pinned DLL is this branch at `064ec857` plus `origin/main` at `854412858`, so it
+does NOT carry PR #1736's Logistics clause-catalog refactor (`LogisticsClauseCatalog.cs`,
+`LogisticsHoldClauses.cs`, `LogisticsRejectClauses.cs` and the two presentation files that
+now delegate to them). No lane here pins a hold or reject clause string - GUI-25's
+Logistics captures are the route table's sort order, the round-trip note and the cadence
+cell, and GUI-26's is the Create Route confirm - so the readings stand, and a re-flight
+buys a newer DLL rather than a different answer.
+
 Four lanes, each photographing window states nothing in the census could reach before,
 because until #1734 nothing but a player click could write them: `UiAction op=state` (the
 Timeline's three source toggles, both archive filters, the Custom range reveal, the
