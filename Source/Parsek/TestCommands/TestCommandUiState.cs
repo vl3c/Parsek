@@ -103,8 +103,55 @@ namespace Parsek.TestCommands
         internal const string CategoryArg = "category";
         internal const string RecordingArg = "recording";
 
+        /// <summary>
+        /// <c>op=run</c>'s OPTIONAL <c>await=true|false</c>. ABSENT MEANS TRUE, so every
+        /// step written before this arg existed keeps its byte-identical two-phase
+        /// behaviour (dispatch, hold the FIFO head, report the category's tally once the
+        /// batch stops).
+        ///
+        /// <para><c>await=false</c> terminates the op OK as soon as the batch is confirmed
+        /// dispatched and LEAVES IT RUNNING, which is the only way a census can photograph
+        /// the runner table in its RUNNING state: under <c>await=true</c> the op cannot
+        /// terminate until the batch has stopped, so every capture that follows it is a
+        /// picture of results. It additionally unblocks a category longer than
+        /// <c>op=run</c>'s 60 s default deferral budget, which under <c>await=true</c>
+        /// terminates ERROR <see cref="RunNotFinishedReason"/> however healthy the
+        /// batch.</para>
+        /// </summary>
+        internal const string AwaitArg = "await";
+
         internal const string StateTrueToken = "true";
         internal const string StateFalseToken = "false";
+
+        /// <summary>
+        /// The ONE parse of the seam's one boolean vocabulary, behind every op that reads a
+        /// true/false arg: <c>state=</c> (expand, playback, state), <c>await=</c> (run),
+        /// <c>dir=</c> is NOT one of these (it is asc/desc), <c>include=</c> (select) and
+        /// <c>commit=</c> (edit).
+        ///
+        /// <para>Four near-identical copies of these five lines existed before this, each
+        /// with its own default and its own reject token, and the copies are exactly how a
+        /// case-insensitive or a <c>"1"</c>-accepting one gets in. The DEFAULT and the
+        /// REJECT TOKEN stay per-op, because those genuinely differ - an absent
+        /// <c>commit=</c> means false and an absent <c>await=</c> means true, and each op
+        /// names its own refusal - so they are the two parameters rather than the copied
+        /// body.</para>
+        /// </summary>
+        /// <param name="whenAbsent">What an absent arg means for THIS op.</param>
+        /// <param name="invalidReason">The op's own reject token for a value outside the
+        /// vocabulary.</param>
+        internal static bool TryParseBoolArg(string raw, bool whenAbsent,
+                                             string invalidReason, out bool value,
+                                             out string rejectReason)
+        {
+            value = whenAbsent;
+            rejectReason = null;
+            if (raw == null) return true;
+            if (raw == StateTrueToken) { value = true; return true; }
+            if (raw == StateFalseToken) { value = false; return true; }
+            rejectReason = invalidReason;
+            return false;
+        }
 
         /// <summary>The <c>recording=</c> convenience value: the first committed recording.
         /// A census cannot name a recording id that is save-specific, and the Manage Groups
@@ -126,6 +173,13 @@ namespace Parsek.TestCommands
         internal const string RosterKeyPrefix = "roster";
         internal const string FlightsKeyPrefix = "flights";
 
+        /// <summary>The Career window's two <c>Pending in timeline</c> folds. ONE prefix
+        /// because the window keeps ONE fold collection; the wire VALUES are the tab the
+        /// fold belongs to (<c>contracts</c> / <c>strategies</c>), which is what a spec
+        /// author already knows, rather than the dotted production key
+        /// (<c>Contracts.Pending</c>) that the collection is keyed by.</summary>
+        internal const string PendingKeyPrefix = "pending";
+
         /// <summary>Both test-runner windows' category folds. ONE prefix shared by the two
         /// windows because it names the same collection shape in both - each window keeps
         /// its OWN set, and the window= arg is what says which.</summary>
@@ -137,6 +191,41 @@ namespace Parsek.TestCommands
         };
 
         private static readonly string[] LogisticsExpandPrefixes = new[] { RowKeyPrefix };
+
+        // The Career window's fold set is INVERTED like the Missions window's collapsedLegs
+        // (membership means FOLDED), and the op always speaks "expanded", so the applier
+        // owns the flip. Its two keys are the only foldable state in that window - the
+        // Facilities and Milestones tabs have none - and both live under the divergence
+        // layout, which only appears on a career whose timeline ends later than now.
+        private static readonly string[] CareerExpandPrefixes = new[] { PendingKeyPrefix };
+
+        /// <summary>The two wire values <c>pending:</c> takes: the TAB whose pending fold to
+        /// drive. Kept beside the prefix rather than derived from the window's own dotted
+        /// keys because the mapping is the point - see
+        /// <see cref="CareerFoldKeyFor"/>.</summary>
+        internal static readonly string[] CareerPendingFoldValues = new[]
+        {
+            "contracts", "strategies",
+        };
+
+        /// <summary>
+        /// The window's own fold key for a <c>pending:</c> wire value, or null for an
+        /// unknown one (which the enumeration-membership check rejects first).
+        ///
+        /// <para>Two names for one fold, and the mapping is deliberate: the wire says the
+        /// TAB, which is what a spec author and a capture label already name, and the
+        /// production collection is keyed by a dotted string that is an implementation
+        /// detail of that window. The constants are referenced rather than copied, so a
+        /// rename on the window side is a compile error here.</para>
+        /// </summary>
+        internal static string CareerFoldKeyFor(string value)
+        {
+            if (value == "contracts")
+                return CareerStateWindowUI.GroupKey_ContractsPending;
+            if (value == "strategies")
+                return CareerStateWindowUI.GroupKey_StrategiesPending;
+            return null;
+        }
 
         // The Kerbals window keeps one expansion set per TAB, so it takes one prefix per
         // tab rather than one for the whole window: `roster:` drives a Roster row's
@@ -160,6 +249,7 @@ namespace Parsek.TestCommands
         internal static string ExpandableWindowNames =>
             TestCommandUiAction.MissionsWindow + "," + TestCommandUiAction.LogisticsWindow
             + "," + TestCommandUiAction.KerbalsWindow
+            + "," + TestCommandUiAction.CareerWindow
             + "," + TestCommandUiAction.TestRunnerWindow
             + "," + TestCommandUiAction.TestRunnerGlobalWindow;
 
@@ -170,6 +260,7 @@ namespace Parsek.TestCommands
             if (window == TestCommandUiAction.MissionsWindow) return MissionsExpandPrefixes;
             if (window == TestCommandUiAction.LogisticsWindow) return LogisticsExpandPrefixes;
             if (window == TestCommandUiAction.KerbalsWindow) return KerbalsExpandPrefixes;
+            if (window == TestCommandUiAction.CareerWindow) return CareerExpandPrefixes;
             if (window == TestCommandUiAction.TestRunnerWindow) return TestRunnerExpandPrefixes;
             if (window == TestCommandUiAction.TestRunnerGlobalWindow) return TestRunnerExpandPrefixes;
             return null;
@@ -264,8 +355,13 @@ namespace Parsek.TestCommands
 
         /// <summary>POST-CALL terminal: the budget ran out with the batch still running.
         /// Not a refusal - the batch was dispatched and is simply slower than the verb's
-        /// bound.</summary>
+        /// bound. UNREACHABLE under <c>await=false</c>, which never polls.</summary>
         internal const string RunNotFinishedReason = "run-not-finished";
+
+        /// <summary>An <c>await=</c> outside {true,false}. REJECTED rather than treated as
+        /// absent: the two readings differ by whether the op waits minutes or returns this
+        /// frame, so a typo must not silently pick one.</summary>
+        internal const string RunAwaitArgInvalidReason = "run-await-arg-invalid";
 
         /// <summary><c>op=picker</c> against a window with no row-armed popup.</summary>
         internal const string PickerUnsupportedWindowReason = "picker-unsupported-window";
@@ -296,13 +392,10 @@ namespace Parsek.TestCommands
         /// so.</summary>
         internal static bool TryParseState(string raw, out bool expanded, out string rejectReason)
         {
-            expanded = true;
-            rejectReason = null;
-            if (raw == null) return true;
-            if (raw == StateTrueToken) { expanded = true; return true; }
-            if (raw == StateFalseToken) { expanded = false; return true; }
-            rejectReason = StateArgInvalidReason;
-            return false;
+            // ABSENT MEANS TRUE: expanding is what a census asks for, and a lane that
+            // wants the other direction says so.
+            return TryParseBoolArg(raw, whenAbsent: true, StateArgInvalidReason,
+                                   out expanded, out rejectReason);
         }
 
         /// <summary>
@@ -556,6 +649,85 @@ namespace Parsek.TestCommands
             category = rawCategory;
             rejectReason = null;
             return true;
+        }
+
+        /// <summary>
+        /// Parses <c>op=run</c>'s optional <see cref="AwaitArg"/>. Absent means TRUE (the
+        /// pre-existing behaviour), and the token set is <c>state=</c>'s so one spelling of
+        /// a boolean serves the whole op.
+        /// </summary>
+        internal static bool TryParseAwait(string raw, out bool awaitBatch,
+                                          out string rejectReason)
+        {
+            // ABSENT MEANS TRUE: every lane written before `await=` is byte-identical.
+            return TryParseBoolArg(raw, whenAbsent: true, RunAwaitArgInvalidReason,
+                                   out awaitBatch, out rejectReason);
+        }
+
+        /// <summary>
+        /// Whether a verb may execute while an in-game test batch THIS SEAM started under
+        /// <c>await=false</c> is running.
+        ///
+        /// <para><b>DERIVED, never a second list.</b> The answer is
+        /// <c>TestCommandVerbs.IsStateMutatingVerb</c> inverted - the existing named
+        /// concept for "cannot change anything a save would capture" - minus
+        /// <c>FlushAndQuit</c>. A copied literal set would drift from that one silently,
+        /// and the consequence of drift here is a command executing in the middle of a
+        /// batch whose campaign-isolation baseline it can corrupt.</para>
+        ///
+        /// <para><b>WHY <c>FlushAndQuit</c> IS EXCLUDED</b> although the shared set lists
+        /// it: it is non-mutating only in the sense that it does not change the world, and
+        /// it ENDS THE PROCESS. Quitting mid-batch skips the runner's own baseline revert
+        /// and leaves the batch marker in <c>persistent.sfs</c> for the next process's
+        /// crash reconcile to clean up. Held instead, which costs a lane nothing: the
+        /// batch stops, the relaxation clears, and the quit runs on the next frame.</para>
+        /// </summary>
+        internal static bool IsBatchGateRelaxableVerb(string verb)
+        {
+            if (string.IsNullOrEmpty(verb)) return false;
+            if (verb == FlushAndQuitVerb) return false;
+            return !TestCommandVerbs.IsStateMutatingVerb(verb);
+        }
+
+        /// <summary>The one verb <see cref="IsBatchGateRelaxableVerb"/> subtracts from the
+        /// non-mutating set. Named so the pinning cell can assert the subtraction is
+        /// exactly this and nothing else.</summary>
+        internal const string FlushAndQuitVerb = "FlushAndQuit";
+
+        /// <summary>
+        /// OK payload for <c>run</c> under <c>await=false</c>:
+        /// <c>op=run window= category= started= finished= discovered= running=</c>.
+        ///
+        /// <para><b>A SEPARATE SHAPE, not <see cref="BuildRunPayload"/> with mid-batch
+        /// numbers.</b> The tally keys are meaningless while a batch runs, and not merely
+        /// incomplete: <see cref="TallyCategory"/> counts every row whose
+        /// <c>Status != NotRun</c> into <c>Total</c>, and a row that is currently
+        /// <c>TestStatus.Running</c> lands in NONE of the passed / failed / skipped
+        /// buckets - so a mid-batch <c>BuildRunPayload</c> would publish a
+        /// <c>total</c> that does not equal its three parts, under the same keys a
+        /// finished lane gates on. This payload carries no tally at all.</para>
+        ///
+        /// <para><c>finished=</c> is <c>!running=</c> by construction, and both are present
+        /// so a spec can pin either without writing a negation. <c>finished=true</c> is a
+        /// LEGITIMATE outcome rather than an error: <c>InGameTestRunner.RunBatch</c> has no
+        /// unconditional yield before it clears <c>isRunning</c>, so a category whose every
+        /// cell is scene-ineligible completes inside the <c>StartCoroutine</c> call and the
+        /// batch is already over when this payload is built.</para>
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> BuildRunStartedPayload(
+            string window, string category, int discovered, bool running)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("op", TestCommandUiAction.RunOpToken),
+                new KeyValuePair<string, string>("window", window ?? string.Empty),
+                new KeyValuePair<string, string>("category", category ?? string.Empty),
+                new KeyValuePair<string, string>("started", "true"),
+                new KeyValuePair<string, string>("finished", running ? "false" : "true"),
+                new KeyValuePair<string, string>("discovered", discovered.ToString(ic)),
+                new KeyValuePair<string, string>("running", running ? "true" : "false"),
+            };
         }
 
         /// <summary>

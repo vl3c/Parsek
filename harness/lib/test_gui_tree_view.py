@@ -606,6 +606,7 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
             ("value", "extras_of"),
             ("textValue", "node_label and extras_of"),
             ("controlId", "extras_of"),
+            ("selectedIndex", "extras_of, and the mirror's selected-grid-cell marker"),
             ("windowId", "extras_of"),
             ("horizontal", "extras_of"),
             ("children", "flatten's recursion"),

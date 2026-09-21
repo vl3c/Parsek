@@ -153,6 +153,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AButtonGridWritesItsSelectedIndexAndNoControlId()
+        {
+            // GUI.DoButtonGrid takes no control id at all, so the selected cell has its
+            // own key: under "controlId" a reader could not tell it apart from a genuine
+            // IMGUI control id on any other kind.
+            var events = new List<GuiTreeEvent>
+            {
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Leaf, Kind = GuiNodeKind.ButtonGrid,
+                    Rect = new GuiRect(0f, 0f, 300f, 21f),
+                    TextValue = "Flights", SelectedIndex = 1,
+                },
+            };
+            string json = GuiTreeJson.Write(Header(), GuiTreeAssembler.Assemble(events));
+
+            Assert.Contains("\"selectedIndex\": 1", json);
+            Assert.DoesNotContain("\"controlId\"", json);
+        }
+
+        [Fact]
+        public void SelectedIndexIsOmittedWhenNoFunnelSuppliedOne()
+        {
+            var events = new List<GuiTreeEvent>
+            {
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Leaf, Kind = GuiNodeKind.Label,
+                    Rect = new GuiRect(0f, 0f, 100f, 20f), Text = "Kerbal",
+                },
+            };
+            string json = GuiTreeJson.Write(Header(), GuiTreeAssembler.Assemble(events));
+
+            Assert.DoesNotContain("selectedIndex", json);
+        }
+
+        [Fact]
         public void FunnelReportIsWrittenWithPatchedAndHitCounts()
         {
             GuiTreeCaptureHeader header = Header();

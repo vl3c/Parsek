@@ -43,8 +43,11 @@ tier = "operator"
 #   - the DIVERGENCE banner `(timeline ends at UT N)` and the split
 #     `Active now (N)` + `Pending in timeline (K)` layout. Both need committed actions to
 #     sit in the FUTURE of the live clock, which means a rewind, and the two
-#     `Pending in timeline` folds have no `op=expand` route at all (`career` is absent
-#     from `TestCommandUiState`'s expandable-window set). Filed as
+#     `Pending in timeline` folds need one too. The SEAM half of that is now shipped -
+#     wave 6 added a `career` row with a `pending:` prefix, so `op=expand
+#     window=career key=pending:contracts` exists - but both folds only DRAW under the
+#     divergence layout, so on this host the op would answer OK over a fold nothing is
+#     drawing. What is left is purely a FIXTURE question. Filed as
 #     GUI-CENSUS-CAREER-DIVERGENCE-NEEDS-A-REWOUND-HOST.
 #   - the eleven hover strings (four tab labels, six column headers, two pending
 #     toggles). Blocked by GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT, which is

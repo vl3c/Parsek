@@ -111,8 +111,17 @@ globally and first-seen let a pre-rename heading from an older epoch win for eve
 dataset - the rebuilt Kerbals window rendered "Roster State" / "Mission Outcomes"
 over a frame that reads "Roster" / "Flights".
 
-**The selected cell is marked by TOKEN, not by name.** Comparing names is what
-lost the marker entirely once a name went stale: no cell was selected at all.
+**The selected cell is marked by the RECORDED INDEX when the dump carries one, and by
+TOKEN otherwise.** Comparing NAMES is what lost the marker entirely once a name went stale:
+no cell was selected at all, which is why names are not in the rule at either tier.
+
+The two tiers are not redundant. The dump's `selectedIndex` (a `buttongrid`'s own selected
+cell, since the 2026-09-21 wave) is the frame's own statement about itself, so it holds for
+a grid the seam never drove - any `GUI.SelectionGrid` that is not a tab bar, where there is
+no `uiaction tab` line to replay at all. The TOKEN tier is the fallback and stays
+byte-identical for every capture taken before the key existed, which is every committed one:
+it replays the seam's own `uiaction tab window= tab= index=` lines and matches the cell whose
+token equals the window's resolved tab.
 
 **The selected cell is the DARK, pushed-in one.** Measured on the
 `cek-career-contracts` and `bdk-kerbals-roster` frames, the selected cell has no

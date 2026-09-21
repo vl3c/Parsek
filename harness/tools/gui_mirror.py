@@ -607,6 +607,13 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
         out["v"] = node["value"]
     if node.get("textValue"):
         out["tv"] = node["textValue"]
+    sel = node.get("selectedIndex")
+    if (out["k"] == "buttongrid" and isinstance(sel, int)
+            and not isinstance(sel, bool) and sel >= 0):
+        # The grid's OWN reading of which cell is pushed in. Preferred over the
+        # seam's tab token, which only covers the windows the seam names as
+        # tabbed - and only while its `tab=` line and the dump agree.
+        out["si"] = sel
     if out["k"] == "buttongrid" and grid_runs is not None:
         runs = grid_runs(rect)
         if runs:
@@ -1884,9 +1891,12 @@ function renderNode(n, out, opts){
       var runs = (n.gi && n.gi.length === tabs.length) ? n.gi : null;
       var fills = (n.gc && n.gc.length === tabs.length) ? n.gc : null;
       tabs.forEach(function(t, i){
-        /* Selected by TOKEN. Comparing names is what lost the marker when a name
-           went stale. */
-        var b = el('div','gi' + (t.token === opts.tab ? ' on' : ''));
+        /* Selected by the grid's own RECORDED index when the dump carries one,
+           else by TOKEN. Comparing names is what lost the marker when a name went
+           stale; the token needs the seam's `tab=` line, which only covers the
+           windows the seam names as tabbed. */
+        var on = (typeof n.si === 'number') ? (i === n.si) : (t.token === opts.tab);
+        var b = el('div','gi' + (on ? ' on' : ''));
         b.style.left = (i*seg) + 'px'; b.style.width = seg + 'px';
         if (fills) b.style.background = fills[i];
         var lab = richText(el('span','gl'), t.name);
