@@ -8,15 +8,33 @@ tier = "operator"
 # a supersede", and that no capture had one. The second half is true; THE FIRST HALF IS
 # NOT, and the source says so unambiguously. `TimelineWindowUI` picks
 # `timelineStrikethroughStyle` on `!entry.IsEffective`, and `TimelineEntry.IsEffective`
-# has exactly TWO writers in the whole program (`Timeline/TimelineBuilder.cs`): it is
-# seeded from `action.Effective` on a GAME-ACTION entry, and merged with `|=` when
-# milestone rows are compacted. Nothing anywhere derives it from a recording supersede.
-# So a strikethrough means a TOMBSTONED or otherwise non-effective LEDGER ACTION - the
-# thing `CL-3` / `CL-4`'s crew-death rewinds produce on a career host - and a recording
-# supersede produces NO Timeline pixel at all. Measured on this lane's own first flight
-# (`2026-09-21_2059`, PASS): the fixture's `RECORDING_SUPERSEDES` entry loaded, the
-# Details tab drew ONE launch row, and no struck row appeared anywhere. Filed as
-# GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-ACTION-EFFECTIVENESS-NOT-SUPERSEDE.
+# is written in exactly TWO places (`Timeline/TimelineBuilder.cs`): seeded from
+# `action.Effective` on a GAME-ACTION entry, and merged with `|=` when milestone rows are
+# compacted. Nothing anywhere derives it from a recording supersede, so a supersede
+# produces NO Timeline pixel at all.
+#
+# AND A TOMBSTONE DOES NOT PRODUCE ONE EITHER, which is the SECOND correction this header
+# carries and which the first draft got wrong in the other direction. The Timeline is fed
+# `EffectiveState.ComputeELS()` (`UI/TimelineWindowUI.cs:477-483`), so a TOMBSTONED action
+# is filtered out BEFORE the builder ever sees it - it becomes row absence, not a struck
+# row. The only writers of `Effective = false` in the whole program are
+# `GameActions/ContractsModule.cs:399/408/417/428` (a contract completion that is a
+# duplicate, past a resolved deadline, already explicitly resolved, or resolved at the
+# same tick) and `GameActions/MilestonesModule.cs:108` (a duplicate milestone), all reset
+# to true at `GameActions/RecalculationEngine.cs:519` on every recalc. So the struck row
+# needs a DUPLICATE-CONTRACT or DUPLICATE-MILESTONE host, and neither `CL-3` / `CL-4` nor
+# any rewind lane is one.
+#
+# THE "STRIKETHROUGH" IS ALSO NOT A STRIKE. `timelineStrikethroughStyle` is a `GUIStyle`
+# whose only difference from the label style is `normal.textColor = Color.gray`
+# (`UI/TimelineWindowUI.cs:395-396`) - there is no strike glyph anywhere. So even on a
+# host that produced one, the state would be a COLOUR and therefore a PNG verdict: a
+# `parsek-gui-tree/1` node carries no colour field.
+#
+# Measured on this lane's own first flight (`2026-09-21_2059`, PASS): the fixture's
+# `RECORDING_SUPERSEDES` entry loaded, the Details tab drew ONE launch row, and nothing
+# was greyed. Filed as
+# GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-DUPLICATE-CREDIT-NOT-SUPERSEDE-OR-TOMBSTONE.
 #
 # WHAT THE LANE IS FOR AFTER THAT CORRECTION, and it is still worth its flight: the
 # Timeline window's three FLIGHT-only tabs, over a host that DOES carry a supersede on
@@ -38,15 +56,35 @@ tier = "operator"
 # across the whole census, and the `W` (Watch) column draws ONLY in FLIGHT - so three of
 # this window's four row layouts had never been seen carrying the column a player sees
 # there. `GUI-6` now takes the same four tabs over a 243-ghost playback corpus; this lane
-# takes them over a two-vessel tree with a supersede in it, which is the shape that has
-# the struck row.
+# takes them over a two-vessel tree with a supersede in it, so the two sit side by side at
+# very different densities. Note the TABS themselves are not flight-only - all four exist
+# at the Space Center and GUI-1 photographs them there; what is flight-only is the `W`
+# column inside their rows.
 #
-# AND THE THIRD PERIOD RENDERING RIDES ALONG. `GUI-17` and `GUI-18` photograph the two
-# LABEL forms of the Missions tab's period cell (phase-locked and re-aim). The EDITABLE
-# form - a text field plus a live unit button, which is what an ordinary non-window-locked
-# loop draws - needs a loop armed on a subject with no transfer window, and this host is
-# a two-vessel Kerbin-local sandbox tree. One extra `MissionConfig` step and one capture
-# complete the set of three on this flight rather than costing a fourth.
+# WHAT THE THREE NON-OVERVIEW TABS ACTUALLY DREW, measured on both this lane and GUI-6 and
+# recorded here rather than left for the next reader to rediscover: `details` is populated
+# (165 nodes here, 2030 on GUI-6's corpus) and carries the `W` column; `rewindff` and
+# `refly` drew their EMPTY forms on BOTH hosts - 81 nodes here, 83 on GUI-6, in each case
+# the filter bar, the `(now)` divider, the warp field row and nothing else. No `R`, no
+# `W`, no `Fly` / `Seal` pair. That is the honest reading of the two labels, and the
+# POPULATED flight forms of those two tabs are filed as residue.
+#
+# A THIRD LOCKED PERIOD FORM RIDES ALONG, and it is NOT the editable one this lane was
+# authored to get. `GUI-17` and `GUI-18` photograph the window-locked and re-aim LABEL
+# forms; the first flight of this lane aimed at the EDITABLE form (a text field plus a
+# live unit button) on the theory that a Kerbin-local sandbox tree has no window to lock
+# to. It has one: the dump reads a DISABLED label `~6h (Kerbin rot)` with the tooltip
+# `Period locked to the launch / transfer window - set by physics, not editable.`, no
+# textfield and no unit button. That is the ROTATION-locked form, a third distinct locked
+# rendering, so the capture is relabelled `...-rotlocked-...` and is worth keeping.
+#
+# THE EDITABLE FORM IS STILL UNPHOTOGRAPHED, and the gate says why: the locked branch is
+# taken whenever `periodicity.IsPhaseLockedConstrained || periodicity.IsReaim`
+# (`UI/MissionsWindowUI.cs`), and every committed recorded fixture is a launch from a
+# rotating body toward a body with a window, so all of them lock. The editable cell needs
+# a mission whose periodicity is unconstrained or unsupported. Filed as
+# GUI-CENSUS-EDITABLE-LOOP-PERIOD-FORM-NEEDS-AN-UNCONSTRAINED-HOST rather than guessed at
+# with another fixture.
 #
 # THIS LANE RUNS IN FLIGHT, AND THAT IS FORCED rather than chosen: `MissionConfig` is
 # `VerbSceneRequirement.RequiresFlight` in the dispatcher's precondition table. The
@@ -72,10 +110,10 @@ tier = "operator"
 # with a supersede can produce one - and it would not pin one anyway, since a
 # strikethrough is a STYLE and `parsek-gui-tree/1` nodes carry no style field. Nor does
 # it claim a live rewind, an armed `R`, or a journal: all three need a RewindPoint this
-# fixture does not have (GUI-CENSUS-LIVE-REWIND-NEEDS-AN-RP-CARRYING-HOST). The Re-Fly
-# tab here draws its EMPTY form for the same reason, which the label does not contradict:
-# it says `refly-flight`, and the flight scene is what it photographs.
-description = "GUI census: the Timeline window across all four tabs in FLIGHT - three of which no capture had in that scene, and which is the only scene the Watch column draws in, including the first disabled W button anywhere - over the one committed fixture carrying a recording-supersede relation, whose measured Timeline consequence is row ABSENCE rather than the strikethrough the audit predicted; plus the editable form of the Missions tab's loop period cell."
+# fixture does not have (GUI-CENSUS-LIVE-REWIND-NEEDS-AN-RP-CARRYING-HOST). The Re-Fly AND
+# Rewind/FF tabs both draw their EMPTY forms here, which the labels do not contradict:
+# each says `<tab>-flight`, and the flight SCENE is what it photographs.
+description = "GUI census: the Timeline window across all four tabs in the FLIGHT scene, which is the only scene its Watch column draws in - buying the first disabled W button anywhere, and the measured empty forms of Rewind/FF and Re-Fly - over the one committed fixture carrying a recording-supersede relation, whose Timeline consequence turns out to be row absence rather than the struck row the audit predicted; plus a third LOCKED form of the Missions tab's loop period cell, the rotation-locked one."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "timeline", "rewind", "GUI-19", "pending-operator"]
 
@@ -111,9 +149,9 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ra-timeline-overview-flight-advanced" }, expect = "OK" },
   # `details` is the tab that lists per-recording and per-action rows. It is where the
   # audit expected a struck row for the superseded recording; the first flight measured
-  # that no such row exists (see the header - the strikethrough is driven by ledger
-  # ACTION effectiveness, not by a recording supersede), so the label says `flight`
-  # rather than `superseded` and the capture's value is the FLIGHT-scene tab itself. It
+  # that no such row exists, and the header says why twice over - the grey style needs a
+  # DUPLICATE-credit action, and a supersede is filtered from the feed entirely. So the
+  # label says `flight` rather than `superseded` and the capture's value is the tab. It
   # does buy one measured P1 the audit had at zero hits program-wide: a DISABLED `W`
   # button, which only the flight scene draws at all.
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "details" }, expect = "OK" },
@@ -123,13 +161,17 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ra-timeline-rewindff-flight-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ra-timeline-rewindff-flight-advanced" }, expect = "OK" },
   # `refly` on a host whose two recordings are BOTH CommittedProvisional, which is the
-  # state the Fly / Seal descriptor pair is written for.
+  # state the Fly / Seal descriptor pair is written for - and which was NOT enough: the
+  # tab drew its empty form (81 nodes, no `Fly` and no `Seal`), because this fixture's
+  # RewindPoint is gone and the slot cannot resolve. The same is true of `rewindff` above.
+  # Both captures are the EMPTY flight form and are labelled as the scene they show.
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "refly" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ra-timeline-refly-flight-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ra-timeline-refly-flight-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
-  # --- THE THIRD PERIOD RENDERING. The tree id is this fixture's own committed
+  # --- THE THIRD LOCKED PERIOD RENDERING (rotation-locked), NOT the editable one this
+  # step was authored for - see the header. The tree id is this fixture's own committed
   # RECORDING_TREE id, read from the staged bytes - the house pattern for this verb.
   { cmd = "MissionConfig", args = { tree = "47cea2fe7d9e4e9eb6a729a7e280cc41", loop = "true" }, expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
@@ -138,10 +180,11 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ra-missions-loopon-editable-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ra-missions-loopon-editable-advanced" }, expect = "OK" },
-  # And the Recordings tab, where the supersede's effect is row ABSENCE rather than a
-  # struck row - the pair is what makes that difference readable.
+  { cmd = "CaptureScreenshot", args = { label = "ra-missions-loopon-rotlocked-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ra-missions-loopon-rotlocked-advanced" }, expect = "OK" },
+  # And the Recordings tab. The supersede's effect in BOTH windows is row ABSENCE - the
+  # effective-set walk drops the superseded recording before either one draws - so the
+  # pair is what makes "absence, not a marked row" readable at a glance.
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ra-missions-recordings-flight-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ra-missions-recordings-flight-advanced" }, expect = "OK" },
@@ -170,15 +213,15 @@ count = { min = 10, max = 11 }
 
 [expectations.logContracts]
 # This lane's OWN seam records plus the ONE production line that says the supersede
-# relation loaded, without which every capture here photographs a tree with no struck
-# row. The describe echoes are the in-run mapping check: `open=<n> openWindows=<names>`
+# relation loaded - the anti-vacuity check for a lane whose whole host choice rests on
+# that relation being present. The describe echoes are the in-run mapping check: `open=<n> openWindows=<names>`
 # pinned as a literal is an EXACT claim.
 #
 # THE SUPERSEDE LINE is matched on the relation's own id-bearing load record rather than
-# on a rendering: `d096297d815647de988c380fb6931d0a` is the superseded recording, and
-# that string appearing in the ERS/supersede load surface is the mechanical half of the
-# claim - the PNG is the other half, because a strikethrough is a STYLE and the dump
-# carries no style field.
+# on a rendering, and after the first flight that is the ONLY half there is:
+# `d096297d815647de988c380fb6931d0a` is the superseded recording, and that string in the
+# supersede load surface says the relation is live. There is no rendering half, because a
+# supersede draws no Timeline pixel - see the header.
 required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,timeline",
@@ -190,7 +233,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-details-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-rewindff-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-refly-flight-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-missions-loopon-editable-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-missions-loopon-rotlocked-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-missions-recordings-flight-advanced .*patched=17/17",
 ]
 forbidden = []

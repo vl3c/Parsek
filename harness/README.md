@@ -333,8 +333,9 @@ two are the last rows below:
 | `GUI-12-census-testrunners` (run `2026-09-15_2057`, PASS attempt 1, 89 s, 7 + 7) | `career-earned-ksc`, at the Space Center (`scene = "spacecenter"`) - the one census lane whose CONTENT is host-independent, since both runner windows read the assembly's `[InGameTest]` attributes rather than the save | BOTH in-game test runner windows in their real states: the Settings-launched one (`testrunner`) idle, every fold closed, one category expanded, and with REAL RESULTS after running the `GuiTree` category through its own runner (`discovered=1 total=1 passed=1 failed=0`, the summary moving to `1 passed` and the header to `GuiTree (1/1)`), plus the global Ctrl+Shift+T one (`testrunnerglobal`) idle, closed and one category expanded - ITS FIRST PICTURES OF ANY KIND. The two differ by exactly 3 nodes at every comparable state, which the dumps name as the `Search:` label, the text field and the 24 px clear button the global window does not draw |
 
 WAVE 5 (2026-09-21, ALL ELEVEN FLOWN GREEN the same day, plus both amended lanes -
-sixteen flights on one pinned automation DLL, every final verdict PASS on attempt 1 at
-53-92 s wall) is ELEVEN lanes, `GUI-13` through `GUI-23`, plus amendments to `GUI-1` and
+twenty flights on one pinned automation DLL, 18 PASS and 2 PARSEK-FAIL, with both
+failures one lane's own log-contract regex casing rather than a product failure, and every
+lane's final verdict PASS on attempt 1 at 53-92 s wall) is ELEVEN lanes, `GUI-13` through `GUI-23`, plus amendments to `GUI-1` and
 `GUI-6`. It is a different kind of wave from the four above it, and
 the difference is the input: waves 1 to 4 walked SURFACES (which window, which tab, which
 modal), while wave 5 came from a read-only STATE-COVERAGE AUDIT that enumerated the

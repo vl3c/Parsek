@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, and the eight window states the census still cannot reach [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23). Items 1 and 2 are DEAD CODE verified from source; items 3-10 are INSTRUMENT or FIXTURE gaps, not product defects. OPEN; each names what it needs]
+## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
 
 **Where this came from.** A read-only audit enumerated every visibly distinct draw branch
 of the 14 IMGUI windows from the source and checked each against the `.gui.json` control-
@@ -102,37 +102,77 @@ fishing expedition dressed as a step. **Fix:** log or compute the pass geometry 
 corpus once, then pin the UT. Until then the window's comparison-table shape - which is its
 whole point - has no picture.
 
-**9. A LIVE rewind, an armed `R`, and a merge journal have no census host.** Every
-`rewindff` capture shows `R` buttons ENABLED with resolved targets, i.e.
-rewind-AVAILABLE and never rewind-ARMED, and `refly-a-recorded`'s own README records that
-its RewindPoint is gone so it cannot re-fly. **Fix:** a census lane on a fixture that
-carries a usable RewindPoint (`bdock-recorded` and `refly-autopilot-recorded` both do),
-which is a larger lane than this wave's shape because the rewind mutates the host.
+**9. A LIVE rewind, an armed `R`, and a merge journal have no census host - and in the
+FLIGHT scene the `rewindff` and `refly` tabs draw NOTHING AT ALL.** Two readings, and the
+second is new from the 2026-09-21 flights. (i) At the Space Center, every `rewindff`
+capture shows `R` buttons ENABLED with resolved targets - rewind-AVAILABLE, never
+rewind-ARMED. (ii) In FLIGHT, measured on BOTH hosts this wave flew, those two tabs drew
+their EMPTY forms: 83 nodes on `gloops-airshow` (GUI-6 `2026-09-21_2110`) and 81 on
+`refly-a-recorded` (GUI-19 `_2103`), in each case the filter bar, the `(now)` divider and
+the warp field row, with no `R`, no `W` and no `Fly` / `Seal` pair. Two hosts at opposite
+densities reading the same way makes it the SCENE rather than either corpus. `details` is
+populated on both, so the window is not simply blank in flight. **Fix:** a census lane on
+a fixture carrying a usable RewindPoint (`bdock-recorded` and `refly-autopilot-recorded`
+both do) - which is a larger lane than this wave's shape, because the rewind mutates the
+host - and the populated FLIGHT forms of both tabs are owed by the same lane.
 
-**11. GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-ACTION-EFFECTIVENESS-NOT-SUPERSEDE.** The
-audit called the Timeline's struck row "the only visual trace of a supersede", and
-`GUI-19`'s first flight (`2026-09-21_2059`) refuted it. `TimelineWindowUI` picks
-`timelineStrikethroughStyle` on `!entry.IsEffective`, and `TimelineEntry.IsEffective`
-has exactly TWO writers in the program (`Source/Parsek/Timeline/TimelineBuilder.cs`): it
-is seeded from `action.Effective` on a GAME-ACTION entry, and merged with `|=` when
-milestone rows compact. Nothing anywhere derives it from a recording supersede. So a
-struck row means a TOMBSTONED or otherwise non-effective LEDGER ACTION - what `CL-3` /
-`CL-4`'s crew-death rewinds produce on a career host - and a recording supersede produces
-NO Timeline pixel at all. Measured on the flight: the fixture's `RECORDING_SUPERSEDES`
-entry loaded, the Details tab drew one launch row, nothing was struck. **Consequence for
-the census:** the struck row wants a lane on a host with a tombstoned action, not one with
-a supersede; and the supersede's own Timeline consequence is row ABSENCE, which is
-unphotographable by construction. **Not a defect** - the window is doing what the code
-says - but the claim was load-bearing for a lane, so it is filed rather than left in a
-spec header.
+**10. GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-DUPLICATE-CREDIT-NOT-SUPERSEDE-OR-TOMBSTONE.**
+The audit called the Timeline's grey row "the only visual trace of a supersede", and
+`GUI-19`'s first flight (`2026-09-21_2059`) refuted it. THIS ENTRY WAS THEN WRONG A SECOND
+TIME and is corrected here, because the first correction guessed at the replacement
+instead of deriving it.
 
-**12. The near-miss subsection buys ONE reject string on the operator's career, not
-twelve.** `GUI-1`'s 2026-09-21 re-fly expanded it for the first time and all EIGHTEEN
-rows read the same clause: `Recording has no route proof - log the dock event to enable a
-Supply Route.` The other eleven `LogisticsRejectPresentation.DescribeNearMiss` /
+*What is true.* `TimelineWindowUI` picks `timelineStrikethroughStyle` on
+`!entry.IsEffective`. `TimelineEntry.IsEffective` is written in exactly two places
+(`Source/Parsek/Timeline/TimelineBuilder.cs`): seeded from `action.Effective` on a
+game-action entry, and merged with `|=` when milestone rows compact. Nothing derives it
+from a recording supersede, so **a supersede produces no Timeline pixel at all** - its
+consequence is row ABSENCE, because the effective-set walk drops the recording before the
+window draws.
+
+*What this entry first claimed, and why that is also wrong.* It said a struck row means a
+TOMBSTONED ledger action, "what CL-3 / CL-4's crew-death rewinds produce". The Timeline is
+fed `EffectiveState.ComputeELS()` (`Source/Parsek/UI/TimelineWindowUI.cs:477-483`), which
+filters tombstoned actions BEFORE the builder sees them - so a tombstone is also row
+absence. The only writers of `Effective = false` in the whole program are
+`Source/Parsek/GameActions/ContractsModule.cs:399/408/417/428` (a contract completion that
+is a duplicate, past an already-resolved deadline, already explicitly resolved, or
+resolved at the same tick) and `Source/Parsek/GameActions/MilestonesModule.cs:108` (a
+duplicate milestone), all reset to true on every recalc at
+`Source/Parsek/GameActions/RecalculationEngine.cs:519`.
+
+*So the state needs a DUPLICATE-CREDIT host* - a save whose ledger carries a duplicate
+contract completion or a duplicate milestone - and no committed fixture is one.
+
+*And it is not a strike.* `timelineStrikethroughStyle` differs from the label style only
+by `normal.textColor = Color.gray` (`Source/Parsek/UI/TimelineWindowUI.cs:395-396`); there
+is no strike glyph anywhere. Even on a host that produced one, the state would be a COLOUR
+and therefore a PNG verdict - a `parsek-gui-tree/1` node carries no colour field, so no
+dump could ever gate it. **Not a defect**; the window does what the code says. Filed
+because the original claim was load-bearing for a whole lane, and because the name
+`timelineStrikethroughStyle` is itself misleading about what it draws.
+
+**11. The near-miss subsection buys TWO reject strings on the operator's career, not
+twelve.** `GUI-1`'s 2026-09-21 re-fly expanded it for the first time anywhere. Counted off
+the dump: SEVENTEEN of the eighteen rows read `Recording has no route proof - log the dock
+event to enable a Supply Route.` and ONE reads `not fully sealed (1 recording still
+re-flyable)`. TEN of the twelve `LogisticsRejectPresentation.DescribeNearMiss` /
 `RouteCreationFormatters` reasons are still dark. **Fix:** a host chosen for the REASON
 rather than for density - the operator's career is one long-lived campaign, so its
-ineligible trees all fail the same way.
+ineligible trees nearly all fail the same way.
+
+**12. The EDITABLE Loop ON period form has no host.** `GUI-17`, `GUI-18` and `GUI-19`
+between them photographed THREE LOCKED renderings of the Missions tab's period cell -
+window-locked (`~13d-19d (Mun window, varies)`), re-aim (`~2.1y (Duna transfer)`) and
+rotation-locked (`~6h (Kerbin rot)`, tooltipped `Period locked to the launch / transfer
+window - set by physics, not editable.`). The EDITABLE cell - a `TextField` plus a live
+unit button - draws only when the locked branch is NOT taken, and that branch is
+`enabled && (periodicity.IsPhaseLockedConstrained || periodicity.IsReaim)`
+(`Source/Parsek/UI/MissionsWindowUI.cs`, the period-cell block). Every committed recorded
+fixture is a launch from a rotating body toward a body with a window, so every one of them
+locks. **Fix:** a fixture whose mission periodicity is unconstrained or unsupported, or an
+automation-only way to force the branch. Until then the form a player edits by hand is the
+one form of that cell with no picture.
 
 **13. Roughly sixty hover and disabled-reason strings remain unreachable,** which is the
 one item on this list that is MEASURED rather than merely unattempted. Filed separately and
@@ -142,6 +182,70 @@ foreground steal and `GUI.tooltip` was still empty). This wave routed around it 
 it could by reading `enabled` from the dump instead - which is how the two greyed Wipe
 buttons and the greyed Basic radio are claimed without hover - but a REASON STRING has no
 such substitute.
+
+---
+
+**PRODUCT FINDINGS THE FLIGHTS TURNED UP (14 to 18).** Each was verified at its source site
+before being written down, and none is fixed in the wave-5 PR - a census PR that started
+editing the windows it photographs would be photographing its own edits.
+
+**14. `Status: Paused - Paused - not auto-dispatching` doubles the word,** in all four
+Logistics hold captures. One site:
+`DetailLine($"Status: {route.Status} - {StatusReason(route.Status)}")`
+(`Source/Parsek/UI/LogisticsWindowUI.cs:1669`), where `StatusReason(RouteStatus.Paused)`
+already returns `"Paused - not auto-dispatching"` (`:3894`). The other eight statuses
+return a bare phrase, so only `Paused` doubles - which is also the status every census
+capture lands on. **Fix:** either drop the `{route.Status} - ` prefix (the reason strings
+already name their status where it matters) or make `StatusReason` return reason-only text
+for every member. Cosmetic, one line, but it is on the most-photographed row in the window.
+
+**15. The Gloops recorder's idle state shows a raw localization key,**
+`Vessel: #autoLOC_501232`, where the saved state two steps later reads
+`Saved: "Kerbal X"`. Measured on `GUI-16` (`2026-09-21_2050`). The idle branch reads
+`FlightGlobals.ActiveVessel.vesselName` directly
+(`Source/Parsek/UI/GloopsRecorderUI.cs:340-343`); stock stores an unlocalized key in
+`vesselName` for a vessel whose name has never been edited, and nothing here runs it
+through `Localizer`. **Fix:** route that one label through the same resolution the commit
+path already uses - the take it produced carried the human name, so the resolution exists.
+
+**16. `Delivers per cycle: (nothing)` sits directly above a route that has delivered.**
+On `GUI-20`'s Paused capture the detail panel reads `Delivers per cycle: (nothing)` while
+three lines below it `Last cycle: delivered 200.0 LiquidFuel` and `Total delivered: 200.0
+LiquidFuel`. The first is `FormatRouteDelivery(route)`
+(`Source/Parsek/UI/LogisticsWindowUI.cs:1667-1668`), which describes the route's CONFIGURED
+manifest; on this relay the cargo is discovered per cycle rather than configured, so the
+configured manifest is legitimately empty. **The strings are each true and the pair is
+not:** a player reads "delivers nothing" and "delivered 200" in one glance. **Fix:** word
+the configured-manifest line so it says it is a configuration (or suppress it when a
+delivery history exists).
+
+**17. The Mun host's Loop ON period cell and its summary clause disagree.** `GUI-17`
+(`2026-09-21_2053`) reads period `~13d-19d (Mun window, varies)` beside the summary
+`Loops ~57d 5h`. Both are documented as describing different things - the cell is the
+relaunch cadence range, the basis names the dominant celestial event, and
+`BuildScheduledPeriodCellDisplay`'s own comment says so - but `~57d 5h` is neither end of
+`13d-19d`, so nothing on the row explains the third number. **Fix:** name what `Loops ~P`
+is measuring, or show the same quantity in both places. Recorded as a legibility finding
+rather than an arithmetic one: no number here has been shown to be wrong.
+
+**18. The main window's root rect reports `height = 0` in every dump,** across all 20
+runs. This is WINDOW-side and by design, not a recorder defect: both hosts zero the height
+every frame before the layout pass so the window is content-sized
+(`Source/Parsek/ParsekFlight.cs:2120` and `Source/Parsek/ParsekKSC.cs:247`), and the
+recorder faithfully records the rect the window declared. It is written down only because
+a reader of the dumps will otherwise take it for a capture fault - and because it is why
+`op=rect` exempts the main window from its size read-back
+(`TestCommandUiAction.RectAppliedWithinTolerance`'s `sizeIsHostControlled`). **No fix
+wanted.**
+
+**NOT A FINDING, checked and cleared:** the Warn
+`SaveActiveTreeIfAny: skipped active tree '<name>' because at least one recording could
+not be written with current v0 sidecars; outcome=both-or-neither` appears once each on
+`GUI-17` and `GUI-18` and on no other census lane. It is PRE-EXISTING rather than
+census-introduced: `V6M-mun-player-loop`'s own run `2026-09-10_1901` emits the same line
+once over the same fixture and the same `MissionConfig` step. It is also the designed
+both-or-neither guard working (the entry that introduced it is struck as FIXED further
+down this file), it is a WARN rather than an error, and `logValidate` passed on both runs.
 
 **SIBLING ENTRY.** `GUI-STATE-GALLERY-2026-09-21` below is the DESIGN for the states
 no flight can reach; this entry is the residue of the states a flight CAN reach, after

@@ -333,7 +333,14 @@ forbidden = [
 # case against RVR-8's three at 1980. The 3000 is kept anyway rather than raised, because
 # every RVR-8 flight came in at ~50 s wall and the worst case is a timeout bound nothing
 # has approached; a KILLED run here loses the images, which is the product.
-budgetSeconds = 3000
+# 900 s, the figure every other census lane uses, and it is a REDUCTION from the 3000 /
+# 2400 this lane inherited from its RVR original. The original's budget is sized for a
+# behaviour lane that may retry a long chain; this clone's MEASURED wall is 57 s
+# (run `2026-09-21_2122`), and its longest single step is the mid-chain `TimeJump`, whose own
+# step budget is declared inline and unchanged. 900 s is therefore still 15x the
+# measurement and stays generous because the PRODUCT is the images and the trees, and a
+# KILLED run leaves neither.
+budgetSeconds = 900
 
 [retry]
 policy = "once"

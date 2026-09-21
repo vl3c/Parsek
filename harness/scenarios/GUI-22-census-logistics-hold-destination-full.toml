@@ -321,7 +321,14 @@ forbidden = [
 # budget, so this lane has THREE deferred steps (LoadGame + two TimeJumps) = 1980 s worst case
 # against RVR-13's two at 1320. The 2400 still covers it, and every RVR-13 flight came in at
 # ~49 s wall.
-budgetSeconds = 2400
+# 900 s, the figure every other census lane uses, and it is a REDUCTION from the 3000 /
+# 2400 this lane inherited from its RVR original. The original's budget is sized for a
+# behaviour lane that may retry a long chain; this clone's MEASURED wall is 53 s
+# (run `2026-09-21_2117`), and its longest single step is the mid-chain `TimeJump`, whose own
+# step budget is declared inline and unchanged. 900 s is therefore still 15x the
+# measurement and stays generous because the PRODUCT is the images and the trees, and a
+# KILLED run leaves neither.
+budgetSeconds = 900
 
 [retry]
 policy = "once"
