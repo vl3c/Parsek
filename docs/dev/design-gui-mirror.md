@@ -385,25 +385,313 @@ shape: a tab selected in BASIC mode (Missions' own tab, two Timeline tabs, both
 Kerbals tabs, all four Career tabs). Basic draws no tab bar, so the census never
 took them. They are listed in the left rail, greyed, and clicking one says why.
 
-## 11. Known differences from the frame
+## 11. Fidelity: the page measured against the frame
 
-Read off the side-by-side and overlay modes over the Career, Kerbals, Settings and
-Missions captures. None of the three is fixable from the dump alone; each needs a
-value the dump does not carry, or a font.
+`harness/tools/gui_mirror_fidelity.py`. Until this existed, "the mirror looks like
+the game" was an impression, and the impression had already been wrong three times
+in ways the eye caught only by luck: tab headings from an older epoch drawn over a
+frame that said something else, a container painted in its own child's colour, text
+drawn twice. What an eye finds by luck it misses by luck, so the question needed an
+instrument.
 
-1. **A slider draws its track and not its handle.** The dump gives the slider's
-   rect and no value, so there is nothing to position a knob from. The Settings
-   ghost-audio row therefore reads as an empty groove where the game shows a knob
-   near 70%. Fixable only by having the recorder emit the slider's value.
-2. **A toggle's mark is an ASCII `x` in a CSS box.** The dump carries the boolean,
-   not the glyph, and KSP draws a tick in its own skin texture. Right state, wrong
-   shape, and the box is drawn rather than sampled.
-3. **Very long single lines clip a few characters early.** Arial at 13px matches
-   KSP's face to under a pixel over a 140 px run (that is how the size was
-   chosen), but the error accumulates: the Settings rewind-point disk line ends
-   `crashed=0, stabl` in the mirror against `crashed=0, stable` in the frame. A
-   real fix means shipping KSP's own font metrics, which is a bigger thing than
-   this page.
+### It measures THIS page, not a second renderer
+
+The obvious way to build this - re-implement the layout in Python and compare that
+against the frame - measures a program that does not ship, and it agrees with the
+page wherever both are wrong for the same reason. So the instrument opens the
+generated file itself in a headless Chromium, at a deep link the generator carries
+for exactly this purpose:
+
+```
+gui-mirror.html#cap=<runId>%2F<label>&bare=1
+```
+
+Bare mode renders ONE capture's stage, at 1:1 CSS pixels, at the top-left of the
+page, with the rail, header, status line, echo strip, photograph and every
+animation off, and pins the stage to the frame the dump was taken at - so pixel
+(x, y) in the screenshot is pixel (x, y) in the census PNG. Then it sets
+`data-ready` on `<html>`.
+
+Three things keep that honest:
+
+* The bare skin is a separate string (`BARE_CSS`) and every selector in it is
+  scoped to the `bare` class, which a test asserts by PARSING the selectors. So a
+  page opened without the hash is the page that shipped, mechanically rather than
+  by promise.
+* `bootBare()` is the first statement of `boot()` and returns false when the hash
+  is absent, so there is no second rendering path to drift from the first.
+* The ready marker needs no second browser call to read: in bare mode the stage is
+  `visibility:hidden` until `data-ready` is set, so a screenshot taken too early
+  comes back BLANK, and a blank window rect where the census frame has ink is a
+  refusal the instrument reports rather than a measurement it takes.
+
+### The four metrics
+
+All of them are taken INSIDE the Parsek window rects of that capture. Everything
+outside is the game's own scene, which the page neither has nor claims.
+
+* **TEXT**, the one that matters. For every text-bearing LEAF control, the ink
+  bounding box in the frame against the ink bounding box in the mirror, inside the
+  same rect: `dx`, `dy`, the width ratio `wr` (mirror ink width over the frame's),
+  and a `clipped` flag. Ink is any pixel whose luminance is more than 45 from the
+  rect's OWN median - not from a constant, because the same label style is drawn
+  on `#444444` window fill, `#292929` content boxes and `#313131` buttons across
+  the corpus. `clipped` is set when the mirror's run ends AT the rect edge while
+  the frame's ends inside it; deliberately NOT "the mirror's run is shorter",
+  because a font a few per cent wide runs into the edge and is cut there with MORE
+  ink than the frame's, which is the exact case that loses characters.
+* **FILL**. The median colour of each painted control's own surface - the points
+  its children do not cover, the same rule the generator sampled it with - frame
+  against mirror, reported as the worst single channel. The mirror sampled those
+  colours off that very frame, so this asks whether the page paints what it
+  stored. It is the standing guard for the container-took-its-child's-colour
+  class.
+* **PRESENCE**. Controls whose rect carries ink in the frame and none in the
+  mirror, and the reverse, grouped by `kind|style|text` so a group is one fixable
+  class instead of a list of coordinates. This is what finds a handle, a tick, an
+  icon or a scroll bar the page draws nothing for.
+* **WINDOW**. The mean absolute luminance difference over the window rect. For
+  RANKING captures only, and not a pass/fail number: a window with a transparent
+  gutter has the game's scenery behind it and will never read zero.
+
+Two instrument details, each of which produced a wrong reading before it was
+right. The ink is looked for two pixels IN from every rect edge: a button's border
+contrasts with its fill as strongly as its label does, and measuring the whole
+rect made the frame's ink box the entire 980 px border of the Close button against
+the 33 px word inside it - dx 471, `wr` 0.03, and a defect report about a control
+that was perfect. And a control is measured only over the part of it that all its
+ancestors contain, because that is what the page draws; where the GAME clips
+differently (it clips at scroll views and windows, not at every box) that surfaces
+as the `clipped` flag instead, which is a thing a reader can act on.
+
+### Running it
+
+```bash
+python harness/tools/gui_mirror_fidelity.py \
+  --shots "<...>/results/<runId>_<specId>_shots" [--shots ...] \
+  --repo . --out-dir <a scratch folder>
+```
+
+`report.json` and a self-contained `index.html` land in `--out-dir` and nowhere
+else - the run produces one screenshot per capture plus crops and heatmaps, none
+of which belongs in the repository, and a test cell fails if any tracked file
+under `harness/` or `docs/` is an image or carries an inlined image payload.
+`--window`, `--capture` and `--limit` narrow a re-measure to seconds. `--jobs`
+(4) is the worker threads, which overlap the browser wait with the measurement -
+the Python-bound half - and `--browser-jobs` (1) is how many browser launches
+may be in flight at once, which is separate because four heavy pages at once made
+Edge exit 0 with no screenshot and no stderr. `--page` reuses an already-built
+page instead of generating one, which is what makes a before/after pair
+comparable; `--budget-ms`, `--timeout` and `--triples` tune the browser's virtual
+time, the wait for a screenshot, and how many worst captures get an image triple.
+
+`--out-dir` receives `report.json`, `index.html` and - unless `--page` names one -
+the `mirror-bare.html` the measurement was taken against. The browser's own
+working files go to short temp directories and are removed at the end.
+
+The browser is optional equipment: with none installed it exits 3 naming the
+paths it probed, and every unit test (`harness/lib/test_gui_mirror_fidelity.py`)
+passes without one - which is the machine CI runs on.
+
+One caveat about running a SUBSET. Whether a root belongs to another mod is a
+property of the CORPUS: the generator calls it foreign only when the same root
+repeats under four or more different windows. A run given a few shots directories
+can fall below that and classify nothing - on a four-directory sample a MechJeb
+title bar was measured as a Parsek window in 13 captures - so the instrument
+warns when the run covers fewer than four windows. Quote numbers from a full-corpus
+run.
+
+Two things about driving a headless Chromium on Windows that cost a run each.
+`msedge.exe` is a LAUNCHER: it returns in tens of milliseconds and a child writes
+the screenshot half a second later, so the driver waits for the file's own IEND
+chunk rather than for the process. And the `--user-data-dir` must be an absolute
+path in a SHORT directory, one per worker thread: a relative one makes Edge put
+"can't read and write to its data directory" on the desktop once per launch, a
+profile under a deep scratch path silently exceeds Windows' path limit and the
+launch then returns 0 having written nothing, and two threads sharing one profile
+make the second Edge hand its URL to the first and exit. The profiles are
+therefore `tempfile.mkdtemp` directories, keyed by thread, removed at the end, and
+the argv is a list from end to end so no path can be re-split on a space. A launch
+that fails twice STOPS the batch rather than repeating the browser's dialog 230
+times. The screenshots themselves go to a short temp directory too, numbered
+rather than named after their capture: written beside the report they came to 264
+characters for the long labels, and those launches returned 0, wrote nothing and
+said nothing, which cost 240 s of timeout and retry each before it was understood.
+Those temp directories are removed from a `finally`, with a retry and a backoff,
+and the run REPORTS any it could not remove: deleting them with
+`ignore_errors=True` ran while the browser's children still held files, failed
+silently because errors were ignored, and left 43 of them (320 MB) in the owner's
+temp directory. And the launch carries no `--hide-scrollbars`: it hid a
+difference the page itself had introduced (a native scroll bar over the mirrored
+KSP one), which is the opposite of what an instrument is for. A run that cannot
+finish exits non-zero - 3 with no browser, 4 when the batch halted part-way - so
+a partial corpus cannot be read as a whole one.
+
+### What a metric cannot see, and what to do about it
+
+PRESENCE asks one binary question - are there at least four ink pixels in this
+rect - and that is enough for text, where the answer flips when a label is
+missing. It is NOT enough for a control whose own border satisfies it whatever is
+drawn inside. The slider is the case that proved it: the page drew its handle in
+a typed light grey (luminance 185) where KSP's scroll bar thumb has a dark face
+(17 to 50) under a one-pixel bevel (85 to 101) over a groove of 45, so the page
+moved AWAY from the game while the report counted "slider frame-only 41 -> 0",
+and DELETING the handle element entirely moved no number at all.
+
+Two things follow, and they are the general lesson rather than a slider story.
+First, a fix and a metric are not independent when the fix is judged by the
+metric that motivated it: a class whose count went to zero deserves the question
+"what would this number do if I removed the fix?" before it is quoted. Second,
+when the answer is "nothing", the metric is wrong for that class and needs one of
+its own - here the mean absolute luminance error over the control's rect, plus
+the thumb run's position and length where both sides resolve one, which moves
+from a resolved `[4, 242]` to unresolved the moment the handle goes.
+
+### What it found, and the corpus before and after
+
+230 captures over 19 census runs, 222 measured (6 carry a stock modal, 2 have no
+PNG), 9112 text controls. BEFORE is the page as it rendered on 2026-09-21; AFTER
+is the same corpus through the same instrument with the classes below fixed.
+
+| Metric | BEFORE | AFTER |
+| --- | --- | --- |
+| text ink dx, p50 / p95 / worst | 2 / 52 / 643 px | 2 / **5** / **22** px |
+| text ink dy, p50 / p95 / worst | 1 / 4 / 16 px | 1 / 4 / 16 px |
+| text width ratio, p50 / p95 | 1.000 / 2.214 | 1.000 / **1.111** |
+| fill colour delta, p50 / p95 / worst | 0 / 5 / 43 | 0 / **0** / **16** |
+| slider luminance error, p50 / p95 / worst | 34.2 / 39.7 / 45.2 | **18.1** / **28.0** / **28.1** |
+| sliders whose thumb resolves on BOTH sides | 0 of 41 | **41** of 41, p50 offset 1 px |
+| runs the page clipped and the game did not | 554 | **63** |
+| ink in the frame, none in the mirror | 587 | **115** |
+| ink in the mirror, none in the frame | 122 | 99 |
+| window luminance score, p50 | 8.86 | 9.04 |
+
+The two slider rows are the ones this table did not have when the work was first
+reported, and they are the reason it did not: see "What a metric cannot see"
+above. The thumb-run row is the sharpest single number here - 0 of 41 sliders had
+a thumb the frame and the page BOTH resolved before, 41 of 41 do now, and the
+page puts it within a pixel of where the game did.
+
+The window score is the one number that went UP, and it is the one number that is
+not a quality measure: it is a raw luminance difference over the whole window
+rect, and the page now DRAWS things it used to leave blank - scroll bar thumbs,
+slider handles, tick marks, the disabled text it had dimmed to nothing. A control
+drawn one pixel from where the game drew it scores worse than a control not drawn
+at all. It is kept for ranking captures, which is all it was ever for.
+
+Fixed, worst class first, each measured rather than assumed:
+
+1. **A disabled control was dimmed twice** - 377 controls with ink in the frame
+   and none on the page. The colours here are sampled per control out of the
+   frame, so a disabled control's colour is ALREADY the grey the game drew;
+   `opacity:.42` on top of that put the Missions window's disabled interval field
+   below the threshold of being visible at all. The opacity now applies only where
+   the frame gave no colour to carry the state. `button|button|text`: frame-only
+   377 -> 43, clipped 376 -> 15.
+2. **A raised control's outline was brighter than its fill** - so the ink
+   measurement found the whole button interior instead of its label, and the page
+   looked like a web form rather than like KSP. Measured on the ib-logistics
+   frame: KSP draws a near-black outline (grey 5 to 25) with a light top bevel
+   inside it (88, 71, 61, fading) over a fill of 25 to 76. Buttons, repeat
+   buttons, selection-grid cells, button-styled toggles and text fields now carry
+   that edge. Corpus width ratio p95 2.214 -> 1.111.
+3. **`box`-styled text was aligned by a rule, and KSP has no such rule** - the
+   Logistics section heading is CENTRED in its 1358 px box while the sortable
+   column headers of the same table are LEFT-ALIGNED in theirs. The page
+   left-aligned the first (643 px out) and centred the second. The offset is now
+   MEASURED off the frame (`text_ink_offset`), the same move the tab bar's labels
+   already used. `label|box|text` worst dx 643 -> 5; `button|box|text` p95 dx
+   195 -> 4 and clipped 128 -> 7.
+
+   **Read the dx of those two classes with that in mind.** The page places their
+   text at an offset taken off the same PNG the instrument then grades it
+   against, so for `label|box` and `button|box` the text dx is a measurement
+   graded against itself and near zero by construction. It says the page applied
+   what it measured; it does not say the page is in the right place. The
+   INDEPENDENT evidence for those classes is the width ratio and the clipped
+   flag, neither of which the offset can flatter - and both moved for real
+   (clipped 128 -> 7). The same circularity has a second edge: a box that
+   another window covers takes its offset from the COVERING window's pixels,
+   because the covering window is what is in the frame at that rect. That is one
+   more reason the overlap share in section 12 is worth reading before any
+   per-class number here.
+4. **A toggle in the BUTTON style was drawn as a checkbox** - 987 of the corpus's
+   8154 toggles. KSP draws `Toggle(v, text, "button")` as a button that sits
+   pushed in while it is on; the page drew "x label" on bare window fill. It now
+   takes the button's shape, its sampled fill and the pushed state.
+   `toggle|button|text` p50 dx 52 -> 2, width ratio 1.367 -> 1.000.
+5. **A slider had no handle and a scroll bar had no bar** - 41 controls. The dump
+   records a rect and no value, which section 12 below used to call unfixable
+   from the dump; it was never unfixable from the PNG. `slider_thumb_run` reads
+   the brightest contiguous run along the control's own long axis, which resolves
+   on 81 of the corpus's 137 sliders - including the Settings ghost-audio slider,
+   at 152 of its 227 px groove. The groove is also oriented by the rect's own
+   aspect now: 130 of the 142 sliders are VERTICAL scroll bars and the page was
+   drawing a horizontal bar across their middle.
+6. **A scroll view did not scroll** - 52 of them carry content below the fold, up
+   to 23 529 px of it, and `overflow:hidden` made every row of it unreachable.
+   The children are absolutely positioned inside their own containing block, so
+   the rects ARE the extent and no content sizer is needed. `&scroll=<px>` on the
+   bare link scrolls every scroll view before the page marks itself ready, so
+   that "reachable" is a thing a screenshot can show rather than a claim about
+   CSS.
+7. **A toggle's tick was an ASCII `x`** - the right state in the wrong shape. It
+   is drawn in CSS now. This is the one fix with no measurement behind it, and
+   the one that is still not the game's own glyph.
+
+Two things the numbers say that the list does not. The fill metric reaching a p95
+of ZERO is the quiet one: wherever the page stores a colour it now paints that
+colour, which is the standing guard against the
+container-took-its-child's-colour class returning. And 429 more ink pairs are
+measurable after than before (8227 against 8656) - the page draws text in places
+where it used to draw nothing at all.
+
+What the residual is made of, so the next pass starts in the right place: of the
+115 controls with ink in the frame and none on the page, 46 (40%) sit in a region
+two Parsek windows both cover, and of the 63 clipped runs, 32 (51%) do. Neither
+the page nor the game publishes its window stacking, so those readings are about
+which window won rather than about the rendering. The rest, and the four
+differences that are real, are section 12 and
+`docs/dev/todo-and-known-bugs.md` T42b.
+
+## 12. Known differences from the frame
+
+MEASURED by section 11's instrument over the whole corpus, not read off the
+side-by-side by eye. The three entries this section used to carry were the eye's
+reading, and two of them were wrong about what was possible: the slider's handle
+and the box alignment were both derivable from the PNG all along, and both are
+fixed. What is left:
+
+1. **A label that WRAPS in the game is drawn on one line.** KSP's label styles
+   word-wrap; the page sets `white-space:pre`. The Logistics route cell that reads
+   `> Route: KSC` / `-> Duna` over two lines in the frame is one line on the page,
+   which is most of the residual `dy` of about 10 px on those rows. The rect
+   height over the line height says how many lines the game used, so it IS
+   derivable - but it moves every multi-line cell on the page and wants its own
+   pass with the instrument beside it.
+2. **KSP's own font metrics are not Arial's.** 13 px Arial renders three measured
+   corpus runs at 136.6 / 144.5 / 86.8 px against a measured 136 / 144 / 87, and
+   the corpus width ratio is 1.000 at the median and 1.111 at p95 - but the tails
+   are real, and a long single line still ends a character or two early or late.
+   A real fix means shipping KSP's font metrics.
+3. **A toggle's tick is a CSS checkmark, not KSP's skin texture.** Right state,
+   right box, drawn shape. The texture is in no census artifact, so there is
+   nothing to derive it from.
+4. **A control hidden behind another Parsek window is still measured, and drawn
+   from the wrong window.** The dump records every window's controls including the
+   covered ones, and neither side publishes its stacking order. 170 of the 222
+   measured captures have more than one Parsek window; 40% of the residual
+   frame-only controls and 51% of the residual clipped runs sit in a region two
+   windows both cover. This is the largest single share of what is left, and it
+   is an instrument fix (record which root a control came from) rather than a
+   page fix.
+5. **A capture with a stock modal is not measured at all** - 6 of 230. A
+   `PopupDialog` is a centred uGUI canvas that overdraws the window rects in the
+   FRAME and appears in no control tree, so every rect under it would read as a
+   difference the page could not have avoided. The page shows the photograph for
+   those, which is the honest rendering.
+
+`docs/dev/todo-and-known-bugs.md` T42b carries the same list as work items.
 
 ### What "unchanged" does not cover
 
@@ -416,7 +704,7 @@ though: a window whose only change was a text colour (a status turning red, a ro
 becoming a link) reads as unchanged here. Put the two sides in side-by-side photo
 mode to see it.
 
-## 12. What this page is not
+## 13. What this page is not
 
 * Not a status authority. `docs/dev/autotest-status.md` owns the census's status
   and `design-gui-inventory.md` owns the structural map.
