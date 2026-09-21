@@ -2747,6 +2747,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Dev tooling: a code and test counting script.** `python scripts/count-code.py` prints
+  the line count per area of the repository (mod source, the xUnit project, the harness,
+  scripts, scenario specs, docs) over git-tracked files, and the test totals: xUnit facts,
+  theories and InlineData rows, in-game tests counted with the harness's own attribute
+  parser, Python test methods and harness scenario specs. `--json` prints the same
+  numbers for a script to read. The code-versus-comment split is a per-language prefix
+  heuristic and is not applied to Markdown; tracked code outside the listed areas is
+  reported as one footer count. Nothing in the build or the test suite depends on it.
+
 - **Test tooling: ten open decisions about the automated-test coverage registry were ruled
   and applied.** Two new coverage cells were added and claimed (a second, distinct
   optimizer graze-suppression path, and rewinding one committed flight to its launch twice
