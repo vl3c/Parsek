@@ -15410,6 +15410,164 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                 self.assertTrue(
                     any("only op=edit reads it" in e for e in errors), errors)
 
+    def test_the_state_key_table_mirrors_the_c_sharp_one_PER_WINDOW(self):
+        """Reads OUTSIDE harness/. The union cell above cannot see a key MOVING between
+        windows - `expandedStats` migrating from missions to timeline keeps the union
+        identical - and a key on the wrong window is a typed REJECTED after a whole KSP
+        boot. So this cell parses the two per-window ARRAYS out of the C# and compares each
+        one ordered.
+
+        Comment lines are stripped first, the OpNeedsWindow-mirror rule: that file's header
+        names every key while explaining why `archived` is spelled once, and a regex that
+        read comments would report keys in windows that do not have them."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandUiWindowState.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# op=state key table moved; this mirror is vacuous: %s"
+                        % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = _strip_cs_comment_lines(fh.read())
+        consts = dict(re.findall(
+            r'internal const string (\w+Key) = "([A-Za-z]+)";', text))
+        for window, array_name in (("timeline", "TimelineKeys"),
+                                   ("missions", "MissionsKeys")):
+            with self.subTest(window=window):
+                block = _cs_array_block(text, array_name)
+                self.assertIsNotNone(
+                    block, "no %s array in the C# key table" % array_name)
+                rows = [consts.get(name) for name in
+                        re.findall(r"NewKey\((\w+),", block)]
+                self.assertNotIn(None, rows,
+                                 "a %s row names a key const this cell could not resolve"
+                                 % array_name)
+                self.assertEqual(list(hlib.UIACTION_STATE_KEYS[window]), rows,
+                                 "window %r: hlib %r vs the C# %s rows %r"
+                                 % (window, list(hlib.UIACTION_STATE_KEYS[window]),
+                                    array_name, rows))
+
+    def test_the_sort_column_tables_mirror_the_c_sharp_ones(self):
+        """Reads OUTSIDE harness/. A column token is named in a step and again inside the
+        capture label; one this table carries and the C# does not is a typed REJECTED after
+        a KSP boot, and the closed-value validator would pass the stale spelling.
+
+        The missions row is the UNION of both tabs (the seam narrows it to the live tab), so
+        it is compared as a SET against the two C# tab arrays combined, while the two
+        single-table windows are compared ORDERED."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandUiSelectSort.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# sort tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = _strip_cs_comment_lines(fh.read())
+        tokens = sorted(set(re.findall(r'"([a-z]+)"', text)))
+        for window in ("logistics", "spawncontrol"):
+            for column in hlib.UIACTION_SORT_COLUMNS[window]:
+                with self.subTest(window=window, column=column):
+                    self.assertIn(column, tokens,
+                                  "hlib names sort column %r for window %r and the C# "
+                                  "tables do not carry that literal" % (column, window))
+        for column in hlib.UIACTION_SORT_COLUMNS["missions"]:
+            with self.subTest(window="missions", column=column):
+                self.assertIn(column, tokens)
+        # And the direction vocabulary, off its own consts.
+        for value in hlib.UIACTION_SORT_DIR_VALUES:
+            with self.subTest(dir=value):
+                self.assertIn('"%s"' % value, text)
+
+    def test_the_select_prefixes_mirror_the_c_sharp_ones(self):
+        """Reads OUTSIDE harness/. `vessel:` is SHARED with op=expand's prefix table, so a
+        rename there would silently change what op=select accepts."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandUiSelectSort.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            text = _strip_cs_comment_lines(fh.read())
+        # `vessel` is FORWARDED from op=expand's table rather than re-spelled, which is the
+        # point of this half: one literal, two ops, so a rename there cannot silently change
+        # what op=select accepts. `link` is this file's own.
+        self.assertIn("VesselKeyPrefix = TestCommandUiState.VesselKeyPrefix", text)
+        self.assertEqual("vessel", hlib.UIACTION_SELECT_PREFIXES[0])
+        self.assertIn("vessel", hlib.UIACTION_EXPAND_PREFIXES["missions"])
+        self.assertIn('LinkKeyPrefix = "link"', text)
+        self.assertEqual("link", hlib.UIACTION_SELECT_PREFIXES[1])
+        self.assertEqual(2, len(hlib.UIACTION_SELECT_PREFIXES))
+        # The bulk tokens are the SAME two op=expand uses, which is why a spec author does
+        # not learn a second grammar for them.
+        self.assertEqual(("all", "none"), hlib.UIACTION_EXPAND_BULK_KEYS)
+
+    def test_the_four_new_boolean_arg_keys_mirror_their_c_sharp_consts(self):
+        """Reads OUTSIDE harness/. Four keys with one closed true/false vocabulary each:
+        `await` (op=run), `dir` (op=sort), `include` (op=select), `commit` (op=edit). A key
+        whose C# spelling drifts is silently ignored by the seam, which is the exact failure
+        the closed-arg table exists to catch pre-launch."""
+        for rel, const, key in (
+                ("TestCommandUiState.cs", "AwaitArg", hlib.UIACTION_AWAIT_KEY),
+                ("TestCommandUiSelectSort.cs", "DirArg", hlib.UIACTION_SORT_DIR_KEY),
+                ("TestCommandUiSelectSort.cs", "IncludeArg", hlib.UIACTION_INCLUDE_KEY),
+                ("TestCommandUiEdit.cs", "CommitArg", hlib.UIACTION_COMMIT_KEY)):
+            with self.subTest(key=key):
+                path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", rel)
+                self.assertTrue(os.path.isfile(path), path)
+                with open(path, encoding="utf-8-sig") as fh:
+                    text = _strip_cs_comment_lines(fh.read())
+                self.assertIn('%s = "%s";' % (const, key), text)
+                # Each is a closed-arg row owned by UiAction, which is what makes a typo a
+                # pre-launch error rather than an arg the seam silently ignores.
+                self.assertEqual(
+                    "UiAction", hlib.VERB_SCOPED_CLOSED_ARGS[key][0])
+                self.assertEqual(("true", "false")
+                                 if key != hlib.UIACTION_SORT_DIR_KEY
+                                 else ("asc", "desc"),
+                                 hlib.VERB_SCOPED_CLOSED_ARGS[key][1])
+
+    def test_the_routecommand_actions_mirror_the_c_sharp_known_actions(self):
+        """Reads OUTSIDE harness/. RouteCommand's actions are NOT a closed-arg row (the key
+        `action` has no single owner verb), so nothing else would catch a spec naming an
+        action the seam does not know - and this comment block is the only place the harness
+        states the set."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandRouteCommand.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# RouteCommand actions moved: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = _strip_cs_comment_lines(fh.read())
+        block = text[text.index("KnownActions"):]
+        block = block[:block.index(";") + 1]
+        # Anchored on a CAPITALISED member name: a bare `Action(\w+)` also matches the
+        # table's own identifier (`KnownActions` -> "s"), which is the kind of parse bug
+        # that makes a sync cell pass against a table it never read.
+        actions = re.findall(r"\bAction([A-Z]\w*)", block)
+        self.assertEqual(
+            ["Create", "SendOnce", "Pause", "Activate", "Link", "Unlink", "SetCadence"],
+            actions,
+            "the C# KnownActions order moved; hlib's comment at ROUTECOMMAND_ACTIONS_DOC "
+            "and harness/README.md name this set")
+        self.assertEqual(
+            ("create", "send-once", "pause", "activate", "link", "unlink", "set-cadence"),
+            hlib.ROUTECOMMAND_ACTIONS)
+
+    def test_every_new_routecommand_refusal_maps_to_a_finer_subkind(self):
+        """R5. Without a row each of these collapses to the coarse
+        driver-verdict-mismatch, which tells an operator nothing about whether the fix is a
+        better selector or an earlier step. The POST-ACT terminal stays unmapped on
+        purpose."""
+        arg_half = ("unknown-partner", "partner-ambiguous", "cadence-arg-missing",
+                    "cadence-arg-invalid")
+        gate_half = ("link-self", "link-already-linked", "link-no-candidate",
+                     "route-not-linked", "cadence-unchanged")
+        for token in arg_half:
+            with self.subTest(token=token):
+                self.assertEqual("driver-arg",
+                                 hlib.classify_seam_refusal_subkind(token))
+        for token in gate_half:
+            with self.subTest(token=token):
+                self.assertEqual("driver-gate",
+                                 hlib.classify_seam_refusal_subkind(token))
+        # `route-action-refused` is a POST-ACT ERROR - the verb reached the production call
+        # and the PRODUCT declined - so claiming a refusal subkind would name a refusal that
+        # never happened.
+        self.assertEqual("", hlib.classify_seam_refusal_subkind(
+            "route-action-refused%20link"))
+
     def test_the_edit_field_table_mirrors_the_c_sharp_one(self):
         """Reads OUTSIDE harness/. A field token is named in a step and again inside the
         capture label, so a field this table carries and the C# does not is a typed
@@ -21510,3 +21668,38 @@ class UnresolvedHandleClassificationTests(unittest.TestCase):
         self.assertEqual(hlib.VERDICT_INVALID, v.verdict)
         self.assertTrue(v.retryable)
         self.assertTrue(hlib.should_retry(v, 1, "once"))
+
+
+def _strip_cs_comment_lines(text):
+    """C# source with whole-line `//` and `///` comments removed.
+
+    The OpNeedsWindow-mirror rule, and it is load-bearing for every cell above: those
+    files' headers quote their own tables while explaining them, so a regex that read
+    comments would report rows the source does not have and pass GREEN against a table
+    that says the opposite."""
+    kept = []
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if line.lstrip().startswith("//"):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _cs_array_block(text, array_name):
+    """The initializer body of a `private static readonly ...[] <array_name> = new[] {...}`,
+    or None. Brace-counted rather than regex-terminated, because a row may carry braces."""
+    at = text.find(array_name)
+    if at < 0:
+        return None
+    open_at = text.find("{", at)
+    if open_at < 0:
+        return None
+    depth = 0
+    for i in range(open_at, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_at:i + 1]
+    return None

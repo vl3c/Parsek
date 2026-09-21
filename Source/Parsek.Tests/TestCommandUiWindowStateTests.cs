@@ -498,9 +498,12 @@ namespace Parsek.Tests
             // And it changes DRAWN state, so the read-back only means something after a frame
             // - for scrollY the frame is what clamps the value at all.
             Assert.True(TestCommandUiAction.OpIsTwoPhase(op));
-            // NOT in the host-showUI settle gate: like op=expand it writes model state whose
-            // only other writer is a button handler this seam never synthesises.
-            Assert.False(TestCommandUiAction.SettleChecksHostShowUi(op));
+            // IT IS in the host-showUI settle gate, unlike op=expand, and the difference is
+            // what this op is FOR: it produces a picture of a drawn surface, so a frame that
+            // never reached the window would leave the read-back comparing the field with
+            // the value just written to it. Same reason it refuses a closed window pre-call.
+            Assert.True(TestCommandUiAction.SettleChecksHostShowUi(op));
+            Assert.True(TestCommandUiAction.OpRequiresWindowOpen(op));
             Assert.Contains(TestCommandUiAction.StateOpToken,
                 TestCommandUiAction.ValidOpNames.Split(','));
         }

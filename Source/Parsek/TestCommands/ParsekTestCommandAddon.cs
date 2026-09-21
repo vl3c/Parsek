@@ -105,11 +105,18 @@ namespace Parsek.TestCommands
         private bool awaitingCompletion;
 
         // The ONE opt-in that relaxes the batch gate, written ONLY by
-        // `UiAction op=run await=false` when the batch it dispatched is still running, and
-        // cleared in Update the first frame IsBatchRunning() answers false. While it is
-        // set, ResolveBatchGateForHead admits the non-mutating verbs and holds the rest;
-        // while it is unset the gate is byte-identically what it was.
+        // `UiAction op=run await=false` when the batch it dispatched is still running.
+        // While it is set, ResolveBatchGateForHead admits the non-mutating verbs and holds
+        // the rest; while it is unset the gate is byte-identically what it was.
+        //
+        // IT CARRIES THE RUNNER IT WAS ARMED FOR, not just a bool, so the relaxation cannot
+        // survive onto a DIFFERENT batch. `IsBatchRunning()` answers true for any of three
+        // runners, so a bare flag plus "some batch is running" would keep the gate relaxed
+        // if the seam's own batch ended in the same frame an interactive Ctrl+Shift+T batch
+        // started - a batch this seam did not start and has no business relaxing around.
+        // The flag is the arm; the reference is what the clear checks.
         private bool detachedBatchArmed;
+        private InGameTests.InGameTestRunner detachedBatchRunner;
 
         private string completionId;
         private string completionVerb;
@@ -298,20 +305,23 @@ namespace Parsek.TestCommands
             // The batch gate, with the ONE opt-in relaxation `UiAction op=run await=false`
             // arms (see ParsekTestCommandAddon.UiRun.cs). Unarmed, this is the original
             // unconditional early return; armed, the pump runs and BuildDispatchState
-            // decides PER HEAD VERB whether the gate still holds, so every verb that could
-            // perturb the batch is deferred exactly as before.
-            if (IsBatchRunning())
-            {
-                if (!detachedBatchArmed) return;
-            }
-            else if (detachedBatchArmed)
-            {
-                // Self-clearing: the relaxation cannot outlive the batch it was armed for,
-                // so no later frame can find it set over a batch this seam did not start.
-                detachedBatchArmed = false;
-                ParsekLog.Info(Tag, "batch gate relaxation cleared: the detached batch "
-                    + "started by uiaction op=run await=false has stopped");
-            }
+            // decides PER HEAD VERB whether the gate still holds.
+            //
+            // A HELD VERB IS DEFERRED, NOT THE SAME AS BEFORE, and the difference is the
+            // one this relaxation had to pay for: unarmed, the pump never ran at all, so no
+            // deferral clock started; armed, a held head reaches the dispatcher, defers on
+            // `batch-running` and would run out its budget. HandleDefer pins the clock for
+            // exactly that pair, so a held verb waits as long as the batch takes instead of
+            // ending TIMEOUT - see its comment.
+            // Self-clearing, and keyed on the ARMED RUNNER rather than on "is any batch
+            // running": the relaxation must not survive onto a batch this seam did not
+            // start. ClearDetachedBatchRelaxation is the single clear site; the scene-change
+            // handler and FlushAndQuit call it too, because a scene load destroys the
+            // runner without its IsRunning ever reading false here.
+            if (detachedBatchArmed && !DetachedBatchStillRunning())
+                ClearDetachedBatchRelaxation("batch-stopped");
+
+            if (IsBatchRunning() && !detachedBatchArmed) return;
 
             Pump();
         }
@@ -324,6 +334,26 @@ namespace Parsek.TestCommands
         /// <see cref="detachedBatchArmed"/> is set, which only
         /// <c>UiAction op=run await=false</c> does and only while that batch runs.</para>
         /// </summary>
+        /// <summary>Whether the batch the relaxation was armed for is still the one
+        /// running. False once that runner stops or is gone, which is what makes the clear
+        /// specific to THIS batch rather than to "any batch".</summary>
+        private bool DetachedBatchStillRunning()
+            => detachedBatchRunner != null && detachedBatchRunner.IsRunning;
+
+        /// <summary>
+        /// The SINGLE clear site for the relaxation, so every teardown path - the batch
+        /// stopping, a scene load, a throw inside the pump, FlushAndQuit - lowers it the
+        /// same way and logs why.
+        /// </summary>
+        internal void ClearDetachedBatchRelaxation(string reason)
+        {
+            if (!detachedBatchArmed && detachedBatchRunner == null) return;
+            detachedBatchArmed = false;
+            detachedBatchRunner = null;
+            ParsekLog.Info(Tag, "batch gate relaxation cleared reason=" + (reason ?? "?")
+                + " (the detached batch started by uiaction op=run await=false is over)");
+        }
+
         private bool ResolveBatchGateForHead(string verb)
         {
             if (!IsBatchRunning()) return false;
@@ -706,6 +736,12 @@ namespace Parsek.TestCommands
                 // at-most-once (a restart replay sees EXECUTED and never re-runs it).
                 TestCommandExecution.ExceptionTerminal(ex.GetType().Name, out string exVerdict, out string exMsg);
                 ParsekLog.Error(Tag, $"exec threw id={id} cmd={head.Verb}: {ex.GetType().Name}: {ex.Message}");
+                // A throw out of the op=run arm can leave the flag set with no runner to
+                // watch, so the relaxation is lowered on the containment path too: a gate
+                // that stays relaxed after an unexplained throw is the one state nothing
+                // else would clear.
+                if (detachedBatchArmed && !DetachedBatchStillRunning())
+                    ClearDetachedBatchRelaxation("executor-threw");
                 EmitExecutedTerminal(id, seq, head.Verb, exVerdict, null, exMsg, dequeueHead: true);
                 return;
             }
@@ -1102,6 +1138,10 @@ namespace Parsek.TestCommands
         {
             if (!pendingQuit || id != quitId) return;
             pendingQuit = false;
+            // The process is going away: nothing can clear the relaxation afterwards, and a
+            // stale flag in a crash-recovered state file would be read as "a batch this
+            // seam started is live" by the next process.
+            ClearDetachedBatchRelaxation("flush-and-quit");
             ParsekLog.Info(Tag, $"flushandquit: scheduling Application.Quit (deferred one frame) id={id}");
             StartCoroutine(DeferredQuit());
         }
@@ -1174,6 +1214,23 @@ namespace Parsek.TestCommands
                 TestCommandDiagnostics.DispatchDeferRepeat(head.Id, reason);
             }
             lastDeferReason = reason;
+
+            // D1: a head the DETACHED-BATCH relaxation is holding is not running out of
+            // time, it is waiting for a batch whose length the lane chose. Before the
+            // relaxation existed this pair could not occur - Update returned before the
+            // pump while any batch ran, so no clock ever started for `batch-running` - and
+            // leaving the clock running would have ended the closing FlushAndQuit as a
+            // TIMEOUT on any category longer than the 60 s default, i.e. the process would
+            // never quit. Pinned rather than exempted from the timeout check, so the moment
+            // the relaxation clears the ordinary budget resumes from now rather than from a
+            // start that is already minutes old.
+            if (detachedBatchArmed && string.Equals(
+                    reason, TestCommandDispatcher.BatchRunningDeferReason,
+                    StringComparison.Ordinal))
+            {
+                deferStartedAtSeconds = now;
+                return;
+            }
 
             double budget = DeferralBudget.BudgetSeconds(head.Verb);
             if (DeferralBudget.ShouldTimeout(deferStartedAtSeconds, now, budget))
@@ -2930,6 +2987,11 @@ namespace Parsek.TestCommands
         {
             sceneTransitioning = true;
             settleCounter = 0;
+            // A scene load destroys the runner window and its runner, so the batch the
+            // relaxation was armed for cannot report itself finished from here on: without
+            // this clear the flag would survive the transition and relax the gate around
+            // whatever ran next.
+            ClearDetachedBatchRelaxation("scene-change");
         }
 
         // The new scene is active: start the settle countdown. Transitioning clears when

@@ -324,6 +324,26 @@ namespace Parsek.TestCommands
         /// FIRST option <c>LogisticsLinkPresentation.BuildLinkCandidates</c> would have
         /// drawn in the picker, so a driven link can only reach a pair the UI offers.
         /// </summary>
+        /// <summary>
+        /// Dirties the Logistics window's throttled route-legibility cache, which every
+        /// production handler that changes a route's NAME, LINK or CADENCE does as its last
+        /// act.
+        ///
+        /// <para>Without it the window keeps drawing the pre-action Interval, Next and
+        /// Destination cells for up to a refresh period - those sort keys live in that
+        /// cache - so a census capture taken straight after the action photographs the OLD
+        /// row under a label claiming the new one. No-op when the window has never been
+        /// constructed, which is the ordinary case for a non-GUI lane.</para>
+        /// </summary>
+        private static void DirtyRouteLegibilityCache()
+        {
+            ParsekUI ui = ParsekUI.ActiveInstance;
+            if (ui == null) return;
+            LogisticsWindowUI window = ui.GetLogisticsUI();
+            if (window == null) return;
+            window.DirtyLegibilityCacheForTesting();
+        }
+
         private void RouteCommandLink(ParsedCommand cmd, RouteSelection sel)
         {
             Route route = sel.Route;
@@ -392,6 +412,7 @@ namespace Parsek.TestCommands
 
             string linkedBefore = route.LinkedRouteId;
             bool ok = RouteStore.LinkRoutes(route.Id, partner.Id);
+            if (ok) DirtyRouteLegibilityCache();
 
             var payload = Payload(
                 Kv("action", TestCommandRouteCommand.ActionLink),
@@ -452,6 +473,8 @@ namespace Parsek.TestCommands
             }
 
             bool ok = RouteStore.UnlinkRoute(route.Id);
+
+            if (ok) DirtyRouteLegibilityCache();
 
             var payload = Payload(
                 Kv("action", TestCommandRouteCommand.ActionUnlink),
@@ -521,6 +544,7 @@ namespace Parsek.TestCommands
             }
 
             bool ok = RouteCadence.ApplyMultiplier(route, multiplier);
+            if (ok) DirtyRouteLegibilityCache();
 
             var payload = Payload(
                 Kv("action", TestCommandRouteCommand.ActionSetCadence),

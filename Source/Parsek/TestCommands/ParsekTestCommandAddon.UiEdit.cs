@@ -112,6 +112,10 @@ namespace Parsek.TestCommands
             string armedKey = ReadArmedEditorKey(ctx.Ui, pending.EditField);
             bool armed = string.Equals(armedKey, pending.EditRowKey,
                                        StringComparison.Ordinal);
+            // The row key is a field this op WROTE, so reading it back proves only that
+            // nothing cleared it. The FOCUS SENTINEL is written by the draw, so it is the
+            // one signal here the seam cannot fake - see EditNotDrawnReason.
+            bool drew = ReadEditorDrewFlag(ctx.Ui, pending.EditField);
 
             // An ARM step must still be armed after the drawn frame - that frame is the one
             // that turns the sentinel into a drawn text field, so a sentinel the draw
@@ -133,14 +137,31 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // An ARM step must have DRAWN its text field, not merely kept its row key: a
+            // row inside a collapsed group, a row on the unselected tab, or any row with
+            // the window scrolled past it leaves the key standing and draws nothing.
+            if (!pending.EditCommitted && !drew)
+            {
+                ParsekLog.Error(Tag, "uiaction error reason="
+                    + TestCommandUiEdit.EditNotDrawnReason
+                    + $" window={pending.Window} field={pending.EditField} "
+                    + $"key={pending.EditRowKey} frames={Int(ctx.Frames)}");
+                EmitExecutedTerminal(ctx.Id, ctx.Seq, ctx.Verb, "ERROR", null,
+                    $"{TestCommandUiEdit.EditNotDrawnReason} field={pending.EditField} "
+                    + $"key={pending.EditRowKey} (the row key survived but the text field "
+                    + "never drew: select its tab, expand its group, size the window)",
+                    dequeueHead: true);
+                return;
+            }
+
             ParsekLog.Info(Tag, $"uiaction edit window={pending.Window} "
                 + $"field={pending.EditField} key={pending.EditRowKey} "
                 + $"draft={pending.EditDraft} committed={Bool(pending.EditCommitted)} "
-                + $"armed={Bool(armed)} frames={Int(ctx.Frames)}");
+                + $"armed={Bool(armed)} drew={Bool(drew)} frames={Int(ctx.Frames)}");
             EmitExecutedTerminal(ctx.Id, ctx.Seq, ctx.Verb, "OK",
                 TestCommandUiEdit.BuildEditPayload(
                     pending.Window, pending.EditField, pending.EditRowKey,
-                    pending.EditDraft, pending.EditCommitted, armed),
+                    pending.EditDraft, pending.EditCommitted, armed, drew),
                 null, dequeueHead: true);
         }
 
@@ -185,6 +206,24 @@ namespace Parsek.TestCommands
                 default:
                     throw new InvalidOperationException(
                         "no commit site for op=edit field=" + (field ?? "<null>"));
+            }
+        }
+
+        /// <summary>Whether the named editor's text field has actually DRAWN since the
+        /// arm, read off the sentinel the DRAW writes rather than one the arm wrote.</summary>
+        private static bool ReadEditorDrewFlag(ParsekUI ui, string field)
+        {
+            switch (field)
+            {
+                case TestCommandUiEdit.RecordingNameField:
+                    return ui.GetRecordingsTableUI().RenamingRecordingFocusedForTesting;
+                case TestCommandUiEdit.GroupNameField:
+                    return ui.GetRecordingsTableUI().RenamingGroupFocusedForTesting;
+                case TestCommandUiEdit.MissionTitleField:
+                    return ui.GetMissionsUI().RenamingMissionFocusedForTesting;
+                default:
+                    throw new InvalidOperationException(
+                        "no drew-flag read for op=edit field=" + (field ?? "<null>"));
             }
         }
 

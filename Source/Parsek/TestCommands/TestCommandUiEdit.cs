@@ -141,6 +141,22 @@ namespace Parsek.TestCommands
         /// sentinel on purpose.</summary>
         internal const string EditNotArmedReason = "edit-not-armed";
 
+        /// <summary>
+        /// POST-SETTLE terminal: the row key survived the drawn frame but the editor's
+        /// FOCUS SENTINEL did not come up, which means the text field never drew.
+        ///
+        /// <para>This is the hole the row-key check alone could not see, and it is the whole
+        /// reason a second read exists. The row key is a field this op WROTE, so reading it
+        /// back proves only that nothing else cleared it: a row inside a COLLAPSED group, a
+        /// row on the tab that is not selected, or any row at all with the window closed all
+        /// leave it standing, and the op would answer <c>armed=true</c> over a plain label.
+        /// The focus sentinel is written by the DRAW instead - each editor's branch sets it
+        /// when it calls <c>GUI.FocusControl</c> on its first pass - so it is the one signal
+        /// here that the seam cannot fake. The remedy is a lane step: select the tab, expand
+        /// the parent group, size the window.</para>
+        /// </summary>
+        internal const string EditNotDrawnReason = "edit-not-drawn";
+
         // ----- parses -----
 
         /// <summary>Resolves a <c>field=</c> against a window's table.</summary>
@@ -178,13 +194,12 @@ namespace Parsek.TestCommands
         internal static bool TryParseCommit(string raw, out bool commit,
                                             out string rejectReason)
         {
-            commit = false;
-            rejectReason = null;
-            if (raw == null) return true;
-            if (raw == TestCommandUiState.StateTrueToken) { commit = true; return true; }
-            if (raw == TestCommandUiState.StateFalseToken) { commit = false; return true; }
-            rejectReason = EditCommitArgInvalidReason;
-            return false;
+            // ABSENT MEANS FALSE - the class header's whole argument - and the parse
+            // itself is the seam's one boolean parse, so no op can quietly start accepting
+            // "True" or "1".
+            return TestCommandUiState.TryParseBoolArg(
+                raw, whenAbsent: false, EditCommitArgInvalidReason, out commit,
+                out rejectReason);
         }
 
         /// <summary>
@@ -201,15 +216,25 @@ namespace Parsek.TestCommands
         /// OK payload for <c>edit</c>:
         /// <c>op=edit window= field= key= draft= committed= armed=</c>.
         ///
-        /// <para><c>armed</c> is the SETTLED read-back of the window's row-key sentinel, and
-        /// it is the field a lane asserts on: it separates "the editor is open on that row"
-        /// from "the op ran". On a commit step it reads FALSE by design, the commit body
-        /// having cleared the sentinel - which is why <c>committed</c> is reported beside it
-        /// rather than inferred from it.</para>
+        /// <para><c>armed</c> is the SETTLED read-back of the window's row-key sentinel and
+        /// <c>drew</c> of the draw-produced focus sentinel, and it is <c>drew</c> a lane
+        /// asserts on: the row key is a field this op WROTE, so it survives a collapsed
+        /// group, an unselected tab and a closed window alike, while the focus sentinel is
+        /// written by the text field's own first draw pass. Reporting both is what
+        /// separates "the editor is open and visible on that row" from "nothing cleared the
+        /// key".</para>
+        ///
+        /// <para>ON A COMMIT STEP ONLY <c>armed</c> IS MEANINGFUL, and it reads FALSE by
+        /// design: the commit body clears the ROW KEY and nothing clears the focus
+        /// sentinel, so <c>drew</c> there is whatever the last arm left behind - false when
+        /// the step armed and committed in one call (no frame ran between them), stale-true
+        /// when a lane armed in an earlier step. A lane asserts <c>drew</c> on ARM steps and
+        /// <c>committed</c> on commit steps; neither is inferred from the other, which is
+        /// why all three are reported.</para>
         /// </summary>
         internal static List<KeyValuePair<string, string>> BuildEditPayload(
             string window, string field, string key, string draft, bool committed,
-            bool armed)
+            bool armed, bool drew)
             => new List<KeyValuePair<string, string>>
             {
                 new KeyValuePair<string, string>("op", TestCommandUiAction.EditOpToken),
@@ -219,6 +244,7 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("draft", draft ?? string.Empty),
                 new KeyValuePair<string, string>("committed", committed ? "true" : "false"),
                 new KeyValuePair<string, string>("armed", armed ? "true" : "false"),
+                new KeyValuePair<string, string>("drew", drew ? "true" : "false"),
             };
     }
 }

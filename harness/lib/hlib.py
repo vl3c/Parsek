@@ -281,7 +281,8 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #   RouteCommand is the Logistics window's Create Route button (through the shared
     #     RouteCreationService funnel) plus the three row operations, dispatched by an
     #     `action=` arg the way KscAction dispatches its sub-actions:
-    #     create / send-once / pause / activate.
+    #     create / send-once / pause / activate / link / unlink / set-cadence
+    #     (ROUTECOMMAND_ACTIONS is the mirrored tuple, pinned against the C# KnownActions).
     # Both SINGLE-PHASE (synchronous state mutation, read-back is a final answer), so
     # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
     # bounds only their game-not-loaded dispatch defer.
@@ -2351,6 +2352,13 @@ UIACTION_AWAIT_VALUES: Tuple[str, ...] = ("true", "false")
 # only when Unity's focused control name ALREADY matches, so writing their two fields
 # would draw an unfocused text box - a picture no click can produce. Filed in
 # docs/dev/todo-and-known-bugs.md rather than faked.
+# `RouteCommand action=`: the seven the C# KnownActions carries, in its order. NOT a
+# VERB_SCOPED_CLOSED_ARGS row - that table admits one owner verb per arg key and `action`
+# is also KscAction's - so nothing else would catch a spec naming an action the seam does
+# not know. Mirrored here so a cell can compare the two mechanically.
+ROUTECOMMAND_ACTIONS: Tuple[str, ...] = (
+    "create", "send-once", "pause", "activate", "link", "unlink", "set-cadence")
+
 UIACTION_EDIT_FIELD_KEY = "field"
 UIACTION_EDIT_FIELDS: Dict[str, Tuple[str, ...]] = {
     "missions": ("recordingname", "groupname", "missiontitle"),
@@ -3021,6 +3029,15 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
         errors.append(
             "driver.steps[%d].args.%s: only op=select reads it, but this step is op=%s "
             "-- the arg would be silently ignored" % (index, UIACTION_INCLUDE_KEY, op))
+
+    # `mission=` has TWO owner ops - op=target's structure-window selector and, since wave
+    # 6, op=select's OPTIONAL one - so this is its own rule rather than an arm of the
+    # include chain above. It was an arm of it once, which made an op=select step carrying
+    # no mission= fall through to "only op=select reads it, but this step is op=select".
+    if op not in ("target", "select") and "mission" in step_args:
+        errors.append(
+            "driver.steps[%d].args.mission: only op=target and op=select read it, but "
+            "this step is op=%s -- the arg would be silently ignored" % (index, op))
 
     if op == "edit":
         window_name = str(window) if window is not None else None
@@ -8334,6 +8351,31 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "candidate-dismissed": "driver-gate",
     "candidate-already-promoted": "driver-gate",
     "route-build-rejected": "driver-gate",
+    # Wave 6 added three actions (link / unlink / set-cadence) and nine tokens with them.
+    # They split the same two ways, and without these rows every one collapses to the
+    # coarse driver-verdict-mismatch.
+    #   Arg half - the SPEC named or spelled something wrong. `unknown-partner` and
+    #     `partner-ambiguous` are the `unknown-route` / `route-ambiguous` pair for the
+    #     second selector, so they take the same class for the same reason: the fix is a
+    #     longer selector in the spec. `cadence-arg-missing` / `cadence-arg-invalid` are
+    #     the `interval-arg-invalid` shape.
+    "unknown-partner": "driver-arg",
+    "partner-ambiguous": "driver-arg",
+    "cadence-arg-missing": "driver-arg",
+    "cadence-arg-invalid": "driver-arg",
+    #   Gate half - nothing is misspelled; the run reached a state the action does not
+    #     drive and the fix is an EARLIER STEP or a different fixture. `link-self` is the
+    #     one borderline call: the spec did name one route twice, but the remedy is a
+    #     different PARTNER rather than a better spelling of the same one, and a lane that
+    #     resolved both selectors to one route has a fixture with fewer routes than it
+    #     thought. `link-already-linked` wants an `action=unlink` first; `route-not-linked`
+    #     wants a link first; `link-no-candidate` means no eligible partner exists at all;
+    #     `cadence-unchanged` means the route already carries that multiplier.
+    "link-self": "driver-gate",
+    "link-already-linked": "driver-gate",
+    "link-no-candidate": "driver-gate",
+    "route-not-linked": "driver-gate",
+    "cadence-unchanged": "driver-gate",
     # NOT mapped, deliberately, and for the SAME reason as switch-refused-by-stock:
     # `route-action-refused`, `seal-incomplete` and `seal-refused` are all POST-ACT
     # terminals (ERROR, not REJECTED). The verb reached the production call and the

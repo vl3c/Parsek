@@ -563,10 +563,6 @@ namespace Parsek
                 ? new List<ForeignDockLink>()
                 : GetForeignDockLinks(tree, trees);
 
-        /// <summary>The one selection-edit stamp every <c>ExcludedIntervalKeys</c> write site
-        /// must pair with its mutation (<see cref="StampSelectionEdit"/>), for the same op. A
-        /// wrapper rather than a copy of the one line, so the seam cannot drift from what the
-        /// click does if the stamp ever gains a second field.</summary>
         // ----- the mission-title rename editor, for UiAction op=edit -----
         //
         // Same three-write arming contract as the recordings window's two editors (row
@@ -589,6 +585,11 @@ namespace Parsek
 
         internal string RenamingMissionIdForTesting => renamingMissionId;
 
+        /// <summary>The mission-title rename's draw-produced focus sentinel, the signal that
+        /// the text field really drew rather than the row key merely surviving. See
+        /// <c>TestCommandUiEdit.EditNotDrawnReason</c>.</summary>
+        internal bool RenamingMissionFocusedForTesting => renamingMissionFocused;
+
         internal string RenamingMissionTextForTesting => renamingMissionText;
 
         /// <summary>Runs the mission rename's own commit body for the armed id, the way the
@@ -596,6 +597,11 @@ namespace Parsek
         internal void CommitMissionRenameForTesting()
             => CommitMissionRenameById(renamingMissionId);
 
+        /// <summary>The one selection-edit stamp every <c>ExcludedIntervalKeys</c> write
+        /// site must pair with its mutation (<see cref="StampSelectionEdit"/>), for
+        /// <c>UiAction op=select</c>. A wrapper rather than a copy of the one line, so the
+        /// seam cannot drift from what the click does if the stamp ever gains a second
+        /// field.</summary>
         internal static void StampSelectionEditForTesting(Mission mission)
         {
             if (mission != null) StampSelectionEdit(mission);
@@ -4454,16 +4460,10 @@ namespace Parsek
         }
 
         // Finds a mission by id (for the window-level click-away commit). Null if not found.
-        private static Mission FindMissionById(string id)
-        {
-            if (string.IsNullOrEmpty(id))
-                return null;
-            var ms = MissionStore.Missions;
-            for (int i = 0; i < ms.Count; i++)
-                if (ms[i] != null && ms[i].Id == id)
-                    return ms[i];
-            return null;
-        }
+        /// <summary>This window's name for <see cref="MissionStore.FindById"/>, kept so
+        /// the draw code reads the way it always did while the lookup itself has one
+        /// owner.</summary>
+        private static Mission FindMissionById(string id) => MissionStore.FindById(id);
 
         // Parses an edited loop-period value and writes it to the Mission, mirroring
         // RecordingsTableUI.CommitLoopPeriodEdit: reject negatives, clamp below

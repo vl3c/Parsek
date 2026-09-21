@@ -161,8 +161,12 @@ namespace Parsek.TestCommands
                 if (stillRunning)
                 {
                     // The ONLY writer of the flag. Set only when a batch is genuinely
-                    // live, so a synchronous completion leaves the gate untouched.
+                    // live, so a synchronous completion leaves the gate untouched. The
+                    // RUNNER is recorded beside it: the clear checks that reference rather
+                    // than "is any batch running", so the relaxation cannot survive onto a
+                    // batch this seam did not start.
                     detachedBatchArmed = true;
+                    detachedBatchRunner = runner;
                 }
                 ParsekLog.Info(Tag, $"uiaction run started window={spec.Name} "
                     + $"category={category} discovered={Int(discovered)} "

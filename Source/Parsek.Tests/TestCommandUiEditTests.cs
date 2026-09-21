@@ -162,9 +162,10 @@ namespace Parsek.Tests
             List<KeyValuePair<string, string>> payload =
                 TestCommandUiEdit.BuildEditPayload(
                     TestCommandUiAction.MissionsWindow, "groupname", "X / Debris",
-                    "Renamed", committed: false, armed: true);
+                    "Renamed", committed: false, armed: true, drew: true);
             Assert.Equal(
-                new[] { "op", "window", "field", "key", "draft", "committed", "armed" },
+                new[] { "op", "window", "field", "key", "draft", "committed", "armed",
+                        "drew" },
                 payload.Select(kv => kv.Key).ToArray());
             Assert.Equal(TestCommandUiAction.EditOpToken, Value(payload, "op"));
             Assert.Equal("groupname", Value(payload, "field"));
@@ -172,18 +173,76 @@ namespace Parsek.Tests
             Assert.Equal("Renamed", Value(payload, "draft"));
             Assert.Equal("false", Value(payload, "committed"));
             Assert.Equal("true", Value(payload, "armed"));
+            Assert.Equal("true", Value(payload, "drew"));
+        }
+
+        [Fact]
+        public void TheDrewFieldIsTheOneALaneAssertsOn()
+        {
+            // The row key is a field the op WROTE, so it survives a collapsed group, an
+            // unselected tab and a closed window alike; the focus sentinel is written by
+            // the text field's own first draw pass. A payload that reported only `armed`
+            // would have said `armed=true` over a plain label - the defect this pair was
+            // added for - so the two are reported separately and the honest one is `drew`.
+            List<KeyValuePair<string, string>> payload =
+                TestCommandUiEdit.BuildEditPayload(
+                    TestCommandUiAction.MissionsWindow, "recordingname", "rec-1", "N",
+                    committed: false, armed: true, drew: false);
+            Assert.Equal("true", Value(payload, "armed"));
+            Assert.Equal("false", Value(payload, "drew"));
+        }
+
+        [Fact]
+        public void TheNotDrawnReasonIsDistinctFromTheNotArmedOne()
+        {
+            // Two different faults with two different remedies: `edit-not-armed` means
+            // something CLEARED the row key (a defect), `edit-not-drawn` means the row key
+            // stood but the field never drew (a lane that must select its tab, expand its
+            // group or size its window).
+            Assert.NotEqual(TestCommandUiEdit.EditNotArmedReason,
+                            TestCommandUiEdit.EditNotDrawnReason);
+            Assert.Equal("edit-not-drawn", TestCommandUiEdit.EditNotDrawnReason);
+            // Kebab-case like every other reason on the wire.
+            Assert.DoesNotContain("_", TestCommandUiEdit.EditNotDrawnReason);
+            Assert.Equal(TestCommandUiEdit.EditNotDrawnReason.ToLowerInvariant(),
+                         TestCommandUiEdit.EditNotDrawnReason);
+        }
+
+        [Fact]
+        public void TheThreePictureOpsRequireAnOpenWindowAndADrawnHost()
+        {
+            // D2. Each of the three exists to produce a PICTURE, and none can produce one
+            // over a window the frame did not draw: the write succeeds and the read-back
+            // agrees with the value just written. `select` is deliberately outside both
+            // sets - it writes MISSION state, and arranging a selection now to photograph
+            // it after a later tab switch is a legitimate lane.
+            foreach (UiActionOp op in new[] { UiActionOp.State, UiActionOp.Sort,
+                                              UiActionOp.Edit })
+            {
+                Assert.True(TestCommandUiAction.OpRequiresWindowOpen(op), op.ToString());
+                Assert.True(TestCommandUiAction.SettleChecksHostShowUi(op), op.ToString());
+            }
+            Assert.False(TestCommandUiAction.OpRequiresWindowOpen(UiActionOp.Select));
+            Assert.False(TestCommandUiAction.SettleChecksHostShowUi(UiActionOp.Select));
+            // The two ops that arrange model state for a LATER capture stay exempt, and so
+            // does close, whose whole point is a window that ends up shut.
+            foreach (UiActionOp op in new[] { UiActionOp.Expand, UiActionOp.Playback,
+                                              UiActionOp.Close })
+                Assert.False(TestCommandUiAction.OpRequiresWindowOpen(op), op.ToString());
+            Assert.Equal("window-not-open", TestCommandUiAction.WindowNotOpenReason);
         }
 
         [Fact]
         public void ACommitStepReportsArmedFalseByDesign()
         {
-            // The commit body clears the row-key sentinel, so `armed=false` beside
-            // `committed=true` is the success shape - which is why the two are reported
-            // separately rather than one being inferred from the other.
+            // The commit body clears the ROW KEY, so `armed=false` beside `committed=true`
+            // is the success shape. `drew` is NOT meaningful on a commit step - nothing
+            // clears the focus sentinel, so it carries whatever the last arm left - which
+            // is why all three are reported separately and none is inferred.
             List<KeyValuePair<string, string>> payload =
                 TestCommandUiEdit.BuildEditPayload(
                     TestCommandUiAction.MissionsWindow, "missiontitle", "m17", "Renamed",
-                    committed: true, armed: false);
+                    committed: true, armed: false, drew: false);
             Assert.Equal("true", Value(payload, "committed"));
             Assert.Equal("false", Value(payload, "armed"));
         }
@@ -192,7 +251,7 @@ namespace Parsek.Tests
         public void ThePayloadNeverCarriesANullValue()
         {
             List<KeyValuePair<string, string>> payload =
-                TestCommandUiEdit.BuildEditPayload(null, null, null, null, false, false);
+                TestCommandUiEdit.BuildEditPayload(null, null, null, null, false, false, false);
             Assert.All(payload, kv => Assert.NotNull(kv.Value));
         }
 
@@ -206,9 +265,12 @@ namespace Parsek.Tests
             Assert.Equal(TestCommandUiAction.EditOpToken, TestCommandUiAction.OpToken(op));
             Assert.True(TestCommandUiAction.OpNeedsWindow(op));
             // Two-phase: the drawn frame is what turns the sentinel into a drawn text
-            // field, which is the whole state this op exists to photograph.
+            // field, which is the whole state this op exists to photograph - and for the
+            // same reason it IS in the host-visibility settle check, unlike op=expand.
+            // With the host's showUI down the frame never reaches this window, so the
+            // read-back would compare the row key with the value just written to it.
             Assert.True(TestCommandUiAction.OpIsTwoPhase(op));
-            Assert.False(TestCommandUiAction.SettleChecksHostShowUi(op));
+            Assert.True(TestCommandUiAction.SettleChecksHostShowUi(op));
             Assert.Contains(TestCommandUiAction.EditOpToken,
                 TestCommandUiAction.ValidOpNames.Split(','));
         }

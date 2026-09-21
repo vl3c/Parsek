@@ -334,6 +334,26 @@ namespace Parsek.TestCommands
             }
 
             UiWindowHandle handle = ResolveWindowHandle(ui, spec.Name);
+
+            // D2: the three ops that exist to produce a PICTURE refuse over a window whose
+            // own open flag is down. PRE-CALL, so a refused step leaves nothing written:
+            // the alternative was a write whose read-back agreed with itself and a capture
+            // beside it showing no window - `op=edit` answering armed=true over a plain
+            // label being the case the review found. `expand` and `playback` are
+            // deliberately outside the set (see OpRequiresWindowOpen): arranging model
+            // state now and photographing it later is a legitimate lane.
+            if (TestCommandUiAction.OpRequiresWindowOpen(op) && !handle.GetOpen())
+            {
+                ParsekLog.Warn(Tag, "uiaction rejected reason="
+                    + TestCommandUiAction.WindowNotOpenReason
+                    + $" op={TestCommandUiAction.OpToken(op)} window={spec.Name}");
+                SetExecResult("REJECTED", null,
+                    $"{TestCommandUiAction.WindowNotOpenReason} window={spec.Name} "
+                    + $"op={TestCommandUiAction.OpToken(op)} "
+                    + "(open it first: this op photographs a drawn surface)");
+                return;
+            }
+
             switch (op)
             {
                 case UiActionOp.Open:

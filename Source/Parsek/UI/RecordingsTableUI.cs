@@ -414,7 +414,11 @@ namespace Parsek
             if (RecordingStore.IndexOfRecordingId(
                     EffectiveState.ComputeERS(), recordingId) < 0)
                 return false;
-            renamingGroup = null;
+            // Production's double-click COMMITS a rival editor before arming this one
+            // (the group rename and this one share `activeRenameRect` and cannot both be
+            // live). Discarding it instead would lose a draft a player had typed, so the
+            // seam does what the click does.
+            if (renamingGroup != null) CommitGroupRename(renamingGroup);
             renamingRecordingId = recordingId;
             renamingRecordingText = draft ?? string.Empty;
             renamingRecordingFocused = false;
@@ -422,6 +426,12 @@ namespace Parsek
         }
 
         internal string RenamingRecordingIdForTesting => renamingRecordingId;
+
+        /// <summary>Whether the recording-rename text field has actually DRAWN since the
+        /// arm. Written by the draw (the branch that calls <c>GUI.FocusControl</c> on its
+        /// first pass), never by the arm, which is what makes it the one signal the seam
+        /// cannot fake - see <c>TestCommandUiEdit.EditNotDrawnReason</c>.</summary>
+        internal bool RenamingRecordingFocusedForTesting => renamingRecordingFocused;
 
         internal string RenamingRecordingTextForTesting => renamingRecordingText;
 
@@ -439,7 +449,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(groupName)) return false;
             if (RecordingStore.IsPermanentRootGroup(groupName)) return false;
             if (!EnumerateGroupNamesForTesting().Contains(groupName)) return false;
-            renamingRecordingId = null;
+            // The mirror of the recording-rename arm: commit the rival draft, never
+            // discard it.
+            if (renamingRecordingId != null)
+                CommitRecordingRename(EffectiveState.ComputeERS());
             renamingGroup = groupName;
             renamingGroupText = draft ?? string.Empty;
             renamingGroupFocused = false;
@@ -447,6 +460,10 @@ namespace Parsek
         }
 
         internal string RenamingGroupForTesting => renamingGroup;
+
+        /// <summary>The group rename's draw-produced focus sentinel. See
+        /// <see cref="RenamingRecordingFocusedForTesting"/>.</summary>
+        internal bool RenamingGroupFocusedForTesting => renamingGroupFocused;
 
         internal string RenamingGroupTextForTesting => renamingGroupText;
 

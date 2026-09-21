@@ -302,7 +302,9 @@ namespace Parsek.TestCommands
                 include = TestCommandUiSelectSort.BulkScopeIncludes(scope);
             }
 
-            if (!TryResolveSelectMission(out Mission mission, out RecordingTree tree))
+            string requestedMission = ArgOrNull(cmd, TestCommandUiState.MissionArg);
+            if (!TryResolveSelectMission(requestedMission, out Mission mission,
+                                         out RecordingTree tree))
             {
                 ParsekLog.Warn(Tag, "uiaction rejected reason="
                     + TestCommandUiSelectSort.SelectNoMissionReason
@@ -492,11 +494,32 @@ namespace Parsek.TestCommands
         /// vessel rows at all, so its row list would be empty and every key a
         /// <c>select-key-unknown</c>.</para>
         /// </summary>
-        private static bool TryResolveSelectMission(out Mission mission,
+        /// <param name="requestedId">An explicit <c>mission=</c>, or null for the
+        /// default. NAMED, a lane gets exactly that mission or a typed refusal; ABSENT, the
+        /// first mission over a committed tree, which is the only form a COMMITTED spec can
+        /// write (a Mission id is save-specific). The selector exists because a dense
+        /// fixture has several missions and "the first" is then a coin toss the lane cannot
+        /// see; the default is unchanged, so every step written before it behaves
+        /// identically.</param>
+        private static bool TryResolveSelectMission(string requestedId,
+                                                    out Mission mission,
                                                     out RecordingTree tree)
         {
             mission = null;
             tree = null;
+            if (!string.IsNullOrEmpty(requestedId))
+            {
+                Mission named = MissionStore.FindById(requestedId);
+                if (named == null) return false;
+                RecordingTree namedTree = FindCommittedTree(named.TreeId);
+                // A mission over an UNCOMMITTED tree draws no vessel rows, so every key
+                // would answer select-key-unknown: refused here, where the message can say
+                // which mission was named, rather than there.
+                if (namedTree == null) return false;
+                mission = named;
+                tree = namedTree;
+                return true;
+            }
             IReadOnlyList<Mission> missions = MissionStore.Missions;
             for (int i = 0; i < missions.Count; i++)
             {
@@ -523,15 +546,7 @@ namespace Parsek.TestCommands
         }
 
         private static Mission FindMissionById(string missionId)
-        {
-            if (string.IsNullOrEmpty(missionId)) return null;
-            IReadOnlyList<Mission> missions = MissionStore.Missions;
-            for (int i = 0; i < missions.Count; i++)
-                if (missions[i] != null
-                    && string.Equals(missions[i].Id, missionId, StringComparison.Ordinal))
-                    return missions[i];
-            return null;
-        }
+            => MissionStore.FindById(missionId);
 
         /// <summary>
         /// Resolves a <c>vessel:</c> value against the live rows in TWO rungs: the row's own

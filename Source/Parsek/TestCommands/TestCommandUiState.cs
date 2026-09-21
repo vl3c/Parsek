@@ -123,6 +123,36 @@ namespace Parsek.TestCommands
         internal const string StateTrueToken = "true";
         internal const string StateFalseToken = "false";
 
+        /// <summary>
+        /// The ONE parse of the seam's one boolean vocabulary, behind every op that reads a
+        /// true/false arg: <c>state=</c> (expand, playback, state), <c>await=</c> (run),
+        /// <c>dir=</c> is NOT one of these (it is asc/desc), <c>include=</c> (select) and
+        /// <c>commit=</c> (edit).
+        ///
+        /// <para>Four near-identical copies of these five lines existed before this, each
+        /// with its own default and its own reject token, and the copies are exactly how a
+        /// case-insensitive or a <c>"1"</c>-accepting one gets in. The DEFAULT and the
+        /// REJECT TOKEN stay per-op, because those genuinely differ - an absent
+        /// <c>commit=</c> means false and an absent <c>await=</c> means true, and each op
+        /// names its own refusal - so they are the two parameters rather than the copied
+        /// body.</para>
+        /// </summary>
+        /// <param name="whenAbsent">What an absent arg means for THIS op.</param>
+        /// <param name="invalidReason">The op's own reject token for a value outside the
+        /// vocabulary.</param>
+        internal static bool TryParseBoolArg(string raw, bool whenAbsent,
+                                             string invalidReason, out bool value,
+                                             out string rejectReason)
+        {
+            value = whenAbsent;
+            rejectReason = null;
+            if (raw == null) return true;
+            if (raw == StateTrueToken) { value = true; return true; }
+            if (raw == StateFalseToken) { value = false; return true; }
+            rejectReason = invalidReason;
+            return false;
+        }
+
         /// <summary>The <c>recording=</c> convenience value: the first committed recording.
         /// A census cannot name a recording id that is save-specific, and the Manage Groups
         /// popup looks the same over any row, so "the first one" is the honest
@@ -362,13 +392,10 @@ namespace Parsek.TestCommands
         /// so.</summary>
         internal static bool TryParseState(string raw, out bool expanded, out string rejectReason)
         {
-            expanded = true;
-            rejectReason = null;
-            if (raw == null) return true;
-            if (raw == StateTrueToken) { expanded = true; return true; }
-            if (raw == StateFalseToken) { expanded = false; return true; }
-            rejectReason = StateArgInvalidReason;
-            return false;
+            // ABSENT MEANS TRUE: expanding is what a census asks for, and a lane that
+            // wants the other direction says so.
+            return TryParseBoolArg(raw, whenAbsent: true, StateArgInvalidReason,
+                                   out expanded, out rejectReason);
         }
 
         /// <summary>
@@ -632,13 +659,9 @@ namespace Parsek.TestCommands
         internal static bool TryParseAwait(string raw, out bool awaitBatch,
                                           out string rejectReason)
         {
-            awaitBatch = true;
-            rejectReason = null;
-            if (raw == null) return true;
-            if (raw == StateTrueToken) { awaitBatch = true; return true; }
-            if (raw == StateFalseToken) { awaitBatch = false; return true; }
-            rejectReason = RunAwaitArgInvalidReason;
-            return false;
+            // ABSENT MEANS TRUE: every lane written before `await=` is byte-identical.
+            return TryParseBoolArg(raw, whenAbsent: true, RunAwaitArgInvalidReason,
+                                   out awaitBatch, out rejectReason);
         }
 
         /// <summary>

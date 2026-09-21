@@ -536,24 +536,18 @@ namespace Parsek.TestCommands
                                              out string rejectReason)
         {
             include = false;
+            // REQUIRED, so absence is its own reject rather than a default: a single key is
+            // driven both ways and a defaulted direction would silently run the opposite
+            // half of a lane's check.
             if (raw == null)
             {
                 rejectReason = SelectIncludeArgMissingReason;
                 return false;
             }
-            if (raw == TestCommandUiState.StateTrueToken)
-            {
-                include = true;
-                rejectReason = null;
-                return true;
-            }
-            if (raw == TestCommandUiState.StateFalseToken)
-            {
-                rejectReason = null;
-                return true;
-            }
-            rejectReason = SelectIncludeArgInvalidReason;
-            return false;
+            // The seam's ONE boolean parse for the value half.
+            return TestCommandUiState.TryParseBoolArg(
+                raw, whenAbsent: false, SelectIncludeArgInvalidReason, out include,
+                out rejectReason);
         }
 
         /// <summary>The direction a bulk scope carries: <c>all</c> includes,

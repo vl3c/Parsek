@@ -30,12 +30,34 @@ _(unreleased — entries accumulate here per commit)_
   readable from the dump instead of inferred from the tab body - the value was already being
   recorded, mislabelled as `controlId` on a control that has no id, and the offline viewer
   and the interactive mirror now read it.
-  Two small production refactors came with it, both so the seam runs the button's own body
+  Three small production refactors came with it, all so the seam runs the button's own body
   rather than a copy: the four time-range presets' bounds moved into the pure
-  `TimeRangeFilterLogic.TryResolvePresetRange`, and the preset click body into
-  `TimelineWindowUI.ApplyTimeRangePreset`. `op=select` and `op=state key=archived` write
-  state that PERSISTS with the save, so a census lane using either runs on a throwaway
-  staged fixture; that is a lane rule, documented rather than enforced.
+  `TimeRangeFilterLogic.TryResolvePresetRange`, the preset click body into
+  `TimelineWindowUI.ApplyTimeRangePreset`, and `CareerStateWindowUI` gained an absolute
+  `SetSectionFolded` behind its existing toggle, because a commanded write must not flip an
+  already-correct fold. `MissionStore` also gained the single `FindById` its window and the
+  seam had each been walking their own copy of.
+
+  SIX OF THE ADDITIONS WRITE STATE A LATER SAVE CAPTURES, so a census lane using any of them
+  runs on a THROWAWAY staged copy of its fixture - the ops cannot enforce that and do not
+  pretend to. `op=select` writes `Mission.ExcludedIntervalKeys` and
+  `IncludedForeignDockLinkIds`; `op=state key=archived` writes
+  `GroupHierarchyStore.HideActive` and `key=archivedMissions` writes
+  `MissionStore.HideArchived` (persisted as `missionHideArchived`); `op=edit commit=true`
+  renames a recording, a group or a mission; and all three `RouteCommand` actions change a
+  route's link or cadence. Everything else in the wave is per-session view state and leaves
+  the save alone.
+
+  Two defects found in review are fixed in the same entry. A verb HELD behind an
+  `await=false` batch no longer times out: armed, a held head reaches the dispatcher and
+  defers on `batch-running`, which before this ran out the 60 s default budget and ended the
+  closing `FlushAndQuit` as a TIMEOUT, so the process never quit. And the three ops that
+  exist to produce a picture (`state`, `sort`, `edit`) no longer answer OK by comparing a
+  field with the value they just wrote: each now refuses a closed window pre-call
+  (`window-not-open`), is checked against the host's own `showUI` at settle, and `op=edit`
+  reads a SECOND, draw-produced signal - each editor's focus sentinel - so a row inside a
+  collapsed group or on the unselected tab answers `edit-not-drawn` rather than `armed=true`
+  over a plain label.
 
 - **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
   are closed, and the priority-2 register with them.** Eight rows were new coverage, five

@@ -435,6 +435,24 @@ namespace Parsek.TestCommands
         /// <summary>POST-CALL terminal: the tab index was written and reads back wrong.</summary>
         internal const string TabNotAppliedReason = "tab-not-applied";
 
+        /// <summary>
+        /// PRE-CALL gate for the three wave-6 write ops (<c>state</c>, <c>sort</c>,
+        /// <c>edit</c>): the named window's own open flag is DOWN.
+        ///
+        /// <para>REFUSED rather than written, because every one of those ops exists to
+        /// produce a PICTURE and none of them can produce one over a closed window: the
+        /// write would succeed, the read-back would agree with itself, and the capture
+        /// beside it would show no window at all. That is the
+        /// <see cref="WindowSelfClosedReason"/> failure with the roles reversed - there the
+        /// window closed itself after the write, here it was never open - and the remedy is
+        /// the same one step: an <c>op=open</c> before it.</para>
+        ///
+        /// <para>It does NOT apply to <c>op=expand</c> or <c>op=playback</c>, which
+        /// deliberately arrange model state for a LATER capture, nor to <c>op=close</c>,
+        /// whose whole point is a window that ends up shut.</para>
+        /// </summary>
+        internal const string WindowNotOpenReason = "window-not-open";
+
         /// <summary>POST-CALL terminal: the rect was written and reads back different. Note
         /// the read-back treats BOTH commanded SIZE axes as floors, because GUILayout sizes
         /// a window from its content on each of them - see
@@ -795,14 +813,18 @@ namespace Parsek.TestCommands
         /// <c>expand</c> reason: each changes DRAWN state, so the read-back is only a
         /// statement about the game once a frame has run - and for <c>state</c> one key needs
         /// the frame to be meaningful at all, since a scroll offset is CLAMPED by the scroll
-        /// view during the draw, exactly as <c>rect</c> is resolved by <c>GUILayout</c>. None
-        /// of the four is in <see cref="SettleChecksHostShowUi"/>: like <c>expand</c> they
-        /// write model state whose only other writer is a button handler this seam never
-        /// synthesises, so a hidden host cannot fake the read-back, and arranging state now
-        /// to photograph it after a later mode switch is a legitimate thing for a lane to do.
-        /// The known consequence recorded there applies verbatim - an <c>op=sort</c> over a
-        /// tab the current complexity mode is not drawing answers OK and photographs
-        /// nothing, and the fix belongs in the lane.</para>
+        /// view during the draw, exactly as <c>rect</c> is resolved by <c>GUILayout</c>.</para>
+        ///
+        /// <para>THREE OF THE FOUR ARE IN <see cref="SettleChecksHostShowUi"/> AND IN
+        /// <see cref="OpRequiresWindowOpen"/>, which an earlier version of this paragraph
+        /// got backwards. <c>state</c>, <c>sort</c> and <c>edit</c> exist to produce a
+        /// PICTURE, and none of them can produce one over a window the frame did not draw:
+        /// with the host's <c>showUI</c> down or the window's own flag shut, the write
+        /// succeeds and the read-back agrees with the value just written, so the op would
+        /// report <c>armed=true</c> over a plain label. <c>select</c> stays exempt because
+        /// it writes MISSION state rather than view state - a selection arranged now and
+        /// photographed after a later tab switch is a legitimate lane - and its read-back is
+        /// a classification of the mission, which no window owns.</para>
         /// <para><c>run</c> is two-phase for a reason none of the others has: its
         /// completion signal is a BATCH ENDING, which takes as many frames as the tests
         /// take, so it owns its own poll (<c>!runner.IsRunning</c>) exactly as
@@ -851,7 +873,24 @@ namespace Parsek.TestCommands
         /// mode switch. No behaviour change; this paragraph is the whole treatment.</para>
         /// </summary>
         internal static bool SettleChecksHostShowUi(UiActionOp op)
-            => op == UiActionOp.Open || op == UiActionOp.Rect;
+            => op == UiActionOp.Open || op == UiActionOp.Rect
+               || op == UiActionOp.State || op == UiActionOp.Sort
+               || op == UiActionOp.Edit;
+
+        /// <summary>
+        /// Whether an op must additionally refuse when its named window's own open flag is
+        /// down (<see cref="WindowNotOpenReason"/>), checked PRE-CALL so a refused step
+        /// leaves no state written.
+        ///
+        /// <para>The same three as the host check above and for the same reason: each
+        /// exists to produce a picture of a DRAWN surface, so a closed window makes the
+        /// read-back a comparison of the written value with itself. The set is deliberately
+        /// narrower than "every write op" - <c>expand</c> and <c>playback</c> arrange model
+        /// state a later step photographs, which is a legitimate thing for a lane to do
+        /// with the window shut.</para>
+        /// </summary>
+        internal static bool OpRequiresWindowOpen(UiActionOp op)
+            => op == UiActionOp.State || op == UiActionOp.Sort || op == UiActionOp.Edit;
 
         /// <summary>
         /// One settle poll of a two-phase op.

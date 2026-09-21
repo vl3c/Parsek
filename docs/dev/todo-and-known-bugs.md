@@ -71,13 +71,14 @@ un-retired - at which point a `PreviewGhost` verb is three lines over
 **4. Smaller states a tiny accessor would still reach, left out of this wave.** The Group
 Picker cannot be COLLAPSED by the seam (`GroupPickerPresentation.BuildExpandedGroups`
 defaults everything expanded, and every node in every picker capture is `v`), and the
-picker cannot be opened on a CHAIN (`op=picker` covers group and recording only). The
-Career window's two `Pending in timeline` folds are driveable in one row -
-`foldedGroups` is already an `internal` set on the window and its two keys are
-`internal const` - but the set is INVERTED (membership means folded) and
-`CareerStateWindowUI.ToggleSection` is a toggle rather than a setter, so it wants a
-`SetSectionFolded` sibling first; and the divergence banner those folds live under needs a
-rewound career to appear at all.
+picker cannot be opened on a CHAIN (`op=picker` covers group and recording only).
+
+The Career window's two `Pending in timeline` folds are NOT in this list: they SHIPPED in
+this wave, as `op=expand window=career key=pending:contracts|pending:strategies`, and the
+absolute `SetSectionFolded` an earlier draft of this entry asked for shipped with them. What
+remains is a FIXTURE question rather than a seam one - both folds only DRAW under the
+divergence layout, which needs a career whose timeline ends later than now, so a lane
+photographing them needs a rewound career first.
 
 ---
 ## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]

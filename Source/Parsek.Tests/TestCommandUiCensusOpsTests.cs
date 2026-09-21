@@ -1382,22 +1382,106 @@ namespace Parsek.Tests
         public void BatchGateRelaxation_IsInertWhileTheFlagIsUnset()
         {
             // The predicate answers only "may this verb run during a DETACHED batch"; the
-            // gate itself is Update's `if (IsBatchRunning()) { if (!detachedBatchArmed)
-            // return; }`, so with the flag unset every verb - relaxable or not - is held
-            // exactly as before. That branch lives in a MonoBehaviour, so it is pinned by
-            // source rather than executed.
+            // gate itself is Update's one-line early return, so with the flag unset every
+            // verb - relaxable or not - is held exactly as before. That branch lives in a
+            // MonoBehaviour, so it is pinned by source rather than executed.
             string src = ReadParsekSourceForCensus(
                 "TestCommands/ParsekTestCommandAddon.cs").Replace("\r\n", "\n");
-            Assert.Contains("if (IsBatchRunning())\n            {\n"
-                + "                if (!detachedBatchArmed) return;\n            }", src);
-            // The flag has exactly ONE writer that sets it, in the await=false arm, and
-            // exactly one that clears it, in Update.
-            string armSrc = ReadParsekSourceForCensus(
-                "TestCommands/ParsekTestCommandAddon.UiRun.cs").Replace("\r\n", "\n");
-            Assert.Equal(1, CountOccurrencesForCensus(armSrc, "detachedBatchArmed = true"));
-            Assert.Equal(0, CountOccurrencesForCensus(src, "detachedBatchArmed = true"));
-            Assert.Equal(1, CountOccurrencesForCensus(src, "detachedBatchArmed = false"));
-            Assert.Equal(0, CountOccurrencesForCensus(armSrc, "detachedBatchArmed = false"));
+            Assert.Contains("if (IsBatchRunning() && !detachedBatchArmed) return;", src);
+        }
+
+        [Fact]
+        public void BatchGateRelaxation_HasOneArmSiteAndOneClearSiteAcrossEverySeamFile()
+        {
+            // SCANS EVERY TestCommands/*.cs, not the two files the flag happens to live in
+            // today: a second writer anywhere in the seam would relax the gate over a batch
+            // the await=false arm never started, and a two-file scan cannot see it. The
+            // review found exactly that hole, so the scan is now the whole directory.
+            //
+            // Comment lines are stripped first, the OpNeedsWindow-mirror rule: the field's
+            // own doc comment and this file's rationale both contain the assignment text,
+            // and a scan that read comments would pass GREEN against a source that says the
+            // opposite.
+            int setSites = 0;
+            int clearSites = 0;
+            foreach (string file in EnumerateSeamSourceFiles())
+            {
+                string body = StripCommentLinesForCensus(
+                    System.IO.File.ReadAllText(file).Replace("\r\n", "\n"));
+                setSites += CountOccurrencesForCensus(body, "detachedBatchArmed = true");
+                clearSites += CountOccurrencesForCensus(body, "detachedBatchArmed = false");
+            }
+            Assert.Equal(1, setSites);
+            // ONE clear site, inside ClearDetachedBatchRelaxation: the batch ending, a scene
+            // load, an executor throw and FlushAndQuit all route through it, so every
+            // teardown path lowers the flag the same way and logs why.
+            Assert.Equal(1, clearSites);
+
+            string src = StripCommentLinesForCensus(ReadParsekSourceForCensus(
+                "TestCommands/ParsekTestCommandAddon.cs").Replace("\r\n", "\n"));
+            foreach (string reason in new[] { "batch-stopped", "scene-change",
+                                              "executor-threw", "flush-and-quit" })
+                Assert.Contains(
+                    "ClearDetachedBatchRelaxation(" + Quoted(reason), src);
+            // And the relaxation is keyed on the ARMED RUNNER rather than on "any batch is
+            // running", so it cannot survive onto a batch this seam did not start.
+            Assert.Contains("detachedBatchRunner != null && detachedBatchRunner.IsRunning",
+                            src);
+        }
+
+        [Fact]
+        public void BatchGateRelaxation_PinsTheDeferralClockForAHeldVerb()
+        {
+            // D1. Before the relaxation existed this pair could not occur: Update returned
+            // before the pump while any batch ran, so no deferral clock ever started for
+            // `batch-running`. Armed, a HELD head reaches the dispatcher, defers on that
+            // reason, and would run out the 60 s default budget - which for the closing
+            // FlushAndQuit means a TIMEOUT and a process that never quits. HandleDefer pins
+            // the clock for exactly that pair.
+            string src = StripCommentLinesForCensus(ReadParsekSourceForCensus(
+                "TestCommands/ParsekTestCommandAddon.cs").Replace("\r\n", "\n"));
+            Assert.Contains("if (detachedBatchArmed && string.Equals(", src);
+            Assert.Contains("TestCommandDispatcher.BatchRunningDeferReason", src);
+            // Pinned by MOVING the start, not by skipping the timeout check: the moment the
+            // relaxation clears, the ordinary budget resumes from now rather than from a
+            // start that is already minutes old.
+            Assert.Contains("deferStartedAtSeconds = now;", src);
+            // The two sides name ONE literal, so the pair cannot drift apart.
+            Assert.Equal("batch-running", TestCommandDispatcher.BatchRunningDeferReason);
+            string dispatcher = StripCommentLinesForCensus(ReadParsekSourceForCensus(
+                "TestCommands/TestCommandDispatcher.cs").Replace("\r\n", "\n"));
+            Assert.Contains("DispatchResult.Defer(BatchRunningDeferReason)", dispatcher);
+            Assert.Equal(0, CountOccurrencesForCensus(
+                dispatcher, "DispatchResult.Defer(" + Quoted("batch-running")));
+        }
+
+        /// <summary>A C# string literal, so a cell can name one without escaping it into
+        /// unreadability.</summary>
+        private static string Quoted(string value) => "\"" + value + "\"";
+
+        /// <summary>Every seam source file, so a scan cannot miss a writer by living in a
+        /// file the cell did not think of.</summary>
+        private static System.Collections.Generic.IEnumerable<string>
+            EnumerateSeamSourceFiles()
+        {
+            string dir = System.IO.Path.Combine(
+                System.AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "TestCommands");
+            Assert.True(System.IO.Directory.Exists(dir), "missing seam dir: " + dir);
+            return System.IO.Directory.GetFiles(dir, "*.cs");
+        }
+
+        /// <summary>Drops whole-line <c>//</c> and <c>///</c> comments. A rationale comment
+        /// that quotes an assignment must not read as that assignment.</summary>
+        private static string StripCommentLinesForCensus(string text)
+        {
+            var kept = new System.Collections.Generic.List<string>();
+            foreach (string line in text.Split('\n'))
+            {
+                if (line.TrimStart().StartsWith("//")) continue;
+                kept.Add(line);
+            }
+            return string.Join("\n", kept.ToArray());
         }
 
         [Fact]

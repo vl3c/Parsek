@@ -254,6 +254,14 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandDispatcher
     {
+        /// <summary>
+        /// The defer reason a head gets while an in-game test batch runs. Named rather than
+        /// repeated as a literal because the ADDON reads it too: while the
+        /// `op=run await=false` relaxation is armed, a head the gate still holds must not
+        /// run out its deferral budget, and the addon recognises exactly this pair.
+        /// </summary>
+        internal const string BatchRunningDeferReason = "batch-running";
+
         // Per-verb scene/state precondition. LoadGame's recording-active /
         // load-in-flight guards and the global batch-running / safe-point gates are
         // applied in DecideDispatch on top of this table.
@@ -463,7 +471,7 @@ namespace Parsek.TestCommands
                 return DispatchResult.Defer("not-safe-point");
             // No command executes while an in-game test batch runs.
             if (state.BatchRunning)
-                return DispatchResult.Defer("batch-running");
+                return DispatchResult.Defer(BatchRunningDeferReason);
 
             VerbSceneRequirement req = RequirementFor(parsed.Verb);
             if (req == VerbSceneRequirement.RequiresFlight && state.Scene != TestCommandScene.Flight)

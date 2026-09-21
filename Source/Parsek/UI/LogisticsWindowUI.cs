@@ -255,6 +255,21 @@ namespace Parsek
         private readonly Dictionary<string, RouteLegibility> legibilityCache =
             new Dictionary<string, RouteLegibility>();
         private float lastLegibilityComputeRealtime = -1f;
+
+        /// <summary>
+        /// Dirties the throttled route-legibility cache, which every production handler that
+        /// changes a route's NAME, LINK or CADENCE does as its last act.
+        ///
+        /// <para>For the automation-only <c>RouteCommand action=link|unlink|set-cadence</c>
+        /// actions. Without it the window keeps drawing the pre-action Interval, Next and
+        /// Destination cells for up to a refresh period - the sort keys live in that cache -
+        /// so a capture taken straight after the action photographs the OLD row under a
+        /// label claiming the new one. The seam does what the click does.</para>
+        /// </summary>
+        internal void DirtyLegibilityCacheForTesting()
+        {
+            lastLegibilityComputeRealtime = -1f;
+        }
         private const float LegibilityRecomputeIntervalSeconds = 1.0f;
 
         // L2 route-table sort state. Shared by both the Active and the Paused section

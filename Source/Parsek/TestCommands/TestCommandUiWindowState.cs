@@ -328,11 +328,12 @@ namespace Parsek.TestCommands
         internal static bool TryParseBoolState(string raw, out bool want,
                                                out string rejectReason)
         {
-            want = false;
-            if (raw == TestCommandUiState.StateTrueToken) { want = true; rejectReason = null; return true; }
-            if (raw == TestCommandUiState.StateFalseToken) { rejectReason = null; return true; }
-            rejectReason = TestCommandUiState.StateArgInvalidReason;
-            return false;
+            // The seam's ONE boolean parse. Absent cannot reach here - TryCheckArgShape
+            // already refused a bool key with no `state=` - so the whenAbsent value is the
+            // unreachable arm rather than a default this op has.
+            return TestCommandUiState.TryParseBoolArg(
+                raw, whenAbsent: false, TestCommandUiState.StateArgInvalidReason,
+                out want, out rejectReason);
         }
 
         /// <summary>Parses <c>key=scrollY</c>'s <c>value=</c>: a finite, non-negative,
