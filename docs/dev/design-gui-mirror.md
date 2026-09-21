@@ -11,6 +11,17 @@ Status authority for the census program itself stays `docs/dev/autotest-status.m
 the measured structural map of the windows stays `docs/dev/design-gui-inventory.md`;
 the dump format is `docs/dev/design-gui-tree-dump.md`. This doc owns the mirror.
 
+`docs/dev/design-gui-state-gallery.md` owns the MOCKED-DATA half: an
+automation-only seam that hands a window a synthetic view model so the real draw
+code photographs states no fixture save can reach (the 17 hold clauses, the 12
+reject reasons, the Career divergence banner, a lost kerbal, a supersede row). It
+specifies what the mirror gains from that - a mocked capture declares itself in
+its own dump, is filed under `fixture = "mock"` so Compare can never pair it with
+a real capture, carries a `MOCKED DATA` badge, and is counted separately in
+`gui-mirror-index.json` - plus the per-state notes and export affordance the
+owner's feedback comes back through, and why the default dataset stops being
+derived once a mock dataset exists. Design only; nothing implemented.
+
 ## 1. Generated, not written
 
 The page contains no window layout, no control label, no tooltip text and no
