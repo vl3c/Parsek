@@ -13,8 +13,9 @@ tier = "operator"
 # `destination-full-` wrapper, checks for a `stored-part:` tail and otherwise renders the
 # bare resource:
 #
-#     "destination has no room for " + resource
-#         + " - delivers when it has room for the full manifest"
+#     LogisticsHoldClauses.DestinationNoRoomForResource =
+#         "destination has no room for {0} - delivers when it has room for the full manifest"
+#     (since 2026-09-22 a named constant; the rendered text is unchanged)
 #
 # i.e. `destination has no room for LiquidFuel - delivers when it has room for the full
 # manifest`. NO NUMBER, which is the visible difference a reader should take from the pair:

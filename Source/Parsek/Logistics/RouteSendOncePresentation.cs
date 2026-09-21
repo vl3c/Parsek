@@ -116,7 +116,7 @@ namespace Parsek.Logistics
             // the null-coalesce is the belt-and-braces path so the toast never reads
             // "did not run: ." if a future kind slips through as None.
             string why = LogisticsHoldPresentation.DescribeHold(kind, detail, shortfall)
-                ?? "the route was not eligible to dispatch";
+                ?? LogisticsHoldClauses.SendOnceNotEligible;
             return "Send Once: route '" + DisplayName(routeName, routeId) + "' did not run - "
                 + why + " - route is now Paused";
         }

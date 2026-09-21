@@ -262,6 +262,10 @@ return a bare phrase, so only `Paused` doubles - which is also the status every 
 capture lands on. **Fix:** either drop the `{route.Status} - ` prefix (the reason strings
 already name their status where it matters) or make `StatusReason` return reason-only text
 for every member. Cosmetic, one line, but it is on the most-photographed row in the window.
+STILL OPEN after the 2026-09-22 clause-constant extraction, deliberately: `StatusReason` is
+the per-STATUS sentence family, not the hold or reject vocabulary, so neither site was in
+that refactor's scope and the doubled text is byte-for-byte what it was. The fix is an
+owner decision about wording, not a mechanical move.
 
 **15. The Gloops recorder's idle state shows a raw localization key,**
 `Vessel: #autoLOC_501232`, where the saved state two steps later reads
@@ -301,6 +305,33 @@ a reader of the dumps will otherwise take it for a capture fault - and because i
 `op=rect` exempts the main window from its size read-back
 (`TestCommandUiAction.RectAppliedWithinTolerance`'s `sizeIsHostControlled`). **No fix
 wanted.**
+
+**19. A Logistics hold can quote a generic noun as if it were a route name:**
+`Depot B has LiquidFuel reserved by route 'another route'`, and its compact Status-cell
+form `LiquidFuel reserved by 'another route'`. The escrow-hold token is
+`source-reserved:<pid>:<name>:<resource>:<reservingRouteName>`, and when the reserving
+route's name slot is empty the parse substitutes the fallback noun `another route`
+(`Source/Parsek/UI/LogisticsHoldPresentation.cs`, `DescribeReservedPickupSource` and
+`CompactOriginLacksCargo`) into a clause that wraps its argument in quotes
+(`LogisticsHoldClauses.NamedSourceResourceReserved`,
+`CompactResourceReservedByNamedRoute`). The quotes are what makes it read wrong: every
+other route name in the window is a real name in quotes, so this one reads as a route
+actually called "another route". Found while extracting the clause constants, and pinned
+as-is by `LogisticsReasonClauseCharacterizationTests` (case
+`ReservedPickupSourceResourceUnnamedRoute`) so a fix has to be deliberate. **Fix:** give
+the unnamed case its own unquoted clause ("... reserved by another route"), the way the
+four-field parse failure already does. Cosmetic, and it needs a reserving route whose name
+never resolved, which is rare.
+
+**20. Two hold clauses print a raw internal token to the player,** by design and with the
+reason written down: `origin vessel could not be found - it may have moved, been
+recovered, or been destroyed (origin-unresolved:7)` and the same shape for
+`pickup-source-unresolved:*`. The comment at the site says the raw token is kept "so the
+log-grep handle survives into the UI text". That is a real debugging benefit, and it is
+also the one place the legible-token work left an internal code on screen - every other
+arm was rewritten precisely to remove them. Recorded, not fixed: it is a deliberate
+trade the owner may want to keep. **Fix (if wanted):** drop the parenthesised token from
+the UI clause and keep it in the Warn that records the hold.
 
 **NOT A FINDING, checked and cleared:** the Warn
 `SaveActiveTreeIfAny: skipped active tree '<name>' because at least one recording could
@@ -394,8 +425,19 @@ photographing them needs a rewound career first.
 ---
 ## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]
 
+**PART LANDED 2026-09-22 (owner ruling question 3): the reason constants.** Every
+Logistics hold and reject clause is now a named `internal const string` format -
+`LogisticsHoldClauses` (**64**: 29 long-form, 29 compact Status-cell, 6 frames) and
+`LogisticsRejectClauses` (**12**), enumerable through `LogisticsClauseCatalog.All` - so
+the completeness guard of design section 11.2 can walk the vocabulary mechanically instead
+of scraping literals that an interpolated clause defeats. No behavior change, proved by a
+characterization suite written against the unrefactored code and left untouched across the
+extraction. The "17 hold clauses" below was an estimate over long-form reason FAMILIES; it
+missed the compact Status-cell vocabulary and the frames. The reject count was exact.
+Details and the corrected table: design section 11.3.
+
 **What is true.** The census photographs healthy resting states because that is what a
-fixture save plus an op sequence can reach. The gap is the product's failure surface: 17
+fixture save plus an op sequence can reach. The gap is the product's failure surface: 64
 Logistics hold clauses and 12 reject reasons with ZERO captures, 6 of 9 route statuses, the
 Career divergence banner (the window's whole point), `Lost` and `Retired` kerbals in the
 current design, Timeline supersede / rewind-armed / live Re-Fly, the Test Runner running
@@ -16484,6 +16526,45 @@ spec injects the preset on a modded install]**; only after that
 is a gate worth discussing. Extraction/diff tooling landed with R14
 (`hlib.parse_fx_fingerprint_lines` / `diff_fx_fingerprints` /
 `format_fx_fingerprint_diff` + `harness/tools/fx_fingerprint_diff.py`).
+
+### T42b. GUI mirror: what the fidelity instrument measured and did NOT fix
+
+`harness/tools/gui_mirror_fidelity.py` (design: `docs/dev/design-gui-mirror.md` section 11)
+photographs the generated mirror page in a headless browser and compares it against the
+census PNG inside the Parsek window rects. The classes it found were fixed in the same PR;
+these are the ones left, each with the number that says how big it is. None of them is a
+defect in the product - they are all differences between the page and the game.
+
+1. **A label that WRAPS in the game is drawn on one line.** KSP's label styles word-wrap and
+   the page sets `white-space:pre`, so the Logistics route cell that reads `> Route: KSC` /
+   `-> Duna` over two lines in the frame is one line on the page. It shows as a `dy` of
+   about 10 px on those rows and nothing else. Fix: wrap where the dump's own rect is more
+   than one line tall, which IS derivable (the rect height over the line height) - but it
+   moves every multi-line cell on the page, so it wants its own pass with the instrument
+   re-run beside it rather than a guess bolted onto this one.
+2. **KSP's own font metrics are not Arial's.** The size was calibrated against measured ink
+   (13 px Arial renders three corpus runs at 136.6 / 144.5 / 86.8 px against a measured
+   136 / 144 / 87) and the corpus width ratio sits at 1.000 at the median, but the tails are
+   real: a long single line still ends a character or two early or late. A real fix means
+   shipping KSP's font metrics, which is a bigger thing than this page.
+3. **A toggle's tick is a CSS checkmark, not KSP's skin texture.** Right state, right box,
+   drawn shape. The texture is in no census artifact, so there is nothing to derive it
+   from; this is as close as the page gets without shipping the game's atlas.
+4. **A control hidden behind another Parsek window is still measured.** The dump records
+   every window's controls, including the ones another window covers, and neither the page
+   nor the game publishes its stacking order. Of the 222 measured captures, 170 carry more
+   than one Parsek window and 61 have two whose rects actually OVERLAP; 46 of the 115
+   remaining frame-only controls (40%) and 32 of the 63 remaining clipped runs (51%) sit
+   fully inside two window rects at once, which makes them readings about which window won
+   rather than about the rendering. (The counting rule matters and is worth stating: a
+   control counts when its rect is fully contained in two or more window rects. A looser
+   rule - the rect INTERSECTS a second window - gives a slightly higher clipped count, 34
+   rather than 32, and the difference is entirely controls that straddle an edge.) Fix:
+   record which root a control came from and skip it when a later root covers it.
+5. **A capture with a stock modal is not measured at all** (6 of 230). A `PopupDialog` is a
+   centred uGUI canvas that overdraws the window rects in the FRAME and appears in no
+   control tree, so every rect under it would read as a difference the page could not have
+   avoided. The page shows the photograph for those, which is the honest rendering.
 
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
 

@@ -265,45 +265,56 @@ namespace Parsek.Logistics
 
         internal static string FormatRejectMessage(RouteAnalysisStatus status, string detail)
         {
+            // Every clause is a named format in LogisticsRejectClauses. The four
+            // detail-carrying ones take the parenthesised detail SEGMENT (empty
+            // when the analysis recorded none) as their one hole, which is the
+            // shape the concatenation had before the extraction.
             switch (status)
             {
                 case RouteAnalysisStatus.Eligible:
                     return string.Empty;
                 case RouteAnalysisStatus.MissingRouteProof:
-                    return "Recording has no route proof - log the dock event to enable a Supply Route.";
+                    return LogisticsRejectClauses.MissingRouteProof;
                 case RouteAnalysisStatus.MultipleConnectionWindows:
-                    return "Two transfers happened at the same recorded time and cannot be ordered. Re-record so each dock happens at a distinct moment.";
+                    return LogisticsRejectClauses.MultipleConnectionWindows;
                 case RouteAnalysisStatus.NoDeliveryManifest:
-                    return "No delivery payload detected - check that cargo actually moved from transport to destination.";
+                    return LogisticsRejectClauses.NoDeliveryManifest;
                 case RouteAnalysisStatus.MixedPickupDelivery:
-                    return "Unwitnessed inventory gain detected - the transport gained a stored part that the destination did not give it. Stored cargo is counted by kind (part, variant and how full it is), so only a kind the destination visibly gave up can be picked up. Re-record so the picked-up part comes from the destination.";
+                    return LogisticsRejectClauses.MixedPickupDelivery;
                 case RouteAnalysisStatus.MissingEndpointProof:
-                    return "Endpoint vessel could not be identified at dock time.";
+                    return LogisticsRejectClauses.MissingEndpointProof;
                 case RouteAnalysisStatus.UndockedStartOrigin:
-                    return "This run starts undocked with cargo already aboard, so the cargo's source was never witnessed. Start the supply run docked to the origin depot, record the mining that produced the cargo, or launch it from KSC.";
+                    return LogisticsRejectClauses.UndockedStartOrigin;
                 case RouteAnalysisStatus.UntrackedCargoGain:
-                    return "The transport gained cargo during this run with no recorded source"
-                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
-                        + ". Only witnessed gains can route: record the mining with the drill or converter running, or re-record without the unexplained gain.";
+                    return string.Format(IC, LogisticsRejectClauses.UntrackedCargoGain,
+                        RejectDetailSegment(detail));
                 case RouteAnalysisStatus.FlowDoesNotClose:
-                    return "This run's cargo does not add up: the transport ended with more of a resource than ever arrived"
-                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
-                        + ". The recorded loads, harvest, and deliveries cannot account for what was left aboard. Re-record so every resource that leaves the transport is matched by a recorded load, harvest, or delivery.";
+                    return string.Format(IC, LogisticsRejectClauses.FlowDoesNotClose,
+                        RejectDetailSegment(detail));
                 case RouteAnalysisStatus.MidRecordingStartTrimUnsupported:
                     // M-MIS-5 P2a detector + P2b acceptance: since P2b the well-formed
                     // docked-origin-window start is ACCEPTED, so this status names the
                     // family's remaining unsupported shapes; the detail names the
                     // recognized docked-origin moment.
-                    return "This run starts between two docks: an earlier docked stretch"
-                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
-                        + " was recorded before the cargo run, but this shape is not supported yet. A mid-flight start works when the run begins at a fully recorded docked-origin window - dock at the origin depot, then undock, both recorded, before the first delivery dock. Otherwise start the supply run docked at the origin depot, or launch it from KSC.";
+                    return string.Format(IC, LogisticsRejectClauses.MidRecordingStartTrimUnsupported,
+                        RejectDetailSegment(detail));
                 case RouteAnalysisStatus.UnsupportedConnectionKind:
-                    return "This run's transfer used a connection type Parsek does not support for routes"
-                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
-                        + ". Docked and claw-grappled transfers are supported.";
+                    return string.Format(IC, LogisticsRejectClauses.UnsupportedConnectionKind,
+                        RejectDetailSegment(detail));
                 default:
-                    return "Route source is not eligible (" + status + ").";
+                    return string.Format(IC, LogisticsRejectClauses.UnknownStatus, status);
             }
+        }
+
+        /// <summary>
+        /// The optional parenthesised quantifier a detail-carrying reject clause
+        /// substitutes: <c>" (detail)"</c>, or the empty string when the analysis
+        /// recorded none. One helper so the four clauses cannot drift apart on
+        /// spacing or bracket style.
+        /// </summary>
+        private static string RejectDetailSegment(string detail)
+        {
+            return string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")";
         }
 
         /// <summary>

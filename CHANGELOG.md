@@ -197,6 +197,72 @@ _(unreleased — entries accumulate here per commit)_
   collapsed group or on the unselected tab answers `edit-not-drawn` rather than `armed=true`
   over a plain label.
 
+- **Tooling: the GUI mirror's rendering is now MEASURED against the game frame instead of
+  judged by eye.** `harness/tools/gui_mirror_fidelity.py` opens the generated mirror page
+  itself in a headless Chromium - at a deep link the generator now ships for it
+  (`#cap=<capture id>&bare=1`: one capture's stage, 1:1 CSS pixels, top-left, no chrome, no
+  photograph, no animation, `data-ready` when painted) - and compares that screenshot
+  against the census PNG inside the Parsek window rects only. It measures the page a reader
+  opens rather than a second renderer built to imitate it: the bare skin is a separate
+  stylesheet whose every selector a test asserts is scoped to one class, and the bare entry
+  is the first statement of `boot()` behind a hash check, so a page opened without the hash
+  is the page that shipped. Four metrics, per capture and aggregated per window and per
+  control class - the ink bounding box of every text-bearing leaf control (dx, dy, width
+  ratio, and a clipped flag for a run the page cut off where the game did not), the median
+  fill of every painted control against the colour it sampled off that same frame, controls
+  with ink in the frame and none in the mirror or the reverse, and a window luminance score
+  for ranking. Outputs (a report, a page, one screenshot per capture, crops and heatmaps)
+  go to a scratch folder and nowhere near the repository; a test cell fails if any tracked
+  file under `harness/` or `docs/` is an image or carries an inlined image payload. The
+  browser is optional equipment - with none installed the tool exits 3 naming the paths it
+  probed, and every unit test passes without one. No player-visible change.
+
+- **Tooling: seven classes of difference between the GUI mirror and the game, found by that
+  instrument over all 230 captures and fixed by class.** Worst first, each measured rather
+  than assumed. A disabled control was dimmed TWICE - the colours are sampled per control
+  out of the frame, so a disabled one's colour is already the grey the game drew, and an
+  `opacity:.42` on top of it put the Missions window's disabled interval field below the
+  threshold of being visible at all (377 controls had ink in the frame and none on the
+  page). A raised control's outline was brighter than its fill, where KSP draws a near-black
+  outline with a light top bevel (measured: outline grey 5 to 25, bevel 88 / 71 / 61, over
+  fills of 25 to 76). `box`-styled text was aligned by a rule KSP does not have - it centres
+  the Logistics section heading in its 1358 px box and left-aligns the column headers of the
+  same table - so the offset is now measured off the frame, the move the tab bar's labels
+  already used. A toggle in the BUTTON style (987 of 8154) was drawn as a checkbox instead
+  of the pushed-in button KSP draws. A slider had no handle and a scroll bar had no bar,
+  which the design doc had called unfixable from the dump: the dump has no value, but the
+  PNG has the thumb, and it reads on 81 of the corpus's 137 sliders including the Settings
+  ghost-audio one. A scroll view did not scroll, leaving up to 23 529 px of rows per view
+  unreachable. And a toggle's tick was an ASCII `x`. Corpus: worst text offset 643 px -> 22,
+  p95 52 -> 5, width-ratio p95 2.21 -> 1.11, fill-colour p95 5 -> 0, runs the page clipped
+  and the game did not 554 -> 63, controls with ink in the frame and none on the page
+  587 -> 115, and - on the metric the review added afterwards - slider luminance error p50
+  34.2 -> 18.1 with the thumb resolving on both sides for 41 of 41 sliders against 0 of 41. Numbers, method and what is still different: `docs/dev/design-gui-mirror.md`
+  section 11. No player-visible change - the mirror is a harness page, not game code.
+
+- **Tooling: the review of that work found one of its own fixes had moved the page AWAY
+  from the game, and the metric that was supposed to notice could not see it.** The slider
+  handle was drawn in a typed light grey (luminance 185) where KSP's scroll bar thumb has a
+  dark face (17 to 50) under a one-pixel bevel (85 to 101) over a groove of 45 - and
+  PRESENCE, being a binary "at least four ink pixels in this rect", is satisfied by a
+  groove's own border whatever is drawn inside it, so deleting the handle entirely moved no
+  number at all while the report counted "slider frame-only 41 -> 0". Both halves are fixed:
+  the thumb's face and bevel and the groove are now sampled per capture off the PNG (the
+  groove with the thumb excluded, or the median of a scroll bar that is mostly thumb paints
+  the groove in the thumb's own colour), and sliders get a metric of their own - the mean
+  absolute luminance error over the control's rect plus the thumb run's position and length
+  where both sides resolve one. On the structure capture that error is 19.9 with the thumb
+  against 41 without it and 86 with the typed colour, and deleting the handle now takes the
+  mirror's thumb run from resolved to unresolved. Four more from the same review: the
+  scroll-view fix had given every overflowing view a white NATIVE browser scroll bar over
+  the mirrored KSP one, which the instrument's own `--hide-scrollbars` was hiding from the
+  measurement (the page hides its own now, and the flag is gone); browser profile
+  directories leaked 320 MB into the owner's temp folder because they were deleted with
+  errors ignored while the browser still held them; a halted batch exited 0; and the
+  no-typed-UI-text guard now walks the AST, which caught the product's own name typed into
+  the page as a regex and twice more in the vocabulary builder - derived from the window
+  titles now. No player-visible change.
+
 - **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
   are closed, and the priority-2 register with them.** Eight rows were new coverage, five
   were guarded already by cells that landed after the audit snapshot, and one is deferred
@@ -434,6 +500,32 @@ _(unreleased — entries accumulate here per commit)_
   thing that draws it. The hand-off is now leg by leg: the ghost keeps the piece it is
   actually drawing and the route line keeps the rest. On a single-leg flight nothing
   changes, because there the two answers were already the same.
+
+### Changed
+
+- **The Logistics refusal vocabulary is now a named, enumerable catalogue instead of
+  seventy-six literals spread over four files.** Every sentence the window can show for a
+  route that will not dispatch (the yellow blocked line, the `Held: ...` cell, its tooltip,
+  the Send Once toast) and every reason a committed flight is refused as a Supply Run
+  candidate is now a named `internal const string` format in `LogisticsHoldClauses` (64: 29
+  long-form, 29 compact, 6 frames) or `LogisticsRejectClauses` (12), walkable as one list
+  through `LogisticsClauseCatalog`. Nothing the player reads changed - not a character of
+  spacing, punctuation or number formatting - and a characterization suite written against
+  the old code and left untouched across the extraction is what says so. The point is the
+  GUI state gallery's completeness guard: it can now enumerate the vocabulary and prove
+  every reason is reachable, where before it would have had to scrape literals out of the
+  source, which an interpolated clause defeats by being stored split at its holes. A side
+  benefit for debugging: the reason vocabulary is greppable by name.
+
+- **Tests: every Logistics hold and reject clause the player can read is now pinned,
+  character for character, before anything touches it.** A new characterization suite
+  renders each one through the real producer and compares it against a literal written
+  out by hand, twice: once under the host culture and once under `de-DE`, because the
+  three numeric clauses (the whole-unit funds shortfall, the one-decimal resource
+  shortfall, the re-flyable recording count) are contractually invariant and a
+  comma-locale host is exactly how that would ship unnoticed. Nothing in the product
+  changed; the suite exists so that the clause-constant extraction that follows it can be
+  proved to have changed nothing either.
 
 ### Changed
 
