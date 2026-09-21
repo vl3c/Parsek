@@ -539,6 +539,143 @@ def grid_label_runs(w, h, bpp, px, rect, min_width=18, gap=16, bright=150):
     return [r for r in merged if r[1] - r[0] >= min_width]
 
 
+def text_ink_offset(w, h, bpp, px, rect, inset=3, cut=0.45):
+    """Where a control's text actually STARTS inside its own rect, measured off
+    the frame, as an offset in pixels from the rect's left edge.
+
+    For the same reason the tab bar's labels are measured rather than assumed:
+    the product is not uniform about alignment and the dump records none of it.
+    KSP's `box` style CENTRES the Logistics section heading ("Active Routes" sits
+    at x=649 in a 1358 px box) and LEFT-ALIGNS the sortable column headers of the
+    same table ("Origin" at the left edge of its 95 px cell). The page, which
+    left-aligned the first and centred the second, was 643 px out on one and
+    roughly a cell wide on the other.
+
+    The middle of the rect only, inset from every edge, so a box's own border is
+    never mistaken for its first glyph.
+
+    The three numbers, each measured rather than chosen. `inset=3`: KSP's box
+    style draws a one-pixel outline with a one-pixel inner shadow, and the
+    Logistics header cells put their first glyph 4 to 5 px in (measured: "#" at
+    4, "Actions" at 4, "Origin" at 5, "Interval" at 5) - so 3 clears the frame
+    and still sits before the earliest glyph. `cut=0.45`: a fraction of the
+    rect's OWN contrast range rather than an absolute level, because the same
+    style is drawn on #444444, #292929 and #313131 across the corpus; at 0.45
+    the anti-aliased left edge of a glyph counts and the shadow does not.
+    `spread < 20` is the "nothing here to read" floor - an empty box varies by
+    2 or 3 across its own surface, and the weakest real run in the corpus (the
+    dimmed Missions interval field) spreads 30.
+
+    Returns None when there is no ink to measure, and the page then keeps its CSS
+    alignment.
+    """
+    x, y, rw, rh = [int(v) for v in rect]
+    if rw <= 2 * inset or rh <= 2 * inset:
+        return None
+    x0, x1 = max(0, x + inset), min(w, x + rw - inset)
+    y0, y1 = max(0, y + inset), min(h, y + rh - inset)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    vals = []
+    for yy in range(y0, y1):
+        base = yy * w * bpp
+        for xx in range(x0, x1):
+            o = base + xx * bpp
+            vals.append(_lum((px[o], px[o + 1], px[o + 2])))
+    if not vals:
+        return None
+    ordered = sorted(vals)
+    med = ordered[len(ordered) // 2]
+    spread = max(abs(ordered[0] - med), abs(ordered[-1] - med))
+    if spread < 20:
+        return None
+    thr = spread * cut
+    for xx in range(x0, x1):
+        for yy in range(y0, y1):
+            o = (yy * w + xx) * bpp
+            if abs(_lum((px[o], px[o + 1], px[o + 2])) - med) > thr:
+                return xx - x
+    return None
+
+
+def slider_thumb_run(w, h, bpp, px, rect, min_contrast=12):
+    """Where a slider's or scrollbar's THUMB sits, measured off the frame inside
+    the control's own rect.
+
+    The dump records a slider's rect and no value, so the page had nothing to
+    position a knob from and drew a bare groove - a Settings row that reads as an
+    empty channel where the game shows a handle at about 70%, and a scroll bar
+    with no bar in it. But the thumb IS in the pixels.
+
+    What is bright is the thumb's BEVEL, not its face, and the difference
+    matters. Measured across the `ib-structure-mission-advanced` vertical scroll
+    bar: the groove is a flat luminance 45, and the thumb's own columns read
+    14, 0, 101, 85, 68, 50, 17, 17, 17, 17, 34, 50, 50, 0, 14 - a one-pixel
+    highlight at 101/85 over a FACE of 17 to 50, which is DARKER than the groove
+    it sits in. So this profiles the MAXIMUM along each step of the control's
+    long axis, where the bevel shows, and the longest run above two thirds of the
+    control's own range is the thumb. Taking "lighter than its groove" literally
+    and colouring the face light is exactly the mistake that made the page's
+    handle read at luminance 185 against the game's 17.
+
+    Returns `(start, length, vertical)` in the control's own axis - `start`
+    relative to the rect - or None when the rect carries no contrast to read
+    (a groove whose thumb fills it, or a control drawn flat). The page then
+    keeps the bare groove, which is the honest answer for "not measurable here".
+    """
+    x, y, rw, rh = [int(v) for v in rect]
+    if rw <= 0 or rh <= 0:
+        return None
+    vertical = rh > rw
+    span = rh if vertical else rw
+    if span < 6:
+        return None
+    prof = []
+    if vertical:
+        for yy in range(max(0, y), min(h, y + rh)):
+            top = 0
+            for xx in range(max(0, x), min(w, x + rw)):
+                o = (yy * w + xx) * bpp
+                top = max(top, _lum((px[o], px[o + 1], px[o + 2])))
+            prof.append(top)
+    else:
+        for xx in range(max(0, x), min(w, x + rw)):
+            top = 0
+            for yy in range(max(0, y), min(h, y + rh)):
+                o = (yy * w + xx) * bpp
+                top = max(top, _lum((px[o], px[o + 1], px[o + 2])))
+            prof.append(top)
+    if len(prof) < 6:
+        return None
+    lo, hi = min(prof), max(prof)
+    if hi - lo < min_contrast:
+        return None
+    # `min_contrast` of 12: the smallest real separation in the corpus is the
+    # Settings horizontal slider, whose groove profiles at 36-40 against a handle
+    # at 54 - a range of about 18. A flat groove (no thumb to find, or a thumb
+    # that fills it) profiles within 2 or 3 of itself, so 12 sits clear of the
+    # noise and below every genuine thumb measured.
+    #
+    # Two thirds of the way up the control's OWN range, not an absolute level:
+    # the bevel tops out at 101 over a 45 groove on a scroll bar and at 54 over
+    # a 36 groove on the Settings slider, and no single threshold separates both.
+    cut = lo + (hi - lo) * 2.0 / 3.0
+    best = None
+    start = None
+    for i, v in enumerate(prof):
+        if v >= cut and start is None:
+            start = i
+        elif v < cut and start is not None:
+            if best is None or i - start > best[1]:
+                best = (start, i - start)
+            start = None
+    if start is not None and (best is None or len(prof) - start > best[1]):
+        best = (start, len(prof) - start)
+    if not best or best[1] <= 0:
+        return None
+    return (best[0], best[1], vertical)
+
+
 def _hex(rgb):
     return "#%02x%02x%02x" % tuple(rgb)
 
@@ -580,7 +717,7 @@ def root_height(root, log_rects):
 
 
 def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
-                 grid_runs=None):
+                 grid_runs=None, thumb_runs=None, text_offsets=None):
     """One dump node -> the page's compact node: rect made parent-relative (so a
     scroll view clips its own children), plus the colours sampled off the frame."""
     rect = [int(v) for v in (node.get("rect") or [0, 0, 0, 0])]
@@ -633,20 +770,72 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
                     cells.append(cbg)
                 if all(cells):
                     out["gc"] = cells
+    if (style == "box" and text and text_offsets is not None
+            and out["k"] in ("label", "button")):
+        # Only the box style: the ordinary label and button alignments agree with
+        # the frame to a pixel or three, and storing an offset for all 71 000
+        # labels would be payload for nothing.
+        off = text_offsets(rect)
+        if off is not None:
+            out["tx"] = off
+    thumb_rect = None
+    if out["k"] == "slider" and thumb_runs is not None:
+        run = thumb_runs(rect)
+        if run:
+            # Start and length along the control's own long axis, plus which axis
+            # that is. Read off THIS frame, so the page draws the handle where
+            # the game drew it rather than at a position nothing recorded.
+            out["th"] = [run[0], run[1]]
+            if sampler is not None:
+                # And its COLOURS, off the same frame, by the same rule as every
+                # other surface on this page. A typed colour was wrong by 168
+                # luminance: KSP's scroll bar thumb has a dark face (17 to 50)
+                # under a one-pixel bevel (85 to 101), and the page drew the
+                # whole handle at #b9b9b9. `sample_colors` answers with exactly
+                # the two the thumb has - the median of its own surface, and the
+                # extreme tail, which IS the bevel.
+                trect = ([rect[0], rect[1] + run[0], rect[2], run[1]]
+                         if run[2] else
+                         [rect[0] + run[0], rect[1], run[1], rect[3]])
+                thumb_rect = trect
+                tbg, tfg = sampler(trect, ())
+                if tbg:
+                    out["tc"] = tbg
+                if tfg:
+                    out["te"] = tfg
+        out["vt"] = 1 if rect[3] > rect[2] else 0
     if node.get("horizontal") is not None:
         out["hz"] = 1 if node["horizontal"] else 0
     bg = None
     if sampler is not None and out["w"] > 0 and out["h"] > 0:
         kid_rects = [c.get("rect") or [0, 0, 0, 0]
                      for c in (node.get("children") or ())]
+        if thumb_rect is not None:
+            # The groove is the slider's surface MINUS its thumb, the same rule
+            # a container's colour follows. Sampling the whole rect took the
+            # median of a scroll bar that is more thumb than groove, so the page
+            # painted the groove in the thumb's own colour - and then drawing the
+            # thumb on top of it changed nothing a measurement could see.
+            kid_rects = list(kid_rects) + [thumb_rect]
         bg, fg = sampler(rect, kid_rects)
         # A background identical to the parent's is what CSS already inherits,
         # so storing it again would only make the page bigger.
-        if bg and bg != parent_bg and (out["k"] in BG_KINDS or style == "box"):
+        # A toggle in the BUTTON style is painted like a button, so its fill is
+        # worth storing; the 7000 checkbox-styled ones draw no surface of their
+        # own and storing a colour for them was only payload.
+        paints = (out["k"] in BG_KINDS or style == "box"
+                  or (out["k"] == "toggle" and style == "button")
+                  # A slider's GROOVE is a surface like any other, and the page
+                  # was drawing a 3 px line at #666 (luminance 102) where KSP
+                  # fills the whole 15 px width at 45. Measured on the
+                  # ib-structure-mission scroll bar.
+                  or out["k"] == "slider")
+        if bg and bg != parent_bg and paints:
             out["bg"] = bg
         if fg and (text or out["k"] in ("box", "toggle")):
             out["fg"] = fg
-    kids = [compact_tree(ch, rect, sampler, bg or parent_bg, grid_runs)
+    kids = [compact_tree(ch, rect, sampler, bg or parent_bg, grid_runs,
+                         thumb_runs, text_offsets)
             for ch in (node.get("children") or ())]
     if kids:
         out["c"] = kids
@@ -943,6 +1132,47 @@ def _rect_owner(rect, log_rects, subject, open_windows):
     return None
 
 
+def title_prefix(titles):
+    """The leading words every window title shares - the product's own name.
+
+    Derived, not typed. Titles read "Parsek", "Parsek - Logistics",
+    "Parsek - Real Spawn Control": the longest run of leading words common to all
+    of them is the head the page must strip before it can compare a control's
+    label to a window's name.
+
+    Returns "" unless at least two distinct titles agree on a prefix AND at least
+    one title is longer than it - a single title would otherwise "share" the
+    whole of itself and strip every window's name to nothing.
+    """
+    words = []
+    for title in titles:
+        parts = [p for p in re.split(r"[\s-]+", (title or "").strip()) if p]
+        if parts:
+            words.append(parts)
+    if len(words) < 2:
+        return ""
+    head = []
+    for i in range(min(len(w) for w in words)):
+        first = words[0][i].lower()
+        if any(w[i].lower() != first for w in words):
+            break
+        head.append(words[0][i])
+    if not head or not any(len(w) > len(head) for w in words):
+        return ""
+    return " ".join(head)
+
+
+def strip_title_prefix(title, prefix):
+    """`title` with the product's own name taken off the front, if it is there."""
+    if not prefix:
+        return (title or "").strip()
+    low, plow = (title or "").strip(), prefix.strip()
+    if low.lower().startswith(plow.lower()):
+        rest = low[len(plow):]
+        return rest.lstrip(" -\t").strip()
+    return low
+
+
 def window_vocabulary(window_tokens, window_titles, window_tabs=None):
     """Per window, the words a repo record may name it by, and the words a SOURCE
     FILE may name it by.
@@ -959,26 +1189,31 @@ def window_vocabulary(window_tokens, window_titles, window_tabs=None):
     * `file` - the same words plus the product name, so the main window, whose
       title IS the product name, can still be matched to `ParsekUI.cs`.
     """
+    # The product's own name, DERIVED from the titles rather than typed: it is
+    # the run of leading words every window title shares.
+    prefix = title_prefix([t for tok in window_tokens
+                           for t in (window_titles.get(tok) or ()) if t])
     product = set()
     for tok in window_tokens:
         for title in window_titles.get(tok, ()):
-            raw = (title or "").lower().strip()
-            if raw and not re.sub(r"^parsek\b[\s-]*", "", raw).strip():
+            raw = (title or "").strip()
+            if raw and not strip_title_prefix(raw, prefix):
                 product.add(norm(raw))
     vocab = {}
     for tok in window_tokens:
         titles = [t for t in (window_titles.get(tok) or ()) if t]
         per_title = []
         for title in titles:  # e.g. "Parsek - Real Spawn Control"
-            cleaned = re.sub(r"^parsek\b[\s-]*", "", title.lower()).strip()
+            cleaned = strip_title_prefix(title, prefix).lower()
             if not cleaned:
                 continue
             # A multi-word title contributes only its concatenation. Its
             # individual words are generic ("Real Spawn Control" -> real, spawn,
             # control; "Gloops Flight Recorder" -> flight, recorder) and each one
             # pulled in records about something else entirely.
+            generic = {norm(prefix), "state", "window"} - {""}
             parts = [w for w in re.findall(r"[a-z]{4,}", cleaned)
-                     if w not in ("parsek", "state", "window")]
+                     if w not in generic]
             words = {norm(cleaned)} | (set(parts) if len(parts) == 1 else set())
             per_title.append(words)
         stable = set()
@@ -1248,6 +1483,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
 
         sampler = None
         grid_runs = None
+        thumb_runs = None
+        text_offsets = None
         pix = None
         if cap["png"]:
             try:
@@ -1269,6 +1506,12 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
 
                 def grid_runs(rect, _p=pix):
                     return grid_label_runs(_p[0], _p[1], _p[2], _p[3], rect)
+
+                def thumb_runs(rect, _p=pix):
+                    return slider_thumb_run(_p[0], _p[1], _p[2], _p[3], rect)
+
+                def text_offsets(rect, _p=pix):
+                    return text_ink_offset(_p[0], _p[1], _p[2], _p[3], rect)
             except Exception as exc:
                 if verbose:
                     sys.stderr.write("png %s: %s\n" % (cap["png"], exc))
@@ -1281,7 +1524,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             is_foreign = key in foreign
             h = root_height(root, cap["log"].get("rects"))
             node = compact_tree(root, [rect[0], rect[1]], sampler,
-                                grid_runs=grid_runs)
+                                grid_runs=grid_runs, thumb_runs=thumb_runs,
+                                text_offsets=text_offsets)
             node["x"], node["y"] = rect[0], rect[1]
             node["h"] = h
             node["title"] = root.get("text") or ""
@@ -1494,6 +1738,9 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         # mirror because it WAS photographed but left out of Compare, which is
         # about the product's windows.
         "seamWindows": list(window_tokens.keys()),
+        # The product's own name, derived from the window titles the captures
+        # carry, so the page can strip it without knowing it.
+        "titlePrefix": title_prefix([t for w in windows for t in w["titles"]]),
         "clickKinds": list(CLICK_KINDS),
         # The op vocabulary, so the page can recognise the one op that is also a
         # button label without a window string being typed into this file.
@@ -1634,14 +1881,26 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 /* A row container is a `box` with no text: KSP draws it in the panel colour, so
    a border here would invent a grid the game does not draw. */
 .gn.k-box.notext{border-color:transparent;background:none;padding-left:0}
-.gn.k-button,.gn.k-repeatbutton{background:var(--btn);border:1px solid var(--btnedge);
+/* Measured on the ib-logistics-basic frame (Rename / Log (Route) / Logistics /
+   Timeline): KSP draws a button as a NEAR-BLACK outline - grey 5 to 25 - with a
+   light top bevel inside it (88, 71, 61, fading) over a fill of 25 to 76. A
+   uniform #5a5a5a line is brighter than the fill on every one of them, which is
+   why the whole button interior read as ink where only its label should. */
+.gn.k-button,.gn.k-repeatbutton{background:var(--btn);border:1px solid #141414;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.17);
   border-radius:3px;justify-content:center;color:var(--ink);cursor:pointer}
 .gn.k-button.s-label,.gn.k-button.s-{background:none;border:0;justify-content:flex-start;
   padding-left:0}
-.gn.k-buttongrid{background:var(--btn);border:1px solid var(--btnedge);border-radius:3px}
+.gn.k-buttongrid{background:var(--btn);border:1px solid #141414;border-radius:3px}
 .gn.k-buttongrid.grid{background:none;border:0}
+/* A BOX-styled button is a table header cell, not a raised button: KSP draws it
+   with the box's dark outline and no bevel, and the page's button rules were
+   giving it a light border and centring its label. The label's own position is
+   measured off the frame (see `text_ink_offset`); these rules carry the edge. */
+.gn.k-button.s-box{border:1px solid #1d1d1d;box-shadow:none;
+  justify-content:flex-start}
 .gn.k-buttongrid .gi{position:absolute;top:0;bottom:0;background:var(--btn);
-  border:1px solid var(--btnedge);border-radius:3px;color:var(--ink);cursor:pointer;
+  border:1px solid #141414;border-radius:3px;color:var(--ink);cursor:pointer;
   font:var(--gfont)/1 Arial,Helvetica,sans-serif}
 .gn.k-buttongrid .gi>.gl{left:0;right:0}
 /* Measured on the cek-career-contracts and bdk-kerbals-roster frames: the
@@ -1659,12 +1918,75 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 .gn.k-toggle{cursor:pointer}
 .gn.k-toggle .cb{width:14px;height:14px;border:1px solid #777;background:#222;
   display:inline-block;margin-right:4px;text-align:center;line-height:12px;font-size:11px;
-  color:#cfe6ff;flex:0 0 auto}
-.gn.k-textfield{background:#1e1e1e;border:1px solid #666;border-radius:2px;padding-left:3px}
-.gn.k-scrollview{overflow:hidden}
+  color:#cfe6ff;flex:0 0 auto;position:relative}
+/* The mark inside the box, drawn rather than typed: KSP's tick lives in its own
+   skin texture, and an ASCII `x` in its place was the wrong SHAPE at the right
+   state. Two borders rotated 45 degrees is a tick, and it costs no font. */
+.gn.k-toggle .cb.on::after{content:"";position:absolute;left:3px;top:0px;
+  width:5px;height:9px;border:solid #cfe6ff;border-width:0 2px 2px 0;
+  transform:rotate(40deg)}
+/* A toggle in the BUTTON style is not a checkbox. KSP draws
+   `GUILayout.Toggle(v, text, "button")` as a button that sits pushed in while
+   it is on - 987 of the corpus's 8154 toggles - and the page drew every one of
+   them as "x label" on bare window fill. The fill is sampled off the frame like
+   any other button's; these rules carry the edge and the pushed state. */
+.gn.k-toggle.s-button{background:var(--btn);border:1px solid #141414;
+  border-radius:3px;justify-content:center;color:var(--ink);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.17)}
+/* Pushed in: the bevel goes and the outline darkens, which is the same move the
+   selection grid's selected cell makes - measured there as a grey profile of
+   130,30,32,35,40,43,44..60 against an unselected 14,102,88,78,68,41..59. The
+   two use the same #242424 because they are the same skin state. */
+.gn.k-toggle.s-button.on{box-shadow:none;border-color:#242424}
+.gn.k-toggle.s-button .cb{display:none}
+/* A text field is SUNKEN: KSP draws the same near-black outline as a button
+   (measured 5 to 25 on the ib-logistics frame) with no top bevel, over a fill
+   darker than the window's. The #666 line this replaced was brighter than the
+   field it enclosed, which is what made 55 disabled fields read as having no
+   text at all. */
+.gn.k-textfield{background:#1e1e1e;border:1px solid #141414;border-radius:2px;
+  padding-left:3px}
+/* A scroll view SCROLLS. Its children are laid out at the rects the dump
+   recorded, which for the Missions table and the test runner's idle tree run
+   thousands of pixels past the fold, and `overflow:hidden` made everything
+   below it unreachable - the page showed the same first screenful the census
+   photographed and nothing else, with no sign that more existed. The children
+   are absolutely positioned inside it, and an absolutely positioned descendant
+   of its own containing block DOES create scrollable overflow, so the extent
+   needs no content sizer: the rects are the extent. The initial offset stays
+   zero, which is the offset the frame was taken at. */
+.gn.k-scrollview{overflow:auto;scrollbar-width:none}
+/* The BROWSER's own scroll bar, hidden. KSP's scroll bar is a control in the
+   dump and the page draws it from that control's own rect, so leaving the
+   native one visible put a white bar over the mirrored one on all 52
+   overflowing scroll views - a difference from the game that the page itself
+   introduced. Wheel and drag still scroll; the mirrored bar is the visible one,
+   as it is in the game. */
+.gn.k-scrollview::-webkit-scrollbar{display:none}
 .gn.k-slider{display:flex;align-items:center}
+/* The groove. Where the frame gave a colour for it (`sg`) the control is filled
+   with it across its own rect, which is what KSP draws - the
+   ib-structure-mission scroll bar is a flat luminance 45 over its whole 15 px
+   width. The drawn line below is the FALLBACK for a groove that would not
+   sample, oriented by the control's own rect: 130 of the corpus's 142 sliders
+   are scroll bars and 130 of those are vertical, and a horizontal rule drew a
+   15x546 scroll bar as a short bar across its middle. */
 .gn.k-slider::before{content:"";position:absolute;left:0;right:0;top:50%;height:3px;
-  background:#666;border-radius:2px}
+  margin-top:-1px;background:#666;border-radius:2px}
+.gn.k-slider.vt::before{left:50%;right:auto;top:0;bottom:0;width:3px;height:auto;
+  margin-top:0;margin-left:-1px}
+.gn.k-slider.sg::before{display:none}
+/* The handle, at the position AND in the colours MEASURED off the frame
+   (`slider_thumb_run` plus the same sampler every other surface uses). Absent
+   when the frame carried no contrast to read, and then the groove stays bare
+   rather than showing a knob at a position nothing recorded.
+   The fallback greys are for a thumb whose colours would not sample; the face is
+   the one a scroll bar actually has (dark, under a light bevel), not the light
+   one a "handle" suggests. */
+.gn.k-slider .th{position:absolute;background:#2b2b2b;border:1px solid #5a5a5a;
+  border-radius:2px}
+.gn.k-slider:not(.vt) .th{top:1px;bottom:1px}
+.gn.k-slider.vt .th{left:1px;right:1px}
 .gn.k-layoutgroup{}
 .gn.dis{opacity:.42}
 %CLICK_CSS%
@@ -1725,6 +2047,34 @@ table.sum .wlink:hover{text-decoration:underline}
 .hidden{display:none !important}
 """
 
+# The bare-mode skin, kept apart from CSS so a test can assert that every
+# selector in it is scoped to the `bare` class - which is what makes "the page
+# opened without the hash is unchanged" a mechanical claim and not a promise.
+BARE_CSS = """
+/* Bare mode: exactly one capture's stage, at 1:1 CSS pixels, at the top-left of
+   the page, with no rail, header, status line, echo strip or photograph, and no
+   animation running. It is the surface `gui_mirror_fidelity.py` photographs, so
+   that what gets measured is THIS page's own rendering rather than a second
+   renderer written to imitate it. */
+body.bare{background:#000;overflow:hidden}
+body.bare #top,body.bare #rail,body.bare #status,body.bare #echo,
+body.bare #sidewrap,body.bare #compareView,body.bare #mirrorView>p{display:none}
+body.bare #wrap{display:block}
+body.bare #main{padding:0}
+body.bare .sidebyside{display:block;gap:0}
+body.bare .sidebyside h5{display:none}
+body.bare .stagewrap{border:0;overflow:visible;max-width:none}
+body.bare .stage{background:#000;background-image:none}
+/* The ready gate, and the reason the instrument needs no second browser call to
+   read the DOM marker: in bare mode the stage paints only once `data-ready` is
+   set, so a screenshot taken before the page finished comes back BLANK instead
+   of half-drawn, and a blank frame where the census frame has ink is a refusal
+   the instrument can see. */
+body.bare .stagewrap{visibility:hidden}
+html[data-ready="1"] body.bare .stagewrap{visibility:visible}
+body.bare *,body.bare *::before,body.bare *::after{animation:none;transition:none}
+"""
+
 JS = r"""
 'use strict';
 var M = window.__MIRROR__;
@@ -1774,6 +2124,15 @@ function el(tag, cls, txt){
   return e;
 }
 function norm(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+/* A window title with the product's own name taken off the front. The prefix is
+   the generator's, derived from the titles; this page types no part of it. */
+function stripPrefix(t){
+  var s = (t || '').trim(), p = (M.titlePrefix || '').trim();
+  if (p && s.toLowerCase().indexOf(p.toLowerCase()) === 0){
+    return s.slice(p.length).replace(/^[\s-]+/, '').trim();
+  }
+  return s;
+}
 function capsFor(win){ return M.captures.filter(function(c){ return c.window === win; }); }
 function status(msg, warn){
   var s = document.getElementById('status');
@@ -1864,18 +2223,41 @@ function richText(parent, text){
 }
 function renderNode(n, out, opts){
   opts = opts || {};
-  var d = el('div', 'gn k-' + n.k + (n.s ? ' s-' + n.s : '') + (n.e === 0 ? ' dis' : '') +
+  /* `dis` dims a control that the frame gave us no colour for. Where it DID -
+     every control with text - the sampled `fg` is already the greyed colour the
+     game drew, and dimming it again put the Missions window's disabled interval
+     field below the threshold of being visible at all. */
+  var d = el('div', 'gn k-' + n.k + (n.s ? ' s-' + n.s : '') +
+                   ((n.e === 0 && !n.fg) ? ' dis' : '') +
                    (n.t ? '' : ' notext'));
   d.style.left = n.x + 'px'; d.style.top = n.y + 'px';
   d.style.width = n.w + 'px'; d.style.height = n.h + 'px';
   if (n.bg && (n.k === 'box' || n.s === 'box' || n.k === 'button' ||
-               n.k === 'buttongrid' || n.k === 'textfield' || n.k === 'window')) {
+               n.k === 'buttongrid' || n.k === 'textfield' || n.k === 'window' ||
+               (n.k === 'toggle' && n.s === 'button'))) {
     d.style.background = n.bg;
   }
   if (n.fg) d.style.color = n.fg;
   if (n.k === 'toggle'){
-    var cb = el('span','cb', n.v ? 'x' : '');
-    d.appendChild(cb);
+    /* The box is empty and its MARK is drawn in CSS; a glyph typed here was the
+       wrong shape. A toggle in the button style hides the box entirely and takes
+       the pushed-in look instead - which is what KSP draws for that style. */
+    d.appendChild(el('span','cb' + (n.v ? ' on' : '')));
+    if (n.v) d.classList.add('on');
+  }
+  if (n.k === 'slider'){
+    if (n.vt) d.classList.add('vt');
+    if (n.bg){ d.style.background = n.bg; d.classList.add('sg'); }
+    /* The handle at its MEASURED position. No measurement, no handle. */
+    if (n.th && n.th[1] > 0){
+      var th = el('div','th');
+      if (n.vt){ th.style.top = n.th[0] + 'px'; th.style.height = n.th[1] + 'px'; }
+      else { th.style.left = n.th[0] + 'px'; th.style.width = n.th[1] + 'px'; }
+      /* Sampled off this capture's own frame - the face and its bevel. */
+      if (n.tc) th.style.background = n.tc;
+      if (n.te) th.style.borderColor = n.te;
+      d.appendChild(th);
+    }
   }
   if (n.k === 'buttongrid'){
     /* A selection grid reports only the selected item. The item NAMES come from
@@ -1912,6 +2294,12 @@ function renderNode(n, out, opts){
       out.appendChild(d);
       return d;
     }
+  }
+  if (n.tx != null){
+    /* The text run at its MEASURED offset: KSP's box style centres some of them
+       and left-aligns others, and no rule the page could carry knows which. */
+    d.style.justifyContent = 'flex-start';
+    d.style.paddingLeft = n.tx + 'px';
   }
   if (n.t || (n.k === 'buttongrid' && n.tv)){
     var span = el('span', 'tx');
@@ -1977,7 +2365,10 @@ function renderCapture(cap, host, opts){
     });
     host.appendChild(w);
   });
-  if (cap.dialog){
+  /* The modal block carries a PHOTOGRAPH of the whole frame, so bare mode leaves
+     it out: a measurement of the page's own rendering must not be handed a copy
+     of the thing it is being measured against. */
+  if (cap.dialog && opts.dialog !== false){
     host.appendChild(buildDialog(cap));
   }
   wireEcho(host);
@@ -2081,8 +2472,11 @@ function routeClick(ev, cap){
   var wins = M.windows.filter(function(w){ return w.captureCount > 0; });
   for (var i=0;i<wins.length;i++){
     var w = wins[i];
+    /* `M.titlePrefix` is the product's own name, derived by the generator from
+       the run of leading words every window title shares - not a word typed
+       into this page. */
     var names = [norm(w.token)].concat(w.titles.map(function(t){
-      return norm((t||'').replace(/^Parsek\s*-?\s*/i,'')); }));
+      return norm(stripPrefix(t)); }));
     if (names.indexOf(txt) >= 0 && w.token !== cap.window){
       go(w.token, null, null, S.mode); return;
     }
@@ -2556,8 +2950,75 @@ function noteBlock(win, keyRows){
   return d;
 }
 
+/* ---- bare mode: the deep link the fidelity instrument photographs ---- */
+/* `#cap=<capture id>&bare=1` renders exactly one capture's stage at 1:1 CSS
+   pixels at the top-left, with the page's own chrome, photograph and animations
+   off, and sets `data-ready` on <html> once the stage has painted, which is what
+   the headless screenshot waits for.
+   Everything below is reached only through the hash: `bootBare` returns false on
+   a page opened without it and boot() then follows exactly the path it always
+   did. That is the whole reason the instrument can claim it measures the real
+   page - there is no second rendering path to drift. */
+function parseHash(h){
+  var out = {};
+  String(h || '').replace(/^#/, '').split('&').forEach(function(p){
+    if (!p) return;
+    var i = p.indexOf('=');
+    var k = (i < 0) ? p : p.slice(0, i);
+    var v = (i < 0) ? '1' : p.slice(i + 1);
+    if (!k) return;
+    try { out[decodeURIComponent(k)] = decodeURIComponent(v); }
+    catch (e) { out[k] = v; }
+  });
+  return out;
+}
+function bootBare(){
+  var q = parseHash(window.location.hash);
+  if (q.bare !== '1') return false;
+  document.body.classList.add('bare');
+  var stage = document.getElementById('stage');
+  var cap = byId[q.cap];
+  if (!cap){
+    /* Named a capture that is not in this page: say which, and mark the document
+       NOT ready, so the instrument fails loudly instead of measuring a blank. */
+    document.documentElement.dataset.error = 'no capture "' + (q.cap || '') + '"';
+    document.documentElement.dataset.ready = '0';
+    return true;
+  }
+  renderCapture(cap, stage, { photo: 'off', dialog: false,
+                              foreign: (q.foreign === '1') });
+  /* The stage is pinned to the frame the dump was taken at, so a screenshot of
+     it shares one coordinate system with the census PNG: pixel (x,y) here is
+     pixel (x,y) there. renderCapture grows the stage to the widest root, which
+     is right for a reader scrolling a window the instance could not fit and
+     wrong for a measurement against a screen-sized frame. */
+  stage.style.width = cap.screen[0] + 'px';
+  stage.style.height = cap.screen[1] + 'px';
+  document.documentElement.dataset.capture = cap.id;
+  /* `&scroll=<px>` scrolls every scroll view on the stage before the page marks
+     itself ready. It exists so that "content below the fold is REACHABLE" is a
+     thing a screenshot can show rather than a claim about CSS: photograph one
+     capture at 0 and at 400 and the rows on screen differ. The default is 0,
+     which is the offset the census frame was taken at, so an ordinary
+     measurement is unaffected. */
+  var sc = parseInt(q.scroll, 10);
+  if (sc > 0){
+    Array.prototype.forEach.call(stage.querySelectorAll('.gn.k-scrollview'),
+      function(sv){ sv.scrollTop = sc; });
+    document.documentElement.dataset.scrolled = String(sc);
+  }
+  /* Two frames: one for layout, one for the paint. */
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      document.documentElement.dataset.ready = '1';
+    });
+  });
+  return true;
+}
+
 /* ---- boot ---- */
 function boot(){
+  if (bootBare()) return;
   var fixSel = document.getElementById('fixture');
   M.fixtures.forEach(function(f){
     var o = document.createElement('option');
@@ -2642,7 +3103,8 @@ def render_html(model):
         '<html lang="en"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width,initial-scale=1">',
         "<title>Parsek GUI mirror</title>",
-        "<style>%s</style>" % CSS.replace("%CLICK_CSS%", click_kind_css()),
+        "<style>%s</style>" % (CSS.replace("%CLICK_CSS%", click_kind_css())
+                               + BARE_CSS),
         "</head><body>",
         '<div id="top">',
         "<h1>Parsek GUI mirror</h1>",
@@ -2706,6 +3168,7 @@ def _page_model(model):
     return {
         "schema": model["schema"],
         "seamWindows": model["seamWindows"],
+        "titlePrefix": model["titlePrefix"],
         "clickKinds": model["clickKinds"],
         "seamOps": model["seamOps"],
         "closeOp": model["closeOp"],
