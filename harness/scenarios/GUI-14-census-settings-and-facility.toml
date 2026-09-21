@@ -16,12 +16,17 @@ tier = "operator"
 # (GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT). The REASON strings beside them
 # still need the hover fix and are not claimed here.
 #
-# ORDER IS LOAD-BEARING, and this is the one thing a re-arrangement of this lane would
-# break. The facility upgrade at the end writes a `FacilityUpgrade` row into Parsek's
-# ledger, which is a MILESTONE - so after it, `Wipe All Milestones` is ENABLED. Every
-# Settings capture therefore comes FIRST, while the save is still untouched, and the
-# Career captures come after. A lane that opened Settings again at the end would
-# photograph the enabled form under the disabled label.
+# ORDER: EVERY SETTINGS CAPTURE COMES FIRST, while the save is still untouched, and the
+# Career captures come after. The reason first written here was that the facility upgrade
+# writes a milestone which would ENABLE `Wipe All Milestones`, and THE FIRST FLIGHT
+# REFUTED THAT: a `FacilityUpgrade` is not a Milestones row, that tab still read
+# `(no milestones credited)` after the upgrade, and the button would presumably have
+# stayed greyed. The ordering STAYS, for a weaker but still real reason - a census should
+# photograph the empty-career state of a window before anything in the lane mutates the
+# save, because the next action that DOES credit a milestone would silently change the
+# picture under the label - and the corrected reading is recorded rather than smoothed
+# over, because "the upgrade enables the wipe" is the kind of claim a later author would
+# build on.
 #
 # THE THREE DENSITY STATES AND THE FIVE DIAGNOSTICS TOGGLES are `SetSetting` work, not
 # new seam work: `samplingDensity` (Int 0..2) and all five tracing flags
@@ -44,10 +49,14 @@ tier = "operator"
 # with no `scene=` arg.
 #
 # THE MIN-SIZE CAPTURE. `CareerStateWindowUI` declares a 520x200 drag floor, and at
-# 520 px the Milestones table's four fixed columns (90 + 200 + 320 + 70 = 680 px) CANNOT
-# fit while IMGUI does not reflow - so the window's own minimum is a size at which its
-# densest table is clipped, and no picture proved it. `op=rect` position is exact and
-# both size axes are FLOORS, so the read-back reports whatever the window resolved to.
+# 520 px a four-fixed-column table (the Milestones one totals 90 + 200 + 320 + 70 =
+# 680 px) CANNOT fit while IMGUI does not reflow - so the window's own minimum is a size
+# at which its own tables are clipped, and no picture proved it. It is taken on
+# FACILITIES rather than Milestones, and that is a correction from this lane's first
+# flight: on this host Milestones is one empty-state label, so a min-size picture of it
+# clips nothing. Facilities draws nine rows over four fixed columns after the upgrade
+# below. `op=rect` position is exact and both size axes are FLOORS, so the read-back
+# reports whatever the window resolved to.
 #
 # WHAT THIS LANE REPLACED, and it is a correction to the audit that proposed it. The
 # audit asked for a `strategy-career` lane to photograph populated Strategies rows and
@@ -60,7 +69,22 @@ tier = "operator"
 # category, and an in-game batch captures and RESTORES a `persistent.sfs` baseline
 # around itself, so nothing it activates survives to be photographed. Filed as
 # GUI-CENSUS-STRATEGY-ROWS-NEED-A-LEDGER-SEEDED-HOST.
-description = "GUI census: the Settings window with both Wipe buttons greyed on an empty career, its Low and High sample-density states and its five Diagnostics toggles armed, then a real Tracking Station upgrade so the Career State window's Facilities tab has a row above level 1, its Milestones tab has a credited row, and both are photographed again at the window's own 520x200 drag floor."
+#
+# FLOWN 2026-09-21. First flight `2026-09-21_2033`, PASS attempt 1, 63 s wall, every
+# verifier PASS or SKIPPED, `expectations mismatches=0`, ten captures and ten dumps. It
+# MEASURED four things this spec now states rather than guesses, and two of them changed
+# the lane: (i) both Wipe buttons read `(0)` with `enabled=false`, so the central claim
+# landed; (ii) the Facilities tab after the upgrade reads ONE row at `L2`
+# (Tracking Station) beside eight at `L1`, which also ANSWERS the audit's open
+# correctness question - the window CAN see upgrades, so the uniform `L1` on the other
+# three fixtures means nothing was upgraded rather than that the window is blind;
+# (iii) the three density summary strings differ in the TREE
+# (`0.50-8.0s / 6.0 deg / 12%`, `0.20-3.0s / 2.0 deg / 5%`, `0.05-1.0s / 0.5 deg / 1%`),
+# so the density state does not depend on the PNG to be readable; and (iv) a
+# `FacilityUpgrade` is NOT a Milestones row - that tab still read
+# `(no milestones credited)` under a label saying `credited`, which is the failed capture
+# the relabel and the moved min-size step below fix.
+description = "GUI census: the Settings window with both Wipe buttons greyed on an empty career, its Low and High sample-density states and its five Diagnostics toggles armed, then a real Tracking Station upgrade so the Career State window's Facilities tab has a row above level 1 - which also answers whether that tab can see upgrades at all - and the populated Facilities tab again at the window's own 520x200 drag floor."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "settings", "career", "GUI-14", "pending-operator"]
 
@@ -96,8 +120,14 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "718" }, expect = "OK" },
 
-  # STATE 1: the shipped defaults on an empty career - BOTH Wipe buttons greyed, density
-  # Medium, every Diagnostics toggle off. This is the capture the lane exists for.
+  # STATE 1: BOTH Wipe buttons greyed, measured reading `Wipe All Recordings (0)` and
+  # `Wipe All Milestones (0)` with `enabled=false` in the dump. This is the capture the
+  # lane exists for. Density here is Medium (`Sampling: every 0.20-3.0s, 2.0 deg / 5%
+  # thresholds`), the baseline the two below are read against. NOT "every Diagnostics
+  # toggle off", which an earlier draft claimed and the first flight refuted:
+  # `verboseLogging` is armed by `run.py`'s own settings baseline and
+  # `writeReadableSidecarMirrors` ships on, so two of the five are already true here and
+  # the STATE 4 capture moves the other three.
   { cmd = "CaptureScreenshot", args = { label = "fc-settings-wipesdisabled-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "fc-settings-wipesdisabled-advanced" }, expect = "OK" },
 
@@ -153,18 +183,30 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-upgraded-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-upgraded-advanced" }, expect = "OK" },
+  # THE MILESTONES TAB AFTER THE UPGRADE, AND ITS LABEL NOW SAYS WHAT IT ACTUALLY SHOWS.
+  # The first flight (`2026-09-21_2033`, PASS) photographed this tab under the label
+  # `...-credited-...` and the dump read `  (no milestones credited)`, so the picture
+  # contradicted its own label - a failed capture however green the run. THE READING
+  # BEHIND IT IS WORTH KEEPING: a `FacilityUpgrade` ledger action is NOT a Milestones
+  # row. Both tabs read the same effective ledger and select different action families,
+  # so an upgrade populates Facilities and leaves Milestones empty. Relabelled rather
+  # than dropped, because the PAIR - Facilities populated and Milestones still empty, on
+  # one ledger in one frame - is what makes that fact visible.
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fc-career-milestones-credited-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fc-career-milestones-credited-advanced" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-career-milestones-postupgrade-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-career-milestones-postupgrade-advanced" }, expect = "OK" },
 
-  # AND AT THE WINDOW'S OWN DRAG FLOOR, on the densest tab. 520x200 is the declared
-  # minimum; the Milestones table's four fixed columns total 680 px and IMGUI does not
-  # reflow, so this is the picture of what the declared minimum actually shows. Both size
-  # axes are floors in the read-back, so a window that refuses to shrink reports the size
-  # it kept rather than erroring.
+  # AND AT THE WINDOW'S OWN DRAG FLOOR, ON THE POPULATED TAB. 520x200 is the declared
+  # minimum and IMGUI does not reflow, so the point of this capture is a table whose
+  # fixed columns cannot fit it. FACILITIES, not Milestones: the first flight took it on
+  # Milestones, which on this host is one empty-state label - it clips nothing and the
+  # picture proved nothing. Facilities draws nine rows over four fixed columns here. Both
+  # size axes are floors in the read-back, so a window that refuses to shrink reports the
+  # size it kept rather than erroring.
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "520", h = "200" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fc-career-milestones-minsize-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fc-career-milestones-minsize-advanced" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-minsize-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-minsize-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
 
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -210,8 +252,8 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-diagnosticson-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-preupgrade-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-upgraded-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-milestones-credited-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-milestones-minsize-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-milestones-postupgrade-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-minsize-advanced .*patched=17/17",
 ]
 forbidden = []
 

@@ -3,17 +3,28 @@ id = "GUI-19-census-timeline-supersede"
 tier = "operator"
 # THE GUI CENSUS: THE TIMELINE WINDOW OVER A SUPERSEDED RECORDING.
 #
-# WHY THIS LANE EXISTS. A supersede produces exactly ONE pixel in the Timeline window: a
-# STRIKETHROUGH row, drawn when `EffectiveState` says a recording is not effective
-# (`TimelineWindowUI`). A state-coverage audit verified four ways that no capture has it -
-# no census lane runs on either supersede-carrying fixture; the one populated Re-Fly
-# capture (`bd-timeline-refly-advanced`) is static, with three `Fly` and three `Seal`
-# buttons all enabled, no marker, no journal and no HEAD/TIP split; the `ksc-` and `cek-`
-# Re-Fly captures are the EMPTY view with no `Fly` node at all; and no timeline dump
-# anywhere contains a struck row. So the only visual trace of Parsek's Rewind-to-
-# Separation feature is unphotographed.
+# WHY THIS LANE EXISTS, AND WHAT ITS FIRST FLIGHT CORRECTED. The state-coverage audit
+# that proposed it claimed the Timeline's STRIKETHROUGH row is "the only visual trace of
+# a supersede", and that no capture had one. The second half is true; THE FIRST HALF IS
+# NOT, and the source says so unambiguously. `TimelineWindowUI` picks
+# `timelineStrikethroughStyle` on `!entry.IsEffective`, and `TimelineEntry.IsEffective`
+# has exactly TWO writers in the whole program (`Timeline/TimelineBuilder.cs`): it is
+# seeded from `action.Effective` on a GAME-ACTION entry, and merged with `|=` when
+# milestone rows are compacted. Nothing anywhere derives it from a recording supersede.
+# So a strikethrough means a TOMBSTONED or otherwise non-effective LEDGER ACTION - the
+# thing `CL-3` / `CL-4`'s crew-death rewinds produce on a career host - and a recording
+# supersede produces NO Timeline pixel at all. Measured on this lane's own first flight
+# (`2026-09-21_2059`, PASS): the fixture's `RECORDING_SUPERSEDES` entry loaded, the
+# Details tab drew ONE launch row, and no struck row appeared anywhere. Filed as
+# GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-ACTION-EFFECTIVENESS-NOT-SUPERSEDE.
 #
-# THE HOST CARRIES THE ROW ON DISK. `refly-a-recorded`'s `persistent.sfs` holds one
+# WHAT THE LANE IS FOR AFTER THAT CORRECTION, and it is still worth its flight: the
+# Timeline window's three FLIGHT-only tabs, over a host that DOES carry a supersede on
+# disk so a future reader can see what a superseded tree looks like in the surfaces that
+# do render it. The supersede's visible consequence here is row ABSENCE, which is a real
+# reading and the opposite of what the audit predicted.
+#
+# THE HOST CARRIES THE SUPERSEDE ROW ON DISK. `refly-a-recorded`'s `persistent.sfs` holds one
 # `RECORDING_SUPERSEDES` `ENTRY`: `oldRecordingId = d096297d815647de988c380fb6931d0a`
 # superseded by `newRecordingId = rec_d4b696b61b544c1e8013073c611c8477` at `ut =
 # 4376.60418224251`, plus two `mergeState = CommittedProvisional` recordings. That is a
@@ -57,12 +68,14 @@ tier = "operator"
 # would have blocked it.
 #
 # WHAT THIS LANE DOES NOT CLAIM. It asserts that each window DREW and that the supersede
-# row is on disk to be drawn; it does NOT pin the strikethrough itself, because a
-# strikethrough is a STYLE and `parsek-gui-tree/1` nodes carry no style field - the
-# evidence is the PNG plus the row's presence in the dump. Nor does it claim a live
-# rewind, an armed `R`, or a journal: all three need a RewindPoint this fixture does not
-# have (GUI-CENSUS-LIVE-REWIND-NEEDS-AN-RP-CARRYING-HOST).
-description = "GUI census: the Timeline window over the one committed fixture that carries a recording-supersede relation, across all four tabs in FLIGHT - three of which no capture had in that scene, and which is the only scene the Watch column draws in - plus the editable form of the Missions tab's loop period cell, the third of its three renderings."
+# relation loaded. It does NOT claim a strikethrough - see the header for why no host
+# with a supersede can produce one - and it would not pin one anyway, since a
+# strikethrough is a STYLE and `parsek-gui-tree/1` nodes carry no style field. Nor does
+# it claim a live rewind, an armed `R`, or a journal: all three need a RewindPoint this
+# fixture does not have (GUI-CENSUS-LIVE-REWIND-NEEDS-AN-RP-CARRYING-HOST). The Re-Fly
+# tab here draws its EMPTY form for the same reason, which the label does not contradict:
+# it says `refly-flight`, and the flight scene is what it photographs.
+description = "GUI census: the Timeline window across all four tabs in FLIGHT - three of which no capture had in that scene, and which is the only scene the Watch column draws in, including the first disabled W button anywhere - over the one committed fixture carrying a recording-supersede relation, whose measured Timeline consequence is row ABSENCE rather than the strikethrough the audit predicted; plus the editable form of the Missions tab's loop period cell."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "timeline", "rewind", "GUI-19", "pending-operator"]
 
@@ -96,11 +109,16 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ra-timeline-overview-flight-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ra-timeline-overview-flight-advanced" }, expect = "OK" },
-  # `details` is the tab that lists per-recording rows, so it is where the superseded
-  # recording's struck row is.
+  # `details` is the tab that lists per-recording and per-action rows. It is where the
+  # audit expected a struck row for the superseded recording; the first flight measured
+  # that no such row exists (see the header - the strikethrough is driven by ledger
+  # ACTION effectiveness, not by a recording supersede), so the label says `flight`
+  # rather than `superseded` and the capture's value is the FLIGHT-scene tab itself. It
+  # does buy one measured P1 the audit had at zero hits program-wide: a DISABLED `W`
+  # button, which only the flight scene draws at all.
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "details" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ra-timeline-details-superseded-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ra-timeline-details-superseded-advanced" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ra-timeline-details-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ra-timeline-details-flight-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "rewindff" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ra-timeline-rewindff-flight-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ra-timeline-rewindff-flight-advanced" }, expect = "OK" },
@@ -167,9 +185,9 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
   "d096297d815647de988c380fb6931d0a",
   "missionconfig applied: mission='.*' tree=47cea2fe7d9e4e9eb6a729a7e280cc41 loop=True",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ra-timeline-details-superseded-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ra-timeline-details-flight-advanced",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-overview-flight-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-details-superseded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-details-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-rewindff-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-timeline-refly-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ra-missions-loopon-editable-advanced .*patched=17/17",

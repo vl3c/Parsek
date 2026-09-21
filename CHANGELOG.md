@@ -37,7 +37,34 @@ _(unreleased — entries accumulate here per commit)_
   capture tail, which no non-GUI spec had ever carried. They deliberately declare no
   `[expectations.routes]` block - the originals keep that gating - which is what lets them
   append the extra `TimeJump` that ages a hold into its `(checked N ago)` form without
-  reding a cycle-count window.
+  reding a cycle-count window. ALL THIRTEEN LANES FLEW GREEN the same day, sixteen
+  flights on one pinned automation DLL, every final verdict PASS on attempt 1 at 53-92 s
+  wall, and every capture was then read back out of its own control-tree dump rather than
+  assumed. The readings that were not predictions: the Missions tab's period cell is a
+  DISABLED LABEL under a loop (`~13d-19d (Mun window, varies)` on the Mun subject,
+  `~2.1y (Duna transfer)` on Duna) rather than the editable field every prior capture
+  shows; the Gloops recorder committed its take at 15 points, so all three of its states
+  landed including `Saved: "Kerbal X"` with Preview finally enabled; the Settings
+  Interface section drew `Basic` greyed beside the extended hint ending
+  `Stop the Gloops recording first.`; a driven Tracking Station upgrade put one row at
+  `L2` beside eight at `L1`; and the four Logistics clones produced the whole refusal
+  vocabulary at once - `Held: B short 108.8 LiquidFuel`, the `Delivering` badge, the
+  `Pause` button, `Recent cycles:` with a real per-cycle line, `Total delivered:`,
+  `Cyc = 1 / 3 skipped`, and a yellow `Last cycle blocked: ... (checked 10.0m ago)` line
+  in three different hold vocabularies.
+- **Automated testing: the Timeline's strikethrough row is NOT a supersede's trace, and
+  the census lane that was authored to photograph one refuted its own premise on its first
+  flight.** `TimelineWindowUI` picks `timelineStrikethroughStyle` on
+  `!entry.IsEffective`, and `TimelineEntry.IsEffective` has exactly two writers in the
+  program (`Timeline/TimelineBuilder.cs`): seeded from `action.Effective` on a game-action
+  entry, and merged with `|=` when milestone rows compact. Nothing derives it from a
+  recording supersede. A struck row therefore means a TOMBSTONED ledger action - what the
+  crew-death rewind lanes produce on a career host - while a recording supersede produces
+  no Timeline pixel at all, only row absence. Measured on the flight: the fixture's
+  supersede relation loaded, the Details tab drew one launch row, nothing was struck. The
+  capture was relabelled and the finding filed rather than left standing in a spec header.
+  The lane keeps its flight for what it did buy - the three FLIGHT-only Timeline tabs and
+  a `W` button with `enabled=false`, a state measured at zero hits program-wide.
 - **Automated testing: four census captures were STALE against HEAD and are re-shot by the
   act of re-flying their lane.** `ksc-settings-advanced` / `ksc-settings-basic`
   photographed a button reading `Wipe All Game Actions (N)` where HEAD draws

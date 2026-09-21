@@ -109,7 +109,32 @@ its RewindPoint is gone so it cannot re-fly. **Fix:** a census lane on a fixture
 carries a usable RewindPoint (`bdock-recorded` and `refly-autopilot-recorded` both do),
 which is a larger lane than this wave's shape because the rewind mutates the host.
 
-**10. Roughly sixty hover and disabled-reason strings remain unreachable,** which is the
+**11. GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-ACTION-EFFECTIVENESS-NOT-SUPERSEDE.** The
+audit called the Timeline's struck row "the only visual trace of a supersede", and
+`GUI-19`'s first flight (`2026-09-21_2059`) refuted it. `TimelineWindowUI` picks
+`timelineStrikethroughStyle` on `!entry.IsEffective`, and `TimelineEntry.IsEffective`
+has exactly TWO writers in the program (`Source/Parsek/Timeline/TimelineBuilder.cs`): it
+is seeded from `action.Effective` on a GAME-ACTION entry, and merged with `|=` when
+milestone rows compact. Nothing anywhere derives it from a recording supersede. So a
+struck row means a TOMBSTONED or otherwise non-effective LEDGER ACTION - what `CL-3` /
+`CL-4`'s crew-death rewinds produce on a career host - and a recording supersede produces
+NO Timeline pixel at all. Measured on the flight: the fixture's `RECORDING_SUPERSEDES`
+entry loaded, the Details tab drew one launch row, nothing was struck. **Consequence for
+the census:** the struck row wants a lane on a host with a tombstoned action, not one with
+a supersede; and the supersede's own Timeline consequence is row ABSENCE, which is
+unphotographable by construction. **Not a defect** - the window is doing what the code
+says - but the claim was load-bearing for a lane, so it is filed rather than left in a
+spec header.
+
+**12. The near-miss subsection buys ONE reject string on the operator's career, not
+twelve.** `GUI-1`'s 2026-09-21 re-fly expanded it for the first time and all EIGHTEEN
+rows read the same clause: `Recording has no route proof - log the dock event to enable a
+Supply Route.` The other eleven `LogisticsRejectPresentation.DescribeNearMiss` /
+`RouteCreationFormatters` reasons are still dark. **Fix:** a host chosen for the REASON
+rather than for density - the operator's career is one long-lived campaign, so its
+ineligible trees all fail the same way.
+
+**13. Roughly sixty hover and disabled-reason strings remain unreachable,** which is the
 one item on this list that is MEASURED rather than merely unattempted. Filed separately and
 unchanged as `GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT`: `focus=true nudge=true`
 is already refuted (a real `WM_MOUSEMOVE` was delivered after an `AttachThreadInput`

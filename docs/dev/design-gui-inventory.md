@@ -41,10 +41,11 @@ whole of 3.11 - which alone carries re-derived line numbers for BOTH runner file
 that is where this authoring pass hit them - and the two Test Runner rows of section 7's size
 table. Sections 3 to 5 and the rest of 7 are still the 2026-09-11 reading against `4eb427e9e`.
 
-COVERAGE NOT YET UPDATED FOR WAVE 5, AND THIS PARAGRAPH SAYS SO ON PURPOSE. Eleven new
-census lanes were AUTHORED 2026-09-21 (GUI-13..GUI-23) plus three amendments to GUI-1, GUI-6
-and GUI-7, off a read-only STATE-COVERAGE AUDIT that is a different measurement from this
-file's: where this document enumerates SURFACES (windows, tabs, dialogs, overlays, gate keys)
+COVERAGE NOT YET RE-MEASURED FOR WAVE 5, AND THIS PARAGRAPH SAYS SO ON PURPOSE. Eleven
+new census lanes were AUTHORED AND FLOWN GREEN 2026-09-21 (GUI-13..GUI-23, sixteen
+flights on one pinned automation DLL, every final verdict PASS on attempt 1) plus two
+amendments to GUI-1 and GUI-6, off a read-only STATE-COVERAGE AUDIT that is a different
+measurement from this file's: where this document enumerates SURFACES (windows, tabs, dialogs, overlays, gate keys)
 and asks which are reachable, the audit enumerated visibly distinct STATES of those surfaces
 and asked which were photographed. Its headline reading was that all 14 windows were
 MODELLED - each had at least one capture, which is what section 2's 14 of 14 records - and
@@ -75,6 +76,21 @@ here. What DOES belong here and is recorded now, because it corrects claims this
   Gloops Recorder; its three states are photographed through the seam's own `IsOpen` write
   and are DIAGNOSTIC in practice. Both are filed with their source gates as todo
   `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`.
+- **The Timeline's STRIKETHROUGH row is not a supersede's trace.** `TimelineWindowUI`
+  picks `timelineStrikethroughStyle` on `!entry.IsEffective`, and
+  `TimelineEntry.IsEffective` is written only from `action.Effective` and from the
+  milestone-compaction merge (`Timeline/TimelineBuilder.cs`) - never from a recording
+  supersede. A struck row means a TOMBSTONED ledger action; a recording supersede
+  produces no Timeline pixel at all. Measured on GUI-19's first flight over the one
+  committed fixture that carries a `RECORDING_SUPERSEDES` entry: it loaded, the Details
+  tab drew one launch row, nothing was struck. Filed as
+  GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-ACTION-EFFECTIVENESS-NOT-SUPERSEDE.
+- **The Career State window's Facilities tab CAN see upgrades**, which this file could not
+  say before. Every capture across three fixtures read nine rows of `L1`, consistent both
+  with "nothing was upgraded" and with "the window is blind". GUI-14 drove one
+  `KscAction upgrade-facility` and the tab then read one row at `L2` (Tracking Station)
+  beside eight at `L1`. A `FacilityUpgrade` is NOT a Milestones row, though: that tab
+  still read `(no milestones credited)` on the same ledger in the same frame.
 - **Three surfaces this file treats as reachable are not, from any committed host.** The
   Structure window's Route-mode `Origin: depot` step (all three committed routes read
   `isKscOrigin = True`); the Logistics capacity line `<dest> tanks full: ...` (gated on
