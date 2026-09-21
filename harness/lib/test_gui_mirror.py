@@ -464,6 +464,258 @@ class GridLabelMeasurementTests(unittest.TestCase):
         self.assertEqual(gmi.grid_label_runs(w, h, bpp, px, [0, 0, 400, 2]), [])
 
 
+class SliderThumbMeasurementTests(unittest.TestCase):
+    """A slider reports its rect and no value, so where its HANDLE sits is
+    measured off the frame - the same move as the tab bar's label runs. Before
+    this the page drew a bare groove and the design doc listed the missing handle
+    as unfixable from the dump; it was never unfixable from the PNG."""
+
+    def bar(self, w, h, rect, thumb, vertical, groove=0x38, face=0xc0):
+        px = bytearray(bytes((0x44, 0x44, 0x44)) * (w * h))
+        x, y, rw, rh = rect
+        for yy in range(y, y + rh):
+            for xx in range(x, x + rw):
+                o = (yy * w + xx) * 3
+                px[o:o + 3] = bytes((groove, groove, groove))
+        t0, t1 = thumb
+        if vertical:
+            for yy in range(y + t0, y + t1):
+                for xx in range(x, x + rw):
+                    o = (yy * w + xx) * 3
+                    px[o:o + 3] = bytes((face, face, face))
+        else:
+            for yy in range(y, y + rh):
+                for xx in range(x + t0, x + t1):
+                    o = (yy * w + xx) * 3
+                    px[o:o + 3] = bytes((face, face, face))
+        return w, h, 3, bytes(px)
+
+    def test_a_horizontal_handle_is_read_at_its_own_offset(self):
+        rect = [30, 50, 200, 12]
+        w, h, bpp, px = self.bar(300, 100, rect, (140, 152), False)
+        self.assertEqual(gmi.slider_thumb_run(w, h, bpp, px, rect),
+                         (140, 12, False))
+
+    def test_a_vertical_scrollbar_is_read_on_its_own_axis(self):
+        rect = [200, 20, 15, 300]
+        w, h, bpp, px = self.bar(300, 400, rect, (10, 120), True)
+        self.assertEqual(gmi.slider_thumb_run(w, h, bpp, px, rect),
+                         (10, 110, True))
+
+    def test_a_flat_groove_measures_nothing_rather_than_guessing_a_middle(self):
+        rect = [30, 50, 200, 12]
+        w, h, bpp, px = self.bar(300, 100, rect, (0, 0), False, groove=0x38,
+                                 face=0x38)
+        self.assertIsNone(gmi.slider_thumb_run(w, h, bpp, px, rect))
+
+    def test_a_degenerate_rect_measures_nothing(self):
+        w, h, bpp, px = self.bar(300, 100, [30, 50, 200, 12], (140, 152), False)
+        self.assertIsNone(gmi.slider_thumb_run(w, h, bpp, px, [30, 50, 0, 12]))
+        self.assertIsNone(gmi.slider_thumb_run(w, h, bpp, px, [30, 50, 4, 4]))
+
+    def test_the_longest_bright_run_wins_over_a_stray_highlight(self):
+        rect = [30, 50, 200, 12]
+        w, h, bpp, px = self.bar(300, 100, rect, (100, 140), False)
+        px = bytearray(px)
+        for yy in range(50, 62):           # a two-pixel glint at the far end
+            for xx in range(225, 227):
+                o = (yy * 300 + xx) * 3
+                px[o:o + 3] = bytes((0xc0, 0xc0, 0xc0))
+        self.assertEqual(gmi.slider_thumb_run(w, h, bpp, bytes(px), rect),
+                         (100, 40, False))
+
+    def test_the_measurement_reaches_the_compact_node(self):
+        rect = [30, 50, 200, 12]
+        w, h, bpp, px = self.bar(300, 100, rect, (140, 152), False)
+        out = gmi.compact_tree(
+            node("slider", rect, style="horizontalslider"), [0, 0],
+            thumb_runs=lambda r: gmi.slider_thumb_run(w, h, bpp, px, r))
+        self.assertEqual(out["th"], [140, 12])
+        self.assertEqual(out["vt"], 0)
+
+    def test_a_vertical_node_carries_its_orientation(self):
+        rect = [200, 20, 15, 300]
+        w, h, bpp, px = self.bar(300, 400, rect, (10, 120), True)
+        out = gmi.compact_tree(
+            node("slider", rect, style="verticalscrollbar"), [0, 0],
+            thumb_runs=lambda r: gmi.slider_thumb_run(w, h, bpp, px, r))
+        self.assertEqual(out["vt"], 1)
+        self.assertEqual(out["th"], [10, 110])
+
+    def test_no_frame_leaves_the_node_with_no_handle(self):
+        out = gmi.compact_tree(node("slider", [0, 0, 100, 12]), [0, 0])
+        self.assertNotIn("th", out)
+
+
+class ToggleStyleTests(unittest.TestCase):
+    """KSP draws `Toggle(v, text, "button")` as a pushed-in button, not a
+    checkbox - 987 of the corpus's 8154 toggles - so the page has to tell the two
+    styles apart, and the button-styled one needs its fill sampled like any other
+    button's."""
+
+    def frame(self, rect, rgb=(0x31, 0x31, 0x31)):
+        w, h, bpp = 300, 100, 3
+        px = bytearray(bytes((0x44, 0x44, 0x44)) * (w * h))
+        x, y, rw, rh = rect
+        for yy in range(y, y + rh):
+            for xx in range(x, x + rw):
+                o = (yy * w + xx) * 3
+                px[o:o + 3] = bytes(rgb)
+        return w, h, bpp, bytes(px)
+
+    def test_a_button_styled_toggle_gets_its_fill_sampled(self):
+        rect = [20, 20, 120, 21]
+        w, h, bpp, px = self.frame(rect)
+        out = gmi.compact_tree(
+            node("toggle", rect, text="Advanced", style="button"), [0, 0],
+            sampler=lambda r, ex=(): gmi.sample_colors(w, h, bpp, px, r,
+                                                       exclude=ex))
+        self.assertEqual(out["bg"], "#313131")
+
+    def test_a_checkbox_styled_toggle_stores_no_fill(self):
+        rect = [20, 20, 120, 21]
+        w, h, bpp, px = self.frame(rect)
+        out = gmi.compact_tree(
+            node("toggle", rect, text="Show ghosts", style="toggle"), [0, 0],
+            sampler=lambda r, ex=(): gmi.sample_colors(w, h, bpp, px, r,
+                                                       exclude=ex))
+        self.assertNotIn("bg", out)
+
+    def test_the_page_draws_the_two_styles_differently(self):
+        self.assertIn(".gn.k-toggle.s-button", gmi.CSS)
+        self.assertIn(".gn.k-toggle.s-button .cb{display:none}", gmi.CSS)
+
+    def test_the_tick_is_drawn_and_not_typed(self):
+        # An ASCII `x` was the right STATE in the wrong shape.
+        self.assertIn(".gn.k-toggle .cb.on::after", gmi.CSS)
+        self.assertNotIn("n.v ? 'x'", gmi.JS)
+
+
+def _bare_js():
+    """The body of the page's `bootBare`, for the source-level cells below."""
+    return gmi.JS.split("function bootBare()", 1)[1].split("\nfunction ", 1)[0]
+
+
+class BoxTextAlignmentTests(unittest.TestCase):
+    """KSP's `box` style is not uniform about alignment and the dump records
+    none of it: the Logistics section heading is CENTRED in its 1358 px box while
+    the sortable column headers of the same table are LEFT-ALIGNED in theirs. The
+    page left-aligned the first (643 px out) and centred the second. So the
+    offset is measured off the frame, the same move the tab bar's labels use."""
+
+    def cell(self, w, h, rect, ink_x, ink_w, fill=0x29, ink=0xd6, border=True):
+        px = bytearray(bytes((0x44, 0x44, 0x44)) * (w * h))
+        x, y, rw, rh = rect
+        for yy in range(y, y + rh):
+            for xx in range(x, x + rw):
+                o = (yy * w + xx) * 3
+                px[o:o + 3] = bytes((fill, fill, fill))
+        if border:
+            for xx in range(x, x + rw):
+                for yy in (y, y + rh - 1):
+                    o = (yy * w + xx) * 3
+                    px[o:o + 3] = bytes((ink, ink, ink))
+            for yy in range(y, y + rh):
+                for xx in (x, x + rw - 1):
+                    o = (yy * w + xx) * 3
+                    px[o:o + 3] = bytes((ink, ink, ink))
+        for yy in range(y + 7, y + 15):
+            for xx in range(x + ink_x, x + ink_x + ink_w):
+                o = (yy * w + xx) * 3
+                px[o:o + 3] = bytes((ink, ink, ink))
+        return w, h, 3, bytes(px)
+
+    def test_a_left_aligned_run_reads_its_own_offset(self):
+        rect = [100, 40, 200, 23]
+        w, h, bpp, px = self.cell(400, 100, rect, 5, 40)
+        self.assertEqual(gmi.text_ink_offset(w, h, bpp, px, rect), 5)
+
+    def test_a_centred_run_reads_its_own_offset(self):
+        rect = [100, 40, 200, 23]
+        w, h, bpp, px = self.cell(400, 100, rect, 80, 40)
+        self.assertEqual(gmi.text_ink_offset(w, h, bpp, px, rect), 80)
+
+    def test_the_boxs_own_border_is_not_its_first_glyph(self):
+        # The whole reason the measurement is inset: a box border is as strong as
+        # its text, and reading it would put every run at offset 0.
+        rect = [100, 40, 200, 23]
+        w, h, bpp, px = self.cell(400, 100, rect, 80, 40, border=True)
+        self.assertEqual(gmi.text_ink_offset(w, h, bpp, px, rect), 80)
+
+    def test_an_empty_box_measures_nothing_rather_than_zero(self):
+        rect = [100, 40, 200, 23]
+        px = bytearray(bytes((0x44, 0x44, 0x44)) * (400 * 100))
+        for yy in range(40, 63):
+            for xx in range(100, 300):
+                o = (yy * 400 + xx) * 3
+                px[o:o + 3] = bytes((0x29, 0x29, 0x29))
+        self.assertIsNone(gmi.text_ink_offset(400, 100, 3, bytes(px), rect))
+
+    def test_a_degenerate_rect_measures_nothing(self):
+        w, h, bpp, px = self.cell(400, 100, [100, 40, 200, 23], 5, 40)
+        self.assertIsNone(gmi.text_ink_offset(w, h, bpp, px, [100, 40, 4, 23]))
+        self.assertIsNone(gmi.text_ink_offset(w, h, bpp, px, [100, 40, 200, 4]))
+
+    def test_the_offset_reaches_the_compact_node_for_a_box_styled_label(self):
+        rect = [100, 40, 200, 23]
+        w, h, bpp, px = self.cell(400, 100, rect, 80, 40)
+        out = gmi.compact_tree(
+            node("label", rect, text="Active Routes", style="box"), [0, 0],
+            text_offsets=lambda r: gmi.text_ink_offset(w, h, bpp, px, r))
+        self.assertEqual(out["tx"], 80)
+
+    def test_a_box_styled_button_gets_one_too(self):
+        rect = [100, 40, 200, 23]
+        w, h, bpp, px = self.cell(400, 100, rect, 5, 40)
+        out = gmi.compact_tree(
+            node("button", rect, text="Origin", style="box"), [0, 0],
+            text_offsets=lambda r: gmi.text_ink_offset(w, h, bpp, px, r))
+        self.assertEqual(out["tx"], 5)
+
+    def test_an_ordinary_label_stores_none(self):
+        # The ordinary alignments agree with the frame to a pixel or three, and
+        # an offset for all 71 000 labels would be payload for nothing.
+        rect = [100, 40, 200, 23]
+        w, h, bpp, px = self.cell(400, 100, rect, 5, 40)
+        out = gmi.compact_tree(
+            node("label", rect, text="Jebediah", style="label"), [0, 0],
+            text_offsets=lambda r: gmi.text_ink_offset(w, h, bpp, px, r))
+        self.assertNotIn("tx", out)
+
+    def test_no_frame_leaves_the_node_with_no_offset(self):
+        out = gmi.compact_tree(node("label", [0, 0, 100, 23], text="x",
+                                    style="box"), [0, 0])
+        self.assertNotIn("tx", out)
+
+    def test_the_page_places_the_run_at_the_measured_offset(self):
+        self.assertIn("n.tx != null", gmi.JS)
+        self.assertIn("d.style.paddingLeft = n.tx", gmi.JS)
+
+
+class ScrollViewTests(unittest.TestCase):
+    def test_a_scroll_view_scrolls(self):
+        # 52 scroll views in the corpus carry content below their fold, up to
+        # 23529 px of it, and `overflow:hidden` made every one of them
+        # unreachable.
+        self.assertIn(".gn.k-scrollview{overflow:auto}", gmi.CSS)
+
+    def test_the_bare_link_can_scroll_them_so_a_screenshot_can_prove_it(self):
+        # "Reachable" is a claim about a browser, so it needs a browser to check:
+        # `&scroll=<px>` scrolls every scroll view before the page marks itself
+        # ready, which lets one capture be photographed at two offsets.
+        bare = _bare_js()
+        self.assertIn("q.scroll", bare)
+        self.assertIn("'.gn.k-scrollview'", bare)
+        self.assertIn("scrollTop = sc", bare)
+        self.assertIn("dataset.scrolled", bare)
+
+    def test_the_default_offset_is_the_one_the_frame_was_taken_at(self):
+        # No `scroll` in the hash means no scrolling, so an ordinary measurement
+        # sees offset zero - which is where the census photographed it.
+        bare = _bare_js()
+        self.assertIn("if (sc > 0)", bare)
+
+
 class HeaderOffsetMeasurementTests(unittest.TestCase):
     """The alignment number the Compare note quotes is measured here, off the
     dump, rather than copied out of the record it cites."""

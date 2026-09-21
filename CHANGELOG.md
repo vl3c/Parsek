@@ -10,6 +10,48 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Tooling: the GUI mirror's rendering is now MEASURED against the game frame instead of
+  judged by eye.** `harness/tools/gui_mirror_fidelity.py` opens the generated mirror page
+  itself in a headless Chromium - at a deep link the generator now ships for it
+  (`#cap=<capture id>&bare=1`: one capture's stage, 1:1 CSS pixels, top-left, no chrome, no
+  photograph, no animation, `data-ready` when painted) - and compares that screenshot
+  against the census PNG inside the Parsek window rects only. It measures the page a reader
+  opens rather than a second renderer built to imitate it: the bare skin is a separate
+  stylesheet whose every selector a test asserts is scoped to one class, and the bare entry
+  is the first statement of `boot()` behind a hash check, so a page opened without the hash
+  is the page that shipped. Four metrics, per capture and aggregated per window and per
+  control class - the ink bounding box of every text-bearing leaf control (dx, dy, width
+  ratio, and a clipped flag for a run the page cut off where the game did not), the median
+  fill of every painted control against the colour it sampled off that same frame, controls
+  with ink in the frame and none in the mirror or the reverse, and a window luminance score
+  for ranking. Outputs (a report, a page, one screenshot per capture, crops and heatmaps)
+  go to a scratch folder and nowhere near the repository; a test cell fails if any tracked
+  file under `harness/` or `docs/` is an image or carries an inlined image payload. The
+  browser is optional equipment - with none installed the tool exits 3 naming the paths it
+  probed, and every unit test passes without one. No player-visible change.
+
+- **Tooling: seven classes of difference between the GUI mirror and the game, found by that
+  instrument over all 230 captures and fixed by class.** Worst first, each measured rather
+  than assumed. A disabled control was dimmed TWICE - the colours are sampled per control
+  out of the frame, so a disabled one's colour is already the grey the game drew, and an
+  `opacity:.42` on top of it put the Missions window's disabled interval field below the
+  threshold of being visible at all (377 controls had ink in the frame and none on the
+  page). A raised control's outline was brighter than its fill, where KSP draws a near-black
+  outline with a light top bevel (measured: outline grey 5 to 25, bevel 88 / 71 / 61, over
+  fills of 25 to 76). `box`-styled text was aligned by a rule KSP does not have - it centres
+  the Logistics section heading in its 1358 px box and left-aligns the column headers of the
+  same table - so the offset is now measured off the frame, the move the tab bar's labels
+  already used. A toggle in the BUTTON style (987 of 8154) was drawn as a checkbox instead
+  of the pushed-in button KSP draws. A slider had no handle and a scroll bar had no bar,
+  which the design doc had called unfixable from the dump: the dump has no value, but the
+  PNG has the thumb, and it reads on 81 of the corpus's 137 sliders including the Settings
+  ghost-audio one. A scroll view did not scroll, leaving up to 23 529 px of rows per view
+  unreachable. And a toggle's tick was an ASCII `x`. Corpus: worst text offset 643 px -> 22,
+  p95 52 -> 5, width-ratio p95 2.21 -> 1.11, fill-colour p95 11 -> 0, runs the page clipped
+  and the game did not 554 -> 63, controls with ink in the frame and none on the page
+  587 -> 115. Numbers, method and what is still different: `docs/dev/design-gui-mirror.md`
+  section 11. No player-visible change - the mirror is a harness page, not game code.
+
 - **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
   are closed, and the priority-2 register with them.** Eight rows were new coverage, five
   were guarded already by cells that landed after the audit snapshot, and one is deferred

@@ -298,6 +298,42 @@ after a census. It writes wherever `--out` says and claims no path inside a shot
 directory, so it collides with neither `index.html`, `<runId>_contact.html` nor
 `gui-tree-index.html`.
 
+### Measuring the mirror against the frame (`tools/gui_mirror_fidelity.py`)
+
+How close the mirror's rendering actually is to the game, as numbers rather than
+as an impression. It opens the generated page itself in a headless Chromium at a
+deep link the generator ships for it (`#cap=<capture id>&bare=1`: one capture's
+stage, 1:1 CSS pixels, top-left, no chrome, no photograph, no animation), then
+compares that screenshot against the census PNG **inside the Parsek window rects
+only** - the rest of the frame is the game's scene.
+
+```
+python tools/gui_mirror_fidelity.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out-dir <a scratch folder>   [--browser PATH] [--window main] [--capture <id>] [--limit N] [--jobs 4]
+```
+
+Four metrics, per capture and aggregated per window and per control class
+(`kind|style|text`): **TEXT** - the ink bounding box of every text-bearing leaf
+control in the frame against the mirror's inside the same rect (dx, dy, the width
+ratio, and a `clipped` flag for a run that ends at the rect edge where the
+frame's ends inside it); **FILL** - the median colour of each painted control's
+own surface, frame against mirror, which the mirror sampled off that very frame,
+so a delta means the page is not painting what it stored; **PRESENCE** - controls
+with ink in the frame and none in the mirror, or the reverse, grouped so each
+group is one fixable class; **WINDOW** - the mean absolute luminance difference
+over the window rect, for ranking only.
+
+It writes `report.json` and a self-contained `index.html` (worst captures first,
+with a frame crop / mirror crop / difference heatmap triple for the worst N) into
+`--out-dir` and nowhere else. The browser is optional equipment: with none
+installed it exits 3 saying which paths it probed, and every unit test
+(`lib/test_gui_mirror_fidelity.py`) passes without one. Nothing it produces is
+committed - the outputs are screenshots and heatmaps by the hundred, and one test
+cell fails if any tracked file under `harness/` or `docs/` is an image or carries
+an inlined image payload.
+
+Numbers, what they found and what is still different:
+`docs/dev/design-gui-mirror.md` section 11.
+
 ### Running a GUI census end to end
 
 TEN FLOWN CENSUS LANES, in four waves, all `tier = "operator"` and all flown on request

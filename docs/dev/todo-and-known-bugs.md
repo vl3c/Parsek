@@ -16080,6 +16080,41 @@ is a gate worth discussing. Extraction/diff tooling landed with R14
 (`hlib.parse_fx_fingerprint_lines` / `diff_fx_fingerprints` /
 `format_fx_fingerprint_diff` + `harness/tools/fx_fingerprint_diff.py`).
 
+### T42b. GUI mirror: what the fidelity instrument measured and did NOT fix
+
+`harness/tools/gui_mirror_fidelity.py` (design: `docs/dev/design-gui-mirror.md` section 11)
+photographs the generated mirror page in a headless browser and compares it against the
+census PNG inside the Parsek window rects. The classes it found were fixed in the same PR;
+these are the ones left, each with the number that says how big it is. None of them is a
+defect in the product - they are all differences between the page and the game.
+
+1. **A label that WRAPS in the game is drawn on one line.** KSP's label styles word-wrap and
+   the page sets `white-space:pre`, so the Logistics route cell that reads `> Route: KSC` /
+   `-> Duna` over two lines in the frame is one line on the page. It shows as a `dy` of
+   about 10 px on those rows and nothing else. Fix: wrap where the dump's own rect is more
+   than one line tall, which IS derivable (the rect height over the line height) - but it
+   moves every multi-line cell on the page, so it wants its own pass with the instrument
+   re-run beside it rather than a guess bolted onto this one.
+2. **KSP's own font metrics are not Arial's.** The size was calibrated against measured ink
+   (13 px Arial renders three corpus runs at 136.6 / 144.5 / 86.8 px against a measured
+   136 / 144 / 87) and the corpus width ratio sits at 1.000 at the median, but the tails are
+   real: a long single line still ends a character or two early or late. A real fix means
+   shipping KSP's font metrics, which is a bigger thing than this page.
+3. **A toggle's tick is a CSS checkmark, not KSP's skin texture.** Right state, right box,
+   drawn shape. The texture is in no census artifact, so there is nothing to derive it
+   from; this is as close as the page gets without shipping the game's atlas.
+4. **A control hidden behind another Parsek window is still measured.** The dump records
+   every window's controls, including the ones another window covers, and neither the page
+   nor the game publishes its stacking order. 57 of the 218 measured captures have two
+   Parsek window rects that overlap; 7% of the frame-only controls and 13% of the clipped
+   runs sit in a region two windows both cover, and those readings are about which window
+   won rather than about the rendering. Fix: record which root a control came from and skip
+   it when a later root covers it.
+5. **A capture with a stock modal is not measured at all** (6 of 230). A `PopupDialog` is a
+   centred uGUI canvas that overdraws the window rects in the FRAME and appears in no
+   control tree, so every rect under it would read as a difference the page could not have
+   avoided. The page shows the photograph for those, which is the honest rendering.
+
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
 
 Test game actions system with popular mods: CustomBarnKit (non-standard facility tiers may break level conversion formula), Strategia (different strategy IDs/transform mechanics), Contract Configurator (contract snapshot round-trip across CC versions). Requires KSP runtime with mods installed. Investigation notes in `docs/dev/mod-compatibility-notes.md`.
