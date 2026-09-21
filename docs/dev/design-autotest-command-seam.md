@@ -2637,6 +2637,263 @@ for the census. Both closed vocabularies (`UIACTION_POPUP_VALUES`,
 `UIACTION_NUDGE_VALUES`) are `VERB_SCOPED_CLOSED_ARGS` rows owned by `UiAction`, which is
 what makes `popup=` and not `dialog=` the only spelling available.
 
+**WAVE 6 ADDED FOUR OPS, ONE RUN MODE, THREE RAISE ROWS AND THREE ROUTE ACTIONS.** A read-only audit of every
+IMGUI draw branch (`docs/dev/research/`, 2026-09-21) enumerated about 380 visibly distinct
+window states against about 150 captured, and found the gap concentrated in authoring
+controls, filters and in-progress states rather than spread evenly. Three of the four ops
+below are pure view state; the fourth writes mission selection and says so.
+
+`op=state window=<timeline|missions> key=<name> state=|value=` drives a window's SCALAR
+view state - the sibling of `op=expand` for the states that are a single named field with
+no enumeration behind them, so there is nothing for `key=all` to mean and nothing for a
+candidate list to list. ONE op rather than the three the audit proposed (`op=columns`,
+`op=filter`, `op=state`): all three would have been the same four lines - parse a name,
+write a bool, read it back after a drawn frame - so they are one op with a per-window key
+table, and a fourth such state is one row rather than a fourth op.
+
+THE GRAMMAR IS TWO-SHAPED AND EACH HALF REFUSES THE OTHER. A BOOL key takes
+`state=true|false` and answers `state-value-arg-not-for-key` to a `value=`; a VALUE key
+(`preset`, `scrollY`) takes `value=` and answers `state-bool-arg-not-for-key` to a
+`state=`. Refused rather than resolved by precedence, the `expand-state-with-bulk-key`
+rule: a step carrying the wrong half has misunderstood the key, and silently applying the
+other half would report OK over a state nobody asked for. Neither half has a default
+direction - every key here is driven BOTH ways by a census (a filter ON is one picture, OFF
+is another), which is `op=playback`'s argument verbatim.
+
+`archived` IS ONE FLAG WITH ONE POLARITY, NAMED ONCE, and this is the design decision in
+the op. The Timeline's Archived toggle and the Recordings tab's Archive header checkbox
+write the SAME persisted bool (`GroupHierarchyStore.HideActive`, reached through
+`TimelineWindowUI.ShowArchivedRecordings`, which owns the polarity flip) in OPPOSITE label
+senses. So the wire carries the key exactly once, valid on both windows, always in the
+Timeline's positive sense - `state=true` means archived rows contribute. Two keys with
+opposite polarities for one flag would have made every lane that touched it read the source
+to find out which it had. The Missions tab's OWN archive filter
+(`MissionStore.HideArchived`) is a genuinely different flag over a different list, so it is
+a different key (`archivedMissions`) and keeps the store's HIDE sense, there being no
+second control to disagree with. Both of those are PERSISTED, so a lane that sets either
+runs on a throwaway staged save - the op cannot enforce that and does not pretend to.
+
+ONE COMBINATION IS REFUSED PRE-WRITE RATHER THAN WRITTEN AND REPORTED.
+`key=srcRecordings state=false` while the Timeline's tier filter is Rewind/FF or Re-Fly:
+that tab's own draw pass FORCES the toggle back on and draws it disabled
+(`TimelineWindowUI.DrawFilterBar`'s `actionFilterMode` arm), so the write would be undone
+by the very frame the settle waits for. `state-clamped-by-tab` names the live tab, so the
+remedy - an `op=tab` step first - is readable from the answer. Reported as a REFUSAL and
+not as an applied-then-disagreeing ERROR because the game is not failing to follow: the
+lane asked for a state that tab does not have.
+
+`scrollY` IS THE ONE KEY WHOSE `after=` MAY DIFFER FROM `want=`. A scroll view clamps its
+offset to its own content during the draw, so `want=9000 after=412` is the honest report of
+a list shorter than the offset asked for, and the payload carries the SETTLED read-back
+rather than echoing the request. Every other key is a plain bool or the window's own stored
+preset name, and for those a disagreement is `state-not-applied`.
+
+`key=preset` RUNS THE BUTTON'S OWN CLICK BODY, and the arithmetic behind it moved rather
+than being copied. The four ranged presets' bounds are now
+`TimeRangeFilterLogic.TryResolvePresetRange` (pure, unit-covered), which BOTH the preset
+row and this op call, and the clamp to the slider bounds plus the `SetRange` under the
+preset name live in `TimelineWindowUI.ApplyTimeRangePreset`, extracted from
+`DrawPresetButton` so the seam calls the same method. A seam that had recomputed the
+year-boundary expression for itself would have produced a filter no button can produce,
+which is exactly the drift that makes a census capture prove nothing about the control.
+
+`op=sort window=<missions|logistics|spawncontrol> column= dir=` writes the two fields a
+sortable header click writes AND that window's own cache invalidation. The invalidation is
+the load-bearing half: the Recordings tab keys its `sortedIndices` on
+`RecordingStore.StateVersion`, so without `InvalidateSort()` the table keeps the OLD row
+order under the NEW arrow until the next store mutation - a capture that would have read as
+a sort defect. Logistics needs both section row counts cleared; the Missions tab and Spawn
+Control re-sort from the live tuple and need nothing. Each window's accessor carries its
+own, so the op cannot forget one.
+
+ON `window=missions` THE OP APPLIES TO THE SELECTED TAB, and the reason is a collision
+rather than a convenience: that ONE window hosts two tabs whose column sets both contain an
+index and a name column, so a flat per-window vocabulary could not say which table a step
+meant. The seam reads the live tab, narrows the vocabulary to it, answers
+`sort-column-not-on-tab` for the other tab's column and reports `tab=` in the payload. The
+harness cannot know the live tab pre-launch, so `hlib.UIACTION_SORT_COLUMNS` validates the
+UNION and the seam owns the narrowing - the `op=expand` division of labour exactly: shape
+pre-launch, state at the seam.
+
+`op=select window=missions key=<vessel:|link:|all|none> include=` is the one op in this
+family that writes state PERSISTED WITH THE SAVE (`Mission.ExcludedIntervalKeys` and
+`Mission.IncludedForeignDockLinkIds`, both serialized by the Mission codec). A census lane
+using it runs on a THROWAWAY staged copy of its fixture; that is a lane rule, stated in the
+op's own header and in `harness/README.md`, because nothing in the seam can enforce it. It
+calls the production appliers (`MissionVesselRowBuilder.ApplyVesselInclusion`, which
+returns a changed count, and the link set's add / remove) and REPRODUCES the production
+click's conditional tail - `MissionStore.ClearLoopsConflictingWith` when a link is included
+on a looping mission - because a write without it leaves two conflicting loops armed. The
+on-screen announcement beside that clear is deliberately NOT reproduced: a screen message
+is for a player who clicked, and it would land in the census capture.
+
+`op=edit window=missions field= key= [draft=] [commit=]` puts one of the in-place rename
+editors into edit mode. Every one of these editors is a LAYOUT change and not a restyle - a
+label becomes a `GUILayout.TextField`, so the row's control count and widths move - and the
+arming gesture is a double-click this seam does not synthesise. The arm goes through a
+wrapper ON THE WINDOW CLASS rather than three field writes from the applier, because the
+three writes have to agree: the row key, the draft, and the focus sentinel the next draw
+pass consumes with a single `GUI.FocusControl`. A seam that wrote two of the three would
+draw a text field with no keyboard focus, which photographs as an ordinary label. The
+wrappers also carry the refusals the ARMING GESTURE carries - an unknown row, and a
+permanent root group, whose double-click is blocked - so the seam refuses exactly what a
+player's double-click refuses.
+
+`commit=` DEFAULTS TO FALSE, the opposite of how every other write op in the seam defaults,
+and the asymmetry is the point: none of these commits is "write a name". A group rename of a
+tree root and a mission-title rename both run `MissionGroupLink.RenameMissionGroup`, which
+renames the root group plus its auto `/ Debris` and `/ Crew` subgroups plus `Mission.Name`
+ATOMICALLY and rejects BOTH halves on a collision; a recording rename silently DROPS if the
+id has left the committed list. A census wants the mid-edit picture, and a lane that only
+wanted the picture must not be able to rename the fixture's history by omitting an arg. A
+lane asserts on the payload's `armed=`, the settled read-back of the row-key sentinel; a
+commit step reports `armed=false` by design, its own body having cleared it, which is why
+`committed=` is reported beside it rather than inferred from it.
+
+THREE OF THE NINE IN-PLACE EDITORS ARE DRIVEABLE, and the six absences are the design
+rather than a backlog. The three share the one idiom a seam can arm completely. The two
+Logistics editors (route rename, interval) need their route's detail panel expanded first
+and are mutually exclusive with each other, and the interval commit is not a number write
+at all - `RouteCadence.ApplyMultiplier` reads live UT, changes `DispatchInterval` as well
+as `CadenceMultiplier`, and rebases the dispatch clock. The four period / auto-loop / warp
+editors use a DIFFERENT idiom whose edit mode is entered only when Unity's focused control
+name ALREADY matches, so writing their two fields draws an unfocused box - a picture no
+click produces. Both are filed in `docs/dev/todo-and-known-bugs.md`.
+
+ALL FOUR ARE TWO-PHASE AND NONE IS IN `SettleChecksHostShowUi`, for `op=expand`'s reasons
+in both directions: each changes DRAWN state, so the read-back means nothing until a frame
+has run, and each writes model state whose only other writer is a button handler this seam
+never synthesises, so a hidden host cannot fake it. The residue recorded for `op=expand`
+applies verbatim - an `op=sort` over a tab the current complexity mode is not drawing
+answers OK and photographs nothing, and the fix belongs in the LANE.
+
+**`op=run await=false` RETURNS ONCE THE BATCH IS DISPATCHED**, which is the only way a
+capture can show the runner's RUNNING control bar: the default form polls `!IsRunning`, so
+the table it photographs is always a finished one. ABSENT MEANS TRUE, so every lane written
+before it is byte-identical. A category whose cells are all scene-ineligible finishes INSIDE
+`RunCategory` (`RunBatch` has no unconditional yield before `isRunning = false`), and that
+is an OK with `finished=true`, never an ERROR. The payload is its OWN builder
+(`op=run window= category= started= finished= discovered= running=`) rather than the tally
+one: mid-batch a `TestStatus.Running` row increments `TallyCategory`'s `total` and none of
+`passed`/`failed`/`skipped`, so the four numbers a finished lane gates on would not add up.
+The one new refusal is `run-await-arg-invalid`.
+
+**THE BATCH-GATE RELAXATION IS THE PART THAT COST MORE THAN AN ARG PARSE.** `Update` used to
+return before the pump while any batch ran, and `BuildDispatchState` fed the dispatcher a
+`BatchRunning` bit that deferred every head - two gates, so relaxing only the first would
+have bought nothing. Armed, `ResolveBatchGateForHead` answers PER VERB from
+`TestCommandVerbs.NonMutatingVerbs` MINUS `FlushAndQuit`: the six that run mid-batch are
+`CaptureScreenshot`, `DumpGuiTree`, `RecordingState`, `MissionMark`, `ExportRenderManifest`
+and `ListHandles`. `UiAction` itself is held (its `op=complexity` persists a setting, and a
+second `op=run` must not slip in), `RunTests` is held, and `FlushAndQuit` is held although
+the shared set lists it - it ENDS THE PROCESS, which mid-batch skips the runner's baseline
+revert and leaves the batch marker for the next process's crash reconcile. Holding it costs
+a lane nothing: the batch stops, the relaxation clears, the quit runs next frame.
+
+THE RELAXATION CARRIES THE RUNNER IT WAS ARMED FOR, not a bare bool, because
+`IsBatchRunning()` answers true for any of three runners: a flag plus "some batch is
+running" would keep the gate open if the seam's batch ended in the same frame an interactive
+Ctrl+Shift+T batch started. `ClearDetachedBatchRelaxation` is the single clear site and every
+teardown path routes through it - the armed runner stopping (`batch-stopped`), a scene load
+(`scene-change`, which destroys the runner before its `IsRunning` could ever read false
+here), an executor throw (`executor-threw`) and the quit scheduler (`flush-and-quit`).
+
+A HELD VERB DOES NOT RUN OUT OF TIME, and this is the defect the first cut shipped. Armed,
+a held head reaches the dispatcher, defers on `batch-running`, and `HandleDefer` would run
+out the 60 s default budget - so `op=run await=false` on a category longer than a minute
+ended the closing `FlushAndQuit` as a TIMEOUT and the process never quit. `HandleDefer` now
+PINS the deferral clock for exactly the pair (`detachedBatchArmed` AND the reason equals
+`TestCommandDispatcher.BatchRunningDeferReason`, one literal both sides name). Pinned by
+moving the start rather than by skipping the timeout check, so the moment the relaxation
+clears the ordinary budget resumes from now instead of from a start already minutes old.
+
+**THREE LOGISTICS MODALS JOINED `op=raise`**: `deleteroute`, `deletedormantroute` and
+`createroute`. Each needs a live object, which is why they were filed as unreachable until
+the resolvers landed: the first committed route (`RouteStore.CommittedRoutes`), the first
+dormant one (`RouteStore.DormantRoutes`) and the first candidate out of the window's OWN
+drawn cache rather than a fresh `RouteCandidateFinder.DeriveCandidates()` - deriving off the
+throttle is the one thing that cache exists to prevent. Their PRE-CALL
+`dialog-target-unavailable` details are `no-committed-routes`,
+`no-usable-committed-route-among=N`, `no-dormant-routes`, `no-usable-dormant-route-among=N`,
+`no-logistics-window`, `no-drawn-route-candidates` and `no-usable-route-candidate-among=N`.
+`deletedormantroute` answering unavailable on a fixture with no dormant route is the normal
+shape: that bubble only grows on a rewound save. All three are `SafeButtonOnly` with
+`Cancel`; `Delete`, `Create Paused` and `Create and Activate` stay refused
+`press-not-allowed`.
+
+**`RouteCommand` GREW FROM FOUR ACTIONS TO SEVEN.** `link` calls
+`RouteStore.LinkRoutes(idA, idB)`, `unlink` `RouteStore.UnlinkRoute(id)`, and `set-cadence`
+`RouteCadence.ApplyMultiplier(route, N)` - the same three methods the window's own buttons
+call. `link` takes a second selector `partner=` (the same three-tier `ResolveRoute` as
+`route=`), and an ABSENT `partner=` means the first option
+`LogisticsLinkPresentation.BuildLinkCandidates` would have offered, which is the only form a
+committed spec can write. `set-cadence` takes `cadence=<int N >= 1>` and NOT `interval=`:
+that key already means "seconds passed to the builder" on `action=create`, and one key with
+two meanings is how a spec author picks the wrong one. All three then dirty the window's
+throttled legibility cache exactly as the production handlers do - without it the Interval,
+Next and Destination cells (whose sort keys live in that cache) keep drawing their
+pre-action values for up to a refresh period, so a capture taken straight after would
+photograph the old row under a label claiming the new one.
+
+Nine new refusals, split the way the rest of the taxonomy splits. ARG half, where the fix is
+a better selector in the spec: `unknown-partner`, `partner-ambiguous`, `cadence-arg-missing`,
+`cadence-arg-invalid`. GATE half, where the fix is an earlier step or a different fixture:
+`link-self`, `link-already-linked` (wants an `unlink` first), `link-no-candidate` (no
+eligible partner exists at all), `route-not-linked` (wants a link first), `cadence-unchanged`.
+All nine are mapped in `hlib._SEAM_REFUSAL_SUBKINDS`; without those rows each collapses to
+the coarse `driver-verdict-mismatch` and an operator cannot tell a spelling problem from a
+missing step. `route-action-refused` stays unmapped on purpose - it is a POST-ACT ERROR, so
+claiming a refusal subkind would name a refusal that never happened.
+
+**THE CAREER WINDOW JOINED `op=expand`** with a `pending:` prefix over its two
+`Pending in timeline` folds. ONE prefix because the window keeps ONE fold collection, and
+the wire VALUES are the TAB (`pending:contracts` / `pending:strategies`) rather than the
+dotted production key (`Contracts.Pending`) the set is keyed by: a spec author already knows
+the tab. The set is INVERTED (membership means FOLDED), so the window gained an absolute
+`SetSectionFolded` behind its existing `ToggleSection` - a commanded write must not flip an
+already-correct fold. Both folds only DRAW under the divergence layout, which needs a career
+whose timeline ends later than now.
+
+**THE GUI-TREE DUMP CARRIES `selectedIndex`** on a `buttongrid`, an ADDITIVE key at the
+unchanged `parsek-gui-tree/1`. The value was already being recorded and mislabelled as
+`controlId` on a control that has no id, which is why an audit of the dumps concluded the
+index was absent; buttongrid now emits `selectedIndex` and no `controlId`. Contract:
+`docs/dev/design-gui-tree-dump.md`.
+
+REFUSAL VOCABULARY. `op=state`: `REJECTED state-unsupported-window` (message names the two
+windows that have scalar state) / `state-key-arg-missing` / `state-key-invalid` (message
+carries that window's key list) / `state-value-arg-not-for-key` /
+`state-bool-arg-not-for-key` / `state-value-arg-missing` / `state-value-arg-invalid`
+(message carries the preset list or the offset bound) / `state-arg-missing` and
+`state-arg-invalid` (both REUSED - `state=` is one arg key with one closed vocabulary
+across every op that reads it) / `state-clamped-by-tab`; `ERROR state-not-applied`.
+`op=sort`: `REJECTED sort-unsupported-window` / `sort-column-arg-missing` /
+`sort-column-invalid` / `sort-column-not-on-tab` / `sort-dir-arg-missing` /
+`sort-dir-arg-invalid` / `sort-tab-unresolved` (the live selector index the window table
+does not model - fail-closed, because defaulting to tab 0 would resolve a column against a
+table the window is not drawing); `ERROR sort-not-applied`. `op=select`: `REJECTED
+select-unsupported-window` / `select-key-arg-missing` / `select-key-invalid` /
+`select-key-unknown` (message lists what does exist, through the shared
+`FormatCandidates`) / `select-include-arg-missing` / `select-include-arg-invalid` /
+`select-include-with-bulk-key` / `select-no-mission` (no Mission over a committed tree, so
+there is nothing to drive and a cheerful `changed=0` beside a capture of an empty window is
+the shape these gates exist to prevent); `ERROR select-not-applied`. `op=edit`: `REJECTED
+edit-unsupported-window` / `edit-field-arg-missing` / `edit-field-invalid` /
+`edit-key-arg-missing` / `edit-commit-arg-invalid` / `edit-target-unavailable`; `ERROR
+edit-not-armed` / `edit-not-drawn`.
+
+THE THREE PICTURE OPS ALSO REFUSE A CLOSED WINDOW (`REJECTED window-not-open`, PRE-CALL so a
+refused step leaves nothing written) and are in `SettleChecksHostShowUi`. Both halves exist
+because those ops answered OK by comparing a field with the value they had just written:
+with the host's `showUI` down or the window shut, `op=edit` reported `armed=true` over a
+plain label. `op=edit` additionally reads a SECOND, draw-produced signal at settle - each
+editor's focus sentinel, set only when its text field really draws - and answers
+`edit-not-drawn` when the row key survived but nothing drew, which is what a row inside a
+collapsed group or on the unselected tab produces. The payload carries `drew=` beside
+`armed=` and `drew` is the field a lane asserts on. `op=select` stays exempt from both: it
+writes MISSION state rather than view state, and arranging a selection now to photograph it
+after a later tab switch is a legitimate lane.
+
 **Tail / post-mission roles.** `world-mutating` and `recording`, and the tail role is NOT
 about opening windows: `op=complexity` PERSISTS `uiComplexityMode` through
 `ParsekSettingsPersistence` and then runs the Advanced -> Basic gated-window close set and

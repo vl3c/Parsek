@@ -15,6 +15,72 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GUI-SEAM-WAVE6-RESIDUE-2026-09-21: six of the nine in-place text editors, every hover string, and the Gloops window are still unreachable by the census [FILED 2026-09-21 with the wave-6 seam additions. OPEN; each needs a mechanism the wave deliberately did not build]
+
+**What landed.** `UiAction op=state` / `op=sort` / `op=select` / `op=edit`, three new
+`op=raise` rows, `op=run await=false`, `RouteCommand action=link|unlink|set-cadence`, and
+the `buttongrid` `selectedIndex` key in the GUI-tree dump. Grammar and refusals:
+`docs/dev/design-autotest-command-seam.md` -> `#### UiAction`. Lane steps for the states
+they unlock: the wave-6 lane plan in the PR body.
+
+**1. Six of the nine in-place text editors are not driveable, in two groups with different
+causes.** `op=edit` drives the three that share one idiom (a row key, a draft, and a focus
+sentinel the next draw pass consumes with a single `GUI.FocusControl`): the recording-row
+rename, the group rename and the mission-title rename.
+The two LOGISTICS editors (route rename `renamingRouteId`, interval `intervalEditRouteId`)
+share that idiom but add two preconditions the op would have to model: the rename row only
+draws inside an EXPANDED route detail panel, and the interval cell suppresses itself while a
+rename is armed. Neither is hard - an `op=expand window=logistics key=row:<routeId>` step
+first, plus a mutual-exclusion check - and the interval's COMMIT is the part that needs a
+decision rather than code: `RouteCadence.ApplyMultiplier` reads live UT, changes
+`DispatchInterval` as well as `CadenceMultiplier`, and rebases the dispatch clock, so an
+`op=edit ... commit=true` on it is a cadence change and should probably be refused in favour
+of the `RouteCommand action=set-cadence` this same wave added.
+The four PERIOD / AUTO-LOOP / WARP editors (`loopPeriodFocusedRi`, `loopPeriodFocusedMissionId`,
+`settingsAutoLoopEditing`, `warpFocusedField`) use a DIFFERENT idiom: edit mode is entered
+only when `GUI.GetNameOfFocusedControl()` ALREADY equals the control name, and the branch
+never calls `GUI.FocusControl` itself. Writing their two fields draws an unfocused text box
+- a picture no click produces - so driving them needs a way to set Unity's focused control
+name from outside a draw pass, which is a genuinely different mechanism.
+Fix: extend `TestCommandUiEdit`'s field table with the two Logistics rows plus their
+precondition checks; leave the four focus-name editors until the focus mechanism is
+decided.
+
+**2. About 60 hover / disabled-reason strings remain unreachable, and that is measured
+rather than assumed.** `op=pointer focus=true nudge=true` steals the foreground with
+`AttachThreadInput` and delivers a real `WM_MOUSEMOVE`, and `GUI.tooltip` still reads empty;
+Unity only updates `Input.mousePosition` while receiving input and `Event.current.mousePosition`
+is polled from it. So `focus=` and `nudge=` are refuted and this is not a spec fix. The
+smallest remaining surfaces are `op=pointer inject=true` feeding IMGUI a synthetic
+`EventType.MouseMove`, or an echo override `op=echo text=<find-handle>`. Until one exists:
+do not spend lanes on hover states, and do not read the four existing hover captures as
+coverage - they are text-identical to their un-hovered siblings.
+
+**3. The Gloops Flight Recorder's Recording / Saved / Previewing states are diagnostic
+only, because no player can open that window.** `UiSurfaceVisibility.IsRetired` answers true
+for `MainButtonGloops` and is tested BEFORE the mode switch, so the launcher draws in
+neither complexity mode; the only production writer that raises the flag sits behind that
+gate, and its own comment already says the block never draws. There is also no preview-start
+path in the seam at all (`GloopsStart` / `GloopsStop` exist; `PreviewGhost` does not, and
+`StopPlayback` is deliberately reserved). A census CAN open the window through
+`op=open window=gloops`, which is exactly why a lane aimed at it would be photographing a
+surface no reviewer should judge the product by. Fix: nothing, unless the launcher is
+un-retired - at which point a `PreviewGhost` verb is three lines over
+`ParsekFlight.PreviewGloopsRecording`.
+
+**4. Smaller states a tiny accessor would still reach, left out of this wave.** The Group
+Picker cannot be COLLAPSED by the seam (`GroupPickerPresentation.BuildExpandedGroups`
+defaults everything expanded, and every node in every picker capture is `v`), and the
+picker cannot be opened on a CHAIN (`op=picker` covers group and recording only).
+
+The Career window's two `Pending in timeline` folds are NOT in this list: they SHIPPED in
+this wave, as `op=expand window=career key=pending:contracts|pending:strategies`, and the
+absolute `SetSectionFolded` an earlier draft of this entry asked for shipped with them. What
+remains is a FIXTURE question rather than a seam one - both folds only DRAW under the
+divergence layout, which needs a career whose timeline ends later than now, so a lane
+photographing them needs a rewound career first.
+
+---
 ## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]
 
 **What is true.** The census photographs healthy resting states because that is what a

@@ -179,6 +179,32 @@ namespace Parsek.TestCommands
             /// <summary>The button <c>op=dismiss</c> pressed, or null for a plain
             /// dismissal.</summary>
             internal string DismissPressButton;
+
+            // state (op=state): the resolved key, the requested value as the wire spells it,
+            // and whether the pre-settle write moved anything. The OBSERVED value is read
+            // again by the settle rather than carried, because for `scrollY` the drawn frame
+            // is what clamps it.
+            internal string StateKey;
+            internal string StateWant;
+            internal bool StateChanged;
+
+            // sort (op=sort)
+            internal string SortColumn;
+            internal bool SortAscending;
+            internal string SortTab;
+            internal bool SortChanged;
+
+            // select (op=select)
+            internal string SelectKey;
+            internal bool SelectInclude;
+            internal int SelectChanged;
+            internal string SelectMissionId;
+
+            // edit (op=edit)
+            internal string EditField;
+            internal string EditRowKey;
+            internal string EditDraft;
+            internal bool EditCommitted;
         }
 
         private UiActionPending uiActionPending;
@@ -308,6 +334,26 @@ namespace Parsek.TestCommands
             }
 
             UiWindowHandle handle = ResolveWindowHandle(ui, spec.Name);
+
+            // D2: the three ops that exist to produce a PICTURE refuse over a window whose
+            // own open flag is down. PRE-CALL, so a refused step leaves nothing written:
+            // the alternative was a write whose read-back agreed with itself and a capture
+            // beside it showing no window - `op=edit` answering armed=true over a plain
+            // label being the case the review found. `expand` and `playback` are
+            // deliberately outside the set (see OpRequiresWindowOpen): arranging model
+            // state now and photographing it later is a legitimate lane.
+            if (TestCommandUiAction.OpRequiresWindowOpen(op) && !handle.GetOpen())
+            {
+                ParsekLog.Warn(Tag, "uiaction rejected reason="
+                    + TestCommandUiAction.WindowNotOpenReason
+                    + $" op={TestCommandUiAction.OpToken(op)} window={spec.Name}");
+                SetExecResult("REJECTED", null,
+                    $"{TestCommandUiAction.WindowNotOpenReason} window={spec.Name} "
+                    + $"op={TestCommandUiAction.OpToken(op)} "
+                    + "(open it first: this op photographs a drawn surface)");
+                return;
+            }
+
             switch (op)
             {
                 case UiActionOp.Open:
@@ -331,6 +377,18 @@ namespace Parsek.TestCommands
                     return;
                 case UiActionOp.Run:
                     UiActionRunOp(cmd, ui, spec);
+                    return;
+                case UiActionOp.State:
+                    UiActionStateOp(cmd, ui, spec);
+                    return;
+                case UiActionOp.Sort:
+                    UiActionSortOp(cmd, ui, spec);
+                    return;
+                case UiActionOp.Select:
+                    UiActionSelectOp(cmd, ui, spec);
+                    return;
+                case UiActionOp.Edit:
+                    UiActionEditOp(cmd, ui, spec);
                     return;
                 default:
                     UiActionRectOp(cmd, handle, spec);
@@ -651,6 +709,18 @@ namespace Parsek.TestCommands
                     return;
                 case UiActionOp.Playback:
                     CompleteUiActionPlayback(ctx, pending);
+                    return;
+                case UiActionOp.State:
+                    CompleteUiActionState(ctx, pending);
+                    return;
+                case UiActionOp.Sort:
+                    CompleteUiActionSort(ctx, pending);
+                    return;
+                case UiActionOp.Select:
+                    CompleteUiActionSelect(ctx, pending);
+                    return;
+                case UiActionOp.Edit:
+                    CompleteUiActionEdit(ctx, pending);
                     return;
                 // Both dialog ops read the live PopupDialog set, which is uGUI and drawn
                 // outside either host's showUI gate - so they pass the preamble's

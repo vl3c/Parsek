@@ -385,6 +385,91 @@ namespace Parsek
         /// </summary>
         internal GroupPickerUI GroupPickerForTesting => groupPicker;
 
+        // ----- the two in-place rename editors, for UiAction op=edit -----
+        //
+        // ARM plus COMMIT plus READ, rather than raw field access, because the arming is
+        // three writes that have to agree: the row key (which row is being edited), the
+        // draft, and the focus sentinel that makes the NEXT draw pass call
+        // GUI.FocusControl once. A seam that wrote two of the three would put the window
+        // in a state no click can produce - a text field with no keyboard focus, which
+        // photographs as an ordinary label and would read as the op having done nothing.
+        //
+        // The COMMIT stays a separate call because op=edit does not commit unless asked:
+        // these two commits are not "write a name". A group rename of a tree root goes
+        // through MissionGroupLink.RenameMissionGroup, which renames the root plus the auto
+        // `/ Debris` and `/ Crew` subgroups plus Mission.Name atomically and REJECTS BOTH
+        // on a collision; a recording rename silently DROPS when the id has left the
+        // committed list. A census wants the mid-edit LAYOUT (a label became a text field),
+        // which is reachable without either.
+
+        /// <summary>Arms the recording-row rename editor on a recording id with a draft.
+        /// False when that id is not in the committed list, which is the only way this can
+        /// fail - the seam turns it into a typed REJECTED rather than arming an editor over
+        /// a row that is not drawn.</summary>
+        internal bool TryBeginRecordingRenameForTesting(string recordingId, string draft)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            // Resolved against the EFFECTIVE set, which is the list the table draws and
+            // the one the commit body re-resolves against.
+            if (RecordingStore.IndexOfRecordingId(
+                    EffectiveState.ComputeERS(), recordingId) < 0)
+                return false;
+            // Production's double-click COMMITS a rival editor before arming this one
+            // (the group rename and this one share `activeRenameRect` and cannot both be
+            // live). Discarding it instead would lose a draft a player had typed, so the
+            // seam does what the click does.
+            if (renamingGroup != null) CommitGroupRename(renamingGroup);
+            renamingRecordingId = recordingId;
+            renamingRecordingText = draft ?? string.Empty;
+            renamingRecordingFocused = false;
+            return true;
+        }
+
+        internal string RenamingRecordingIdForTesting => renamingRecordingId;
+
+        /// <summary>Whether the recording-rename text field has actually DRAWN since the
+        /// arm. Written by the draw (the branch that calls <c>GUI.FocusControl</c> on its
+        /// first pass), never by the arm, which is what makes it the one signal the seam
+        /// cannot fake - see <c>TestCommandUiEdit.EditNotDrawnReason</c>.</summary>
+        internal bool RenamingRecordingFocusedForTesting => renamingRecordingFocused;
+
+        internal string RenamingRecordingTextForTesting => renamingRecordingText;
+
+        /// <summary>Runs the recording rename's own commit body over the live committed
+        /// list, exactly as the Enter key and the click-away path do.</summary>
+        internal void CommitRecordingRenameForTesting()
+            => CommitRecordingRename(EffectiveState.ComputeERS());
+
+        /// <summary>Arms the group rename editor on a group NAME (the key this editor
+        /// uses) with a draft. False for an unknown group, and false for a PERMANENT ROOT
+        /// group - the arming double-click is blocked for those too, so the seam refuses
+        /// what the click refuses instead of arming an editor the player cannot.</summary>
+        internal bool TryBeginGroupRenameForTesting(string groupName, string draft)
+        {
+            if (string.IsNullOrEmpty(groupName)) return false;
+            if (RecordingStore.IsPermanentRootGroup(groupName)) return false;
+            if (!EnumerateGroupNamesForTesting().Contains(groupName)) return false;
+            // The mirror of the recording-rename arm: commit the rival draft, never
+            // discard it.
+            if (renamingRecordingId != null)
+                CommitRecordingRename(EffectiveState.ComputeERS());
+            renamingGroup = groupName;
+            renamingGroupText = draft ?? string.Empty;
+            renamingGroupFocused = false;
+            return true;
+        }
+
+        internal string RenamingGroupForTesting => renamingGroup;
+
+        /// <summary>The group rename's draw-produced focus sentinel. See
+        /// <see cref="RenamingRecordingFocusedForTesting"/>.</summary>
+        internal bool RenamingGroupFocusedForTesting => renamingGroupFocused;
+
+        internal string RenamingGroupTextForTesting => renamingGroupText;
+
+        internal void CommitGroupRenameForTesting(string oldName)
+            => CommitGroupRename(oldName);
+
         // Shared clamp + log body for both clamp sites (deferred mode-apply and the
         // defensive on-draw pass). Logs at Verbose with old index, new index, and the
         // active tab count (design 12.2); silent when the clamp is a no-op, which is the
@@ -426,6 +511,44 @@ namespace Parsek
         // bumps; a count-only gate missed a same-count restructure (merge + split nets zero).
         private int lastSortedStateVersion = int.MinValue;
 
+        /// <summary>
+        /// The Recordings tab's sort column (as an INDEX into
+        /// <see cref="SortColumn"/>'s declaration order) and direction, for the
+        /// automation-only <c>UiAction op=sort</c> seam op.
+        ///
+        /// <para>An int rather than the enum for the <c>TierFilterModeIndexForTesting</c>
+        /// reason: the seam's wire vocabulary is a string table it maps to an index, and the
+        /// enum is this class's own. An out-of-range write is IGNORED rather than thrown -
+        /// the seam validates against its own table first.</para>
+        ///
+        /// <para>The setter also does what the header click's <c>onChanged</c> callback does:
+        /// <c>InvalidateSort()</c>. Without it the table keeps its stale
+        /// <c>sortedIndices</c> until the next store mutation bumps
+        /// <c>RecordingStore.StateVersion</c>, so a capture would photograph the OLD row
+        /// order under the new arrow - the one failure mode a sort op has.</para>
+        /// </summary>
+        internal int SortColumnIndexForTesting
+        {
+            get { return (int)sortColumn; }
+            set
+            {
+                if (value < (int)SortColumn.Index || value > (int)SortColumn.LaunchSite)
+                    return;
+                sortColumn = (SortColumn)value;
+                InvalidateSort();
+            }
+        }
+
+        internal bool SortAscendingForTesting
+        {
+            get { return sortAscending; }
+            set
+            {
+                sortAscending = value;
+                InvalidateSort();
+            }
+        }
+
         // Dock-partner naming (design-dock-event-graph.md 6.5 / 7.6): the global dock-event
         // graph, fetched at most once per frame so a per-row tooltip lookup is a dictionary hit
         // rather than a signature recompute. The host cache is itself signature-gated, so this
@@ -456,6 +579,25 @@ namespace Parsek
 
         // Expanded stats columns
         private bool showExpandedStats;
+
+        /// <summary>
+        /// The Info toggle's own state - six extra columns and a wider window - readable and
+        /// writable from outside the draw pass for the automation-only
+        /// <c>UiAction op=state key=expandedStats</c> seam op.
+        ///
+        /// <para>Plain property over the same field the toggle writes. It deliberately does
+        /// NOT carry the toggle handler's window WIDENING (the handler grows the rect to
+        /// DefaultExpandedWindowWidth so the new columns fit): a census sizes every window
+        /// with <c>op=rect</c> anyway, and a property that resized the window would make the
+        /// commanded rect of the step after it unpredictable. A lane that wants the columns
+        /// visible passes the wide rect itself, which is what every existing census lane
+        /// already does.</para>
+        /// </summary>
+        internal bool ShowExpandedStatsForTesting
+        {
+            get { return showExpandedStats; }
+            set { showExpandedStats = value; }
+        }
         private const float ColW_MaxAlt = 65f;
         private const float ColW_MaxSpd = 65f;
         private const float ColW_Dist = 65f;

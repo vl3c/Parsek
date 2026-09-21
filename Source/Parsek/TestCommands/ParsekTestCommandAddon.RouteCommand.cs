@@ -31,10 +31,20 @@ namespace Parsek.TestCommands
     /// no <c>TryComplete*</c> counterpart, no <c>DeferralBudget</c> row, the 60 s
     /// default budget bounding only the game-not-loaded defer.</para>
     ///
-    /// <para><b>What v1 leaves for later:</b> <c>delete</c> / <c>dismiss</c> /
-    /// <c>link</c> / cadence edits. Each is a separate production surface with its own
-    /// confirmation dialog, and none is on the create-and-run path this verb exists to
-    /// unblock. They are additive under the seam's unknown-key rule.</para>
+    /// <para><b>The round-trip and cadence actions.</b> <c>link</c> / <c>unlink</c> /
+    /// <c>set-cadence</c> drive <c>RouteStore.LinkRoutes</c> / <c>UnlinkRoute</c> /
+    /// <c>RouteCadence.ApplyMultiplier</c> - the same three methods the Logistics window's
+    /// link picker and cadence stepper commit through. All three share the route resolution
+    /// and the single-phase shape above. Their partner selection goes through the pure
+    /// <c>LogisticsLinkPresentation.BuildLinkCandidates</c> the picker draws from, so a
+    /// driven link picks a partner the UI would have OFFERED rather than any route the
+    /// store happens to hold.</para>
+    ///
+    /// <para><b>What this verb still leaves for later:</b> <c>delete</c> and
+    /// <c>dismiss</c>. Each is a separate production surface behind its own confirmation
+    /// dialog (which <c>UiAction op=raise</c> now RAISES but deliberately cannot confirm -
+    /// its press policy admits only Cancel), and neither is on the create-and-run path this
+    /// verb exists to unblock. They are additive under the seam's unknown-key rule.</para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -42,12 +52,15 @@ namespace Parsek.TestCommands
         {
             string action = ArgOrNull(cmd, "action");
             ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
-                "routecommand start action={0} tree={1} route={2} name={3} interval={4}",
+                "routecommand start action={0} tree={1} route={2} name={3} interval={4} "
+                + "partner={5} cadence={6}",
                 action ?? string.Empty,
                 ArgOrNull(cmd, "tree") ?? string.Empty,
                 ArgOrNull(cmd, "route") ?? string.Empty,
                 ArgOrNull(cmd, "name") ?? string.Empty,
-                ArgOrNull(cmd, "interval") ?? string.Empty));
+                ArgOrNull(cmd, "interval") ?? string.Empty,
+                ArgOrNull(cmd, TestCommandRouteCommand.PartnerArg) ?? string.Empty,
+                ArgOrNull(cmd, TestCommandRouteCommand.CadenceArg) ?? string.Empty));
 
             if (string.IsNullOrEmpty(action))
             {
@@ -233,6 +246,24 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // ONE resolution site for every route-addressed action, so the three-tier
+            // selector and its ambiguity refusals behave identically across all six.
+            if (!TestCommandRouteCommand.IsStatusOperation(action))
+            {
+                switch (action)
+                {
+                    case TestCommandRouteCommand.ActionLink:
+                        RouteCommandLink(cmd, sel);
+                        return;
+                    case TestCommandRouteCommand.ActionUnlink:
+                        RouteCommandUnlink(sel);
+                        return;
+                    default: // ActionSetCadence (IsKnownAction already filtered the rest)
+                        RouteCommandSetCadence(cmd, sel);
+                        return;
+                }
+            }
+
             Route route = sel.Route;
             RouteStatus before = route.Status;
             double currentUT = TryGetRouteCommandUT();
@@ -282,6 +313,272 @@ namespace Parsek.TestCommands
                 "statusBefore={4} status={5}",
                 action, route.Id ?? string.Empty, route.Name ?? string.Empty,
                 sel.MatchKind ?? "<none>", before, route.Status));
+            SetExecResult("OK", payload, null);
+        }
+
+        // ----- action=link -----
+
+        /// <summary>
+        /// Drives <c>RouteStore.LinkRoutes</c>. The partner is either a named
+        /// <c>partner=</c> resolved through the same three-tier selector, or - absent - the
+        /// FIRST option <c>LogisticsLinkPresentation.BuildLinkCandidates</c> would have
+        /// drawn in the picker, so a driven link can only reach a pair the UI offers.
+        /// </summary>
+        /// <summary>
+        /// Dirties the Logistics window's throttled route-legibility cache, which every
+        /// production handler that changes a route's NAME, LINK or CADENCE does as its last
+        /// act.
+        ///
+        /// <para>Without it the window keeps drawing the pre-action Interval, Next and
+        /// Destination cells for up to a refresh period - those sort keys live in that
+        /// cache - so a census capture taken straight after the action photographs the OLD
+        /// row under a label claiming the new one. No-op when the window has never been
+        /// constructed, which is the ordinary case for a non-GUI lane.</para>
+        /// </summary>
+        private static void DirtyRouteLegibilityCache()
+        {
+            ParsekUI ui = ParsekUI.ActiveInstance;
+            if (ui == null) return;
+            LogisticsWindowUI window = ui.GetLogisticsUI();
+            if (window == null) return;
+            window.DirtyLegibilityCacheForTesting();
+        }
+
+        private void RouteCommandLink(ParsedCommand cmd, RouteSelection sel)
+        {
+            Route route = sel.Route;
+            IReadOnlyList<Route> routes = RouteStore.CommittedRoutes;
+            string partnerArg = ArgOrNull(cmd, TestCommandRouteCommand.PartnerArg);
+
+            Route partner;
+            string partnerSource;
+            if (string.IsNullOrEmpty(partnerArg))
+            {
+                // The picker's own list. An empty one is a TYPED reject rather than a bare
+                // false out of the store: every other route is already linked, or there is
+                // no other route, and those send a lane to different fixes.
+                List<LogisticsLinkPresentation.LinkCandidate> candidates =
+                    LogisticsLinkPresentation.BuildLinkCandidates(routes, route.Id);
+                if (candidates.Count == 0)
+                {
+                    ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                        "routecommand rejected reason={0} action=link route={1} routes={2}",
+                        TestCommandRouteCommand.LinkNoCandidateReason,
+                        route.Id ?? string.Empty, routes != null ? routes.Count : 0));
+                    SetExecResult("REJECTED", null,
+                        TestCommandRouteCommand.LinkNoCandidateReason);
+                    return;
+                }
+                RouteSelection pick = TestCommandRouteCommand.ResolveRoute(
+                    routes, candidates[0].Id);
+                partner = pick.Route;
+                partnerSource = "candidate-first";
+            }
+            else
+            {
+                RouteSelection pick = TestCommandRouteCommand.ResolveRoute(routes, partnerArg);
+                if (!pick.Ok)
+                {
+                    string token = TestCommandRouteCommand.MapPartnerReject(pick.RejectReason);
+                    ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                        "routecommand rejected reason={0} action=link route={1} partner={2} "
+                        + "matches={3} kind={4}",
+                        token, route.Id ?? string.Empty, partnerArg,
+                        pick.Matches, pick.MatchKind ?? "<none>"));
+                    SetExecResult("REJECTED", null, token);
+                    return;
+                }
+                partner = pick.Route;
+                partnerSource = pick.MatchKind ?? string.Empty;
+            }
+
+            RouteLinkRefusal refusal = TestCommandRouteCommand.ClassifyLink(
+                route.Id, route.LinkedRouteId,
+                partner != null ? partner.Id : null,
+                partner != null ? partner.LinkedRouteId : null);
+            if (refusal != RouteLinkRefusal.None)
+            {
+                string token = TestCommandRouteCommand.LinkRefusalToken(refusal);
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand rejected reason={0} action=link route={1} partner={2} "
+                    + "routeLinked={3} partnerLinked={4}",
+                    token, route.Id ?? string.Empty,
+                    partner != null ? (partner.Id ?? string.Empty) : string.Empty,
+                    route.LinkedRouteId ?? "<none>",
+                    partner != null ? (partner.LinkedRouteId ?? "<none>") : "<none>"));
+                SetExecResult("REJECTED", null, token);
+                return;
+            }
+
+            string linkedBefore = route.LinkedRouteId;
+            bool ok = RouteStore.LinkRoutes(route.Id, partner.Id);
+            if (ok) DirtyRouteLegibilityCache();
+
+            var payload = Payload(
+                Kv("action", TestCommandRouteCommand.ActionLink),
+                Kv("route", route.Id ?? string.Empty),
+                Kv("name", route.Name ?? string.Empty),
+                Kv("match", sel.MatchKind ?? string.Empty),
+                Kv("applied", Bool(ok)),
+                Kv("partner", partner.Id ?? string.Empty),
+                Kv("partnerName", partner.Name ?? string.Empty),
+                Kv("partnerMatch", partnerSource),
+                Kv("linkedBefore", linkedBefore ?? "-"),
+                Kv("linked", route.LinkedRouteId ?? "-"),
+                Kv("partnerLinked", partner.LinkedRouteId ?? "-"));
+
+            if (!ok)
+            {
+                // Every refusal the store distinguishes was classified above, so a false
+                // here is one the classification did not predict. ERROR with the generic
+                // compound, the RouteCommandOperate line.
+                string msg = TestCommandRouteCommand.ActionRefusedMsg(
+                    TestCommandRouteCommand.ActionLink);
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand refused action=link route={0} partner={1}",
+                    route.Id ?? string.Empty, partner.Id ?? string.Empty));
+                SetExecResult("ERROR", payload, msg);
+                return;
+            }
+
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "routecommand complete action=link route={0} partner={1} partnerMatch={2} "
+                + "linkedBefore={3} linked={4} partnerLinked={5}",
+                route.Id ?? string.Empty, partner.Id ?? string.Empty, partnerSource,
+                linkedBefore ?? "<none>", route.LinkedRouteId ?? "<none>",
+                partner.LinkedRouteId ?? "<none>"));
+            SetExecResult("OK", payload, null);
+        }
+
+        // ----- action=unlink -----
+
+        /// <summary>
+        /// Drives <c>RouteStore.UnlinkRoute</c>. An ALREADY-UNLINKED route is refused
+        /// BEFORE the call with its own token: the store answers that case with a bare
+        /// false, which must not read as a failed unlink.
+        /// </summary>
+        private void RouteCommandUnlink(RouteSelection sel)
+        {
+            Route route = sel.Route;
+            string linkedBefore = route.LinkedRouteId;
+
+            if (string.IsNullOrEmpty(linkedBefore))
+            {
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand rejected reason={0} action=unlink route={1}",
+                    TestCommandRouteCommand.RouteNotLinkedReason, route.Id ?? string.Empty));
+                SetExecResult("REJECTED", null,
+                    TestCommandRouteCommand.RouteNotLinkedReason);
+                return;
+            }
+
+            bool ok = RouteStore.UnlinkRoute(route.Id);
+
+            if (ok) DirtyRouteLegibilityCache();
+
+            var payload = Payload(
+                Kv("action", TestCommandRouteCommand.ActionUnlink),
+                Kv("route", route.Id ?? string.Empty),
+                Kv("name", route.Name ?? string.Empty),
+                Kv("match", sel.MatchKind ?? string.Empty),
+                Kv("applied", Bool(ok)),
+                Kv("linkedBefore", linkedBefore),
+                Kv("linked", route.LinkedRouteId ?? "-"));
+
+            if (!ok)
+            {
+                string msg = TestCommandRouteCommand.ActionRefusedMsg(
+                    TestCommandRouteCommand.ActionUnlink);
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand refused action=unlink route={0} linkedBefore={1}",
+                    route.Id ?? string.Empty, linkedBefore));
+                SetExecResult("ERROR", payload, msg);
+                return;
+            }
+
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "routecommand complete action=unlink route={0} linkedBefore={1} linked={2}",
+                route.Id ?? string.Empty, linkedBefore, route.LinkedRouteId ?? "<none>"));
+            SetExecResult("OK", payload, null);
+        }
+
+        // ----- action=set-cadence -----
+
+        /// <summary>
+        /// Drives <c>RouteCadence.ApplyMultiplier</c>, which on a real change writes BOTH
+        /// <c>CadenceMultiplier</c> and a recomputed <c>DispatchInterval</c> plus a
+        /// dispatch-clock rebase - so the payload reports the before and after of both
+        /// fields rather than the multiplier alone.
+        ///
+        /// <para>An UNCHANGED N is refused before the call: the production method no-ops
+        /// false on it, and a lane must be able to tell "already at N" from "the edit was
+        /// declined".</para>
+        /// </summary>
+        private void RouteCommandSetCadence(ParsedCommand cmd, RouteSelection sel)
+        {
+            Route route = sel.Route;
+            string raw = ArgOrNull(cmd, TestCommandRouteCommand.CadenceArg);
+
+            if (!TestCommandRouteCommand.TryParseCadenceArg(
+                    raw, out int multiplier, out string parseReject))
+            {
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand rejected reason={0} action=set-cadence route={1} cadence={2}",
+                    parseReject, route.Id ?? string.Empty, raw ?? string.Empty));
+                SetExecResult("REJECTED", null, parseReject);
+                return;
+            }
+
+            int cadenceBefore = route.CadenceMultiplier;
+            double intervalBefore = route.DispatchInterval;
+
+            if (multiplier == cadenceBefore)
+            {
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand rejected reason={0} action=set-cadence route={1} cadence={2}",
+                    TestCommandRouteCommand.CadenceUnchangedReason,
+                    route.Id ?? string.Empty, multiplier));
+                SetExecResult("REJECTED", null,
+                    TestCommandRouteCommand.CadenceUnchangedReason);
+                return;
+            }
+
+            bool ok = RouteCadence.ApplyMultiplier(route, multiplier);
+            if (ok) DirtyRouteLegibilityCache();
+
+            var payload = Payload(
+                Kv("action", TestCommandRouteCommand.ActionSetCadence),
+                Kv("route", route.Id ?? string.Empty),
+                Kv("name", route.Name ?? string.Empty),
+                Kv("match", sel.MatchKind ?? string.Empty),
+                Kv("applied", Bool(ok)),
+                Kv("cadenceBefore", Int(cadenceBefore)),
+                Kv("cadence", Int(route.CadenceMultiplier)),
+                Kv("intervalBefore",
+                    intervalBefore.ToString("R", CultureInfo.InvariantCulture)),
+                Kv("intervalSeconds",
+                    route.DispatchInterval.ToString("R", CultureInfo.InvariantCulture)),
+                Kv("transitSeconds",
+                    route.TransitDuration.ToString("R", CultureInfo.InvariantCulture)));
+
+            if (!ok)
+            {
+                string msg = TestCommandRouteCommand.ActionRefusedMsg(
+                    TestCommandRouteCommand.ActionSetCadence);
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand refused action=set-cadence route={0} cadenceBefore={1} "
+                    + "requested={2}",
+                    route.Id ?? string.Empty, cadenceBefore, multiplier));
+                SetExecResult("ERROR", payload, msg);
+                return;
+            }
+
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "routecommand complete action=set-cadence route={0} cadenceBefore={1} "
+                + "cadence={2} intervalBefore={3} intervalSeconds={4}",
+                route.Id ?? string.Empty, cadenceBefore, route.CadenceMultiplier,
+                intervalBefore.ToString("R", CultureInfo.InvariantCulture),
+                route.DispatchInterval.ToString("R", CultureInfo.InvariantCulture)));
             SetExecResult("OK", payload, null);
         }
 

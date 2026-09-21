@@ -19,6 +19,23 @@ namespace Parsek
         // Persisted alongside the missions so the view state survives a reload.
         internal static bool HideArchived;
 
+        /// <summary>
+        /// The mission carrying an id, or null. ONE lookup for every caller: the Missions
+        /// window and the automation-only <c>UiAction op=select</c> applier both walked
+        /// their own copy of this loop, and two copies of an ORDINAL id compare is how one
+        /// of them quietly becomes culture-aware.
+        /// </summary>
+        internal static Mission FindById(string missionId)
+        {
+            if (string.IsNullOrEmpty(missionId)) return null;
+            IReadOnlyList<Mission> all = Missions;
+            for (int i = 0; i < all.Count; i++)
+                if (all[i] != null
+                    && string.Equals(all[i].Id, missionId, System.StringComparison.Ordinal))
+                    return all[i];
+            return null;
+        }
+
         internal static IReadOnlyList<Mission> Missions => missions;
 
         internal static void ResetForTesting()

@@ -2036,15 +2036,43 @@ namespace Parsek
         /// IMGUI. Returns true when the section is now folded.
         /// </summary>
         internal static bool ToggleSection(HashSet<string> foldedGroups, string name)
+            => SetSectionFolded(foldedGroups, !foldedGroups.Contains(name), name);
+
+        /// <summary>
+        /// Folds or unfolds one section, and returns whether it is now folded.
+        ///
+        /// <para>The absolute form behind <see cref="ToggleSection"/>, which a CLICK wants
+        /// (it has no direction of its own) and a commanded write does NOT: the
+        /// automation-only <c>UiAction op=expand window=career</c> seam op is told which
+        /// state to reach, and a toggle would have flipped an already-correct fold into the
+        /// wrong one. One writer for both, so the log line is the same either way.</para>
+        /// </summary>
+        internal static bool SetSectionFolded(HashSet<string> foldedGroups, bool folded,
+                                              string name)
         {
+            if (foldedGroups == null) return false;
             bool wasFolded = foldedGroups.Contains(name);
-            if (wasFolded) foldedGroups.Remove(name);
-            else foldedGroups.Add(name);
-            bool nowFolded = !wasFolded;
-            ParsekLog.Verbose("UI",
-                $"CareerStateWindow: section toggled name={name} folded={nowFolded}");
-            return nowFolded;
+            if (folded) foldedGroups.Add(name);
+            else foldedGroups.Remove(name);
+            if (wasFolded != folded)
+                ParsekLog.Verbose("UI",
+                    $"CareerStateWindow: section toggled name={name} folded={folded}");
+            return folded;
         }
+
+        /// <summary>
+        /// Every fold key this window keeps, in tab order.
+        ///
+        /// <para>Two, and the window has no others: the Facilities and Milestones tabs have
+        /// no folds, and the only other UI state here is the tab index. Named as a list so
+        /// the seam's <c>key=all</c> / <c>key=none</c> form has something to enumerate
+        /// instead of a copy of the two constants; the list is BUILT from those constants,
+        /// so it cannot drift from them.</para>
+        /// </summary>
+        internal static readonly string[] FoldGroupKeys = new[]
+        {
+            GroupKey_ContractsPending, GroupKey_StrategiesPending,
+        };
 
         /// <summary>
         /// Emits a one-shot-per-mode-change Verbose log for Sandbox / Science

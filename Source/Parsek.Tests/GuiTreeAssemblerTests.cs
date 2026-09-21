@@ -487,6 +487,20 @@ namespace Parsek.Tests
             Assert.Equal(4711, n.ControlId.Value);
         }
 
+        [Fact]
+        public void AButtonGridsSelectedIndexSurvivesIntoTheNode()
+        {
+            // ToNode is a hand-written field-by-field copy, so an event field that is
+            // not listed there is lost with nothing else failing.
+            var grid = Leaf(GuiNodeKind.ButtonGrid, 1, 2, 30, 4, 1, "Flights");
+            grid.SelectedIndex = 2;
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(new List<GuiTreeEvent> { grid });
+
+            Assert.True(r.Roots[0].SelectedIndex.HasValue);
+            Assert.Equal(2, r.Roots[0].SelectedIndex.Value);
+        }
+
         // ------------------------------------------------------------ kind helpers
 
         // Cases pass the enum as its int value: the theory method has to be public
