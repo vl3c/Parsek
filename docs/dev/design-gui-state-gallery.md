@@ -585,6 +585,8 @@ No server, no upload, no dependency: `localStorage` plus a `<pre>` is the whole 
 
 **8. Iterate (AGENT).** Fix, then step 2. The AFTER of iteration N is the BEFORE of N+1 automatically, because Compare keys on time rather than on a pinned baseline.
 
+**One window at a time (owner ruling 2026-09-21).** The gallery and the mirror cover every window at once, but the ANALYSIS does not: the improvement discussion and the comparison of browser renders run one window at a time, iteratively. A round is: pick one window, show its states and one proposal, take the owner's notes, build, re-run the gallery, re-render, compare, and repeat until he is done with that window; only then does the next window start. Steps 2 to 8 above are therefore always scoped to a single window token, and a draw-code branch never mixes changes to two windows.
+
 **Who does what.** Automatic: build, provision, DLL verification, the gallery run, mirror regeneration, the fidelity gate, extracting the notes blob into tasks. Owner: the judgement in step 6 and the words in step 7. That is the whole of his involvement, which is what he asked for.
 
 ---
@@ -656,9 +658,9 @@ P1 and P2 together are the minimum viable loop: three windows, ~45 states, one l
 
 ---
 
-## 16. Open questions for the owner
+## 16. Owner rulings (2026-09-21)
 
-Short, yes/no, in the order they block work.
+All seven were put to the owner as yes/no questions and ALL SEVEN were answered YES on 2026-09-21 ("yes to all 7, do as you think is best"). They are kept in question form below so the reasoning stays readable; each is now a decision, and P6 (question 4) is therefore in scope.
 
 1. **Same page?** Mocked captures live in the SAME mirror as real ones, badged `MOCKED DATA` and never paired with a real capture in Compare - rather than a separate page. Yes/no.
 2. **One capture per apply?** A mock stays live across a small sweep (e.g. all four Timeline tabs) rather than re-applying per capture. Cheaper, slightly more state to reason about. Yes/no.
