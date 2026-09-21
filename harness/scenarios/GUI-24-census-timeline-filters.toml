@@ -1,0 +1,248 @@
+schema = 1
+id = "GUI-24-census-timeline-filters"
+tier = "operator"
+# THE GUI CENSUS, WAVE 6: THE TIMELINE WINDOW'S SCALAR VIEW STATE.
+#
+# WHAT IT BUYS, and every item here reads the SAME value in every dump the census has
+# taken so far. The Timeline's filter row carries three independent source toggles
+# (`Recordings` / `Actions` / `Events`), an `Archived` toggle, a `Custom` range reveal
+# with the window's only two sliders, a five-button preset row and a scrolling entry
+# list. Every capture on disk shows all three sources ON, the archive filter OFF, the
+# custom range hidden, no preset active and the list at the top. `UiAction op=state`
+# (PR #1734) is the first thing that can drive any of them, so this lane is the first
+# picture of the other side of each.
+#
+# HOST: the operator-local census fixture (`fixtures/local-saves/c1-gui`), for the
+# reason GUI-1's header argues at length - a census photographs LAYOUT, and a filter
+# that removes rows from an empty list photographs as an empty list either way. The
+# operator's career carries 110 committed recordings, 18 missions and 50 groups, so each
+# source toggle visibly changes the row population and `scrollY` has something below the
+# fold to scroll to. Stage it first:
+#
+#   python harness/tools/stage_local_fixture.py \
+#       --from "../Kerbal Space Program/saves/c1" --as c1-gui --no-quicksaves
+#
+# Without that the run is refused PRE-BOOT as INVALID(staging) with the command in the
+# error (hlib.local_fixture_hint); every committed suite stays green either way.
+#
+# THE ARCHIVE CAPTURE IS THE FILTER TOGGLE, NOT ARCHIVED ROWS, and that is measured
+# rather than a compromise. `key=archived` drives `GroupHierarchyStore.HideActive`
+# through `TimelineWindowUI.ShowArchivedRecordings`, in the Timeline's POSITIVE sense
+# (`state=true` means archived rows contribute). No committed fixture and not the
+# operator's own career carries a single `Recording.Hidden` row: the codec writes
+# `hidden` only when true and the token appears ZERO times across all 59 committed
+# fixtures and in `c1/persistent.sfs`. So the row-level `[archived]` marker has no host
+# at all, and what this capture honestly shows is the filter toggle drawn CHECKED with
+# the same row set under it - which the dump proves, because `GuiTreeJson` records a
+# toggle's own `value`. Filed as
+# GUI-CENSUS-NO-HOST-CARRIES-AN-ARCHIVED-RECORDING-OR-MISSION rather than faked.
+#
+# THE ARCHIVE KEY IS A PERSISTED WRITE and so is nothing else in this lane. Every other
+# key here is per-session view state that dies with the process; `archived` survives the
+# save. It is written on a STAGED THROWAWAY copy of the host (the harness stages every
+# fixture into `${runSave}`), it is restored to `false` two steps later, and NO FIXTURE
+# IS EVER HARVESTED FROM THIS RUN.
+#
+# ONE COMBINATION IS REFUSED BY DESIGN and this lane is deliberately not near it:
+# `key=srcRecordings state=false` answers `REJECTED state-clamped-by-tab` while the tier
+# filter is `rewindff` or `refly`, because those tabs' own draw pass forces the toggle
+# back on. The preamble leaves `overview` selected and this lane never switches tab, so
+# the gate never fires here.
+#
+# THE PRESET ROW'S `All` BUTTON IS A CLEAR, not a range, and the seam reports it
+# honestly: `ApplyTimeRangePreset` calls `filter.Clear()` for it and
+# `ActiveTimeRangePresetForTesting` answers the `All` token whenever the filter is
+# inactive, so the settle's `after=All` is a real read-back rather than an echo. The two
+# RANGED presets are captured; `Last 7d` / `Last 30d` are the same layout with different
+# numbers and buy no new picture.
+#
+# `scrollY` IS A PNG-ONLY STATE. A `.gui.json` dump carries below-fold content with full
+# rects whatever the offset is, so the dump beside the scrolled capture is not the
+# product - the PNG is. The seam reports the CLAMPED offset (`after=`), which is why the
+# log contract regexes that one value instead of pinning 600.
+#
+# THE CAREER PAIR AT THE END is the other wave-6 expand surface: `op=expand
+# window=career key=pending:<tab>`, the two `Pending in timeline` folds. The set is
+# INVERTED on the production side (membership means FOLDED) and the op always speaks
+# "expanded", so `key=none` COLLAPSES both in one step. Both folds only DRAW under the
+# divergence layout, which needs a career whose timeline ends later than now - true of
+# this host and of no committed fixture - so this is the only place the state is
+# reachable at all.
+description = "GUI census wave 6: the Timeline window's scalar view state - each source toggle off, the archive filter on, the Custom range revealed, two time-range presets and a scrolled entry list - plus the Career window's two Pending-in-timeline folds collapsed, all on the dense operator-local census host."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "timeline", "career", "GUI-24", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/local-saves/c1-gui"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot, forced to the Space Center (this host's activeVessel is focusable, so the
+  # DEFAULT LoadGame route would boot into FLIGHT).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is a precondition, not just order: the
+  # settle for a non-`main` open / rect / state / sort / edit REFUSES while the host's
+  # `showUI` is false (`ERROR window-host-hidden`).
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- the Timeline, opened and sized BEFORE any state step: `op=state` answers
+  # REJECTED window-not-open on a shut window, and `key=preset` clamps against slider
+  # bounds that only a DRAWN frame computes.
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+
+  # --- STATE 1-3: the three source toggles, one OFF at a time. Each is its own
+  # row-population branch and all three read `true` in every dump the census has.
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "srcActions", state = "false" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-noactions-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-noactions-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "srcActions", state = "true" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "srcEvents", state = "false" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-noevents-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-noevents-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "srcEvents", state = "true" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "srcRecordings", state = "false" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-norecordings-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-norecordings-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "srcRecordings", state = "true" }, expect = "OK" },
+
+  # --- STATE 4: the archive filter ON. See the header: the TOGGLE flips (the dump
+  # records a toggle's own `value`), the row set does not, because no host carries an
+  # archived recording. Restored immediately - it is the one persisted write here.
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "archived", state = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-archivedfilter-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-archivedfilter-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "archived", state = "false" }, expect = "OK" },
+
+  # --- STATE 5: the Custom reveal - the window's ONLY two sliders plus the From: / To:
+  # labels, which have zero hits program-wide today.
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "customRange", state = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-customrange-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-customrange-advanced" }, expect = "OK" },
+
+  # --- STATE 6-7: two ranged presets over the revealed sliders, so the active-range
+  # readout and the moved thumbs are both in frame.
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "This Year" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-presetthisyear-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-presetthisyear-advanced" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "Last Day" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-presetlastday-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-presetlastday-advanced" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "All" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "customRange", state = "false" }, expect = "OK" },
+
+  # --- STATE 8: a lower band of the entry list. PNG-only: the dump carries below-fold
+  # content at any offset, the viewport-sized image does not.
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "scrollY", value = "600" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-scrolled-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-scrolled-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "scrollY", value = "0" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  # --- the Career window's two Pending folds, COLLAPSED. `key=none` collapses both in
+  # one step (the production set is inverted; the op speaks "expanded"), then each tab is
+  # photographed. GUI-1's `ksc-career-contracts-advanced` is the expanded baseline.
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "career", key = "none" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-career-contracts-pendingcollapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-career-contracts-pendingcollapsed-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-career-strategies-pendingcollapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-career-strategies-pendingcollapsed-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "career", key = "all" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+# Only this lane's OWN seam records. A local fixture is unreproducible by construction,
+# so nothing here claims anything about the host's CONTENT - every line is a seam INFO
+# record that an op ran and what it read back.
+#
+# THE STATE LINES ARE THE LANE'S CENTRAL CLAIM. `want=` is what the step asked for and
+# `after=` is the SETTLED read-back taken after a drawn frame, so the pair is a statement
+# about the game rather than about the write. `changed=true` on each first write says the
+# window was NOT already in that state, which is what separates a real capture from a
+# picture of the default. The restore steps are deliberately unpinned - they are
+# bookkeeping.
+#
+# `scrollY` IS THE ONE KEY WHOSE `after=` MAY DIFFER FROM `want=` (the scroll view clamps
+# the offset to its own content), so its line regexes the value instead of pinning 600.
+# Pinning 600 would pin the host's row count.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
+
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcActions want=false after=false changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcEvents want=false after=false changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcRecordings want=false after=false changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=archived want=true after=true changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=customRange want=true after=true changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=preset want=This Year after=This Year changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=preset want=Last Day after=Last Day changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=preset want=All after=All changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=scrollY want=600 after=[0-9.]+ changed=true frames=[0-9]+",
+
+  # The Career fold pair: `key=none` collapsed BOTH (the window keeps exactly two fold
+  # keys, so `total=2` is exact and derived from CareerStateWindowUI.FoldGroupKeys).
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=career key=none state=false changed=[0-9]+ expanded=0 total=2",
+
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ksc-timeline-noactions-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-noactions-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-noevents-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-norecordings-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-archivedfilter-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-customrange-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-presetthisyear-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-presetlastday-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-scrolled-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-contracts-pendingcollapsed-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-strategies-pendingcollapsed-advanced .*patched=17/17",
+]
+forbidden = []
+
+[expectations.analyzer]
+# REPORT-ONLY, identical in kind and cause to GUI-1's and GUI-2's: the offline analyzer
+# over this host measures FAIL=25 RED=1 on recordings months older than any census lane
+# (U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER). A census takes screenshots - it neither
+# causes nor observes a recording-invariant finding - and `run.py` always passes
+# `-FailOnRed`, so a gating row would red this lane forever. NOT `[expectedFail]`, which
+# short-circuits the verifier chain and would skip the log contracts above.
+gating = false
+
+[runtime]
+# Ten captures and ten dumps, a 300 s cold load of a 42 MB career and ~40 single-phase UI
+# ops. GUI-1 measures 22 captures plus 22 dumps on the same host at 96 s wall against a
+# 1500 s budget; this lane is half that work and takes the 900 s every other census lane
+# uses, which is still an order of magnitude over the expected wall.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

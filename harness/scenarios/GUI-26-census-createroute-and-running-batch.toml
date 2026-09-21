@@ -1,0 +1,164 @@
+schema = 1
+id = "GUI-26-census-createroute-and-running-batch"
+tier = "operator"
+# THE GUI CENSUS, WAVE 6: THE CREATE ROUTE CONFIRM, AND THE TEST RUNNER MID-BATCH.
+#
+# TWO STATES, ONE HOST, and neither has a picture anywhere in the census.
+#
+# 1. THE `Create Supply Route?` CONFIRM. It is the only dialog in the whole
+#    route-CREATION workflow - the way a player actually gets a supply route - and its
+#    spawn guard needs a live `RouteCandidate` carrying BOTH `Tree` and `Analysis`. The
+#    applier reads that off the Logistics window's own throttled cache rather than from a
+#    fresh derivation, so the window must have DRAWN once before the raise; this lane
+#    opens and sizes it first for exactly that reason. `fixtures/saves/rover-route-recorded`
+#    is the host because it carries TWO fully sealed recording trees and NO `ROUTES` node
+#    at all, which is what GUI-13 already uses it for and what `RVR-2`'s driven
+#    `RouteCommand action=create` depends on. The MIRROR host, `interbody-route-recorded`,
+#    has routes and no candidates, so GUI-25 declares this same raise as a REJECTED there.
+#    THREE BUTTONS, two of which BUILD a route, so the policy admits only `Cancel` and the
+#    dismissal here presses nothing at all.
+#
+# 2. THE TEST RUNNER WHILE A BATCH IS RUNNING. Every runner capture the census has
+#    (GUI-1's one, GUI-12's four) shows the window IDLE or with FINISHED results, because
+#    `op=run` under its default `await=true` cannot terminate until the batch has stopped
+#    - so every capture after it is a picture of results. `await=false` (PR #1734) returns
+#    as soon as the batch is confirmed dispatched and LEAVES IT RUNNING, which is the only
+#    way the running control bar, the progress row and the Cancel button reach a PNG.
+#
+# THE BATCH GATE IS RELAXED FOR EXACTLY SIX NON-MUTATING VERBS while such a batch runs -
+# `CaptureScreenshot`, `DumpGuiTree`, `RecordingState`, `MissionMark`,
+# `ExportRenderManifest`, `ListHandles` - and `FlushAndQuit` is deliberately NOT one of
+# them (quitting mid-batch would skip the runner's own baseline revert and leave the batch
+# marker in `persistent.sfs` for the next process's crash reconcile). EVERY OTHER STEP OF
+# THIS LANE THEREFORE RUNS BEFORE THE `await=false` STEP, and only the capture pair
+# follows it. That is a lane-ordering rule, not a preference: a `UiAction` step after it
+# would simply wait for the batch.
+#
+# `category = "TrajectoryMath"` AND THE REASON IS THREE-PART. (a) It is NOT `GuiTree`:
+# that category's cell arms the same single GUI-tree recorder this lane's own
+# `DumpGuiTree` step arms, and the dump that landed would be whichever won - a capture
+# that proves nothing with no error to say so. (b) All EIGHT of its declarations are
+# scene-agnostic (`Scene` unset), so at SPACECENTER none is scene-skipped and the batch
+# really runs eight tests; `RunBatch` yields at least one frame per executed test, so the
+# window is still drawing its running state when the capture lands. (c) They are pure
+# math over `TrajectoryMath.cs` - no scene load, no save write, nothing that could move
+# the window under the capture.
+#
+# `running=true` IS PINNED as a log contract and that is the instrument rather than a
+# decoration: if the batch had already finished when the op answered, this lane's PNG is
+# a picture of results under a label claiming a running batch, and a silent pass would be
+# the exact false reading the census exists to prevent.
+#
+# `scene = "spacecenter"` IS REQUIRED: this host's `activeVessel = 7` names a focusable
+# vessel, so a plain LoadGame takes `TestCommandLoadGame.DecideLoadRoute`'s Focusable
+# branch and boots into FLIGHT.
+description = "GUI census wave 6: the Create Supply Route confirm raised over a live route candidate, and the in-game test runner photographed WHILE a batch is running rather than after it."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "logistics", "testrunner", "GUI-26", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- the Logistics window, opened and DRAWN so its candidate cache is populated: the
+  # raise resolver reads that cache rather than re-deriving, so a shut window answers
+  # `dialog-target-unavailable` naming the empty cache.
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "all" }, expect = "OK" },
+
+  # --- THE CREATE ROUTE CONFIRM. A PopupDialog is uGUI and contributes ZERO dump nodes,
+  # so the raise is paired with `op=dialog` (whose log line carries the live popup name,
+  # title and button list) and a PNG, and there is no dump beside it. NO `press=`: two of
+  # the three buttons build a route and the seam refuses them anyway.
+  { cmd = "UiAction", args = { op = "raise", popup = "createroute" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rr-dlg-createroute" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "createroute" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
+
+  # --- the Settings-launched runner, opened and sized at GUI-1's rect for it. Both must
+  # happen BEFORE the run step: `op=run` needs the window to have drawn once (both runners
+  # are created lazily on first draw, and a missing one answers `run-runner-not-ready`),
+  # and every UiAction after the run would WAIT for the batch.
+  { cmd = "UiAction", args = { op = "open", window = "testrunner" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "testrunner", x = "270", y = "8", w = "620", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "testrunner", key = "none" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "testrunner", key = "category:TrajectoryMath", state = "true" }, expect = "OK" },
+
+  # --- THE RUNNING STATE. Everything after this step but the capture pair waits for the
+  # batch; the pair is admitted by the six-verb relaxation.
+  { cmd = "UiAction", args = { op = "run", window = "testrunner", category = "TrajectoryMath", await = "false" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rr-testrunner-running-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "rr-testrunner-running-advanced" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The anti-vacuity floor: a candidate is DERIVED from committed trees, so a run that
+# staged nothing would answer `dialog-target-unavailable` on the raise. FIVE EXACTLY,
+# which is not this lane's derivation - `RVR-1`, `RVR-16` and `GUI-13` all fly this host
+# and pin the same number off measured runs, and a census neither records nor deletes.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# Only this lane's OWN seam records.
+#
+# THE RAISE PAIR is what separates "the production spawn site ran" from "its own guard
+# returned silently": the `raise` line is written BEFORE the spawn and `raise ok` AFTER
+# the settle confirmed a popup with that exact name is standing.
+#
+# `running=true` IS THE LANE'S CENTRAL CLAIM - see the header. `discovered=8` is EXACT and
+# derived from the source (eight `[InGameTest(Category = "TrajectoryMath")]` declarations,
+# all scene-agnostic, so none is scene-skipped at SPACECENTER). NO TALLY IS PINNED and
+# none is emitted: the `await=false` payload deliberately carries no counts, because a row
+# that is currently Running lands in none of the passed / failed / skipped buckets.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,testrunner",
+
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise ok popup=createroute name=ParsekLogisticsCreateRouteConfirm title=Create Supply Route\\? nbuttons=3 ",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=true count=1 name=ParsekLogisticsCreateRouteConfirm ",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=createroute press=- open=false",
+
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction run started window=testrunner category=TrajectoryMath discovered=8 await=false running=true batchGateRelaxed=true",
+
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rr-dlg-createroute",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rr-testrunner-running-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rr-testrunner-running-advanced .*patched=17/17",
+]
+forbidden = []
+
+[runtime]
+# Two captures, one dump, a 300 s cold-load allowance, ~15 single-phase UI ops and one
+# eight-cell in-game batch of pure-math tests. GUI-13 measures this host's window walk at
+# 73 s. 900 s is the budget every census lane uses.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

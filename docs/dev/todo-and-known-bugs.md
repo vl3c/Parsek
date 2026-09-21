@@ -15,6 +15,65 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: four window states the new seam ops still cannot photograph, and why each has no host [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). FOUR items. 1 to 3 are FIXTURE gaps; 4 is an OP-SCOPE correction to the wave's own lane plan. None is a product defect. OPEN; each names what it needs]
+
+**Where this came from.** PR #1734 shipped the automation-only seam operations that write
+the window state a player writes with a click (`op=state`, `op=sort`, `op=select`,
+`op=edit`, `op=run await=false`, the three Logistics raise rows, `RouteCommand
+action=link|unlink|set-cadence`). Four census lanes were authored against them. These are
+the states that STILL have no picture, each re-derived from the committed bytes or from
+the source rather than assumed.
+
+**1. NO HOST CARRIES AN ARCHIVED RECORDING OR AN ARCHIVED MISSION**
+(`GUI-CENSUS-NO-HOST-CARRIES-AN-ARCHIVED-RECORDING-OR-MISSION`).
+`RecordingTreeRecordCodec` writes the `hidden` key only when `Recording.Hidden` is true,
+and the token appears ZERO times across all 59 directories under
+`harness/fixtures/saves/` and in the operator's own `c1/persistent.sfs`;
+`Mission.Archived` serializes unconditionally and reads `False` in all 9 of its
+occurrences. So `op=state key=archived` and `key=archivedMissions` move the FILTER CONTROL
+(which the dump proves - `GuiTreeJson` records a toggle's own `value`) and can never move
+a ROW. Unreachable: the Timeline's per-row `[archived]` marker, the Recordings tab's
+archived rows re-appearing, and the Missions tab's list shrinking. NEEDS a fixture whose
+builder archives one recording and one mission, or a seam verb that sets
+`Recording.Hidden` / `Mission.Archived` - neither exists today, and the two filter ops
+deliberately drive the FILTER rather than the flag.
+
+**2. NO COMMITTED FIXTURE CARRIES A DORMANT ROUTE**
+(`GUI-CENSUS-NO-FIXTURE-CARRIES-A-DORMANT-ROUTE`). `TryResolveRaiseDormantRoute` reads
+`RouteStore.DormantRoutes`, a population DISJOINT from `CommittedRoutes`, so a host with
+routes can still answer `dialog-target-unavailable`. The two route-carrying fixtures
+(`interbody-route-recorded`, `depot-route-recorded`) carry no dormant entry at all, and
+GUI-25 declares `popup=deletedormantroute` as a REJECTED naming the reason rather than
+photographing nothing under a dialog label. `Confirm: Delete Dormant Route` is therefore
+the ONE row of `TestCommandUiDialogRaise`'s ten-row table with no host anywhere. NEEDS a
+fixture with a dormant route, which is a rewind-visibility state a builder would have to
+produce.
+
+**3. REAL SPAWN CONTROL'S FOUR SORT STATES HAVE NO OPENABLE HOST**
+(`GUI-CENSUS-SPAWN-CONTROL-SORT-HAS-NO-OPENABLE-HOST`). `op=sort` is one of the three ops
+that refuse a closed window (`TestCommandUiAction.OpRequiresWindowOpen`), and
+`SpawnControlUI.DrawIfOpen` FORCE-CLOSES itself on its first draw when
+`ResolveAutoCloseReason` finds zero nearby spawn candidates - which GUI-2 already measured
+and pins as `uiaction error reason=window-self-closed window=spawncontrol`. So the `craft`
+/ `dist` / `relspeed` / `spawntime` columns of `SpawnControlColumns` cannot be driven on
+any committed FLIGHT host. Same root cause as item 1 of
+GUI-STATE-COVERAGE-RESIDUE-2026-09-21 (which records that window's zero-candidate draw
+branch as dead) seen from the other side, and it NEEDS the same thing: a FLIGHT fixture
+with a spawnable committed recording close to the active vessel.
+
+**4. `" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`**
+(`GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT`). A CORRECTION to the
+wave-6 lane plan, which asked for the suffix by driving ONE of a vessel's own interval
+keys with `include=false`. The op cannot express that: `TryParseSelectKey` yields a
+`vessel:<value>` pair, the applier RESOLVES A ROW from it (`FindVesselRow` matches
+`OwnerHeadId` first, then ANY ONE of that row's interval keys, and returns the ROW either
+way), and `ApplyVesselSelection` then calls `MissionVesselRowBuilder.ApplyVesselInclusion`
+over ALL of that row's own keys. `ClassifyInclusion` therefore answers `All` or `None` and
+never `Partial`, and the op's own settle check compares against exactly those two. The
+mixed picture the census CAN take is one vessel excluded among included siblings, which
+GUI-27 does. NEEDS a per-interval-key affordance in the op (a `key=interval:<key>` prefix)
+if the suffix is ever judged worth a capture; nothing in the product is wrong.
+
 ## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
 
 **Where this came from.** A read-only audit enumerated every visibly distinct draw branch

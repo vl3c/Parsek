@@ -373,6 +373,39 @@ renders the same literal, so it reaches no distinct window state.
 | `GUI-22-census-logistics-hold-destination-full` | RVR-13's host + its `liveState` patch (FLIGHT) | the `DestinationFull` hold over a topped-out endpoint. The `<dest> tanks full:` capacity line is NOT bought and cannot be: it is gated on `RouteStatus == DestinationFull`, which the loop dispatch path never assigns |
 | `GUI-23-census-logistics-hold-funds-short` | RVR-17's `rover-route-career` (FLIGHT) | the `FundsShort` hold on the CAREER route host, and `Cyc = 0 / 2 skipped` - the only two-skip reading of the four |
 
+WAVE 6 (authored 2026-09-22) is FOUR lanes, `GUI-24` through `GUI-27`, and its input is
+the SEAM rather than an audit: PR #1734 added the automation-only operations that write
+the window state a player writes with a click - `UiAction op=state` (a window's scalar
+view state), `op=sort` (a table's column and direction), `op=select` (the Missions tab's
+include affordance), `op=edit` (the three in-place rename editors), `op=run await=false`
+(dispatch a batch and LEAVE IT RUNNING), three Logistics raise rows and
+`RouteCommand action=link|unlink|set-cadence`. Wave 5's audit named these states as
+unreachable; this wave photographs them.
+
+THREE OF THE FOUR WRITE STATE A SAVE WOULD KEEP - both archive flags, `op=select`'s two
+Mission fields, the recording rename a rival arm commits, and a route's link and cadence.
+Each runs on the throwaway copy the harness stages from its template, and NO FIXTURE IS
+EVER HARVESTED FROM THESE RUNS. That is a LANE RULE, not a property of the ops: nothing in
+the seam can tell a staged fixture from a real career.
+
+| lane | host | what it photographs |
+|---|---|---|
+| `GUI-24-census-timeline-filters` | `fixtures/local-saves/c1-gui` (SPACECENTER) | the Timeline window's scalar view state: each of the three source toggles OFF, the archive filter ON, the Custom range revealed with the window's only two sliders, two time-range presets and the entry list scrolled - eight states that read one identical value in every dump the census holds. Plus the Career window's two `Pending in timeline` folds COLLAPSED, which draw only under the divergence layout a long career produces |
+| `GUI-25-census-missions-state-sort-edit` | `interbody-route-recorded` (SPACECENTER) | the Missions window's expanded-stats columns (six header strings with zero hits program-wide), both archive filters, three sort states across its two COLLIDING tables, and all three in-place rename editors ARMED but not committed - the mid-edit layout no census gesture could reach, since the arming gesture is a double-click. Plus the Logistics route table sorted, the `Confirm: Delete Route` modal, and a round-trip-linked route at a non-1x cadence. The only committed host carrying stable Mission ids, auto root group names AND two routes at once |
+| `GUI-26-census-createroute-and-running-batch` | `rover-route-recorded` (SPACECENTER) | the `Create Supply Route?` confirm, whose spawn guard needs a live candidate carrying both `Tree` and `Analysis` - which only this host has. Plus the in-game test runner photographed WHILE a batch runs: `await=false` is the only way past the default form, which cannot terminate until the batch stops and so always photographs results |
+| `GUI-27-census-missions-include` | `bdock-recorded` (SPACECENTER) | the Missions tab's per-vessel include affordance: every vessel and every derived partner journey excluded (the greyed tab), every one included again (the partner-journey renderer's first picture), and one vessel excluded among included siblings |
+
+THREE STATES IN THIS FAMILY HAVE NO HOST AT ALL and are filed rather than faked, each
+re-derived from the committed bytes: no fixture and not the operator's own career carries
+an archived RECORDING or an archived MISSION (so both archive captures show the FILTER
+CONTROL moving, never a row), no fixture carries a DORMANT route (so
+`popup=deletedormantroute` is declared as a REJECTED), and Real Spawn Control's four sort
+states cannot be reached because `op=sort` refuses a closed window and that window
+FORCE-CLOSES itself when there is no nearby spawn candidate. A fourth, the `" (partial)"`
+inclusion suffix, is not reachable through `op=select` at all: that op resolves a ROW and
+applies to ALL of its own interval keys, so the classified outcome is `All` or `None`. All
+four are in `docs/dev/todo-and-known-bugs.md`.
+
 Steps 2 to 6 below apply to any census lane. In order:
 
 1. **Stage the host - WAVE 1 ONLY.** Those two lanes need a save with rows in every
