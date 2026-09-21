@@ -8,10 +8,20 @@ Usage (from anywhere inside the checkout):
 
 Stdlib only. Files come from `git ls-files`, so build output, virtualenvs and
 gitignored generated views never count. The blank / comment split is a line
-prefix heuristic (a line starting with //, #, * or /*), so the "code" column
-is approximate; "lines" is exact. In-game tests are counted with the harness's
-own parser (hlib.parse_ingame_test_declarations), because a one-line regex
-miscounts multi-line and const-category attributes.
+prefix heuristic per language (//, * and /* for C#; # for Python, TOML,
+PowerShell and shell), so the "code~" column is approximate; "lines" is exact.
+Markdown has no comment split: a heading or a bullet is content. In-game tests
+are counted with the harness's own parser (hlib.parse_ingame_test_declarations),
+because a one-line regex miscounts multi-line, const-category and
+namespace-qualified attributes.
+
+The areas are not a partition of the repository. "InGameTests" is a subset of
+the mod source, "Dev scripts" includes scripts/arch and its test file, and
+tracked code outside every area (tools/, build.bat, .claude/hooks, research
+scripts under docs/, harness TOML outside harness/scenarios, root Markdown) is
+reported as one count in the footer instead of a row. "Python test methods"
+counts `def test_` lines, not unittest loader cases, and includes
+scripts/arch/test_archview.py, which CI does not run.
 """
 
 import argparse
@@ -34,7 +44,19 @@ AREAS = [
     ("Docs (Markdown)", "docs/", (".md",)),
 ]
 
-COMMENT_PREFIXES = ("//", "#", "*", "/*")
+# Comment line prefixes per extension. C# preprocessor lines (#if, #region)
+# are code, and Markdown has no comments, so neither maps "#" to a comment.
+COMMENT_PREFIXES = {
+    ".cs": ("//", "*", "/*"),
+    ".py": ("#",),
+    ".toml": ("#",),
+    ".ps1": ("#",),
+    ".sh": ("#",),
+    ".md": (),
+}
+
+# Extensions the footer's "outside every area" count looks at.
+CODE_EXTENSIONS = (".cs", ".py", ".ps1", ".sh", ".bat", ".toml", ".md")
 
 FACT_RE = re.compile(r"^\s*\[(?:Xunit\.)?(?:Fact|SkippableFact)\b", re.M)
 THEORY_RE = re.compile(r"^\s*\[(?:Xunit\.)?(?:Theory|SkippableTheory)\b", re.M)
@@ -44,9 +66,13 @@ PY_TEST_RE = re.compile(r"^\s+def test_\w+", re.M)
 
 
 def tracked_files():
-    out = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=REPO_ROOT, check=True,
-        stdout=subprocess.PIPE).stdout
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=REPO_ROOT, check=True,
+            stdout=subprocess.PIPE).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        sys.exit("count-code: git ls-files failed in %s (%s); the script "
+                 "counts tracked files and needs git." % (REPO_ROOT, error))
     # A tracked file deleted in the working tree is still listed; skip it.
     return [p for p in out.decode("utf-8").split("\0")
             if p and os.path.isfile(os.path.join(REPO_ROOT, p))]
@@ -58,14 +84,14 @@ def read(rel_path):
         return handle.read()
 
 
-def count_lines(text):
+def count_lines(text, comment_prefixes):
     total = blank = comment = 0
     for line in text.splitlines():
         total += 1
         stripped = line.strip()
         if not stripped:
             blank += 1
-        elif stripped.startswith(COMMENT_PREFIXES):
+        elif comment_prefixes and stripped.startswith(comment_prefixes):
             comment += 1
     return total, blank, comment
 
@@ -77,12 +103,25 @@ def count_areas(files):
         for path in files:
             if path.startswith(prefix) and path.endswith(exts):
                 n_files += 1
-                t, b, c = count_lines(read(path))
+                ext = os.path.splitext(path)[1]
+                t, b, c = count_lines(read(path), COMMENT_PREFIXES.get(ext, ()))
                 total, blank, comment = total + t, blank + b, comment + c
         rows.append({"area": label.strip(), "label": label, "files": n_files,
                      "lines": total, "code": total - blank - comment,
                      "blank": blank, "comment": comment})
     return rows
+
+
+def count_outside_areas(files):
+    """Tracked code-like files that no AREAS row covers."""
+    outside = 0
+    for path in files:
+        if not path.endswith(CODE_EXTENSIONS):
+            continue
+        if not any(path.startswith(prefix) and path.endswith(exts)
+                   for _label, prefix, exts in AREAS):
+            outside += 1
+    return outside
 
 
 def count_tests(files):
@@ -144,12 +183,14 @@ def main(argv=None):
     files = tracked_files()
     areas = count_areas(files)
     tests = count_tests(files)
+    outside = count_outside_areas(files)
     head = git_head()
 
     if args.json:
         for row in areas:
             del row["label"]
-        json.dump({"head": head, "areas": areas, "tests": tests},
+        json.dump({"head": head, "areas": areas,
+                   "filesOutsideAreas": outside, "tests": tests},
                   sys.stdout, indent=2)
         sys.stdout.write("\n")
         return 0
@@ -173,11 +214,14 @@ def main(argv=None):
           % tests["xunitCasesApprox"])
     print("  In-game tests                 %7d  across %d categories" % (
         tests["inGameTests"], tests["inGameCategories"]))
-    print("  Python unittest methods       %7d" % tests["pythonTestMethods"])
+    print("  Python test methods           %7d  (def test_ lines, incl. "
+          "scripts/arch)" % tests["pythonTestMethods"])
     print("  Harness scenario specs        %7d" % tests["harnessScenarioSpecs"])
     print()
     print("code~ is lines minus blank and comment-prefixed lines "
-          "(a heuristic).")
+          "(a per-language heuristic; none for Markdown).")
+    print("Areas are not a partition: %d tracked code-like files sit outside "
+          "every area (see the docstring)." % outside)
     return 0
 
 
