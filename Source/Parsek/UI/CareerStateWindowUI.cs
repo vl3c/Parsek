@@ -895,6 +895,17 @@ namespace Parsek
             Game.Modes currentMode,
             double liveUT)
         {
+            // GUI state gallery: while an ARMED seam session owns this window, the cached
+            // VM is a mocked one. This is the site that MUST be suppressed rather than one
+            // that merely benefits - the UT-text compare below rebuilds within one game
+            // second, so without it a mocked career would not survive to the frame a
+            // capture needs. The predicate is false in every player build (only
+            // ParsekTestCommandAddon.UiMock can create a session) and it logs one Verbose
+            // line per site per session, never per poll.
+            if (Parsek.UI.Gallery.GuiMockSession.Suppressed(
+                    Parsek.UI.Gallery.GuiMockSession.CareerVmRebuild))
+                return false;
+
             if (cachedVM == null)
                 return true;
 

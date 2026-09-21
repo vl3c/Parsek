@@ -10,6 +10,57 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI state gallery, phase 1 - a window can now be handed MOCKED
+  DATA while the real IMGUI draw code computes every rect and every string.** The census is
+  honest and incomplete: a harness flight can only photograph a state some fixture save plus
+  op sequence reaches, and the 2026-09-21 coverage audit put that at about 166 of roughly 480
+  enumerated states - with the gap falling almost entirely on the product's failure surface.
+  A new automation-only op, `UiAction op=mock window=<token> mockState=<catalogue id>`,
+  swaps ONE window's view model for a synthetic one from a catalogue compiled into
+  `Parsek.dll`, so a capture can show a state no save reaches. **Only DATA is mocked**: the
+  draw code is never bypassed or imitated, and every builder feeds the real pure
+  presentation helper rather than typing a rendered string - the Kerbals states run
+  `KerbalsPresentation.BuildRosterRows` / `BuildFlightRows` over synthetic inputs, the
+  Career states run the real `CareerStateWindowUI.Build` over a synthetic ledger, and the
+  Structure states take every event word from
+  `MissionCompositionBuilder.BranchEventName` / `TerminalName` and every route stop label
+  from `RouteStructureListBuilder.FormatStopLabel`. 46 states ship across three windows:
+  Kerbals (the lost and retired statuses and the whole stand-in chain vocabulary, none of
+  which has a picture in the current design), Career State (the divergence banner - the
+  window's entire point, unphotographed - plus the pending-in-timeline split, the Flow
+  column, facility levels above 1 and both destroyed forms), and Structure List (the six
+  unphotographed terminal statuses, the EVA / breakup event words, and the route pickup and
+  depot-origin forms). **The apply's read-back is DRAW-PRODUCED**: it arms the GUI-tree
+  recorder in memory and asserts that witness strings DERIVED from the payload through the
+  same per-column formatters the draw method calls appear in the tree that frame produced -
+  reading back the field just written is the vacuous read-back `op=rect` had to be fixed
+  for, and it cannot fire on any input. **Nothing injected can reach a save**, structurally:
+  every member the applier writes is a UI-layer field that `ParsekScenario.OnSave`, the
+  sidecar writers and every store never read, enforced by a new grep gate
+  (`scripts/grep-audit-gui-mock-writeset.ps1`), and `SaveGame` additionally refuses
+  `save-refused-gui-mock` while a scope is live. A mocked capture announces itself forever
+  through an additive `mock` block in its `.gui.json` (the schema id does not move; absent
+  means a real capture), which the offline viewer already reads. A completeness guard
+  derives each supported window's enum BRANCH SET out of its comment-stripped source and
+  names any member no catalogue state claims, so a new draw branch reds in the same build
+  that adds it. NO PLAYER-FACING SURFACE and no player-build behaviour change: the op is
+  inert unless `PARSEK_TEST_COMMANDS=1` arms the addon, and the three cache suppressions are
+  one predicate read each, false in every build where no armed seam created a session.
+  Design: `docs/dev/design-gui-state-gallery.md` (section 18 records what the code forced to
+  change from the design and why).
+
+- **Automated testing: the harvest cap no longer silently drops most of a capture-heavy
+  run.** `ARTIFACT_MAX_SCREENSHOTS` goes from 64 to 1024 and
+  `ARTIFACT_MAX_SCREENSHOT_BYTES` from 256 MB to 768 MB. A capture PAIR is two files (both
+  `.png` and `.gui.json` are harvested suffixes), so the old count cap harvested at most 32
+  STATES and dropped the rest into `skipped_over_cap` - reported as
+  `artifacts.screenshotsSkipped` and easy to miss. Every lane to date reads 0 skipped
+  because GUI-1's 45 files sit just under the old ceiling, which is exactly why nothing
+  noticed it. The byte figure is sized off measured census artifacts (PNG p90 660 KB,
+  `.gui.json` max 2.44 MB), where 400 states is about 257 MB at p90 - i.e. exactly AT the
+  old cap in the worst case. `ARTIFACT_SHOTS_MAX_TOTAL_BYTES` is deliberately unchanged: it
+  bounds the retained results tree rather than one run.
+
 - **Automated testing: the GUI census can now photograph the product FAILING, refusing and
   being authored, not only resting.** Eleven new operator-tier census lanes
   (GUI-13..GUI-23) plus three amendments to existing ones, all authored off a read-only

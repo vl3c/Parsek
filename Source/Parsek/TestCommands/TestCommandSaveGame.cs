@@ -17,6 +17,20 @@ namespace Parsek.TestCommands
         /// <summary>The default save slot when the <c>name</c> arg is absent.</summary>
         internal const string DefaultName = "persistent";
 
+        /// <summary>
+        /// PRE-CALL refusal: a GUI-state-gallery mock scope is live
+        /// (<c>UiAction op=mock</c>).
+        ///
+        /// <para>LANE HYGIENE, not a data guard, and the distinction is the whole point:
+        /// a save taken mid-mock writes the REAL game by construction, because every
+        /// member the mock applier injects is a UI-layer field that
+        /// <c>ParsekScenario.OnSave</c>, the sidecar writers and every store never read.
+        /// This refusal exists so a lane cannot believe it persisted a state it was only
+        /// photographing. A lane that wants a save clears its mock first
+        /// (<c>mockState=none</c>).</para>
+        /// </summary>
+        internal const string RefusedGuiMockReason = "save-refused-gui-mock";
+
         /// <summary>Resolve the target save name: the percent-decoded <c>name</c> arg, or
         /// <see cref="DefaultName"/> ("persistent") when absent / empty.</summary>
         internal static string ResolveName(string nameArg)

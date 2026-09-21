@@ -2157,7 +2157,16 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # its cross-tree partner-journey include (the one op here that writes state which
     # PERSISTS with the save, so a lane using it runs on a throwaway staged fixture);
     # `edit` puts one of the in-place text editors into edit mode with a given draft.
-    "state", "sort", "select", "edit")
+    "state", "sort", "select", "edit",
+    # GUI state gallery (P1): `mock` hands ONE window a synthetic VIEW MODEL from a
+    # catalogue compiled into Parsek.dll while the real IMGUI draw code computes every
+    # rect and string, so a census can photograph states no save reaches. A PAIRED op -
+    # `mockState=none` is the clear - plus a read-only `describe=true` form that reports
+    # the catalogue. It is ABSENT from UIACTION_OPS_NEEDING_WINDOW because that describe
+    # form names no window; the apply and clear forms DO require one, which is checked by
+    # the per-op branch in validate_uiaction_step below (mirroring the seam, which checks
+    # it in the applier for the same reason).
+    "mock")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
@@ -2190,6 +2199,48 @@ UIACTION_CTRL_VALUES: Tuple[str, ...] = (
 # `state-arg-invalid` reason rather than spelling a per-op sibling.
 UIACTION_STATE_KEY = "state"
 UIACTION_STATE_VALUES: Tuple[str, ...] = ("true", "false")
+
+# `op=mock`'s state selector: a catalogue id (`<window>.<family>.<variant>`) or the
+# paired-clear sentinel `none`. OPEN valued, so deliberately NOT a
+# VERB_SCOPED_CLOSED_ARGS row - that table models CLOSED vocabularies, and a catalogue
+# grows every phase.
+#
+# SPELLED `mockState` AND NOT `state`, which the design sketched: `state=` is ONE arg
+# key with ONE closed vocabulary across op=expand / op=playback / op=state (true|false,
+# UIACTION_STATE_VALUES above), enforced pre-launch by VERB_SCOPED_CLOSED_ARGS - so a
+# catalogue id in it is a validation error before any boot. Exactly the rule that made
+# op=find's control filter `ctrl=` rather than `kind=`: one key, one vocabulary, and an
+# open-valued selector gets its own key.
+UIACTION_MOCK_STATE_KEY = "mockState"
+
+# The paired-clear sentinel. A token rather than an empty value (the describe payload's
+# `-` rule): a trailing `mockState=` on the wire reads as a truncated line.
+UIACTION_MOCK_CLEAR_TOKEN = "none"
+
+# `op=mock`'s read-only catalogue report. Closed boolean, the await= / commit= shape.
+UIACTION_DESCRIBE_KEY = "describe"
+UIACTION_DESCRIBE_VALUES: Tuple[str, ...] = ("true", "false")
+
+# Every `op=mock` refusal token, mirrored from TestCommandUiMock's own consts (they are
+# `internal const string ...Reason` there, each doc-commented PRE-CALL / POST-CALL /
+# POST-SETTLE). Mirrored rather than derived for the reason every closed-arg row is
+# mirrored: a token renamed on one side alone is a typed REJECTED a lane learns about
+# after a whole KSP boot. GuiCensusSeamVerbTests reads the C# to keep the two equal.
+UIACTION_MOCK_REFUSALS: Tuple[str, ...] = (
+    "mock-arg-missing",
+    "mock-state-unknown",
+    "mock-window-unsupported",
+    "mock-state-window-mismatch",
+    "mock-refused-scene",
+    "mock-refused-recording",
+    "mock-refused-session-live",
+    "mock-not-applied",
+    "mock-restore-failed")
+
+# The windows the P1 applier has an injection seam and a builder family for, mirroring
+# GuiMockCatalogue.SupportedWindows. `op=mock` on any other window answers
+# mock-window-unsupported after a boot, so the validator refuses it here instead.
+UIACTION_MOCKABLE_WINDOWS: Tuple[str, ...] = ("kerbals", "career", "structure")
 
 # `op=playback`'s OPTIONAL recording selector, and `op=picker window=missions`'s. OPEN
 # valued (a RecordingId is a save-specific generated token, plus the picker's own `first`
@@ -2687,7 +2738,12 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "REJECTED window-arg-missing"
             % (index, UIACTION_WINDOW_KEY, op,
                ",".join(UIACTION_WINDOW_VALUES)))
-    if op not in UIACTION_OPS_NEEDING_WINDOW and window is not None:
+    # `mock` is exempt from the stray-window check and from the requirement alike: it
+    # reads `window=` for its apply and clear forms and NOT for `describe=true`, which is
+    # the whole reason it is absent from UIACTION_OPS_NEEDING_WINDOW. Its own branch
+    # below owns both halves of that rule.
+    if (op not in UIACTION_OPS_NEEDING_WINDOW and op != "mock"
+            and window is not None):
         errors.append(
             "driver.steps[%d].args.%s: op=%s does not read it, so the arg would be "
             "silently ignored" % (index, UIACTION_WINDOW_KEY, op))
@@ -2831,6 +2887,69 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: only op=expand, op=playback and op=state read it, "
             "but this step is op=%s -- the arg would be silently ignored"
             % (index, UIACTION_STATE_KEY, op))
+
+    # ---- op=mock: the GUI state gallery primitive (P1) ----
+    #
+    # Three forms, and the per-op branch is here rather than in the tables because the
+    # WINDOW requirement is per-INTENT: `describe=true` reports the whole catalogue and
+    # names no window, so `mock` cannot sit in UIACTION_OPS_NEEDING_WINDOW. Everything a
+    # table could not express is checked below, each fault costing a whole KSP boot
+    # otherwise.
+    if op == "mock":
+        mock_state = step_args.get(UIACTION_MOCK_STATE_KEY)
+        describe = step_args.get(UIACTION_DESCRIBE_KEY)
+        describing = str(describe) == "true"
+        if mock_state is None and not describing:
+            errors.append(
+                "driver.steps[%d].args: op=mock REQUIRES either %s=<catalogue id|%s> or "
+                "%s=true; there is no default (applying a guessed state would photograph "
+                "something the lane never asked for), so the seam answers REJECTED "
+                "mock-arg-missing"
+                % (index, UIACTION_MOCK_STATE_KEY, UIACTION_MOCK_CLEAR_TOKEN,
+                   UIACTION_DESCRIBE_KEY))
+        if mock_state is not None and describing:
+            errors.append(
+                "driver.steps[%d].args: op=mock names BOTH %s and %s=true, which do "
+                "opposite things. The seam refuses rather than preferring one, so this is "
+                "REJECTED mock-arg-missing"
+                % (index, UIACTION_MOCK_STATE_KEY, UIACTION_DESCRIBE_KEY))
+        if mock_state is not None:
+            state_text = handle_shape_probe(mock_state)
+            window_name = str(window) if window is not None else None
+            if window is None:
+                errors.append(
+                    "driver.steps[%d].args.%s: op=mock with %s REQUIRES it (one of %s). "
+                    "Only the %s=true form names no window; the seam answers REJECTED "
+                    "window-arg-missing"
+                    % (index, UIACTION_WINDOW_KEY, UIACTION_MOCK_STATE_KEY,
+                       ",".join(UIACTION_MOCKABLE_WINDOWS), UIACTION_DESCRIBE_KEY))
+            elif (window_name in UIACTION_WINDOW_VALUES
+                    and window_name not in UIACTION_MOCKABLE_WINDOWS):
+                errors.append(
+                    "driver.steps[%d].args.%s: window %r has no injection seam in this "
+                    "build, so op=mock answers REJECTED mock-window-unsupported. The "
+                    "mockable windows are %s"
+                    % (index, UIACTION_WINDOW_KEY, window_name,
+                       ", ".join(UIACTION_MOCKABLE_WINDOWS)))
+            if (state_text is not None
+                    and state_text != UIACTION_MOCK_CLEAR_TOKEN
+                    and window_name in UIACTION_MOCKABLE_WINDOWS
+                    and not state_text.startswith(window_name + ".")):
+                # A catalogue id is <window>.<family>.<variant>, so the window prefix is
+                # checkable here. The seam answers mock-state-window-mismatch for it,
+                # which is a whole boot to learn.
+                errors.append(
+                    "driver.steps[%d].args.%s: %r does not start with %r, so it names "
+                    "another window's state and the seam answers REJECTED "
+                    "mock-state-window-mismatch"
+                    % (index, UIACTION_MOCK_STATE_KEY, state_text, window_name + "."))
+    else:
+        for stray in (UIACTION_MOCK_STATE_KEY, UIACTION_DESCRIBE_KEY):
+            if stray in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: only op=mock reads it, but this step is "
+                    "op=%s -- the arg would be silently ignored"
+                    % (index, stray, op))
 
     if op == "playback":
         # REQUIRED, unlike on op=expand where absent means `true`. This op is driven BOTH
@@ -3248,6 +3367,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_INCLUDE_KEY: ("UiAction", UIACTION_INCLUDE_VALUES),
     UIACTION_AWAIT_KEY: ("UiAction", UIACTION_AWAIT_VALUES),
     UIACTION_COMMIT_KEY: ("UiAction", UIACTION_COMMIT_VALUES),
+    UIACTION_DESCRIBE_KEY: ("UiAction", UIACTION_DESCRIBE_VALUES),
     ANSWERMERGE_DIALOG_KEY: ("AnswerMergeDialog", ANSWERMERGE_DIALOG_VALUES),
 }
 
@@ -9907,8 +10027,29 @@ ARTIFACT_LOG_TAIL_BYTES = 56 * 1024 * 1024
 # that directory is somebody else's file and is NOT collected - a distinction a
 # last-dot extension test cannot express.
 ARTIFACT_SHOTS_SUFFIXES: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".gui.json")
-ARTIFACT_MAX_SCREENSHOTS = 64
-ARTIFACT_MAX_SCREENSHOT_BYTES = 256 * 1024 * 1024
+# P1b (GUI state gallery). RAISED FROM 64, which was the single highest-leverage
+# number in the design: a capture PAIR is TWO files (both `.png` and `.gui.json` are in
+# ARTIFACT_SHOTS_SUFFIXES above), so a 64-file cap harvested at most 32 STATES and
+# dropped the rest into `skipped_over_cap` - reported as artifacts.screenshotsSkipped
+# and easy to miss. Every current lane reads 0 skipped because GUI-1's 45 files sit just
+# under the old cap, which is precisely why nothing ever noticed the ceiling.
+#
+# 1024 files = 512 states, against a design target of ~400 with headroom for the
+# BOTH-modes form of a gallery run. The cap is not a budget, it is a capture-storm
+# guard: the BYTE cap below is what actually bounds a run's size.
+ARTIFACT_MAX_SCREENSHOTS = 1024
+
+# RAISED FROM 256 MB for the same phase, and it was the closer of the two at scale.
+# Measured across 30 PASS GUI-census runs: PNG median 194 KB / mean 353 KB / p90 660 KB,
+# `.gui.json` median 14.8 KB / mean 74.3 KB / max 2.44 MB. 400 states is 63 MB at the
+# median, 128 MB at the mean and 257 MB at p90 - i.e. exactly AT the old cap in the
+# worst case. 768 MB clears p90 for 400 states with room, and keeps a runaway capture
+# loop from filling a disk.
+#
+# The thing to watch next is ARTIFACT_SHOTS_MAX_TOTAL_BYTES (2 GB) across RETAINED runs,
+# which is a different cap over a different scope and is deliberately NOT raised here:
+# it bounds the results tree, not one run.
+ARTIFACT_MAX_SCREENSHOT_BYTES = 768 * 1024 * 1024
 ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS = 2.0
 
 

@@ -1682,6 +1682,12 @@ namespace Parsek.TestCommands
         // Deliberately NEVER auto-commits an in-flight recorder (a bare quit never did).
         private void FlushAndQuitImpl(ParsedCommand cmd)
         {
+            // GUI state gallery: clear any live mock scope BEFORE the save below. Nothing
+            // injected is reachable from a save path, so this cannot change what gets
+            // written (design-gui-state-gallery.md 7.5 layer 1) - it is the unconditional
+            // every-exit-clears discipline, so the quit log says the scope ended.
+            ClearGuiMockSessionOnExit("flush-and-quit");
+
             bool gameLoaded = HighLogic.CurrentGame != null;
             bool saveFolderPresent = !string.IsNullOrEmpty(HighLogic.SaveFolder);
             // The batch teardown's persistent.sfs revert must be the LAST write to that
@@ -1738,6 +1744,24 @@ namespace Parsek.TestCommands
         private void SaveGameImpl(ParsedCommand cmd)
         {
             string name = TestCommandSaveGame.ResolveName(ArgOrNull(cmd, "name"));
+
+            // GUI state gallery, LANE HYGIENE and nothing more. A save taken during a
+            // live mock writes the real game by construction (every injected member is a
+            // UI-layer field no save path reads), so this refusal is not the data guard -
+            // it is the guard against a lane believing it persisted a state it was only
+            // photographing. A lane that wants a save ends its mock scope first.
+            if (Parsek.UI.Gallery.GuiMockSession.IsLive)
+            {
+                ParsekLog.Warn(Tag,
+                    "savegame refused reason=" + TestCommandSaveGame.RefusedGuiMockReason
+                    + " name=" + name + " mockState=" + Parsek.UI.Gallery.GuiMockSession.StateId
+                    + " mockWindow=" + Parsek.UI.Gallery.GuiMockSession.Window);
+                SetExecResult("REJECTED", null,
+                    TestCommandSaveGame.RefusedGuiMockReason
+                    + " mockState=" + Parsek.UI.Gallery.GuiMockSession.StateId);
+                return;
+            }
+
             bool gameLoaded = HighLogic.CurrentGame != null;
             bool saveFolderPresent = !string.IsNullOrEmpty(HighLogic.SaveFolder);
 
@@ -2987,6 +3011,11 @@ namespace Parsek.TestCommands
         {
             sceneTransitioning = true;
             settleCounter = 0;
+            // GUI state gallery: a scope cannot span a scene load - the window instances
+            // it injected into are about to be destroyed, so its restore closure would
+            // write into a dead object. Cleared UNCONDITIONALLY here and again on
+            // onLevelWasLoaded, the ReleaseRaisedDialogInputLock discipline.
+            ClearGuiMockSessionOnExit("scene-change");
             // A scene load destroys the runner window and its runner, so the batch the
             // relaxation was armed for cannot report itself finished from here on: without
             // this clear the flag would survive the transition and relax the gate around
@@ -2999,6 +3028,10 @@ namespace Parsek.TestCommands
         private void OnLevelWasLoaded(GameScenes scene)
         {
             settleCounter = SettleFrames;
+            // The second of the two scene clears. Both, not one: a scene load that never
+            // fires the request event (a direct level load) would otherwise leave a scope
+            // pointing at destroyed window instances.
+            ClearGuiMockSessionOnExit("level-loaded");
         }
 
         /// <summary>Human-readable rendering of the env value for the inert log line:

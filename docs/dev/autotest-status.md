@@ -1,6 +1,62 @@
 # Automated Testing System - Status
 
-Last updated: 2026-09-11 (**THE GUI CENSUS, WAVE 2, FLEW - SIX LANES, SIX PASSES ON ATTEMPT
+Last updated: 2026-09-22 (**THE GUI STATE GALLERY, PHASE 1: `op=mock` ADDED to the M-A2
+`UiAction` verb - 20 -> 21 ops, implemented seam verbs unchanged at 36 - plus a compiled
+catalogue of 46 synthetic states across three windows, and the P1b harvest-cap raise**,
+branch `gallery-p1`. What it closes: the census can only photograph a state some fixture
+save plus op sequence REACHES, which the 2026-09-21 coverage audit measured at about 166 of
+roughly 480 enumerated states - with the gap falling almost entirely on the product's
+failure surface. `op=mock` hands ONE window a synthetic VIEW MODEL while the real IMGUI
+draw code computes every rect and string, so only DATA is mocked and the pixels stay the
+build's own. It is a PAIRED op in the `raise` / `dismiss` shape (`mockState=none` clears;
+scene change, level loaded, `FlushAndQuit` and any exception clear unconditionally), and
+its arg is `mockState=` rather than the design's `state=` because that key is ONE closed
+true/false vocabulary across three other ops - the same rule that made `op=find`'s filter
+`ctrl=` rather than `kind=`.
+
+**THE READ-BACK IS DRAW-PRODUCED, which is the load-bearing property.** The settle arms
+`GuiTreeRecorder.ArmForNextRepaint(label, writeToDisk: false)` - the `op=find` mechanism -
+and asserts that WITNESS strings derived from the built payload through the same per-column
+formatters the draw method calls appear in the tree that frame produced. Reading back the
+field the applier just wrote is the vacuous read-back `op=rect` was first written with and
+had to be fixed for; it compares a value with itself and cannot fire on any input. An EMPTY
+witness set answers `mock-not-applied`, and the catalogue unit suite refuses a state that
+produces none, so the vacuous case cannot reach a run.
+
+**GATES OPENED (two, both mutation-checked).** `scripts/grep-audit-gui-mock-writeset.ps1`
+(run by `GrepAuditTests.GrepAudit_GuiMockWriteSetIsUiOnly`, with the managed fallback on
+Linux) fails the build if any gallery file names a store, a persistence writer or a
+file-system API - which is what keeps "nothing injected reaches a save" STRUCTURAL rather
+than procedural. It scans COMMENT-STRIPPED lines, and that is the deciding detail: those
+files' headers explain at length which stores they do not touch, so a raw scan would fire on
+the prose that documents the rule. `GuiMockCompletenessTests` derives each supported
+window's enum BRANCH SET out of comment-stripped, literal-masked source (29 branches across
+`RosterStatus`, `ChainMemberStatus`, `KerbalEndState`, `TerminalState` and
+`CareerStateWindowUI.Build`'s ten `GameActionType` arms) and names any member no catalogue
+state claims, so a new draw branch reds in the same build that adds it. A third source gate
+(`GuiMockApplierSourceGateTests`) derives the applier's install arms and the three cache
+suppression sites from its own source and compares them against the declared tables - the
+mapping-error class `GuiCensusApplierSourceGateTests` exists for.
+
+**P1b: `ARTIFACT_MAX_SCREENSHOTS` 64 -> 1024 and `ARTIFACT_MAX_SCREENSHOT_BYTES` 256 MB ->
+768 MB.** A capture PAIR is TWO files, so the old count cap harvested at most 32 STATES and
+dropped the rest into `skipped_over_cap`; every lane to date reads 0 skipped only because
+GUI-1's 45 files sit just under the old ceiling, which is exactly why nothing noticed it.
+`ARTIFACT_SHOTS_MAX_TOTAL_BYTES` is deliberately unchanged - it bounds the retained results
+tree rather than one run.
+
+**NOT FLOWN, by construction.** P1 ships no lane; the two gallery lanes and the
+`GalleryRun` batch verb are P2, and the design's own acceptance gate for P1 is `op=mock`
+green in-game for three windows. The headless half is complete (catalogue, session
+lifecycle, every refusal, the three source gates, the write-set grep gate, the dump
+round-trip) and the harness half is mirrored and mutation-checked. Residue and deferrals:
+`docs/dev/todo-and-known-bugs.md` -> `GUI-MOCK-P1-RESIDUE-2026-09-22`, which also carries
+the one PRODUCT finding the catalogue surfaced - the inline `Stand-in for X (aboard Y)`
+status form is unreachable for any real kerbal name. Full contract:
+`docs/dev/design-gui-state-gallery.md`, section 18 for what the code forced to change from
+the design.)
+
+Previously: 2026-09-11 (**THE GUI CENSUS, WAVE 2, FLEW - SIX LANES, SIX PASSES ON ATTEMPT
 1, 79 CAPTURES, AND FOUR OF THEIR OWN CLAIMS REFUTED**, branch `gui-census-lanes`. The six
 reading runs are `2026-09-11_1548_GUI-3-census-logistics-routes` (80 s, 14 PNG + 14 dumps),
 `_1551_GUI-4-census-missions-docked` (67 s, 16 + 16), `_1553_GUI-5-census-career-ksc` (66 s,

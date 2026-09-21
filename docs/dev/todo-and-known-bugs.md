@@ -15,6 +15,67 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GUI-MOCK-P1-RESIDUE-2026-09-22: one product finding and four deferrals from the GUI state gallery's first phase [FILED 2026-09-22 with the P1 + P1b build. FIVE items. Item 1 is a PRODUCT finding, verified at its source site and pinned by a unit cell; items 2 to 5 are deferrals with a named owning phase. OPEN]
+
+**Where this came from.** Building the catalogue of synthetic GUI states
+(`docs/dev/design-gui-state-gallery.md`, P1) meant constructing each state's INPUTS and
+letting the real pure presentation helper render the cell - which is how a state that the
+product cannot actually produce shows up as a builder that cannot be written.
+
+**1. PRODUCT: the inline "Stand-in for X (aboard Y)" status form is unreachable for any real
+kerbal.** `KerbalsPresentation.FormatStatus` keeps the vessel name INLINE only while the
+composed text fits `StatusCellMaxChars` - 31 characters, being the 220 px "Status now"
+column at the 7 px advance `TooltipEchoBudgetTests` budgets by. The fixed scaffolding alone
+is 23 characters (`"Stand-in for "` 13 + `" (aboard "` 9 + `")"` 1), leaving 8 for the
+owner's name AND the vessel's TOGETHER, while the shortest stock kerbal name is
+`"Bob Kerman"` at 10. So the branch at `KerbalsPresentation.cs` (the `StandIn` arm of
+`FormatStatus`) can only fire for names no career contains, and every real stand-in-aboard
+row takes the hover-text path instead.
+Fix: either widen the column, shorten the composed form (e.g. `"aboard Y"` without the
+"Stand-in for X" prefix, which the row's own Name cell partly duplicates), or accept the
+hover-only form and delete the inline branch. NOT fixed in the P1 PR: it is a layout
+decision for the owner's iteration loop, which is the thing this whole feature exists to
+enable - so it belongs in the first round of that loop rather than in the phase that builds
+it. The boundary is pinned against the REAL formatter by
+`GuiMockCatalogueTests.TheInlineStandInVesselFormIsUnreachableForRealNames`, which fails the
+moment the form fits and tells the next author to ADD the inline catalogue state.
+
+**2. DEFERRED to P2: the mirror half of P1.** `fixture=mock`, the `MOCKED DATA` badge, the
+`mockedCaptureCount` index field and the pinned default dataset all live in
+`harness/tools/gui_mirror.py`, which had an open PR against it while P1 was built. The
+LOAD-BEARING half - the provenance that travels inside the artifact - shipped: every capture
+taken under a mock carries a `mock` block in its `.gui.json`, and
+`harness/tools/gui_tree_view.py` prints `MOCKED <stateId>` in its header strip. Until the
+mirror learns the block, a mocked capture files under its lane's `fixture.saveTemplate` and
+CAN pair with a real capture in Compare, which is the one lie that page must not tell - so
+P2 must land the mirror half before any gallery lane's output is shown to the owner.
+
+**3. DEFERRED to P2: `GUI-13` and `GUI-14` are taken.** The design named the two gallery
+lanes `GUI-13-gallery-mock` and `GUI-14-gallery-mock-flight`; both numbers were claimed by
+the 2026-09-21 census wave (`GUI-13-census-logistics-candidates`,
+`GUI-14-census-settings-and-facility`). P2 picks fresh ids and checks every OPEN PR branch
+for collisions, not just `origin/main`.
+
+**4. DEFERRED: no in-game `GuiMock` category cells yet.** The design's test plan (section
+13) asks for one in-game cell per supported window - apply a known state, assert the window
+drew the mocked row set, restore, assert the real model is back - plus one asserting a
+`SaveGame` attempt refuses and one asserting a scene change clears. P1 ships the headless
+half of all four (the catalogue, the session lifecycle, the source gates and the write-set
+grep gate) and the SUPPRESSION-PLUS-DRAW path is proven only by the op's own draw-produced
+read-back at run time. Adding in-game cells moves the pinned `BATCH_COMPLETE` tallies of
+every committed spec that pins the categories they would join
+(`CommittedBatchTallySourceSyncTests`), so it is deliberately a separate change rather than
+a rider on this one.
+
+**5. DEFERRED: no lane has flown `op=mock`.** The op is unflown by construction - P1 ships
+no lane, P2 owns the two gallery lanes, and provisioning is operator-gated. Until then the
+apply path's live behaviour (the Harmony arm inside a KSP frame, the suppression holding
+across a real `onVesselChange`, the restore) is covered only by the headless suite and by
+the op's own refusals. The first flight is the acceptance gate the design names for P1:
+`op=mock` green in-game for three windows.
+
+---
+
 ## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
 
 **Where this came from.** A read-only audit enumerated every visibly distinct draw branch

@@ -60,6 +60,39 @@ namespace Parsek.Tests
             RunGrepAuditScript("grep-audit-background-threads.ps1", RunManagedBackgroundThreadsAudit);
         }
 
+        [Fact]
+        public void GrepAudit_GuiMockWriteSetIsUiOnly()
+        {
+            RunGrepAuditScript("grep-audit-gui-mock-writeset.ps1", RunManagedGuiMockWriteSetAudit);
+        }
+
+        [Fact]
+        public void GrepAudit_GuiMockWriteSetScanIsNotVacuous()
+        {
+            // Anti-vacuity for the gate above, over SYNTHETIC lines rather than over the
+            // tree: the gallery files' own headers name every store they do not touch, so
+            // a scan that read comments would fire on the prose that documents the rule
+            // and would have to be silenced by deleting the explanation.
+            string token;
+            Assert.False(GuiMockLineIsForbidden(
+                "            // RecordingStore.CommittedRecordings is never read here.",
+                out token),
+                "a store named in a COMMENT must not trip the gate - the gallery headers "
+                + "explain at length which stores they avoid");
+            Assert.False(GuiMockLineIsForbidden(
+                "        /// <para>Never calls MissionStore.Missions.</para>", out token));
+            Assert.True(GuiMockLineIsForbidden(
+                "            int n = RecordingStore.CommittedRecordings.Count;", out token),
+                "a real store read must trip the gate");
+            Assert.Equal("RecordingStore.", token);
+            Assert.True(GuiMockLineIsForbidden(
+                "            var node = new ConfigNode(\"X\"); // build it", out token),
+                "code BEFORE a trailing comment is still code");
+            Assert.Equal("ConfigNode", token);
+            // And the scan set is the real one, so a moved layout fails loudly here too.
+            Assert.True(GuiMockScanSet(ResolveRepoRoot()).Count >= 5);
+        }
+
         private static void RunGrepAuditScript(string scriptFileName, Action<string> managedFallback)
         {
             // Cross-platform pwsh probe (PowerShell 7 ships on ubuntu-latest CI
@@ -288,6 +321,110 @@ namespace Parsek.Tests
                     "managed " + label + " audit saw ZERO pattern hits — the allowlisted definitions alone "
                         + "should match, so the scan is broken (wrong root or dead patterns), not clean.");
             }
+        }
+
+        /// <summary>
+        /// The GUI-state-gallery write set, as absolute paths. Named once so the managed
+        /// fallback and the anti-vacuity cell cannot describe different sets.
+        /// </summary>
+        internal static List<string> GuiMockScanSet(string repoRoot)
+        {
+            string sourceRoot = Path.Combine(repoRoot, "Source", "Parsek");
+            string galleryDir = Path.Combine(sourceRoot, "UI", "Gallery");
+            Assert.True(Directory.Exists(galleryDir),
+                "gui-mock write-set audit: gallery directory not found (this gate is "
+                + "vacuous): " + galleryDir);
+            var files = new List<string>(
+                Directory.EnumerateFiles(galleryDir, "*.cs", SearchOption.AllDirectories));
+            foreach (string rel in new[]
+                     {
+                         Path.Combine("TestCommands", "ParsekTestCommandAddon.UiMock.cs"),
+                         Path.Combine("TestCommands", "TestCommandUiMock.cs"),
+                     })
+            {
+                string p = Path.Combine(sourceRoot, rel);
+                Assert.True(File.Exists(p),
+                    "gui-mock write-set audit: scan-set file not found (this gate is "
+                    + "vacuous): " + p);
+                files.Add(p);
+            }
+            return files;
+        }
+
+        /// <summary>The forbidden vocabulary, mirroring
+        /// <c>scripts/grep-audit-gui-mock-writeset.ps1</c>'s <c>$patterns</c>.</summary>
+        internal static readonly string[] GuiMockForbiddenTokens =
+        {
+            "RecordingStore.", "RecordingGroupStore.", "GroupHierarchyStore.",
+            "MissionStore.", "RouteStore.", "MilestoneStore.", "LedgerOrchestrator.",
+            "EffectiveState.", "GamePersistence.", "ParsekScenario.", "ParsekSettings.",
+            "FileIOUtils.", "ConfigNode", "File.Write", "File.Delete", "File.Copy",
+            "File.Move", "Directory.Create", "Directory.Delete", "RecordingPaths.",
+        };
+
+        /// <summary>Strips a C# LINE comment, which is what makes this gate scannable at
+        /// all: the gallery files' own headers explain which stores they do not touch, so
+        /// a scan over raw text would fire on the prose that documents the rule.</summary>
+        internal static string StripLineComment(string line)
+        {
+            if (line == null) return string.Empty;
+            int cut = line.IndexOf("//", StringComparison.Ordinal);
+            return cut >= 0 ? line.Substring(0, cut) : line;
+        }
+
+        /// <summary>True when a comment-stripped line names a forbidden token.</summary>
+        internal static bool GuiMockLineIsForbidden(string rawLine, out string token)
+        {
+            token = null;
+            string code = StripLineComment(rawLine);
+            if (code.Trim().Length == 0) return false;
+            foreach (string candidate in GuiMockForbiddenTokens)
+            {
+                if (code.IndexOf(candidate, StringComparison.Ordinal) < 0) continue;
+                token = candidate;
+                return true;
+            }
+            return false;
+        }
+
+        // Managed mirror of scripts/grep-audit-gui-mock-writeset.ps1: the same scan set,
+        // the same token list, the same comment stripping. INVERTED from the allowlist
+        // gates above - this one scans NAMED files and allows nothing - so it does not
+        // reuse RunManagedAllowlistAudit.
+        private static void RunManagedGuiMockWriteSetAudit(string repoRoot)
+        {
+            List<string> files = GuiMockScanSet(repoRoot);
+            Assert.True(files.Count >= 5,
+                "managed gui-mock write-set audit: only " + files.Count + " file(s) in the "
+                + "scan set; the layout moved and this gate is vacuous.");
+
+            string repoRootNorm = repoRoot.Replace('\\', '/');
+            var violations = new List<string>();
+            foreach (string path in files)
+            {
+                string rel = path.Replace('\\', '/');
+                if (rel.StartsWith(repoRootNorm, StringComparison.OrdinalIgnoreCase))
+                    rel = rel.Substring(repoRootNorm.Length).TrimStart('/');
+
+                int lineNumber = 0;
+                foreach (string raw in File.ReadLines(path))
+                {
+                    lineNumber++;
+                    Assert.True(raw.IndexOf("/*", StringComparison.Ordinal) < 0,
+                        "managed gui-mock write-set audit: block comment in " + rel + ":"
+                        + lineNumber + "; the line-based stripper cannot see inside one.");
+                    string token;
+                    if (!GuiMockLineIsForbidden(raw, out token)) continue;
+                    violations.Add(rel + ":" + lineNumber + ": " + raw.Trim());
+                }
+            }
+
+            Assert.True(violations.Count == 0,
+                "managed gui-mock write-set audit failed: a GUI-state-gallery file names a "
+                + "store, a persistence writer or a file-system API. A mocked view model "
+                + "must reach NO save - every member the applier writes is a UI-layer "
+                + "field no writer reads (docs/dev/design-gui-state-gallery.md section 7.5, "
+                + "layer 1).\n" + string.Join("\n", violations));
         }
 
         private static bool TryFindExecutable(string fileName, out string path)

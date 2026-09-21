@@ -109,9 +109,14 @@ namespace Parsek.Tests
                                             "playback", "raise", "dismiss", "run",
                                             // Wave 6: the four ops for the states no op
                                             // could reach.
-                                            "state", "sort", "select", "edit" })
+                                            "state", "sort", "select", "edit",
+                                            // GUI state gallery (P1): hands ONE window a
+                                            // synthetic view model from the compiled
+                                            // catalogue while the real IMGUI draw code
+                                            // computes every rect and string.
+                                            "mock" })
                 Assert.Contains(token, listed.Split(','));
-            Assert.Equal(20, listed.Split(',').Length);
+            Assert.Equal(21, listed.Split(',').Length);
         }
 
         [Theory]

@@ -115,6 +115,15 @@ namespace Parsek.TestCommands
         /// ones either window draws, so a batch through it leaves both tables reading "not
         /// run".</summary>
         Run = 16,
+
+        /// <summary><c>op=mock window=&lt;name&gt; mockState=&lt;id|none&gt;</c> or
+        /// <c>op=mock describe=true</c>: the GUI state gallery's primitive. Hands ONE
+        /// window a synthetic view model from the compiled catalogue while the real IMGUI
+        /// draw code computes every rect and string, so a census can photograph states no
+        /// save reaches. A PAIRED op - <c>mockState=none</c> is the clear - and its
+        /// read-back is DRAW-PRODUCED (see
+        /// <see cref="TestCommandUiMock.NotAppliedReason"/>).</summary>
+        Mock = 21,
     }
 
     /// <summary>What one settle poll of a TWO-PHASE <c>UiAction</c> op concludes.</summary>
@@ -266,6 +275,7 @@ namespace Parsek.TestCommands
         internal const string SortOpToken = "sort";
         internal const string SelectOpToken = "select";
         internal const string EditOpToken = "edit";
+        internal const string MockOpToken = "mock";
 
         /// <summary>The <c>recording=</c>-less spelling the payload and the log line echo
         /// for an ALL-recordings flip. A sentinel token rather than an empty value, the
@@ -647,7 +657,7 @@ namespace Parsek.TestCommands
             DescribeOpToken, PointerOpToken, FindOpToken, ExpandOpToken, TargetOpToken,
             PickerOpToken, DialogOpToken, PlaybackOpToken, RaiseOpToken,
             DismissOpToken, RunOpToken, StateOpToken, SortOpToken, SelectOpToken,
-            EditOpToken,
+            EditOpToken, MockOpToken,
         });
 
         /// <summary>A window's tab tokens, comma-joined, or the empty string when it has
@@ -690,6 +700,7 @@ namespace Parsek.TestCommands
                 case SortOpToken: op = UiActionOp.Sort; break;
                 case SelectOpToken: op = UiActionOp.Select; break;
                 case EditOpToken: op = UiActionOp.Edit; break;
+                case MockOpToken: op = UiActionOp.Mock; break;
                 default:
                     rejectReason = OpArgInvalidReason;
                     return false;
@@ -723,6 +734,7 @@ namespace Parsek.TestCommands
                 case UiActionOp.Sort: return SortOpToken;
                 case UiActionOp.Select: return SelectOpToken;
                 case UiActionOp.Edit: return EditOpToken;
+                case UiActionOp.Mock: return MockOpToken;
                 default: return string.Empty;
             }
         }
@@ -741,6 +753,13 @@ namespace Parsek.TestCommands
         /// grammar at all, and the other three are about uGUI <c>PopupDialog</c>s, which no
         /// window table row can name - they take <c>popup=</c> instead
         /// (<c>TestCommandUiDialogRaise.PopupArg</c>).</para>
+        ///
+        /// <para><c>mock</c> is the fifth deliberate absence, and for a DIFFERENT reason
+        /// from those four: it needs a window for its apply and clear forms and must NOT
+        /// need one for <c>describe=true</c>, which reports the whole catalogue. An
+        /// unconditional row here would refuse that form outright, so the requirement is
+        /// per-INTENT and lives in the applier (mirrored by the harness's own
+        /// <c>op=mock</c> branch, which reads the same rule).</para>
         /// </summary>
         internal static bool OpNeedsWindow(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Close
@@ -831,6 +850,16 @@ namespace Parsek.TestCommands
         /// <c>find</c> and <c>pointer</c> own theirs rather than counting drawn frames.
         /// Reporting a result before the batch stopped would photograph a half-run table
         /// under a label claiming results.</para>
+        /// <para><c>mock</c> is here for the <c>find</c> reason, and it owns its own poll
+        /// for the same reason <c>find</c> does: its completion signal is a CAPTURE
+        /// arriving, not a frame having been drawn. The recorder flushes from
+        /// <c>LateUpdate</c> when the frame NUMBER has changed, so a tree armed in frame
+        /// N's Update is assembled during frame N+1's LateUpdate - one frame after a
+        /// shared settle would have declared victory over a null tree. The capture IS the
+        /// read-back here (see <see cref="TestCommandUiMock.NotAppliedReason"/>), so it
+        /// is deliberately NOT in <see cref="SettleChecksHostShowUi"/> either: an undrawn
+        /// window is simply absent from the tree, which the witness check already
+        /// answers.</para>
         /// </summary>
         internal static bool OpIsTwoPhase(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Rect
@@ -840,7 +869,7 @@ namespace Parsek.TestCommands
                || op == UiActionOp.Raise || op == UiActionOp.Dismiss
                || op == UiActionOp.Run || op == UiActionOp.State
                || op == UiActionOp.Sort || op == UiActionOp.Select
-               || op == UiActionOp.Edit;
+               || op == UiActionOp.Edit || op == UiActionOp.Mock;
 
         /// <summary>
         /// Whether a SETTLED two-phase op's read-back must additionally be refused when the

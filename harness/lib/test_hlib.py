@@ -15120,6 +15120,157 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             2, {"op": "find", "window": "settings", "text": "Close", "ctrl": "button",
                 "index": "2"}))
 
+    # ---- op=mock: the GUI state gallery primitive (P1) ----
+
+    def test_the_mock_op_vocabularies_mirror_the_c_sharp_tables(self):
+        """Reads OUTSIDE harness/. THREE tables have to agree with the C#: the op token,
+        the nine refusal reasons, and the two arg keys. Each is mirrored rather than
+        derived for the reason every closed-arg row is: a token renamed on one side alone
+        validates as legal here and is a typed REJECTED after a whole KSP boot.
+
+        The refusal set is read off the C# reason CONSTS as a SET, so this cell fails on a
+        token ADDED there and not here as well as on a rename - which a per-token
+        assertIn could not."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiMock.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# mock half moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+
+        self.assertIn("mock", hlib.UIACTION_OP_VALUES)
+        cs_reasons = set(re.findall(r'Reason = "([a-z-]+)"', stripped))
+        self.assertEqual(set(hlib.UIACTION_MOCK_REFUSALS), cs_reasons,
+                         "hlib.UIACTION_MOCK_REFUSALS %r vs the C# reason consts %r"
+                         % (sorted(hlib.UIACTION_MOCK_REFUSALS), sorted(cs_reasons)))
+        self.assertIn('MockStateArg = "%s"' % hlib.UIACTION_MOCK_STATE_KEY, stripped)
+        self.assertIn('DescribeArg = "%s"' % hlib.UIACTION_DESCRIBE_KEY, stripped)
+        self.assertIn('ClearToken = "%s"' % hlib.UIACTION_MOCK_CLEAR_TOKEN, stripped)
+        op_path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                               "TestCommandUiAction.cs")
+        with open(op_path, encoding="utf-8-sig") as fh:
+            self.assertIn('MockOpToken = "mock"', fh.read())
+
+    def test_the_mockable_windows_mirror_the_c_sharp_supported_set(self):
+        """Reads OUTSIDE harness/. `op=mock` on a window with no injection seam answers
+        mock-window-unsupported after a whole boot, so the validator refuses it here -
+        which is only worth doing while the two sets agree. Derived from the C# array's
+        comment-free initializer, resolving each GuiMockSession constant to its VALUE so a
+        renamed constant reds instead of silently dropping a row."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "UI", "Gallery", "GuiMockCatalogue.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# catalogue moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+        at = stripped.find("SupportedWindows =")
+        self.assertGreater(at, 0, "SupportedWindows initializer not found")
+        end = stripped.find("};", at)
+        self.assertGreater(end, at)
+        body = stripped[at:end]
+
+        session_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "Gallery",
+                                    "GuiMockSession.cs")
+        with open(session_path, encoding="utf-8-sig") as fh:
+            session = fh.read()
+        constants = dict(re.findall(
+            r'internal const string (\w+Window) = "([a-z]+)"', session))
+        cs_windows = [constants[name]
+                      for name in re.findall(r"GuiMockSession\.(\w+Window)", body)
+                      if name in constants]
+        self.assertEqual(list(hlib.UIACTION_MOCKABLE_WINDOWS), cs_windows,
+                         "hlib.UIACTION_MOCKABLE_WINDOWS %r vs the C# SupportedWindows %r "
+                         "(ORDER included - the refusal message names the set in this "
+                         "order)"
+                         % (list(hlib.UIACTION_MOCKABLE_WINDOWS), cs_windows))
+        for window in hlib.UIACTION_MOCKABLE_WINDOWS:
+            self.assertIn(window, hlib.UIACTION_WINDOW_VALUES)
+
+    def test_the_mock_op_is_absent_from_the_ops_needing_a_window(self):
+        """Stated rather than implied, because the absence is a DESIGN decision with a
+        different reason from the other four: `describe=true` reports the whole catalogue
+        and names no window, so an unconditional requirement would refuse that form
+        outright. The apply and clear forms still require one - checked by the per-op
+        branch, whose cells follow."""
+        self.assertIn("mock", hlib.UIACTION_OP_VALUES)
+        self.assertNotIn("mock", hlib.UIACTION_OPS_NEEDING_WINDOW)
+
+    def test_uiaction_mock_requires_a_state_or_describe_and_refuses_both(self):
+        errors = hlib.validate_ui_action_step(0, {"op": "mock"})
+        self.assertTrue(any("mock-arg-missing" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "mock", "window": "kerbals",
+                "mockState": "kerbals.roster.lost", "describe": "true"})
+        self.assertTrue(any("opposite things" in e for e in errors), errors)
+
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "mock", "describe": "true"}))
+
+    def test_uiaction_mock_apply_requires_a_mockable_window_matching_the_state(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "mock", "mockState": "kerbals.roster.lost"})
+        self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "mock", "window": "timeline",
+                "mockState": "timeline.entry.superseded"})
+        self.assertTrue(any("mock-window-unsupported" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            2, {"op": "mock", "window": "kerbals",
+                "mockState": "career.banner.divergent"})
+        self.assertTrue(any("mock-state-window-mismatch" in e for e in errors), errors)
+
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "mock", "window": "kerbals",
+                "mockState": "kerbals.roster.lost"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            4, {"op": "mock", "window": "kerbals", "mockState": "none"}))
+
+    def test_uiaction_mock_args_are_flagged_on_other_ops(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "kerbals", "mockState": "kerbals.roster.lost"})
+        self.assertTrue(any("only op=mock reads it" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "open", "window": "kerbals", "describe": "true"})
+        self.assertTrue(any("only op=mock reads it" in e for e in errors), errors)
+
+    def test_uiaction_describe_is_a_closed_boolean_and_mockstate_is_not(self):
+        self.assertEqual(("UiAction", hlib.UIACTION_DESCRIBE_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.UIACTION_DESCRIBE_KEY])
+        self.assertEqual(("true", "false"), hlib.UIACTION_DESCRIBE_VALUES)
+        self.assertNotIn(hlib.UIACTION_MOCK_STATE_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
+        self.assertNotIn(hlib.UIACTION_MOCK_STATE_KEY, hlib.UIACTION_STATE_VALUES)
+
+    def test_the_harvest_cap_fits_a_gallery_run(self):
+        """P1b, the single highest-leverage number in the gallery design.
+
+        A capture PAIR is TWO files - both `.png` and `.gui.json` are harvested suffixes -
+        so the old 64-file cap harvested at most 32 STATES and dropped the rest into
+        `skipped_over_cap`, reported as artifacts.screenshotsSkipped and easy to miss.
+        Every current lane reads 0 skipped because GUI-1's 45 files sit just under it,
+        which is exactly why nothing noticed the ceiling.
+
+        Pinned here so a later edit cannot quietly walk it back, with the STATE arithmetic
+        spelled out rather than the raw number asserted alone."""
+        self.assertEqual(1024, hlib.ARTIFACT_MAX_SCREENSHOTS)
+        states_per_run = hlib.ARTIFACT_MAX_SCREENSHOTS // 2
+        self.assertGreaterEqual(
+            states_per_run, 400,
+            "the gallery targets ~400 states in ONE boot and a capture pair is two "
+            "files; %d files harvests only %d states"
+            % (hlib.ARTIFACT_MAX_SCREENSHOTS, states_per_run))
+        self.assertEqual(768 * 1024 * 1024, hlib.ARTIFACT_MAX_SCREENSHOT_BYTES)
+        self.assertGreater(hlib.ARTIFACT_MAX_SCREENSHOT_BYTES, 257 * 1024 * 1024)
+        self.assertEqual(2 * 1024 * 1024 * 1024, hlib.ARTIFACT_SHOTS_MAX_TOTAL_BYTES)
+        self.assertIn(".png", hlib.ARTIFACT_SHOTS_SUFFIXES)
+        self.assertIn(".gui.json", hlib.ARTIFACT_SHOTS_SUFFIXES)
+
     def test_uiaction_find_args_are_flagged_on_other_ops(self):
         errors = hlib.validate_ui_action_step(
             0, {"op": "open", "window": "settings", "text": "Close"})

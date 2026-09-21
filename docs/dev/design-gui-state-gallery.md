@@ -4,7 +4,11 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the GUI census gets from ~166 photographed states to ~450, and the owner-facing iteration loop built on top of that.*
 
-**Status:** DESIGN - nothing implemented. This PR is docs-only.
+**Status:** P1 + P1b BUILT (2026-09-22). The `op=mock` primitive, the compiled catalogue
+(46 states across Kerbals / Career State / Structure List), the session and its cache
+suppressions, the dump's `mock` provenance block, the completeness guard and the raised
+harvest cap all ship. P2 onward remain design. Section 18 records every place the code
+forced a change from the design and why; read it before building P2.
 **Out of scope:** the mirror page itself (`docs/dev/design-gui-mirror.md` owns it; this doc only specifies what the gallery adds to it), the dump format (`docs/dev/design-gui-tree-dump.md`), the measured window inventory (`docs/dev/design-gui-inventory.md`), the existing seam op vocabulary (`docs/dev/design-autotest-command-seam.md`), hover / tooltip capture (refuted instrument, `TestCommandUiPointer.cs:92-102`), and `harness/tools/gui_mirror_fidelity.py` (assumed to exist; this doc names where it plugs into the loop).
 **Related docs:** `design-gui-mirror.md`, `design-gui-tree-dump.md`, `design-gui-inventory.md`, `design-gui-kerbals-window.md`, `design-autotest-command-seam.md`, `design-autotest-harness-core.md`, `autotest-status.md`.
 
@@ -625,9 +629,9 @@ Sizes are production plus tests, rounded. "States" is against the audit's own ta
 | Phase | Scope | Size | States unlocked | Gate to the next phase |
 | --- | --- | --- | --- | --- |
 | **P0** | this doc, the mirror pointer, the todo entry | docs only | 0 | owner answers section 16 |
-| **P1** | the spine: `GuiMockState` / `GuiMockPayload` / `GuiMockCatalogue`, the `op=mock` primitive with its full refusal table, the `GuiMockSession` + suppression predicate, the dump `mock` block, the mirror's `fixture=mock` + badge + index fields, the completeness guard for enums. Windows: **Kerbals** (0 lines of injection), **Career State** (~15), **Structure List** (~10) | ~700-900 | ~45 (Kerbals 15, Career 23, Structure 16 minus overlap) | `op=mock` green in-game for three windows; a mocked capture badged in the mirror |
-| **P1b** | **the harvest cap**: raise `ARTIFACT_MAX_SCREENSHOTS` (and re-check `ARTIFACT_MAX_SCREENSHOT_BYTES`) in `harness/lib/hlib.py:9496-9497` with its `test_hlib` cells. Without this a run harvests 32 states and drops the rest into `skipped_over_cap` | ~50 | unblocks every later phase | a 300-file harvest with `screenshotsSkipped = 0` |
-| **P2** | `GalleryRun` batch verb + `GUI-13-gallery-mock` (KSC) and `GUI-14-gallery-mock-flight` lanes + the mirror's notes textarea, Export-notes blob and pinned default dataset | ~450-550 | 0 new, but this is the phase that makes the loop exist | one full lane under 8 minutes; the owner completes one round of step 6-7 |
+| **P1** BUILT | the spine: `GuiMockState` / `GuiMockPayload` / `GuiMockCatalogue`, the `op=mock` primitive with its full refusal table, the `GuiMockSession` + suppression predicate, the dump `mock` block, the completeness guard for enums. Windows: **Kerbals** (0 lines of injection), **Career State** (0), **Structure List** (~45). The MIRROR half moved to P2 (section 18) | ~3900 with tests | **46** (Kerbals 15, Career 17, Structure 14) | `op=mock` green in-game for three windows; a mocked capture badged in the mirror |
+| **P1b** BUILT | **the harvest cap**: `ARTIFACT_MAX_SCREENSHOTS` 64 -> **1024** and `ARTIFACT_MAX_SCREENSHOT_BYTES` 256 MB -> **768 MB**, pinned by `test_hlib.GuiCensusSeamVerbTests.test_the_harvest_cap_fits_a_gallery_run`. Without this a run harvested 32 states and dropped the rest into `skipped_over_cap` | ~50 | unblocks every later phase | a 300-file harvest with `screenshotsSkipped = 0` |
+| **P2** | `GalleryRun` batch verb + the two gallery lanes + the MIRROR half of P1 (`fixture=mock`, the `MOCKED DATA` badge, the index fields, the pinned default dataset) + the notes textarea and Export-notes blob. **The lane ids `GUI-13` / `GUI-14` are TAKEN** (`GUI-13-census-logistics-candidates`, `GUI-14-census-settings-and-facility`); pick the next free H-number and check every OPEN PR branch first | ~450-550 | 0 new, but this is the phase that makes the loop exist | one full lane under 8 minutes; the owner completes one round of step 6-7 |
 | **P3** | **Logistics**: extract `RouteLegibility` (`:253-346`) into a public row model, five injection seams (`:598`, `cachedCandidates`, `cachedNearMisses`, `legibilityCache`, `:781`), pin the three wall-clock refreshers, the three detail-panel resolver seams, reason-clause constants (11.3), and the string half of the completeness guard | ~600-800 | **~70** - the single largest win in the program | 17 holds + 12 rejects + 6 statuses + both badges photographed |
 | **P4** | **Timeline** entries (~60) and then row actions (~120) with synthetic `Recording` seeding; the `ComputeERS` slider-bounds seam at `:931` | ~350-450 | ~28 | supersede strikethrough and the archived marker photographed |
 | **P5** | **Settings** 5 live-cell handles, **Test Runner** interface seam (running / failed / skipped), **Spawn Control** candidate + UT override + auto-close bypass, **Group Picker** model override | ~450-550 | ~35 | - |
@@ -686,3 +690,120 @@ All seven were put to the owner as yes/no questions and ALL SEVEN were answered 
 | Harvest cap | `harness/lib/hlib.py:9496-9497` (raise), plus its `test_hlib` cells |
 | Lane | `harness/scenarios/GUI-13-gallery-mock.toml`, `GUI-14-gallery-mock-flight.toml` (new) |
 | Guards | `Source/Parsek.Tests/GuiMock*Tests.cs` (new), `harness/lib/test_gui_tree_view.py` + `test_hlib.py` (extend) |
+
+---
+
+## 18. What P1 built, and where the code forced a change (2026-09-22)
+
+Everything in this section is a DEVIATION from sections 1-17 above, kept here rather than
+edited into them so the design's reasoning stays readable and the change has a stated cause.
+
+### 18.1 The arg key is `mockState=`, not `state=`
+
+Section 7.3 sketched `UiAction op=mock window=<token> state=<stateId>`. The seam cannot
+spell it that way. `state=` is ONE arg key with ONE closed vocabulary across
+`op=expand` / `op=playback` / `op=state` - `true` / `false`, mirrored by
+`hlib.UIACTION_STATE_VALUES` and enforced pre-launch by `VERB_SCOPED_CLOSED_ARGS` - so a
+catalogue id in it is a harness validation error before any boot.
+
+This is the rule that already renamed `op=find`'s control filter from `kind=` to `ctrl=`
+("VERB_SCOPED_CLOSED_ARGS allows exactly one owner verb per arg key"), and the house pattern
+for an open-valued selector is its own key (`text=`, `category=`, `recording=`). So the
+apply / clear arg is `mockState=` and the report form is `describe=true`, a new closed
+boolean row in the `await=` / `commit=` shape.
+
+### 18.2 `op=mock` is outside `OpNeedsWindow`, per-INTENT instead
+
+Section 7.3's wiring checklist named `OpNeedsWindow`. Putting `mock` in it would refuse
+`describe=true`, which reports the whole catalogue and names no window. The requirement is
+therefore per-intent: the applier checks it for apply and clear, and the harness's own
+`op=mock` branch mirrors that rule (plus the stray-arg exemption it implies). Pinned by
+`test_the_mock_op_is_absent_from_the_ops_needing_a_window`.
+
+### 18.3 The read-back is a DERIVED WITNESS SET, not a generic "did it draw"
+
+Section 7.3 said the settle must "assert the mocked rows appear in the tree the frame
+produced" and left the assertion shape open. It is `GuiMockWitness`: a pure function that
+reads two or three strings off the BUILT PAYLOAD through the same per-column formatters the
+draw method calls, and the settle requires every one to appear in the captured tree.
+
+Three consequences worth stating, because each was a decision:
+
+* the match is a CONTAINS, not an equality - a Kerbals fold header draws as `<arrow> ` plus
+  its text and a collapsed structure label carries its own `xN` suffix, so equality would
+  fail those on a perfectly good mock;
+* an EMPTY witness set answers `mock-not-applied` (the anti-vacuity direction), and the
+  catalogue unit suite refuses a state that produces none, so the case cannot reach a run;
+* the Facilities tab forced the witness floor down to TWO characters, because its Level cell
+  (`"L2"` / `"L3"`) is the shortest discriminating cell in the program - every census
+  capture reads nine uniform `"L1"`s, so a row still reading plain `L1` with an empty status
+  is skipped as day-one state that an UNMOCKED window draws too.
+
+### 18.4 A state pins its own TAB and its own expand keys
+
+Section 7.3 left the tab to the lane. The witness set is tab-scoped by construction (a
+roster witness under the Flights tab would answer not-applied over a good mock), so
+`GuiMockState.Tab` is part of the state and the applier selects it inside the same
+transactional install that restores it. `GuiMockState.ExpandKeys` came with it: the Kerbals
+chain view is a SEPARATE transient set from the view model, so the three chain states drive
+it through the window's own `SetRosterExpandedForTesting` - the member `op=expand` writes.
+
+### 18.5 `GuiMockPayload` carries three windows, not eleven
+
+Section 7.1 sketched the whole union up front. Nine null fields no code reads would be dead
+surface that reads as coverage, and the point of a C# catalogue is that an unbuildable state
+is a compile error. Each later phase adds its window's field in the same commit as its
+builder, its applier arm and its refusal row.
+
+### 18.6 Three small production extractions, no behaviour change
+
+Every one exists so a builder feeds the REAL decision rather than a copy of it, which is
+what makes a mocked capture a picture the product can produce:
+
+* `KerbalsModule.ResolveActiveChainIndex(owner, slot, isReserved)` - the chain-occupant rule,
+  with the live reservation map behind a predicate. The instance overload is now a one-line
+  delegation.
+* `MissionStructureListBuilder.FormatCollapsedLabel(label, count)` - the `" xN"` spelling,
+  lifted out of the collapse walk.
+* `StructureListWindowUI.CaptureGalleryTarget` / `RestoreGalleryTarget` /
+  `OpenWithGallerySteps` - the injection point section 6 row 3 asked for, as a snapshot pair
+  so restore is a complete inverse. `TargetMode` went from private to internal to carry it.
+
+### 18.7 The MIRROR half moved to P2
+
+Section 14's P1 row included `fixture=mock`, the badge and the index fields. Those live in
+`harness/tools/gui_mirror.py`, which had an open PR against it while P1 was built, so
+touching it would have guaranteed a conflict on a file nobody can merge twice. The dump-side
+half - which is the load-bearing one, because it is the provenance that TRAVELS - shipped in
+P1, and `harness/tools/gui_tree_view.py` reads it today (`MOCKED <stateId>` in the header
+strip). P2 owns the mirror.
+
+### 18.8 A product finding the catalogue surfaced
+
+`KerbalsPresentation.FormatStatus`'s INLINE stand-in form -
+`"Stand-in for X (aboard Y)"` - is unreachable for any real kerbal. The cell holds 31
+characters (220 px at the 7 px advance) and the fixed scaffolding alone
+(`"Stand-in for "` + `" (aboard "` + `")"`) is 23, leaving 8 for the owner's name AND the
+vessel's together, while the shortest stock kerbal name is `"Bob Kerman"` at 10. So the
+catalogue has ONE stand-in-aboard state (the hover-text form) rather than the two the audit
+implies, and `GuiMockCatalogueTests.TheInlineStandInVesselFormIsUnreachableForRealNames`
+pins the boundary against the real formatter: widen the column or shorten the form and that
+cell fails, telling the next author to ADD the inline state. Filed in
+`docs/dev/todo-and-known-bugs.md`.
+
+### 18.9 What P2 needs from P1
+
+* **The op grammar** is section 18.1 plus the seam doc's `op=mock` contract
+  (`design-autotest-command-seam.md`): apply is
+  `UiAction op=mock window=<token> mockState=<id>`, clear is `mockState=none`, report is
+  `describe=true`. Apply is two-phase and answers `label=` in its OK payload.
+* **The label derivation** is `TestCommandUiMock.DeriveLabel(prefix, stateId, basicMode)` =
+  `<prefix>-<stateId with dots turned into dashes>-<advanced|basic>`, default prefix `mock`.
+  `GalleryRun` must call THAT rather than re-deriving: a second derivation would drift from
+  the mirror's `parse_label` and from the uniqueness cell that already proves no two
+  catalogue states collide in either mode.
+* **The catalogue walk** is `GuiMockCatalogue.All` (declaration order = gallery order),
+  `ForWindow(token)` and `ById(id)`; `SupportedWindows` is what a refusal names.
+* **The harvest headroom** is 1024 files / 768 MB per run (P1b), i.e. 512 states.
+* **The lane ids `GUI-13` and `GUI-14` are already taken** by census lanes; pick fresh ones
+  and check every OPEN PR branch, not just `origin/main`.

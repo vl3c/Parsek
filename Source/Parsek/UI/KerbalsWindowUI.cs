@@ -258,6 +258,14 @@ namespace Parsek
 
         public void InvalidateCache()
         {
+            // GUI state gallery: while an ARMED seam session owns this window, the cached
+            // view model is a mocked one and dropping it would rebuild the real roster
+            // under a capture that is about to be taken. The predicate is false in every
+            // player build - only ParsekTestCommandAddon.UiMock can create a session -
+            // and it logs one Verbose line per site per session, never per call.
+            if (Parsek.UI.Gallery.GuiMockSession.Suppressed(
+                    Parsek.UI.Gallery.GuiMockSession.KerbalsInvalidate))
+                return;
             cachedVM = null;
             ParsekLog.Verbose("UI", "KerbalsWindow: cache invalidated");
         }
@@ -360,6 +368,14 @@ namespace Parsek
         /// </summary>
         private void OnLiveCrewStateChanged(string eventName)
         {
+            // GUI state gallery: same suppression as InvalidateCache, and this is the
+            // site that actually needs it - eight stock GameEvents feed this handler and
+            // onVesselChange alone fires often enough to clobber a mocked roster between
+            // the apply and the capture. The event still reaches every real subsystem;
+            // only THIS window's cache rebuild is deferred until the mock clears.
+            if (Parsek.UI.Gallery.GuiMockSession.Suppressed(
+                    Parsek.UI.Gallery.GuiMockSession.KerbalsLiveCrew))
+                return;
             bool hadCache = cachedVM != null;
             cachedVM = null;
             ParsekLog.Verbose("UI", DescribeLiveCrewRefresh(eventName, hadCache));
