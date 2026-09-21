@@ -37,6 +37,35 @@ namespace Parsek
         // Spawn Control sort state
         private SpawnControlSortColumn spawnSortColumn = SpawnControlSortColumn.Distance;
         private bool spawnSortAscending = true;
+
+        /// <summary>
+        /// The candidate table's sort column (as an INDEX into
+        /// <see cref="SpawnControlSortColumn"/>'s declaration order) and direction, for the
+        /// automation-only <c>UiAction op=sort</c> seam op. An int for the reason
+        /// <c>RecordingsTableUI.SortColumnIndexForTesting</c> is one.
+        ///
+        /// <para>No explicit invalidation: this window re-sorts whenever the live tuple
+        /// differs from <c>cachedSortColumn</c> / <c>cachedSortAscending</c>, so writing the
+        /// live fields is itself the trigger - which is also all the header click's own
+        /// callback does beyond logging.</para>
+        /// </summary>
+        internal int SortColumnIndexForTesting
+        {
+            get { return (int)spawnSortColumn; }
+            set
+            {
+                if (value < (int)SpawnControlSortColumn.Name
+                    || value > (int)SpawnControlSortColumn.SpawnTime)
+                    return;
+                spawnSortColumn = (SpawnControlSortColumn)value;
+            }
+        }
+
+        internal bool SortAscendingForTesting
+        {
+            get { return spawnSortAscending; }
+            set { spawnSortAscending = value; }
+        }
         private bool isResizingSpawnControlWindow;
         private Vector2 spawnControlScrollPos;
 

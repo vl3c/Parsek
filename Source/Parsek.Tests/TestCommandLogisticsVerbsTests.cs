@@ -213,13 +213,264 @@ namespace Parsek.Tests
             Assert.False(TestCommandRouteCommand.IsKnownAction(action));
         }
 
+        [Theory]
+        [InlineData("link")]
+        [InlineData("unlink")]
+        [InlineData("set-cadence")]
+        public void IsKnownAction_AcceptsTheRoundTripAndCadenceActions(string action)
+        {
+            Assert.True(TestCommandRouteCommand.IsKnownAction(action));
+        }
+
         [Fact]
-        public void IsRouteOperation_IsTheThreeNonCreateActions()
+        public void IsRouteOperation_IsEveryNonCreateActionAndStatusOpsAreItsSubset()
         {
             Assert.False(TestCommandRouteCommand.IsRouteOperation("create"));
-            Assert.True(TestCommandRouteCommand.IsRouteOperation("send-once"));
-            Assert.True(TestCommandRouteCommand.IsRouteOperation("pause"));
-            Assert.True(TestCommandRouteCommand.IsRouteOperation("activate"));
+            foreach (string action in new[] { "send-once", "pause", "activate",
+                                              "link", "unlink", "set-cadence" })
+            {
+                Assert.True(TestCommandRouteCommand.IsRouteOperation(action),
+                    action + " addresses an existing route and needs route=");
+            }
+
+            // The status subset is what still hands the route to RouteOrchestrator and
+            // reports only its status; the other three call different production surfaces
+            // and report different before/after fields, so they must NOT be in it.
+            Assert.True(TestCommandRouteCommand.IsStatusOperation("send-once"));
+            Assert.True(TestCommandRouteCommand.IsStatusOperation("pause"));
+            Assert.True(TestCommandRouteCommand.IsStatusOperation("activate"));
+            Assert.False(TestCommandRouteCommand.IsStatusOperation("link"));
+            Assert.False(TestCommandRouteCommand.IsStatusOperation("unlink"));
+            Assert.False(TestCommandRouteCommand.IsStatusOperation("set-cadence"));
+            Assert.False(TestCommandRouteCommand.IsStatusOperation("create"));
+            Assert.False(TestCommandRouteCommand.IsStatusOperation(null));
+        }
+
+        [Fact]
+        public void TheActionVocabularyIsExactlyTheSevenTokens()
+        {
+            Assert.Equal(
+                new[] { "create", "send-once", "pause", "activate",
+                        "link", "unlink", "set-cadence" },
+                TestCommandRouteCommand.KnownActions);
+            // Every admitted action is either create or a route operation - no token can
+            // pass IsKnownAction and then fall through both appliers.
+            foreach (string action in TestCommandRouteCommand.KnownActions)
+            {
+                Assert.True(action == TestCommandRouteCommand.ActionCreate
+                            || TestCommandRouteCommand.IsRouteOperation(action));
+            }
+        }
+
+        // ---- cadence= ----
+
+        [Fact]
+        public void CadenceArg_IsItsOwnKeyAndNotInterval()
+        {
+            // interval= already means SECONDS on action=create. Reusing it for a
+            // multiplier is how a spec author writes 3 and gets three seconds.
+            Assert.Equal("cadence", TestCommandRouteCommand.CadenceArg);
+            Assert.Equal("partner", TestCommandRouteCommand.PartnerArg);
+            Assert.NotEqual("interval", TestCommandRouteCommand.CadenceArg);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void TryParseCadenceArg_AbsentIsMissingRatherThanADefault(string raw)
+        {
+            Assert.False(TestCommandRouteCommand.TryParseCadenceArg(
+                raw, out int n, out string reject));
+            Assert.Equal(0, n);
+            Assert.Equal(TestCommandRouteCommand.CadenceArgMissingReason, reject);
+        }
+
+        [Theory]
+        [InlineData("1", 1)]
+        [InlineData("2", 2)]
+        [InlineData("14", 14)]
+        public void TryParseCadenceArg_AcceptsAnIntegerOfAtLeastOne(string raw, int expected)
+        {
+            Assert.True(TestCommandRouteCommand.TryParseCadenceArg(
+                raw, out int n, out string reject));
+            Assert.Equal(expected, n);
+            Assert.Null(reject);
+        }
+
+        [Theory]
+        [InlineData("0")]
+        [InlineData("-1")]
+        [InlineData("1.5")]
+        [InlineData("1,5")]
+        [InlineData("two")]
+        [InlineData("2x")]
+        public void TryParseCadenceArg_SubOneAndNonIntegerAreInvalidRatherThanClamped(
+            string raw)
+        {
+            // ApplyMultiplier clamps N >= 1 SILENTLY, so a spec that wrote 0 and was
+            // clamped would read as a successful edit to 1. Refused instead.
+            Assert.False(TestCommandRouteCommand.TryParseCadenceArg(
+                raw, out _, out string reject));
+            Assert.Equal(TestCommandRouteCommand.CadenceArgInvalidReason, reject);
+        }
+
+        [Fact]
+        public void TryParseCadenceArg_IsInvariantCultureUnderACommaDecimalCulture()
+        {
+            // Proves the site is invariant rather than making a culture-dependent one
+            // pass: "1,5" must stay invalid and "12" must stay 12 under de-DE.
+            System.Globalization.CultureInfo saved =
+                System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                Assert.True(TestCommandRouteCommand.TryParseCadenceArg(
+                    "12", out int n, out _));
+                Assert.Equal(12, n);
+                Assert.False(TestCommandRouteCommand.TryParseCadenceArg(
+                    "1,5", out _, out _));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        // ---- link classification ----
+
+        [Fact]
+        public void ClassifyLink_AcceptsAFreshPair()
+        {
+            Assert.Equal(RouteLinkRefusal.None,
+                TestCommandRouteCommand.ClassifyLink("a", null, "b", null));
+        }
+
+        [Fact]
+        public void ClassifyLink_AnAlreadyBidirectionalSamePairIsAnIdempotentAccept()
+        {
+            // The store treats it as a true that deliberately PRESERVES the live
+            // alternation cursors, so a lane re-asserting a link must see that success
+            // rather than a complaint.
+            Assert.Equal(RouteLinkRefusal.None,
+                TestCommandRouteCommand.ClassifyLink("a", "b", "b", "a"));
+        }
+
+        [Fact]
+        public void ClassifyLink_AOneSidedHalfLinkOfTheSamePairStillReachesTheRepair()
+        {
+            // The store's own guard does not match a half-link either: it falls through to
+            // the mutation, which repairs it. Classifying it as a refusal would make that
+            // repair unreachable from the seam.
+            Assert.Equal(RouteLinkRefusal.None,
+                TestCommandRouteCommand.ClassifyLink("a", "b", "b", null));
+            Assert.Equal(RouteLinkRefusal.None,
+                TestCommandRouteCommand.ClassifyLink("a", null, "b", "a"));
+        }
+
+        [Fact]
+        public void ClassifyLink_SelfLinkIsNamed()
+        {
+            Assert.Equal(RouteLinkRefusal.SelfLink,
+                TestCommandRouteCommand.ClassifyLink("a", null, "a", null));
+            Assert.Equal("link-self", TestCommandRouteCommand.LinkRefusalToken(
+                RouteLinkRefusal.SelfLink));
+        }
+
+        [Fact]
+        public void ClassifyLink_EitherEndpointLinkedElsewhereIsNamed_InBothDirections()
+        {
+            // The mirror direction matters: the store refuses on EITHER endpoint, so a
+            // classification that only checked the subject would send a lane to the wrong
+            // fix half the time.
+            Assert.Equal(RouteLinkRefusal.AlreadyLinkedElsewhere,
+                TestCommandRouteCommand.ClassifyLink("a", "z", "b", null));
+            Assert.Equal(RouteLinkRefusal.AlreadyLinkedElsewhere,
+                TestCommandRouteCommand.ClassifyLink("a", null, "b", "z"));
+            Assert.Equal(RouteLinkRefusal.AlreadyLinkedElsewhere,
+                TestCommandRouteCommand.ClassifyLink("a", "z", "b", "y"));
+            Assert.Equal("link-already-linked",
+                TestCommandRouteCommand.LinkRefusalToken(
+                    RouteLinkRefusal.AlreadyLinkedElsewhere));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void ClassifyLink_NoPartnerAtAllIsTheNoCandidateReject(string partnerId)
+        {
+            Assert.Equal(RouteLinkRefusal.NoCandidate,
+                TestCommandRouteCommand.ClassifyLink("a", null, partnerId, null));
+            Assert.Equal("link-no-candidate",
+                TestCommandRouteCommand.LinkRefusalToken(RouteLinkRefusal.NoCandidate));
+        }
+
+        [Fact]
+        public void LinkRefusalToken_IsNullForNone()
+        {
+            Assert.Null(TestCommandRouteCommand.LinkRefusalToken(RouteLinkRefusal.None));
+        }
+
+        [Fact]
+        public void MapPartnerReject_KeepsTheTwoSelectorsApart()
+        {
+            // route= and partner= are both resolved by ResolveRoute, so one shared token
+            // would leave a lane guessing WHICH selector missed.
+            Assert.Equal("partner-ambiguous", TestCommandRouteCommand.MapPartnerReject(
+                TestCommandRouteCommand.RouteAmbiguousReason));
+            Assert.Equal("unknown-partner", TestCommandRouteCommand.MapPartnerReject(
+                TestCommandRouteCommand.UnknownRouteReason));
+            Assert.Equal("unknown-partner", TestCommandRouteCommand.MapPartnerReject(
+                TestCommandRouteCommand.RouteArgMissingReason));
+            Assert.Equal("unknown-partner", TestCommandRouteCommand.MapPartnerReject(null));
+        }
+
+        [Fact]
+        public void EveryNewRejectTokenIsDistinctAndSpelledAsTheHarnessMirrorsIt()
+        {
+            var tokens = new[]
+            {
+                TestCommandRouteCommand.UnknownPartnerReason,
+                TestCommandRouteCommand.PartnerAmbiguousReason,
+                TestCommandRouteCommand.LinkSelfReason,
+                TestCommandRouteCommand.LinkAlreadyLinkedReason,
+                TestCommandRouteCommand.LinkNoCandidateReason,
+                TestCommandRouteCommand.RouteNotLinkedReason,
+                TestCommandRouteCommand.CadenceArgMissingReason,
+                TestCommandRouteCommand.CadenceArgInvalidReason,
+                TestCommandRouteCommand.CadenceUnchangedReason,
+            };
+            Assert.Equal(
+                new[] { "unknown-partner", "partner-ambiguous", "link-self",
+                        "link-already-linked", "link-no-candidate", "route-not-linked",
+                        "cadence-arg-missing", "cadence-arg-invalid",
+                        "cadence-unchanged" },
+                tokens);
+            // Distinct from each other and from the pre-existing route tokens, so no
+            // lane's existing gate changes meaning.
+            Assert.Equal(tokens.Length, new HashSet<string>(tokens).Count);
+            foreach (string t in tokens)
+            {
+                Assert.NotEqual(TestCommandRouteCommand.UnknownRouteReason, t);
+                Assert.NotEqual(TestCommandRouteCommand.RouteAmbiguousReason, t);
+                Assert.NotEqual(TestCommandRouteCommand.RouteActionRefusedReason, t);
+            }
+        }
+
+        [Fact]
+        public void TheActionRefusedCompoundStillCoversTheNewActions()
+        {
+            // The generic compound stays as the answer to a production false the
+            // pre-call classification did not predict.
+            Assert.Equal("route-action-refused link",
+                TestCommandRouteCommand.ActionRefusedMsg(
+                    TestCommandRouteCommand.ActionLink));
+            Assert.Equal("route-action-refused unlink",
+                TestCommandRouteCommand.ActionRefusedMsg(
+                    TestCommandRouteCommand.ActionUnlink));
+            Assert.Equal("route-action-refused set-cadence",
+                TestCommandRouteCommand.ActionRefusedMsg(
+                    TestCommandRouteCommand.ActionSetCadence));
         }
 
         // ---- interval= ----

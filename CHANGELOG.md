@@ -10,6 +10,55 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: five new automation-only seam surfaces for the GUI census, plus the
+  selected tab in the GUI-tree dump.** A read-only audit of every IMGUI draw branch put
+  about 380 visibly distinct window states against about 150 captured, with the gap
+  concentrated in authoring controls, filters and in-progress states. Five additions close
+  the reachable part of it, none of them a player-facing surface and all inert unless
+  `PARSEK_TEST_COMMANDS=1` arms the command seam.
+  `UiAction op=state` drives a window's scalar view state (the Timeline's three source
+  toggles, both archive filters, the Recordings tab's expanded-stats columns, the time-range
+  preset, the entry list's scroll offset); `op=sort` a sortable table's column and direction
+  through the same two fields a header click writes plus that window's own cache
+  invalidation; `op=select` the Missions tab's per-vessel include and its cross-tree
+  partner-journey include; `op=edit` the three in-place rename editors, arming edit mode
+  with a draft and committing only when asked. `op=raise` gained the three Logistics
+  confirms, `op=run` an `await=false` that returns once the batch is dispatched so the test
+  runner's RUNNING state can be photographed, and `RouteCommand` the `link` / `unlink` /
+  `set-cadence` actions. The `.gui.json` dump now carries a `buttongrid`'s `selectedIndex`
+  as an additive key (schema stays `parsek-gui-tree/1`), so which tab a capture shows is
+  readable from the dump instead of inferred from the tab body - the value was already being
+  recorded, mislabelled as `controlId` on a control that has no id, and the offline viewer
+  and the interactive mirror now read it.
+  Three small production refactors came with it, all so the seam runs the button's own body
+  rather than a copy: the four time-range presets' bounds moved into the pure
+  `TimeRangeFilterLogic.TryResolvePresetRange`, the preset click body into
+  `TimelineWindowUI.ApplyTimeRangePreset`, and `CareerStateWindowUI` gained an absolute
+  `SetSectionFolded` behind its existing toggle, because a commanded write must not flip an
+  already-correct fold. `MissionStore` also gained the single `FindById` its window and the
+  seam had each been walking their own copy of.
+
+  SIX OF THE ADDITIONS WRITE STATE A LATER SAVE CAPTURES, so a census lane using any of them
+  runs on a THROWAWAY staged copy of its fixture - the ops cannot enforce that and do not
+  pretend to. `op=select` writes `Mission.ExcludedIntervalKeys` and
+  `IncludedForeignDockLinkIds`; `op=state key=archived` writes
+  `GroupHierarchyStore.HideActive` and `key=archivedMissions` writes
+  `MissionStore.HideArchived` (persisted as `missionHideArchived`); `op=edit commit=true`
+  renames a recording, a group or a mission; and all three `RouteCommand` actions change a
+  route's link or cadence. Everything else in the wave is per-session view state and leaves
+  the save alone.
+
+  Two defects found in review are fixed in the same entry. A verb HELD behind an
+  `await=false` batch no longer times out: armed, a held head reaches the dispatcher and
+  defers on `batch-running`, which before this ran out the 60 s default budget and ended the
+  closing `FlushAndQuit` as a TIMEOUT, so the process never quit. And the three ops that
+  exist to produce a picture (`state`, `sort`, `edit`) no longer answer OK by comparing a
+  field with the value they just wrote: each now refuses a closed window pre-call
+  (`window-not-open`), is checked against the host's own `showUI` at settle, and `op=edit`
+  reads a SECOND, draw-produced signal - each editor's focus sentinel - so a row inside a
+  collapsed group or on the unselected tab answers `edit-not-drawn` rather than `armed=true`
+  over a plain label.
+
 - **Tooling: the GUI mirror's rendering is now MEASURED against the game frame instead of
   judged by eye.** `harness/tools/gui_mirror_fidelity.py` opens the generated mirror page
   itself in a headless Chromium - at a deep link the generator now ships for it

@@ -42,6 +42,56 @@ namespace Parsek
     internal static class TimeRangeFilterLogic
     {
         /// <summary>
+        /// The unclamped [min, max] a named time-range PRESET covers at a given UT, or
+        /// false for the clear button ("All", which sets no range).
+        ///
+        /// <para>ONE COPY, two callers: <c>TimelineWindowUI.DrawTimeRangeFilterBar</c>'s
+        /// preset row and the automation-only <c>UiAction op=state key=preset</c> applier.
+        /// The op could not have recomputed these four windows for itself - a second copy of
+        /// the year-boundary expression is exactly the drift that makes a census capture
+        /// prove nothing about the button - and it could not have clicked the button either,
+        /// so the arithmetic moved here where both can call it and a cell can pin it.</para>
+        ///
+        /// <para>The caller still owns the CLAMP to its own slider bounds and the
+        /// <c>SetRange</c> call, because those need window state this class does not
+        /// see.</para>
+        /// </summary>
+        /// <param name="presetName">The preset button's own label, which is also the name
+        /// stored in <see cref="TimeRangeFilterState.ActivePresetName"/>.</param>
+        internal static bool TryResolvePresetRange(string presetName, double currentUT,
+                                                   out double minUT, out double maxUT)
+        {
+            minUT = 0;
+            maxUT = 0;
+            int secsPerDay = ParsekTimeFormat.SecsPerDay;
+            int secsPerYear = ParsekTimeFormat.SecsPerYear;
+            switch (presetName)
+            {
+                case "Last Day":
+                    minUT = currentUT - secsPerDay;
+                    maxUT = currentUT;
+                    return true;
+                case "Last 7d":
+                    minUT = currentUT - 7.0 * secsPerDay;
+                    maxUT = currentUT;
+                    return true;
+                case "Last 30d":
+                    minUT = currentUT - 30.0 * secsPerDay;
+                    maxUT = currentUT;
+                    return true;
+                case "This Year":
+                    // Current KSP calendar year boundaries.
+                    minUT = System.Math.Floor(currentUT / secsPerYear) * secsPerYear;
+                    maxUT = minUT + secsPerYear;
+                    return true;
+                default:
+                    // "All" and anything unknown: no range. The preset row's All button
+                    // calls Clear() rather than SetRange, so it has no bounds to report.
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// Returns true if a single UT value falls within the filter range.
         /// Null bounds are treated as unbounded (always pass).
         /// </summary>

@@ -170,6 +170,8 @@ namespace Parsek
                 sb.Append(", \"controlId\": ").Append(Num(node.ControlId.Value));
             if (node.WindowId.HasValue)
                 sb.Append(", \"windowId\": ").Append(Num(node.WindowId.Value));
+            if (node.SelectedIndex.HasValue)
+                sb.Append(", \"selectedIndex\": ").Append(Num(node.SelectedIndex.Value));
             if (node.Horizontal.HasValue)
                 sb.Append(", \"horizontal\": ").Append(node.Horizontal.Value ? "true" : "false");
             if (node.ContentOriginX.HasValue && node.ContentOriginY.HasValue)

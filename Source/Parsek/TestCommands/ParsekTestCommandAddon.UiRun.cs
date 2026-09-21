@@ -35,6 +35,35 @@ namespace Parsek.TestCommands
     /// bypasses that; a lane that wants the window state it arranged to survive the run
     /// takes its other captures BEFORE this step, which is the GUI-1 ordering rule for the
     /// same reason.</para>
+    ///
+    /// <para><b><c>await=false</c> AND WHAT IT COSTS.</b> Absent, <c>await=</c> is TRUE and
+    /// this op is exactly what it was: two-phase, polling until the window's runner goes
+    /// idle, reporting that category's tally. <c>await=false</c> terminates OK as soon as
+    /// the batch is confirmed dispatched and leaves it running, which is the ONLY way a
+    /// census photographs the table mid-batch - under <c>await=true</c> no capture can be
+    /// ordered before the batch ends, because the op holds the FIFO head until it does. It
+    /// also unblocks a category longer than the 60 s default deferral budget this op rides,
+    /// which otherwise ends ERROR <c>run-not-finished</c> on a perfectly healthy batch.
+    /// <para>The cost is stated rather than hidden: NO TALLY IS REPORTED, and not because
+    /// it was omitted for tidiness - mid-batch the numbers would be wrong in a way a lane
+    /// could gate on (see <c>TestCommandUiState.BuildRunStartedPayload</c>). A lane that
+    /// wants both a running picture and an outcome runs the category twice, or reads the
+    /// runner's own <c>BATCH_COMPLETE</c> line from the collected log.</para>
+    /// <para><c>finished=true</c> is a legitimate answer: a category whose every cell is
+    /// scene-ineligible completes synchronously inside <c>RunCategory</c>, because
+    /// <c>RunBatch</c> has no unconditional yield before it clears <c>isRunning</c>.</para>
+    /// </para>
+    ///
+    /// <para><b>THE BATCH GATE IS RELAXED, NARROWLY.</b> An <c>await=false</c> OK would buy
+    /// nothing on its own: <c>ParsekTestCommandAddon.Update</c> returns before the pump
+    /// while <c>IsBatchRunning()</c>, and that predicate reads the very runner this op
+    /// drives - so the following <c>CaptureScreenshot</c> / <c>DumpGuiTree</c> would sit
+    /// unexecuted until the batch ended and photograph the post-batch table. While a batch
+    /// THIS ARM started is running, the gate therefore admits the verbs that cannot perturb
+    /// it (<c>TestCommandUiState.IsBatchGateRelaxableVerb</c>, derived from
+    /// <c>TestCommandVerbs.IsStateMutatingVerb</c>) and holds every other verb exactly as
+    /// before. Nothing changes when no such batch is running: the relaxation is keyed on a
+    /// flag only this arm sets.</para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -53,6 +82,22 @@ namespace Parsek.TestCommands
                 ParsekLog.Warn(Tag, $"uiaction rejected reason={reject} "
                     + $"window={spec.Name}");
                 SetExecResult("REJECTED", null, detail);
+                return;
+            }
+
+            // Parsed BEFORE the runner is touched, so a typo'd await= can never dispatch a
+            // batch it then mis-reports the completion policy of.
+            if (!TestCommandUiState.TryParseAwait(
+                    ArgOrNull(cmd, TestCommandUiState.AwaitArg),
+                    out bool awaitBatch, out string awaitReject))
+            {
+                string raw = ArgOrNull(cmd, TestCommandUiState.AwaitArg) ?? string.Empty;
+                ParsekLog.Warn(Tag, $"uiaction rejected reason={awaitReject} "
+                    + $"window={spec.Name} await={raw}");
+                SetExecResult("REJECTED", null,
+                    $"{awaitReject} window={spec.Name} await={raw} "
+                    + $"valid={TestCommandUiState.StateTrueToken},"
+                    + TestCommandUiState.StateFalseToken);
                 return;
             }
 
@@ -105,6 +150,35 @@ namespace Parsek.TestCommands
             // should reach by default, and no lane has asked for it.
             runner.ResetCategory(category);
             runner.RunCategory(category);
+
+            if (!awaitBatch)
+            {
+                // RunCategory returns after StartCoroutine, so IsRunning read HERE is the
+                // honest answer to "did it survive the first pass": false means the whole
+                // category completed synchronously (every cell scene-ineligible), which is
+                // an OK with finished=true, never an ERROR.
+                bool stillRunning = runner.IsRunning;
+                if (stillRunning)
+                {
+                    // The ONLY writer of the flag. Set only when a batch is genuinely
+                    // live, so a synchronous completion leaves the gate untouched. The
+                    // RUNNER is recorded beside it: the clear checks that reference rather
+                    // than "is any batch running", so the relaxation cannot survive onto a
+                    // batch this seam did not start.
+                    detachedBatchArmed = true;
+                    detachedBatchRunner = runner;
+                }
+                ParsekLog.Info(Tag, $"uiaction run started window={spec.Name} "
+                    + $"category={category} discovered={Int(discovered)} "
+                    + $"await=false running={Bool(stillRunning)} "
+                    + $"batchGateRelaxed={Bool(stillRunning)} (no tally is reported: the "
+                    + "batch is still running and its counts would be mid-flight)");
+                SetExecResult("OK",
+                    TestCommandUiState.BuildRunStartedPayload(
+                        spec.Name, category, discovered, stillRunning),
+                    null);
+                return;
+            }
 
             uiActionPending = new UiActionPending
             {
