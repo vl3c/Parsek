@@ -13,15 +13,15 @@
 
 [page]
 lede = "What the mod is made of, how the parts lean on each other, which names you must know first, and where the structure resists change. Every number below comes from the text scan in <code>scripts/arch/archview.py</code>; it counts type references between files, not compiler facts, and it is accurate to the folder, not the line."
-map_note = "Twenty production modules, drawn as layers. A module's <em>instability</em> is the share of its references that point outward: near 1 means it only depends on others (the top), near 0 means it is only depended on (the bottom). Grey arrows point down the gradient, which is the healthy direction. <span class=\"up\">Red arrows point back up</span>: a more stable module leaning on a less stable one. Arrows carrying fewer than 8 references are hidden. Tooling modules (in-game tests, the command seam, the analyzer, the GUI census and harness support, 243 files together) are excluded from every figure on this page."
+map_note = "Twenty production modules, drawn as layers. A module's <em>instability</em> is the share of its references that point outward: near 1 means it only depends on others (the top), near 0 means it is only depended on (the bottom). Grey arrows point down the gradient, which is the healthy direction. <span class=\"up\">Red arrows point back up</span>: a more stable module leaning on a less stable one. Arrows carrying fewer than 8 references are hidden. Tooling modules (in-game tests, the command seam, the analyzer, the GUI census and harness support, 255 files together) are excluded from every figure on this page."
 map_reading = "The reading, top to bottom: KSP touches Parsek through <strong>Patches</strong> and <strong>UI</strong>; <strong>Controllers</strong> (the scene addons and the scenario module) orchestrate; <strong>Ghost</strong>, <strong>Rewind</strong>, <strong>Missions</strong>, <strong>MapRender</strong> and <strong>Logistics</strong> are the feature layer; <strong>Recording</strong> and <strong>GameActions</strong> are the persistent model; <strong>Trajectory</strong>, <strong>Core</strong>, <strong>Config</strong> and <strong>LogIO</strong> are the floor."
 directory_note = "Ordered by layer. \"Hubs\" are the module's most-referenced types, counted by how many other files use them. Descriptions are from the design docs, not derived."
 vocabulary_note = "Learn these names before reading any file. Each is ranked by how many other files reference it. Together they are the language the whole mod is written in; the rest of the code is sentences made of them."
 knot_note = "Every one of them can reach every other through references."
 knot_consequence = "This is why the module map is one big cycle underneath the layering, and it is the single fact that most constrains refactoring: nothing inside the knot can be tested, extracted or reasoned about in isolation."
 knot_cuts_note = "The knot is not held together by popularity. It is held by a few outgoing references from the hub types. Making a hub a pure sink (removing its own references to other knot members) shrinks the knot by this much:"
-knot_callout = "<strong>How to read it.</strong> The first two rows are afternoon-sized: the logger reads its verbose flag from a settings object, and the recording data type calls into its own store and into the kerbals ledger module. Those four references tie 110 types into the knot. From row three on, the cuts name god objects, and the residual after twelve cuts is still 114 types, so the kernel is genuinely tangled, not merely miswired. That residual is design work, and it is where the phase 4 opportunity list will spend its argument."
-layering_note = "68 module edges run upward. Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot."
+knot_callout = "<strong>How to read it.</strong> Two of the early rows are afternoon-sized: the game-action type reaches into the ledger, and the loop unit into the relaunch schedule. One reference each, and each splits off about twenty-five types. The rest of the sequence names god objects - the store, the route orchestrator, the playback logic, the scene controllers - whose cuts drop twenty references at a time, and the residual after twelve cuts is still thirty types. Those are design work, not moved edges, and they are where the opportunity list spends its argument."
+layering_note = "69 module edges run upward. Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot."
 reading_note = "If you were new to this codebase, or coming back to it after months, this is the order in which the abstractions build on each other. Each step depends only on the ones before it."
 views_note = "This page is a snapshot with prose. The live views regenerate from source in a few seconds and stay honest as the code moves; they are written under <code>docs/dev/arch/</code> and are not committed."
 history_reading = "Co-change is a second opinion on the map: pairs that change together in most of their commits behave as one module whatever the folders say."
@@ -183,10 +183,6 @@ reading = "Perfectly symmetric. Either one module, or a cut is needed."
 [[upward_readings]]
 edge = "Core -> Recording"
 reading = "The kernel vocabulary reaching up into the model; mostly <span class=\"id\">BranchPoint</span> and the spawner."
-
-[[upward_readings]]
-edge = "Missions -> Logistics"
-reading = "The one declared boundary the scan finds crossed: the route structure list reads route types."
 
 [[reading_order]]
 title = "The floor."

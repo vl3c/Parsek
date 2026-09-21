@@ -2774,7 +2774,14 @@ _(unreleased — entries accumulate here per commit)_
   its primary file is the one holding most of its body lines, and a hotspot counts the
   union of the commits touching any of its parts (never the sum, which double counts a
   commit that edited two parts). `ParsekFlight` and `GhostMapPresence` are now the first
-  and seventh hotspots. Report-only tooling; no gameplay or build change.
+  and seventh hotspots.
+  The generator's six real-tree pins were also refreshed from a fresh run: they had gone
+  stale on `main` when the 2026-09-14 architecture PRs shrank the kernel cycle (391 types
+  to 285), made `RecordingStore` the first greedy cut in `ParsekLog`'s place, added
+  `VesselSnapshotOps` to the nine-file kernel and removed the `Missions -> Logistics` edge
+  whose atlas note is now deleted. Those tests are not run by CI, which is how they drifted;
+  the knot-size floor now states its intent (one large cross-module cycle) instead of a
+  number one refactor away from red. Report-only tooling; no gameplay or build change.
 
 - **Dev tooling: a code and test counting script.** `python scripts/count-code.py` prints
   the line count per area of the repository (mod source, the xUnit project, the harness,

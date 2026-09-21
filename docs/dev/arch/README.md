@@ -223,29 +223,31 @@ attribute itself.
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 391-type knot collapses into a single level and only the types
-above it (levels 8 to 10 here, mostly patches and entry points) rise above. A
-knot is why that level is flat: the levelling cannot order types that depend on
-each other.
+so the kernel's 285-type knot collapses into level 10 and only the types above
+it (levels 11 to 13 here, mostly patches and entry points) rise above. A knot
+is why that level is flat: the levelling cannot order types that depend on each
+other.
 
 `types.json` records this per type: `knot` is the 1-based index of the type's
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
-outside). On the current tree the knots are one of 391, then of 4 and 2.
+outside). On the current tree the knots are one of 285, then of 4, 2 and 2
+(re-derived 2026-09-22; it was 391, 4 and 2 before the 2026-09-14 pass made
+`ParsekLog` and `Recording` leaves).
 
-`--check` first lists the first 10 knots (all three on the current tree) with
+`--check` first lists the first 10 knots (all four on the current tree) with
 their size and module breakdown, then for the largest knot it shows the hubs
 (the members other members reference most, with their in-knot references) and a
 **greedy cut sequence**: each step picks, among the highest-fan-in members, the
 sink whose outgoing references, when removed, break the knot the most, and
-reports the references that were dropped. `391 -> cut ParsekLog -> 335` means
-removing `ParsekLog`'s two references inside the knot (`ParsekSettings` and
-`RecorderStateSnapshot`) splits off 56 members. The early cuts can be cheap
-inversions - one or two references between hubs may hold whole regions
-together, and those are the references a refactor should look at first - while
-the later cuts usually touch many small references, and the named sink there
-often needs a new abstraction (an interface, a data boundary) rather than moved
-edges. The table is a research list, not a verdict - the tool never says a
+reports the references that were dropped. `258 -> cut GameAction -> 233` means
+removing `GameAction`'s single reference inside the knot (`Ledger`) splits off
+25 members. Some cuts are cheap inversions like that one - one or two
+references between hubs holding a whole region together, and those are the
+references a refactor should look at first - while the rest touch many small
+references at once (the first cut, `RecordingStore`, drops 25), and the named
+sink there often needs a new abstraction (an interface, a data boundary) rather
+than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase
 changes any dependency; it reports them.
 
@@ -265,7 +267,7 @@ not a claim about the code).
 `modules.toml` used to end with a catch-all rule (`Core`) that collected every
 root-level file no other rule claimed. That was a map maintenance queue, not a
 module, and the placement policy below emptied it. The kernel guard has since
-replaced the catch-all with an explicit list: `Core` now names the eight kernel
+replaced the catch-all with an explicit list: `Core` now names the nine kernel
 files, and an unplaced root file is reported and skipped rather than silently
 joining the kernel. `--place` still scores the files in the last rule's module
 and writes the phase's evidence to `core-placement.md`; for the historical
@@ -311,12 +313,22 @@ and revert machinery to Rewind, sidecar I/O and recorder policy to Recording,
 playback and spawn support to Ghost, scene-level control including the
 `WarpToTime` family to Controllers, dialogs and Unity-instantiated overlays to
 UI, and in-game test support to a new `Harness` module in `[tooling]`. R0
-rules sit above R1 and win on first match. The 8 files that stay in `Core`
+rules sit above R1 and win on first match. The 9 files that stay in `Core`
 are the kernel vocabulary (`BranchPoint`, `IPlaybackTrajectory`,
-`VesselLaunchIdentity`, `VesselSpawner`, `MilestoneStore`,
+`VesselLaunchIdentity`, `VesselSpawner`, `VesselSnapshotOps`, `MilestoneStore`,
 `GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`):
 used across many modules, so no owner has a majority, and that is the intended
 meaning of Core from here on.
+
+`VesselSnapshotOps.cs` is the ninth and the newest: the 2026-09-14
+`VesselSpawner` split created it as the pure-over-ConfigNode subset the ledger,
+Logistics, the route proof and the UI all call, and named it in the `Core` rule
+in the same PR. Its R2 evidence reads `externalRefs=8 share=0.50
+top=Logistics(4) second=Recording(2)`, exactly on the R2 bar, so the placement
+report lists it under "Placement rules whose destination does not match the
+current map": the mechanical rule would send it to Logistics, the operator
+decision keeps it in the kernel. That line is the standing note about the
+disagreement, not a defect.
 
 ## The atlas
 

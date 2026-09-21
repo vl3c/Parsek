@@ -2749,20 +2749,31 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(self.model["typeLevels"]["max"], 4)
 
     def test_largest_knot_is_large_and_spans_modules(self):
+        # The intent, not a snapshot: the kernel is ONE large cycle that runs
+        # through most of the map. A refactor that shrinks it by a few dozen
+        # types must not red this cell; only one that breaks the kernel apart
+        # should, and then this floor is the thing to celebrate and rewrite.
+        # The exact sizes are pinned by test_knot_sizes_match_the_documented_tree.
         largest = self.model["knots"][0]
-        self.assertGreater(largest["size"], 300)
-        self.assertGreater(len(largest["modules"]), 10)
+        self.assertGreaterEqual(largest["size"], 200)
+        self.assertGreaterEqual(len(largest["modules"]), 10)
 
     def test_knot_sizes_match_the_documented_tree(self):
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [391, 4, 2])
+        # A snapshot of the current tree, re-derived 2026-09-22 (was
+        # [391, 4, 2] before the 2026-09-14 arch PRs shrank the kernel).
+        # It is a canary: when it reds, re-derive it and the README numbers
+        # from a fresh run in the same commit as whatever moved them.
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [285, 4, 2, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
         # externalRefs >= 5 AND (share >= 0.5 OR top >= 2 * second) on the
         # rebuilt evidence) moved 48 files and left 75; the R0 operator rules
-        # then placed 67 of those by hand, leaving the 8 kernel files that are
+        # then placed 67 of those by hand, leaving the kernel files that are
         # used across many modules (see README, "Editing modules.toml").
-        self.assertEqual(self.by_name["Core"]["files"], 8)
+        # VesselSnapshotOps.cs joined them in the 2026-09-14 VesselSpawner
+        # split, which named it in the Core rule, so the kernel is 9 files.
+        self.assertEqual(self.by_name["Core"]["files"], 9)
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
@@ -2770,6 +2781,7 @@ class RealTreeSmokeTests(unittest.TestCase):
             "IPlaybackTrajectory.cs",
             "VesselLaunchIdentity.cs",
             "VesselSpawner.cs",
+            "VesselSnapshotOps.cs",
             "MilestoneStore.cs",
             "GroupHierarchyStore.cs",
             "InventoryManifest.cs",
@@ -2777,6 +2789,10 @@ class RealTreeSmokeTests(unittest.TestCase):
         ]
         for name in kernel:
             self.assertEqual(self.model["fileModules"][name], "Core")
+        self.assertEqual(
+            sorted(f for f, m in self.model["fileModules"].items() if m == "Core"),
+            sorted(kernel),
+        )
 
     def test_phase_two_placements(self):
         modules = self.model["fileModules"]
@@ -2798,8 +2814,12 @@ class RealTreeSmokeTests(unittest.TestCase):
                 if not rule.get("placement") or rule.get("placement") == "R1"
             ]
         )
-        before_model = archview.build_model(REAL_SOURCE, before_rules, tooling)
-        after_r1_model = archview.build_model(REAL_SOURCE, after_r1_rules, tooling)
+        before_model = archview.build_model(
+            REAL_SOURCE, before_rules, tooling, measure_sizes=False
+        )
+        after_r1_model = archview.build_model(
+            REAL_SOURCE, after_r1_rules, tooling, measure_sizes=False
+        )
         fresh = archview.render_placement_report(
             before_model, after_r1_model, self.model, archview.default_placement_rules()
         )
@@ -2810,7 +2830,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        self.assertIn("| Core | 124 | 8 |", fresh)  # 124: the narrowed Trajectory family rule leaves the scene-exit finalizer in the historical before-state
+        # 126: the historical before-state collects every root file the narrowed
+        # family rules leave behind; 9 after, the kernel list as it stands today.
+        self.assertIn("| Core | 126 | 9 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -2844,11 +2866,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(len(production), 20)
 
     def test_first_cut_matches_the_documented_tree(self):
+        # Re-derived 2026-09-22: the 2026-09-14 arch PRs made ParsekLog a leaf,
+        # so the first cut the greedy walk picks is now RecordingStore. Same
+        # canary contract as the knot sizes above.
         first = self.model["knots"][0]["cuts"][0]
-        self.assertEqual(first["sink"], "ParsekLog")
-        self.assertEqual(first["sizeBefore"], 391)
-        self.assertEqual(first["sizeAfter"], 335)
-        self.assertEqual(first["droppedReferences"], ["ParsekSettings", "RecorderStateSnapshot"])
+        self.assertEqual(first["sink"], "RecordingStore")
+        self.assertEqual(first["sizeBefore"], 285)
+        self.assertEqual(first["sizeAfter"], 258)
+        self.assertIn("EffectiveState", first["droppedReferences"])
+        self.assertEqual(len(first["droppedReferences"]), 25)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         largest = self.model["knots"][0]
