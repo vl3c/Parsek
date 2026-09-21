@@ -326,14 +326,6 @@ namespace Parsek.TestCommands
             Pump();
         }
 
-        /// <summary>
-        /// Resolves the <c>DispatchState.BatchRunning</c> bit for ONE head verb, and logs
-        /// the decision so a collected KSP.log says why a command waited.
-        ///
-        /// <para>Identical to <see cref="IsBatchRunning"/> unless
-        /// <see cref="detachedBatchArmed"/> is set, which only
-        /// <c>UiAction op=run await=false</c> does and only while that batch runs.</para>
-        /// </summary>
         /// <summary>Whether the batch the relaxation was armed for is still the one
         /// running. False once that runner stops or is gone, which is what makes the clear
         /// specific to THIS batch rather than to "any batch".</summary>
@@ -354,6 +346,14 @@ namespace Parsek.TestCommands
                 + " (the detached batch started by uiaction op=run await=false is over)");
         }
 
+        /// <summary>
+        /// Resolves the <c>DispatchState.BatchRunning</c> bit for ONE head verb, and logs
+        /// the decision so a collected KSP.log says why a command waited.
+        ///
+        /// <para>Identical to <see cref="IsBatchRunning"/> unless
+        /// <see cref="detachedBatchArmed"/> is set, which only
+        /// <c>UiAction op=run await=false</c> does and only while that batch runs.</para>
+        /// </summary>
         private bool ResolveBatchGateForHead(string verb)
         {
             if (!IsBatchRunning()) return false;
