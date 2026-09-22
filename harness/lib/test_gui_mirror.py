@@ -415,11 +415,18 @@ class TreeFlatteningTests(unittest.TestCase):
         self.assertEqual((out["x"], out["y"]), (10, 60))
         self.assertEqual((out["c"][0]["x"], out["c"][0]["y"]), (4, 8))
 
-    def test_a_zero_height_window_takes_the_height_the_seam_applied(self):
-        # A GUILayout window reports h=0 in the dump; rendering it at 0 would
-        # hide the whole window, which is how the main window first vanished.
+    def test_a_zero_height_window_is_sized_by_its_content_not_the_seam_rect(self):
+        # A GUILayout window reports h=0 in the dump because its host re-fits it
+        # every frame. The seam's applied rect is the height it had at apply time
+        # and goes stale when the content shrinks: the Basic main window drew a
+        # 300 px panel over 226 px of content. Content plus the bottom chrome wins.
         root = node("window", [8, 8, 250, 0], "Parsek", style="window", children=[
             node("button", [18, 30, 230, 22], "Timeline")])
+        self.assertEqual(gmi.root_height(root, {"main": [8, 8, 250, 300]}),
+                         (30 + 22 - 8) + gmi.WINDOW_BOTTOM_PAD)
+
+    def test_a_zero_height_window_with_no_children_falls_back_to_the_seam_rect(self):
+        root = node("window", [8, 8, 250, 0], "Parsek", style="window")
         self.assertEqual(gmi.root_height(root, {"main": [8, 8, 250, 300]}), 300)
 
     def test_without_a_log_rect_the_height_comes_from_the_child_extent(self):

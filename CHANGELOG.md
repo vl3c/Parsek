@@ -10,6 +10,8 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the GUI mirror sizes an auto-fitted window by its content, not by the rect the seam applied.** The main window reports height 0 in every dump because its host re-fits it every frame; the mirror had been drawing it at the height the seam applied at open time (300 px, measured in Advanced), which went stale after the mode switch and drew a 74 px empty panel under Close in Basic mode. The owner read it as a product bug; the game frame shows the window ending under Close. `root_height` now takes the child extent plus the measured 14 px bottom chrome and keeps the applied rect only for a window that drew no children (`harness/tools/gui_mirror.py`).
+
 - **Automated testing: the GUI mirror can now run the owner's review loop - mocked captures
   badged and isolated, his verdicts exported as a schema, one window at a time, and false
   coverage retired mechanically.** The mirror half of the state gallery's phase P2
