@@ -6892,18 +6892,96 @@ UNITY_EXCEPTION_PATTERNS: Tuple[Tuple[str, "re.Pattern"], ...] = (
 # pinned by UnityExceptionScanTests; do not restate its size here.)
 UNITY_EXCEPTIONS_BLOCK = "unityExceptions"
 UNITY_EXCEPTIONS_MAX_TOTAL_KEY = "maxTotal"
+# The Parsek-frame ceiling (todo UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES). A
+# `maxTotal` budgets stock and MechJeb noise by COUNT and cannot tell a stock NRE
+# from one thrown with Parsek on the stack; the wave-0910 ruling A4-b is that a
+# `Parsek.` frame in any exception stack is a finding at ANY count, never a reason
+# for a higher ceiling. So this key is independent of `maxTotal`: a spec may arm
+# either, or both, and a block arming only this one leaves the count report-only.
+UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY = "maxParsekFrames"
+UNITY_EXCEPTIONS_KEYS: Tuple[str, ...] = (UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
+                                          UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY)
 
 UNITY_EXCEPTIONS_STATUS_REPORT = "REPORT"
+
+# STACK READING. KSP.log is Unity's log with a record header on every logged line
+# (`[LOG 22:17:48.820] ...`, likewise WRN / ERR / EXC / AST); a multi-line record's
+# continuation lines carry NO header. Unity writes an exception's stack as exactly
+# such continuation lines, in two measured shapes:
+#   [EXC 22:17:48.820] NullReferenceException: Object reference not set ...
+#   <TAB>MapObject.Awake () (at <4b44...>:0)
+#   <TAB>Parsek.GhostMapPresence:EnsureGhostOrbitRenderers()
+# and the GameEvents handler shape, which ends in a blank line:
+#   [ERR 22:17:48.846] Exception handling event onVesselDestroy in class SpaceTracking:System.NullReferenceException: ...
+#     at KSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v) [0x000f8] in <4b44...>:0
+# So an exception's stack block is every line after its header line (a counted line or a
+# frames-only opener, below) up to the next record header, exception line or `[Parsek]` line,
+# whichever comes first. A header with no continuation lines is a truncated stack:
+# it counts toward the total and can never count as a Parsek frame.
+UNITY_LOG_RECORD_HEADER = re.compile(r"^\[(?:LOG|WRN|ERR|EXC|AST)\s+\d{1,2}:\d{2}:\d{2}(?:\.\d+)?\]")
+# A Parsek frame is a stack line whose METHOD is in the Parsek assembly's namespace:
+# the frame text, after the optional `at ` and `(wrapper ...)` prefixes, begins with
+# `Parsek.`. Anchored at the start on purpose - `System.Linq.Enumerable.Any[Parsek.
+# Recording]` is a stock frame with a Parsek type argument, and a Harmony-patched
+# stock method (`SpaceTracking.buildVesselsList_Patch2`) is the STOCK body: a Parsek
+# prefix or postfix that threw would appear as its own `Parsek.Patches...` frame.
+UNITY_PARSEK_FRAME = re.compile(r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?(Parsek\.[^\s(]+)")
+# The application-quit marker. Every collected harness log that reached a clean exit
+# carries exactly one `flushandquit: Application.Quit` line (762 of the 781 unique
+# collected runs swept 2026-09-22; the other 19 did not quit through the seam), written by
+# `ParsekTestCommandAddon` in the same frame as its `Application.Quit()` call. The
+# autorun exit (`InGameTestRunner.PerformAutorunExit`) is the only other quit path
+# Parsek drives; no committed spec uses it, and it is listed so a future one is not
+# read as "never quit". Matched only on a `[Parsek]` line, so a stack or message
+# quoting the text cannot move the boundary. Note `flushandquit: scheduling
+# Application.Quit (deferred one frame)` precedes the real quit and does NOT match.
+UNITY_QUIT_MARKERS: Tuple[str, ...] = (
+    "flushandquit: Application.Quit",
+    "autorun exit: teardown+export complete",
+)
+# FRAMES-ONLY OPENERS. The four counted patterns are the classes a `maxTotal` budgets,
+# but a Parsek frame is a finding under ANY exception class (an
+# `InvalidOperationException` from LINQ, a `KeyNotFoundException` in a Parsek event
+# handler). So two more line shapes open a stack block without touching ``counts``:
+# any `[EXC ...]` record (Unity's own uncaught-exception record, whatever the class)
+# and the GameEvents dispatcher's `Exception handling event <evt> in class
+# <Type>:<Namespace.Class>Exception` line. Such an occurrence feeds only the stack
+# figures (parsekFrames, its site, afterQuit) and ``uncounted``, so ``total`` and every
+# armed ``maxTotal`` are unchanged by construction.
+UNITY_EXC_RECORD = re.compile(r"^\[EXC\s+\d{1,2}:\d{2}:\d{2}(?:\.\d+)?\]")
+UNITY_EVENT_HANDLER_EXCEPTION = re.compile(r"Exception handling event .*:\s*[\w.`+]*Exception\b")
+
+
+@dataclass(frozen=True)
+class UnityStackScan:
+    """The stack-reading half of the raw-Unity-exception scan.
+
+    ``counts`` is byte-identical to ``scan_unity_exceptions`` (per pattern, zeros
+    included). ``uncounted`` is the number of exception occurrences of any OTHER class
+    (the frames-only openers above). ``parsek_frames`` counts exception occurrences, of
+    any class, whose stack block holds at least one ``Parsek.`` frame; ``after_quit``
+    counts occurrences of any class logged after the first quit marker (``quit_marker_seen`` says whether there was one, so a 0 on a
+    killed log is not read as "clean teardown"). ``parsek_frame_sites`` maps the
+    FIRST (innermost) Parsek frame of each such occurrence, normalized to
+    ``Namespace.Type.Method``, to its count - the evidence a mismatch names.
+    """
+    counts: Dict[str, int]
+    parsek_frames: int = 0
+    after_quit: int = 0
+    quit_marker_seen: bool = False
+    parsek_frame_sites: Dict[str, int] = field(default_factory=dict)
+    uncounted: int = 0
 
 
 @dataclass(frozen=True)
 class UnityExceptionResult:
     """Outcome of the raw-Unity-exception scan.
 
-    ``status`` is ``REPORT`` when the scenario declares no
-    ``[expectations.unityExceptions]`` block (counts recorded, verdict untouched),
-    else ``PASS`` / ``FAIL``. ``gating`` mirrors that as a bool so the caller does
-    not string-compare. ``counts`` is per-pattern; ``total`` is their sum.
+    ``status`` is ``REPORT`` when the scenario arms neither ceiling (counts
+    recorded, verdict untouched), else ``PASS`` / ``FAIL``. ``gating`` mirrors that
+    as a bool so the caller does not string-compare. ``counts`` is per-pattern;
+    ``total`` is their sum. The stack fields are ``None`` when the caller passed no
+    stack scan.
     """
     status: str
     gating: bool
@@ -6911,6 +6989,80 @@ class UnityExceptionResult:
     counts: Dict[str, int] = field(default_factory=dict)
     max_total: Optional[int] = None
     mismatches: Tuple[str, ...] = tuple()
+    parsek_frames: Optional[int] = None
+    after_quit: Optional[int] = None
+    max_parsek_frames: Optional[int] = None
+    parsek_frame_sites: Dict[str, int] = field(default_factory=dict)
+
+
+def _normalize_parsek_frame(raw: str) -> str:
+    """``Parsek.GhostMapPresence:EnsureGhostOrbitRenderers()`` (EXC shape) and
+    ``Parsek.GhostMapPresence.EnsureGhostOrbitRenderers`` (ERR ``at`` shape) are the
+    same site; key both as the dotted form so a site count does not split by shape."""
+    return raw.replace(":", ".").rstrip(".")
+
+
+def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
+    """Count raw Unity exceptions AND read the stack under each one (pure).
+
+    The counting rule is exactly ``scan_unity_exceptions``'s (per LINE, `[Parsek]`
+    lines skipped, one count per matching pattern), so ``counts`` never moves an
+    armed ``maxTotal``. On top of it, each counted line opens a stack block (see
+    ``UNITY_LOG_RECORD_HEADER``), and so does a frames-only opener
+    (``UNITY_EXC_RECORD`` / ``UNITY_EVENT_HANDLER_EXCEPTION``) that matched no counted
+    pattern, with weight 1 and no effect on ``counts``. An occurrence counts once
+    toward ``parsek_frames`` when its block holds a ``UNITY_PARSEK_FRAME``, and once
+    toward ``after_quit`` when it follows the first ``UNITY_QUIT_MARKERS`` line. A line
+    that matches two counted patterns counts once per pattern in ``counts`` and
+    likewise in the two stack figures.
+    """
+    counts: Dict[str, int] = {name: 0 for name, _ in UNITY_EXCEPTION_PATTERNS}
+    sites: Dict[str, int] = {}
+    parsek_frames = 0
+    after_quit = 0
+    quit_seen = False
+    uncounted = 0
+    open_weight = 0          # pattern hits (1 for frames-only) of the open block
+    open_site: Optional[str] = None
+
+    def close_block() -> None:
+        nonlocal parsek_frames, open_weight, open_site
+        if open_weight and open_site is not None:
+            parsek_frames += open_weight
+            sites[open_site] = sites.get(open_site, 0) + open_weight
+        open_weight = 0
+        open_site = None
+
+    for line in (log_text or "").splitlines():
+        if "[Parsek]" in line:
+            close_block()
+            if not quit_seen and any(m in line for m in UNITY_QUIT_MARKERS):
+                quit_seen = True
+            continue
+        hits = 0
+        for name, pat in UNITY_EXCEPTION_PATTERNS:
+            if pat.search(line) is not None:
+                counts[name] += 1
+                hits += 1
+        if not hits and (UNITY_EXC_RECORD.match(line) is not None
+                         or UNITY_EVENT_HANDLER_EXCEPTION.search(line) is not None):
+            uncounted += 1
+            hits = 1         # a frames-only block; ``counts`` untouched
+        if hits:
+            close_block()
+            open_weight = hits
+            if quit_seen:
+                after_quit += hits
+            continue
+        if UNITY_LOG_RECORD_HEADER.match(line):
+            close_block()
+            continue
+        if open_weight and open_site is None:
+            m = UNITY_PARSEK_FRAME.match(line)
+            if m is not None:
+                open_site = _normalize_parsek_frame(m.group(1))
+    close_block()
+    return UnityStackScan(counts, parsek_frames, after_quit, quit_seen, sites, uncounted)
 
 
 def scan_unity_exceptions(log_text: Optional[str]) -> Dict[str, int]:
@@ -6927,52 +7079,66 @@ def scan_unity_exceptions(log_text: Optional[str]) -> Dict[str, int]:
     OPPOSITE convention to ``count_anomaly_tokens`` (which omits zeros) - deliberate,
     and explained there.
 
-    FUTURE WORK, deliberately not done here: this is one of several full passes over
-    ``log_text`` per run (anomaly reasons, anomaly counts, this scan). Consolidating
-    them into a single walk is a real saving on a multi-hundred-MB KSP.log, but it
-    couples four independent decisions into one loop and is not a change to make in a
-    fail-open-closing commit.
+    The per-pattern view of ``scan_unity_exception_stacks``; callers that also need
+    the stack figures call that once instead of walking the log twice.
     """
-    counts: Dict[str, int] = {name: 0 for name, _ in UNITY_EXCEPTION_PATTERNS}
-    for line in (log_text or "").splitlines():
-        if "[Parsek]" in line:
-            continue
-        for name, pat in UNITY_EXCEPTION_PATTERNS:
-            if pat.search(line) is not None:
-                counts[name] += 1
-    return counts
+    return dict(scan_unity_exception_stacks(log_text).counts)
 
 
 def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
-                              block: Optional[Dict]) -> UnityExceptionResult:
+                              block: Optional[Dict],
+                              stacks: Optional[UnityStackScan] = None) -> UnityExceptionResult:
     """Judge the scanned counts against an optional ``[expectations.unityExceptions]``.
 
-    ABSENT block -> ``REPORT`` (non-gating). A DECLARED block with
-    ``maxTotal = N`` gates: total > N -> ``FAIL`` with a mismatch string naming the
-    per-pattern breakdown. A declared block with no ``maxTotal`` still reports (it
-    declares nothing to gate on).
+    ABSENT block -> ``REPORT`` (non-gating). A DECLARED block gates on whichever of
+    its two ceilings it arms: total > ``maxTotal`` -> ``FAIL`` naming the per-pattern
+    breakdown; ``parsekFrames`` > ``maxParsekFrames`` -> ``FAIL`` naming the Parsek
+    frame sites. Both over -> both mismatches. A declared block arming neither still
+    reports (it declares nothing to gate on).
+
+    ``maxParsekFrames`` armed with no ``stacks`` passed is FAIL-CLOSED ("unmeasured"):
+    a ceiling that silently read as PASS because nobody looked is the fail-open this
+    block exists to close. run.py always passes the stack scan.
     """
     counts = dict(counts or {})
     total = sum(int(v) for v in counts.values())
-    if not isinstance(block, dict):
-        return UnityExceptionResult(UNITY_EXCEPTIONS_STATUS_REPORT, False, total, counts)
-    raw_max = block.get(UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
-    if raw_max is None or isinstance(raw_max, bool) or not isinstance(raw_max, int):
-        return UnityExceptionResult(UNITY_EXCEPTIONS_STATUS_REPORT, False, total, counts)
-    max_total = int(raw_max)
-    if total <= max_total:
-        return UnityExceptionResult("PASS", True, total, counts, max_total)
-    breakdown = ", ".join("%s=%d" % (n, counts.get(n, 0))
-                          for n, _ in UNITY_EXCEPTION_PATTERNS if counts.get(n, 0))
-    return UnityExceptionResult(
-        "FAIL", True, total, counts, max_total,
-        ("unityExceptions.total %d > maxTotal %d (%s)" % (total, max_total, breakdown),))
+    pf = stacks.parsek_frames if stacks is not None else None
+    aq = stacks.after_quit if stacks is not None else None
+    sites = dict(stacks.parsek_frame_sites) if stacks is not None else {}
+
+    def _armed(key: str) -> Optional[int]:
+        raw = block.get(key) if isinstance(block, dict) else None
+        if raw is None or isinstance(raw, bool) or not isinstance(raw, int):
+            return None
+        return int(raw)
+
+    max_total = _armed(UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
+    max_pf = _armed(UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY)
+    if max_total is None and max_pf is None:
+        return UnityExceptionResult(UNITY_EXCEPTIONS_STATUS_REPORT, False, total, counts,
+                                    None, tuple(), pf, aq, None, sites)
+    mismatches: List[str] = []
+    if max_total is not None and total > max_total:
+        breakdown = ", ".join("%s=%d" % (n, counts.get(n, 0))
+                              for n, _ in UNITY_EXCEPTION_PATTERNS if counts.get(n, 0))
+        mismatches.append("unityExceptions.total %d > maxTotal %d (%s)"
+                          % (total, max_total, breakdown))
+    if max_pf is not None:
+        if pf is None:
+            mismatches.append("unityExceptions.parsekFrames unmeasured (no stack scan) "
+                              "with maxParsekFrames %d armed" % (max_pf,))
+        elif pf > max_pf:
+            where = ", ".join("%s=%d" % (s, sites[s]) for s in sorted(sites))
+            mismatches.append("unityExceptions.parsekFrames %d > maxParsekFrames %d (%s)"
+                              % (pf, max_pf, where))
+    return UnityExceptionResult("FAIL" if mismatches else "PASS", True, total, counts,
+                                max_total, tuple(mismatches), pf, aq, max_pf, sites)
 
 
 def validate_unity_exception_expectations(block: Optional[Dict]) -> List[str]:
     """Validate the optional ``[expectations.unityExceptions]`` block (pre-launch).
 
-    Structural only, and deliberately strict about the ONE key it accepts: a
+    Structural only, and deliberately strict about the keys it accepts: a
     misspelled ceiling that silently degrades to report-only is precisely the
     fail-open this block exists to close.
     """
@@ -6981,37 +7147,38 @@ def validate_unity_exception_expectations(block: Optional[Dict]) -> List[str]:
     if not isinstance(block, dict):
         return ["expectations.%s: must be a table" % (UNITY_EXCEPTIONS_BLOCK,)]
     errs: List[str] = []
-    unknown = sorted(k for k in block if k != UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
+    unknown = sorted(k for k in block if k not in UNITY_EXCEPTIONS_KEYS)
     if unknown:
         errs.append("expectations.%s: unknown key(s) %s (accepted: %s)"
-                    % (UNITY_EXCEPTIONS_BLOCK, unknown, UNITY_EXCEPTIONS_MAX_TOTAL_KEY))
-    if UNITY_EXCEPTIONS_MAX_TOTAL_KEY in block:
-        raw = block[UNITY_EXCEPTIONS_MAX_TOTAL_KEY]
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
-            errs.append("expectations.%s.%s: %r must be a non-negative integer"
-                        % (UNITY_EXCEPTIONS_BLOCK, UNITY_EXCEPTIONS_MAX_TOTAL_KEY, raw))
+                    % (UNITY_EXCEPTIONS_BLOCK, unknown, ", ".join(UNITY_EXCEPTIONS_KEYS)))
+    for key in UNITY_EXCEPTIONS_KEYS:
+        if key in block:
+            raw = block[key]
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+                errs.append("expectations.%s.%s: %r must be a non-negative integer"
+                            % (UNITY_EXCEPTIONS_BLOCK, key, raw))
     return errs
 
 
 def unity_exception_expectation_warnings(block: Optional[Dict]) -> List[str]:
     """Inert-declaration warnings for ``[expectations.unityExceptions]``.
 
-    A declared block with no ``maxTotal`` GATES NOTHING - it degrades silently to the
-    same report-only behavior an absent block gets. That is not an error (the block is
-    still well-formed, and a future key could make it meaningful), but an author who
-    wrote the header believing they had armed a ceiling must be told they have not.
-    WARN rather than ERROR for the same reason the inert-token case is a warning:
-    nothing fails at run time, and hard-rejecting would make the block's own future
-    growth a spec-invalid."""
+    A declared block arming neither ceiling GATES NOTHING - it degrades silently to
+    the same report-only behavior an absent block gets. That is not an error (the
+    block is still well-formed), but an author who wrote the header believing they
+    had armed a ceiling must be told they have not. WARN rather than ERROR for the
+    same reason the inert-token case is a warning: nothing fails at run time."""
     if not isinstance(block, dict):
         return []
-    if UNITY_EXCEPTIONS_MAX_TOTAL_KEY in block:
+    if any(k in block for k in UNITY_EXCEPTIONS_KEYS):
         return []
-    return ["expectations.%s: declared with no `%s`, so it gates NOTHING - the scan "
-            "stays REPORT-ONLY exactly as if the block were absent. Add "
-            "`%s = N` (sized from a green run's unityExceptions.total) or delete the "
-            "block." % (UNITY_EXCEPTIONS_BLOCK, UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
-                        UNITY_EXCEPTIONS_MAX_TOTAL_KEY)]
+    return ["expectations.%s: declared with no `%s` and no `%s`, so it gates NOTHING - "
+            "the scan stays REPORT-ONLY exactly as if the block were absent. Add "
+            "`%s = N` (sized from a green run's unityExceptions.total) and/or `%s = 0`, "
+            "or delete the block."
+            % (UNITY_EXCEPTIONS_BLOCK, UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
+               UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY, UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
+               UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY)]
 
 
 # ---------------------------------------------------------------------------

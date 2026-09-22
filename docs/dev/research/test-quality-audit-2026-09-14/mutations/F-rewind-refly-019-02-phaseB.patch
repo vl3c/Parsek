@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/RewindInvoker.cs b/Source/Parsek/RewindInvoker.cs
+index ad7f0e20d..0fa9f612e 100644
+--- a/Source/Parsek/RewindInvoker.cs
++++ b/Source/Parsek/RewindInvoker.cs
+@@ -2373,9 +2373,6 @@ namespace Parsek
+         /// </summary>
+         internal static int ReapPriorProvisionalsForRp(string rpId, string newSessionId)
+         {
+-            if (string.IsNullOrEmpty(rpId))
+-                return 0;
+-
+             // 1. Identify victims: NotCommitted, tagged to this RP, from a
+             //    different session. Snapshot the ids first (don't mutate
+             //    CommittedRecordings during iteration).

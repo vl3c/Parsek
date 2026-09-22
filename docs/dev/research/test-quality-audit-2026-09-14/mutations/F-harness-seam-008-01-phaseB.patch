@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/InGameTests/TestRunnerShortcut.cs b/Source/Parsek/InGameTests/TestRunnerShortcut.cs
+index 136568a6b..90f964fc5 100644
+--- a/Source/Parsek/InGameTests/TestRunnerShortcut.cs
++++ b/Source/Parsek/InGameTests/TestRunnerShortcut.cs
+@@ -721,6 +721,7 @@ namespace Parsek.InGameTests
+         /// </summary>
+         private void UpdateAutorun()
+         {
++            ParseAutorunConfigOnce();
+             if (!autorunParsed || !autorunConfig.Enabled) return; // inert when unarmed
+             if (autorunConsumedForProcess || autorunMultiDriving) return; // selector already run/running
+             if (autorunFiredThisScene) return; // fired this scene entry; wait for re-arm

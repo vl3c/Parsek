@@ -1546,7 +1546,20 @@ namespace Parsek
         /// </summary>
         internal static float VerticalScrollbarGutterWidth()
         {
-            return VerticalScrollbarFootprintWidth() + TableCellHorizontalMarginPx();
+            return ComposeScrollbarGutterWidth(
+                VerticalScrollbarFootprintWidth(), TableCellHorizontalMarginPx());
+        }
+
+        /// <summary>
+        /// The gutter rule on its own, over already-read skin terms: the scrollbar
+        /// footprint PLUS one cell margin (a sum, because the header padding replaces
+        /// the body's trailing cell margin rather than adding to it). Split out so the
+        /// rule can be checked against census-measured widths without a live skin.
+        /// </summary>
+        internal static float ComposeScrollbarGutterWidth(float scrollbarFootprint,
+            int cellHorizontalMargin)
+        {
+            return scrollbarFootprint + cellHorizontalMargin;
         }
 
         private void EnsureSharedHeaderStyles()

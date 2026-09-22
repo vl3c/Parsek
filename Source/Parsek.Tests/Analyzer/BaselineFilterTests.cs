@@ -82,15 +82,22 @@ namespace Parsek.Tests.Analyzer
             Assert.NotEqual(k, new BaselineKey("INV2", "rec", 3, "e"));
         }
 
-        // Guards: the same finding analyzed twice produces identical keys. Fails if a
-        // key component picks up run-to-run state (which would un-baseline the known
-        // five every run).
+        // Guards: two separately analyzed findings of the same shape key equally even
+        // when their numbers drift, while a different RuleId still keys apart. Fails if
+        // KeyOf ignores its inputs (every finding would match one baseline entry) or if
+        // the digest stops masking numbers (the known findings would un-baseline every run).
         [Fact]
-        public void Key_SameFindingTwice_IsStable()
+        public void Key_SeparateInstancesSameShape_EqualKeys_RuleStillDistinguishes()
         {
-            var f = F("INV2-NO-DOUBLE-COVER", VerdictLevel.Fail, "rec7", 3,
+            var f1 = F("INV2-NO-DOUBLE-COVER", VerdictLevel.Fail, "rec7", 3,
                 "INV2 overlap recording=rec7 a=[100,200] b=[150,250]");
-            Assert.Equal(BaselineFilter.KeyOf(f), BaselineFilter.KeyOf(f));
+            var f2 = F("INV2-NO-DOUBLE-COVER", VerdictLevel.Fail, "rec7", 3,
+                "INV2 overlap recording=rec7 a=[14031.6,15044.7] b=[15044.7,16000.0]");
+            Assert.Equal(BaselineFilter.KeyOf(f1), BaselineFilter.KeyOf(f2));
+            Assert.NotEqual(
+                BaselineFilter.KeyOf(f1),
+                BaselineFilter.KeyOf(F("INV3-ABSOLUTE-RANGE", VerdictLevel.Fail, "rec7", 3,
+                    "INV2 overlap recording=rec7 a=[100,200] b=[150,250]")));
         }
 
         // Guards: a recording-scoped finding (section -1) baselines correctly. Fails
