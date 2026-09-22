@@ -107,16 +107,26 @@ namespace Parsek.Tests
             Assert.Equal(SegmentEnvironment.ExoPropulsive, recorder.TrackSections[1].environment);
         }
 
+        /// <summary>
+        /// Contiguity has to be an OUTCOME of a producer, not an input: the SOI-seam
+        /// transition (the on-rails boundary <c>OnVesselSOIChanged</c> routes through) is
+        /// handed ONE boundary UT and chooses both the close of the old section and the
+        /// open of the new one from it. A producer that opens the next section at any
+        /// other UT leaves a gap or an overlap at the seam and reds here.
+        /// </summary>
         [Fact]
-        public void OnRailsTransition_SectionsAreContiguous()
+        public void OnRailsSoiTransition_ProducerClosesAndOpensAtTheOneBoundaryUT()
         {
-            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, 4000.0);
-            recorder.CloseCurrentTrackSection(4100.0);
-            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint, 4100.0);
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic,
+                ReferenceFrame.OrbitalCheckpoint, 4000.0, TrackSectionSource.Checkpoint);
+            recorder.TransitionTrackSectionAtSoiBoundary(
+                SegmentEnvironment.ExoBallistic, 4100.0, onRails: true);
             recorder.CloseCurrentTrackSection(4500.0);
 
-            // End of first == start of second
+            Assert.Equal(2, recorder.TrackSections.Count);
+            Assert.Equal(4100.0, recorder.TrackSections[0].endUT);
             Assert.Equal(recorder.TrackSections[0].endUT, recorder.TrackSections[1].startUT);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, recorder.TrackSections[1].referenceFrame);
         }
 
         #endregion
