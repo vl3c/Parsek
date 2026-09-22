@@ -9,7 +9,7 @@
 #            files inside a subfolder; a folder rule never matches a root file).
 #   prefix = a regex applied to the file name of a ROOT-LEVEL file only.
 # A file that matches no rule is reported as unplaced and skipped; Core is the
-# kernel list (eight explicit files), written last so it can never shadow a
+# kernel list (nine explicit files), written last so it can never shadow a
 # rule above it. A new root file must get a rule.
 
 # --- folder rules ---------------------------------------------------------
@@ -71,11 +71,12 @@ folder = "UI"
 # --- R0 operator placements (phase 2b) ------------------------------------
 # Evaluated FIRST so an explicit file name beats every family prefix below.
 # Files below the R2 evidence floor or referenced by nothing outside Core,
-# placed by hand from what each file does. The eight kernel files stay in Core
+# placed by hand from what each file does. The nine kernel files stay in Core
 # on purpose: BranchPoint, IPlaybackTrajectory, VesselLaunchIdentity,
-# VesselSpawner, MilestoneStore, GroupHierarchyStore, InventoryManifest and
-# PlaybackTrajectoryBoundsResolver have no majority owner because every module
-# uses them; that is the shared vocabulary, not a placement gap.
+# VesselSpawner, VesselSnapshotOps, MilestoneStore, GroupHierarchyStore,
+# InventoryManifest and PlaybackTrajectoryBoundsResolver have no majority owner
+# because every module uses them; that is the shared vocabulary, not a
+# placement gap.
 
 # session lifecycle, revert and unfinished-flight machinery (named in the rewind section of CLAUDE.md); SceneExitInterceptor is a Harmony-driven entry point referenced only from comments
 [[module]]
@@ -323,8 +324,10 @@ name = "Recording"
 prefix = '^TerminalState[.]cs$'
 placement = "R2"
 
-# Core is the kernel vocabulary, not a catch-all: exactly the eight root files
-# every module leans on. Any other root file must be placed by a rule above; an
+# Core is the kernel vocabulary, not a catch-all: exactly the nine root files
+# every module leans on (VesselSnapshotOps joined in the 2026-09-14
+# VesselSpawner split; its R2 evidence would say Logistics, and the placement
+# report names that disagreement - see the README, "Placing catch-all files"). Any other root file must be placed by a rule above; an
 # unplaced root file is reported by the checker and skipped. MUST stay last.
 [[module]]
 name = "Core"
@@ -345,6 +348,18 @@ modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer", "GuiTree", 
 # allowed:   while this list is EMPTY the checker skips the allowlist section
 #            entirely. Once any edge is listed, every production edge not
 #            listed here is reported.
+
+# --- size view -------------------------------------------------------------
+# runtimeCoupled: the modules whose code is Unity / IMGUI / Harmony / map-render
+# bound, so a size recommendation over one of them carries the "needs in-game
+# validation, preserve log text and rate-limit keys" note. The list is the set
+# docs/dev/plans/refactor-remaining-opportunities.md calls coupled (runtime,
+# ghost and rendering owners, the stateful UI surfaces) plus Patches, whose
+# Harmony bodies docs/dev/done/refactor/refactor-5-inventory.md marks the same
+# way. Size THRESHOLDS are not here: they are named constants in archview.py.
+
+[size]
+runtimeCoupled = ["Controllers", "Display", "Ghost", "MapRender", "Patches", "Rendering", "UI"]
 
 [forbidden]
 edges = [

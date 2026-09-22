@@ -7021,7 +7021,8 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "Watch": 2,
         }),
         "LT-2-long-tail-spacecenter": ("SPACECENTER", {
-            "Optimizer": 2,
+            # 2 -> 3 on 2026-09-22 (register item C2): the boundary-seam cell.
+            "Optimizer": 3,
             "Recording": 1,
             "ResourceReconciliation": 1,
             "WarpToTime": 1,
