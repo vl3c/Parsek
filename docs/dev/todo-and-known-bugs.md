@@ -4012,6 +4012,46 @@ writes supersede rows, tombstones, and flips MergeState). Re-arming afterwards w
 later cells a marker pointing at an already-merged provisional. The precondition guard
 subsumes the problem.
 
+## TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. OPEN, needs two design decisions]
+
+MEASURED HEADLESSLY by `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
+(skipped, naming this entry). The shape: crew board at launch on a recording that spans
+the rewind point (the first re-fly of a crewed slot whose recording started at launch,
+i.e. the COMMON player shape), so the merge splits it into HEAD + TIP. The split, the
+endUT-screened retag and `CommitTombstones` retire both deaths in-session. Then the next
+load's `LedgerOrchestrator.MigrateKerbalAssignments` re-derives every committed
+recording's KerbalAssignment rows, and the test reads FOUR Dead rows back, all with fresh
+ActionIds no tombstone covers: HEAD 8..34 and TIP 34..53, for each of two kerbals. On
+main the same shape is Dead after a reload anyway (the guard kept the row), so this
+cancels the new fix's benefit on reload without making anything worse. It does not
+reach `refly-autopilot-recorded` (RF-12S's host), whose closure root has no points, so
+its merge does not split.
+
+TWO INDEPENDENT CAUSES, each with its own decision:
+
+(a) TIP. Step 2.9 retags the stored row to TIP unchanged, so it keeps the ORIGIN's `UT`
+    and `StartUT`. `KerbalAssignmentActionsMatch` compares those against TIP's own
+    derivation, fails, and `ReplaceActionsForRecording` writes a fresh-id row.
+    Option a1: Migrate inherits the replaced row's ActionId per (recording, kerbal), so
+    a re-derived row stays covered by a tombstone on the row it replaces. It changes
+    ledger identity for EVERY re-derived row. No committed fixture tombstones a row that
+    would be re-derived today (checked on `refly-autopilot-recorded`: its two tombstoned
+    assignment rows match their derivation).
+    Option a2: the retag rewrites the moved row to TIP's window (`UT` / `StartUT` =
+    TIP's start), so it matches TIP's derivation. That is local to the splitter, but it
+    rewrites a ledger row's timing and its `SplitMutationLedger` undo must restore it.
+(b) HEAD. `RecordingOptimizer.SplitAtSection` moves the terminal state to TIP but leaves
+    the origin's `CrewEndStates` (Dead) on HEAD, so HEAD derives a death it never had.
+    Option b1: the rewind splitter moves CrewEndStates to TIP and gives HEAD Unknown or
+    Aboard. Both map to an INDEFINITE temporary reservation, which would lock out crew
+    that the re-fly recovers (the reservation merge takes the max endUT).
+    Option b2: give HEAD Recovered, which reserves until HEAD's end, the right
+    reservation, but the Kerbals window would show a wrong fate. Or add a new end state
+    for "continued into the next segment", an enum addition that bumps no schema
+    generation but needs a reservation rule and UI wording.
+Whatever is chosen must keep the guard/splitter mirror bit-identical (the retag key is
+`TombstoneAttributionHelper.ComputeAttributionUT`) and un-skip the test above.
+
 ## TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09 while diagnosing the entry above. RULED 2026-09-22: screen death intervals by `endUT`. CODE on branch `tombstone-endut`; flight proof pending]
 
 `KerbalAssignment` is an INTERVAL action (`startUT`..`endUT`) but

@@ -24477,3 +24477,239 @@ def _kxrw_rewind_cycles_row(params: KxrwParams, state,
          "completed": completed,
          "cycles": [r.to_dict() for r in history],
          "metOnRejectionByDesign": True})
+
+
+
+# ---------------------------------------------------------------------------
+# RF-12S re-fly orbit-insertion machine (mission rf12s_refly_orbit_insert). Pure.
+#
+# WHAT IT IS FOR. TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START needs a
+# re-fly that SAVES crew who boarded before the rewind point. The only committed host
+# with that shape is `refly-autopilot-recorded` slot 0 (Bill and Bob on a Kerbal X
+# upper stack restored FLYING at ~40 km, ascending, Poodle unlit, full X200-16), and
+# that stack carries no parachute and cannot hover on its Poodle at sea level, so the
+# crew cannot be LANDED. They can be put in ORBIT: this machine lights the Poodle,
+# holds a fixed surface-frame pitch / heading and burns until the orbit's periapsis
+# clears the atmosphere, then cuts. The spec's own seam steps own the rewind before
+# the mission and the merge after it; the mission owns only the burn.
+#
+#     IGNITE  (first frame: gate that the handoff is an airborne crewed craft, then
+#              stage once + full throttle + AP pitch/heading)
+#       -> BURN   (OBSERVED: thrust > 0 within igniteFrames, then periapsis >= target
+#                  on K consecutive frames; fuel-out or the frame bound give up BY NAME)
+#       -> ORBIT  (throttle cut + AP disengage; terminal)
+#
+# WHY A NEGATIVE PITCH. The restored stack climbs at a ~48 deg flight-path angle
+# (|v| ~1.2 km/s, ~890 m/s of it vertical), so the burn has more vertical speed than it
+# needs and too little horizontal. A 2-D point-mass sweep of the burn from the RP state
+# (250 kN, Isp 350, 15.5 t -> 7.5 t, no drag) reached a 75 km periapsis with 1.38 t of
+# propellant left at pitch -10, 0.92 t at -5, 0.40 t at 0, and ran DRY short of it at
+# +20. -10 is the default; it is a spec knob, never a golden trajectory.
+#
+# FRAME-BOUNDED, like every post-rewind phase in this file: the machine starts after a
+# rewind, so a game-time budget would read a clock the rewind just moved.
+# ---------------------------------------------------------------------------
+
+RFO_IGNITE = "IGNITE"
+RFO_BURN = "BURN"
+RFO_ORBIT = "ORBIT"
+RFO_PHASES: Tuple[str, ...] = (RFO_IGNITE, RFO_BURN, RFO_ORBIT)
+RFO_AIRBORNE_SITUATIONS: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL")
+
+
+@dataclass(frozen=True)
+class RfoParams:
+    """RF-12S burn parameters. Every value is a target / tolerance / bound."""
+    pitch_deg: float = -10.0
+    heading_deg: float = 90.0
+    throttle: float = 1.0
+    target_periapsis: float = 75000.0
+    # Consecutive frames the periapsis must read at/above target before the cut.
+    periapsis_debounce: int = 2
+    # The handoff gate: the rewind must have put an AIRBORNE craft with crew under
+    # control. A craft below this altitude is not the restored stack.
+    min_start_altitude: float = 10000.0
+    min_crew: int = 1
+    # Frames after the stage command within which available_thrust must read > 0.
+    ignite_frames: int = 20
+    # Whole-burn bound (the sweep's burn is ~90-110 s of game time; the runner polls
+    # at ~0.5 s).
+    burn_frames: int = 600
+
+
+def rfo_params_from_dict(params: Dict) -> RfoParams:
+    """Build ``RfoParams`` from a spec ``missionParams`` dict (schema:
+    ``rf12s_refly_orbit_insert.schema.toml``)."""
+    params = params or {}
+    return RfoParams(
+        pitch_deg=float(params.get("pitchDeg", -10.0)),
+        heading_deg=float(params.get("headingDeg", 90.0)),
+        throttle=float(params.get("throttle", 1.0)),
+        target_periapsis=float(params.get("targetPeriapsisMeters", 75000.0)),
+        periapsis_debounce=int(params.get("periapsisDebounceFrames", 2)),
+        min_start_altitude=float(params.get("minStartAltitudeMeters", 10000.0)),
+        min_crew=int(params.get("minCrew", 1)),
+        ignite_frames=int(params.get("igniteFrames", 20)),
+        burn_frames=int(params.get("burnFrames", 600)),
+    )
+
+
+@dataclass(frozen=True)
+class RfoState:
+    """RF-12S machine state; every evidence field is stamped on the frame that
+    produced it (machine-carried, settle_frames=0)."""
+    params: RfoParams
+    phase: str = RFO_IGNITE
+    phase_entry_ut: float = 0.0
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (RFO_IGNITE,)
+    done: bool = False
+    verdict: Optional[str] = None
+    flake_phase: str = ""
+    flake_reason: str = ""
+    loss_reason: str = ""
+    # Handoff evidence, stamped on the first frame.
+    start_situation: str = ""
+    start_altitude: float = float("nan")
+    start_crew: int = -1
+    start_periapsis: float = float("nan")
+    # Burn evidence.
+    peak_thrust: float = float("nan")
+    pe_streak: int = 0
+    cut_periapsis: float = float("nan")
+    cut_apoapsis: float = float("nan")
+    cut_ut: float = float("nan")
+    cut_liquid_fuel: float = float("nan")
+
+
+def rfo_initial_state(params: RfoParams) -> RfoState:
+    """Fresh RF-12S machine at IGNITE."""
+    return RfoState(params=params)
+
+
+def _rfo_enter(state: RfoState, new_phase: str, ut: float) -> RfoState:
+    return replace(
+        state, phase=new_phase,
+        phase_entry_ut=ut if _is_finite(ut) else state.phase_entry_ut,
+        phase_frames=0,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == RFO_ORBIT))
+
+
+def _rfo_fail(state: RfoState, reason: str) -> RfoState:
+    return replace(state, done=True, verdict=MISSION_ASSERT_FAIL, loss_reason=reason)
+
+
+def rfo_handoff_refusal(params: RfoParams, snapshot: TelemetrySnapshot) -> str:
+    """Why the first frame is NOT the restored crewed stack, or "" when it is.
+    Pure and separate so each refusal is unit-covered by name."""
+    if snapshot.situation not in RFO_AIRBORNE_SITUATIONS:
+        return ("handoff not airborne: situation=%s (want one of %s)"
+                % (snapshot.situation or "<unread>", "/".join(RFO_AIRBORNE_SITUATIONS)))
+    if not _is_finite(snapshot.altitude) or snapshot.altitude < params.min_start_altitude:
+        return ("handoff below %.0f m: altitude=%s"
+                % (params.min_start_altitude, snapshot.altitude))
+    if snapshot.crew_count < params.min_crew:
+        return ("handoff crew %d < minCrew %d (the re-fly must carry the "
+                "pre-rewind-boarded crew)" % (snapshot.crew_count, params.min_crew))
+    return ""
+
+
+def rfo_decide(state: RfoState,
+               snapshot: TelemetrySnapshot) -> Tuple[RfoState, List[Action]]:
+    """Advance the RF-12S burn one frame; return (new_state, actions)."""
+    if state.done:
+        return state, []
+    if snapshot.vessel_lost:
+        return _rfo_fail(state, "vessel-lost in phase %s (the crew did not survive "
+                                "the burn)" % state.phase), []
+
+    p = state.params
+    if state.phase == RFO_IGNITE:
+        refusal = rfo_handoff_refusal(p, snapshot)
+        stamped = replace(state,
+                          start_situation=snapshot.situation,
+                          start_altitude=snapshot.altitude,
+                          start_crew=snapshot.crew_count,
+                          start_periapsis=snapshot.periapsis)
+        if refusal:
+            return _rfo_fail(stamped, refusal), []
+        actions = [
+            Action(ACTION_ACTIVATE_STAGE),
+            Action(ACTION_SET_THROTTLE, p.throttle),
+            Action(ACTION_AP_SET_PITCH_HEADING,
+                   pitch_heading=(float(p.pitch_deg), float(p.heading_deg))),
+        ]
+        return _rfo_enter(stamped, RFO_BURN, snapshot.ut), actions
+
+    if state.phase == RFO_BURN:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        thrust = snapshot.available_thrust
+        if _is_finite(thrust) and (not _is_finite(st.peak_thrust) or thrust > st.peak_thrust):
+            st = replace(st, peak_thrust=thrust)
+        lit = _is_finite(st.peak_thrust) and st.peak_thrust > 0.0
+
+        if _is_finite(snapshot.periapsis) and snapshot.periapsis >= p.target_periapsis:
+            st = replace(st, pe_streak=st.pe_streak + 1)
+        else:
+            st = replace(st, pe_streak=0)
+
+        if lit and st.pe_streak >= p.periapsis_debounce:
+            st = replace(st, cut_periapsis=snapshot.periapsis,
+                         cut_apoapsis=snapshot.apoapsis, cut_ut=snapshot.ut,
+                         cut_liquid_fuel=snapshot.liquid_fuel)
+            return (_rfo_enter(st, RFO_ORBIT, snapshot.ut),
+                    [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)])
+
+        if not lit and st.phase_frames >= p.ignite_frames:
+            return (_rfo_fail(st, "engine never lit: available_thrust stayed 0 for %d "
+                                  "frames after the stage command" % p.ignite_frames),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        if lit and _is_finite(thrust) and thrust <= 0.0:
+            return (_rfo_fail(st, "propellant exhausted short of orbit: periapsis=%s "
+                                  "target=%.0f" % (snapshot.periapsis, p.target_periapsis)),
+                    [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)])
+        if st.phase_frames >= p.burn_frames:
+            return (replace(st, done=True, verdict=MISSION_FLAKE, flake_phase=RFO_BURN,
+                            flake_reason=("burn exceeded %d frames without periapsis >= "
+                                          "%.0f (periapsis=%s)"
+                                          % (p.burn_frames, p.target_periapsis,
+                                             snapshot.periapsis))),
+                    [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)])
+        return st, []
+
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="unknown phase %s" % state.phase, done=True), []
+
+
+def evaluate_rfo_assertions(frames, params: RfoParams, state) -> List[AssertionOutcome]:
+    """Machine-carried evidence only (settle_frames=0): the handoff, the ignition and
+    the orbit the cut left behind. ``frames`` is unused on purpose."""
+    st = state
+    handoff_ok = bool(st is not None and st.start_situation in RFO_AIRBORNE_SITUATIONS
+                      and _is_finite(st.start_altitude)
+                      and st.start_altitude >= params.min_start_altitude
+                      and st.start_crew >= params.min_crew)
+    lit = bool(st is not None and _is_finite(st.peak_thrust) and st.peak_thrust > 0.0)
+    orbit = bool(st is not None and st.phase == RFO_ORBIT
+                 and _is_finite(st.cut_periapsis)
+                 and st.cut_periapsis >= params.target_periapsis)
+    return [
+        AssertionOutcome(
+            "handoffAirborneCrewed", handoff_ok,
+            st.start_situation if st is not None else None,
+            {"altitude": st.start_altitude if st is not None else None,
+             "crew": st.start_crew if st is not None else None,
+             "minCrew": params.min_crew,
+             "minStartAltitude": params.min_start_altitude}),
+        AssertionOutcome(
+            "engineLit", lit, st.peak_thrust if st is not None else None,
+            {"note": "peak available_thrust observed during BURN"}),
+        AssertionOutcome(
+            "orbitAboveAtmosphere", orbit,
+            st.cut_periapsis if st is not None else None,
+            {"targetPeriapsis": params.target_periapsis,
+             "apoapsis": st.cut_apoapsis if st is not None else None,
+             "cutUT": st.cut_ut if st is not None else None,
+             "liquidFuelAtCut": st.cut_liquid_fuel if st is not None else None}),
+    ]

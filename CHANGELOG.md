@@ -693,7 +693,12 @@ _(unreleased — entries accumulate here per commit)_
   merge, as design 7.16 promises. The tombstone guard and the tree splitter's ledger retag
   share that rule through one helper, so both sides of the seam still agree exactly.
   Every other ledger row keeps its old placement. A re-fly that kills the crew again
-  records its own death, which the merge never touches.
+  records its own death, which the merge never touches. The fix holds in-session, and
+  after a reload on saves where the merge did not split the original recording at the
+  rewind point. It does not yet survive a reload in the common case: the first re-fly of
+  a crewed slot whose recording started at launch splits that recording, and the next
+  load restores the Dead rows. That is no worse than before this fix; it is tracked as
+  TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT.
 
 - **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
   Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's
