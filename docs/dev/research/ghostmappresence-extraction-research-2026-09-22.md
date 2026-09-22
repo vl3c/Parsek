@@ -36,8 +36,9 @@ stale on every commit). Every number below regenerates from the scripts in Appen
 
 ## 0. The headline the 2026-09-14 report missed, and why it missed it
 
-The findings report says almost nothing about `GhostMapPresence` because the
-architecture tool's own hotspot ranking cannot see it.
+The 2026-09-14 architecture findings (now the "Main findings" and "Opportunities, ranked"
+sections of the generated atlas, `docs/dev/arch/atlas.html`) said almost nothing about
+`GhostMapPresence` because the architecture tool's own hotspot ranking could not see it.
 
 `archview.py` merges the parts of a partial class and attributes the merged type to the
 FIRST file it scanned. For `GhostMapPresence` that is `GhostMapPresence.Observability.cs`

@@ -6,7 +6,12 @@
 # captions, the generated-views list) stay in the renderer template. `--check`
 # reports prose that no longer matches the model (missing module summaries,
 # glossary names that are gone, readings for vanished edges, reading-order
-# types that do not exist).
+# types that do not exist, opportunity types that do not exist) and the age of
+# the `[findings]` review date.
+#
+# `[findings]` and `[[opportunities]]` (at the end of this file) are the only
+# conclusions on the page. They must not restate a number the page already
+# generates: point at the section that shows it, or date the figure.
 #
 # Inline markup (`<span class="id">Name</span>`, `<em>`, `<code>`) is part of
 # the prose and is rendered as-is.
@@ -26,6 +31,8 @@ reading_note = "If you were new to this codebase, or coming back to it after mon
 views_note = "This page is a snapshot with prose. The live views regenerate from source in a few seconds and stay honest as the code moves; they are written under <code>docs/dev/arch/</code> and are not committed."
 history_reading = "Co-change is a second opinion on the map: pairs that change together in most of their commits behave as one module whatever the folders say."
 size_note = "The edges say what leans on what; this says how much of it there is. Lines are counted per file and per type with the parts of a partial class merged, so one row is one type however many files it is spread across. The candidates are rule output over those numbers, cheapest first, and each cites what fired it: a reading list for a later refactor pass, not a verdict that a split is safe. The rules, their thresholds and their blind spots are in <code>docs/dev/arch/README.md</code>, \"Size view\"."
+findings_note = "The conclusions, written by hand and re-read against this page on the date below. They carry no live figures of their own: each points at the generated section that does, so read the section rather than a remembered number."
+opportunities_note = "Refactoring opportunities in rank order, with their status. The evidence names the generated section behind each item; the only figures written here are dated facts. Every item still needs a proposal and a review against <code>docs/dev/refactor-guidelines.md</code> before code moves."
 approximation_note = "Text-scan approximation. Type references are matched by name after stripping comments, strings and preprocessor lines; names declared in two modules are excluded; method calls that share a type's name are skipped. Good enough to place files and rank couplings; not sound enough to gate a build. The Roslyn extractor planned for phase 5 replaces the edges with semantic-model facts and keeps every view."
 
 # Layer bands for the module directory, by instability. A module belongs to the
@@ -223,3 +230,138 @@ text = "Logistics, Missions, Reaim, MapRender. Each reads steps 3 to 6 and adds 
 title = "The controllers and the surface."
 types = ["ParsekScenario", "ParsekFlight"]
 text = "the UI windows, the Harmony patches. Read last: they are where everything meets, and they only make sense once the parts do."
+
+# The Main findings list, in page order. `reviewed` is the date the list and the
+# opportunities below were last re-read against a fresh page; `--check` says
+# when it is more than 30 days old.
+[findings]
+reviewed = "2026-09-22"
+
+[[findings.items]]
+title = "Size is the missing axis."
+body = "The edges never said how much code sits behind a name. On 2026-09-22, 83 production files were at or above 1,000 lines and 14 at or above 5,000; the live list, the tiers and the split candidates are in <em>Largest files and types</em>. <span class=\"id\">GhostMapPresence</span>, one of the largest types, was barely named by the 2026-09-14 reading; its extraction study is <code>docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md</code>."
+
+[[findings.items]]
+title = "The 2026-09-14 hotspot list was wrong for partial classes."
+body = "A merged partial type was scored on the commits of whichever of its files the scan met first, often a small part. The hotspot table now scores the union of a type's files, and <span class=\"id\">ParsekFlight</span> and <span class=\"id\">GhostMapPresence</span> enter it; neither was on the old list."
+
+[[findings.items]]
+title = "The modules are real."
+body = "Even the most entangled pair of modules co-changes in a minority of its commits (the co-change tile above, and <em>What changes together</em>). The folder and name boundaries match how the code is edited."
+
+[[findings.items]]
+title = "The pain is a handful of controller and store files."
+body = "<span class=\"id\">ParsekFlight</span>, <span class=\"id\">RecordingStore</span>, <span class=\"id\">ParsekScenario</span> and <span class=\"id\">Recording</span> head the hotspot table, and <code>ParsekFlight.cs</code> sits on one side of most of the top cross-module file pairs (<em>What changes together</em>)."
+
+[[findings.items]]
+title = "One cycle spanned every module."
+body = "It held 391 types on 2026-09-14, kept together by four references: the logger reading settings, and the recording data type calling its store and the crew ledger. PRs #1683 and #1684 cut those. The live size and the remaining cut sequence are in <em>The knot</em>; what is left after the cheap cuts is design work."
+
+[[findings.items]]
+title = "Parsek is data plus functions, not objects."
+body = "On 2026-09-14 there were 26 interfaces and 6 abstract bases in 1,335 types, against 497 data types and 343 static helper classes. The abstractions are the names in <em>The vocabulary</em>, not a class hierarchy."
+
+[[findings.items]]
+title = "The old Core was a filing error."
+body = "On 2026-09-14, 115 of the 123 root-level files had an obvious owner and were moved in PR #1682. The real kernel is the small Core module in the <em>Module directory</em>, the files every module uses."
+
+[[findings.items]]
+title = "Trajectory is the pure module the docs claim."
+body = "It became one once five recorder-side files stopped matching its name prefixes (PR #1682); its instability in the <em>Module directory</em> is near the floor."
+
+[[findings.items]]
+title = "Missions and Reaim are not one module."
+body = "They reference each other about equally in both directions (<em>Where the layering breaks</em>) but change together in only a small share of their commits (<em>What changes together</em>): cut them with an interface, do not merge them."
+
+# The ranked opportunities. `types` names the types an item concerns; they are
+# drawn as chips and `--check` reports any that are no longer in the model.
+[[opportunities]]
+rank = 1
+item = "ParsekFlight seams: recorder hookup, playback hosting, spawning, merge flow"
+evidence = "The top hotspot and the largest type; on one side of most of the top cross-module file pairs (<em>What changes together</em>, <em>Largest files and types</em>)."
+size = "large"
+status = "Last; one seam per PR, a harness tier each."
+types = ["ParsekFlight"]
+
+[[opportunities]]
+rank = 2
+item = "ParsekLog as a pure sink"
+evidence = "Two references held 56 types in the cycle on 2026-09-14."
+size = "afternoon"
+status = "Done, PR #1683."
+types = ["ParsekLog"]
+
+[[opportunities]]
+rank = 3
+item = "Recording as plain data"
+evidence = "Two references held 54 more on 2026-09-14; a top hotspot."
+size = "afternoon"
+status = "Done, PR #1684."
+types = ["Recording"]
+
+[[opportunities]]
+rank = 4
+item = "RecordingStore: the list plus services"
+evidence = "The first cut in the sequence under <em>The knot</em>, a top hotspot, and <code>ParsekScenario.cs</code> with <code>RecordingStore.cs</code> is one of the most frequent cross-module file pairs (<em>What changes together</em>)."
+size = "medium-high"
+status = "Design, next."
+types = ["RecordingStore"]
+
+[[opportunities]]
+rank = 5
+item = "The Recording / Rewind boundary"
+evidence = "Recording &rarr; Rewind runs upward while the reverse edge is much heavier, and the two rarely change together (<em>Where the layering breaks</em>)."
+size = "decide after 2 to 4"
+status = "Open."
+
+[[opportunities]]
+rank = 6
+item = "Trajectory purity"
+evidence = "Five files were filed by name prefix, not by role."
+size = "placement"
+status = "Done, PR #1682."
+
+[[opportunities]]
+rank = 7
+item = "VesselSpawner split: kernel ops, spawn planner, live ops"
+evidence = "On 2026-09-14: 6,897 lines; 103 pure, 30 live, 50 model and 17 glue members; the ledger uses the pure members only."
+size = "5 steps"
+status = "Step 1 done, PR #1686; plan in <code>docs/dev/research/vesselspawner-split-plan-2026-09-14.md</code>."
+types = ["VesselSpawner"]
+
+[[opportunities]]
+rank = 8
+item = "Missions / Reaim interface cut"
+evidence = "Symmetric references but a small co-change share (<em>Where the layering breaks</em>, <em>What changes together</em>)."
+size = "small"
+status = "Low priority."
+
+[[opportunities]]
+rank = 9
+item = "Missions &rarr; Logistics crossing"
+evidence = "One file, 5 references on 2026-09-14."
+size = "one PR"
+status = "Done, PR #1685."
+
+[[opportunities]]
+rank = 10
+item = "MapRender &rarr; Ghost interface"
+evidence = "A heavy upward edge with no co-change signal behind it (<em>Where the layering breaks</em>)."
+size = "small"
+status = "Documentation only."
+
+[[opportunities]]
+rank = 11
+item = "GhostMapPresence: partial-file carve-outs, then a source-resolver type"
+evidence = "A Tier 1 type and a top-ten hotspot (<em>Largest files and types</em>); three low-risk partial slices need no call-site change."
+size = "3 to 5 PRs"
+status = "Study done 2026-09-22 (<code>docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md</code>); needs in-game validation."
+types = ["GhostMapPresence"]
+
+[[opportunities]]
+rank = 12
+item = "Same-file extract-method pass over the Tier 1 types"
+evidence = "The long-method column in <em>Largest files and types</em>; <code>ParsekScenario.OnLoad</code> was 1,209 lines on 2026-09-22."
+size = "per file"
+status = "Open."
+types = ["ParsekScenario"]

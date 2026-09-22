@@ -3240,13 +3240,14 @@ def band_for(instability, bands):
 
 
 def prose_findings(model, prose):
-    """Return the five atlas staleness lists for prose against the live model.
+    """Return the six atlas staleness lists for prose against the live model.
 
     Keys: missingSummaries (production modules with no summary),
     missingGlossary (glossary names that are not declared types),
     staleGlossary (glossary names outside the live top 18 hubs, informational),
-    staleReadings (upward readings whose edge no longer exists) and
-    missingReadingOrder (reading-order types not in the model).
+    staleReadings (upward readings whose edge no longer exists),
+    missingReadingOrder (reading-order types not in the model) and
+    missingOpportunityTypes (opportunity `types` entries not in the model).
     """
     production = [module for module in model["modules"] if not module["tooling"]]
     summaries = prose.get("modules", {})
@@ -3289,13 +3290,66 @@ def prose_findings(model, prose):
             continue
         order_types.update(name for name in names if isinstance(name, str))
     missing_order = sorted(name for name in order_types if name not in type_names)
+    opportunity_types = set()
+    for row in _opportunity_rows(prose):
+        names = row.get("types", [])
+        if isinstance(names, list):
+            opportunity_types.update(name for name in names if isinstance(name, str))
+    missing_opportunity = sorted(name for name in opportunity_types if name not in type_names)
     return {
         "missingSummaries": missing_summaries,
         "missingGlossary": missing_glossary,
         "staleGlossary": stale_glossary,
         "staleReadings": stale_readings,
         "missingReadingOrder": missing_order,
+        "missingOpportunityTypes": missing_opportunity,
     }
+
+
+FINDINGS_STALE_DAYS = 30
+
+
+def findings_review(prose, today=None):
+    """Return (reviewed, age_days) for the atlas `[findings]` table.
+
+    `reviewed` is the date as written (None when the table or the key is
+    absent); `age_days` is None when the value is not a YYYY-MM-DD date.
+    """
+    findings = prose.get("findings")
+    if not isinstance(findings, dict) or "reviewed" not in findings:
+        return None, None
+    raw = findings["reviewed"]
+    if isinstance(raw, datetime.datetime):
+        raw = raw.date()
+    if isinstance(raw, datetime.date):
+        reviewed = raw
+    else:
+        try:
+            reviewed = datetime.date.fromisoformat(str(raw))
+        except ValueError:
+            return str(raw), None
+    today = today or datetime.date.today()
+    return reviewed.isoformat(), (today - reviewed).days
+
+
+def _finding_items(prose):
+    findings = prose.get("findings")
+    if not isinstance(findings, dict):
+        return []
+    items = findings.get("items", [])
+    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+
+def _opportunity_rows(prose):
+    rows = prose.get("opportunities", [])
+    if not isinstance(rows, list):
+        return []
+    rows = [row for row in rows if isinstance(row, dict)]
+    # Rows without a numeric rank keep their file order after the ranked ones.
+    return sorted(
+        rows,
+        key=lambda row: (0, row["rank"]) if isinstance(row.get("rank"), int) else (1, 0),
+    )
 
 
 def _thousands(value):
@@ -3341,29 +3395,105 @@ def _atlas_eyebrow():
     return "Source snapshot, %s, branch %s" % (today, branch)
 
 
-def _atlas_tiles(model):
+def _atlas_tiles(model, history=None):
     files = sum(module["files"] for module in model["modules"])
     types = len(model.get("types", []))
     histogram = model.get("typeLevels", {}).get("histogram", {})
     level_zero = histogram.get(0, histogram.get("0", 0))
     knots = model.get("knots", [])
     knot_size = knots[0]["size"] if knots else 0
+    knot_percent = round(100 * knot_size / (types or 1))
     modules = sum(1 for module in model["modules"] if not module["tooling"])
-    return "\n".join(
-        [
-            '  <div class="tile"><div class="n">%s</div>'
-            '<div class="l">C&#35; files in one assembly</div></div>' % _thousands(files),
-            '  <div class="tile"><div class="n">%s</div>'
-            '<div class="l">production types across %d modules</div></div>'
-            % (_thousands(types), modules),
-            '  <div class="tile"><div class="n">%s</div>'
-            '<div class="l">of those types depend on nothing in the repo:'
-            " plain data and enums</div></div>" % _thousands(level_zero),
-            '  <div class="tile"><div class="n knot">%s</div>'
-            '<div class="l">types locked in one dependency cycle</div></div>'
-            % _thousands(knot_size),
-        ]
-    )
+    tiles = [
+        '  <div class="tile"><div class="n">%s</div>'
+        '<div class="l">C&#35; files in one assembly</div></div>' % _thousands(files),
+        '  <div class="tile"><div class="n">%s</div>'
+        '<div class="l">production types across %d modules</div></div>'
+        % (_thousands(types), modules),
+        '  <div class="tile"><div class="n">%s</div>'
+        '<div class="l">of those types depend on nothing in the repo:'
+        " plain data and enums</div></div>" % _thousands(level_zero),
+        '  <div class="tile"><div class="n knot">%s</div>'
+        '<div class="l">types locked in one dependency cycle, %d percent of all</div></div>'
+        % (_thousands(knot_size), knot_percent),
+    ]
+    if history and history.get("commits"):
+        pairs = history.get("modulePairs", [])
+        if pairs:
+            top = max(pairs, key=lambda row: (row["jaccard"], row["both"]))
+            tiles.append(
+                '  <div class="tile"><div class="n">%.2f</div>'
+                '<div class="l">highest co-change ratio between two modules (%s, %s)</div></div>'
+                % (top["jaccard"], html.escape(top["a"]), html.escape(top["b"]))
+            )
+        hotspots = history.get("hotspots", [])
+        if hotspots:
+            churn = min(hotspots, key=lambda row: (-row["fileCommits"], row["name"]))
+            tiles.append(
+                '  <div class="tile"><div class="n">%d%%</div>'
+                '<div class="l">of commits since %s touch %s, the most-churned type</div></div>'
+                % (
+                    round(100 * churn["fileCommits"] / history["commits"]),
+                    html.escape(str(history.get("since", "the window start"))),
+                    html.escape(churn["name"]),
+                )
+            )
+    return "\n".join(tiles)
+
+
+def _atlas_findings(prose):
+    """Return the Main findings section, or nothing when atlas.toml has none."""
+    items = _finding_items(prose)
+    if not items:
+        return ""
+    reviewed, _ = findings_review(prose)
+    note = prose.get("page", {}).get("findings_note", "")
+    stamp = (" Last reviewed %s." % html.escape(reviewed)) if reviewed else ""
+    lines = [
+        "<h2>Main findings</h2>",
+        "<p>%s%s</p>" % (note, stamp),
+        '<ul class="findings">',
+    ]
+    for item in items:
+        lines.append(
+            "  <li><strong>%s</strong> %s</li>" % (item.get("title", ""), item.get("body", ""))
+        )
+    lines.append("</ul>")
+    return "\n".join(lines) + "\n"
+
+
+def _atlas_opportunities(prose):
+    """Return the Opportunities section, or nothing when atlas.toml has none."""
+    rows = _opportunity_rows(prose)
+    if not rows:
+        return ""
+    lines = [
+        "<h2>Opportunities, ranked</h2>",
+        "<p>%s</p>" % prose.get("page", {}).get("opportunities_note", ""),
+        '<div class="wide"><table>',
+        '<tr><th class="num">#</th><th>Item</th><th>Evidence</th><th>Size</th>'
+        "<th>Status</th></tr>",
+    ]
+    for row in rows:
+        names = row.get("types", [])
+        chips = (
+            _type_chips([name for name in names if isinstance(name, str)])
+            if isinstance(names, list)
+            else ""
+        )
+        item = row.get("item", "") + ("<br>" + chips if chips else "")
+        lines.append(
+            '<tr><td class="num">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'
+            % (
+                html.escape(str(row.get("rank", ""))),
+                item,
+                row.get("evidence", ""),
+                row.get("size", ""),
+                row.get("status", ""),
+            )
+        )
+    lines.append("</table></div>")
+    return "\n".join(lines) + "\n"
 
 
 def _atlas_directory(model, prose):
@@ -3679,7 +3809,8 @@ def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None,
     replacements = {
         "@@EYEBROW@@": _atlas_eyebrow(),
         "@@LEDE@@": page.get("lede", ""),
-        "@@TILES@@": _atlas_tiles(model),
+        "@@TILES@@": _atlas_tiles(model, history),
+        "@@FINDINGS@@": _atlas_findings(prose),
         "@@MAP_NOTE@@": page.get("map_note", ""),
         "@@MAP@@": _svg_inline(svg_text),
         "@@MAP_READING@@": page.get("map_reading", ""),
@@ -3697,6 +3828,7 @@ def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None,
         "@@HISTORY_BODY@@": _atlas_history(history),
         "@@SIZE_NOTE@@": page.get("size_note", ""),
         "@@SIZE_BODY@@": _atlas_sizes(sizes),
+        "@@OPPORTUNITIES@@": _atlas_opportunities(prose),
         "@@READING_NOTE@@": page.get("reading_note", ""),
         "@@READING@@": _atlas_reading_order(prose),
         "@@VIEWS_NOTE@@": page.get("views_note", ""),
@@ -3745,7 +3877,7 @@ p { margin: 14px 0; }
 .lede { font-size: 20px; color: var(--ink-2); max-width: 64ch; }
 code, .id { font-family: "JetBrains Mono", Consolas, monospace; font-size: 0.86em; background: var(--mono-bg);
   padding: 1px 5px; border-radius: 3px; }
-.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 28px 0 8px; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 28px 0 8px; }
 .tile { background: var(--panel); border: 1px solid var(--rule); padding: 14px 16px 12px; }
 .tile .n { font-family: "Barlow Condensed", sans-serif; font-size: 44px; font-weight: 700; line-height: 1;
   font-variant-numeric: tabular-nums; }
@@ -3777,6 +3909,8 @@ ol.steps li::before { content: counter(s); position: absolute; left: 0; top: 0; 
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; max-width: 80ch; }
 dt { font-family: "JetBrains Mono", monospace; font-size: 14px; white-space: nowrap; padding-top: 2px; }
 dd { margin: 0; color: var(--ink-2); }
+ul.findings { padding-left: 20px; }
+ul.findings li { margin: 8px 0; max-width: 88ch; }
 .foot { color: var(--ink-3); font-size: 14px; margin-top: 56px; border-top: 1px solid var(--rule); padding-top: 14px; }
 @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 46px; } dl { grid-template-columns: 1fr; } }
 </style>
@@ -3789,6 +3923,7 @@ dd { margin: 0; color: var(--ink-2); }
 @@TILES@@
 </div>
 
+@@FINDINGS@@
 <h2>The map</h2>
 <p>@@MAP_NOTE@@</p>
 <div class="panel">@@MAP@@</div>
@@ -3831,6 +3966,7 @@ dd { margin: 0; color: var(--ink-2); }
 <p>@@SIZE_NOTE@@</p>
 @@SIZE_BODY@@
 
+@@OPPORTUNITIES@@
 <h2>Reading order</h2>
 <p>@@READING_NOTE@@</p>
 <ol class="steps">
@@ -4803,6 +4939,19 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None):
     atlas_list("glossary entries outside the live top 18", findings["staleGlossary"])
     atlas_list("upward readings whose edge no longer exists", findings["staleReadings"])
     atlas_list("reading-order types not in the model", findings["missingReadingOrder"])
+    atlas_list("opportunity types not in the model", findings["missingOpportunityTypes"])
+    reviewed, age = findings_review(prose or {})
+    if reviewed is None:
+        print("  main findings: no [findings] reviewed date.")
+    elif age is None:
+        print("  main findings: reviewed %r is not a YYYY-MM-DD date." % reviewed)
+    else:
+        print("  main findings reviewed %s (%d days ago)." % (reviewed, age))
+        if age > FINDINGS_STALE_DAYS:
+            print(
+                "  main findings older than %d days: re-read them and the opportunities"
+                " against the page, then bump `reviewed`." % FINDINGS_STALE_DAYS
+            )
 
     print()
     print("HISTORY (co-change over Source/Parsek):")

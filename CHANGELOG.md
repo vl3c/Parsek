@@ -2806,6 +2806,16 @@ _(unreleased — entries accumulate here per commit)_
   types gets one "move the siblings out" row rather than one per type.
   Report-only tooling; no gameplay or build change.
 
+- **Dev tooling: the architecture findings report is now the atlas.** The hand-written
+  `docs/dev/research/architecture-findings-2026-09-14.html` is retired (its numbers went
+  stale within a week); its two additions over the generated page, the "Main findings"
+  list and the ranked opportunities with their status, now live in
+  `scripts/arch/atlas.toml` and render in `atlas.html`, which also gains headline tiles for
+  the knot's share, the highest module co-change ratio and the most-churned type's share of
+  commits. The findings point at the generated sections instead of restating their
+  numbers, and `--check` reports the findings review date's age and any opportunity type
+  that is no longer in the model.
+
 - **Dev tooling: a code and test counting script.** `python scripts/count-code.py` prints
   the line count per area of the repository (mod source, the xUnit project, the harness,
   scripts, scenario specs, docs) over git-tracked files, and the test totals: xUnit facts,

@@ -11,7 +11,7 @@ Everything lives in `scripts/arch/`:
 | File | Role |
 | --- | --- |
 | `modules.toml` | The hand-authored input that maps source paths to module names. |
-| `atlas.toml` | The atlas prose: the lede, the section notes, the module summaries, the glossary, the upward-edge readings and the reading order (see "Editing the atlas prose"). |
+| `atlas.toml` | The atlas prose: the lede, the section notes, the module summaries, the glossary, the upward-edge readings, the reading order, the main findings and the ranked opportunities (see "Editing the atlas prose"). |
 | `archview.py` | Extracts the module graph and the type ladder, builds the co-change history, writes `edges.json`, `types.json`, `history.json` and the views, and prints the `--check` report. |
 | `test_archview.py` | Unit tests plus a smoke test over the real `Source/Parsek` tree. |
 
@@ -332,13 +332,20 @@ disagreement, not a defect.
 
 ## The atlas
 
-`atlas.html` is the narrative page over the other views: the map inline, the
+`atlas.html` is the narrative page over the other views and the one findings
+report: headline tiles (source files, production types, types with no
+dependencies, the largest knot's size and share, and, when git history is
+available, the highest module co-change ratio and the share of commits that
+touch the most-churned type), the "Main findings" list, the map inline, the
 module directory grouped by layer, the top hub vocabulary, the largest knot
-with its cut table, the weighted upward edges, and a reading order. Everything
-numeric, tabular and visual is rendered from the live model by
-`render_atlas_html`; the narrative prose comes from `scripts/arch/atlas.toml`,
-while the structural strings (headings, tile captions and the generated-views
-list) live in the renderer template.
+with its cut table, the weighted upward edges, co-change, the largest files
+and types, "Opportunities, ranked", and a reading order. Everything numeric,
+tabular and visual is rendered from the live model by `render_atlas_html`; the
+narrative prose, the findings and the opportunities come from
+`scripts/arch/atlas.toml`, while the structural strings (headings, tile
+captions and the generated-views list) live in the renderer template. The page
+loads nothing but Google Fonts (the map SVG is inlined), so it can be
+published on its own.
 
 ### Editing the atlas prose
 
@@ -355,15 +362,30 @@ prose by name:
 - bands are matched top-down by the first `min` an instability reaches, so
   keep the `[bands]` entries ordered from the highest threshold down. The four
   in the file reproduce the current grouping: entry 0.70, feature 0.25, model
-  0.18, floor 0.00.
+  0.18, floor 0.00;
+- `[findings]` holds `reviewed = "YYYY-MM-DD"` and an ordered
+  `[[findings.items]]` list of `title` plus one-sentence `body`; the renderer
+  draws "Main findings" after the tiles with `page.findings_note` and the
+  review date. `[[opportunities]]` rows carry `rank`, `item`, `evidence`,
+  `size`, `status` and an optional `types = [...]` (drawn as chips under the
+  item); the renderer sorts them by rank and draws "Opportunities, ranked"
+  before the reading order with `page.opportunities_note`. With either table
+  absent or empty its section is not drawn at all. These are the only
+  conclusions on the page, so they must not restate a number the page already
+  generates: point at the section that shows it ("see Largest files and
+  types"), or date the figure ("391 on 2026-09-14"). Re-read both against a
+  fresh page and bump `reviewed` whenever they are touched.
 
 Numbers written inside a prose sentence (a count in a module summary, for
 example) are not checked; the generated numbers around them are. `--check`
 does not silently show stale prose: its ATLAS section (after KNOTS) lists
 production modules without a summary, glossary entries naming a type that is
 not in the model, glossary entries outside the live top 18 (informational),
-upward readings whose edge no longer exists, and reading-order types not in
-the model.
+upward readings whose edge no longer exists, reading-order types not in
+the model, and opportunity `types` entries not in the model; it then prints
+the findings review date with its age in days, plus a line when that is older
+than 30 days (`FINDINGS_STALE_DAYS`). All of it is informational: none of it
+fails the check.
 
 ## Change history
 
@@ -386,7 +408,7 @@ arrays:
   twice. Attributing the type to one file instead (the first the walk met)
   read `GhostMapPresence` as a 2-commit file and dropped both it and
   `ParsekFlight` out of this table entirely, which is how the 2026-09-14
-  findings report came to say almost nothing about them. A file that declares
+  hotspot reading came to say almost nothing about them. A file that declares
   several types lends its commits to each of them, so two types in one file
   carry the same commit count;
 - **modules**: commits touching each module;

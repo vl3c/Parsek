@@ -713,6 +713,34 @@ class ProseTests(unittest.TestCase):
         findings = archview.prose_findings(self._model(), prose)
         self.assertEqual(findings["missingReadingOrder"], ["NopeThing"])
 
+    def test_missing_opportunity_types(self):
+        prose = {
+            "opportunities": [
+                {"rank": 1, "item": "x", "types": ["KeptThing", "GoneThing"]},
+                {"rank": 2, "item": "y"},
+                "not a table",
+            ]
+        }
+        findings = archview.prose_findings(self._model(type_names=["KeptThing"]), prose)
+        self.assertEqual(findings["missingOpportunityTypes"], ["GoneThing"])
+        self.assertEqual(archview.prose_findings(self._model(), {})["missingOpportunityTypes"], [])
+
+    def test_findings_review_age(self):
+        today = datetime.date(2026, 10, 30)
+        self.assertEqual(
+            archview.findings_review({"findings": {"reviewed": "2026-09-22"}}, today),
+            ("2026-09-22", 38),
+        )
+        self.assertEqual(
+            archview.findings_review({"findings": {"reviewed": datetime.date(2026, 10, 29)}}, today),
+            ("2026-10-29", 1),
+        )
+        self.assertEqual(
+            archview.findings_review({"findings": {"reviewed": "soon"}}, today), ("soon", None)
+        )
+        self.assertEqual(archview.findings_review({"findings": {}}, today), (None, None))
+        self.assertEqual(archview.findings_review({}, today), (None, None))
+
 
 def _atlas_model():
     return {
@@ -800,7 +828,8 @@ class AtlasRenderTests(unittest.TestCase):
         )
         self.assertIn('<div class="n">2</div><div class="l">of those types depend on nothing', text)
         self.assertIn(
-            '<div class="n knot">2</div><div class="l">types locked in one dependency cycle</div>',
+            '<div class="n knot">2</div><div class="l">types locked in one dependency cycle,'
+            " 67 percent of all</div>",
             text,
         )
         self.assertIn("2 types, 67 percent", text)
@@ -838,6 +867,103 @@ class AtlasRenderTests(unittest.TestCase):
         self.assertIn("Alpha &harr; Beta", text)
         self.assertIn("Alpha/A.cs", text)
         self.assertIn("AlphaThing", text)
+
+    def test_history_tiles_come_from_the_model(self):
+        history = {
+            "since": "2025-03-01",
+            "commits": 10,
+            "hotspots": [
+                {"name": "AlphaThing", "module": "Alpha", "file": "Alpha/A.cs",
+                 "fileCommits": 3, "fanIn": 50, "hotspot": 150},
+                {"name": "BetaThing", "module": "Beta", "file": "Beta/B.cs",
+                 "fileCommits": 4, "fanIn": 2, "hotspot": 8},
+            ],
+            "modulePairs": [
+                {"a": "Alpha", "b": "Tool", "both": 1, "either": 5, "jaccard": 0.2},
+                {"a": "Alpha", "b": "Beta", "both": 2, "either": 5, "jaccard": 0.4},
+            ],
+            "filePairs": [],
+            "modules": [],
+        }
+        text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), None, [], history)
+        self.assertIn(
+            '<div class="n">0.40</div><div class="l">highest co-change ratio between two'
+            " modules (Alpha, Beta)</div>",
+            text,
+        )
+        # The most-churned type is the one with the most commits, not the top hotspot.
+        self.assertIn(
+            '<div class="n">40%</div><div class="l">of commits since 2025-03-01 touch'
+            " BetaThing, the most-churned type</div>",
+            text,
+        )
+
+    def test_history_tiles_absent_without_history(self):
+        text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), None, [], None)
+        self.assertNotIn("highest co-change ratio", text)
+        self.assertNotIn("the most-churned type", text)
+        self.assertEqual(text.count('<div class="tile">'), 4)
+
+    def test_findings_and_opportunities_render(self):
+        prose = _atlas_prose()
+        prose["page"]["findings_note"] = "Findings note."
+        prose["page"]["opportunities_note"] = "Opportunities note."
+        prose["findings"] = {
+            "reviewed": "2026-09-22",
+            "items": [
+                {"title": "First finding.", "body": "Body <em>one</em>."},
+                {"title": "Second finding.", "body": "Body two."},
+            ],
+        }
+        prose["opportunities"] = [
+            {"rank": 2, "item": "Later item", "evidence": "Ev two.", "size": "small",
+             "status": "Done, PR #12."},
+            {"rank": 1, "item": "First item", "evidence": "Ev one.", "size": "large",
+             "status": "Open.", "types": ["AlphaThing"]},
+        ]
+        text = archview.render_atlas_html(_atlas_model(), prose)
+        self.assertNotIn("@@", text)
+        self.assertIn("<h2>Main findings</h2>", text)
+        self.assertIn("<p>Findings note. Last reviewed 2026-09-22.</p>", text)
+        self.assertIn("<li><strong>First finding.</strong> Body <em>one</em>.</li>", text)
+        self.assertLess(text.index("First finding."), text.index("Second finding."))
+        self.assertIn("<h2>Opportunities, ranked</h2>", text)
+        self.assertIn("<p>Opportunities note.</p>", text)
+        self.assertIn(
+            '<tr><td class="num">1</td><td>First item<br><span class="id">AlphaThing</span>'
+            "</td><td>Ev one.</td><td>large</td><td>Open.</td></tr>",
+            text,
+        )
+        self.assertIn("Done, PR #12.", text)
+        self.assertLess(text.index("First item"), text.index("Later item"))
+        # Findings sit right after the tiles, opportunities right before Reading order.
+        self.assertLess(text.index("Main findings"), text.index("<h2>The map</h2>"))
+        self.assertLess(text.index("Largest files and types"), text.index("Opportunities, ranked"))
+        self.assertLess(text.index("Opportunities, ranked"), text.index("<h2>Reading order</h2>"))
+
+    def test_absent_findings_and_opportunities_render_nothing(self):
+        prose = _atlas_prose()
+        prose["findings"] = {"reviewed": "2026-09-22"}
+        prose["opportunities"] = "not a list"
+        for candidate in (_atlas_prose(), prose):
+            text = archview.render_atlas_html(_atlas_model(), candidate)
+            self.assertNotIn("@@", text)
+            self.assertNotIn("Main findings", text)
+            self.assertNotIn("Opportunities, ranked", text)
+            self.assertIn("<h2>The map</h2>", text)
+            self.assertIn("<h2>Reading order</h2>", text)
+
+    def test_committed_atlas_prose_renders_both_sections(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        text = archview.render_atlas_html(_atlas_model(), prose)
+        self.assertIn("<h2>Main findings</h2>", text)
+        self.assertIn("<h2>Opportunities, ranked</h2>", text)
+        for item in prose["findings"]["items"]:
+            self.assertIn(item["title"], text)
+        for row in prose["opportunities"]:
+            self.assertIn(row["status"], text)
+        reviewed, age = archview.findings_review(prose)
+        self.assertIsNotNone(age, "atlas.toml [findings] reviewed must be a YYYY-MM-DD date")
 
     def test_atlas_history_notice_when_empty(self):
         text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), None, [], None)
@@ -2649,7 +2775,51 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertIn("upward readings whose edge no longer exists (1): Gone -> Type", text)
         self.assertIn("reading-order types not in the model (1): NopeThing", text)
         self.assertIn("glossary entries outside the live top 18: none.", text)
+        self.assertIn("opportunity types not in the model: none.", text)
+        self.assertIn("main findings: no [findings] reviewed date.", text)
         self.assertLess(text.index("ATLAS"), text.index("Forbidden edges"))
+
+    def test_atlas_section_reports_findings_age_and_opportunity_types(self):
+        model = {
+            "modules": [
+                {"name": "Alpha", "files": 1, "fanIn": 0, "fanOut": 0, "instability": 0.5,
+                 "tooling": False}
+            ],
+            "edges": [],
+            "types": [],
+            "typeLevels": {"max": 0, "histogram": {}},
+            "knots": [],
+        }
+        old = (datetime.date.today() - datetime.timedelta(days=45)).isoformat()
+        fresh = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+        prose = {
+            "modules": {"Alpha": {"summary": "x"}},
+            "findings": {"reviewed": old, "items": [{"title": "t", "body": "b"}]},
+            "opportunities": [{"rank": 1, "item": "x", "types": ["GoneThing"]}],
+        }
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], prose)
+        text = captured.getvalue()
+        self.assertIn("opportunity types not in the model (1): GoneThing", text)
+        self.assertIn("main findings reviewed %s (45 days ago)." % old, text)
+        self.assertIn("main findings older than 30 days", text)
+        self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
+
+        prose["findings"]["reviewed"] = fresh
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], prose)
+        text = captured.getvalue()
+        self.assertIn("main findings reviewed %s (3 days ago)." % fresh, text)
+        self.assertNotIn("older than 30 days", text)
+
+        prose["findings"]["reviewed"] = "someday"
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], prose)
+        self.assertIn("main findings: reviewed 'someday' is not a YYYY-MM-DD date.",
+                      captured.getvalue())
 
     def test_atlas_section_reports_a_stale_glossary_entry(self):
         names = ["Type%02d" % index for index in range(1, 20)]
@@ -2926,6 +3096,17 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_every_source_file_is_classified(self):
         self.assertEqual(self.model["unclassified"], [])
+
+    def test_atlas_carries_findings_opportunities_and_headline_tiles(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        text = archview.render_atlas_html(
+            self.model, prose, None, [], self.history, self.sizes
+        )
+        self.assertNotIn("@@", text)
+        self.assertIn("<h2>Main findings</h2>", text)
+        self.assertIn("<h2>Opportunities, ranked</h2>", text)
+        self.assertEqual(text.count('<div class="tile">'), 6 if self.has_history else 4)
+        self.assertEqual(archview.prose_findings(self.model, prose)["missingOpportunityTypes"], [])
 
     def test_parseklog_has_the_highest_fanin(self):
         top = max(self.model["types"], key=lambda entry: entry["fanIn"])

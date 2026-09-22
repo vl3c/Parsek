@@ -177,11 +177,19 @@ columns whose blanks are visible, where the old outline simply said nothing.
 ## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows]
 
 **What is true.**
-- The concise findings report (numbers, module layers, the 391-type cycle and its cut
-  sequence, hotspots, co-change, the ranked opportunity list with PR status) is
-  `docs/dev/research/architecture-findings-2026-09-14.html` (committed snapshot) and
-  published at https://claude.ai/artifact/9Qzf1YvzDFsTSLF6X5We9b.
-- Every number in it regenerates from the source tree and git history in about 20 s:
+- The findings report IS the regenerated atlas: run `python scripts/arch/archview.py --check`,
+  then open `docs/dev/arch/atlas.html`. It carries the headline tiles, the "Main findings"
+  list, module layers, the cycle and its cut sequence, hotspots, co-change, the largest files
+  and types, and "Opportunities, ranked" with PR status. The findings and the opportunity
+  rows are the only hand-written conclusions; they live in `scripts/arch/atlas.toml`
+  (`[findings]`, `[[opportunities]]`), point at the generated sections instead of restating
+  their numbers, and `--check` reports their review date's age (a line past 30 days) and any
+  opportunity type no longer in the model.
+- The hand-written snapshot `docs/dev/research/architecture-findings-2026-09-14.html` was
+  retired on 2026-09-22 because its numbers went stale; it lives in git history (last in
+  commit d9dca69e6). The published link https://claude.ai/artifact/9Qzf1YvzDFsTSLF6X5We9b
+  stays and now carries the atlas.
+- Every number on it regenerates from the source tree and git history in about 20 s:
   `python scripts/arch/archview.py --check --place` writes the live views under
   `docs/dev/arch/` (gitignored: `atlas.html`, `explore.html`, `matrix.html`,
   `ladder.html`, `modules.svg`, `edges.json`, `types.json`, `history.json`,
@@ -189,11 +197,6 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `scripts/arch/modules.toml` (file to module, forbidden edges, the runtime-coupled module
   list) and `scripts/arch/atlas.toml` (prose). Contract and reading guide:
   `docs/dev/arch/README.md`.
-- **Report updated 2026-09-22** (same file, same artifact link): current tiles, the
-  corrected hotspot table, a "Largest types and split candidates" section with the top
-  ten types, their tier and the S1-S7 rules that fired, and opportunity rows 11
-  (GhostMapPresence carve-outs) and 12 (same-file extract-method pass over the Tier 1
-  types). The other tables are still the 2026-09-14 reading.
 - **Why the original missed GhostMapPresence.** The generator
   had no notion of size when the report was written, which is why it says almost nothing
   about `GhostMapPresence` (13.5k lines, a partial class whose members are all static). It
@@ -210,7 +213,7 @@ columns whose blanks are visible, where the old outline simply said nothing.
   The hand study of the motivating case, with a cluster table, ranked extraction
   candidates and a do-not-extract list tied to the render contracts, is
   `docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md`.
-- The ranked list behind the report is `docs/dev/research/architecture-opportunities-2026-09-14.md`;
+- The 2026-09-14 ranked list behind the opportunity rows is `docs/dev/research/architecture-opportunities-2026-09-14.md`;
   the VesselSpawner member-level plan is `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`.
 - Landed so far (2026-09-14): #1682 tooling, #1683 ParsekLog leaf, #1684 Recording data-only,
   #1685 Missions -> Logistics boundary, #1686 VesselSpawner step 1. Cycle 391 -> 282.
