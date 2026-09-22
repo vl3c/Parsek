@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: provisioning shares one artifact cache across worktrees.** The
+  provisioner used to download every pinned release zip on every run into the worktree's
+  own cache, so a fresh worktree failed as soon as an upstream URL rotted (the MechJeb2
+  build URL now returns 404). It now looks each zip up by its committed sha256 in
+  `automation/.artifact-cache/` at the umbrella root before downloading. It re-hashes the
+  cached file every time, replaces one that does not match, and adds every verified
+  download to the cache. `provision.py --seed-cache-from <dir>` fills the cache from zips
+  another worktree already has, with no network. Harness-only; no game code changed.
+
 - **Tests: recording-metadata round-trips now run through the codec that saved games use.**
   40 cells in ten test classes saved and loaded recordings through
   `ParsekScenario.SaveRecordingMetadata` / `LoadRecordingMetadataForTests`, a test-only

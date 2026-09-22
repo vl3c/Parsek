@@ -15,6 +15,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
+
+**What was wrong.** `phase_download` fetched every pinned release zip from its URL on
+every run and cached it only in the worktree's own `harness/provision/.cache/`. The
+MechJeb2 jenkins artifact
+(`ksp.sarbian.com/jenkins/job/MechJeb2-Release/45/artifact/MechJeb2-2.15.1.0.zip`)
+now answers 404, so `provision.py --profile stock-minimal` from a fresh worktree failed
+at DOWNLOAD. Agents worked around it by copying a cached zip from another worktree and
+re-pointing the pin at a `file:///` URL, which is a `pins.toml` edit that has to be
+reverted before every commit.
+
+**Fix.** A shared umbrella-level cache, `<umbrella>/automation/.artifact-cache/<sha256>`,
+is consulted by the committed sha256 before any download. Each entry is re-hashed on
+every use: a match skips the download, and a mismatch is ignored and atomically
+replaced by the verified download. A miss downloads and populates the cache. The
+decisions are pure provlib functions; the I/O lives in `provision.py`.
+`provision.py --seed-cache-from <dir>` seeds the cache from an existing worktree's zips
+with no network. Verified offline: seeding a temp umbrella from
+`Parsek-c1-folds/harness/provision/.cache` cached all 3 pinned zips (exit 0), and a live
+`phase_download` over that umbrella, with the network stubbed to fail, completed from
+the cache with all three sha256 checks OK. Contract: `design-autotest-stack-setup.md` ->
+DOWNLOAD. The rotted MechJeb2 URL is left as pinned. The pin comment names the CKAN
+archive.org mirror to use if the URL ever has to be replaced for a machine with no
+seeded cache.
+
 ## LOOP-TIME-UNIT-NOT-PERSISTED: a recording's loop period unit is not saved, so Auto (and Min / Hour) revert to Sec on reload [FILED 2026-09-22 off the recording-metadata test retarget (branch `retarget-recording-metadata-tests`). A PRODUCT serialization gap. OPEN]
 
 **Finding.** `Recording.LoopTimeUnit` is player-set (the Recordings table's unit button

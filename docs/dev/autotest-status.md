@@ -59,7 +59,12 @@ cached in every previously-provisioned sibling worktree's `harness/provision/.ca
 its sha256 still matches the pin, so the route is to copy that zip in and point
 `pins.toml`'s `downloadUrl` at a `file:///` URL for the one run (reverted before commit).
 A permanent fix is a re-pin to a live mirror (`pins.toml` already names
-`archive.org/download/MechJeb2-2.15.1.0/`).
+`archive.org/download/MechJeb2-2.15.1.0/`). **SUPERSEDED 2026-09-22 (branch `provision-artifact-cache`):**
+DOWNLOAD now looks each pinned zip up by its committed sha256 in the shared umbrella cache
+`automation/.artifact-cache/` (re-hashed on every use) before any download, so no
+`pins.toml` edit is needed: seed the cache once with `python harness/provision/provision.py
+--seed-cache-from ../Parsek-<other>/harness/provision/.cache`. The re-pin to a live mirror
+stays optional (todo PROVISION-FRESH-WORKTREE-DOWNLOAD-404).
 
 Previously: 2026-09-22 (**THE GUI STATE GALLERY, PHASE 1: `op=mock` ADDED to the M-A2
 `UiAction` verb - 20 -> 21 ops, implemented seam verbs unchanged at 36 - plus a compiled

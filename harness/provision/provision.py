@@ -514,20 +514,84 @@ def phase_pin(ctx: ProvisionContext) -> Dict[str, str]:
     return resolved
 
 
-def phase_download(ctx: ProvisionContext) -> None:
-    """Fetch + verify the kRPC release zip and the MechJeb2 build (live only)."""
-    krpc = ctx.pins.get("krpc", {})
-    mj = ctx.pins.get("mechjeb2", {})
-    kmj = ctx.pins.get("krpc_mechjeb", {})
+def _artifact_cache_entry(ctx: ProvisionContext, sha: Optional[str]) -> Optional[str]:
+    """Absolute path of the shared cache entry for a pinned sha256, or None when the
+    pin has no usable digest (``provlib.artifact_cache_key``)."""
+    key = provlib.artifact_cache_key(sha)
+    if key is None:
+        return None
+    return os.path.normpath(os.path.join(provlib.artifact_cache_dir(ctx.umbrella_root), key))
 
-    # Three pinned release artifacts. krpc_mechjeb ordered before mechjeb2 so its
-    # (resolved) download succeeds; the OPEN mechjeb2 pin then aborts DOWNLOAD by
-    # design (EC-13) until a durable build URL+sha256 is recorded.
-    for comp, url, sha, name in (
-        ("krpc", krpc.get("releaseZipUrl"), krpc.get("releaseZipSha256"), "krpc release zip"),
-        ("krpc_mechjeb", kmj.get("downloadUrl"), kmj.get("releaseZipSha256"), "krpc_mechjeb release zip"),
-        ("mechjeb2", mj.get("downloadUrl"), mj.get("sha256"), "mechjeb2 build"),
-    ):
+
+def _hash_cache_entry(path: Optional[str]) -> Optional[str]:
+    """Fresh sha256 of a cache entry, None when absent or unreadable. Every use of
+    a cached file re-hashes it here; nothing trusts a stored hash."""
+    if path is None or not os.path.isfile(path):
+        return None
+    try:
+        return sha256_file(path)
+    except OSError:
+        return None
+
+
+def _write_cache_entry(ctx: ProvisionContext, path: str, data: bytes) -> None:
+    """Atomically place verified bytes at ``path`` (tmp + os.replace, so a
+    concurrent reader in another worktree sees the old entry or the new one, never
+    a torn file). A failure is a Warn, never an abort: the cache is an optimisation
+    and the verified bytes are already in hand."""
+    tmp = "%s.tmp-%d" % (path, os.getpid())
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+        log(ctx, "Info", "Download", "artifact cache populated %s (%d bytes)" % (path, len(data)))
+    except OSError as exc:
+        log(ctx, "Warn", "Download", "artifact cache write failed %s: %s" % (path, exc))
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _fetch_artifact(ctx: ProvisionContext, art: "provlib.PinnedArtifact"
+                    ) -> "tuple[Optional[bytes], provlib.ArtifactFetchDecision]":
+    """Bytes for one pinned artifact: the shared cache when its entry re-hashes to
+    the committed sha256, else a download. Returns (None, decision) after an abort.
+    The caller re-verifies the returned bytes against the pin either way."""
+    entry = _artifact_cache_entry(ctx, art.sha256)
+    # Read the entry ONCE and hash those bytes in memory: the bytes judged are the bytes
+    # used, so a writer replacing the file between a hash and a second read cannot slip
+    # unverified bytes through.
+    cached: Optional[bytes] = None
+    present = entry is not None and os.path.isfile(entry)
+    if present:
+        try:
+            with open(entry, "rb") as fh:
+                cached = fh.read()
+        except OSError as exc:
+            log(ctx, "Warn", "Download", "%s cache read failed %s: %s" % (art.name, entry, exc))
+    decision = provlib.decide_artifact_fetch(
+        art.sha256, present, sha256_bytes(cached) if cached is not None else None)
+    if decision.action == provlib.FETCH_USE_CACHE:
+        log(ctx, "Info", "Download", "%s %s %s (no download)" % (art.name, decision.reason, entry))
+        return cached, decision
+    if decision.reason == provlib.FETCH_REASON_CORRUPT:
+        log(ctx, "Warn", "Download", "%s %s: %s does not hash to the pinned sha256; "
+            "ignoring it and downloading" % (art.name, decision.reason, entry))
+    elif decision.reason == provlib.FETCH_REASON_MISS:
+        log(ctx, "Info", "Download", "%s %s %s; downloading %s"
+            % (art.name, decision.reason, entry, art.url))
+    return _download(ctx, art.url), decision
+
+
+def phase_download(ctx: ProvisionContext) -> None:
+    """Fetch + verify the pinned release zips (live only), consulting the shared
+    umbrella artifact cache (``provlib.ARTIFACT_CACHE_RELDIR``) by committed sha256
+    before any download and populating it from every verified download."""
+    for art in provlib.pinned_release_artifacts(ctx.pins):
+        comp, url, sha, name = art.comp, art.url, art.sha256, art.name
         if provlib.is_open_pin(sha):
             if ctx.dry_run:
                 log(ctx, "Amber", "Download",
@@ -555,11 +619,16 @@ def phase_download(ctx: ProvisionContext) -> None:
             abort(ctx, "Download", "EC-13", "%s sha256 OPEN" % comp)
             return
         if ctx.dry_run:
-            log(ctx, "Info", "Download", "%s url=%s expected-sha256=%s (no fetch in dry-run)"
-                % (name, url, sha))
+            entry = _artifact_cache_entry(ctx, sha)
+            dec = provlib.decide_artifact_fetch(
+                sha, entry is not None and os.path.isfile(entry), _hash_cache_entry(entry))
+            log(ctx, "Info", "Download", "%s url=%s expected-sha256=%s artifact-cache=%s "
+                "(a live run would %s; no fetch in dry-run)"
+                % (name, url, sha, dec.reason,
+                   "use %s" % entry if dec.action == provlib.FETCH_USE_CACHE else "download"))
             continue
         # Live path.
-        data = _download(ctx, url)
+        data, decision = _fetch_artifact(ctx, art)
         if data is None:
             return
         actual = sha256_bytes(data)
@@ -572,6 +641,8 @@ def phase_download(ctx: ProvisionContext) -> None:
             return
         if comp == "krpc" and not _assert_krpc_zip_layout(ctx, data):
             return  # SF4: wrong layout -> abort, never cache/install this zip
+        if decision.populate:
+            _write_cache_entry(ctx, _artifact_cache_entry(ctx, sha), data)
         os.makedirs(CACHE_DIR, exist_ok=True)
         with open(os.path.join(CACHE_DIR, os.path.basename(url)), "wb") as fh:
             fh.write(data)
@@ -2553,9 +2624,83 @@ def _finish(ctx: ProvisionContext, code: int) -> int:
     return code
 
 
+def seed_artifact_cache(pins: Dict, umbrella_root: str, source_dirs: Sequence[str],
+                        dry_run: bool = False) -> int:
+    """Seed the shared artifact cache from existing zips (e.g. another worktree's
+    ``harness/provision/.cache``), no network. Hashes every regular file directly in
+    each source dir; ``provlib.plan_cache_seed`` keeps only files whose hash equals a
+    pinned sha256, and each copy is re-hashed at its destination. An entry already
+    present is re-hashed too and replaced when it does not match. Returns 0 when
+    every pinned artifact ends up cached and verified, else 1."""
+    ctx = ProvisionContext(profile_name="seed-cache", pins=pins, profile={},
+                           umbrella_root=umbrella_root, dry_run=dry_run, repair=False,
+                           parsek_dll_override=None)
+    cache_dir = os.path.normpath(provlib.artifact_cache_dir(umbrella_root))
+    candidates: Dict[str, str] = {}
+    for src in source_dirs:
+        if not os.path.isdir(src):
+            log(ctx, "Warn", "Seed", "source dir missing: %s" % src)
+            continue
+        for name in sorted(os.listdir(src)):
+            path = os.path.join(src, name)
+            if os.path.isfile(path) and not os.path.islink(path):
+                try:
+                    candidates[path] = sha256_file(path)
+                except OSError as exc:
+                    log(ctx, "Warn", "Seed", "unreadable, skipped: %s (%s)" % (path, exc))
+    if not dry_run and os.path.isdir(cache_dir):
+        import time
+        now = time.time()
+        for name in sorted(os.listdir(cache_dir)):
+            path = os.path.join(cache_dir, name)
+            try:
+                if os.path.isfile(path) and provlib.is_stale_cache_tmp(
+                        name, now - os.path.getmtime(path)):
+                    os.remove(path)
+                    log(ctx, "Info", "Seed", "removed stale temp file %s" % path)
+            except OSError as exc:
+                log(ctx, "Warn", "Seed", "could not remove stale temp file %s: %s" % (path, exc))
+    cached_keys = [n for n in (os.listdir(cache_dir) if os.path.isdir(cache_dir) else [])
+                   if provlib.artifact_cache_key(n) == n]
+    plan = provlib.plan_cache_seed(pins, candidates, cached_keys)
+    copied = 0
+    for entry in plan:
+        dest = os.path.join(cache_dir, entry.sha256)
+        if entry.action == "already-cached" and _hash_cache_entry(dest) == entry.sha256:
+            log(ctx, "Info", "Seed", "%s already cached and verified %s" % (entry.comp, dest))
+            continue
+        if dry_run:
+            log(ctx, "Info", "Seed", "%s would copy %s -> %s" % (entry.comp, entry.source, dest))
+            continue
+        with open(entry.source, "rb") as fh:
+            data = fh.read()
+        if sha256_bytes(data) != entry.sha256:
+            log(ctx, "Warn", "Seed", "%s changed while seeding, skipped: %s" % (entry.comp, entry.source))
+            continue
+        _write_cache_entry(ctx, dest, data)
+        if _hash_cache_entry(dest) == entry.sha256:
+            copied += 1
+            log(ctx, "Info", "Seed", "%s seeded from %s" % (entry.comp, entry.source))
+        else:
+            log(ctx, "Warn", "Seed", "%s seed did not verify at %s" % (entry.comp, dest))
+    # The exit code reads the CACHE, not this run's copies: a pinned artifact seeded
+    # earlier (and not among these candidates) still counts once it re-verifies.
+    wanted = {provlib.artifact_cache_key(a.sha256) for a in provlib.pinned_release_artifacts(pins)}
+    wanted.discard(None)
+    cached_ok = sum(1 for k in wanted if _hash_cache_entry(os.path.join(cache_dir, k)) == k)
+    log(ctx, "Info", "Seed", "cache=%s candidates=%d matched=%d copied=%d cached-verified=%d "
+        "of %d pinned" % (cache_dir, len(candidates), len(plan), copied, cached_ok, len(wanted)))
+    return 0 if cached_ok == len(wanted) else 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description="M-A6 automation-stack provisioner")
-    p.add_argument("--profile", required=True, help="profile name under profiles/ (e.g. stock-minimal)")
+    p.add_argument("--profile", help="profile name under profiles/ (e.g. stock-minimal); "
+                   "required unless --seed-cache-from is given")
+    p.add_argument("--seed-cache-from", action="append", metavar="DIR",
+                   help="seed the shared artifact cache (<umbrella>/%s) from the zips in DIR "
+                   "(repeatable; only files whose sha256 matches a pin are taken) and exit; "
+                   "no network, no instance touched" % provlib.ARTIFACT_CACHE_RELDIR)
     p.add_argument("--repair", action="store_true", help="re-install any drifted component then re-verify")
     p.add_argument("--dry-run", action="store_true",
                    help="print the action plan + drift; no network, downloads, builds, or writes outside harness/")
@@ -2565,6 +2710,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--umbrella-root", help="override the umbrella root (default: parent of this worktree)")
     args = p.parse_args(argv)
 
+    if args.seed_cache_from:
+        umbrella = args.umbrella_root or os.path.abspath(os.path.join(WORKTREE_ROOT, ".."))
+        return seed_artifact_cache(load_toml(PINS_PATH), umbrella, args.seed_cache_from,
+                                   dry_run=args.dry_run)
+    if not args.profile:
+        p.error("--profile is required (unless --seed-cache-from is given)")
     profile_path = os.path.join(PROFILES_DIR, "%s.toml" % args.profile)
     if not os.path.isfile(profile_path):
         print("[Provision][Error][Preflight] profile not found: %s" % profile_path)

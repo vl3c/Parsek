@@ -66,6 +66,16 @@ Everything the harness fetches or generates lives UNDER `harness/`:
 - Caches + scratch (gitignored): `provision/.cache/` (release zips, the
   module-owned git source clones `krpc-src` / `krpc_mechjeb-src`, kRPC compile
   refs, the built `TestingTools.dll`) and `provision/.stage/`.
+- Shared artifact cache (umbrella root, outside git):
+  `<umbrella>/automation/.artifact-cache/<sha256>`. DOWNLOAD looks each pinned
+  release zip up there by its committed sha256 before downloading, re-hashes the
+  entry on every use (a mismatching entry is ignored and replaced), and populates it
+  from every verified download, so a fresh worktree provisions without the network
+  once any worktree has. Seed it from zips you already have, without the network:
+  `python harness/provision/provision.py --seed-cache-from ../Parsek-<other>/harness/provision/.cache`
+  (only files whose hash matches a pin are copied; exit 0 means every pinned
+  artifact is cached). Contract: `docs/dev/design-autotest-stack-setup.md` ->
+  DOWNLOAD.
 - Generated outputs (gitignored): `results/`, `coverage/coverage.*`, `flake.json`.
 
 Provisioned KSP instances live at the umbrella root under `automation/`
