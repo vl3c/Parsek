@@ -826,6 +826,23 @@ ids = ["5420f805fcbb453b8d5928b71393f14b"]
 #   connectionKinds - same; `DockingPort` is a fixture property, not a claim
 #     about what this run did.
 
+# [expectations.unityExceptions] ARMED 2026-09-22 ON maxParsekFrames ONLY (todo
+# GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE, re-proof of the PR #1748 quit latch).
+# maxTotal stays report-only. A `Parsek.` frame on an exception stack is a finding at any
+# count, so this key is 0 whatever the stock noise does. BEFORE the latch: parsekFrames 3 in `2026-09-02_1315`, all
+# `Parsek.GhostMapPresence.EnsureGhostOrbitRenderers` after `flushandquit`. AFTER it:
+# `2026-09-22_1834_a2` read parsekFrames 0 (total 0, afterQuit 0, quit marker seen) on the driver-valid
+# attempt 2 (verdict PARSEK-FAIL on an unrelated LoopRoute `loopUT=` over-pin, todo
+# V18T-LOOPROUTE-LOOPUT-OVERPIN); the latch line printed, the skip line did not (this
+# teardown did not reach the TS rebuild; the lane's other logs read 0 too).
+# CONTROLLED OFFLINE, no flight: this block PASSES that run's KSP.log, and over the same
+# bytes with V15T `2026-09-10_1917`'s real 15-line Parsek-frame `[EXC]` record appended
+# it reds on exactly one mismatch, `unityExceptions.parsekFrames 1 > maxParsekFrames 0
+# (Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)`, and passes at 1; readings in
+# the status doc's known-gate 11.
+[expectations.unityExceptions]
+maxParsekFrames = 0
+
 [runtime]
 # 300 LoadGame + 300 TimeJump + 300 TimeJump + 300 LoadGame(TS) + 120 export + the fast
 # non-deferred verbs + KSP boot + collect. Every jump is instantaneous, so the ~14 ks of
