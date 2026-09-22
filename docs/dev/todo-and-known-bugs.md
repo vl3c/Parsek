@@ -15,6 +15,141 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and one product finding [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). EIGHT items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan; 8 IS a product finding, verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
+
+**Read 5 and 6 before authoring any census lane.** Both are cases where every log contract
+PASSED over a picture that showed the wrong thing, which is the failure mode a census is
+least able to notice: a spec cannot assert what a PNG contains.
+
+**Where this came from.** PR #1734 shipped the automation-only seam operations that write
+the window state a player writes with a click (`op=state`, `op=sort`, `op=select`,
+`op=edit`, `op=run await=false`, the three Logistics raise rows, `RouteCommand
+action=link|unlink|set-cadence`). Four census lanes were authored against them. These are
+the states that STILL have no picture, each re-derived from the committed bytes or from
+the source rather than assumed.
+
+**1. NO HOST CARRIES AN ARCHIVED RECORDING OR AN ARCHIVED MISSION**
+(`GUI-CENSUS-NO-HOST-CARRIES-AN-ARCHIVED-RECORDING-OR-MISSION`).
+`RecordingTreeRecordCodec` writes the `hidden` key only when `Recording.Hidden` is true,
+and the token appears ZERO times across all 59 directories under
+`harness/fixtures/saves/` and in the operator's own `c1/persistent.sfs`;
+`Mission.Archived` serializes unconditionally and reads `False` in all 9 of its
+occurrences. So `op=state key=archived` and `key=archivedMissions` move the FILTER CONTROL
+(which the dump proves - `GuiTreeJson` records a toggle's own `value`) and can never move
+a ROW. Unreachable: the Timeline's per-row `[archived]` marker, the Recordings tab's
+archived rows re-appearing, and the Missions tab's list shrinking. NEEDS a fixture whose
+builder archives one recording and one mission, or a seam verb that sets
+`Recording.Hidden` / `Mission.Archived` - neither exists today, and the two filter ops
+deliberately drive the FILTER rather than the flag.
+
+**2. NO COMMITTED FIXTURE CARRIES A DORMANT ROUTE**
+(`GUI-CENSUS-NO-FIXTURE-CARRIES-A-DORMANT-ROUTE`). `TryResolveRaiseDormantRoute` reads
+`RouteStore.DormantRoutes`, a population DISJOINT from `CommittedRoutes`, so a host with
+routes can still answer `dialog-target-unavailable`. The two route-carrying fixtures
+(`interbody-route-recorded`, `depot-route-recorded`) carry no dormant entry at all, and
+GUI-25 declares `popup=deletedormantroute` as a REJECTED naming the reason rather than
+photographing nothing under a dialog label. That makes `Confirm: Delete Dormant Route` ONE
+OF TWO rows of `TestCommandUiDialogRaise`'s ten-row table with no host anywhere - NOT the
+only one, which an earlier draft of this entry claimed. The other is `popup=rewind`,
+unphotographable on the whole committed set for its own reason: its spawn site silently
+returns when `RecordingStore.GetRewindRecording` is null and `rewindSave` is empty in all
+27 occurrences across the 21 fixtures that carry the key (recorded in the wave-5 residue
+and in `design-gui-inventory.md`'s "what stays unreachable" paragraph). So EIGHT of the ten
+raisable rows have a host and two do not. NEEDS a fixture with a dormant route, which is a
+rewind-visibility state a builder would have to produce.
+
+**3. REAL SPAWN CONTROL'S FOUR SORT STATES HAVE NO OPENABLE HOST**
+(`GUI-CENSUS-SPAWN-CONTROL-SORT-HAS-NO-OPENABLE-HOST`). `op=sort` is one of the three ops
+that refuse a closed window (`TestCommandUiAction.OpRequiresWindowOpen`), and
+`SpawnControlUI.DrawIfOpen` FORCE-CLOSES itself on its first draw when
+`ResolveAutoCloseReason` finds zero nearby spawn candidates - which GUI-2 already measured
+and pins as `uiaction error reason=window-self-closed window=spawncontrol`. So the `craft`
+/ `dist` / `relspeed` / `spawntime` columns of `SpawnControlColumns` cannot be driven on
+any committed FLIGHT host. Same root cause as item 1 of
+GUI-STATE-COVERAGE-RESIDUE-2026-09-21 (which records that window's zero-candidate draw
+branch as dead) seen from the other side, and it NEEDS the same thing: a FLIGHT fixture
+with a spawnable committed recording close to the active vessel.
+
+**4. THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE**
+(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MEASURED by GUI-24's first
+flight (`2026-09-21_2252`) rather than derived. `op=expand window=career key=none` ran
+correctly and answered `state=false expanded=0 total=2`, and the two captures beside it
+showed NO FOLD: `CareerStateWindowUI` draws `Pending in timeline (N)` only in the `else`
+arm of `RowsEqual(tab.CurrentRows, tab.ProjectedRows)` (`:1478`), i.e. only when the
+recorded future DIVERGES from now. The operator's own 110-recording career reads
+`Mission Control L1 - slots 0/2 now, 0/2 at timeline end` and
+`Administration L1 - slots 0/1 now, 0/1 at timeline end`, so the same-as-projected arm
+draws and there is no fold to collapse. The two steps were REMOVED from GUI-24 rather
+than relabelled - GUI-1 already photographs both tabs resting on this host. NEEDS a host
+whose ledger carries a pending contract accept or a pending strategy activation in the
+FUTURE; `career-contract-pad` (GUI-15's host) carries two accepts but GUI-15's reading
+records them as CURRENT, so it is a candidate to re-measure rather than a known answer.
+
+**5. GROUPED DISPLAY BLOCKS ARE NOT EXPANDABLE THROUGH THE SEAM, so a recording inside
+one cannot be edited or photographed**
+(`GUI-CENSUS-GROUPED-DISPLAY-BLOCKS-ARE-NOT-EXPANDABLE-THROUGH-THE-SEAM`). MEASURED by
+GUI-25's first flight (`2026-09-21_2254`, INVALID at the recording-rename step with
+`edit-not-drawn`). The Recordings tab draws TWO kinds of collapsible block and the seam's
+`op=expand` enumerates only one: `DrawChainBlock` keys its block by `Recording.ChainId`,
+which `RecordingsTableUI.EnumerateChainIdsForTesting` walks, while
+`DrawGroupedRecordingBlock` keys its block `"<groupName>::<identity>"` (`:5713`, built in
+`:5741-5754`), a shape no expand set produces. So `key=all` answered
+`changed=29 expanded=52 total=52` - every key it knows - and the multi-member
+`Kerbal X (2)` block still drew its collapsed caret, leaving both of its member
+recordings undrawable. Consequences beyond this lane: `op=edit field=recordingname` and
+any capture of a grouped block's MEMBER ROWS are unreachable on any host that groups two
+same-identity recordings under one group. The lane's remedy is to key the edit to a
+SINGLE-member block (which draws as a plain row); the instrument remedy is a `block:`
+expand prefix over `EnumerateDisplayBlockKeys`, which does not exist. NEEDS that prefix,
+or an enumeration of the grouped keys folded into `chain:`.
+
+**6. AN IMGUI WINDOW OVER THE SCREEN CENTRE HIDES A RAISED `PopupDialog` IN THE CAPTURE**
+(`GUI-CENSUS-AN-IMGUI-WINDOW-HIDES-A-RAISED-POPUPDIALOG-IN-THE-CAPTURE`). MEASURED TWICE,
+by GUI-25's `2026-09-21_2258` and GUI-26's `2026-09-21_2300` - both PASS on every log
+contract, with `uiaction dialog open=true count=1 name=ParsekLogisticsDeleteRouteConfirm`
+/ `...CreateRouteConfirm` and a `dismiss ok` afterwards proving the modal stood through
+the capture, and both PNGs showing the full-width Logistics window with NO DIALOG in it. A
+`PopupDialog` is uGUI on `UIMasterController`'s dialog canvas; KSP's legacy IMGUI
+(`OnGUI`) renders after it, so any Parsek window covering the screen centre paints over
+the modal. GUI-10 never hit this because only the 250 px `main` window was open beside its
+six dialogs. THE SEAM CANNOT SEE IT: `op=dialog` reports the modal's own open flag, which
+is true either way, so the log contract passes over a false picture - the PNG is the only
+check. The lane remedy, taken in both specs, is `op=close` on the covering window before
+the raise. NEEDS, if it is ever to be automatic: an `op=raise` post-settle that refuses
+when a non-`main` window's rect covers the dialog's own rect, which nothing computes
+today.
+
+**7. `" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`**
+(`GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT`). A CORRECTION to the
+wave-6 lane plan, which asked for the suffix by driving ONE of a vessel's own interval
+keys with `include=false`. The op cannot express that: `TryParseSelectKey` yields a
+`vessel:<value>` pair, the applier RESOLVES A ROW from it (`FindVesselRow` matches
+`OwnerHeadId` first, then ANY ONE of that row's interval keys, and returns the ROW either
+way), and `ApplyVesselSelection` then calls `MissionVesselRowBuilder.ApplyVesselInclusion`
+over ALL of that row's own keys. `ClassifyInclusion` therefore answers `All` or `None` and
+never `Partial`, and the op's own settle check compares against exactly those two. The
+mixed picture the census CAN take is one vessel excluded among included siblings, which
+GUI-27 does. NEEDS a per-interval-key affordance in the op (a `key=interval:<key>` prefix)
+if the suffix is ever judged worth a capture; nothing in the product is wrong.
+
+**8. A ROUTE NAME'S `->` ARROW RENDERS AS A MISSING-GLYPH BOX IN EVERY uGUI CONFIRM
+(PRODUCT).** The one PRODUCT finding in this entry - items 1 to 7 are gaps. Seen in
+GUI-25's `ib-dlg-deleteroute.png` (run `2026-09-21_2316`): the Delete Route confirm reads
+`Delete route 'Route: KSC [box] Mun'?` where the route name's arrow should be.
+`RouteCreationFormatters.cs:487` builds the name as `"Route: " + origin + " → " +
+endpoint`, and that is NOT the bug - the IMGUI Logistics window in the SAME frame renders
+it correctly, which the dump beside the PNG proves three times over (`Route: KSC →
+Mun`, the caret row, and the `Round-trip linked to '...'` note all carry U+2192). The
+difference is the RENDERER: `LogisticsWindowUI.cs:2874` interpolates the same string into a
+`PopupDialog` body, and the TextMeshPro font KSP's dialog canvas uses has no glyph for
+U+2192, so TMP substitutes its missing-glyph box. Every uGUI surface that interpolates a
+route name is affected - the two route confirms - while every IMGUI surface is fine. The
+Create Supply Route confirm is NOT affected: it builds its body from `Origin:` /
+`Endpoint:` lines and never embeds the composed name. NEEDS a decision rather than an
+obvious fix: either ASCII-ise the arrow in the composed name (which changes the IMGUI
+surfaces too, where it currently looks right), or substitute at the two dialog-body sites
+only. Not fixed here - this PR adds no C#.
+
 ## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
 
 **Where this came from.** A read-only audit enumerated every visibly distinct draw branch

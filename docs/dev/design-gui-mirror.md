@@ -417,6 +417,13 @@ One real state the corpus is still missing:
 directory nothing indexes. Adding it is a `--shots` argument, not a code change
 (`docs/dev/todo-and-known-bugs.md`).
 
+STALE BY FOUR LANES as of the same day: the wave-6 lanes `GUI-24` through
+`GUI-27` flew while this was being read and are not in the numbers above. The
+generator needs no change to take them - `parse_label` reads its window and tab
+vocabularies out of the logs - so the mirror wants one REGENERATION rather than
+an edit, and the reading above is left as the reading it was, per this section's
+own "as of" contract.
+
 ## 11. Fidelity: the page measured against the frame
 
 `harness/tools/gui_mirror_fidelity.py`. Until this existed, "the mirror looks like

@@ -92,6 +92,54 @@ _(unreleased — entries accumulate here per commit)_
   dx p50 / p95 held at 2 / 5 px, fill delta p95 at 0, every slider thumb still resolving on
   both sides - three new worst-case tails from the eleven new lanes are filed in T42b.
 
+- **Automated testing: four census lanes that photograph the window states only a click
+  could write.** GUI-24..GUI-27, operator-tier, authored against the automation-only seam
+  operations PR #1734 shipped - `UiAction op=state` (a window's scalar view state),
+  `op=sort` (a table's column and direction), `op=select` (the Missions tab's include
+  affordance), `op=edit` (the three in-place rename editors), `op=run await=false`
+  (dispatch an in-game batch and leave it running), the three Logistics raise rows and
+  `RouteCommand action=link|unlink|set-cadence`. NO NEW C#: every lane drives ops that
+  already shipped. What the wave buys, each measured against the `.gui.json` dumps the
+  census already holds rather than assumed: the Timeline window with each of its three
+  source toggles OFF, its archive filter ON, its Custom range revealed (the window's only
+  two sliders, plus `From:` / `To:` - zero hits program-wide before), two time-range
+  presets and the entry list scrolled - eight states that read one identical value in
+  every prior dump; the
+  Missions window's expanded-stats columns (six header strings with zero hits
+  program-wide), both archive filters, three sort states across its two COLLIDING tables,
+  and all three in-place rename editors ARMED - the mid-edit layout no census gesture
+  could reach, since the arming gesture is a double-click; the Logistics route table
+  sorted, its `Confirm: Delete Route` and `Create Supply Route?` modals, and a
+  round-trip-linked route at a non-1x cadence; the in-game test runner photographed WHILE
+  a batch runs rather than after it; and the Missions tab's include affordance in its
+  excluded, re-included and mixed forms. Three of the four lanes write state a save would
+  keep (both archive flags, `op=select`'s two Mission fields, the recording rename a rival
+  arm commits, and a route's link and cadence), so each runs on the throwaway copy the
+  harness stages and no fixture is ever harvested from these runs. Four states in the
+  family still have no host and are filed rather than faked (no fixture and not the
+  operator's career carries an archived recording or mission; none carries a dormant
+  route; Real Spawn Control cannot be opened without a nearby spawn candidate, so its four
+  sort states are unreachable; and `" (partial)"` inclusion is not expressible through
+  `op=select`, which resolves a ROW and applies to all of its own interval keys) - see
+  `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22` in `docs/dev/todo-and-known-bugs.md`. ALL FOUR
+  FLEW GREEN 2026-09-22 on one pinned automation DLL (nine flights, every lane's final
+  verdict PASS on attempt 1, 55-88 s wall), and the flights forced four corrections that
+  no log contract could have caught - three of them runs that passed every pinned line
+  over a picture showing the wrong thing: a raised `PopupDialog` is uGUI and a full-width
+  IMGUI window paints over it, so both Logistics modals were invisible in their first
+  captures while the seam correctly reported them standing; `op=run await=false` reads
+  `running=` at DISPATCH, and an eight-cell `TrajectoryMath` batch finished in 149 ms
+  before the screenshot landed, so the runner photographed results under a running label;
+  `op=expand key=all` cannot open a GROUPED display block (the Recordings tab has two
+  block kinds and only `ChainId` is enumerated), so a recording inside one is undrawable
+  and its rename editor answers `edit-not-drawn`; and the Career `Pending in timeline`
+  fold needs a career whose recorded future DIVERGES from now rather than merely a long
+  one, so those two captures were dropped. Each is filed with what it needs. The wave also
+  turned up ONE product finding, filed and not fixed here (this PR adds no C#): a route
+  name's `->` arrow renders as a missing-glyph box in both uGUI route confirms, because the
+  TextMeshPro font KSP's dialog canvas uses has no glyph for U+2192 - the composed name is
+  correct and the IMGUI Logistics window in the same frame renders it fine.
+
 - **Automated testing: the GUI census can now photograph the product FAILING, refusing and
   being authored, not only resting.** Eleven new operator-tier census lanes
   (GUI-13..GUI-23) plus three amendments to existing ones, all authored off a read-only

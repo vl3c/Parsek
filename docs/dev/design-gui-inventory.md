@@ -1450,6 +1450,74 @@ launcher is retired in BOTH modes, so no player can open it), the map marker lab
 sticky icon alpha, and `popup=rewind` on the whole committed fixture set. Full reasoning:
 `docs/dev/todo-and-known-bugs.md` -> `GUI-SEAM-WAVE6-RESIDUE-2026-09-21`.
 
+### 6.0.1 The lanes flown against those ops (2026-09-22), and seven predictions the sources and the flights corrected
+
+FOUR LANES CLAIM THE TABLE ABOVE, all FLOWN PASS 2026-09-22 on one pinned automation DLL
+(`d3a4dbbfc23d9d1e9c6cd166075c53e769e3e89d8629b6cfcfb3b89fd0f5518e`), nine flights, every
+lane's final verdict PASS on attempt 1 at 55-88 s: `GUI-24-census-timeline-filters`
+(`fixtures/local-saves/c1-gui`, SPACECENTER - every Timeline row of the table above, and
+NOT the Career `pending:` row, whose two steps that lane dropped - see below),
+`GUI-25-census-missions-state-sort-edit` (`interbody-route-recorded`,
+SPACECENTER - `expandedStats`, both archive keys, three `op=sort` states, all three
+`op=edit` editors, the Logistics sort, `popup=deleteroute` and the link + cadence pair),
+`GUI-26-census-createroute-and-running-batch` (`rover-route-recorded`, SPACECENTER -
+`popup=createroute` and `op=run await=false`) and `GUI-27-census-missions-include`
+(`bdock-recorded`, SPACECENTER - `op=select` in all three forms). Their status rows are in
+`autotest-status.md` under "The GUI census, wave 6".
+
+FOUR ROWS OF THE 6.0 TABLE PREDICTED MORE THAN THE SOURCES DELIVER, corrected in place
+rather than left to mislead the next author. Each was re-derived from the committed bytes
+or from the applier, not from the op's name:
+
+  * the **`key=archived`** row's `[archived]` ROW MARKER, and the **`key=archivedMissions`**
+    row's "whole missions dropping out", need a host with an archived recording or an
+    archived mission. NO FIXTURE AND NOT THE OPERATOR'S OWN CAREER HAS EITHER: the `hidden`
+    key is written only when true and appears ZERO times across all 59 fixture directories
+    and in `c1/persistent.sfs`, and `archived` reads `False` in all 9 of its occurrences.
+    Both keys therefore buy the FILTER CONTROL moving (readable in the dump, which records
+    a toggle's own `value`) and nothing else, so `DisplayBlockRendersAnything` and the
+    corner-connector precedence table stay uncovered.
+  * the **`op=sort`** row's "8 Spawn Control" states are UNREACHABLE THROUGH THE SEAM.
+    `op=sort` refuses a closed window, and `SpawnControlUI.DrawIfOpen` force-closes itself
+    on its first draw with no nearby spawn candidate - which GUI-2 already measured and
+    pins. The Missions and Logistics halves are unaffected and are what GUI-25 claims.
+  * the **`op=select key=vessel:`** row's `" (partial)"` SUFFIX is not expressible by that
+    op. It resolves a ROW (by `OwnerHeadId`, else by any one of that row's interval keys)
+    and then applies `ApplyVesselInclusion` over ALL of that row's own keys, so
+    `ClassifyInclusion` answers `All` or `None` and never `Partial`. The greyed include-OFF
+    row IS bought, and GUI-27 additionally takes the mixed tab (one vessel excluded among
+    included siblings), which is the shape a player produces.
+  * the **`op=raise popup=deletedormantroute`** third of the Logistics-modal row has NO
+    HOST: `RouteStore.DormantRoutes` is disjoint from `CommittedRoutes` and no committed
+    fixture carries a dormant entry, so GUI-25 declares that raise as a REJECTED naming the
+    reason. The other two modals are photographed, on two different hosts - a host with
+    routes has no live candidate and a host with candidates has no routes.
+
+AND THREE MORE THE FLIGHTS CORRECTED, each measured rather than reasoned, and each a run
+that PASSED every pinned line over a picture showing the wrong thing:
+
+  * the **`op=raise popup=...`** row's PNG-only note is right about the dump and silent
+    about the thing that actually breaks the picture: a `PopupDialog` is uGUI and KSP's
+    legacy IMGUI pass paints OVER it, so a full-width Parsek window over the screen centre
+    HIDES the modal in the capture while `op=dialog` reports `open=true count=1`. Both
+    Logistics modals were invisible in their first captures; both lanes now `op=close` the
+    covering window before the raise.
+  * the **`op=run await=false`** row promises the RUNNING control bar and delivers a RACE:
+    `running=` is read at DISPATCH, and an eight-cell `TrajectoryMath` batch completed in
+    149 ms before the screenshot landed, so the PNG read `idle | 8 passed` with `Cancel`
+    greyed. A category whose batch outlives the seam's command poll is required;
+    `Periodicity` (nine batch-eligible Lambert-solving cells) is the one this wave uses,
+    and the re-flight reads `RUNNING | 2 passed 0 failed 4 skipped` with `Cancel` enabled.
+  * the **`op=edit field=recordingname`** row needs a row the seam can DRAW, and
+    `op=expand key=all` cannot open every block that hides one: the Recordings tab draws
+    two collapsible block kinds and only `DrawChainBlock`'s `ChainId` is enumerated, while
+    `DrawGroupedRecordingBlock` keys its block `"<groupName>::<identity>"`. `key=all`
+    answered `changed=29 expanded=52 total=52` and a multi-member grouped block still drew
+    collapsed, so the editor answered `edit-not-drawn`. Key such an edit to a single-member
+    block, or add a `block:` expand prefix.
+
+All seven are filed as `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22` in
+`docs/dev/todo-and-known-bugs.md`.
 
 The spec for the next census lanes. Grouped by the three causes from section 2; within each
 group the cheapest route is named, with the fixture and the verb steps. No TOML here - the lane
