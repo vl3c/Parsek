@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Logistics/RouteOrchestrator.cs b/Source/Parsek/Logistics/RouteOrchestrator.cs
+index c70f9af33..620c9f872 100644
+--- a/Source/Parsek/Logistics/RouteOrchestrator.cs
++++ b/Source/Parsek/Logistics/RouteOrchestrator.cs
+@@ -5025,7 +5025,7 @@ namespace Parsek.Logistics
+             var credit = new GameAction
+             {
+                 Type = GameActionType.RouteRecoveryCredited,
+-                UT = currentUT,
++                UT = route.PendingRecoveryCreditDispatchUT,
+                 RouteId = route.Id,
+                 RouteCycleId = pendingCycleId,
+                 RouteStopIndex = -1,

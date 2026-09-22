@@ -20,11 +20,88 @@ _(unreleased — entries accumulate here per commit)_
   spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
   Harness-only; no game code changed.
 
+- **Automated testing: provisioning shares one artifact cache across worktrees.** The
+  provisioner used to download every pinned release zip on every run into the worktree's
+  own cache, so a fresh worktree failed as soon as an upstream URL rotted (the MechJeb2
+  build URL now returns 404). It now looks each zip up by its committed sha256 in
+  `automation/.artifact-cache/` at the umbrella root before downloading. It re-hashes the
+  cached file every time, replaces one that does not match, and adds every verified
+  download to the cache. `provision.py --seed-cache-from <dir>` fills the cache from zips
+  another worktree already has, with no network. Harness-only; no game code changed.
+
+- **Tests: recording-metadata round-trips now run through the codec that saved games use.**
+  40 cells in ten test classes saved and loaded recordings through
+  `ParsekScenario.SaveRecordingMetadata` / `LoadRecordingMetadataForTests`, a test-only
+  copy with no production caller. 28 now use `RecordingTree.SaveRecordingInto` /
+  `LoadRecordingFrom`, the pair `RecordingTree.Save` / `Load` call. The other 12 are deleted
+  because they duplicated an existing record-codec cell. The copy and its twelve helpers
+  are deleted too. Missing-key cells, including two existing tree-codec cells, now load a
+  node from the production writer. The loader's schema gate had rejected their hand-built
+  nodes before reading any key, so their default-value checks passed without testing
+  anything. A third tree-codec cell had the same flaw and duplicated another cell, so it is
+  deleted and its log checks moved into its twin. The two format-version-0 checks now pin the current stamp and the gate's
+  rejection. Checked by mutation: dropping `dockTargetPid`, `hidden` or
+  `preLaunchFunds` from the production writer fails the retargeted cells, while the old
+  cells still pass. The retarget found one gap in the production codec, filed as
+  LOOP-TIME-UNIT-NOT-PERSISTED; its two round-trip cells are skipped under that id. No
+  production behavior changed.
 - **Tests: two Low T1 cells from the unit-test quality audit now observe production decisions.**
   Baseline keys compare separate findings with numeric drift and distinguish different rules,
   rather than comparing a function call with itself. Rewind cleanup tests null and empty RP
   identifiers independently against matching orphans, so removing the early return fails both
   cases. No production behavior changed.
+- **Tests: sixteen vacuous cells from the audit's Low T1 register, the last Low T1 slice,
+  now either reach the production line their name claims or are gone.** Each one passed
+  under the mutant its register row names. Ten were strengthened (nine of them renamed to
+  what they prove), five rows were deleted in favour of named twins that go red under the
+  same mutant (seven cells), and one was a wrong premise. The Missions window's per-frame
+  suppress wrap moved, unchanged, into `MissionStructureBuilder.BuildForDisplay`, and the
+  cell drives it over mixed prior flag values, so a wrap that leaks `true` or forces `false`
+  now fails. It used to set and restore the flags itself. Two other steps also moved without
+  a behavior change and now have tests: the continuation-destroyed log line
+  (`ParsekFlight.FormatContinuationVesselDestroyedMessage`, whose handler call is read from
+  IL) and the spawn-block stamp (`VesselGhoster.MarkSpawnBlocked`, driven into the walkback
+  timeout). The checkpoint, debris-expiry and pending-split cells now reach the production
+  summary line, `SetDebrisExpiry` and the split-check drain, where before they only
+  exercised empty collections or test accessors. The TerminalState loop round-trips every
+  member through the record codec, so an enum-name write or a rejected `Disassembled` fails.
+  The tree-format-version cell keeps a current-generation recording and parses a sentinel
+  `7`, because no other cell loads a nonzero version. The rewind UT cell source-gates the
+  coroutine: capture before the first yield, `SetUniversalTime` after it. The pause-menu
+  false-probe cell counts the probe call. Deleted: the `PreLaunch` default, both inline
+  copies of the spawn-death guard (one of which asserted the opposite of production for pid
+  0), both `anchorVesselId` field echoes, the `TrajectoryPoint` resource echo and ten
+  self-comparisons of the format constant. The skipped OQ1 ideal-model cell was kept,
+  because the recovery-clock memo names it the acceptance assertion; only its stale memo
+  path was fixed. Per commit: five strengthened (all renamed); three strengthened (all
+  renamed) plus three cells deleted; two strengthened (one renamed) plus four cells deleted
+  and the kept skip.
+- **Tests: sixteen more cells from the audit's Low T1 (vacuous) register now either let the
+  production term they name decide the verdict or are gone.** Twelve were strengthened - five
+  of them renamed to what they prove - and four were deleted in favour of a named twin. The
+  drawdown-toast reset cell re-armed its own local latch, so an empty reset stayed green; the
+  three Patch* call sites now pick their session latch through
+  KspStatePatcher.DrawdownGuardSessionToastLatch, and the cell emits through those six
+  statics and requires every one to re-arm. The vessel-exists reset probed pid 0, which the
+  guard answers before the override is read; it now probes a real pid and the guid resolver.
+  The full-wipe cell drives ClearAllSceneHistory on a real test runner, with ResetResults as
+  the keep-history control. A plaque cell's Contains accepted the " - date" a missing null
+  guard would produce, and now asserts equality. The anchor-sort cell's two candidates sat at
+  the same UT; they now arrive at distinct UTs in reverse emission order. Crew-entry defaults
+  are read from a bare CREW node rather than one the serializer had filled. A breadcrumb cell
+  compared three strings it built itself and is now a source gate over the three real
+  PersistFinalizedRecording context literals. Renamed to what they pin: a facility-history
+  cell whose "most recent" lookup was test-local (the store's arrival order), a zero-reward
+  milestone cell (unparsable details convert to zero rewards without throwing), a culture
+  cell that could not fail for a positive integer (no thousands separator), and an anchor
+  enum range check the compiler already enforced (the byte backing type). Flag-event cells
+  only ever reached the null-vessel half of their guard, which no headless vessel can pass;
+  they fold into one theory named for it, with a new cell on the crew-name guard that makes
+  the placedBy half redundant. Deleted: three default-value echoes (playback flags, a health
+  counter, an anchor correction), each with a twin that reds where the default matters, and
+  two wheel-damage cells that are the null-transform cell with different unused inputs; no
+  headless test reaches that guard's names half at all. No behavior, log text or anything a
+  player sees changes.
 - **Automated testing: the raw-Unity-exception scan reads the stack under each exception.**
   The scan counted exception lines only, so a stock NRE and one thrown with Parsek on the
   stack looked the same, and a Parsek-frame NRE inside an armed `maxTotal` budget passed
@@ -37,7 +114,21 @@ _(unreleased — entries accumulate here per commit)_
   after a sweep of every collected KSP.log read 0 on both lanes; the red direction was
   proven offline on their archived logs. The sweep also found Parsek frames on a stock
   throw in V23M (`TimeJumpManager`, every run) and RF-11 (the seam's `LoadGame`), filed
-  for triage. Harness-only; no game code changed.
+  for triage. V15T, V18T and V26T, whose only Parsek frame was the ghost-map teardown
+  NRE the application-quit latch now stands down, arm it too after one post-latch flight
+  each read 0. Harness-only; no game code changed.
+- **Automated testing: the Parsek-frame count is split into throw site and caller.** A
+  `Parsek.` frame on a stack could be the code that threw or a Parsek method that called
+  into stock code that threw, and the one count could not tell them apart. Every result
+  now also records `parsekThrowSite` (the first frame outside the .NET and Unity engine
+  layers is a Parsek frame) and
+  `parsekCaller` (the rest), which sum to `parsekFrames`, and a spec can arm
+  `[expectations.unityExceptions] maxParsekThrowSite`. V23M and RF-11, whose Parsek frames
+  are all callers of a stock throw on every run, arm it at 0 after a sweep of every
+  collected KSP.log read no throw site on either lane; the red direction was proven
+  offline on their archived logs. The new ceiling is strictly weaker than
+  `maxParsekFrames` and is used only where that one cannot be armed. Harness-only; no game
+  code changed.
 
 - **Dev: the GUI mirror is simplified to explore, choose, note, export.** The page statistics live only in the rail header; the top bar keeps Mirror / Compare, the photo toggle and a "Notes (N)" button, with the dataset, mode and other-mods preferences folded under "options". The main column shows one header line per state (window, tab, state and Basic / Advanced in words, dataset and run in small print, help behind a "?"), a status line that stays empty unless a click or fallback has something to say, and the notes box (verdict plus a textarea that saves as you type) directly under the hover strip, which keeps a fixed height so the notes row no longer jumps. The focus bar is gone: the address bar is kept in step as `#win=...&cap=...` (`&focus=1` scopes the rail; `#cap=...&bare=1` is unchanged). The Notes panel lists every saved note (click to jump, x to delete), copies all of them as JSON or markdown, clears all after a confirm, and folds import away. Rail rows read as words ("tooltip logistics - Advanced"), carry the dataset in their tooltip, mark a noted state with a dot, and fold no-hover, superseded and never-captured rows behind one "show N hidden" link per window; the per-window "cmp" button is gone since Compare follows the selected window. Storage keys and the `parsek-gui-mirror-notes/1` export schema are unchanged (`harness/tools/gui_mirror.py`).
 - **Automated testing: the optimizer's boundary-seam rule now has a deterministic live
@@ -719,6 +810,26 @@ _(unreleased — entries accumulate here per commit)_
   changes, because there the two answers were already the same.
 
 ### Changed
+
+- **The main window drops its flight status block and gets a bold title.** The four
+  flight-only lines at the top of the main window (`State:`, `Recorded Points:`,
+  `Duration:`, `Active Ghosts:`) are gone: Parsek records everything, so a recorder-state
+  readout had nothing left to tell the player. The flight window now opens straight onto the
+  launcher column, with the same top gap as at the Space Center and Real Spawn Control on
+  top. The `Parsek` title is drawn bold and 2 px larger than every other Parsek window's
+  title, from its own cached style over the shared opaque window style; padding is
+  unchanged, so nothing inside the window moves.
+- **Dev: the GUI tree dump records fonts, and the GUI mirror draws them.** A dump node now
+  carries additive `fontSize` / `fontStyle` keys when its style's font departs from the
+  skin's style of the same name (schema id unchanged, `parsek-gui-tree/1`); on a window
+  node they describe the title. The mirror (`harness/tools/gui_mirror.py`) applies them to
+  controls and window titles, which fixes the main window's version footer, a 10 px label
+  the mirror drew at 13 px and clipped to `v0.10.`; every Parsek window title (size 14 in
+  the shared window style) and every size-10 / size-11 label now draws at its recorded size too; the offline viewer shows them in its
+  detail column. The mirror also reads run.py's `_run<N>` / `_a<N>` run-id suffixes as part
+  of the run rather than the scenario id, so a same-minute re-flight keeps its dataset and
+  pairs in Compare. Dumps taken before this change carry no font keys and still draw the
+  old way.
 
 - **The Logistics refusal vocabulary is now a named, enumerable catalogue instead of
   seventy-six literals spread over four files.** Every sentence the window can show for a

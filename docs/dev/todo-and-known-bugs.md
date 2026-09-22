@@ -57,6 +57,57 @@ off the walker's `ResolveTermination: ... terminalState=Destroyed` and
 A subject for either needs a chain whose tip is still in the future when the scene loads
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
 RealSpawn / Recover verb pair.
+## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
+
+**What was wrong.** `phase_download` fetched every pinned release zip from its URL on
+every run and cached it only in the worktree's own `harness/provision/.cache/`. The
+MechJeb2 jenkins artifact
+(`ksp.sarbian.com/jenkins/job/MechJeb2-Release/45/artifact/MechJeb2-2.15.1.0.zip`)
+now answers 404, so `provision.py --profile stock-minimal` from a fresh worktree failed
+at DOWNLOAD. Agents worked around it by copying a cached zip from another worktree and
+re-pointing the pin at a `file:///` URL, which is a `pins.toml` edit that has to be
+reverted before every commit.
+
+**Fix.** A shared umbrella-level cache, `<umbrella>/automation/.artifact-cache/<sha256>`,
+is consulted by the committed sha256 before any download. Each entry is re-hashed on
+every use: a match skips the download, and a mismatch is ignored and atomically
+replaced by the verified download. A miss downloads and populates the cache. The
+decisions are pure provlib functions; the I/O lives in `provision.py`.
+`provision.py --seed-cache-from <dir>` seeds the cache from an existing worktree's zips
+with no network. Verified offline: seeding a temp umbrella from
+`Parsek-c1-folds/harness/provision/.cache` cached all 3 pinned zips (exit 0), and a live
+`phase_download` over that umbrella, with the network stubbed to fail, completed from
+the cache with all three sha256 checks OK. Contract: `design-autotest-stack-setup.md` ->
+DOWNLOAD. The rotted MechJeb2 URL is left as pinned. The pin comment names the CKAN
+archive.org mirror to use if the URL ever has to be replaced for a machine with no
+seeded cache.
+
+## LOOP-TIME-UNIT-NOT-PERSISTED: a recording's loop period unit is not saved, so Auto (and Min / Hour) revert to Sec on reload [FILED 2026-09-22 off the recording-metadata test retarget (branch `retarget-recording-metadata-tests`). A PRODUCT serialization gap. OPEN]
+
+**Finding.** `Recording.LoopTimeUnit` is player-set (the Recordings table's unit button
+cycles sec / min / hr / auto, `RecordingsTableUI.cs`) and `ParsekFlight` commits Gloops
+recordings with `LoopTimeUnit.Auto`. Playback reads it: `GhostPlaybackLogic.ResolveLoopInterval`
+takes the global Auto interval instead of `LoopIntervalSeconds` for an Auto recording, and
+`ShouldUseGlobalAutoLaunchQueue` puts Auto recordings on the shared launch queue.
+`RecordingTreeRecordCodec` neither writes nor reads a `loopTimeUnit` key (grep: zero
+occurrences), so every reload yields `LoopTimeUnit.Sec`. An Auto recording then loops at its
+stored `LoopIntervalSeconds` (0 for a Gloops recording, clamped to `MinCycleDuration` with a
+warning) and leaves the Auto queue. For Min / Hour only the displayed unit changes, since
+the period is stored in seconds.
+
+**History (`git log -S'"loopTimeUnit"'`).** `722d00ff1` added the key only to the
+`ParsekScenario` standalone metadata path. That path lost its production caller when every
+recording moved into a tree, and it was deleted as test-only by the retarget. The tree codec
+never had the key. `Mission.LoopTimeUnit` is a separate field and is persisted
+(`Mission.cs`).
+
+**Fix (not done).** In `RecordingTreeRecordCodec`, write `loopTimeUnit` sparsely (omit Sec)
+in `SaveLoopAndPlaybackSettings` and parse it with `Enum.TryParse` in the load mirror. This is
+additive, so no schema generation bump. Then unskip
+`AutoLoopTests.LoopTimeUnit_SaveLoad_RoundTrip_Auto` / `_Hour`, which already drive the
+production pair.
+
+---
 
 ## ~~NON-LOOP-LIVE-PID-GATE-ARMS-DRIFTED: the two arms of the non-loop live-PID grep gate forbade different GhostMapPresence symbols, and neither symbol existed~~ [FILED + FIXED 2026-09-22]
 
@@ -878,6 +929,26 @@ mismatches against the ERROR the seam emits.
 say ERROR with the per-direction reason (and, optionally, point at `RefusalVerdict` for the
 REJECTED/ERROR rule). Do not touch `RefusalVerdict` - the behavior is the contract.
 
+## TQ-2-wheel-damage-guard-needs-live-transform: `GhostVisualBuilder.IsRendererOnDamagedTransform`'s names guard and ancestor walk have no test that can fail [FILED 2026-09-22 off test-quality-audit Phase B, row F-catchall-060-02. A COVERAGE gap, not a defect. OPEN]
+
+**What is untested.** `IsRendererOnDamagedTransform(Transform, HashSet<string>)` in
+`Source/Parsek/GhostVisualBuilder.Parsing.cs` (called from the two damaged-wheel mesh filters in
+`GhostVisualBuilder.cs`) returns false for a null or empty name set and otherwise walks the
+renderer's transform and its parents for a damaged-wheel name. Neither the names half of the guard
+nor the parent walk is exercised: the only xUnit cell,
+`WheelDamageFilterTests.IsRendererOnDamagedTransform_NullTransform_ReturnsFalseForAnyNames`, passes
+a null Transform, and deleting the names clause, the transform check or the whole guard all stay
+green because the walk's own `cur != null` test answers false for a null start.
+
+**Why headless cannot.** The xUnit host cannot build a `Transform` (no Unity runtime), and an
+uninitialized one compares equal to null under Unity's operator.
+
+**Fix.** An `[InGameTest]` that builds a small GameObject chain (parent named like a damaged-wheel
+transform, child carrying the renderer) and asserts: a match on the parent is true, an unrelated
+name set is false, and a null or empty set is false with a live transform. Adding the cell to a
+category a committed harness spec pins moves that spec's `BATCH_COMPLETE total=` tally
+(`CommittedBatchTallySourceSyncTests`), so pick the category with that in mind.
+
 ## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
 
 **What is true.**
@@ -1042,7 +1113,28 @@ Roadmap "Priority register (2026-09-11)" item C1.
   bytes pass. No other lane is armed, so V15T / V18T / V26T / V23M stay report-only and
   nothing reds before the C2 guard lands.
 
-## UNITY-PARSEK-FRAME-CALLER-SHAPE: two lanes read a Parsek frame on a STOCK throw that Parsek code merely called into, every run [FILED 2026-09-22 by the unity-scanner sweep (UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES). A FINDING TO TRIAGE (wave ruling A4-b: a `Parsek.` frame in any NRE stack is a finding). REPORT-ONLY; neither lane arms `maxParsekFrames`]
+## ~~UNITY-PARSEK-FRAME-CALLER-SHAPE: two lanes read a Parsek frame on a STOCK throw that Parsek code merely called into, every run~~ [**RULED and APPLIED 2026-09-22 on branch `unity-caller-shape`: SPLIT THE METRIC.** `hlib.scan_unity_exception_stacks` reports `parsekThrowSite` (the throw site, the first non-BCL frame line, is a Parsek frame) and `parsekCaller` (a Parsek frame is present but not the throw site) beside `parsekFrames`, which keeps its meaning and is their sum; `[expectations.unityExceptions] maxParsekThrowSite` gates on the throw-site subset. V23M and RF-11 read parsekThrowSite 0 on every collected log and ARM `maxParsekThrowSite = 0` (controlled offline); neither arms `maxParsekFrames`. The V23M product question moved to V23M-FORWARD-JUMP-PACKS-LANDED-WHEELS. Full record: `autotest-status.md` known-gate 11, "THE THROW-SITE SPLIT". FILED 2026-09-22 by the unity-scanner sweep (UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES)]
+
+**Ruling and what was done (2026-09-22).** The operator ruled "split the metric" rather than
+a seam-caller allowlist. The scanner now keys each Parsek-frame occurrence by its throw site:
+the first frame line of the block, skipping message continuation lines and treating the
+runtime and engine layers (`System.` / `Mono.` / `UnityEngine.`) as transparent up to
+`UnityEngine.DebugLogHandler:LogException`, because they throw for their caller's arguments
+or state (S0.7's `System.Math.Sign(NaN)` under `SolveHyperbolicKepler` would otherwise read
+as a caller, as would a dead-`Transform` access or a `GUILayout` mismatch under a Parsek
+frame). Both lanes' frames are callers:
+V23M 6 / 0 / 6 (parsekFrames / throwSite / caller) in every log, RF-11 1 / 0 / 1 (the `[EXC]`
+twin only; the `[ERR]` twin has no Parsek frame). Both arm `maxParsekThrowSite = 0`; the
+offline control appends S0.7 `2026-07-30_1833`'s real throw-site record and reds on exactly
+one mismatch, and V15T `2026-09-10_1917`'s caller record appended still passes. Stated cost:
+the split does not make callers harmless. The two real V-family Parsek defects the scanner
+found (the teardown `EnsureGhostOrbitRenderers` NRE, the pre-fix `GetActiveVesselSafe` NRE)
+are caller shapes (still, after the `UnityEngine.` widening: their throw sites are the KSP
+frames `MapObject.Awake` and `FlightGlobals.get_ActiveVessel`). The throw-site gate is
+strictly weaker than `maxParsekFrames` and is armed only where that one cannot be, and the
+RF-11 seam shape still counts as a Parsek frame (GS-4 reds on it, by the earlier ruling).
+
+The original filing, kept as the record:
 
 **What is true.** The new `parsekFrames` count reads any `Parsek.` frame on the stack, so it
 also counts an exception thrown deep in stock code that a Parsek method called. The
@@ -1066,6 +1158,42 @@ defect (V23M: does the forward jump pack a landed wheeled vessel in a state stoc
 packs it in?) or a class the instrument should split out (for example by reporting the
 innermost frame's depth, or a seam-caller allowlist for `ParsekTestCommandAddon`). Until
 then neither lane arms `maxParsekFrames`; each would red on every run.
+
+## V23M-FORWARD-JUMP-PACKS-LANDED-WHEELS: does the loop forward jump pack a landed wheeled vessel in a state stock never packs it in? [FILED 2026-09-22 off UNITY-PARSEK-FRAME-CALLER-SHAPE. A PRODUCT QUESTION, not a verified defect. Report-only: V23M's `maxParsekThrowSite = 0` does not see it (a caller shape), and its `maxParsekFrames` / `maxTotal` stay unarmed]
+
+**What is measured.** In every one of V23M's 5 unique runs (6 collected logs,
+`2026-08-24_1924` through `2026-09-10_2102`) exactly 6 NREs carry a Parsek frame, all
+before the quit, all this stack (trimmed):
+
+```
+[LOG] Packing Kerbal X for orbit
+[EXC] NullReferenceException
+    VehiclePhysics.VPWheelCollider.OnDisableVehicle ()
+    VehiclePhysics.VehicleBase.RemoveVehicleBehaviour / UnregisterVehicleBehaviour
+    VehiclePhysics.VehicleBehaviour.OnDisable ()
+    UnityEngine.Behaviour:set_enabled(Boolean)
+    ModuleWheelBase:DisableWheelCollider / InopWheelCollider / InopUpdate
+    ModuleWheelBase:OnSubsystemsModified -> ModuleWheels.WheelSubsystems:AddSubsystem
+    ModuleWheelBase:onPartPack(Part) <- EventData`1:Fire(Part) <- Part:Pack()
+    Vessel:Vessel.GoOnRails_Patch1(Vessel)
+    Parsek.TimeJumpManager:PutLoadedVesselsOnRails()
+    Parsek.TimeJumpManager:ExecuteForwardJump(Double)
+    Parsek.ParsekFlight:FastForwardToEventUT <- StartLoopPlaybackImpl
+```
+
+The other 10,677 to 10,794 NREs of each run are the same stock `VPWheelCollider` class with
+no Parsek frame, which is why the lane's `maxTotal` has never armed.
+
+**The question.** `TimeJumpManager.PutLoadedVesselsOnRails` calls `Vessel.GoOnRails()` on
+the landed Mun lander as part of the loop forward jump. Stock packs a landed wheeled vessel
+through `GoOnRails` too (warp, scene change), so the first thing to establish is whether the
+6 per-run NREs also appear when stock packs the same craft (for example a plain timewarp
+over the same landed vessel with no Parsek jump), or only under the jump. If only under the
+jump, the jump reaches `Part.Pack` with the wheel's `VehicleBase` already torn down (or not
+yet built), and the fix belongs in `TimeJumpManager` (defer the pack a frame, or pack via the
+same path warp uses). If stock throws the same way, it is stock wheel noise with a Parsek
+caller and nothing is owed. Needs a live reading on the dev instance; no flight is
+scheduled by this entry.
 
 ## REGISTRY-GROWTH-DECISIONS-2026-09-11: two registry values the 2026-09-10 wave measured but was not allowed to register, D4 `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 1 and 2). An OPERATOR DECISION, not a defect. RULED YES and APPLIED 2026-09-15 (register B1 / B2); only D9's LIVE control stays owed]
 
@@ -9770,7 +9898,7 @@ facet, and are recorded in both spec headers and status rows.
 
 ---
 
-## ~~GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE: at process teardown the Tracking-Station buildVesselsList Prefix re-creates a dying ghost's orbit renderer and stock throws with Parsek frames on the stack~~ [**FIXED 2026-09-22 on branch `c2-optimizer-seam` (register item C2)**: `EnsureGhostOrbitRenderers` now asks the pure `ResolveEnsureOrbitRenderersSkipReason(ParsekProcess.IsApplicationQuitting, IsRemoveAllGhostVesselsInProgress)` first and returns 0 with a rate-limited `EnsureGhostOrbitRenderers: skipped repair reason=<application-quitting|remove-all-ghosts-in-progress>` Verbose line. The quitting latch is set from `ParsekHarmony.OnApplicationQuit` (the one DontDestroyOnLoad Parsek object; Unity calls it before destroying scene objects) and logs `Application quitting latched` once; the quit latch is what covers the observed NRE. The remove-all flag is a new depth counter raised only around `RemoveAllGhostVessels`'s Die loop (deliberately NOT the wider `IsGhostTeardownInProgress`, which single-ghost removers also raise while other ghosts stay alive), and it guards only synchronous re-entry during that loop: decompiled stock `Vessel.Die()` fires `onVesselWillDestroy` then a deferred `Object.Destroy`, so the `onVesselDestroy` SpaceTracking rebuilds on fires from `Vessel.OnDestroy` after the loop, outside the counter. The Unity-touching repair moved into a NoInlining core so the guard is unit-tested headlessly (`GhostMapEnsureOrbitRenderersSkipTests`). Validated headlessly plus the latch line on every LT-2 flight; V15T / V18T not re-flown (report-only unityExceptions rows; nothing they require reads this path). The live `parsekFrames` reading is owed by register item C1's first sweep. OPENED 2026-09-10 on branch `loop-render-residue` off a report-only unityExceptions row. TODO, a finding (Parsek frames on an NRE stack), not verdict-bearing; needs a C# change, so nothing is done in this harness-only wave. Owner: `GhostMapPresence` / `Patches/GhostTrackingBuildVesselsListPatch`]
+## ~~GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE: at process teardown the Tracking-Station buildVesselsList Prefix re-creates a dying ghost's orbit renderer and stock throws with Parsek frames on the stack~~ [**FIXED 2026-09-22 on branch `c2-optimizer-seam` (register item C2)**: `EnsureGhostOrbitRenderers` now asks the pure `ResolveEnsureOrbitRenderersSkipReason(ParsekProcess.IsApplicationQuitting, IsRemoveAllGhostVesselsInProgress)` first and returns 0 with a rate-limited `EnsureGhostOrbitRenderers: skipped repair reason=<application-quitting|remove-all-ghosts-in-progress>` Verbose line. The quitting latch is set from `ParsekHarmony.OnApplicationQuit` (the one DontDestroyOnLoad Parsek object; Unity calls it before destroying scene objects) and logs `Application quitting latched` once; the quit latch is what covers the observed NRE. The remove-all flag is a new depth counter raised only around `RemoveAllGhostVessels`'s Die loop (deliberately NOT the wider `IsGhostTeardownInProgress`, which single-ghost removers also raise while other ghosts stay alive), and it guards only synchronous re-entry during that loop: decompiled stock `Vessel.Die()` fires `onVesselWillDestroy` then a deferred `Object.Destroy`, so the `onVesselDestroy` SpaceTracking rebuilds on fires from `Vessel.OnDestroy` after the loop, outside the counter. The Unity-touching repair moved into a NoInlining core so the guard is unit-tested headlessly (`GhostMapEnsureOrbitRenderersSkipTests`). Validated headlessly plus the latch line on every LT-2 flight; V15T / V18T not re-flown (report-only unityExceptions rows; nothing they require reads this path). The live `parsekFrames` reading is owed by register item C1's first sweep. **LIVE-PROVEN 2026-09-22 (branch `reprove-teardown-lanes`)**: one post-latch flight per affected lane on the merged DLL, V15T `2026-09-22_1831` PASS, V18T `2026-09-22_1834_a2` driver-valid (PARSEK-FAIL on the unrelated V18T-LOOPROUTE-LOOPUT-OVERPIN), V26T `2026-09-22_1835` PASS, each at total 0 / parsekFrames 0 / afterQuit 0 with `Application quitting latched` printed; V15T and V26T also printed `EnsureGhostOrbitRenderers: skipped repair reason=application-quitting` after the quit, the exact rebuild that used to throw. All three now arm `[expectations.unityExceptions] maxParsekFrames = 0` (negative control discharged offline; autotest-status known-gate 11). OPENED 2026-09-10 on branch `loop-render-residue` off a report-only unityExceptions row. TODO, a finding (Parsek frames on an NRE stack), not verdict-bearing; needs a C# change, so nothing is done in this harness-only wave. Owner: `GhostMapPresence` / `Patches/GhostTrackingBuildVesselsListPatch`]
 
 Seen on V15T's criterion-(b) control run `2026-09-10_1917` (KSP.log 22:17:48.820, 0.7 s after
 `flushandquit: Application.Quit`): a NullReferenceException in stock `MapObject.Awake`, reached through
@@ -16318,9 +16446,17 @@ ZERO raises on any lane; V7T's `icon-off-orbit` red is its own documented findin
 
 **EVE DATA POINTS, 2026-08-11 (branch `eve-loop-lanes`).** V8-eve-player-loop measured `faithful-parity summary sampled=1 overTolerance=0` on every bracketed run - the first non-zero `sampled` on an interplanetary loop lane (the Duna engaged lanes all read `sampled=0` via this entry's standdown). The sampled leg is the Eve unit's tilt-declined FAITHFUL-window transfer (see the first-raise paragraph in the 2026-06-15 entry below), which parity-resolves where the re-aimed Duna legs stand down - consistent with this entry's diagnosis that the standdown keys on the seed, not on faithfulness. The TS sibling V8T measured the OTHER side at its post-seam epoch: `sampled=0 skip.reaimed-or-foreign-seed=1` - the TS chain's seed lands back in this entry's standdown even on the same faithful-window unit, so the standdown is scene-path-dependent, not just member-dependent. ALSO MEASURED, same V8 runs: a parity-skip variant this entry has not previously catalogued - `Synth parity skipped: rendered orbit epoch=15174018.619 is not the baked convention (seg.epoch=15673182.924 + loopShift=14687035.5) - UNEXPLAINED epoch convention` - where the rendered epoch equals the RAW recorded epoch of a DIFFERENT (earlier) segment of the same Sun leg, unshifted. Same family (the lens's epoch-convention resolution disagreeing with the Director's fragment choice) on a new shape; filed here rather than as a new entry.
 
+## ~~V18T-LOOPROUTE-LOOPUT-OVERPIN: V18T's `LoopRoute` required token pins `loopUT=` to 12 digits while loosening the `ut=` it is computed from~~ [**FIXED 2026-09-22 in the same PR (branch `reprove-teardown-lanes`)**: the token's `loopUT=14589\.746074331711` is now `loopUT=14589\.[0-9]+`, the same shape as its `ut=36139\.[0-9]+`, with every other field left exact. Proven OFFLINE, no flight: `hlib.evaluate_expectations` over the spec loaded through `run.load_toml`, on every archived V18T KSP.log that carries the line (13 logs from 11 distinct runs, 2026-08-26 to 2026-09-22; `2026-09-22_2134` / `_2135` are the local-time collected copies of this PR's own `_1832` / `_1834_a2`). The loosened token matches all of them, and the logs show THREE `loopUT=` values, `14589.726074331715` / `.746074331711` / `.766074331708`, one physics tick apart. The old 12-digit pin missed 4 of the 11 runs (`2026-08-26_2318`, `2026-09-02_1315`, `2026-09-22_1832`, `_1834_a2`), so it had been a latent red all along. `_1834_a2` now evaluates to zero mismatches; the `2026-09-15_1637` PASS stays zero. A seeded mutation of a different field on `_1834_a2`'s line (`cycleIdx=0` -> `1`, `dockUT=` or `anchor=` last digit +1, `loopUT=14589.` -> `14590.`) still fails on exactly the LoopRoute element, one mismatch each.]
+
+OPENED 2026-09-22 (branch `reprove-teardown-lanes`) off a PARSEK-FAIL verdict, filed rather than re-flown. Run `2026-09-22_1834_V18T-depot-route-ts-arrival_a2` (attempt 2, driver-valid, every other verifier PASS) red `PARSEK-FAIL(expectation)` on exactly one `logContracts.required` element, the round-2 `LoopRoute: route 5420f805 no dock crossing ...` line. The log printed it once, identical in every pinned field but one: `loopUT=14589.726074331715` against the pinned `loopUT=14589\.746074331711`, with `ut=36139.151257421538` where the spec header's derivation run read `ut=36139.17...`. `loopUT` is `ut - anchor + spanStart` (36139.151257421538 - 22969.671921541973 + 1420.246738452149 = 14589.726074331714), so it moves one-for-one with the pre-jump `ut=` the regex already loosens (`ut=36139\.[0-9]+`); here that `ut` landed 0.02 s (one physics tick) earlier than on the four logs the pin was taken from. Not a product defect: the route clock, cadence, anchor, span and `dockUT` all matched to the digit.
+
+Fix (done): `loopUT=` is loosened the same way as `ut=` (`loopUT=14589\.[0-9]+`, which still pins the cycle position to the second) in `harness/scenarios/V18T-depot-route-ts-arrival.toml`; the proof is offline (above), and the next nightly V18T flight is the live confirmation. Owner: the V18T spec (harness only).
+
 ## TS-LOADGAME-RECORDING-ACTIVE-RACE - the scene-entry recorder re-arms after a StopRecording/DiscardTree pair and REJECTS the next `LoadGame` (SECOND SIGHTING 2026-08-09; V5's re-kill mitigation narrows the window, it does not close it)
 
 **What happens.** A `seam`-driver spec that re-enters a second scene mid-run must kill the live recorder first - `TestCommandDispatcher` refuses `LoadGame` with `msg=recording-active` by design, so the load never silently discards a live recording (the ONE exception, added 2026-09-09, is RF-3/A1's `allowLiveRecorder=refly`, which admits the load only while a re-fly session marker is live). The TS lanes therefore issue `StopRecording` + `DiscardTree` immediately before the load. On some scene-entry orderings a scene-entry recorder RE-ARMS after that pair and before the load lands, and the load is rejected. The run is driver-INVALID: the second half of the declared sequence never executes.
+
+**Sighting on V18T, 2026-09-22 (`2026-09-22_1832` attempt 1).** Step 15 `LoadGame` REJECTED, log `reject id=0016 cmd=LoadGame reason=recording-active`, after the step-13/14 `StopRecording` + `DiscardTree` pair both answered OK; attempt 2 (`_1834_a2`) executed the same step OK. Recorded, not re-diagnosed.
 
 **Sighting 1 (2026-08-08, V5-ts-loop-arrival run 1 attempt 1).** Measured: promotion-recorder start 50.294 -> our StopRecording 50.599 -> a SECOND start 50.842 -> `reject LoadGame reason=recording-active`. Attempt 2 on the identical spec saw no second start. The mitigation adopted then was a re-kill pair placed immediately before the load, described in V5's write-up (and inherited verbatim into V6T / V7T) as "the only placement that makes the outcome deterministic".
 

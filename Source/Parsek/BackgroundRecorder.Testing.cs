@@ -160,6 +160,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// For testing: schedules a deferred split check the way the background joint-break
+        /// handler does, without the live joint or the pre-break vessel snapshot.
+        /// </summary>
+        internal void InjectPendingSplitCheckForTesting(uint parentPid, double branchUT, string recordingId)
+        {
+            pendingBackgroundSplitChecks[parentPid] = (branchUT, recordingId, (TrajectoryPoint?)null);
+        }
+
+        /// <summary>
         /// For testing: gets the count of pending background split checks.
         /// </summary>
         internal int PendingSplitCheckCount => pendingBackgroundSplitChecks.Count;

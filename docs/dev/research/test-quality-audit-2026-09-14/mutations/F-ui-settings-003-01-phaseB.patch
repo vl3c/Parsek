@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingSchema.cs b/Source/Parsek/RecordingSchema.cs
+index 04de2f944..63cee42dc 100644
+--- a/Source/Parsek/RecordingSchema.cs
++++ b/Source/Parsek/RecordingSchema.cs
+@@ -12,7 +12,7 @@ namespace Parsek
+     /// </summary>
+     internal static class RecordingSchema
+     {
+-        public const int CurrentRecordingFormatVersion = 1;
++        public const int CurrentRecordingFormatVersion = 2;
+ 
+         // Schema generation discriminator. Bumped on every clean-slate schema
+         // reset; recordings/sidecars carrying a different generation are rejected

@@ -7,28 +7,6 @@ namespace Parsek.Tests
         // --- Serialization round-trip tests ---
 
         [Fact]
-        public void SaveLoad_LocationFields_RoundTrip()
-        {
-            var source = new Recording
-            {
-                StartBodyName = "Mun",
-                StartBiome = "Midlands",
-                StartSituation = "Landed",
-                EndBiome = "Highlands"
-            };
-            var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
-
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
-
-            Assert.Equal("Mun", loaded.StartBodyName);
-            Assert.Equal("Midlands", loaded.StartBiome);
-            Assert.Equal("Landed", loaded.StartSituation);
-            Assert.Equal("Highlands", loaded.EndBiome);
-        }
-
-        [Fact]
         public void CodecRoundTrip_LocationFields_Survive()
         {
             // Mirror of the missing-key cell below: present keys must hydrate.
@@ -89,7 +67,7 @@ namespace Parsek.Tests
         {
             var source = new Recording();  // all null
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             // Verify keys were not written (saves space)
             Assert.Null(node.GetValue("startBodyName"));
@@ -266,23 +244,11 @@ namespace Parsek.Tests
         // --- Launch site tests ---
 
         [Fact]
-        public void SaveLoad_LaunchSiteName_RoundTrip()
-        {
-            var source = new Recording { LaunchSiteName = "Launch Pad" };
-            var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
-
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
-            Assert.Equal("Launch Pad", loaded.LaunchSiteName);
-        }
-
-        [Fact]
         public void SaveLoad_NullLaunchSiteName_NotWritten()
         {
             var source = new Recording();
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
             Assert.Null(node.GetValue("launchSiteName"));
         }
 
@@ -326,10 +292,10 @@ namespace Parsek.Tests
                 TerminalOrbitEpoch = 50000.0
             };
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal("Mun", loaded.TerminalOrbitBody);
             Assert.Equal(12.345, loaded.TerminalOrbitInclination);
@@ -346,7 +312,7 @@ namespace Parsek.Tests
         {
             var source = new Recording();
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             Assert.Null(node.GetValue("tOrbBody"));
             Assert.Null(node.GetValue("tOrbSma"));

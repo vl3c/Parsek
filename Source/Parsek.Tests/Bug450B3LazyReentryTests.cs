@@ -331,17 +331,6 @@ namespace Parsek.Tests
         // ----- Session-counter semantics -----
 
         [Fact]
-        public void HealthCounters_ReentryFxDeferredThisSession_DefaultsToZero()
-        {
-            // A fresh session starts with zero deferrals. Fails if the new counter
-            // field is ever accidentally initialized from persisted state.
-            var counters = new HealthCounters();
-            counters.Reset();
-
-            Assert.Equal(0, counters.reentryFxDeferredThisSession);
-        }
-
-        [Fact]
         public void HealthCounters_DeferredAndBuiltCountersAreIndependent()
         {
             // Spawn-path increments `deferred`, lazy-build site increments `built`.

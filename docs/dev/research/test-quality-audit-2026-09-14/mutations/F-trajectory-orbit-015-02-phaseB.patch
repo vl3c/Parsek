@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/TrajectoryTextSidecarCodec.cs b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+index e53c1c2c0..021651e35 100644
+--- a/Source/Parsek/TrajectoryTextSidecarCodec.cs
++++ b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+@@ -1775,8 +1775,6 @@ namespace Parsek
+                 // docs/dev/plans/recording-rendering-v0-reset-checklist.md (§"TrackSection.anchorVesselId
+                 // removal") but until then the text and binary paths must keep round-trip parity
+                 // so format-roundtrip tests pass on either codec.
+-                if (track.anchorVesselId != 0)
+-                    tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
+ 
+                 // Producer-C boundary seam flag: sparse — only write when set. Forward-tolerant
+                 // for legacy text loaders (unknown key is silently ignored). See

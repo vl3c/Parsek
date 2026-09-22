@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/RecordingTree.cs b/Source/Parsek/RecordingTree.cs
+index c2eaa07c2..6418745af 100644
+--- a/Source/Parsek/RecordingTree.cs
++++ b/Source/Parsek/RecordingTree.cs
+@@ -200,7 +200,12 @@ namespace Parsek
+             if (int.TryParse(treeNode.GetValue("treeFormatVersion"), NumberStyles.Integer, ic, out treeFormatVersion))
+                 tree.TreeFormatVersion = treeFormatVersion;
+             else
++            {
+                 tree.TreeFormatVersion = 0;
++                tree.RootRecordingId = string.Empty;
++                tree.Recordings.Clear();
++                return tree;
++            }
+ 
+             string schemaGenerationStr = treeNode.GetValue("recordingSchemaGeneration");
+             if (!int.TryParse(schemaGenerationStr, NumberStyles.Integer, ic, out int treeSchemaGeneration)

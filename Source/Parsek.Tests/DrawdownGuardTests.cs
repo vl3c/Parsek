@@ -540,22 +540,43 @@ namespace Parsek.Tests
         [Fact]
         public void ResetDrawdownGuardSessionLatches_ReArmsTheToast()
         {
-            bool latch = false;
-            KspStatePatcher.EmitDrawdownGuardClamp(
-                "Funds", 60000.0, 100000.0, 60000.0, 100000.0,
-                "Kept your earned funds", ref latch, false);
-            Assert.True(latch);
-            Assert.Single(screenMessages);
+            // Every clamp goes through the SAME static latch the Patch* call sites select,
+            // so the reset below is the only thing that can re-arm the toast; the test never
+            // writes a latch itself.
+            string[] resources = { "Funds", "Science", "Reputation" };
+            var directions = new[] { KspStatePatcher.ClampDirection.Up, KspStatePatcher.ClampDirection.Down };
 
-            // A genuine new-session boundary re-arms the latch (a different save), so a
-            // persistent leak toasts again. Drive a fresh latch local to mimic the
-            // statics being cleared.
+            void EmitAll()
+            {
+                foreach (string resource in resources)
+                {
+                    foreach (var direction in directions)
+                    {
+                        KspStatePatcher.EmitDrawdownGuardClamp(
+                            resource, 60000.0, 100000.0, 60000.0, 100000.0,
+                            "toast " + resource + " " + direction,
+                            ref KspStatePatcher.DrawdownGuardSessionToastLatch(resource, direction),
+                            false, direction);
+                    }
+                }
+            }
+
+            // Six independent latches: each resource and direction toasts once.
+            EmitAll();
+            Assert.Equal(6, screenMessages.Count);
+
+            // Within a session the latches hold: a persisting leak stays quiet.
+            EmitAll();
+            Assert.Equal(6, screenMessages.Count);
+
+            // A genuine new-session boundary re-arms every latch, so each toasts again.
             KspStatePatcher.ResetDrawdownGuardSessionLatches();
-            latch = false;
-            KspStatePatcher.EmitDrawdownGuardClamp(
-                "Funds", 60000.0, 100000.0, 60000.0, 100000.0,
-                "Kept your earned funds", ref latch, false);
-            Assert.Equal(2, screenMessages.Count);
+            foreach (string resource in resources)
+                foreach (var direction in directions)
+                    Assert.False(KspStatePatcher.DrawdownGuardSessionToastLatch(resource, direction),
+                        $"latch {resource}/{direction} still set after the reset");
+            EmitAll();
+            Assert.Equal(12, screenMessages.Count);
         }
     }
 }

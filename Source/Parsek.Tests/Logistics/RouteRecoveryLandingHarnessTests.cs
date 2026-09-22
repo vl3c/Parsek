@@ -51,7 +51,7 @@ namespace Parsek.Tests.Logistics
     /// required-RED). The deliberately-SKIPPED test at the bottom is the ideal-
     /// model assertion; if un-skipped it fails RED with the delta in its
     /// failure message. Decision memo:
-    /// docs/dev/research/logistics-recovery-clock-memo.md. Do not build the
+    /// docs/dev/done/research/logistics-recovery-clock-memo.md. Do not build the
     /// second clock without a separate green-light (it is L-sized: persisted
     /// per-run queue, second idempotency surface, rewind/tombstone
     /// reversibility, codec).
@@ -374,14 +374,14 @@ namespace Parsek.Tests.Logistics
         //    the shipped credit is 900 s = 3.0 dispatch intervals EARLY."
         //
         // Keep it skipped unless the maintainer green-lights the clock (see
-        // docs/dev/research/logistics-recovery-clock-memo.md).
+        // docs/dev/done/research/logistics-recovery-clock-memo.md).
         // ==================================================================
 
         [Fact(Skip = "OQ1 ideal-model assertion: the shipped constant-deferral " +
             "credit intentionally diverges from the recorded recovery landing UT " +
             "(here by 900 s = 3 dispatch intervals). Un-skip only if the second " +
             "recovery clock is green-lit; decision memo at " +
-            "docs/dev/research/logistics-recovery-clock-memo.md")]
+            "docs/dev/done/research/logistics-recovery-clock-memo.md")]
         public void UtMappedIdeal_CreditForCycle0_WouldLandAtRecordedRecoveryUT()
         {
             InstallSourceTree();

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostVisualBuilder.Parsing.cs b/Source/Parsek/GhostVisualBuilder.Parsing.cs
+index 585619218..9d4470d54 100644
+--- a/Source/Parsek/GhostVisualBuilder.Parsing.cs
++++ b/Source/Parsek/GhostVisualBuilder.Parsing.cs
+@@ -411,7 +411,7 @@ namespace Parsek
+         /// </summary>
+         internal static bool IsRendererOnDamagedTransform(Transform rendererTransform, HashSet<string> damagedNames)
+         {
+-            if (rendererTransform == null || damagedNames == null || damagedNames.Count == 0)
++            if (rendererTransform == null)
+                 return false;
+ 
+             Transform cur = rendererTransform;

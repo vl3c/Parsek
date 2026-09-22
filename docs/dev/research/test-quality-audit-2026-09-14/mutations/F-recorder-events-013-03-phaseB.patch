@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..774d7723b 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -1576,7 +1576,6 @@ namespace Parsek
+         /// </summary>
+         public void SetDebrisExpiry(uint vesselPid, double expiryUT)
+         {
+-            debrisTTLExpiry[vesselPid] = expiryUT;
+             ParsekLog.Info("BgRecorder",
+                 "Debris expiry set: pid=" + vesselPid +
+                 ", expiryUT=" + expiryUT.ToString("F1", CultureInfo.InvariantCulture));

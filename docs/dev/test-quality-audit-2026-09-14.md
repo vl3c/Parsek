@@ -2107,7 +2107,10 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     with no edit).
   - Follow-up, not done here: `ParsekScenario.SaveRecordingMetadata` /
     `LoadRecordingMetadataForTests` are test-only (11 test files use them), so every other
-    cell built on that pair pins a copy of the codec rather than the codec.
+    cell built on that pair pins a copy of the codec rather than the codec. CLOSED by
+    `retarget-recording-metadata-tests` (2026-09-22): every such cell now drives
+    `RecordingTree.SaveRecordingInto` / `LoadRecordingFrom`, the pair is deleted, and the one
+    key the codec lacks is filed as LOOP-TIME-UNIT-NOT-PERSISTED.
 - `testfix-low-03` (2026-09-22): Low T1 slice 3, the remainder of slice 1
   (`work/phase-b-slice-low-t1-03.txt`, 14 ids; slice 1's other two rows,
   F-analyzer-002-02 and F-rewind-refly-019-02, are on `testfix-low-01`). Counting rule:
@@ -2183,6 +2186,129 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     testhost and are superseded; the trace-confirmed RED run is recorded.
   - No production change; both patches revert to the base tree. Serialized full suite:
     23,820 passed / 0 failed / 1 skipped.
+
+- `testfix-low-05` (2026-09-22): Low T1 slice 5 (`work/phase-b-slice-low-t1-05.txt`),
+  16 rows. 10 strengthened (9 also renamed), 5 deleted (7 cells), 1 premise wrong, 0
+  deferred. Three production helpers were extracted with no behavior change; nothing else
+  in production changed. Slices 2-4 are on their own branches, so with this slice the Low
+  T1 register is closed. Each row was proved with its mutant (patches under
+  `mutations/<id>-phaseB.patch`, one row each in `mutations.csv`). Every old cell was GREEN
+  under its mutant in one combined run on the base tree (14 passed, the OQ1 cell skipped).
+  The one exception is PreLaunchFields_DefaultToZero, which the initializer mutant does
+  red; it is deleted as subsumed, not as vacuous.
+  - F-mission-groups-012-01, renamed `BuildForDisplay_SilencesLineAndRestoresPriorFlags`:
+    the cell set and restored the suppress flags itself and never reached the Missions
+    window. The `GetMissionView` wrap moved, unchanged, into
+    `MissionStructureBuilder.BuildForDisplay`. A Theory over mixed prior flags now reds all
+    three rows when the finally-restore is dropped.
+  - F-recorder-events-005-01, renamed `CheckpointAllVessels_EmptyBackgroundMap_LogsAllZeroSummary`:
+    it asserts the all-zero summary line. The register's whole-body stub reds 8 cells in
+    the class. An empty-map early return reds this cell alone, and that is the recorded
+    patch.
+  - F-recorder-events-013-03, renamed `SetDebrisExpiry_StoresExpiryPerPid_LaterCallOverwrites`:
+    it drives the production TTL writer `ParsekFlight.ProcessBreakupEvent` calls, where
+    before it only used the test-only inject and read accessors.
+  - F-recorder-events-013-04, renamed `ProcessPendingSplitChecks_OnePending_DrainsAndDispatchesOnce`:
+    a test-only `InjectPendingSplitCheckForTesting` (in `BackgroundRecorder.Testing.cs`)
+    seeds a check whose parent recording is absent. The drain then dispatches into
+    `HandleBackgroundVesselSplit`'s not-found guard with no live vessel.
+  - F-recording-tree-026-01, renamed `TerminalState_AllValues_RoundTripThroughRecordCodecAsInts`:
+    every member goes through `RecordingTreeRecordCodec`. The enum-name write also reds
+    the three per-kind cells. A loader that rejects `Disassembled` reds only this one.
+  - F-recording-tree-026-02, renamed `..._DefaultsZeroAndKeepsTree`: it has a
+    current-generation child, asserts that the tree survives, and parses a sentinel `7`.
+    The register's literal mutant is EQUIVALENT (a fresh tree's field is already 0). The
+    recorded mutant, which drops a tree whose version key is missing, and a
+    parse-ignored mutant each red this cell alone.
+  - F-recording-tree-050-10, renamed `ContinuationVesselDestroyed_HandlerLogsSnapshotPreservedThroughFormatter`:
+    the line moved, unchanged, into `ParsekFlight.FormatContinuationVesselDestroyedMessage`.
+    The cell drives it after the real mark, with a mirror for a nulled snapshot, and reads
+    the `OnVesselWillDestroy` call count from IL.
+  - F-rewind-refly-014-03, renamed `UTFlow_AdjustedUTCapturedBeforeYield_SetUniversalTimeAfterIt`:
+    it is source-gated and fixture-limited. The comment-stripped
+    `ApplyRewindResourceAdjustment` body must capture before the first yield, set UT after
+    it, and never re-read the global. The runtime half is `EndRewind` clearing the value.
+  - F-spawn-vessel-020-03, renamed `MarkSpawnBlocked_StampsBlockedSinceUT_WalkbackTimeoutMeasuresFromIt`:
+    the stamp moved, unchanged, into `VesselGhoster.MarkSpawnBlocked`. The cell drives it
+    into `ShouldTriggerWalkback` and reads the `SpawnAtChainTip` call from IL.
+  - F-wiring-gates-005-01, strengthened: the cell now requires the probe to be consulted
+    exactly once. A fall-through mutant (probe consulted, then the live lookup) is
+    equivalent under xUnit and stays green; the log assertion tried against it was
+    vacuous and was removed.
+  - DELETED, each twin red under the row's mutant across the classes that reach the SUT:
+    - F-spawn-vessel-015-01: `PreLaunchFields_MissingKeysDefaultToZero`, plus 6 more.
+    - F-spawn-vessel-020-01, both inline copies: `DeferredSpawnTests.ShouldCheckForSpawnDeath_*`.
+      The mirror cell asserted the check ENTERS with pid 0, which is the opposite of
+      production.
+    - F-trajectory-orbit-015-02, both cells: the codec round trip of `anchorPid`. The
+      Absolute default is a struct default, so no mutant exists for it.
+    - F-trajectory-orbit-018-02: `RoundTrip_AtmosphericAbsolute_5Frames`, under a codec
+      funds-drop mutant. The register's type-change mutant is a compile break.
+    - F-ui-settings-003-01: `CurrentRecordingFormatVersion_IsV1`.
+  - F-supplement-001-02, PREMISE WRONG, cell kept: the skipped cell is the inverse
+    assertion that a second recovery clock must satisfy. It is not a duplicate, and
+    `done/research/logistics-recovery-clock-memo.md` names it the acceptance fixture. The
+    flush-UT mutant reds both active twins. Only the stale memo path was fixed.
+  - Renamed-cell references updated in `done/plans/task-1-data-model.md` and
+    `done/todo-and-known-bugs-v7.md`.
+  - Filtered suite after the slice (the 14 touched classes): 400 passed / 0 failed / 1
+    skipped. That is 5 fewer than before: 7 cells were deleted and one Fact became a
+    three-row Theory.
+- `testfix-low-04`, Low T1 slice 4 (2026-09-22): all 16 rows of
+  `work/phase-b-slice-low-t1-04.txt` (5 `catchall`, 3 `legacy-bugfix`, 3 `map-render`, 2 `ledger-career`, 1 `ghost-playback`,
+  1 `harness-seam`, 1 `logistics-route`). Counted the slice-4 way: 12 strengthened, of
+  which 5 renamed; 4 deleted; 0 deferred; 0 premise-wrong. One sibling cell was added.
+  Per commit, derived from `git diff origin/main...HEAD -- Source/Parsek.Tests`:
+  d01a4c7d1 six Facts folded into two Theories + 1 new cell, adae178a2 1 rename + 1
+  deletion, c560ecb80 1 rename + 1 deletion, 4a08cc759 2 renames + 1 deletion. Each row
+  has a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and
+  a `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - Given the production term the name claims (7): F-catchall-022-01 (the three Patch*
+    call sites now select their session toast latch through the behaviour-identical
+    `KspStatePatcher.DrawdownGuardSessionToastLatch`; the cell emits through all six
+    statics and requires the reset to re-arm each, where it used to re-arm its own local);
+    F-catchall-023-01 (a NON-zero pid after the reset, with a call-counting override that
+    must not be consulted, plus the guid resolver half); F-catchall-031-02 (Assert.Equal,
+    and a null-only mutant reds the named cell alone); F-harness-seam-002-02 (a real
+    `InGameTestRunner(null)` - discovery needs no host - so `ClearAllSceneHistory`'s own
+    flag decides; half the gap had already closed on main in ecb1ec1d9);
+    F-ledger-career-008-01 (a bare CREW node, so only `DeserializeFrom`'s defaults can
+    answer); F-map-render-011-01 (two candidates at distinct UTs, emitted in reverse UT
+    order); F-legacy-bugfix-024-01 (source-gated, fixture-limited: the three
+    `PersistFinalizedRecording` context literals are read from their own brace-matched
+    method bodies, one call per body, declaration anchored once).
+  - Renamed to what they prove (5): F-ledger-career-007-04
+    (`AddEvent_NonResourceEvents_AppendInArrivalOrder`; the "most recent facility" scan
+    was test-local); F-legacy-bugfix-008-01
+    (`ConvertMilestoneAchieved_UnparsableDetail_ZeroRewardsWithoutThrowing`; a
+    well-formed zero cannot tell parsed from never-parsed, so the Theory feeds details the
+    parse must reject); F-logistics-route-025-01
+    (`FormatSourceRecordingDisplay_LargePosition_NoThousandsSeparator`; dropping
+    InvariantCulture is value-equivalent for a positive int, recorded GREEN before and
+    after); F-map-render-025-01 (`AnchorSourceAndSide_AreByteBacked`); F-catchall-031-01
+    (the three `ShouldRecordFlagEvent` Facts fold into
+    `ShouldRecordFlagEvent_NullVessel_ReturnsFalse` over three placedBy values: no headless
+    Vessel passes the null check, and the register's mutant is value-equivalent because
+    `CrewContainsKerbalNamed` rejects an empty name on its own - the new
+    `CrewContainsKerbalNamed_NullOrEmptyName_ReturnsFalse` pins that guard and is the proof).
+  - Deleted in favour of a named twin (3): F-ghost-playback-018-01 (twin
+    `GhostPlaybackEngineTests.ClearLoadedVisualReferences_ResetsPendingSplitBuildState`) and
+    F-legacy-bugfix-020-02 (twin `HealthCounters_Reset_ZerosReentryFxDeferred`): under a
+    mutant where the default value matters, each twin is the only red across every class
+    that reaches the SUT. F-map-render-025-02 (twins
+    `AllowAnchorCorrection_NoAnchorInStore_ReturnsFalse` / `_WrongSection_ReturnsFalse`):
+    the twins are NOT the only reds. Under its patch (TryLookup reports a miss as found)
+    17 cells fail, 439 passed / 17 failed: the two named twins, three
+    `RenderSessionStateTests.TryLookup_*` cells, one `EnsurePassIntegrityTests` cell and
+    eleven `AnchorPropagationTests`; the deleted cell was green among the passes.
+  - Deleted with the coverage gap still OPEN (1): F-catchall-060-02. The two redundant
+    wheel-damage cells fold into the null-transform cell
+    (`IsRendererOnDamagedTransform_NullTransform_ReturnsFalseForAnyNames`), but no cell reds
+    under any mutant of the guard: deleting the names clause, the transform check, or the
+    whole guard all stay green, because the ancestor walk's own null test answers false for
+    a null start. The register's "red by NullReferenceException" is wrong. The guard's names
+    half and the parent walk need a live Transform; the in-game cell the register proposed
+    is filed as `TQ-2-wheel-damage-guard-needs-live-transform` in `todo-and-known-bugs.md`.
 
 ## July crosswalk
 

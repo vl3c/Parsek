@@ -515,6 +515,21 @@ connectionKinds = { DockingPort = { min = 2, max = 2 } }
 originBodies = { Kerbin = { min = 2, max = 2 } }
 destinationBodies = { Duna = { min = 1, max = 1 }, Mun = { min = 1, max = 1 } }
 
+# [expectations.unityExceptions] ARMED 2026-09-22 ON maxParsekFrames ONLY (todo
+# GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE, re-proof of the PR #1748 quit latch).
+# maxTotal stays report-only. A `Parsek.` frame on an exception stack is a finding at any
+# count, so this key is 0 whatever the stock noise does. BEFORE the latch: parsekFrames 2 in `2026-09-15_1536` and in `_1837`, all
+# `Parsek.GhostMapPresence.EnsureGhostOrbitRenderers` after `flushandquit`. AFTER it:
+# `2026-09-22_1835` read parsekFrames 0 (total 0, afterQuit 0, quit marker seen), and the guard's own `EnsureGhostOrbitRenderers: skipped repair
+# reason=application-quitting trackedGhosts=2` line fired after `Application quitting latched`.
+# CONTROLLED OFFLINE, no flight: this block PASSES that run's KSP.log, and over the same
+# bytes with V15T `2026-09-10_1917`'s real 15-line Parsek-frame `[EXC]` record appended
+# it reds on exactly one mismatch, `unityExceptions.parsekFrames 1 > maxParsekFrames 0
+# (Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)`, and passes at 1; readings in
+# the status doc's known-gate 11.
+[expectations.unityExceptions]
+maxParsekFrames = 0
+
 [runtime]
 # 300 LoadGame + 300 LoadGame(TS) + 120 export + the fast non-deferred verbs + KSP boot +
 # collect. No TimeJump, so no game time is bought; V18T's structurally similar 18-step

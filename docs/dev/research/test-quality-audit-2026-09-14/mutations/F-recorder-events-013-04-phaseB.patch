@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..009ff3e16 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -521,7 +521,7 @@ namespace Parsek
+         /// </summary>
+         internal void ProcessPendingSplitChecks()
+         {
+-            if (pendingBackgroundSplitChecks.Count == 0) return;
++            if (pendingBackgroundSplitChecks.Count >= 0) return;
+ 
+             // Copy keys to avoid modifying dict during iteration
+             var pending = new List<KeyValuePair<uint, (double branchUT, string recordingId, TrajectoryPoint? parentBoundaryPoint)>>(

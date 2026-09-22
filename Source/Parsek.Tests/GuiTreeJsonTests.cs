@@ -122,8 +122,110 @@ namespace Parsek.Tests
             Assert.DoesNotContain("\"value\"", json);
             Assert.DoesNotContain("\"horizontal\"", json);
             Assert.DoesNotContain("\"contentOrigin\"", json);
+            // A style drawing in the skin's own font carries no font keys.
+            Assert.DoesNotContain("\"fontSize\"", json);
+            Assert.DoesNotContain("\"fontStyle\"", json);
             // Never omitted: an absent text is meaningful (an icon-only control).
             Assert.Contains("\"text\": null", json);
+        }
+
+        /// <summary>
+        /// The font delta is ADDITIVE: a custom label copy drawing at 10 px (the main
+        /// window's version footer) and a bold, enlarged window title both reach the
+        /// document, the schema id does not move, and the keys survive assembly (the
+        /// assembler copies event -> node field by field, so a forgotten copy would drop
+        /// them silently).
+        /// </summary>
+        [Fact]
+        public void FontDeltaKeysAreWrittenForTheWindowTitleAndACustomLabel()
+        {
+            var events = new List<GuiTreeEvent>
+            {
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Begin,
+                    Kind = GuiNodeKind.Window,
+                    Rect = new GuiRect(8f, 8f, 250f, 300f),
+                    ClipDepth = 1,
+                    Text = "Parsek",
+                    StyleName = "window",
+                    WindowId = 7,
+                    FontSize = 16,
+                    FontStyleName = "bold",
+                },
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Leaf,
+                    Kind = GuiNodeKind.Label,
+                    Rect = new GuiRect(18f, 273f, 35f, 17f),
+                    ClipDepth = 1,
+                    Text = "v0.10.5",
+                    StyleName = "label",
+                    FontSize = 10,
+                },
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+            };
+            GuiTreeResult tree = GuiTreeAssembler.Assemble(events);
+            Assert.Equal(16, tree.Roots[0].FontSize);
+            Assert.Equal("bold", tree.Roots[0].FontStyleName);
+            Assert.Equal(10, tree.Roots[0].Children[0].FontSize);
+            Assert.Null(tree.Roots[0].Children[0].FontStyleName);
+
+            string json = GuiTreeJson.Write(Header(), tree);
+            Assert.Contains("\"schema\": \"parsek-gui-tree/1\"", json);
+            Assert.Contains("\"text\": \"Parsek\", \"windowId\": 7, \"fontSize\": 16, \"fontStyle\": \"bold\"", json);
+            Assert.Contains("\"text\": \"v0.10.5\", \"fontSize\": 10, \"children\"", json);
+        }
+
+        [Theory]
+        [InlineData(0, "normal")]
+        [InlineData(1, "bold")]
+        [InlineData(2, "italic")]
+        [InlineData(3, "boldItalic")]
+        [InlineData(9, "9")]
+        public void FontStyleWireNamesArePinned(int value, string expected)
+        {
+            Assert.Equal(expected, GuiTreeAssembler.FontStyleWireName(value));
+        }
+
+        [Fact]
+        public void FontDeltaRecordsOnlyADepartureFromTheSkinStyleOfTheSameName()
+        {
+            int? size;
+            string style;
+
+            // Same as the skin: nothing to say.
+            GuiTreeAssembler.ResolveFontDelta(12, 0, true, 12, 0, out size, out style);
+            Assert.Null(size);
+            Assert.Null(style);
+
+            // A `new GUIStyle(label) { fontSize = 10 }` copy: the size is the delta.
+            GuiTreeAssembler.ResolveFontDelta(10, 0, true, 12, 0, out size, out style);
+            Assert.Equal(10, size);
+            Assert.Null(style);
+
+            // The main window title over a skin window reporting fontSize 0.
+            GuiTreeAssembler.ResolveFontDelta(16, 1, true, 0, 0, out size, out style);
+            Assert.Equal(16, size);
+            Assert.Equal("bold", style);
+
+            // A style that UN-bolds a bold skin style says so explicitly.
+            GuiTreeAssembler.ResolveFontDelta(0, 0, true, 0, 1, out size, out style);
+            Assert.Null(size);
+            Assert.Equal("normal", style);
+
+            // Size 0 is "the font's default" and is never recorded.
+            GuiTreeAssembler.ResolveFontDelta(0, 0, true, 12, 0, out size, out style);
+            Assert.Null(size);
+            Assert.Null(style);
+
+            // No skin counterpart: any explicit size and any non-normal style count.
+            GuiTreeAssembler.ResolveFontDelta(11, 2, false, 0, 0, out size, out style);
+            Assert.Equal(11, size);
+            Assert.Equal("italic", style);
+            GuiTreeAssembler.ResolveFontDelta(0, 0, false, 0, 0, out size, out style);
+            Assert.Null(size);
+            Assert.Null(style);
         }
 
         [Fact]

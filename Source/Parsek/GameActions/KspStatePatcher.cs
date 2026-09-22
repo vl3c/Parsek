@@ -231,9 +231,7 @@ namespace Parsek
             if (decision.Clamped)
             {
                 bool scienceDown = decision.Direction == ClampDirection.Down;
-                ref bool scienceLatch = ref (scienceDown
-                    ? ref scienceUpliftClampToastShownThisSession
-                    : ref scienceClampToastShownThisSession);
+                ref bool scienceLatch = ref DrawdownGuardSessionToastLatch("Science", decision.Direction);
                 EmitDrawdownGuardClamp(
                     "Science", runningScience, currentScience,
                     wouldBeTarget: targetScience, clampedTo: decision.EffectiveTarget,
@@ -1315,9 +1313,7 @@ namespace Parsek
             if (decision.Clamped)
             {
                 bool fundsDown = decision.Direction == ClampDirection.Down;
-                ref bool fundsLatch = ref (fundsDown
-                    ? ref fundsUpliftClampToastShownThisSession
-                    : ref fundsClampToastShownThisSession);
+                ref bool fundsLatch = ref DrawdownGuardSessionToastLatch("Funds", decision.Direction);
                 EmitDrawdownGuardClamp(
                     "Funds", runningFunds, currentFunds,
                     wouldBeTarget: targetFunds, clampedTo: decision.EffectiveTarget,
@@ -1464,9 +1460,7 @@ namespace Parsek
             if (decision.Clamped)
             {
                 bool repDown = decision.Direction == ClampDirection.Down;
-                ref bool repLatch = ref (repDown
-                    ? ref reputationUpliftClampToastShownThisSession
-                    : ref reputationClampToastShownThisSession);
+                ref bool repLatch = ref DrawdownGuardSessionToastLatch("Reputation", decision.Direction);
                 EmitDrawdownGuardClamp(
                     "Reputation", targetRep, currentRep,
                     wouldBeTarget: targetRep, clampedTo: decision.EffectiveTargetRaw,
@@ -3352,6 +3346,32 @@ namespace Parsek
             fundsUpliftClampToastShownThisSession = false;
             scienceUpliftClampToastShownThisSession = false;
             reputationUpliftClampToastShownThisSession = false;
+        }
+
+        /// <summary>
+        /// The session toast latch a guarded clamp of <paramref name="resource"/> in
+        /// <paramref name="direction"/> reads and sets: the uplift latch for a DOWN clamp,
+        /// the drawdown latch otherwise. The three Patch* call sites select through here so
+        /// xUnit can reach the same statics <see cref="ResetDrawdownGuardSessionLatches"/>
+        /// clears.
+        /// </summary>
+        internal static ref bool DrawdownGuardSessionToastLatch(string resource, ClampDirection direction)
+        {
+            bool down = direction == ClampDirection.Down;
+            switch (resource)
+            {
+                case "Funds":
+                    if (down) return ref fundsUpliftClampToastShownThisSession;
+                    return ref fundsClampToastShownThisSession;
+                case "Science":
+                    if (down) return ref scienceUpliftClampToastShownThisSession;
+                    return ref scienceClampToastShownThisSession;
+                case "Reputation":
+                    if (down) return ref reputationUpliftClampToastShownThisSession;
+                    return ref reputationClampToastShownThisSession;
+                default:
+                    throw new ArgumentException("unknown drawdown guard resource: " + resource, nameof(resource));
+            }
         }
 
         /// <summary>
