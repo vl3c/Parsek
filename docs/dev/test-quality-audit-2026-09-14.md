@@ -2065,6 +2065,62 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `DisassembledTerminalStateTests`, `SessionSuppressionWiringTests`): 149 passed / 0
     failed before, 148 passed / 0 failed after - exactly the one removed cell.
 
+- `testfix-low-03` (2026-09-22): Low T1 slice 3, the remainder of slice 1
+  (`work/phase-b-slice-low-t1-03.txt`, 14 ids; slice 1's other two rows,
+  F-analyzer-002-02 and F-rewind-refly-019-02, are on `testfix-low-01`). Counting rule:
+  every kept row is strengthened, and a rename is a SUBSET of that. Slice total: 11
+  strengthened, 5 of those also renamed (one split into two cells), 3 deleted, 0
+  premise-wrong. Per-commit split, derived from the diff: 4 rows (`429e2e205`), 4 rows
+  (`6de00c759`, one deletion), 4 rows (`bcadedb4d`, two deletions), 2 rows (`b1f13d313`).
+  Each row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  that `git apply --check`s against this branch. Two behaviour-identical extractions:
+  `ParsekUI.ComposeScrollbarGutterWidth` and `FlightRecorder.FormatGrowthRateAtStop`; the
+  two patches that mutate them apply on top of those extractions.
+  - Renamed (each also strengthened): F-catchall-040-02 ->
+    `OnRailsSoiTransition_ProducerClosesAndOpensAtTheOneBoundaryUT` (drives
+    `TransitionTrackSectionAtSoiBoundary`, which picks both boundary UTs from one input);
+    F-ghost-playback-015-01 ->
+    `TheNumbersAreInvariantFormatted_UnderACultureWithANonAsciiMinusSign` (every token is
+    an int, so only the negative sign can separate invariant from culture formatting, and
+    recIdx -1 is a real input); F-harness-seam-008-01 ->
+    `AutorunEnv_IsReadOnlyInParseAutorunConfigOnce_WhichOnlyAwakeCalls` (source-gated,
+    fixture-limited: the read-once caller is a MonoBehaviour); F-recording-tree-052-08 ->
+    `CommitScienceSubjects_EqualValue_RetainsValueAndIsNotCountedAsAnUpdate` (the register
+    proposed DELETE; declined, because the equal value is the only input separating `>`
+    from `>=`, and a `>=` mutant was green across `CommittedScienceDictTests` and
+    `GameStateEventTests` - the `updated` counter in the commit summary is the witness);
+    F-rewind-refly-019-01 -> split into
+    `NullProvisional_WithInPlaceMarker_ReturnsWithoutTouchingTheCommittedTree` and
+    `NullMarker_WithProvisional_ReturnsWithoutTouchingTheCommittedTree`, each red under its
+    own single-guard deletion.
+  - Strengthened in place: F-catchall-023-03 (header padding through the shipped gutter
+    rule), F-ledger-career-015-05 / -015-06 (drive `ApplyToRoster` over the class's fake
+    facade, which now records `TryRecreateStandIn` requests; the two rows need mirror
+    mutants - deleting the call-site guard, and skipping every displaced entry - because
+    each leaves the other cell green), F-logging-004-01 (the production formatter's exact
+    line under de-DE), F-recorder-events-001-02 (event-free roundtrip through the
+    production codec), F-recorder-events-001-04 (`RecordingTree.LoadRecordingFrom` over a
+    `BuildV3Metadata` node: a legacy `Build()` node is rejected by the schema gate before
+    the linkage keys are read, which kept the first attempt green under the mutant).
+  - Deleted, each after its named twin red under the row's mutant across every class
+    reaching the method while the deleted cell stayed green:
+    F-legacy-bugfix-020-01 (twin `HybridSpike_TotalBelowBudget_DoesNotFireBreakdown`;
+    the hybrid `totalMs > 0 ? ... : "n/a"` fraction sentinels are unreachable behind the
+    8 ms budget guard - a mutant rewriting one leaves all 70 cells of the five breakdown
+    classes green - and the proposed mainLoop replacement already exists as
+    `Bug460MainLoopBreakdownTests.ZeroTrajectoriesAndOverlap_RendersMeanAsNa`),
+    F-logistics-route-035-01 (twin
+    `TheRelayIsEligibleWithRoverBAsTheSourceAndLanderAAsTheDestination`; the dump's
+    `ITestOutputHelper` constructor and `FormatDouble` helper went with it),
+    F-recorder-events-001-05 (twin `PartEvents_SerializationRoundtrip_LightOn`).
+  - Filtered classes after the slice: `TableRowInsetAlignmentTests` 9,
+    `ReferenceFrameTrackingTests` 20, `GhostPartEventApplyLogTests` 28,
+    `AutorunHooksTests` 73, `KerbalReservationTests` 64, `Bug581HybridBreakdownTests` 14
+    (15 before), `ObservabilityLoggingTests` 18, `RoverRelayCOracleTests` 3 (4 before),
+    `PartEventTests` 164 (165 before), `CommittedScienceDictTests` 7,
+    `MergeJournalForkMigrationTests` 6 (5 before), all passed / 0 failed.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

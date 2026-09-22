@@ -716,6 +716,48 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Tests: fourteen Low T1 (vacuous) cells from the unit-test quality audit now fail for
+  the reason their names give, or are gone.** Each of them could not red on the thing it
+  named: it re-derived the rule from test-local numbers, compared a value the fixture had
+  just written, asserted what a field initializer or a test builder produced, or reached
+  no production code at all. Eleven were strengthened - five of them also renamed, one
+  split into two cells - and three were deleted in favour of a named twin; nothing was
+  premise-wrong. The table-gutter arithmetic now runs the shipped gutter rule, fed the
+  census-measured skin terms, so a rule that took the max of the scrollbar footprint and
+  the cell margin instead of their sum reds it. The on-rails contiguity cell passed the
+  same UT to its own close and open calls; it now hands ONE boundary UT to the SOI-seam
+  producer that chooses both. The apply-log invariance cell ran under de-DE, which formats
+  a non-negative int exactly like the invariant culture; it now uses a culture whose minus
+  sign is U+2212 and the real recIdx -1. The autorun Parse self-equality cell held for any
+  implementation, including a constant; it is now a source gate that every env read sits
+  in ParseAutorunConfigOnce and that Awake is its only caller. The two stand-in recreate
+  cells reflected into the private predicate and never ran ApplyToRoster; they now drive
+  it over a fake roster that records what it was asked to recreate. The growth-rate stop
+  line was a copy the test logged itself; it now asserts the production formatter's exact
+  line under de-DE. The two part-event and EVA-linkage back-compat cells read builder
+  output; they now load through the production codec and metadata loader (the EVA one
+  needed a current-schema node, because the loader rejects an unstamped node before it
+  reaches the linkage keys). The equal-value science re-commit could not tell a strict
+  max-wins guard from `>=` or an unconditional write by the stored value, and a `>=`
+  guard was green across every science class; the cell now reads the commit summary's
+  `updated` counter, which only the strict guard keeps at 0. The both-null fork-migration
+  call returned at the first guard and could never witness the second; it is two cells now,
+  each with only its own argument null against a committed tree the migration would
+  otherwise mutate. Deleted: the zero-total hybrid breakdown cell (the n/a fraction it
+  names is unreachable behind the 8 ms budget guard; its one reachable claim is
+  HybridSpike_TotalBelowBudget_DoesNotFireBreakdown, which reds where it did not), the
+  RoverRelayC ReportTheOracle dump (it asserted nothing on the analysis it printed), and
+  the DeployableExtended builder-only roundtrip (the codec is a plain enum cast, so a
+  production version would only repeat the LightOn roundtrip). Per commit, derived from
+  the diff: 4 rows, 4 rows (one deletion), 4 rows (two deletions), 2 rows.
+
+  Two behaviour-identical helpers were extracted so a test can reach the decision without
+  a live skin or recorder: ParsekUI.ComposeScrollbarGutterWidth (the sum
+  VerticalScrollbarGutterWidth returns) and FlightRecorder.FormatGrowthRateAtStop (the
+  line FinalizeRecordingState logs). No behaviour, log text or anything a player sees
+  changes. Each kept cell was re-checked by breaking the named production line on purpose
+  and confirming it goes red where it used to stay green.
+
 - **Tests: twenty ghost-playback, analyzer and flight-seam cells from the audit's T3
   (weak or misleading) register now let the production term they name decide the
   verdict.** Every one of them already ran the right code; none could see the branch,
