@@ -82,6 +82,10 @@ namespace Parsek.Tests.Analyzer
             Assert.NotEqual(k, new BaselineKey("INV2", "rec", 3, "e"));
         }
 
+        // Guards: two separately analyzed findings of the same shape key equally even
+        // when their numbers drift, while a different RuleId still keys apart. Fails if
+        // KeyOf ignores its inputs (every finding would match one baseline entry) or if
+        // the digest stops masking numbers (the known findings would un-baseline every run).
         [Fact]
         public void Key_SeparateInstancesSameShape_EqualKeys_RuleStillDistinguishes()
         {
