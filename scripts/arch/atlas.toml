@@ -95,7 +95,7 @@ summary = "Pure math over orbits and samples: segments, points, frames, ballisti
 summary = "The recording itself: <span class=\"id\">Recording</span>, its tree, track sections, the store, the flight and background recorders, sidecar codecs, the optimizer."
 
 [modules.Core]
-summary = "The eight files used across many modules and owned by none: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests."
+summary = "The kernel files used across many modules and owned by none: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests."
 
 [modules.Config]
 summary = "Settings, loop timing, distance thresholds."
@@ -194,12 +194,12 @@ reading = "The kernel vocabulary reaching up into the model; mostly <span class=
 [[reading_order]]
 title = "The floor."
 types = ["ParsekLog", "ParsekSettings", "FileIOUtils", "TerminalState", "ReferenceFrame", "GameActionType", "BranchPointType"]
-text = "605 types sit at this level; you need about a dozen."
+text = "Hundreds of types sit at this level (the ladder's bottom row); you need about a dozen."
 
 [[reading_order]]
 title = "Trajectory math."
 types = ["OrbitSegment", "TrajectoryPoint", "TrajectoryMath"]
-text = "the frame contracts in CLAUDE.md. Pure, testable, and the ground truth for every position on screen."
+text = "Plus the frame contracts in CLAUDE.md. Pure, testable, and the ground truth for every position on screen."
 
 [[reading_order]]
 title = "The recording model."
@@ -214,7 +214,7 @@ text = "What persists across scenes and how it patches KSP's career state."
 [[reading_order]]
 title = "Effective state and rewind."
 types = ["EffectiveState", "RewindPoint", "ReFlySessionMarker"]
-text = "the merge journal. Which recordings count, given supersedes and re-flies."
+text = "Plus the merge journal. Which recordings count, given supersedes and re-flies."
 
 [[reading_order]]
 title = "Playback."
@@ -229,7 +229,7 @@ text = "Logistics, Missions, Reaim, MapRender. Each reads steps 3 to 6 and adds 
 [[reading_order]]
 title = "The controllers and the surface."
 types = ["ParsekScenario", "ParsekFlight"]
-text = "the UI windows, the Harmony patches. Read last: they are where everything meets, and they only make sense once the parts do."
+text = "Plus the UI windows and the Harmony patches. Read last: they are where everything meets, and they only make sense once the parts do."
 
 # The Main findings list, in page order. `reviewed` is the date the list and the
 # opportunities below were last re-read against a fresh page; `--check` says
