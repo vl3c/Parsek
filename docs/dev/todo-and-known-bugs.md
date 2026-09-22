@@ -189,7 +189,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `scripts/arch/modules.toml` (file to module, forbidden edges, the runtime-coupled module
   list) and `scripts/arch/atlas.toml` (prose). Contract and reading guide:
   `docs/dev/arch/README.md`.
-- **The report predates the SIZE view and its hotspot list is under-ranked.** The generator
+- **Report updated 2026-09-22** (same file, same artifact link): current tiles, the
+  corrected hotspot table, a "Largest types and split candidates" section with the top
+  ten types, their tier and the S1-S7 rules that fired, and opportunity rows 11
+  (GhostMapPresence carve-outs) and 12 (same-file extract-method pass over the Tier 1
+  types). The other tables are still the 2026-09-14 reading.
+- **Why the original missed GhostMapPresence.** The generator
   had no notion of size when the report was written, which is why it says almost nothing
   about `GhostMapPresence` (13.5k lines, a partial class whose members are all static). It
   now has one: `sizes.json` plus the SIZE section rank the largest files and types with
@@ -211,7 +216,10 @@ columns whose blanks are visible, where the old outline simply said nothing.
   #1685 Missions -> Logistics boundary, #1686 VesselSpawner step 1. Cycle 391 -> 282.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
-again, regenerate and read the KNOTS greedy cuts and the upward-edge count; the remaining
+again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
+split rules; the later break-up pass of large files and classes into smaller ones works
+from it, cheapest rule first: S1 extract-method, S2 pure helper, S3 partial files, S4
+state map plus facade), the KNOTS greedy cuts and the upward-edge count; the remaining
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 

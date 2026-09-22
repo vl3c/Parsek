@@ -36,26 +36,46 @@ code { font-family:"JetBrains Mono",Consolas,monospace; font-size:.88em; backgro
 </head><body><main>
 <h1>Parsek Structure Findings</h1>
 <p class="sub">Source scan of <code>Source/Parsek</code> on 2026-09-14, plus git history since 2025-03-01. Text-scan approximation; see the last line.</p>
+<p class="sub"><strong>Updated 2026-09-22</strong> from a fresh <code>archview.py</code> run with the new size view. The tiles, the hotspot table and the "Largest types" section are current; the other tables are the 2026-09-14 reading. The 2026-09-14 hotspot list under-ranked every large partial class (see the findings below).</p>
 
 <div class="grid">
   <div class="tile"><div class="n">747</div><div class="l">source files, one assembly</div></div>
-  <div class="tile"><div class="n">1,335</div><div class="l">production types, 20 modules</div></div>
-  <div class="tile"><div class="n">605</div><div class="l">types that depend on nothing (data, enums)</div></div>
-  <div class="tile"><div class="n red">391</div><div class="l">types in one dependency cycle (29%)</div></div>
+  <div class="tile"><div class="n">1,351</div><div class="l">production types, 20 modules</div></div>
+  <div class="tile"><div class="n">612</div><div class="l">types that depend on nothing (data, enums)</div></div>
+  <div class="tile"><div class="n red">285</div><div class="l">types in one dependency cycle (21%; 391 on 09-14)</div></div>
   <div class="tile"><div class="n">0.20</div><div class="l">highest module co-change ratio</div></div>
-  <div class="tile"><div class="n">22%</div><div class="l">of all commits touch ParsekFlight.cs</div></div>
+  <div class="tile"><div class="n">22%</div><div class="l">of all commits touch ParsekFlight</div></div>
 </div>
 
 <h2>Main findings</h2>
 <ul class="f">
+  <li><strong>Size is the missing axis (added 2026-09-22).</strong> 83 production files are at or above 1,000 lines and 14 at or above 5,000. The ten largest types hold 127,314 lines between them; the size view marks 14 types Tier 1 and 39 Tier 2 for a later split pass. <code>GhostMapPresence</code> (14,379 lines, 17 reassignable statics plus 35 shared collections, a 601-line method) was barely named here before; its study is linked in the section below.</li>
+  <li><strong>The 2026-09-14 hotspot list was wrong for partial classes.</strong> A merged partial type was scored on the commits of whichever file the scan met first, often a small part. Scored on the union of its files, <code>ParsekFlight</code> is hotspot 1 and <code>GhostMapPresence</code> 7; neither was on the list.</li>
   <li><strong>The modules are real.</strong> No two modules co-change in more than 20 percent of their commits. The folder and name boundaries match how the code is edited.</li>
   <li><strong>The pain is three files.</strong> <code>ParsekFlight.cs</code> (27,591 lines, in 1,125 of 5,127 commits, on one side of every top cross-module co-change pair), <code>RecordingStore.cs</code> (408 commits, 37 references into the cycle), <code>Recording.cs</code> (top hotspot: 132 commits times fan-in 162).</li>
-  <li><strong>One cycle of 391 types spans every module</strong>, held by four references: the logger reading settings, and the recording data type calling its store and the crew ledger. Cutting those frees 110 types. The 253 left after the third cut are design work.</li>
+  <li><strong>One cycle of 391 types spanned every module</strong> (now 285 after #1683 to #1686), held by four references: the logger reading settings, and the recording data type calling its store and the crew ledger. Cutting those frees 110 types. The 253 left after the third cut are design work.</li>
   <li><strong>Parsek is data plus functions, not objects.</strong> 26 interfaces and 6 abstract bases in 1,335 types; 497 data types, 343 static helper classes. The abstractions are the 18 hub names below, not a class hierarchy.</li>
   <li><strong>The old Core was a filing error.</strong> 123 root-level files; 115 had an obvious owner. The real kernel is 8 files every module uses.</li>
   <li><strong>Trajectory is the pure module the docs claim</strong> once five recorder-side files stopped matching its name prefixes: 13 files, instability 0.06, six upward references.</li>
   <li><strong>Missions and Reaim are not one module.</strong> 21 references each way but co-change in only 15 percent of their commits: cut with an interface, do not merge.</li>
 </ul>
+
+<h2>Largest types and split candidates (2026-09-22)</h2>
+<p class="sub">Partials merged. Long = methods of 90 lines or more. Statics = reassignable + static readonly collections. Pure = static methods that read as pure by a name scan (verify before lifting). Rules: S1 same-file extract-method pass, S2 lift the pure pool to an <code>internal static</code> helper, S3 split the largest file into partial files, S4 static state map with the type kept as a facade, S5 move nested or sibling types, S6 runtime-coupled module (in-game validation, stable log text), S7 hotspot priority. Candidates and evidence, never a verdict; each still needs a proposal and a review against <code>docs/dev/refactor-guidelines.md</code>.</p>
+<div class="wide"><table>
+<tr><th>Type</th><th>Module</th><th class="n">Lines</th><th>Files (largest)</th><th class="n">Methods</th><th class="n">Long</th><th>Longest</th><th class="n">Statics</th><th class="n">Pure</th><th class="n">Hotspot</th><th>Tier</th><th>Rules</th></tr>
+<tr><td><code>ParsekFlight</code></td><td>Controllers</td><td class="n">30,608</td><td>8 (ParsekFlight.cs 27,610)</td><td class="n">707</td><td class="n">63</td><td><code>RestoreActiveTreeFromPending</code> 450</td><td class="n">12+5</td><td class="n">303</td><td class="n">1</td><td>Tier 1</td><td>S1 S3 S4 S5 S6 S7</td></tr>
+<tr><td><code>GhostMapPresence</code></td><td>Ghost</td><td class="n">14,379</td><td>5 (GhostMapPresence.cs 13,497)</td><td class="n">310</td><td class="n">29</td><td><code>ResolveMapPresenceGhostSource</code> 601</td><td class="n">17+35</td><td class="n">143</td><td class="n">7</td><td>Tier 1</td><td>S1 S3 S4 S5 S6 S7</td></tr>
+<tr><td><code>GhostPlaybackLogic</code></td><td>Ghost</td><td class="n">13,923</td><td>4 (GhostPlaybackLogic.cs 9,093)</td><td class="n">399</td><td class="n">11</td><td><code>ComputeSpanLoopFrame</code> 537</td><td class="n">10+3</td><td class="n">303</td><td class="n">5</td><td>Tier 1</td><td>S1 S2 S3 S4 S5 S6 S7</td></tr>
+<tr><td><code>FlightRecorder</code></td><td>Recording</td><td class="n">13,589</td><td>4 (FlightRecorder.cs 11,735)</td><td class="n">362</td><td class="n">17</td><td><code>RestoreTrackSectionAfterFalseAlarm</code> 201</td><td class="n">5+16</td><td class="n">162</td><td class="n">6</td><td>Tier 1</td><td>S1 S3 S4 S5 S7</td></tr>
+<tr><td><code>ParsekScenario</code></td><td>Controllers</td><td class="n">10,022</td><td>3 (ParsekScenario.cs 8,493)</td><td class="n">229</td><td class="n">17</td><td><code>OnLoad</code> 1209</td><td class="n">19+0</td><td class="n">104</td><td class="n">3</td><td>Tier 1</td><td>S1 S3 S4 S5 S6 S7</td></tr>
+<tr><td><code>GhostPlaybackEngine</code></td><td>Ghost</td><td class="n">9,677</td><td>4 (GhostPlaybackEngine.cs 8,861)</td><td class="n">220</td><td class="n">17</td><td><code>UpdateUnitMemberPlayback</code> 629</td><td class="n">0+0</td><td class="n">95</td><td class="n">12</td><td>Tier 1</td><td>S1 S3 S6</td></tr>
+<tr><td><code>BackgroundRecorder</code></td><td>Recording</td><td class="n">9,301</td><td>4 (BackgroundRecorder.cs 7,591)</td><td class="n">236</td><td class="n">20</td><td><code>InitializeLoadedState</code> 319</td><td class="n">0+0</td><td class="n">69</td><td class="n">-</td><td>Tier 1</td><td>S1 S3</td></tr>
+<tr><td><code>GhostVisualBuilder</code></td><td>Ghost</td><td class="n">9,150</td><td>4 (GhostVisualBuilder.cs 7,709)</td><td class="n">197</td><td class="n">18</td><td><code>AddPartVisuals</code> 425</td><td class="n">5+9</td><td class="n">106</td><td class="n">25</td><td>Tier 1</td><td>S1 S2 S3 S4 S6</td></tr>
+<tr><td><code>RecordingStore</code></td><td>Recording</td><td class="n">9,124</td><td>8 (RecordingStore.cs 6,938)</td><td class="n">301</td><td class="n">15</td><td><code>EnsureRewindRetirementsForRollback</code> 258</td><td class="n">37+2</td><td class="n">136</td><td class="n">2</td><td>Tier 1</td><td>S1 S3 S4 S5 S7</td></tr>
+<tr><td><code>LedgerOrchestrator</code></td><td>GameActions</td><td class="n">7,541</td><td>1 (LedgerOrchestrator.cs 7,541)</td><td class="n">187</td><td class="n">15</td><td><code>PickRecoveryRecording</code> 200</td><td class="n">24+2</td><td class="n">83</td><td class="n">8</td><td>Tier 1</td><td>S1 S3 S4 S5 S7</td></tr>
+</table></div>
+<p class="note">Full list, per-rule wording and the rest of the tree: <code>python scripts/arch/archview.py --check</code> (SIZE section), <code>docs/dev/arch/sizes.json</code> and the atlas section "Largest files and types". <code>GhostMapPresence</code> cluster study, eight ranked extractions and a do-not-extract list: <code>docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md</code>.</p>
 
 <h2>Modules by layer</h2>
 <p class="sub">I = instability = fan-out / (fan-out + fan-in). High at the top (depends on others), near 0 at the bottom (depended on). Tooling modules (243 files) excluded.</p>
@@ -107,18 +127,20 @@ code { font-family:"JetBrains Mono",Consolas,monospace; font-size:.88em; backgro
 </table>
 </div>
 <div>
-<h2>Change hotspots (commits x fan-in)</h2>
+<h2>Change hotspots (commits x fan-in, 2026-09-22)</h2>
+<p class="sub">Commits are the union over all of a type's files.</p>
 <table>
 <tr><th>Type</th><th class="n">Commits</th><th class="n">Fan-in</th><th class="n">Score</th></tr>
-<tr><td><code>Recording</code></td><td class="n">132</td><td class="n">162</td><td class="n">21,384</td></tr>
-<tr><td><code>LedgerOrchestrator</code></td><td class="n">208</td><td class="n">36</td><td class="n">7,488</td></tr>
-<tr><td><code>ParsekLog</code></td><td class="n">24</td><td class="n">295</td><td class="n">7,080</td></tr>
+<tr><td><code>ParsekFlight</code></td><td class="n">1,140</td><td class="n">38</td><td class="n">43,320</td></tr>
+<tr><td><code>RecordingStore</code></td><td class="n">416</td><td class="n">90</td><td class="n">37,440</td></tr>
+<tr><td><code>ParsekScenario</code></td><td class="n">427</td><td class="n">52</td><td class="n">22,204</td></tr>
+<tr><td><code>Recording</code></td><td class="n">134</td><td class="n">163</td><td class="n">21,842</td></tr>
+<tr><td><code>GhostPlaybackLogic</code></td><td class="n">314</td><td class="n">44</td><td class="n">13,816</td></tr>
+<tr><td><code>FlightRecorder</code></td><td class="n">343</td><td class="n">29</td><td class="n">9,947</td></tr>
+<tr><td><code>GhostMapPresence</code></td><td class="n">271</td><td class="n">36</td><td class="n">9,756</td></tr>
+<tr><td><code>LedgerOrchestrator</code></td><td class="n">212</td><td class="n">36</td><td class="n">7,632</td></tr>
+<tr><td><code>ParsekLog</code></td><td class="n">25</td><td class="n">300</td><td class="n">7,500</td></tr>
 <tr><td><code>RecordingTree</code></td><td class="n">85</td><td class="n">82</td><td class="n">6,970</td></tr>
-<tr><td><code>ParsekUI</code></td><td class="n">290</td><td class="n">15</td><td class="n">4,350</td></tr>
-<tr><td><code>VesselSpawner</code></td><td class="n">163</td><td class="n">22</td><td class="n">3,586</td></tr>
-<tr><td><code>PendingTreeState</code></td><td class="n">408</td><td class="n">6</td><td class="n">2,448</td></tr>
-<tr><td><code>EffectiveState</code></td><td class="n">52</td><td class="n">43</td><td class="n">2,236</td></tr>
-<tr><td><code>ParsekSettings</code></td><td class="n">85</td><td class="n">24</td><td class="n">2,040</td></tr>
 </table>
 <h2>Most-churned files (commits)</h2>
 <table>
@@ -194,11 +216,13 @@ code { font-family:"JetBrains Mono",Consolas,monospace; font-size:.88em; backgro
 <tr><td class="n">8</td><td>Missions / Reaim interface cut</td><td>21 / 21 refs, jaccard 0.15</td><td>small</td><td><span class="tag plan">low priority</span></td></tr>
 <tr><td class="n">9</td><td>Missions -> Logistics crossing</td><td>one file, 5 refs</td><td>one PR</td><td><span class="tag pr">PR #1685</span> green</td></tr>
 <tr><td class="n">10</td><td>MapRender -> Ghost interface</td><td>28 refs, no co-change signal</td><td>small</td><td><span class="tag plan">documentation only</span></td></tr>
+<tr><td class="n">11</td><td>GhostMapPresence: partial-file carve-outs, then a source-resolver type</td><td>14,379 lines, hotspot 7, 29 long methods; three low-risk partial slices with no call-site change</td><td>3 to 5 PRs</td><td><span class="tag plan">added 09-22; study done; needs in-game validation</span></td></tr>
+<tr><td class="n">12</td><td>Same-file extract-method pass over the Tier 1 types</td><td>222 methods of 90+ lines in the top ten; <code>ParsekScenario.OnLoad</code> is 1,209 lines</td><td>per file</td><td><span class="tag plan">added 09-22; open</span></td></tr>
 </table></div>
 
 <h2>Tooling</h2>
 <ul class="f">
-  <li><code>python scripts/arch/archview.py --check --place</code> regenerates everything in about 20 s: module edges, per-type roles and levels, the cycle and its cuts, git co-change, the map, the matrix, the explorer, the type ladder, the atlas, the placement report. Generated files are gitignored.</li>
+  <li><code>python scripts/arch/archview.py --check --place</code> regenerates everything in about 20 s: module edges, per-type roles and levels, the cycle and its cuts, git co-change, per-file and per-type sizes with split candidates (<code>sizes.json</code>), the map, the matrix, the explorer, the type ladder, the atlas, the placement report. Generated files are gitignored.</li>
   <li>Hand-authored inputs: <code>scripts/arch/modules.toml</code> (file to module, forbidden edges) and <code>scripts/arch/atlas.toml</code> (prose). Staleness in prose is reported by <code>--check</code>.</li>
   <li>Reference edges come from a text scan (identifiers matched to declared type names after stripping comments, strings and directives). Names declared in two modules are dropped; method calls that share a type name are skipped. Good enough to place files and rank couplings; not sound enough to gate a build. A Roslyn extractor (phase 5) would replace the edges and keep every view.</li>
 </ul>
