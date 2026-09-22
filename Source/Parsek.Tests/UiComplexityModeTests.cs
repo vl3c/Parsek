@@ -73,7 +73,6 @@ namespace Parsek.Tests
             var expected = new HashSet<UiSurface>
             {
                 UiSurface.MainButtonSpawnControl,
-                UiSurface.MainButtonKerbals,
                 UiSurface.MainButtonCareer,
                 UiSurface.MainButtonGloops,
                 UiSurface.TabRecordings,
@@ -85,7 +84,11 @@ namespace Parsek.Tests
 
             var actual = new HashSet<UiSurface>(UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Basic));
 
-            Assert.Equal(9, actual.Count);
+            Assert.Equal(8, actual.Count);
+            // Owner re-ruling 2026-09-22: the Kerbals window is the only surface that says
+            // why a reserved kerbal is missing from stock crew assignment, so Basic keeps it.
+            Assert.True(UiSurfaceVisibility.IsVisible(
+                UiSurface.MainButtonKerbals, UiComplexityMode.Basic));
             Assert.True(expected.SetEquals(actual),
                 "Basic hide-set drifted from design section 4. Expected: " +
                 string.Join(", ", expected.OrderBy(s => s.ToString())) + "; actual: " +

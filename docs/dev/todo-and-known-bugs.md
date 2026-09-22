@@ -679,9 +679,9 @@ generated from the artifacts:
 
 **Still open on this entry after that.** The gallery itself: the catalogue, the
 `op=mock` seam, `GalleryRun`, the two lanes and the harvest cap. Plus three
-mirror-side remainders: `bdk-kerbals-roster-standin-chain-advanced` is the one
-real state no indexed shots directory holds (a `--shots` argument on the next
-regeneration, not a code change); a CONTENT mislabel is outside what a seam log
+mirror-side remainders: `bdk-kerbals-roster-standin-chain-advanced` WAS the one
+real state no indexed shots directory held - moot since 2026-09-22, when the Kerbals
+Roster dropped the chain fold for slot-grouped rows, so the state no longer exists; a CONTENT mislabel is outside what a seam log
 can witness, so `fs-timeline-overview-empty-advanced` (not the empty branch) and
 `b1-missions-recordings-live-advanced` (an empty tab) stay unflagged and judging
 them would mean typing `empty` into the generator; and two hover labels
@@ -726,20 +726,58 @@ windows are store-shaped (frame-keyed caches, index-into-the-live-list row ident
 belong to synthetic SAVE fixtures rather than an in-memory mock; and any such fixture work
 must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE`.
 
+## KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME: a reservation from a committed flight stays in force after the flight's recorded end, including a Recovered flight's finite `ReservedUntilUT` [FILED 2026-09-22 off the Kerbals-window review (open question 1). BACKEND BEHAVIOUR, NOT CHANGED. OPEN for the owner to decide]
+
+**What is true (measured).** `KerbalReservationReleaseTests` commits one flight for
+Jebediah (start UT 100, end UT 300) and drives the REAL walk -
+`LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT` with the clock at 50, 200, 300 and
+10000, plus the uncut `RecalculateAndPatch()`. For a `Recovered` end state the reservation is
+present at every clock with `ReservedUntilUT = 300` and `IsPermanent = false`;
+`KerbalsModule.IsKerbalAvailable` answers false and `ShouldFilterFromCrewDialog` answers true
+(so the VAB/SPH crew dialog keeps hiding him and `SwapReservedCrewInFlight` keeps swapping
+him out) - before the flight even launched, and long after it recovered him. An `Aboard`
+flight behaves the same with `+inf`. The one release the cells measure is the flight leaving
+the committed set (`RecordingStore.RemoveCommittedById` + a recalc): then he is available.
+
+**Why.** `ReservedUntilUT` is written by `KerbalsModule.ProcessAction` (`endUT = rec.EndUT` for
+Recovered, `+inf` otherwise) and read by NOTHING in the backend - its only other reader was the
+Kerbals window's `Reserved until <date>` text. Every consumer keys on dictionary membership
+(`reservations.ContainsKey`): `IsKerbalAvailable`, `ShouldFilterFromCrewDialog`,
+`GetReservationKind`, `ResolveActiveChainIndex` (so the stand-in stays the active occupant),
+`ComputeRetiredSet`. A current-UT cutoff walk does not help either:
+`CrewReservationManager.RecomputeAfterCutoffWalk` re-derives the reservations from the WHOLE
+effective ledger, deliberately projecting future flights' crew holds.
+
+**The design said otherwise.** `docs/dev/done/game-actions/game-actions-kerbals-implementation-design.md`
+3.2 specified "`Recovered` -> temporary, `reservedUntilUT = recoveryUT`" and its test list
+named `Recalculate_RecoveredCrew_TemporaryReservation` as the guard against "crew locked
+forever"; that cell pins only the stored value, never a release.
+
+**What changed instead (2026-09-22).** Only the WORDING: the Kerbals window no longer prints
+`Reserved until <date>`; it names the holding flight (`Reserved: aboard <vessel>` /
+`Reserved: <mission>`) and its hover says passing time does not release it
+(`KerbalsPresentation.ReservationHoldRule`). Reservation semantics are untouched.
+
+**Owner decision needed.** Either (a) the timeline-wide hold is intended - a committed flight
+owns its crew for the whole timeline, because a rewind before its launch must still find
+them free to fly it - and the design doc 3.2 line plus `ReservedUntilUT` are stale and should
+be retired; or (b) a Recovered kerbal should return at `ReservedUntilUT`, which means making
+`IsKerbalAvailable` / `ShouldFilterFromCrewDialog` / `ResolveActiveChainIndex` compare it with
+the current UT, re-running the active-occupant and retirement derivations on a clock change,
+and deciding what a rewind to before the flight's end does to a kerbal the player has since
+crewed. (b) is a behaviour change with rewind, stand-in retirement and swap consequences; if it
+is chosen, `KerbalReservationReleaseTests` inverts and the window's hover rule changes with it.
+
 ## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
 
 **What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
 the two things its row model could not answer off existing data.
 
-1. **`Since` is `-` for four of the six statuses.** A loss is dated by the flight whose end
-   state is Dead, and a reservation by the kerbal's latest recorded flight (the flight that
-   created the hold). Retirement, stand-in placement and a live crew assignment have no
-   recorded start anywhere: `ComputeRetiredSet` rebuilds the retired set from scratch every
-   walk, `KerbalSlot.Chain` stores names with no UT, and a roster assignment is a live KSP
-   fact with no history. The column shows `-` rather than a number that would be a guess.
-   **Fix (if wanted):** persist a UT beside each chain entry and each retirement, which is a
-   `KERBAL_SLOTS` shape change and therefore a schema-generation bump - not worth it for one
-   column, which is why it is filed rather than done.
+1. ~~**`Since` is `-` for four of the six statuses.**~~ MOOT 2026-09-22: the Since column
+   was removed by the Kerbals review round (it was mostly dashes, could read a future date
+   after a rewind, and dated a mission by its end while the Flights tab dated it by its
+   start). The loss date moved into the Lost status hover; a reservation names its flight
+   instead of a date (see KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME above).
 
 2. **The "as &lt;stand-in&gt;" fallback is time-blind.** The primary source is per-flight
    truth - the recording's own raw crew, through the new
@@ -755,14 +793,17 @@ the two things its row model could not answer off existing data.
    becomes the wanted reading (it is not today: operator ruling 2026-09-15 keeps the
    grouping per owner).
 
-3. **The `as <stand-in>` crew note has NO picture.** Five census lanes flew the rebuild on
-   2026-09-15 and every Crew cell in every capture reads `-`, for a structural reason:
+3. **The stand-in note has NO picture** (the `as <stand-in>` Crew column until 2026-09-22,
+   now `(flown by <stand-in>)` in the Mission cell - the column is gone because it read `-`
+   everywhere). Five census lanes flew the rebuild on 2026-09-15 and every Crew cell in
+   every capture reads `-`, for a structural reason:
    both crewed fixtures reserve their owners BECAUSE the owners are still aboard, so no
    committed flight anywhere was flown BY a stand-in. The note's logic carries six unit
    cells (raw crew, owner-aboard, out-of-chain crewmate, the replacement fallback,
    raw-beats-map, no-slot); what is missing is a fixture where a stand-in flew.
-   Unphotographed with it: `Lost`, `Retired`, and the `Reserved for <owner> until <date>`
-   form (it needs a reserved stand-in with a finite return UT).
+   Unphotographed with it: `Retired` and the `Reserved for <owner>` form (it needs a
+   reserved stand-in). `Lost` has a real picture on the c1 career (`GUI-1`
+   `ksc-kerbals-roster-advanced`).
 4. **`GUI-8-census-empty-states` photographs the fold CLOSED.** Its roster capture now
    reads one row, `Available, no recorded flights (4)`, which is the honest new picture but
    not a picture of the four rows behind it. One `op=expand key=all` step plus a second
@@ -780,7 +821,8 @@ the two things its row model could not answer off existing data.
    his OWN gets it filed under the kerbal he covers, counted in that kerbal's bucket
    summary, and - if it is the latest-ending one - printed in that kerbal's Roster `Last
    flight` cell. His own Flights group does not carry it at all. The `as <stand-in>` crew
-   note (item 2) is a label on the owner's row, not a fix.
+   note (item 2; the Mission cell's `(flown by <stand-in>)` since 2026-09-22) is a label
+   on the owner's row, not a fix.
    **Fix:** persist the flown crew per recording (a `CREW_FLOWN` node beside
    `CREW_END_STATES`, or a per-entry `flownBy` key) and key the end states by who actually
    flew, so `ReverseMapCrewNames` stops being the only answer. That is a schema-generation

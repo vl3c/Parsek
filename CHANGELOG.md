@@ -752,6 +752,35 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The Kerbals window tells the truth about reservations, groups stand-ins under the kerbal
+  they cover, and is now available in Basic mode.** A kerbal held by a committed flight used
+  to read `Reserved until <date>`, but that reservation never ends when the date passes:
+  `KerbalReservationReleaseTests` drives the real ledger walk with the clock before, during,
+  at and long after a recovered flight, and the kerbal stays reserved and filtered from the
+  crew dialog every time. Only removing the flight frees him. The status now names what
+  holds him (`Reserved: aboard <vessel>`, `Reserved: <mission>`, `Reserved for <owner>` for a
+  stand-in), and its hover says that passing time does not release it. Whether a recovered
+  kerbal should be released when his flight ends is filed as a todo for the owner to decide;
+  reservations work exactly as before. Also on the Roster tab: each stand-in is a row directly
+  under the kerbal whose seat he covers, which replaces the chain fold that repeated those
+  rows; a stand-in Parsek already deleted from the stock roster is no longer listed as
+  `Available` (the c1 career showed Jebediah's deleted stand-in that way); the `Since` column
+  is gone, so the window's minimum width drops from 700 to 586; a `Lost` status's hover names
+  the mission and says re-flying it from a rewind point can undo the loss, and every Last
+  flight cell scrolls the Timeline to that flight; a kerbal on EVA reads `On EVA` instead of
+  `Assigned (<his own name>)`. The Flights tab dates a mission by its launch only, and its
+  Crew column is gone: a stand-in who flew a seat shows as `(flown by <stand-in>)` in the
+  Mission cell. The window draws in Basic too (owner re-ruling): it is the only place that
+  says why a reserved kerbal is missing from stock crew assignment, and it is read-only, so it
+  no longer closes when you switch to Basic. Outside the window, two crew events stop being
+  silent: a one-shot screen message when Parsek swaps a reserved kerbal out of a launched
+  craft (`<kerbal> is reserved by a committed flight; <stand-in> takes the seat.`), and a
+  refused dismissal of a Parsek-managed kerbal raises the same "Action Blocked" dialog the
+  hire, contract, facility and tech blocks raise. The Astronaut Complex badge tooltips use
+  the window's words (`Reserved - held by a committed flight (Parsek)`, `Reserved for <owner>
+  - ...`, `Lost on a committed flight (Parsek)`, `Retired stand-in (Parsek)`) and no longer
+  read "Reserved by Parsek for slot 'Jebediah Kerman'" on Jebediah himself.
+
 - **The main window drops its flight status block and gets a bold title.** The four
   flight-only lines at the top of the main window (`State:`, `Recorded Points:`,
   `Duration:`, `Active Ghosts:`) are gone: Parsek records everything, so a recorder-state

@@ -14,8 +14,8 @@ namespace Parsek
     ///
     /// <para>Two builders, one per tab: <see cref="BuildFlightRows"/> and
     /// <see cref="BuildRosterRows"/>. The roster builder READS the flight rows (a
-    /// kerbal's "Last flight" cell and its Lost / Reserved "Since" date come from them),
-    /// so the window builds flights first.</para>
+    /// kerbal's "Last flight" cell, and the flight named by a Lost / Reserved status and
+    /// its hover text, come from them), so the window builds flights first.</para>
     ///
     /// <para>Dates arrive through a <c>Func&lt;double, string&gt;</c> rather than being
     /// formatted here, because the calendar formatter is
@@ -52,9 +52,22 @@ namespace Parsek
             /// he is not aboard anything. Ghost-map ProtoVessels are excluded at the
             /// gather site.</summary>
             public string AssignedVesselName;
+            /// <summary>True when <see cref="AssignedVesselName"/> is the kerbal's own EVA
+            /// vessel (stock <c>Vessel.isEVA</c>). An EVA kerbal IS his own vessel, so the
+            /// assigned form would name the kerbal himself; the status reads
+            /// <c>On EVA</c> instead.</summary>
+            public bool AssignedVesselIsEva;
         }
 
-        /// <summary>One row of the Roster tab.</summary>
+        /// <summary>
+        /// One row of the Roster tab.
+        ///
+        /// <para>Rows are grouped BY SLOT: a slot owner's row is followed directly by one
+        /// row per stand-in of his replacement chain (<see cref="Depth"/> 1), in chain
+        /// order, so "who covers whom" is read off the table's shape. That replaced the
+        /// per-owner chain fold, whose lines repeated what the stand-in rows already said
+        /// (the 2026-09-22 review, recommendation 7).</para>
+        /// </summary>
         internal struct RosterRow
         {
             public string Name;
@@ -63,34 +76,32 @@ namespace Parsek
             /// <summary>The "Status now" cell.</summary>
             public string StatusText;
             /// <summary>The "Status now" cell's hover text, or null when the cell needs
-            /// none. Only an ACTIVE stand-in who is also aboard a craft too long to name
-            /// inline carries one (<see cref="FormatStatusTooltip"/>).</summary>
+            /// none (<see cref="FormatStatusTooltip"/>).</summary>
             public string StatusTooltipText;
-            /// <summary>The "Since" cell: the calendar date the current status started,
-            /// or <see cref="EmptyCell"/>.</summary>
-            public string SinceText;
             /// <summary>The "Last flight" cell: mission name plus outcome word, or
             /// <see cref="EmptyCell"/>.</summary>
             public string LastFlightText;
+            /// <summary>The Timeline jump target behind the "Last flight" cell: the latest
+            /// mission's last segment, the same recording a Flights row jumps to. Null when
+            /// the kerbal has no recorded flight (the cell is then plain text).</summary>
+            public string LastFlightRecordingId;
             /// <summary>The slot this row belongs to: the kerbal himself on an owner row,
             /// the covered owner on a stand-in row, null when the kerbal has no slot.</summary>
             public string SlotOwnerName;
-            /// <summary>
-            /// The slot's replacement chain, for the expandable chain view - populated on
-            /// the slot OWNER's row only. Never null; empty on a stand-in's row and on a
-            /// row with no slot.
-            ///
-            /// <para>It used to hang off both ends, which made a stand-in's own row expand
-            /// into a chain CONTAINING ITSELF: the chain describes one slot, and that slot
-            /// belongs to the owner. A stand-in row says whose slot it covers in its status
-            /// cell and stops there.</para>
-            /// </summary>
-            public List<KerbalsWindowUI.ChainMember> Chain;
+            /// <summary>0 for a top-level row; 1 for a stand-in listed under the owner whose
+            /// slot he is in (2 for a stand-in of a stand-in who owns a slot himself).</summary>
+            public int Depth;
+            /// <summary>On a nested row, whether it is the last stand-in under its owner
+            /// (picks the tree glyph).</summary>
+            public bool IsLastInSlot;
+            /// <summary>On a nested row, the stand-in's own place in the chain
+            /// (active / retired / displaced); null on a top-level row.</summary>
+            public KerbalsWindowUI.ChainMemberStatus? MemberStatus;
+            /// <summary>How many stand-in rows are listed directly under this row (owner
+            /// rows only; 0 elsewhere).</summary>
+            public int SlotMemberCount;
             /// <summary>Whether this kerbal owns at least one recorded flight.</summary>
             public bool HasFlights;
-            /// <summary>The name the chain view and the expand seam key this row by.
-            /// The kerbal's own name - unique within the roster by construction.</summary>
-            public string FoldKey { get { return Name; } }
         }
 
         /// <summary>The Roster tab's two partitions (the "minimal, need-to-know" ruling):
@@ -100,6 +111,9 @@ namespace Parsek
         {
             public List<RosterRow> Involved;
             public List<RosterRow> Plain;
+            /// <summary>How many saved chain members were left out because they no longer
+            /// exist (<see cref="IsDeletedStandIn"/>). Logged by the window's VM summary.</summary>
+            public int OmittedStandIns;
         }
 
         /// <summary>
@@ -117,7 +131,7 @@ namespace Parsek
         {
             /// <summary>The OWNER the flight is filed under - the reverse-map already ran
             /// in <c>KerbalsModule.PopulateCrewEndStates</c>, so a stand-in's flight files
-            /// under the kerbal he covered and says so in <see cref="CrewNoteText"/>.</summary>
+            /// under the kerbal he covered and says so in <see cref="MissionCellText"/>.</summary>
             public string KerbalName;
             /// <summary>The mission key: the tree id, or the recording id when the
             /// recording has no tree (a standalone / pre-tree recording is its own
@@ -126,22 +140,28 @@ namespace Parsek
             /// <summary>The kerbal's FIRST segment start in this mission - what the Date
             /// cell reads.</summary>
             public double StartUT;
-            /// <summary>The kerbal's LAST segment end in this mission. Drives both the
-            /// row's outcome and the Roster tab's "Since" date, which is the date the
-            /// hold the flight created began.</summary>
+            /// <summary>The kerbal's LAST segment end in this mission. Picks the kerbal's
+            /// latest flight (the Roster tab's "Last flight" cell) and the row order's tie
+            /// break; never drawn.</summary>
             public double EndUT;
-            /// <summary>The Date cell: the calendar form of <see cref="StartUT"/>.</summary>
+            /// <summary>The Date cell: the calendar form of <see cref="StartUT"/>. The
+            /// window dates a mission by its launch everywhere - this cell and the Roster
+            /// tab's Lost hover text alike - which is how the Missions window's first date
+            /// column and the Timeline place a mission too.</summary>
             public string DateText;
-            /// <summary>The calendar form of <see cref="EndUT"/>. NOT drawn in this tab -
-            /// the Roster tab's "Since" cell reads it, so a loss and a reservation stay
-            /// dated by when the flight ENDED, exactly as before the mission collapse.</summary>
-            public string EndDateText;
+            /// <summary>The mission name alone (the Roster tab's "Last flight" cell reads
+            /// it).</summary>
             public string MissionText;
+            /// <summary>The Mission cell as drawn: <see cref="MissionText"/>, plus
+            /// <c>" (flown by &lt;stand-in&gt;)"</c> when someone else actually flew this
+            /// kerbal's seat. The rare stand-in note lives here since the 2026-09-22 review
+            /// removed the mostly-empty Crew column.</summary>
+            public string MissionCellText;
             /// <summary>The FINAL outcome word across the mission's segments.</summary>
             public string OutcomeText;
-            /// <summary>"as &lt;stand-in&gt;" when someone else actually flew it, else
-            /// <see cref="EmptyCell"/>.</summary>
-            public string CrewNoteText;
+            /// <summary>Who actually flew it, when a stand-in covered this kerbal's seat;
+            /// null when the owner flew it himself.</summary>
+            public string StandInName;
             /// <summary>The LAST segment's recording id - the Timeline jump target, so a
             /// click lands on where the mission got to rather than where it started.</summary>
             public string RecordingId;
@@ -359,10 +379,10 @@ namespace Parsek
                 StartUT = startUT,
                 EndUT = last.EndUT,
                 DateText = FormatDateCell(startUT, formatDate),
-                EndDateText = FormatDateCell(last.EndUT, formatDate),
                 MissionText = mission,
+                MissionCellText = FormatMissionCell(mission, standIn),
                 OutcomeText = FormatOutcome(last.EndState),
-                CrewNoteText = FormatCrewNote(standIn),
+                StandInName = standIn,
                 RecordingId = last.RecordingId ?? "",
                 RecordingName = last.RecordingName ?? "",
                 EndState = last.EndState,
@@ -478,8 +498,8 @@ namespace Parsek
         /// no raw-crew entry at all (the load-time sweep can null a recording's
         /// <c>VesselSnapshot</c>, which is where the raw crew comes from). It answers the
         /// CURRENT stand-in, so on an old flight it can name the wrong one; that is a
-        /// strictly better answer than silence, and the column reads "as &lt;name&gt;"
-        /// either way.</para>
+        /// strictly better answer than silence, and the Mission cell reads
+        /// "(flown by &lt;name&gt;)" either way.</para>
         /// </summary>
         internal static string ResolveStandIn(
             string ownerName,
@@ -525,9 +545,16 @@ namespace Parsek
             return null;
         }
 
-        private static string FormatCrewNote(string standInName)
+        /// <summary>The Flights tab's Mission cell: the mission name, plus
+        /// <c>" (flown by &lt;stand-in&gt;)"</c> when a stand-in flew this kerbal's seat.
+        /// The note used to be a Crew column of its own that read <c>-</c> on every row of
+        /// every capture; it is rare, so it rides the cell it qualifies.</summary>
+        internal static string FormatMissionCell(string missionText, string standInName)
         {
-            return string.IsNullOrEmpty(standInName) ? EmptyCell : "as " + standInName;
+            string mission = missionText ?? "";
+            return string.IsNullOrEmpty(standInName)
+                ? mission
+                : mission + " (flown by " + standInName + ")";
         }
 
         // ------------------------- the Roster tab -------------------------
@@ -536,12 +563,23 @@ namespace Parsek
         /// Builds the Roster tab's row model: one row per stock-roster kerbal the player
         /// can see, plus one row per Parsek stand-in or retiree the stock list does not
         /// carry, partitioned into the normally-listed set and the folded plain set.
+        ///
+        /// <para><b>Grouped by slot.</b> A slot owner's row is followed directly by his
+        /// chain members in chain order (<see cref="RosterRow.Depth"/> 1), so a stand-in
+        /// reads under the kerbal he covers instead of rows away in the alphabet.
+        /// Everything else sorts by name. A chain member is attached to the FIRST slot
+        /// (ordinal owner order) that lists him; a name that is both a chain member and
+        /// the owner of a slot of his own (a reserved stand-in gets one) carries his own
+        /// members one level deeper.</para>
+        ///
+        /// <para><b>Deleted stand-ins are not rows.</b> See
+        /// <see cref="IsDeletedStandIn"/>.</para>
         /// </summary>
         /// <param name="roster">The stock roster as gathered (see
         /// <see cref="RosterKerbal"/>). Kerbals Parsek created that the stock list no
         /// longer carries are added from the slots / retired set below.</param>
-        /// <param name="flights">The Flights tab's groups, for the "Last flight" and
-        /// "Since" cells. May be null.</param>
+        /// <param name="flights">The Flights tab's groups, for the "Last flight" cell and
+        /// the flight a Lost / Reserved status names. May be null.</param>
         internal static RosterRowSet BuildRosterRows(
             IReadOnlyList<RosterKerbal> roster,
             IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots,
@@ -564,51 +602,14 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(retired[i])) retiredSet.Add(retired[i]);
             }
 
-            // name -> the slot it belongs to, for owners AND chain members, plus the
-            // chain view each row shows.
-            var slotOwnerOf = new Dictionary<string, string>(StringComparer.Ordinal);
-            var chainOf = new Dictionary<string, List<KerbalsWindowUI.ChainMember>>(
-                StringComparer.Ordinal);
-            // A chain member's OWN status inside the chain of someone else's slot. This is
-            // what makes a row read "Stand-in for X" - membership alone does not (see
-            // ClassifyStatus).
-            var memberStatusOf = new Dictionary<string, KerbalsWindowUI.ChainMemberStatus>(
-                StringComparer.Ordinal);
-            if (slots != null)
-            {
-                var owners = new List<string>(slots.Keys);
-                owners.Sort(StringComparer.Ordinal);
-                for (int i = 0; i < owners.Count; i++)
-                {
-                    string owner = owners[i];
-                    KerbalsModule.KerbalSlot slot = slots[owner];
-                    if (slot == null) continue;
-                    List<KerbalsWindowUI.ChainMember> chain = BuildChainMembers(
-                        slot, retiredSet, activeChainIndexOf);
-                    slotOwnerOf[owner] = owner;
-                    // The chain view hangs off the OWNER's row only (see RosterRow.Chain).
-                    chainOf[owner] = chain;
-                    for (int c = 0; c < chain.Count; c++)
-                    {
-                        string member = chain[c].Name;
-                        // First slot wins: a name in two chains is not expected by
-                        // construction and duplicate visibility beats losing the link.
-                        if (!slotOwnerOf.ContainsKey(member))
-                        {
-                            slotOwnerOf[member] = owner;
-                            memberStatusOf[member] = chain[c].Status;
-                        }
-                    }
-                }
-            }
-
-            // Every name that needs a row: the gathered roster, plus every slot owner,
-            // chain member and retiree the roster does not carry (Parsek-created
-            // stand-ins and retirees, which the stock list can have dropped).
+            // The gathered stock roster first: the deleted-stand-in rule below needs to
+            // know who the stock list still carries.
             var names = new List<string>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            var inRoster = new HashSet<string>(StringComparer.Ordinal);
             var traitOf = new Dictionary<string, string>(StringComparer.Ordinal);
             var assignedVesselOf = new Dictionary<string, string>(StringComparer.Ordinal);
+            var onEva = new HashSet<string>(StringComparer.Ordinal);
             if (roster != null)
             {
                 for (int i = 0; i < roster.Count; i++)
@@ -616,22 +617,70 @@ namespace Parsek
                     RosterKerbal k = roster[i];
                     if (string.IsNullOrEmpty(k.Name) || !seen.Add(k.Name)) continue;
                     names.Add(k.Name);
+                    inRoster.Add(k.Name);
                     traitOf[k.Name] = k.Trait ?? "";
                     if (!string.IsNullOrEmpty(k.AssignedVesselName))
+                    {
                         assignedVesselOf[k.Name] = k.AssignedVesselName;
+                        if (k.AssignedVesselIsEva) onEva.Add(k.Name);
+                    }
                 }
             }
-            foreach (var pair in slotOwnerOf)
+
+            // Slots: which owner each chain member is listed under, and his status in
+            // that chain. This is what makes a row read "Stand-in for X" - membership
+            // alone does not (see ClassifyStatus).
+            var memberOwnerOf = new Dictionary<string, string>(StringComparer.Ordinal);
+            var memberStatusOf = new Dictionary<string, KerbalsWindowUI.ChainMemberStatus>(
+                StringComparer.Ordinal);
+            var membersOf = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var owners = new List<string>();
+            if (slots != null)
             {
+                owners.AddRange(slots.Keys);
+                owners.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < owners.Count; i++)
+                {
+                    string owner = owners[i];
+                    KerbalsModule.KerbalSlot slot = slots[owner];
+                    if (slot == null) continue;
+                    var kept = new List<string>();
+                    List<KerbalsWindowUI.ChainMember> chain = BuildChainMembers(
+                        slot, retiredSet, activeChainIndexOf);
+                    for (int c = 0; c < chain.Count; c++)
+                    {
+                        string member = chain[c].Name;
+                        if (string.Equals(member, owner, StringComparison.Ordinal)) continue;
+                        bool reserved = reservations != null && reservations.ContainsKey(member);
+                        if (IsDeletedStandIn(chain[c].Status, inRoster.Contains(member),
+                                retiredSet.Contains(member), reserved))
+                        {
+                            set.OmittedStandIns++;
+                            continue;
+                        }
+                        // First slot wins: a name in two chains is not expected by
+                        // construction, and one listing beats two.
+                        if (memberOwnerOf.ContainsKey(member)) continue;
+                        memberOwnerOf[member] = owner;
+                        memberStatusOf[member] = chain[c].Status;
+                        kept.Add(member);
+                    }
+                    membersOf[owner] = kept;
+                }
+            }
+
+            // Every name that needs a row: the gathered roster, plus every slot owner,
+            // kept chain member and retiree the roster does not carry.
+            for (int i = 0; i < owners.Count; i++)
+                if (seen.Add(owners[i])) names.Add(owners[i]);
+            foreach (var pair in memberOwnerOf)
                 if (seen.Add(pair.Key)) names.Add(pair.Key);
-            }
             foreach (string name in retiredSet)
-            {
                 if (seen.Add(name)) names.Add(name);
-            }
             names.Sort(StringComparer.Ordinal);
 
             // Per-kerbal flight facts.
+            var groupOf = new Dictionary<string, FlightGroup>(StringComparer.Ordinal);
             var lastFlightOf = new Dictionary<string, FlightRow>(StringComparer.Ordinal);
             var deathFlightOf = new Dictionary<string, FlightRow>(StringComparer.Ordinal);
             if (flights != null)
@@ -640,6 +689,7 @@ namespace Parsek
                 {
                     FlightGroup group = flights[g];
                     if (group.Rows == null || group.Rows.Count == 0) continue;
+                    groupOf[group.KerbalName] = group;
                     // "Latest flight" is the latest-ENDING mission, picked explicitly
                     // rather than as the last row: the rows are ordered by the Date column
                     // (the mission START), and two missions can overlap.
@@ -662,67 +712,183 @@ namespace Parsek
                 }
             }
 
+            var ctx = new RowContext
+            {
+                Slots = slots,
+                Reservations = reservations,
+                RetiredSet = retiredSet,
+                TraitOf = traitOf,
+                AssignedVesselOf = assignedVesselOf,
+                OnEva = onEva,
+                MemberOwnerOf = memberOwnerOf,
+                MemberStatusOf = memberStatusOf,
+                MembersOf = membersOf,
+                GroupOf = groupOf,
+                LastFlightOf = lastFlightOf,
+                DeathFlightOf = deathFlightOf
+            };
+
+            // Top level: every name that is not listed under an owner. Each owner is
+            // followed by its members, recursively; the emitted set breaks a cycle.
+            var emitted = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < names.Count; i++)
             {
-                string name = names[i];
-                string slotOwner;
-                slotOwnerOf.TryGetValue(name, out slotOwner);
-                bool isOwnerRow = slotOwner != null
-                    && string.Equals(slotOwner, name, StringComparison.Ordinal);
-
-                KerbalsModule.KerbalSlot ownSlot = null;
-                if (isOwnerRow && slots != null) slots.TryGetValue(name, out ownSlot);
-
-                KerbalsModule.KerbalReservation reservation = null;
-                if (reservations != null) reservations.TryGetValue(name, out reservation);
-
-                string assignedVessel;
-                assignedVesselOf.TryGetValue(name, out assignedVessel);
-
-                bool hasFlights = lastFlightOf.ContainsKey(name);
-
-                KerbalsWindowUI.ChainMemberStatus? memberStatus = null;
-                if (!isOwnerRow)
-                {
-                    KerbalsWindowUI.ChainMemberStatus ms;
-                    if (memberStatusOf.TryGetValue(name, out ms)) memberStatus = ms;
-                }
-
-                RosterStatus status = ClassifyStatus(
-                    name,
-                    ownerPermanentlyGone: ownSlot != null && ownSlot.OwnerPermanentlyGone,
-                    retired: retiredSet.Contains(name),
-                    reservation: reservation,
-                    memberStatus: memberStatus,
-                    assignedVesselName: assignedVessel);
-
-                List<KerbalsWindowUI.ChainMember> chain;
-                if (!chainOf.TryGetValue(name, out chain) || chain == null)
-                    chain = new List<KerbalsWindowUI.ChainMember>();
-
-                var row = new RosterRow
-                {
-                    Name = name,
-                    Trait = traitOf.ContainsKey(name)
-                        ? traitOf[name]
-                        : (ownSlot != null ? (ownSlot.OwnerTrait ?? "") : ""),
-                    Status = status,
-                    StatusText = FormatStatus(status, name, slotOwner, reservation,
-                        assignedVessel, formatDate),
-                    StatusTooltipText = FormatStatusTooltip(
-                        status, slotOwner, assignedVessel),
-                    SinceText = FormatSince(status, name, lastFlightOf, deathFlightOf),
-                    LastFlightText = FormatLastFlight(name, lastFlightOf),
-                    SlotOwnerName = slotOwner,
-                    Chain = chain,
-                    HasFlights = hasFlights
-                };
-
-                if (IsPlainRow(row)) set.Plain.Add(row);
-                else set.Involved.Add(row);
+                if (memberOwnerOf.ContainsKey(names[i])) continue;
+                EmitRowWithMembers(names[i], 0, false, ctx, emitted, set);
+            }
+            // Safety net: a member whose owner chain loops back on itself never reached
+            // the top level above; list it rather than lose it.
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (!emitted.Contains(names[i]))
+                    EmitRowWithMembers(names[i], 0, false, ctx, emitted, set);
             }
 
             return set;
+        }
+
+        /// <summary>The per-build lookups <see cref="BuildRow"/> reads.</summary>
+        private sealed class RowContext
+        {
+            public IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> Slots;
+            public IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> Reservations;
+            public HashSet<string> RetiredSet;
+            public Dictionary<string, string> TraitOf;
+            public Dictionary<string, string> AssignedVesselOf;
+            public HashSet<string> OnEva;
+            public Dictionary<string, string> MemberOwnerOf;
+            public Dictionary<string, KerbalsWindowUI.ChainMemberStatus> MemberStatusOf;
+            public Dictionary<string, List<string>> MembersOf;
+            public Dictionary<string, FlightGroup> GroupOf;
+            public Dictionary<string, FlightRow> LastFlightOf;
+            public Dictionary<string, FlightRow> DeathFlightOf;
+        }
+
+        private static void EmitRowWithMembers(
+            string name, int depth, bool isLastInSlot, RowContext ctx,
+            HashSet<string> emitted, RosterRowSet set)
+        {
+            if (!emitted.Add(name)) return;
+            // Only the members actually attached HERE (first slot wins) are drawn under
+            // this row.
+            var attached = new List<string>();
+            List<string> members;
+            if (ctx.MembersOf.TryGetValue(name, out members))
+            {
+                for (int m = 0; m < members.Count; m++)
+                {
+                    string owner;
+                    if (ctx.MemberOwnerOf.TryGetValue(members[m], out owner)
+                        && string.Equals(owner, name, StringComparison.Ordinal)
+                        && !emitted.Contains(members[m]))
+                    {
+                        attached.Add(members[m]);
+                    }
+                }
+            }
+
+            RosterRow row = BuildRow(name, depth, isLastInSlot, attached.Count, ctx);
+            if (depth == 0 && IsPlainRow(row)) set.Plain.Add(row);
+            else set.Involved.Add(row);
+
+            for (int m = 0; m < attached.Count; m++)
+            {
+                EmitRowWithMembers(attached[m], depth + 1, m == attached.Count - 1, ctx,
+                    emitted, set);
+            }
+        }
+
+        private static RosterRow BuildRow(
+            string name, int depth, bool isLastInSlot, int memberCount, RowContext ctx)
+        {
+            KerbalsModule.KerbalSlot ownSlot = null;
+            if (ctx.Slots != null) ctx.Slots.TryGetValue(name, out ownSlot);
+
+            string coveredOwner;
+            ctx.MemberOwnerOf.TryGetValue(name, out coveredOwner);
+            string slotOwner = coveredOwner ?? (ownSlot != null ? name : null);
+
+            KerbalsModule.KerbalReservation reservation = null;
+            if (ctx.Reservations != null) ctx.Reservations.TryGetValue(name, out reservation);
+
+            string assignedVessel;
+            ctx.AssignedVesselOf.TryGetValue(name, out assignedVessel);
+            bool eva = ctx.OnEva.Contains(name);
+
+            KerbalsWindowUI.ChainMemberStatus? memberStatus = null;
+            KerbalsWindowUI.ChainMemberStatus ms;
+            if (coveredOwner != null && ctx.MemberStatusOf.TryGetValue(name, out ms))
+                memberStatus = ms;
+
+            RosterStatus status = ClassifyStatus(
+                name,
+                ownerPermanentlyGone: ownSlot != null && ownSlot.OwnerPermanentlyGone,
+                retired: ctx.RetiredSet.Contains(name),
+                reservation: reservation,
+                memberStatus: memberStatus,
+                assignedVesselName: assignedVessel);
+
+            FlightGroup group;
+            FlightGroup? ownGroup = ctx.GroupOf.TryGetValue(name, out group)
+                ? group
+                : (FlightGroup?)null;
+            FlightRow? hold = status == RosterStatus.Reserved
+                ? ResolveHoldFlight(reservation, ownGroup)
+                : null;
+            FlightRow deathRow;
+            FlightRow? death = ctx.DeathFlightOf.TryGetValue(name, out deathRow)
+                ? deathRow
+                : (FlightRow?)null;
+            FlightRow lastRow;
+            bool hasFlights = ctx.LastFlightOf.TryGetValue(name, out lastRow);
+
+            string trait;
+            if (!ctx.TraitOf.TryGetValue(name, out trait))
+                trait = ownSlot != null ? (ownSlot.OwnerTrait ?? "") : "";
+
+            return new RosterRow
+            {
+                Name = name,
+                Trait = trait,
+                Status = status,
+                StatusText = FormatStatus(status, name, slotOwner, hold,
+                    assignedVessel, eva),
+                StatusTooltipText = FormatStatusTooltip(status, name, slotOwner, hold,
+                    death, assignedVessel, eva),
+                LastFlightText = FormatLastFlight(name, ctx.LastFlightOf),
+                LastFlightRecordingId = hasFlights && !string.IsNullOrEmpty(lastRow.RecordingId)
+                    ? lastRow.RecordingId
+                    : null,
+                SlotOwnerName = slotOwner,
+                Depth = depth,
+                IsLastInSlot = depth > 0 && isLastInSlot,
+                MemberStatus = depth > 0 ? memberStatus : null,
+                SlotMemberCount = memberCount,
+                HasFlights = hasFlights
+            };
+        }
+
+        /// <summary>
+        /// A saved chain member who no longer exists as a kerbal: his chain position is
+        /// displaced, the stock roster does not carry him, and he is neither retired nor
+        /// reserved. That is exactly the set <c>KerbalsModule.ApplyToRoster</c> deletes
+        /// ("Stand-in '...' displaced -> deleted (unused)"): the slot keeps the NAME so a
+        /// later rewind can reuse it, and the window used to re-add it as an
+        /// <c>Available</c> row - telling the player a kerbal was available who is in no
+        /// stock list (the c1 capture: Lars Kerman, Jebediah's stand-in after Jebediah
+        /// was lost). A displaced member who IS still in the roster (seated on a live
+        /// vessel, say) stays listed.
+        /// </summary>
+        internal static bool IsDeletedStandIn(
+            KerbalsWindowUI.ChainMemberStatus memberStatus,
+            bool inStockRoster,
+            bool retired,
+            bool reserved)
+        {
+            return memberStatus == KerbalsWindowUI.ChainMemberStatus.Displaced
+                   && !inStockRoster
+                   && !retired
+                   && !reserved;
         }
 
         /// <summary>A row with nothing Parsek has to say: available, no slot, no recorded
@@ -748,14 +914,11 @@ namespace Parsek
         /// <see cref="RosterStatus"/> declares.
         ///
         /// <para><b>Stand-in is a per-MEMBER fact, not a per-chain one.</b> Chain
-        /// MEMBERSHIP is what makes a row point at a slot; it is not what makes the kerbal
-        /// the one standing in. A three-member chain has at most ONE active occupant, and
-        /// the row's own expansion already classified the other names
-        /// <c>displaced</c> / <c>retired</c> - so reading <c>Stand-in for X</c> off
-        /// membership contradicted the very line underneath it. Only
-        /// <see cref="KerbalsWindowUI.ChainMemberStatus.Active"/> reads as a stand-in;
-        /// a displaced or retired member falls through to
-        /// <c>Assigned (&lt;vessel&gt;)</c> / <c>Available</c> like any other kerbal.</para>
+        /// MEMBERSHIP is what places a row under a slot owner; it is not what makes the
+        /// kerbal the one standing in. A chain has at most ONE active occupant, so only
+        /// <see cref="KerbalsWindowUI.ChainMemberStatus.Active"/> reads as a stand-in; a
+        /// displaced or retired member falls through to <c>Assigned (&lt;vessel&gt;)</c> /
+        /// <c>Available</c> like any other kerbal.</para>
         ///
         /// <para>That also fixes the dead-owner case for free: when the owner is
         /// permanently gone <c>KerbalsModule.GetActiveChainIndex</c> answers
@@ -763,7 +926,7 @@ namespace Parsek
         /// being labelled as covering a slot nobody will return to.</para>
         /// </summary>
         /// <param name="memberStatus">This kerbal's status inside the chain of SOMEONE
-        /// ELSE's slot, or null when the row is an owner row or carries no slot at all.</param>
+        /// ELSE's slot, or null when the kerbal is listed under no owner.</param>
         internal static RosterStatus ClassifyStatus(
             string name,
             bool ownerPermanentlyGone,
@@ -786,21 +949,70 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The recorded flight that holds a reserved kerbal, for the status cell and its
+        /// hover text, or null when the kerbal has no flight of his own (a reserved
+        /// stand-in: his flights are filed under the owner he covered).
+        ///
+        /// <para>An open-ended hold (<c>ReservedUntilUT</c> = +inf) comes from a flight
+        /// that ends with the kerbal ABOARD (or with no recorded ending), so the latest
+        /// mission that ends Still aboard answers it; a finite hold comes from recovered
+        /// flights. Either way the latest-ending mission is the fallback.</para>
+        /// </summary>
+        internal static FlightRow? ResolveHoldFlight(
+            KerbalsModule.KerbalReservation reservation, FlightGroup? group)
+        {
+            if (!group.HasValue || group.Value.Rows == null || group.Value.Rows.Count == 0)
+                return null;
+            List<FlightRow> rows = group.Value.Rows;
+            bool openEnded = reservation == null
+                             || double.IsPositiveInfinity(reservation.ReservedUntilUT);
+
+            FlightRow latest = rows[0];
+            FlightRow latestAboard = default(FlightRow);
+            bool haveAboard = false;
+            for (int r = 0; r < rows.Count; r++)
+            {
+                if (rows[r].EndUT > latest.EndUT) latest = rows[r];
+                if (rows[r].EndState != KerbalEndState.Aboard) continue;
+                if (!haveAboard || rows[r].EndUT > latestAboard.EndUT)
+                {
+                    latestAboard = rows[r];
+                    haveAboard = true;
+                }
+            }
+            if (openEnded && haveAboard) return latestAboard;
+            return latest;
+        }
+
+        /// <summary>
         /// The "Status now" cell.
         ///
+        /// <para><b>A reservation names what holds the kerbal, never a date.</b> The
+        /// reservation a committed flight creates does NOT lift when game time passes the
+        /// flight's recorded end: <c>KerbalReservationReleaseTests</c> drives the real
+        /// ledger walk before, during and after that UT and the kerbal stays reserved and
+        /// filtered from the crew dialog every time; only removing the flight from the
+        /// committed set frees him. So the old <c>Reserved until &lt;date&gt;</c> promised
+        /// a release that never happens, and <c>Reserved until recovery</c> never said
+        /// recovery of what. The cell now reads <c>Reserved: aboard &lt;vessel&gt;</c> for
+        /// a flight that ends with the kerbal aboard, <c>Reserved: &lt;mission&gt;</c>
+        /// otherwise, and the release rule is the hover text.</para>
+        ///
         /// <para>The reserved form names the slot it serves only when that is SOMEONE
-        /// ELSE: a reserved slot owner is reserved for his own return, so "Reserved for
-        /// Jebediah Kerman" on Jeb's own row would say nothing the Name column does not.
-        /// A reserved stand-in does carry the owner, which is the case the reading is
-        /// for.</para>
+        /// ELSE: a reserved stand-in reads <c>Reserved for &lt;owner&gt;</c>.</para>
+        ///
+        /// <para>A long vessel or mission name that does not fit
+        /// <see cref="StatusCellMaxChars"/> drops out of the cell (it stays in the hover
+        /// text): a clipped cell reads as a shorter status rather than as an
+        /// overflow.</para>
         /// </summary>
         internal static string FormatStatus(
             RosterStatus status,
             string name,
             string slotOwnerName,
-            KerbalsModule.KerbalReservation reservation,
+            FlightRow? hold,
             string assignedVesselName,
-            Func<double, string> formatDate)
+            bool assignedVesselIsEva)
         {
             switch (status)
             {
@@ -810,30 +1022,56 @@ namespace Parsek
                     return "Retired";
                 case RosterStatus.Reserved:
                 {
-                    double until = reservation == null
-                        ? double.PositiveInfinity
-                        : reservation.ReservedUntilUT;
-                    string tail = double.IsPositiveInfinity(until)
-                        ? "until recovery"
-                        : "until " + FormatDateCell(until, formatDate);
-                    bool forSomeoneElse = !string.IsNullOrEmpty(slotOwnerName)
-                        && !string.Equals(slotOwnerName, name, StringComparison.Ordinal);
-                    return forSomeoneElse
-                        ? "Reserved for " + slotOwnerName + " " + tail
-                        : "Reserved " + tail;
+                    if (IsForSomeoneElse(name, slotOwnerName))
+                        return "Reserved for " + slotOwnerName;
+                    if (!hold.HasValue) return "Reserved";
+                    FlightRow h = hold.Value;
+                    if (h.EndState == KerbalEndState.Aboard)
+                    {
+                        string aboard = "Reserved: aboard " + HoldVesselName(h);
+                        return aboard.Length <= StatusCellMaxChars
+                            ? aboard
+                            : "Reserved: still aboard";
+                    }
+                    string flight = "Reserved: " + h.MissionText;
+                    return flight.Length <= StatusCellMaxChars ? flight : "Reserved";
                 }
                 case RosterStatus.StandIn:
                 {
                     string standIn = "Stand-in for " + (slotOwnerName ?? "?");
-                    if (string.IsNullOrEmpty(assignedVesselName)) return standIn;
-                    string withVessel = standIn + " (aboard " + assignedVesselName + ")";
+                    string where = AboardPhrase(assignedVesselName, assignedVesselIsEva);
+                    if (where == null) return standIn;
+                    string withVessel = standIn + " (" + where + ")";
                     return withVessel.Length <= StatusCellMaxChars ? withVessel : standIn;
                 }
                 case RosterStatus.Assigned:
-                    return "Assigned (" + assignedVesselName + ")";
+                    return assignedVesselIsEva
+                        ? "On EVA"
+                        : "Assigned (" + assignedVesselName + ")";
                 default:
                     return "Available";
             }
+        }
+
+        private static bool IsForSomeoneElse(string name, string slotOwnerName)
+        {
+            return !string.IsNullOrEmpty(slotOwnerName)
+                   && !string.Equals(slotOwnerName, name, StringComparison.Ordinal);
+        }
+
+        /// <summary>The vessel a hold names: the last segment's recorded vessel, falling
+        /// back to the mission name.</summary>
+        private static string HoldVesselName(FlightRow hold)
+        {
+            return string.IsNullOrEmpty(hold.RecordingName) ? hold.MissionText : hold.RecordingName;
+        }
+
+        /// <summary><c>aboard &lt;vessel&gt;</c>, <c>on EVA</c>, or null when the kerbal is
+        /// aboard nothing.</summary>
+        private static string AboardPhrase(string assignedVesselName, bool isEva)
+        {
+            if (string.IsNullOrEmpty(assignedVesselName)) return null;
+            return isEva ? "on EVA" : "aboard " + assignedVesselName;
         }
 
         /// <summary>Pessimistic average character advance for the skin's label font, the
@@ -841,69 +1079,101 @@ namespace Parsek
         internal const float StatusCellCharAdvancePx = 7f;
 
         /// <summary>How many characters the 220 px "Status now" column holds at
-        /// <see cref="StatusCellCharAdvancePx"/>. The stand-in form carries its vessel
-        /// INLINE only when the composed text fits; past that the vessel moves into the
-        /// cell's hover text, because a clipped cell reads as a shorter status rather than
-        /// as an overflow.</summary>
+        /// <see cref="StatusCellCharAdvancePx"/>. A composed status carries its vessel or
+        /// mission name INLINE only when it fits; past that the name moves into the cell's
+        /// hover text.</summary>
         internal static int StatusCellMaxChars
         {
             get { return (int)(KerbalsWindowUI.ColW_RosterStatus / StatusCellCharAdvancePx); }
         }
 
+        /// <summary>The release rule every reservation hover ends with. Pinned by
+        /// <c>KerbalReservationReleaseTests</c>: the walk keeps the reservation at every
+        /// game time once the flight is committed, and drops it only when the flight
+        /// leaves the committed set.</summary>
+        internal const string ReservationHoldRule =
+            "Passing time does not release it; it lasts while that flight stays in the timeline.";
+
+        /// <summary>The Lost hover's way back. True because a Re-Fly merge tombstones the
+        /// superseded flight's <c>KerbalAssignment</c>+Dead row
+        /// (<c>TombstoneEligibility.IsKerbalDeath</c>), and the permanent reservation that
+        /// row created is what <see cref="RosterStatus.Lost"/> reads (flown:
+        /// <c>CL-3-refly-crew-tombstone</c>, "death-sourced reservation IS
+        /// released").</summary>
+        internal const string LostReFlyRemedy =
+            "Re-flying that mission from a rewind point can undo the loss.";
+
         /// <summary>
         /// The "Status now" cell's hover text, or null when the cell says everything
-        /// already. Exactly one status needs one: an ACTIVE stand-in who is also aboard a
-        /// craft, whose composed inline form does not fit
-        /// <see cref="StatusCellMaxChars"/>. Every other status is either self-contained or
-        /// short enough to say inline.
+        /// already.
+        ///
+        /// <list type="bullet">
+        /// <item><b>Lost</b>: the mission that killed the kerbal, dated by its launch like
+        /// every other date in the window, and the way back
+        /// (<see cref="LostReFlyRemedy"/>).</item>
+        /// <item><b>Reserved</b>: the flight that holds the kerbal and the release rule
+        /// (<see cref="ReservationHoldRule"/>).</item>
+        /// <item><b>Stand-in</b> aboard a craft whose inline form does not fit
+        /// <see cref="StatusCellMaxChars"/>: where he is.</item>
+        /// </list>
         /// </summary>
         internal static string FormatStatusTooltip(
             RosterStatus status,
-            string slotOwnerName,
-            string assignedVesselName)
-        {
-            if (status != RosterStatus.StandIn) return null;
-            if (string.IsNullOrEmpty(assignedVesselName)) return null;
-            string standIn = "Stand-in for " + (slotOwnerName ?? "?");
-            if ((standIn + " (aboard " + assignedVesselName + ")").Length
-                <= StatusCellMaxChars)
-            {
-                // It fits inline, so the cell already carries the vessel.
-                return null;
-            }
-            return "Standing in for " + (slotOwnerName ?? "?")
-                   + "; aboard " + assignedVesselName + ".";
-        }
-
-        /// <summary>
-        /// The "Since" cell. The mod dates exactly two of the six statuses: a loss is
-        /// dated by the flight that produced it, and a reservation by the flight that
-        /// created the hold (the kerbal's latest recorded flight). Retired, stand-in,
-        /// assigned and available carry no recorded start, so they read
-        /// <see cref="EmptyCell"/> rather than a number that would be a guess.
-        ///
-        /// <para>It reads <see cref="FlightRow.EndDateText"/>, not the row's own Date
-        /// cell: a hold starts when the flight ENDED, and since the 2026-09-15 mission
-        /// collapse the Flights tab's Date column shows the mission's START.</para>
-        /// </summary>
-        internal static string FormatSince(
-            RosterStatus status,
             string name,
-            IReadOnlyDictionary<string, FlightRow> lastFlightOf,
-            IReadOnlyDictionary<string, FlightRow> deathFlightOf)
+            string slotOwnerName,
+            FlightRow? hold,
+            FlightRow? death,
+            string assignedVesselName,
+            bool assignedVesselIsEva)
         {
-            FlightRow row;
-            if (status == RosterStatus.Lost
-                && deathFlightOf != null && deathFlightOf.TryGetValue(name, out row))
+            switch (status)
             {
-                return row.EndDateText;
+                case RosterStatus.Lost:
+                    if (!death.HasValue)
+                        return "Lost on a committed flight. " + LostReFlyRemedy;
+                    return "Lost on " + death.Value.MissionText + " (launched "
+                           + death.Value.DateText + "). " + LostReFlyRemedy;
+
+                case RosterStatus.Reserved:
+                {
+                    if (IsForSomeoneElse(name, slotOwnerName))
+                        return "Held by a committed flight flown in " + slotOwnerName
+                               + "'s seat. " + ReservationHoldRule;
+                    if (!hold.HasValue)
+                        return "Held by a committed flight. " + ReservationHoldRule;
+                    FlightRow h = hold.Value;
+                    string lead = "Held by the committed flight " + h.MissionText;
+                    switch (h.EndState)
+                    {
+                        case KerbalEndState.Aboard:
+                            lead += ", which ends with this kerbal aboard " + HoldVesselName(h);
+                            break;
+                        case KerbalEndState.Recovered:
+                            lead += ", which ends with this kerbal recovered";
+                            break;
+                        case KerbalEndState.Unknown:
+                            lead += ", which has no recorded ending";
+                            break;
+                    }
+                    return lead + ". " + ReservationHoldRule;
+                }
+
+                case RosterStatus.StandIn:
+                {
+                    string where = AboardPhrase(assignedVesselName, assignedVesselIsEva);
+                    if (where == null) return null;
+                    string standIn = "Stand-in for " + (slotOwnerName ?? "?");
+                    if ((standIn + " (" + where + ")").Length <= StatusCellMaxChars)
+                    {
+                        // It fits inline, so the cell already carries the vessel.
+                        return null;
+                    }
+                    return "Standing in for " + (slotOwnerName ?? "?") + "; " + where + ".";
+                }
+
+                default:
+                    return null;
             }
-            if ((status == RosterStatus.Lost || status == RosterStatus.Reserved)
-                && lastFlightOf != null && lastFlightOf.TryGetValue(name, out row))
-            {
-                return row.EndDateText;
-            }
-            return EmptyCell;
         }
 
         /// <summary>The "Last flight" cell: the latest flight's mission name and outcome

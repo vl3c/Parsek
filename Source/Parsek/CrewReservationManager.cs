@@ -238,6 +238,11 @@ namespace Parsek
             int swapCount = 0;
             int failCount = 0;
             var swappedOriginals = new HashSet<string>();
+            // Pass-1 swaps only: a reserved kerbal the player (or KSP's auto-crew) seated
+            // in this craft, taken out of it. That is the event the player did not ask for
+            // and has no other way to learn about; Pass 2 fills an EMPTY seat left by an
+            // EVA'd original at merge and removes nobody from the player's craft.
+            var seatSwaps = new List<KeyValuePair<string, string>>();
 
             // Pass 1 — legacy path: kerbals currently seated in the active vessel.
             foreach (Part part in FlightGlobals.ActiveVessel.parts)
@@ -305,6 +310,7 @@ namespace Parsek
                     part.AddCrewmemberAt(replacement, seatIndex);
                     swapCount++;
                     swappedOriginals.Add(original.name);
+                    seatSwaps.Add(new KeyValuePair<string, string>(original.name, replacement.name));
                     CrewLog($"Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
                 }
             }
@@ -345,6 +351,17 @@ namespace Parsek
                     (failCount > 0 ? $", {failCount} failed" : "") +
                     " — refreshed vessel crew display");
             }
+
+            // One screen message per swap call that actually took a reserved kerbal out of
+            // a seat - an event that changed the craft, never a standing condition, and
+            // never on a call that swapped nobody.
+            string swapMessage = FormatReservedCrewSwapMessage(seatSwaps);
+            if (swapMessage != null)
+            {
+                ParsekLog.Info("CrewReservation",
+                    $"Reserved-crew swap screen message shown: swaps={seatSwaps.Count} text=\"{swapMessage}\"");
+                ParsekLog.ScreenMessage(swapMessage, ReservedCrewSwapMessageSeconds);
+            }
             else if (failCount > 0)
             {
                 CrewLog($"Crew swap: 0 succeeded, {failCount} failed");
@@ -353,6 +370,31 @@ namespace Parsek
             RemoveReservedEvaVessels(spawnedPids);
 
             return swapCount;
+        }
+
+        /// <summary>How long the reserved-crew swap message stays on screen.</summary>
+        internal const float ReservedCrewSwapMessageSeconds = 6f;
+
+        /// <summary>
+        /// The one-shot screen message for a swap call that took reserved kerbals out of
+        /// the active craft's seats, or null when it took none (no message for a no-op).
+        /// Worded in the Kerbals window's vocabulary: the kerbal is RESERVED by a committed
+        /// flight, and his stand-in takes the seat. Before this message the swap was
+        /// silent, so a player who crewed Jebediah in the VAB found Debwig at the launch
+        /// pad and nothing said why (the 2026-09-22 review, recommendation 6).
+        /// </summary>
+        /// <param name="swaps">(reserved original, stand-in) pairs, in seat order.</param>
+        internal static string FormatReservedCrewSwapMessage(
+            IList<KeyValuePair<string, string>> swaps)
+        {
+            if (swaps == null || swaps.Count == 0) return null;
+            if (swaps.Count == 1)
+            {
+                return swaps[0].Key + " is reserved by a committed flight; "
+                       + swaps[0].Value + " takes the seat.";
+            }
+            return swaps.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                   + " kerbals are reserved by committed flights; their stand-ins take the seats.";
         }
 
         /// <summary>

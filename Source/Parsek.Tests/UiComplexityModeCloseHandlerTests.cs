@@ -51,9 +51,10 @@ namespace Parsek.Tests
 
         // Every gated, lock-owning window plus the two review additions that map to no
         // UiSurface (design 7.2: the Settings-launched test runner and the group picker).
+        // Kerbals left the set with the 2026-09-22 owner re-ruling: it draws in Basic.
         private static readonly string[] ExpectedCloseSet =
         {
-            "CareerState", "Kerbals", "GloopsRecorder", "SpawnControl", "TestRunner", "GroupPicker"
+            "CareerState", "GloopsRecorder", "SpawnControl", "TestRunner", "GroupPicker"
         };
 
         // ------------------------------------------------------------------
@@ -86,12 +87,15 @@ namespace Parsek.Tests
                     Assert.NotNull(target.CloseAndReleaseLock);
                 }
 
-                // The five windows own a distinct KSP input lock; the group picker owns none
+                // The four windows own a distinct KSP input lock; the group picker owns none
                 // (edge case 4: a reachability rule, not a lock rule).
                 string[] lockOwners = set.Where(t => t.OwnsInputLock).Select(t => t.Name).ToArray();
                 Assert.Equal(
-                    new[] { "CareerState", "Kerbals", "GloopsRecorder", "SpawnControl", "TestRunner" },
+                    new[] { "CareerState", "GloopsRecorder", "SpawnControl", "TestRunner" },
                     lockOwners);
+                // The Kerbals window is visible in Basic, so nothing may close it on the switch.
+                Assert.DoesNotContain(KerbalsWindowUI.KerbalsInputLockId,
+                    set.Where(t => t.OwnsInputLock).Select(t => t.InputLockId));
                 Assert.Null(set.Single(t => t.Name == "GroupPicker").InputLockId);
 
                 string[] lockIds = set.Where(t => t.OwnsInputLock).Select(t => t.InputLockId).ToArray();
@@ -171,12 +175,15 @@ namespace Parsek.Tests
                 timeline.IsOpen = true;
                 table.IsOpen = true;
                 ui.GetCareerStateUI().IsOpen = true;
+                ui.GetKerbalsUI().IsOpen = true;
 
                 // Advanced -> Basic: the gated window goes, the kept ones stay.
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
                 ParsekUI.ApplyPendingUiComplexityModeIfAny();
 
                 Assert.False(ui.GetCareerStateUI().IsOpen);
+                Assert.True(ui.GetKerbalsUI().IsOpen,
+                    "Kerbals draws in Basic (owner re-ruling 2026-09-22) and must survive the switch");
                 Assert.True(timeline.IsOpen, "Timeline is not gated and must survive the switch to Basic");
                 Assert.True(table.IsOpen, "the Missions window survives as the Missions window (design 7.2)");
 
@@ -603,7 +610,6 @@ namespace Parsek.Tests
         private static void OpenEveryGatedSurface(ParsekUI ui)
         {
             ui.GetCareerStateUI().IsOpen = true;
-            ui.GetKerbalsUI().IsOpen = true;
             ui.GetGloopsUI().IsOpen = true;
             ui.GetSpawnControlUI().IsOpen = true;
             ui.GetTestRunnerUI().IsOpen = true;

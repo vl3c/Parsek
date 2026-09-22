@@ -2235,9 +2235,10 @@ UIACTION_MOCK_REFUSALS: Tuple[str, ...] = (
     "mock-refused-recording",
     "mock-refused-session-live",
     # The CURRENT complexity mode hides the window's launcher, so no player can have it on
-    # screen: Basic hides the Kerbals and Career State launchers and the mode switch
-    # force-closes both. Refused rather than drawn - the one thing this feature may not do
-    # is put an impossible picture on the mirror.
+    # screen: Basic hides the Career State launcher and the mode switch force-closes it
+    # (the Kerbals window draws in both modes since the 2026-09-22 owner re-ruling).
+    # Refused rather than drawn - the one thing this feature may not do is put an
+    # impossible picture on the mirror.
     "mock-refused-mode",
     "mock-not-applied",
     "mock-restore-failed",

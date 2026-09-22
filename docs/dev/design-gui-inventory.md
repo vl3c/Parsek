@@ -377,9 +377,12 @@ stands out from every sub-window title (2026-09-22, owner review round 1).
 | `Gloops Flight Recorder` | `Record a ghost-only flight that your career ignores.` | `:943` | `IsVisible(MainButtonGloops)` `:941` - **never true** (`UI/UiComplexityMode.cs:140-143`, short-circuit `:162`) | would flip `gloopsUI.IsOpen` `:947` |
 | `Settings` | `Recording, looping, ghost and diagnostic options.` | `:955` | none | `ToggleSettingsWindow()` `:958` |
 
-Basic vs Advanced: Basic drops Real Spawn Control, Kerbals and Career; the `Space(10f)` that
-opens the Kerbals/Career group is gated with it (`:908-909`) so Basic shows one gap, not two.
-Census-verified sets: KSC Basic 4 buttons, KSC Advanced 6, FLIGHT Basic 4, FLIGHT Advanced 7.
+Basic vs Advanced: Basic drops Real Spawn Control and Career; the `Space(10f)` that opens
+the Kerbals/Career group is gated on the group being non-empty so Basic shows one gap, not
+two. Census-verified sets (2026-09-11): KSC Basic 4 buttons, KSC Advanced 6, FLIGHT Basic 4,
+FLIGHT Advanced 7. **Since the 2026-09-22 owner re-ruling the Kerbals launcher draws in Basic
+too** (`design-gui-kerbals-window.md` ruling 1), so Basic is 5 buttons in both scenes from
+that build on.
 
 The flight status block (`DrawFlightStatus`: `State:` / `Recorded Points:` / `Duration:` /
 `Active Ghosts:`) was REMOVED on 2026-09-22 at the owner's review: Parsek records everything,
@@ -582,20 +585,32 @@ sliders, any non-default preset, `Archived` ON, the countdown label, every disab
 
 ### 3.4 Parsek - Kerbals
 
-**REBUILT 2026-09-15.** Both tabs are now COLUMN TABLES, the tabs are named `Roster` and
-`Flights`, and the row model, the status vocabulary, the sizing numbers and the
-`op=expand window=kerbals` seam row live in their own authority:
+**REBUILT 2026-09-15, REVISED 2026-09-22.** Both tabs are now COLUMN TABLES, the tabs are
+named `Roster` and `Flights`, and the row model, the status vocabulary, the sizing numbers and
+the `op=expand window=kerbals` seam row live in their own authority:
 **`docs/dev/design-gui-kerbals-window.md`**. Everything below the divider is the 2026-09-11
 measurement of the PRE-rebuild window, kept because the captures it cites are the "before"
 half of that document's section 8.
+
+The 2026-09-22 round (that document's rulings 11-19): the Roster is grouped by slot (each
+stand-in a row under the kerbal he covers; the chain fold and its `roster:<name>` expand key
+are gone), deleted stand-ins are no longer listed as `Available`, the `Since` column is gone
+(`MinWindowWidth` 700 -> 586), a reservation reads `Reserved: aboard <vessel>` /
+`Reserved: <mission>` with the release rule in its hover (a reservation does not lift when
+its date passes - `KerbalReservationReleaseTests`), Lost rows carry the re-fly remedy in their
+hover and every Last flight cell is a Timeline cross-link, an EVA kerbal reads `On EVA`, the
+Flights tab dropped its Crew column (the stand-in note is `(flown by <stand-in>)` in the
+Mission cell) and dates a mission by its launch only. **The window draws in Basic too**
+(owner re-ruling): `MainButtonKerbals` is KEEP and the window left the Advanced -> Basic close
+set.
 
 Purpose (unchanged): read-only. What each kerbal is doing now, and how every recorded flight
 a kerbal took ended. No reserve / unreserve / swap / clear control; its only mutations are
 three transient fold states.
 
-Hosts (unchanged): FLIGHT and SPACECENTER. Basic-HIDDEN at the launcher (decision
-`UI/UiComplexityMode.cs:181`), force-closed on an Advanced -> Basic switch, so it has **no
-Basic picture by construction**.
+Hosts (unchanged): FLIGHT and SPACECENTER. Basic-HIDDEN at the launcher from 2026-09-15
+until the 2026-09-22 owner re-ruling; since then it draws in both modes and survives the
+switch to Basic (its Basic picture: `GUI-11` `bdk-kerbals-roster-basic`).
 
 What the rebuild changed against the rows below: two indented outlines became two column
 tables sharing one inset (`ParsekUI.GetTableRowStyle` / `GetTableBodyBoxStyle`, zero
@@ -1101,7 +1116,7 @@ control count (`ParsekUI.cs:294-297`, `:246`).
 | `MainButtonTimeline` | `:50` | KEEP (`:171`) | **none** | nothing |
 | `MainButtonRecordings` | `:53` | KEEP (`:172`) | **none** | nothing |
 | `MainButtonLogistics` | `:56` | KEEP (`:173`) | **none** | nothing |
-| `MainButtonKerbals` | `:59` | HIDE (`:181`) | `ParsekUI.cs:904` | the Kerbals launcher |
+| `MainButtonKerbals` | `:59` | KEEP since 2026-09-22 (was HIDE `:181`) | `ParsekUI.cs:904` | nothing in Basic any more; the launcher draws in both modes |
 | `MainButtonCareer` | `:62` | HIDE (`:182`) | `ParsekUI.cs:906` | the Career launcher |
 | `MainButtonGloops` | `:69` | RETIRED in both (`:140-143`) | `ParsekUI.cs:941` | the Gloops launcher, in Advanced too |
 | `MainButtonSettings` | `:72` | KEEP (`:174`) | **none** | nothing |
@@ -1117,8 +1132,9 @@ than by enforcement; flipping any of the four to `visibleInBasic = false` would 
 on screen. Separately, `UiSurfaceVisibility.HiddenSurfaces` (`UI/UiComplexityMode.cs:214`) has
 no production consumer: its only reference outside its own file is a doc comment at
 `ParsekUI.cs:471` explaining why the real close set is the hand-written
-`BuildGatedWindowCloseSet` (`ParsekUI.cs:488-529`). That set carries six targets - CareerState,
-Kerbals, GloopsRecorder, SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives
+`BuildGatedWindowCloseSet` (`ParsekUI.cs:488-529`). That set carries five targets since the
+2026-09-22 Kerbals re-ruling (six before it: Kerbals was the second) - CareerState,
+GloopsRecorder, SpawnControl, TestRunner (maps to no `UiSurface`; its launcher lives
 in the hidden Diagnostics section) and GroupPicker (maps to no `UiSurface`; a reachability rule,
 not a lock rule, `ParsekUI.cs:479-482`) - and deliberately omits the Missions, Structure,
 Timeline, Logistics and Settings windows (`ParsekUI.cs:484-487`).

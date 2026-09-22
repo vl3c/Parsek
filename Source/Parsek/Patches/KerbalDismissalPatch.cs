@@ -32,13 +32,41 @@ namespace Parsek.Patches
             if (GameStateRecorder.SuppressCrewEvents) return true;
             if (GameStateRecorder.IsReplayingActions) return true;
 
-            if (LedgerOrchestrator.Kerbals?.IsManaged(crew.name) ?? false)
+            var kerbals = LedgerOrchestrator.Kerbals;
+            if (kerbals?.IsManaged(crew.name) ?? false)
             {
                 ParsekLog.Info("KerbalDismissal",
                     $"Blocked dismissal of '{crew.name}' — managed by Parsek");
+                // The same Action Blocked dialog its four sibling blocks (hire, contract
+                // accept, facility upgrade, tech research) raise, so a refused dismissal
+                // stops being the one silent refusal.
+                CommittedActionDialog.ShowBlocked(
+                    "Cannot dismiss \"" + crew.name + "\"",
+                    DescribeDismissalBlock(kerbals.GetReservationKind(crew.name)),
+                    "");
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// Why a managed kerbal cannot be dismissed, in the Kerbals window's vocabulary.
+        /// <c>IsManaged</c> is true for three kinds: a RESERVED kerbal (a committed flight
+        /// holds him), a RETIRED stand-in (he flew a committed flight and his seat went
+        /// back to its owner), and an active STAND-IN (neither of the above, but a slot
+        /// chain lists him, so he is covering someone's seat).
+        /// </summary>
+        internal static string DescribeDismissalBlock(KerbalReservationKind kind)
+        {
+            switch (kind)
+            {
+                case KerbalReservationKind.ReservedActive:
+                    return "This kerbal is reserved by a committed flight on your timeline.";
+                case KerbalReservationKind.ReservedRetired:
+                    return "This retired stand-in flew a committed flight on your timeline.";
+                default:
+                    return "This kerbal is a stand-in covering a reserved kerbal's seat.";
+            }
         }
     }
 }

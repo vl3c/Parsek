@@ -172,13 +172,13 @@ namespace Parsek
                 case UiSurface.MainButtonRecordings:     // the Missions launcher
                 case UiSurface.MainButtonLogistics:      // only supply-route surface; kept for discoverability
                 case UiSurface.MainButtonSettings:       // hosts the mode toggle itself
+                case UiSurface.MainButtonKerbals:        // only surface explaining a reserved kerbal (owner re-ruling 2026-09-22)
                 case UiSurface.TabMissions:              // mission abstraction; also gates Timeline GoTo
                     visibleInBasic = true;
                     break;
 
                 // --- Basic hides these (design section 4) ---
                 case UiSurface.MainButtonSpawnControl:       // advanced staging tool
-                case UiSurface.MainButtonKerbals:            // read-only roster reference
                 case UiSurface.MainButtonCareer:             // read-only career reference
                 case UiSurface.TabRecordings:                // raw per-recording table
                 case UiSurface.MissionsLoopControls:         // manual-loop authoring on the Missions tab
