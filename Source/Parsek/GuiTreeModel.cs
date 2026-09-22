@@ -132,6 +132,22 @@ namespace Parsek
         /// <summary>Window only: the width/height Unity handed the window callback.</summary>
         internal float? ArgWidth;
         internal float? ArgHeight;
+
+        /// <summary>
+        /// The drawing style's font size, set ONLY when it differs from the skin's own
+        /// style of the same name (or the style has no skin counterpart and sets one).
+        /// A style NAME alone cannot tell a reader that a <c>new GUIStyle(label)</c> copy
+        /// draws at 10 px, so an offline mirror drew it at the label default and clipped
+        /// it; null means "the skin's size for this style name".
+        /// </summary>
+        internal int? FontSize;
+
+        /// <summary>
+        /// The drawing style's font style as a wire name (<c>normal</c> / <c>bold</c> /
+        /// <c>italic</c> / <c>boldItalic</c>), under the same differs-from-the-skin rule
+        /// as <see cref="FontSize"/>. On a window node it is the TITLE's font.
+        /// </summary>
+        internal string FontStyleName;
     }
 
     /// <summary>One assembled node. Children are in draw order.</summary>
@@ -157,6 +173,12 @@ namespace Parsek
         internal float? ContentOriginY;
         internal float? ArgWidth;
         internal float? ArgHeight;
+
+        /// <summary>See <see cref="GuiTreeEvent.FontSize"/>.</summary>
+        internal int? FontSize;
+
+        /// <summary>See <see cref="GuiTreeEvent.FontStyleName"/>.</summary>
+        internal string FontStyleName;
         internal readonly List<GuiTreeNode> Children = new List<GuiTreeNode>();
 
         /// <summary>
@@ -470,6 +492,8 @@ namespace Parsek
                 ContentOriginY = e.ContentOriginY,
                 ArgWidth = e.ArgWidth,
                 ArgHeight = e.ArgHeight,
+                FontSize = e.FontSize,
+                FontStyleName = e.FontStyleName,
             };
         }
 
@@ -497,6 +521,44 @@ namespace Parsek
                 case GuiNodeKind.Control: return "control";
                 default: return "unknown";
             }
+        }
+
+        /// <summary>
+        /// Wire name for a <c>UnityEngine.FontStyle</c> value, taken as its integer so
+        /// this layer stays free of Unity types (Normal 0, Bold 1, Italic 2,
+        /// BoldAndItalic 3). An unknown value is written as its number rather than
+        /// dropped, so a reader sees it instead of a silent "normal".
+        /// </summary>
+        internal static string FontStyleWireName(int fontStyle)
+        {
+            switch (fontStyle)
+            {
+                case 0: return "normal";
+                case 1: return "bold";
+                case 2: return "italic";
+                case 3: return "boldItalic";
+                default: return fontStyle.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        /// <summary>
+        /// The font DELTA a dump records for one drawing style: the size and style that
+        /// differ from the skin's own style of the same name, or - when the style has no
+        /// skin counterpart - any explicit size and any non-normal style. The skin
+        /// baseline is what an offline reader already models by style name, so only a
+        /// departure from it is worth a key. A size of 0 means "the font's default" and
+        /// is never recorded: nothing offline can resolve it.
+        /// </summary>
+        internal static void ResolveFontDelta(int styleFontSize, int styleFontStyle,
+            bool hasBaseline, int baselineFontSize, int baselineFontStyle,
+            out int? fontSize, out string fontStyleName)
+        {
+            fontSize = null;
+            fontStyleName = null;
+            if (styleFontSize > 0 && (!hasBaseline || styleFontSize != baselineFontSize))
+                fontSize = styleFontSize;
+            if (hasBaseline ? styleFontStyle != baselineFontStyle : styleFontStyle != 0)
+                fontStyleName = FontStyleWireName(styleFontStyle);
         }
 
         /// <summary>

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 399c142de..43d2ea384 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -3314,8 +3314,6 @@ namespace Parsek
+                 if (chainManager.TryGetContinuationRecording(out var contRec))
+                 {
+                     MarkContinuationVesselDestroyed(contRec);
+-                    Log(FormatContinuationVesselDestroyedMessage(
+-                        chainManager.ContinuationVesselPid, contRec));
+                 }
+                 chainManager.StopContinuation("vessel destroyed");
+             }

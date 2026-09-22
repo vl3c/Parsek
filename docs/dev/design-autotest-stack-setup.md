@@ -487,9 +487,39 @@ Steps run in this order; each is idempotent and logged.
     commit-safe quit (`FlushAndQuit`), so the master auto-load flags buy little
     for real ABI risk.
 
-- **DOWNLOAD.** For `krpc` and `mechjeb2`, download the pinned release to a
-  cache (`harness/provision/.cache/`), verify sha256 against `pins.toml`
-  (EC-6 disk, EC-3 drift). If `releaseZipSha256`/`sha256` is `OPEN`, download,
+- **DOWNLOAD.** For `krpc`, `krpc_mechjeb` and `mechjeb2`, fetch the pinned release
+  zip, verify sha256 against `pins.toml` (EC-6 disk, EC-3 drift), and write it to the
+  per-worktree cache (`harness/provision/.cache/<url basename>`, which INSTALL reads).
+  **Shared artifact cache (2026-09-22).** Before any download DOWNLOAD consults the
+  umbrella-level cache `<umbrella>/automation/.artifact-cache/<sha256>`, keyed by the
+  COMMITTED sha256 (lowercase hex, the entry name is the hash, so an entry can only be
+  used for the artifact whose pin names it). The entry is re-hashed on every use and
+  never trusted blindly: a hit (re-hash equals the pin) skips the download; a present
+  entry that hashes to anything else is CORRUPT, is ignored, and is atomically replaced
+  (tmp + `os.replace`) by the verified download (the entry is read once and those same
+  bytes are hashed and used, so nothing can swap it between check and use); a miss downloads and populates the
+  same way. Only verified bytes that also passed the GT-5 layout check are written, and
+  a cache write failure is a Warn, never an abort. The decision is pure
+  (`provlib.decide_artifact_fetch`, `artifact_cache_key`, `pinned_release_artifacts`);
+  the hashing and file I/O are `provision._fetch_artifact` / `_write_cache_entry`.
+  Dry-run reports `artifact-cache=cache-hit|cache-miss|cache-corrupt` per artifact and
+  reads nothing from the network. It exists because every fresh worktree used to
+  re-download every zip, and a rotted upstream (the MechJeb2 jenkins artifact URL now
+  answers 404) failed provisioning until a zip was copied over by hand and the pin
+  re-pointed at a `file:///` URL. SEEDING: `python harness/provision/provision.py
+  --seed-cache-from <dir>` (repeatable; no `--profile`, no network, no instance touched,
+  no machine lock needed because entries are content-addressed and atomically placed)
+  hashes every regular file directly in `<dir>` (an unreadable file is a Warn and is
+  skipped), copies the ones whose hash equals a pinned sha256 (the file name is
+  irrelevant), re-hashes each copy, and exits 0 only when every pinned artifact with a
+  recorded sha256 is cached and verified (an OPEN pin has no cache key and is left out
+  of that count); `--dry-run` lists the copies. Seeding writes by sha256 ALONE and runs
+  no GT-5 layout check: the kRPC zip's layout is checked when DOWNLOAD takes the entry
+  on a cache hit, before INSTALL, exactly as for a download. A live seed also removes
+  writer temp files (`<sha256>.tmp-<pid>`) older than an hour
+  (`provlib.is_stale_cache_tmp`); a younger one may be another worktree mid-copy. The
+  usual source is another worktree's `harness/provision/.cache`
+  (`provlib.plan_cache_seed`). If `releaseZipSha256`/`sha256` is `OPEN`, download,
   compute, print the hash, and ABORT asking the maintainer to record it (never
   silently trust an unverified artifact). Confirm GT-5: assert the kRPC zip
   contains `KRPC.Core.dll` + `KRPC.SpaceCenter.dll` + `Google.Protobuf.dll` and
@@ -900,6 +930,9 @@ is covered by the same boundary; its design doc,
   (downloaded release zips, the module-owned git source clones
   `krpc-src` / `krpc_mechjeb-src`, the extracted kRPC compile refs, the built
   `TestingTools.dll`) and `harness/provision/.stage/`.
+- The shared artifact cache, outside git at the umbrella root:
+  `automation/.artifact-cache/<sha256>` (the release zips only, content-addressed;
+  see DOWNLOAD).
 - Generated outputs (gitignored): `harness/results/<runId>.json` + `summary.txt`,
   `harness/coverage/coverage.{json,txt}`, `harness/flake.json`.
 

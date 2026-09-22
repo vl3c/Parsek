@@ -530,6 +530,10 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertFalse(ue["gating"])
         self.assertEqual(0, ue["total"])
         self.assertIsNone(ue["maxTotal"])
+        # The Parsek-frame split rides every result (todo UNITY-PARSEK-FRAME-CALLER-SHAPE).
+        self.assertEqual((0, 0, 0, {}, None),
+                         (ue["parsekFrames"], ue["parsekThrowSite"], ue["parsekCaller"],
+                          ue["parsekThrowSiteSites"], ue["maxParsekThrowSite"]))
         # Every pattern reports a number, so "we looked and saw none" is on the record.
         self.assertEqual(sorted(n for n, _ in hlib.UNITY_EXCEPTION_PATTERNS),
                          sorted(ue["counts"]))
@@ -944,6 +948,9 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, ue["status"])
         self.assertFalse(ue["gating"])
         self.assertEqual("killed-triage-only", ue["reason"])
+        self.assertIn("parsekThrowSite", ue)
+        self.assertIn("parsekCaller", ue)
+        self.assertIsNone(ue["maxParsekThrowSite"])
         # M-C2: the save-parse row is SKIPPED on a torn (killed) save too - a
         # half-written persistent.sfs must never be read for structural counts.
         # Full key set on every branch so consumers never KeyError on shape.

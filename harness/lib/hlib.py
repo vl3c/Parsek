@@ -6946,8 +6946,19 @@ UNITY_EXCEPTIONS_MAX_TOTAL_KEY = "maxTotal"
 # for a higher ceiling. So this key is independent of `maxTotal`: a spec may arm
 # either, or both, and a block arming only this one leaves the count report-only.
 UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY = "maxParsekFrames"
+# The Parsek THROW-SITE ceiling (operator ruling 2026-09-22 on todo
+# UNITY-PARSEK-FRAME-CALLER-SHAPE: split the metric). `parsekFrames` counts any
+# exception with a `Parsek.` frame anywhere on its stack, which includes a stock throw
+# deep inside a stock method that Parsek code merely CALLED (V23M's wheel NRE under
+# `TimeJumpManager.PutLoadedVesselsOnRails`, RF-11's scene-switch NRE under the seam's
+# `LoadGameImpl`). `parsekThrowSite` is the subset whose throw site is a Parsek frame
+# (see ``UNITY_STACK_FRAME``); `parsekCaller` is the rest. This key gates on the
+# throw-site subset alone, so a lane whose only Parsek frames are callers can still
+# arm a Parsek-owned ceiling. Independent of the other two keys.
+UNITY_EXCEPTIONS_MAX_PARSEK_THROW_SITE_KEY = "maxParsekThrowSite"
 UNITY_EXCEPTIONS_KEYS: Tuple[str, ...] = (UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
-                                          UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY)
+                                          UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY,
+                                          UNITY_EXCEPTIONS_MAX_PARSEK_THROW_SITE_KEY)
 
 UNITY_EXCEPTIONS_STATUS_REPORT = "REPORT"
 
@@ -6973,6 +6984,38 @@ UNITY_LOG_RECORD_HEADER = re.compile(r"^\[(?:LOG|WRN|ERR|EXC|AST)\s+\d{1,2}:\d{2
 # stock method (`SpaceTracking.buildVesselsList_Patch2`) is the STOCK body: a Parsek
 # prefix or postfix that threw would appear as its own `Parsek.Patches...` frame.
 UNITY_PARSEK_FRAME = re.compile(r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?(Parsek\.[^\s(]+)")
+# THE THROW SITE. A stack frame line is a continuation line whose text, after the same
+# optional `at ` / `(wrapper ...)` prefixes, is a qualified method name (it carries a
+# `.` or `:`) followed by its argument list: `<TAB>MapObject.Awake () (at <...>:0)`,
+# `<TAB>Vessel:AddOrbitRenderer()`,
+# `  at SpaceCenterCamera2.OnSceneSwitch (GameScenes scene) [0x0] in <...>:0`. Both
+# Unity shapes list the INNERMOST frame first, so the throw site is the first frame
+# line of the block. Message continuation lines (a multi-line exception message such
+# as `Details(see log)`, a blank line) are not frames and are skipped.
+# TRANSPARENT FRAMES. The runtime and engine layers - the BCL (`System.` / `Mono.`,
+# e.g. `System.Math.Sign`, `Dictionary.get_Item`, `Enumerable.First`) and the Unity
+# engine (`UnityEngine.`, including `(wrapper managed-to-native) UnityEngine.` ECalls,
+# e.g. `Transform.get_position` on a destroyed object, `GetComponent[T]`,
+# `GUILayoutUtility.EndLayoutGroup`) - throw there on behalf of their CALLER's
+# arguments or state (NaN, a missing key, a dead object, an unbalanced layout group),
+# so the throw site is the first frame outside them. Without that, S0.7's
+# `ArithmeticException` from `Parsek.BallisticExtrapolator+TwoBodyOrbit.
+# SolveHyperbolicKepler` passing NaN to `System.Math.Sign`, or a Parsek window's
+# mismatched `GUILayout` group, would read as caller shapes. KSP, VehiclePhysics and
+# other-mod frames are NOT transparent: a throw inside them under a Parsek caller is
+# exactly the caller shape the split exists to separate.
+# THE LOG-SITE STOP. In an `[EXC]` record the exception's own frames end where Unity's
+# logger begins (`UnityEngine.DebugLogHandler:LogException`); every frame after it is
+# the stack that CAUGHT and logged the exception (for a Unity message such as
+# `OnDisable`, the engine call that invoked it), never the throw. So the transparent
+# walk stops there: a block whose own frames were all transparent has an engine throw
+# site, and a Parsek frame found only past the stop is a caller.
+UNITY_STACK_FRAME = re.compile(
+    r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?[^\s(]*[.:][^\s(]+\s?\(")
+UNITY_THROW_SITE_TRANSPARENT_FRAME = re.compile(
+    r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?(?:System|Mono|UnityEngine)\.")
+UNITY_LOG_SITE_STOP_FRAME = re.compile(
+    r"^\s*(?:at\s+)?UnityEngine\.DebugLogHandler[:.]LogException\b")
 # The application-quit marker. Every collected harness log that reached a clean exit
 # carries exactly one `flushandquit: Application.Quit` line (762 of the 781 unique
 # collected runs swept 2026-09-22; the other 19 did not quit through the seam), written by
@@ -7011,6 +7054,11 @@ class UnityStackScan:
     killed log is not read as "clean teardown"). ``parsek_frame_sites`` maps the
     FIRST (innermost) Parsek frame of each such occurrence, normalized to
     ``Namespace.Type.Method``, to its count - the evidence a mismatch names.
+    ``parsek_throw_site`` is the subset of ``parsek_frames`` whose THROW SITE (first
+    non-transparent frame line, ``UNITY_STACK_FRAME``) is itself a Parsek frame, and
+    ``parsek_caller`` the rest (a Parsek frame present but not the throw site), so the
+    two always sum to ``parsek_frames``. ``parsek_throw_site_sites`` keys the
+    throw-site subset by that frame.
     """
     counts: Dict[str, int]
     parsek_frames: int = 0
@@ -7018,6 +7066,9 @@ class UnityStackScan:
     quit_marker_seen: bool = False
     parsek_frame_sites: Dict[str, int] = field(default_factory=dict)
     uncounted: int = 0
+    parsek_throw_site: int = 0
+    parsek_caller: int = 0
+    parsek_throw_site_sites: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -7040,6 +7091,10 @@ class UnityExceptionResult:
     after_quit: Optional[int] = None
     max_parsek_frames: Optional[int] = None
     parsek_frame_sites: Dict[str, int] = field(default_factory=dict)
+    parsek_throw_site: Optional[int] = None
+    parsek_caller: Optional[int] = None
+    max_parsek_throw_site: Optional[int] = None
+    parsek_throw_site_sites: Dict[str, int] = field(default_factory=dict)
 
 
 def _normalize_parsek_frame(raw: str) -> str:
@@ -7061,24 +7116,42 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
     toward ``parsek_frames`` when its block holds a ``UNITY_PARSEK_FRAME``, and once
     toward ``after_quit`` when it follows the first ``UNITY_QUIT_MARKERS`` line. A line
     that matches two counted patterns counts once per pattern in ``counts`` and
-    likewise in the two stack figures.
+    likewise in the stack figures. The first non-transparent frame line of a block
+    (``UNITY_THROW_SITE_TRANSPARENT_FRAME``, walked no further than
+    ``UNITY_LOG_SITE_STOP_FRAME``) is its throw site: when that frame is a Parsek frame the occurrence also counts toward
+    ``parsek_throw_site``, otherwise a Parsek frame anywhere in the block counts it
+    toward ``parsek_caller``. For a GameEvents ``[ERR]`` record the stack stops at the
+    event dispatch, so its throw site is the handler's own innermost frame: a Parsek
+    handler that threw reads as a throw site, and a stock handler reads as neither (its
+    ``[EXC]`` twin carries any Parsek caller). A block with no frame line (a truncated
+    stack) has no throw site and, having no Parsek frame either, counts in neither.
     """
     counts: Dict[str, int] = {name: 0 for name, _ in UNITY_EXCEPTION_PATTERNS}
     sites: Dict[str, int] = {}
+    throw_sites: Dict[str, int] = {}
     parsek_frames = 0
+    parsek_throw_site = 0
     after_quit = 0
     quit_seen = False
     uncounted = 0
     open_weight = 0          # pattern hits (1 for frames-only) of the open block
     open_site: Optional[str] = None
+    open_throw_seen = False  # the block's throw-site frame line has been read
+    open_throw_site: Optional[str] = None   # that frame, when it is a Parsek frame
 
     def close_block() -> None:
-        nonlocal parsek_frames, open_weight, open_site
+        nonlocal parsek_frames, parsek_throw_site, open_weight, open_site
+        nonlocal open_throw_seen, open_throw_site
         if open_weight and open_site is not None:
             parsek_frames += open_weight
             sites[open_site] = sites.get(open_site, 0) + open_weight
+            if open_throw_site is not None:
+                parsek_throw_site += open_weight
+                throw_sites[open_throw_site] = throw_sites.get(open_throw_site, 0) + open_weight
         open_weight = 0
         open_site = None
+        open_throw_seen = False
+        open_throw_site = None
 
     for line in (log_text or "").splitlines():
         if "[Parsek]" in line:
@@ -7104,12 +7177,21 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
         if UNITY_LOG_RECORD_HEADER.match(line):
             close_block()
             continue
-        if open_weight and open_site is None:
-            m = UNITY_PARSEK_FRAME.match(line)
-            if m is not None:
-                open_site = _normalize_parsek_frame(m.group(1))
+        if not open_weight:
+            continue
+        m = UNITY_PARSEK_FRAME.match(line)
+        if open_site is None and m is not None:
+            open_site = _normalize_parsek_frame(m.group(1))
+        if not open_throw_seen and UNITY_STACK_FRAME.match(line) is not None:
+            if UNITY_LOG_SITE_STOP_FRAME.match(line) is not None:
+                open_throw_seen = True       # engine throw site; the rest is the log site
+            elif UNITY_THROW_SITE_TRANSPARENT_FRAME.match(line) is None:
+                open_throw_seen = True
+                if m is not None:
+                    open_throw_site = _normalize_parsek_frame(m.group(1))
     close_block()
-    return UnityStackScan(counts, parsek_frames, after_quit, quit_seen, sites, uncounted)
+    return UnityStackScan(counts, parsek_frames, after_quit, quit_seen, sites, uncounted,
+                          parsek_throw_site, parsek_frames - parsek_throw_site, throw_sites)
 
 
 def scan_unity_exceptions(log_text: Optional[str]) -> Dict[str, int]:
@@ -7143,15 +7225,22 @@ def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
     frame sites. Both over -> both mismatches. A declared block arming neither still
     reports (it declares nothing to gate on).
 
-    ``maxParsekFrames`` armed with no ``stacks`` passed is FAIL-CLOSED ("unmeasured"):
-    a ceiling that silently read as PASS because nobody looked is the fail-open this
-    block exists to close. run.py always passes the stack scan.
+    ``maxParsekThrowSite`` gates the same way on ``parsekThrowSite`` (the subset whose
+    throw site is a Parsek frame), naming the throw-site frames.
+
+    ``maxParsekFrames`` or ``maxParsekThrowSite`` armed with no ``stacks`` passed is
+    FAIL-CLOSED ("unmeasured"): a ceiling that silently read as PASS because nobody
+    looked is the fail-open this block exists to close. run.py always passes the
+    stack scan.
     """
     counts = dict(counts or {})
     total = sum(int(v) for v in counts.values())
     pf = stacks.parsek_frames if stacks is not None else None
     aq = stacks.after_quit if stacks is not None else None
     sites = dict(stacks.parsek_frame_sites) if stacks is not None else {}
+    pts = stacks.parsek_throw_site if stacks is not None else None
+    pc = stacks.parsek_caller if stacks is not None else None
+    ts_sites = dict(stacks.parsek_throw_site_sites) if stacks is not None else {}
 
     def _armed(key: str) -> Optional[int]:
         raw = block.get(key) if isinstance(block, dict) else None
@@ -7161,9 +7250,11 @@ def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
 
     max_total = _armed(UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
     max_pf = _armed(UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY)
-    if max_total is None and max_pf is None:
+    max_pts = _armed(UNITY_EXCEPTIONS_MAX_PARSEK_THROW_SITE_KEY)
+    if max_total is None and max_pf is None and max_pts is None:
         return UnityExceptionResult(UNITY_EXCEPTIONS_STATUS_REPORT, False, total, counts,
-                                    None, tuple(), pf, aq, None, sites)
+                                    None, tuple(), pf, aq, None, sites, pts, pc, None,
+                                    ts_sites)
     mismatches: List[str] = []
     if max_total is not None and total > max_total:
         breakdown = ", ".join("%s=%d" % (n, counts.get(n, 0))
@@ -7178,8 +7269,17 @@ def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
             where = ", ".join("%s=%d" % (s, sites[s]) for s in sorted(sites))
             mismatches.append("unityExceptions.parsekFrames %d > maxParsekFrames %d (%s)"
                               % (pf, max_pf, where))
+    if max_pts is not None:
+        if pts is None:
+            mismatches.append("unityExceptions.parsekThrowSite unmeasured (no stack scan) "
+                              "with maxParsekThrowSite %d armed" % (max_pts,))
+        elif pts > max_pts:
+            where = ", ".join("%s=%d" % (s, ts_sites[s]) for s in sorted(ts_sites))
+            mismatches.append("unityExceptions.parsekThrowSite %d > maxParsekThrowSite %d (%s)"
+                              % (pts, max_pts, where))
     return UnityExceptionResult("FAIL" if mismatches else "PASS", True, total, counts,
-                                max_total, tuple(mismatches), pf, aq, max_pf, sites)
+                                max_total, tuple(mismatches), pf, aq, max_pf, sites,
+                                pts, pc, max_pts, ts_sites)
 
 
 def validate_unity_exception_expectations(block: Optional[Dict]) -> List[str]:
@@ -7219,13 +7319,15 @@ def unity_exception_expectation_warnings(block: Optional[Dict]) -> List[str]:
         return []
     if any(k in block for k in UNITY_EXCEPTIONS_KEYS):
         return []
-    return ["expectations.%s: declared with no `%s` and no `%s`, so it gates NOTHING - "
-            "the scan stays REPORT-ONLY exactly as if the block were absent. Add "
-            "`%s = N` (sized from a green run's unityExceptions.total) and/or `%s = 0`, "
-            "or delete the block."
+    return ["expectations.%s: declared with none of `%s` / `%s` / `%s`, so it gates "
+            "NOTHING - the scan stays REPORT-ONLY exactly as if the block were absent. Add "
+            "`%s = N` (sized from a green run's unityExceptions.total) and/or `%s = 0` "
+            "and/or `%s = 0`, or delete the block."
             % (UNITY_EXCEPTIONS_BLOCK, UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
-               UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY, UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
-               UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY)]
+               UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY,
+               UNITY_EXCEPTIONS_MAX_PARSEK_THROW_SITE_KEY, UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
+               UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY,
+               UNITY_EXCEPTIONS_MAX_PARSEK_THROW_SITE_KEY)]
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/VesselGhoster.cs b/Source/Parsek/VesselGhoster.cs
+index a883e9c60..335468ae1 100644
+--- a/Source/Parsek/VesselGhoster.cs
++++ b/Source/Parsek/VesselGhoster.cs
+@@ -1191,7 +1191,6 @@ namespace Parsek
+         internal static void MarkSpawnBlocked(GhostChain chain, double currentUT, float distance)
+         {
+             chain.SpawnBlocked = true;
+-            chain.BlockedSinceUT = currentUT;
+             chain.BlockedInitialDistance = distance;
+         }
+ 

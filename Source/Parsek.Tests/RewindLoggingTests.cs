@@ -677,41 +677,45 @@ namespace Parsek.Tests
                 l.Contains(Math.Floor(17000.7 - launchLeadTime).ToString(CultureInfo.InvariantCulture)));
         }
 
+        /// <summary>
+        /// REGRESSION: setting UT before HighLogic.LoadScene does not stick - the scene
+        /// transition overwrites it - so ParsekScenario.ApplyRewindResourceAdjustment must
+        /// (a) capture RewindAdjustedUT BEFORE its first yield, because OnLoad's EndRewind
+        /// clears the global synchronously after StartCoroutine returns, and (b) call
+        /// Planetarium.SetUniversalTime AFTER that yield, on the new scene's Planetarium.
+        /// The coroutine needs a live Planetarium, so its ordering is source-gated over the
+        /// comment-stripped method body; the runtime half pins that EndRewind really does
+        /// clear the value the coroutine must already hold.
+        /// </summary>
         [Fact]
-        public void UTFlow_IsSetInCoroutine_NotBeforeSceneTransition()
+        public void UTFlow_AdjustedUTCapturedBeforeYield_SetUniversalTimeAfterIt()
         {
-            // REGRESSION TEST: Setting UT before HighLogic.LoadScene does NOT work —
-            // the scene transition overwrites it. UT must be set in the deferred
-            // coroutine AFTER the new scene's Planetarium is initialized.
-            //
-            // This test verifies that RewindAdjustedUT is stored and available
-            // for the coroutine to read before flags are cleared.
-            double launchLeadTime = RecordingStore.RewindToLaunchLeadTimeSeconds;
-            string sfs = WriteTempSave("FLIGHTSTATE\n{\n  UT = 500\n}\n");
-            RecordingStore.PreProcessRewindSave(sfs, "V", launchLeadTime);
-
-            ConfigNode root = ConfigNode.Load(sfs);
-            double adjustedUT = double.Parse(
-                root.GetNode("FLIGHTSTATE").GetValue("UT"), CultureInfo.InvariantCulture);
-
-            // UT = 500 - 15 (launch lead time) = 485
-            Assert.Equal(500.0 - launchLeadTime, adjustedUT, 5);
-
-            // Simulate InitiateRewind storing the adjusted UT
-            RewindContext.SetAdjustedUT(adjustedUT);
-            Assert.True(RewindContext.RewindAdjustedUT > 0,
-                "Adjusted UT must be positive for Planetarium.SetUniversalTime");
-
-            // Simulate coroutine capturing adjustedUT BEFORE flags are cleared
-            double coroutineCapturedUT = RewindContext.RewindAdjustedUT;
-            Assert.Equal(500.0 - launchLeadTime, coroutineCapturedUT, 5);
-
-            // Simulate OnLoad clearing flags (happens AFTER coroutine captures)
+            RewindContext.SetAdjustedUT(485.0);
             RewindContext.EndRewind();
-
-            // Coroutine's captured value survives the clearing
-            Assert.Equal(500.0 - launchLeadTime, coroutineCapturedUT, 5);
             Assert.Equal(0.0, RewindContext.RewindAdjustedUT);
+
+            string path = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "Source", "Parsek", "ParsekScenario.cs"));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(
+                File.ReadAllText(path).Replace("\r\n", "\n"));
+            const string decl = "private IEnumerator ApplyRewindResourceAdjustment()";
+            int declAt = prepared.IndexOf(decl, StringComparison.Ordinal);
+            Assert.True(declAt >= 0, "ApplyRewindResourceAdjustment declaration not found");
+            Assert.Equal(-1, prepared.IndexOf(decl, declAt + decl.Length, StringComparison.Ordinal));
+            string body = SourceScanText.BraceMatchedBlock(
+                prepared, prepared.IndexOf('{', declAt + decl.Length));
+
+            int capture = body.IndexOf(
+                "double adjustedUT = RewindContext.RewindAdjustedUT;", StringComparison.Ordinal);
+            int firstYield = body.IndexOf("yield return null;", StringComparison.Ordinal);
+            int setUt = body.IndexOf(
+                "Planetarium.SetUniversalTime(adjustedUT);", StringComparison.Ordinal);
+            Assert.True(capture >= 0, "coroutine no longer captures RewindAdjustedUT into a local");
+            Assert.True(firstYield > capture, "RewindAdjustedUT must be captured before the first yield");
+            Assert.True(setUt > firstYield,
+                "Planetarium.SetUniversalTime(adjustedUT) must run after the first yield");
+            Assert.DoesNotContain("RewindContext.RewindAdjustedUT", body.Substring(firstYield));
         }
 
         // The former ResourceCorrection_ResetsToBaseline_NotAbsoluteTarget cell

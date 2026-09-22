@@ -192,6 +192,11 @@ class ExtrasTests(unittest.TestCase):
         self.assertIn("windowId=7", gtv.extras_of({"windowId": 7}))
         self.assertNotIn("windowId", gtv.extras_of({"windowId": True}))
 
+    def test_a_font_delta_is_shown(self):
+        extras = gtv.extras_of({"fontSize": 16, "fontStyle": "bold"})
+        self.assertIn("fontSize=16", extras)
+        self.assertIn("fontStyle=bold", extras)
+
     def test_absent_fields_produce_nothing(self):
         self.assertEqual("", gtv.extras_of({}))
         self.assertEqual("", gtv.extras_of("not a node"))
@@ -617,6 +622,11 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
             ("states", "how many states the catalogue carried at capture time"),
             ("covers", "the branch keys the state claims"),
             ("horizontal", "extras_of"),
+            # ADDITIVE font delta: written only when a style's font departs from the
+            # skin's style of the same name. The mirror draws the version footer and
+            # the main window's bold title from these; absent means the skin default.
+            ("fontSize", "extras_of, and the mirror's per-control / title font"),
+            ("fontStyle", "extras_of, and the mirror's per-control / title font"),
             ("children", "flatten's recursion"),
         ]
         for key, why in keys:

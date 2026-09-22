@@ -30,21 +30,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResourceFields_StoreCorrectly()
-        {
-            var point = new TrajectoryPoint
-            {
-                funds = 123456.78,
-                science = 42.5f,
-                reputation = -10.3f
-            };
-
-            Assert.Equal(123456.78, point.funds);
-            Assert.Equal(42.5f, point.science);
-            Assert.Equal(-10.3f, point.reputation);
-        }
-
-        [Fact]
         public void ToString_DoesNotIncludeResourceFields()
         {
             var point = new TrajectoryPoint

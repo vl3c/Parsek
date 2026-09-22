@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/GameStateEventConverter.cs b/Source/Parsek/GameActions/GameStateEventConverter.cs
+index 6ed5c5d48..cf971f46b 100644
+--- a/Source/Parsek/GameActions/GameStateEventConverter.cs
++++ b/Source/Parsek/GameActions/GameStateEventConverter.cs
+@@ -930,7 +930,7 @@ namespace Parsek
+ 
+             string fundsStr = ExtractDetail(evt.detail, "funds");
+             if (fundsStr != null)
+-                float.TryParse(fundsStr, NumberStyles.Float, IC, out fundsAwarded);
++                fundsAwarded = float.Parse(fundsStr, NumberStyles.Float, IC);
+ 
+             string repStr = ExtractDetail(evt.detail, "rep");
+             if (repStr != null)

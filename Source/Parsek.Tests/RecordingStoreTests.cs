@@ -330,36 +330,41 @@ namespace Parsek.Tests
             var source = new Recording
             {
                 RecordingId = "meta123",
-                RecordingFormatVersion = 0,
+                RecordingFormatVersion = 0,  // the writer re-stamps the current contract
                 LoopPlayback = true,
                 LoopIntervalSeconds = 2.5,
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal("meta123", loaded.RecordingId);
-            Assert.Equal(0, loaded.RecordingFormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
             Assert.True(loaded.LoopPlayback);
             Assert.Equal(2.5, loaded.LoopIntervalSeconds);
 
         }
 
         [Fact]
-        public void RecordingMetadata_Load_MissingFields_UsesLegacyFormatVersionAndKeepsOtherDefaults()
+        public void RecordingMetadata_Load_MissingSchemaStamps_RejectedAndKeepsOtherDefaults()
         {
+            // A node without the format / generation stamps is a pre-reset recording:
+            // the production loader rejects it (format version -1) before reading any
+            // other key, so every other field keeps its default.
             var node = new ConfigNode("RECORDING");
+            node.AddValue("loopPlayback", "True");
+            node.AddValue("loopIntervalSeconds", "25");
             var loaded = new Recording();
 
             string defaultId = loaded.RecordingId;
 
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal(defaultId, loaded.RecordingId);
-            Assert.Equal(0, loaded.RecordingFormatVersion);
+            Assert.Equal(-1, loaded.RecordingFormatVersion);
             Assert.False(loaded.LoopPlayback);
             Assert.Equal(10.0, loaded.LoopIntervalSeconds);
         }
@@ -375,13 +380,13 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             // Verify the node contains the hidden value
             Assert.Equal("True", node.GetValue("hidden"));
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.True(loaded.Hidden);
         }
@@ -397,13 +402,13 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             // hidden=false should not be written (saves space, matches default)
             Assert.Null(node.GetValue("hidden"));
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.False(loaded.Hidden);
         }
@@ -412,12 +417,10 @@ namespace Parsek.Tests
         public void RecordingMetadata_Hidden_MissingField_DefaultsFalse()
         {
             // Bug: legacy recordings without hidden field crash or default to true
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "legacy-no-hidden");
-            // No "hidden" value — simulates a pre-hide-feature recording
+            var node = RecordingCodecTestNodes.BareCurrentContract("legacy-no-hidden");
+            Assert.Null(node.GetValue("hidden"));
 
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            var loaded = RecordingCodecTestNodes.LoadPastSchemaGate(node);
 
             Assert.False(loaded.Hidden);
         }

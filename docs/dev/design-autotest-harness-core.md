@@ -350,6 +350,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # [expectations.routes] count / dormant / stops / sourceRefs / cycles /
 #   statuses / connectionKinds / origin+destinationBodies / ids /
 #   destinationVesselPids (M-C2/R9, the ROUTES node)                          -> ACTIVE (verifier 7b, report-only until gating = true)
+# [expectations.unityExceptions] maxTotal / maxParsekFrames / maxParsekThrowSite
+#   (raw Unity exception count; Parsek frame anywhere on the stack; Parsek frame at
+#   the throw site - status doc known-gate 11)                               -> ACTIVE (verifier 6b, report-only until a key is armed)
 # [expectations.loop]   LoopStartUT / LoopEndUT / first-play floor (M-C2)     -> reserved (zero declarers)
 # [expectations.route]  hold-reason strings (M-D1)  NOTE: SINGULAR, and a
 #   DIFFERENT name from the plural `routes` block above                       -> reserved (zero declarers; validate_spec WARNs on it)

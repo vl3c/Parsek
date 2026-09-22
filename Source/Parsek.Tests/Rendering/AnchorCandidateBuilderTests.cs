@@ -635,24 +635,27 @@ namespace Parsek.Tests.Rendering
             // candidate arrays; downstream readers assume monotonic UT
             // order. A non-monotonic emission would make the array order
             // load-dependent.
+            //
+            // Section 0 is a SurfaceMobile ABSOLUTE span followed by an
+            // OrbitalCheckpoint section, so it collects TWO candidates at
+            // DISTINCT UTs, and in the reverse of UT order: the checkpoint
+            // pass emits the End candidate at UT 100 before the
+            // SurfaceContinuous pass emits the Start marker at UT 0. Only
+            // SelectWinners' sort can put them in UT order.
             var rec = MakeRecording("rec-sort",
-                MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic, 0, 100));
-            // Synthesize multiple emitters by combining a Loop marker + a
-            // SurfaceContinuous marker so two candidates exist for the same
-            // section. We override one section to be SurfaceMobile so both
-            // emitters fire.
-            rec.TrackSections[0] = MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.SurfaceMobile, 0, 100);
-            rec.LoopPlayback = true;
-            rec.LoopIntervalSeconds = 60.0;
-            rec.LoopAnchorVesselId = 1u;
+                MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.SurfaceMobile, 0, 100),
+                MakeSection(ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic, 100, 200));
 
             AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
 
             Assert.True(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr));
-            // After SelectWinners' UT-stable sort, candidates should be
-            // monotonic by UT.
-            for (int i = 1; i < arr.Length; i++)
-                Assert.True(arr[i].UT >= arr[i - 1].UT);
+            Assert.Equal(2, arr.Length);
+            Assert.Equal(0.0, arr[0].UT);
+            Assert.Equal(AnchorSource.SurfaceContinuous, arr[0].Source);
+            Assert.Equal(AnchorSide.Start, arr[0].Side);
+            Assert.Equal(100.0, arr[1].UT);
+            Assert.Equal(AnchorSource.OrbitalCheckpoint, arr[1].Source);
+            Assert.Equal(AnchorSide.End, arr[1].Side);
         }
 
         // --- AnchorCandidate bit-pack round-trip --------------------------

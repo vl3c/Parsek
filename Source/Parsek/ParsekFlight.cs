@@ -1101,7 +1101,6 @@ namespace Parsek
 
         public bool IsRecording => recorder?.IsRecording ?? false;
         public bool IsPlaying => isPlaying;
-        public int TimelineGhostCount => engine.GhostCount;
         public GameObject PreviewGhost => ghostObject;
         public Dictionary<int, GameObject> TimelineGhosts
         {
@@ -2118,8 +2117,8 @@ namespace Parsek
             if (showUI)
             {
                 windowRect.height = 0f;
-                var opaqueWindowStyle = ui.GetOpaqueWindowStyle();
-                if (opaqueWindowStyle == null)
+                var mainWindowStyle = ui.GetMainWindowStyle();
+                if (mainWindowStyle == null)
                     return;
 
                 ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
@@ -2130,7 +2129,7 @@ namespace Parsek
                         windowRect,
                         ui.DrawWindow,
                         "Parsek",
-                        opaqueWindowStyle,
+                        mainWindowStyle,
                         GUILayout.Width(250)
                     );
                 }
@@ -3314,8 +3313,8 @@ namespace Parsek
                 if (chainManager.TryGetContinuationRecording(out var contRec))
                 {
                     MarkContinuationVesselDestroyed(contRec);
-                    Log($"Continuation vessel destroyed (pid={chainManager.ContinuationVesselPid}), " +
-                        $"VesselDestroyed=true, VesselSnapshot preserved={contRec.VesselSnapshot != null}");
+                    Log(FormatContinuationVesselDestroyedMessage(
+                        chainManager.ContinuationVesselPid, contRec));
                 }
                 chainManager.StopContinuation("vessel destroyed");
             }
@@ -3349,6 +3348,18 @@ namespace Parsek
         {
             if (contRec == null) return;
             contRec.VesselDestroyed = true;
+        }
+
+        /// <summary>
+        /// The line OnVesselWillDestroy logs after marking a destroyed chain continuation.
+        /// It reports whether the committed VesselSnapshot survived the mark (bug #95), so
+        /// a re-null shows up in KSP.log as <c>preserved=False</c>.
+        /// </summary>
+        internal static string FormatContinuationVesselDestroyedMessage(
+            uint continuationPid, Recording contRec)
+        {
+            return $"Continuation vessel destroyed (pid={continuationPid}), " +
+                $"VesselDestroyed=true, VesselSnapshot preserved={contRec.VesselSnapshot != null}";
         }
 
         /// <summary>

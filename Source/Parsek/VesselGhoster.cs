@@ -209,9 +209,7 @@ namespace Parsek
             if (overlap)
             {
                 double currentUT = Planetarium.GetUniversalTime();
-                chain.SpawnBlocked = true;
-                chain.BlockedSinceUT = currentUT;
-                chain.BlockedInitialDistance = distance;
+                MarkSpawnBlocked(chain, currentUT, distance);
                 ParsekLog.Info("SpawnCollision",
                     string.Format(ic,
                         "Spawn blocked: vessel={0} overlaps with {1} at {2}m",
@@ -1182,6 +1180,19 @@ namespace Parsek
         internal static bool ShouldAttemptGhosting(uint vesselPid, bool vesselExists)
         {
             return vesselPid != 0 && vesselExists;
+        }
+
+        /// <summary>
+        /// Stamps a chain whose tip spawn a collision just refused: the block flag, the UT
+        /// the block began (the walkback timeout and the "blocked Ns" diagnostics measure
+        /// from it) and the blocker distance at that moment (the walkback's
+        /// stationary-blocker test compares the current distance against it).
+        /// </summary>
+        internal static void MarkSpawnBlocked(GhostChain chain, double currentUT, float distance)
+        {
+            chain.SpawnBlocked = true;
+            chain.BlockedSinceUT = currentUT;
+            chain.BlockedInitialDistance = distance;
         }
 
         /// <summary>

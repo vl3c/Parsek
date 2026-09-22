@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/GameActions/KspStatePatcher.cs b/Source/Parsek/GameActions/KspStatePatcher.cs
+index 29153330e..61a978318 100644
+--- a/Source/Parsek/GameActions/KspStatePatcher.cs
++++ b/Source/Parsek/GameActions/KspStatePatcher.cs
+@@ -3340,12 +3340,6 @@ namespace Parsek
+         /// </summary>
+         internal static void ResetDrawdownGuardSessionLatches()
+         {
+-            fundsClampToastShownThisSession = false;
+-            scienceClampToastShownThisSession = false;
+-            reputationClampToastShownThisSession = false;
+-            fundsUpliftClampToastShownThisSession = false;
+-            scienceUpliftClampToastShownThisSession = false;
+-            reputationUpliftClampToastShownThisSession = false;
+         }
+ 
+         /// <summary>
