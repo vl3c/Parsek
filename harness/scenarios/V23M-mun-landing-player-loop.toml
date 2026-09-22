@@ -440,9 +440,14 @@ id = "V23M-mun-landing-player-loop"
 #   MeshSpawned `reason=ghost-created` 2; MeshDestroyed `chain-loop unit member outside
 #   its window` 2 and `chain-loop unit cycle change` 1. The MeshDestroyed element was
 #   untouched. unityExceptions (report-only) read 10,800 NREs, all stock
-#   `VehiclePhysics.VPWheelCollider` with zero Parsek frames; the archived V23M logs
+#   `VehiclePhysics.VPWheelCollider`; the archived V23M logs
 #   `2026-08-24_2000` / `2026-08-25_0016` carry 10,684 / 10,695 EXC lines, so this is
-#   the lane's standing stock wheel stream, not new. The bare renderCompose block read
+#   the lane's standing stock wheel stream, not new. CORRECTED 2026-09-22: "zero Parsek
+#   frames" was read by eye; the stack-reading scan (hlib.scan_unity_exception_stacks)
+#   finds 6 of them in every V23M log with `Parsek.TimeJumpManager.PutLoadedVesselsOnRails`
+#   on the stack (the forward jump packs the vessel, stock throws in
+#   `VPWheelCollider.OnDisableVehicle`), so `maxParsekFrames` stays unarmed here; todo
+#   UNITY-PARSEK-FRAME-CALLER-SHAPE. The bare renderCompose block read
 #   one report-only `RC-COVER [FAIL]` (a 120 s dark window at a 0.02 s warp resolution;
 #   todo RC-COVER-DARK-WINDOWS-READ-ON-BARE-LANES).
 #

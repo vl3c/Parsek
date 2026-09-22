@@ -2120,6 +2120,26 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     (15 before), `ObservabilityLoggingTests` 18, `RoverRelayCOracleTests` 3 (4 before),
     `PartEventTests` 164 (165 before), `CommittedScienceDictTests` 7,
     `MergeJournalForkMigrationTests` 6 (5 before), all passed / 0 failed.
+- `testfix-low-01` (2026-09-16, OPEN, do not merge until reviewed): the Low T1 sweep's
+  first slice is PARTIAL - 2 of 16 rows proven and landed; the remaining 14 wait on
+  dedicated implementer dispatches (`work/phase-b-slice-low-t1-01.txt`).
+  - F-analyzer-002-02, strengthened + renamed
+    `Key_SameFindingTwice_IsStable` -> `Key_SeparateInstancesSameShape_EqualKeys_RuleStillDistinguishes`:
+    the cell compared `KeyOf(f)` with itself. It now keys two separate findings with
+    numerically drifted messages (equal keys) and a different RuleId (different key).
+    RED under both mutants (17 passed / 3 failed each: the named cell plus two pre-existing
+    Gate / Apply / MultiMatch cells that also key findings): the register's default-key stub
+    (`mutations/F-analyzer-002-02-default-phaseB.patch`) and a digest-mask drop
+    (`mutations/F-analyzer-002-02-phaseB.patch`). The old cell stays GREEN under the
+    default-key stub.
+  - F-rewind-refly-019-02, strengthened: `EmptyRpId_ReturnsZero` became a Theory over
+    null and empty rpId, each with an orphan whose own `ProvisionalForRpId` matches the
+    call, plus a no-reap log assertion. RED 0 passed / 2 failed under the register's
+    deleted-early-return mutant (`mutations/F-rewind-refly-019-02-phaseB.patch`);
+    restored class 8 passed / 0 failed. Earlier GREEN mutant runs came from a stale
+    testhost and are superseded; the trace-confirmed RED run is recorded.
+  - No production change; both patches revert to the base tree. Serialized full suite:
+    23,820 passed / 0 failed / 1 skipped.
 
 ## July crosswalk
 

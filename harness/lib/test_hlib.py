@@ -8395,19 +8395,56 @@ class UnityExceptionScanTests(unittest.TestCase):
             "GS-4-kerbalx-rewind-watch.toml": 6,
         }
         armed = {}
+        armed_parsek_frames = {}
+        declared = set()
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.load(fh)
             block = (spec.get("expectations") or {}).get(hlib.UNITY_EXCEPTIONS_BLOCK)
             if block is not None:
-                armed[name] = block.get(hlib.UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
-        self.assertEqual(sorted(expected), sorted(armed),
+                declared.add(name)
+                if hlib.UNITY_EXCEPTIONS_MAX_TOTAL_KEY in block:
+                    armed[name] = block.get(hlib.UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
+                if hlib.UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY in block:
+                    armed_parsek_frames[name] = block.get(
+                        hlib.UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY)
+        self.assertEqual(sorted(set(expected) | set(self.ARMED_MAX_PARSEK_FRAMES)),
+                         sorted(declared),
                          "a committed spec outside the armed allowlist armed the scan")
-        # The declared VALUES, not just the membership. A declared block with no
-        # `maxTotal` gates NOTHING (it degrades to the same report-only an absent block
-        # gets), so a None here would be an allowlisted spec that arms nothing at all.
+        # The declared VALUES, not just the membership. A declared block arming neither
+        # key gates NOTHING (it degrades to the same report-only an absent block gets),
+        # so it cannot appear in `declared` without appearing in one of the two tables.
         self.assertEqual(expected, armed,
                          "an armed ceiling moved without its evidence moving with it")
+        self.assertEqual(self.ARMED_MAX_PARSEK_FRAMES, armed_parsek_frames,
+                         "a maxParsekFrames arming moved without its evidence moving with it")
+
+    # `maxParsekFrames` arming (todo UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES, roadmap
+    # "Priority register (2026-09-11)" item C1). A `Parsek.` frame in an exception stack
+    # is a finding at ANY count (wave-0910 ruling A4-b), so the only value is 0, and a
+    # lane arms it only when the 2026-09-22 offline sweep
+    # (`hlib.scan_unity_exception_stacks` over every collected KSP.log of the lane, frames
+    # read under every exception class) read parsekFrames 0 on every log it has. Independent of `maxTotal`: W1
+    # arms this key while its count stays report-only. The negative control is OFFLINE
+    # (the BDOCK-1 / GS-4 precedent): each lane's committed block through
+    # `hlib.evaluate_unity_exceptions` over its latest archived KSP.log PASSES, and over
+    # the same bytes with one Parsek-frame exception appended reds on exactly one
+    # `unityExceptions.parsekFrames 1 > maxParsekFrames 0 (...)` mismatch; the run ids
+    # and readings are in autotest-status known-gate 11, and
+    # `UnityStackScanTests.test_armed_lanes_red_on_an_injected_parsek_frame` re-drives
+    # the shape headlessly through each committed spec.
+    ARMED_MAX_PARSEK_FRAMES = {
+        # 7 archived logs, parsekFrames 0 in each (`2026-08-28_0051`, `_1855`,
+        # `2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`, `_0102`); control host
+        # `_0049` (total 4, the highest).
+        "GS-4-kerbalx-rewind-watch.toml": 0,
+        # 4 collected logs, parsekFrames 0 in each: the two INVALID reading attempts
+        # `2026-08-28_1859` / `_1902` and the two driver-valid PASS readings
+        # `2026-09-10_1936` / `_1939` (the PASS log of `2026-08-28_1624` is no longer on
+        # disk); control host `_1939` (total 2, both stock / MechJeb after the quit).
+        # W1 arms no maxTotal.
+        "W1-watch-distance-cutoff.toml": 0,
+    }
 
     def test_over_budget_classifies_parsek_fail(self):
         d, v = _clean_pass_facts()
@@ -8415,6 +8452,291 @@ class UnityExceptionScanTests(unittest.TestCase):
         verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
         self.assertEqual(("PARSEK-FAIL", "unity-exception"),
                          (verdict.verdict, verdict.subkind))
+
+
+class UnityStackScanTests(unittest.TestCase):
+    """`scan_unity_exception_stacks`: the stack under each counted exception line.
+
+    GAP it closes (todo UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES): the line count
+    cannot tell a stock NRE from one thrown with Parsek on the stack, so a Parsek-frame
+    exception inside an armed `maxTotal` budget passed unnoticed - V15T
+    `2026-09-10_1917`'s `EnsureGhostOrbitRenderers` teardown NRE was found by a human.
+    The excerpts below are shaped byte-for-byte on real KSP.log records: the `[EXC]`
+    header with TAB-indented frames, and the GameEvents `[ERR]` header with `  at`
+    frames and a trailing blank line.
+    """
+
+    STOCK_EXC = (
+        "[EXC 22:17:48.846] NullReferenceException: Object reference not set to an instance of an object\n"
+        "\tKSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v) (at <4b449f2841f84227adfaad3149c8fdba>:0)\n"
+        "\tEventData`1[T].Fire (T data) (at <4b449f2841f84227adfaad3149c8fdba>:0)\n"
+        "\tUnityEngine.DebugLogHandler:LogException(Exception, Object)\n"
+        "\tVessel:OnDestroy()\n")
+    PARSEK_EXC = (
+        "[EXC 22:17:48.820] NullReferenceException: Object reference not set to an instance of an object\n"
+        "\tMapObject.Awake () (at <4b449f2841f84227adfaad3149c8fdba>:0)\n"
+        "\tVessel:AddOrbitRenderer()\n"
+        "\tHarmonyLib.Traverse:GetValue()\n"
+        "\tParsek.GhostMapPresence:EnsureGhostOrbitRenderers()\n"
+        "\tParsek.Patches.GhostTrackingBuildVesselsListPatch:Prefix()\n"
+        "\tKSP.UI.Screens.SpaceTracking:KSP.UI.Screens.SpaceTracking.buildVesselsList_Patch2(SpaceTracking)\n")
+    PARSEK_ERR = (
+        "[ERR 22:17:48.846] Exception handling event onVesselDestroy in class ParsekFlight:System.NullReferenceException: Object reference not set to an instance of an object\n"
+        "  at Parsek.GhostMapPresence.EnsureGhostOrbitRenderers () [0x0001c] in <0a1b2c3d>:0 \n"
+        "  at EventData`1[T].Fire (T data) [0x000b0] in <4b449f2841f84227adfaad3149c8fdba>:0 \n"
+        "\n")
+    STOCK_ERR = (
+        "[ERR 22:17:48.848] Exception handling event onVesselDestroy in class SpaceTracking:System.NullReferenceException: Object reference not set to an instance of an object\n"
+        "  at (wrapper dynamic-method) KSP.UI.Screens.SpaceTracking.KSP.UI.Screens.SpaceTracking.buildVesselsList_Patch2(KSP.UI.Screens.SpaceTracking)\n"
+        "  at System.Linq.Enumerable.Any[Parsek.Recording] (System.Collections.Generic.IEnumerable`1[T] source) [0x00000] in <x>:0 \n"
+        "\n")
+    LOG = "[LOG 22:17:48.825] KbApp.OnDestroy Planet Resources\n"
+    SCHEDULE = ("[LOG 22:17:48.106] [Parsek][INFO][TestCommands] flushandquit: scheduling "
+                "Application.Quit (deferred one frame) id=0016\n")
+    QUIT = "[LOG 22:17:48.115] [Parsek][INFO][TestCommands] flushandquit: Application.Quit\n"
+
+    def scan(self, text):
+        st = hlib.scan_unity_exception_stacks(text)
+        # Backward compatibility, on every excerpt: the per-pattern counts are exactly
+        # what the line-only scan returns, so no armed maxTotal can move.
+        self.assertEqual(hlib.scan_unity_exceptions(text), st.counts)
+        return st
+
+    def test_stock_only_stack_has_no_parsek_frame(self):
+        st = self.scan(self.STOCK_EXC + self.STOCK_ERR)
+        self.assertEqual(2, sum(st.counts.values()))
+        self.assertEqual(0, st.parsek_frames)
+        self.assertEqual({}, st.parsek_frame_sites)
+
+    def test_parsek_frame_in_exc_stack_counts_once_at_its_innermost_site(self):
+        st = self.scan(self.PARSEK_EXC)
+        self.assertEqual(1, st.parsek_frames)
+        # The innermost Parsek frame names the site; the prefix frame below it does not
+        # count again (one occurrence, one count).
+        self.assertEqual({"Parsek.GhostMapPresence.EnsureGhostOrbitRenderers": 1},
+                         st.parsek_frame_sites)
+
+    def test_err_at_shape_keys_the_same_site_as_the_exc_shape(self):
+        st = self.scan(self.PARSEK_ERR + self.PARSEK_EXC)
+        self.assertEqual(2, st.parsek_frames)
+        self.assertEqual({"Parsek.GhostMapPresence.EnsureGhostOrbitRenderers": 2},
+                         st.parsek_frame_sites)
+
+    def test_mixed_log_attributes_frames_only_to_their_own_exception(self):
+        st = self.scan(self.STOCK_EXC + self.LOG + self.PARSEK_EXC + self.STOCK_ERR)
+        self.assertEqual(3, sum(st.counts.values()))
+        self.assertEqual(1, st.parsek_frames)
+
+    def test_truncated_stacks_never_count_as_parsek(self):
+        # A header with no continuation lines (next record at once, or end of file).
+        header = self.PARSEK_EXC.splitlines()[0] + "\n"
+        st = self.scan(header + self.LOG + header)
+        self.assertEqual(2, st.counts["NullReferenceException"])
+        self.assertEqual(0, st.parsek_frames)
+
+    def test_a_parsek_frame_under_a_later_record_is_not_attributed_back(self):
+        # Continuation lines after a NON-exception record (a ConfigNode dump, say)
+        # belong to that record, and a `[Parsek]` line closes a block the same way.
+        for closer in (self.LOG, self.SCHEDULE):
+            with self.subTest(closer=closer[:40]):
+                st = self.scan(self.STOCK_EXC + closer
+                               + "\tParsek.GhostMapPresence:EnsureGhostOrbitRenderers()\n")
+                self.assertEqual(0, st.parsek_frames)
+
+    def test_only_a_leading_parsek_namespace_is_a_parsek_frame(self):
+        # A stock frame with a Parsek generic argument, a Harmony-patched stock body,
+        # and a type merely named Parsek-something are all stock frames.
+        for frame in ("  at System.Linq.Enumerable.Any[Parsek.Recording] () [0x0] in <x>:0",
+                      "\tKSP.UI.Screens.SpaceTracking:buildVesselsList_Patch2(SpaceTracking)",
+                      "\tParsekCompatShim.Thing:Run()",
+                      "\tSomething.Parsek.Inner:Run()"):
+            with self.subTest(frame=frame):
+                st = self.scan(self.STOCK_EXC.splitlines()[0] + "\n" + frame + "\n")
+                self.assertEqual(0, st.parsek_frames)
+        for frame in ("\tParsek.ParsekFlight+<Routine>d__12:MoveNext()",
+                      "  at (wrapper dynamic-method) Parsek.Patches.Foo.Prefix_Patch1 (object)",
+                      "  at Parsek.TimeJumpManager.PutLoadedVesselsOnRails () [0x0] in <x>:0"):
+            with self.subTest(frame=frame):
+                st = self.scan(self.STOCK_EXC.splitlines()[0] + "\n" + frame + "\n")
+                self.assertEqual(1, st.parsek_frames)
+
+    # An exception class the count does not budget still carries a Parsek frame; the
+    # frames-only openers read it without moving ``counts`` (PR #1747 review).
+    UNCOUNTED_EXC = (
+        "[EXC 12:00:01.000] InvalidOperationException: Sequence contains no elements\n"
+        "\tSystem.Linq.Enumerable.First[TSource] (System.Collections.Generic.IEnumerable`1[T] source) (at <x>:0)\n"
+        "\tParsek.RecordingStore:Foo()\n"
+        "\tUnityEngine.DebugLogHandler:LogException(Exception, Object)\n")
+    UNCOUNTED_ERR = (
+        "[ERR 12:00:02.000] Exception handling event onVesselDestroy in class ParsekFlight:System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n"
+        "  at System.Collections.Generic.Dictionary`2[TKey,TValue].get_Item (TKey key) [0x0001e] in <x>:0 \n"
+        "  at Parsek.ParsekFlight.OnVesselDestroy (Vessel v) [0x00010] in <y>:0 \n"
+        "\n")
+
+    def test_uncounted_exc_class_with_a_parsek_frame_is_read(self):
+        st = self.scan(self.UNCOUNTED_EXC)
+        self.assertEqual(0, sum(st.counts.values()))
+        self.assertEqual(1, st.uncounted)
+        self.assertEqual(1, st.parsek_frames)
+        self.assertEqual({"Parsek.RecordingStore.Foo": 1}, st.parsek_frame_sites)
+
+    def test_uncounted_event_handler_class_with_a_parsek_frame_is_read(self):
+        st = self.scan(self.UNCOUNTED_ERR)
+        self.assertEqual(0, sum(st.counts.values()))
+        self.assertEqual(1, st.uncounted)
+        self.assertEqual({"Parsek.ParsekFlight.OnVesselDestroy": 1}, st.parsek_frame_sites)
+
+    def test_uncounted_classes_move_no_count_and_red_only_the_frame_ceiling(self):
+        text = self.STOCK_EXC + self.QUIT + self.UNCOUNTED_EXC + self.UNCOUNTED_ERR
+        st = self.scan(text)
+        self.assertEqual(1, sum(st.counts.values()))     # the stock NRE only
+        self.assertEqual((2, 2, 2), (st.uncounted, st.parsek_frames, st.after_quit))
+        self.assertEqual("PASS", self._eval(text, {"maxTotal": 1}).status)
+        r = self._eval(text, {"maxTotal": 1, "maxParsekFrames": 0})
+        self.assertEqual(1, len(r.mismatches))
+        self.assertIn("parsekFrames 2 > maxParsekFrames 0", r.mismatches[0])
+
+    def test_quit_markers_are_the_literals_the_mod_writes(self):
+        # Reads OUTSIDE harness/: if either log line is reworded, afterQuit silently
+        # reads 0 and quitMarkerSeen False on every run, so pin each marker to the C#
+        # string literal that writes it (the literal must OPEN with the marker text).
+        sources = {
+            "flushandquit: Application.Quit":
+                ("Source/Parsek/TestCommands/ParsekTestCommandAddon.cs",
+                 '"flushandquit: Application.Quit"'),
+            "autorun exit: teardown+export complete":
+                ("Source/Parsek/InGameTests/InGameTestRunner.cs",
+                 '"autorun exit: teardown+export complete'),
+        }
+        self.assertEqual(sorted(sources), sorted(hlib.UNITY_QUIT_MARKERS))
+        for marker, (rel, literal) in sources.items():
+            with self.subTest(marker=marker):
+                with open(os.path.join(REPO_ROOT, *rel.split("/")), encoding="utf-8") as fh:
+                    text = fh.read().replace("\r\n", "\n")
+                self.assertIn(literal, text, "%s no longer writes %r" % (rel, marker))
+
+    def test_frames_only_openers_are_the_two_named_shapes(self):
+        # Mutation-style: an uncounted class on a LOG / WRN record, or an ERR record that
+        # is not the event dispatcher's, opens nothing, so a Parsek-looking continuation
+        # under it is not attributed. A counted line is never ALSO a frames-only one.
+        frame = "\tParsek.RecordingStore:Foo()\n"
+        for header in ("[LOG 12:00:03.000] InvalidOperationException: logged by a mod\n",
+                       "[WRN 12:00:03.000] InvalidOperationException: warned\n",
+                       "[ERR 12:00:03.000] Some mod failed: InvalidOperationException\n"):
+            with self.subTest(header=header[:40]):
+                st = self.scan(header + frame)
+                self.assertEqual((0, 0), (st.uncounted, st.parsek_frames))
+        st = self.scan(self.PARSEK_EXC + self.PARSEK_ERR)
+        self.assertEqual((0, 2), (st.uncounted, st.parsek_frames))
+
+    def test_an_inner_exception_line_opens_its_own_block(self):
+        text = (self.STOCK_EXC.splitlines()[0] + "\n"
+                + "  ---> System.NullReferenceException: inner\n"
+                + "  at Parsek.GhostMapPresence.EnsureGhostOrbitRenderers () [0x0] in <x>:0\n")
+        st = self.scan(text)
+        self.assertEqual(2, st.counts["NullReferenceException"])
+        self.assertEqual(1, st.parsek_frames)   # the frame follows the INNER line only
+
+    def test_after_quit_counts_only_exceptions_past_the_real_quit_line(self):
+        st = self.scan(self.STOCK_EXC + self.SCHEDULE + self.PARSEK_EXC + self.QUIT
+                       + self.STOCK_EXC + self.STOCK_ERR)
+        self.assertTrue(st.quit_marker_seen)
+        self.assertEqual(4, sum(st.counts.values()))
+        self.assertEqual(2, st.after_quit)      # the `scheduling` line is not the quit
+        self.assertEqual(1, st.parsek_frames)   # the pre-quit Parsek one still counts
+
+    def test_quit_marker_must_be_a_parsek_line(self):
+        quoted = "[LOG 22:17:48.115] kRPC echo: flushandquit: Application.Quit\n"
+        st = self.scan(quoted + self.STOCK_EXC)
+        self.assertFalse(st.quit_marker_seen)
+        self.assertEqual(0, st.after_quit)
+
+    def test_autorun_exit_is_also_a_quit(self):
+        line = ("[LOG 01:02:03.456] [Parsek][INFO][TestRunner] autorun exit: teardown+export "
+                "complete, quitting KSP cleanly (mechanism=ApplicationQuit) scene=FLIGHT\n")
+        st = self.scan(line + self.STOCK_EXC)
+        self.assertTrue(st.quit_marker_seen)
+        self.assertEqual(1, st.after_quit)
+
+    def test_empty_and_none_are_clean_measurements(self):
+        for empty in (None, "", "\n"):
+            st = self.scan(empty)
+            self.assertEqual((0, 0, False, {}),
+                             (st.parsek_frames, st.after_quit, st.quit_marker_seen,
+                              st.parsek_frame_sites))
+
+    def _eval(self, text, block):
+        st = hlib.scan_unity_exception_stacks(text)
+        return hlib.evaluate_unity_exceptions(st.counts, block, st)
+
+    def test_max_parsek_frames_gates_independently_of_max_total(self):
+        r = self._eval(self.PARSEK_EXC, {"maxParsekFrames": 0})
+        self.assertEqual(("FAIL", True), (r.status, r.gating))
+        self.assertEqual(("unityExceptions.parsekFrames 1 > maxParsekFrames 0 "
+                          "(Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)",),
+                         r.mismatches)
+        self.assertIsNone(r.max_total)
+        # The same count under a maxTotal that budgets it still reds on the frame.
+        r = self._eval(self.PARSEK_EXC, {"maxTotal": 6, "maxParsekFrames": 0})
+        self.assertEqual(1, len(r.mismatches))
+        self.assertIn("parsekFrames", r.mismatches[0])
+        # A stock-only log passes the frame ceiling at any count.
+        r = self._eval(self.STOCK_EXC * 5, {"maxParsekFrames": 0})
+        self.assertEqual(("PASS", 5, 0), (r.status, r.total, r.parsek_frames))
+
+    def test_both_ceilings_over_report_both_mismatches(self):
+        r = self._eval(self.PARSEK_EXC + self.STOCK_EXC, {"maxTotal": 1, "maxParsekFrames": 0})
+        self.assertEqual("FAIL", r.status)
+        self.assertEqual(2, len(r.mismatches))
+        self.assertIn("maxTotal 1", r.mismatches[0])
+        self.assertIn("maxParsekFrames 0", r.mismatches[1])
+
+    def test_max_parsek_frames_without_a_stack_scan_fails_closed(self):
+        r = hlib.evaluate_unity_exceptions({"NullReferenceException": 0},
+                                           {"maxParsekFrames": 0})
+        self.assertEqual("FAIL", r.status)
+        self.assertIn("unmeasured", r.mismatches[0])
+        # maxTotal alone keeps its exact pre-stack behavior with no stack scan.
+        r = hlib.evaluate_unity_exceptions({"NullReferenceException": 1}, {"maxTotal": 1})
+        self.assertEqual(("PASS", None), (r.status, r.parsek_frames))
+
+    def test_report_only_block_still_carries_the_stack_figures(self):
+        r = self._eval(self.QUIT + self.PARSEK_EXC, None)
+        self.assertEqual((hlib.UNITY_EXCEPTIONS_STATUS_REPORT, False), (r.status, r.gating))
+        self.assertEqual((1, 1), (r.parsek_frames, r.after_quit))
+
+    def test_block_validation_accepts_the_parsek_frame_ceiling(self):
+        ok = hlib.validate_unity_exception_expectations
+        self.assertEqual([], ok({"maxParsekFrames": 0}))
+        self.assertEqual([], ok({"maxTotal": 6, "maxParsekFrames": 0}))
+        for bad in ({"maxParsekFrames": -1}, {"maxParsekFrames": "0"},
+                    {"maxParsekFrames": True}, {"maxParsekFrame": 0},
+                    {"maxParsekFrames": 0.0}):
+            with self.subTest(block=bad):
+                self.assertTrue(ok(bad), bad)
+        # A block arming only the frame ceiling is NOT inert, so it does not warn; an
+        # empty one warns and names both keys.
+        self.assertEqual([], hlib.unity_exception_expectation_warnings({"maxParsekFrames": 0}))
+        warn = hlib.unity_exception_expectation_warnings({})
+        self.assertEqual(1, len(warn))
+        self.assertIn("maxParsekFrames", warn[0])
+        self.assertIn("maxTotal", warn[0])
+
+    def test_armed_lanes_red_on_an_injected_parsek_frame(self):
+        # The headless shape of the offline negative control, through each COMMITTED
+        # spec's own block: a stock-only log passes, and one Parsek-frame exception
+        # appended reds on exactly the parsekFrames mismatch (plus nothing else).
+        armed = UnityExceptionScanTests.ARMED_MAX_PARSEK_FRAMES
+        self.assertTrue(armed)
+        stock = self.STOCK_EXC + self.QUIT + self.STOCK_ERR
+        for name in sorted(armed):
+            with self.subTest(spec=name):
+                block = load_spec(name)["expectations"][hlib.UNITY_EXCEPTIONS_BLOCK]
+                self.assertEqual("PASS", self._eval(stock, block).status)
+                r = self._eval(stock + self.PARSEK_EXC, block)
+                self.assertEqual("FAIL", r.status)
+                self.assertEqual(1, len(r.mismatches), r.mismatches)
+                self.assertIn("parsekFrames 1 > maxParsekFrames 0", r.mismatches[0])
 
 
 class PendingOperatorTagHonestyTests(unittest.TestCase):
@@ -8877,7 +9199,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # re-points the probes at the coast and descent members off that run's own
         # bytes; nothing is armed and no evaluator block is declared. What is open is
         # the next FLIGHT, not a human review call.
-        "W1-watch-distance-cutoff.toml":     "tier=operator by the calibration discipline (derived geometry, the first runs are calibration readings), NOT debt; AUTHORED 2026-08-28 over V22M's `kerbin-splashdown-recorded`, READING RUN 1 flew INVALID and refuted the spec's SUBJECT MAP rather than the product, round 2 re-derived off that run's bytes and FLOWN GREEN 2026-08-28 (`_1624`) and twice more 2026-09-10 (`_1936`, `_1939`, both PASS attempt 1) - the watch-entry 300 km cutoff as the single measured variable (REFUSED at 1,069.7 km on the coast chain member then ENTERED at 0.46 km on the descent member, both MEASURED), nothing armed (unityExceptions deliberately left report-only: readings 0 and 2, the second's NREs in the stock / MechJeb teardown while watching - known-gate 11); what is open is the ordinary promotion call, not a human review call",
+        "W1-watch-distance-cutoff.toml":     "tier=operator by the calibration discipline (derived geometry, the first runs are calibration readings), NOT debt; AUTHORED 2026-08-28 over V22M's `kerbin-splashdown-recorded`, READING RUN 1 flew INVALID and refuted the spec's SUBJECT MAP rather than the product, round 2 re-derived off that run's bytes and FLOWN GREEN 2026-08-28 (`_1624`) and twice more 2026-09-10 (`_1936`, `_1939`, both PASS attempt 1) - the watch-entry 300 km cutoff as the single measured variable (REFUSED at 1,069.7 km on the coast chain member then ENTERED at 0.46 km on the descent member, both MEASURED), nothing armed but unityExceptions `maxParsekFrames = 0` (2026-09-22, controlled offline; its `maxTotal` deliberately left report-only: readings 0 and 2, the second's NREs in the stock / MechJeb teardown while watching - known-gate 11); what is open is the ordinary promotion call, not a human review call",
         # THE G4 REPLICATION LANE, tier=operator by the same calibration
         # discipline the whole B18-B28 family carries: its windows are DERIVED
         # (from the fixture's own bytes, from cited stock constants and from
