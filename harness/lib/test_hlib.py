@@ -8424,7 +8424,9 @@ class UnityExceptionScanTests(unittest.TestCase):
     # is a finding at ANY count (wave-0910 ruling A4-b), so the only value is 0, and a
     # lane arms it only when the 2026-09-22 offline sweep
     # (`hlib.scan_unity_exception_stacks` over every collected KSP.log of the lane, frames
-    # read under every exception class) read parsekFrames 0 on every log it has. Independent of `maxTotal`: W1
+    # read under every exception class) read parsekFrames 0 on every log it has, or - for a lane
+    # whose only earlier frames are a site a merged fix removed - on one post-fix reading (see
+    # the dict comment). Independent of `maxTotal`: W1
     # arms this key while its count stays report-only. The negative control is OFFLINE
     # (the BDOCK-1 / GS-4 precedent): each lane's committed block through
     # `hlib.evaluate_unity_exceptions` over its latest archived KSP.log PASSES, and over
