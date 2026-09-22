@@ -3128,6 +3128,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **The non-loop live-PID grep gate's two arms agree again, and a test keeps them in step.**
+  The pwsh script and the managed fallback the Linux CI runner uses forbade different names
+  for the deleted active-Re-Fly shadow resolver in `GhostMapPresence.cs`, and neither name
+  existed (a 2026-05 `AbsoluteShadow` -> `BodyFixedPrimary` rename swept one arm only). Both
+  now forbid `TryResolveActiveReFly\w*Point`; `NonLoopLivePidAudit_ManagedArmMatchesPwshArm`
+  parses the script's check rows and fails on any difference from the managed table, and the
+  managed arm now also runs on hosts that have pwsh. The managed scan also matches
+  case-insensitively now, as `Select-String` does, so the CI arm no longer passes a
+  differently-cased forbidden read that the pwsh arm catches.
+
 - **Dev tooling: a code and test counting script.** `python scripts/count-code.py` prints
   the line count per area of the repository (mod source, the xUnit project, the harness,
   scripts, scenario specs, docs) over git-tracked files, and the test totals: xUnit facts,
