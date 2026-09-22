@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: RF-12S proves the re-fly crew-recovery fix end to end.** The lane
+  rewinds a recorded crewed flight to the moment after launch where its upper stack
+  separated. It flies the restored stack to orbit with a new small mission, so the crew
+  who died on the original flight survive the re-fly, then merges and reloads the game.
+  On a build without the fix the crew stay Dead after the merge and after the reload; with
+  it they come back, and the save carries the two extra tombstones. The lane is armed on
+  that save count. RF-12W's in-game batch now reaches the crew-recovery check first (it
+  passes there for the first time), so its pinned cell changed with it.
+
 - **Automated testing: the raw-Unity-exception scan reads the stack under each exception.**
   The scan counted exception lines only, so a stock NRE and one thrown with Parsek on the
   stack looked the same, and a Parsek-frame NRE inside an armed `maxTotal` budget passed

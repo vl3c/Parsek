@@ -33,10 +33,22 @@ id = "RF-12S-refly-saves-pre-rewind-boarded-crew"
 # (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, pinned headlessly by
 # `TombstoneReloadMigrationTests`); this lane cannot see it by construction.
 #
-# STATUS: NEVER FLOWN. The fix-discriminating tokens below are PREDICTED from code and
-# from RF-12W's measured log (`PreRewindTombstoneGuard: keep ... rec=4a7739f6 ...`,
-# `Recomputed after tombstones: 2 reservations remain (permanent=2 temporary=0)`); the
-# reading runs replace predictions with measurements. NOTHING ARMED.
+# STATUS (2026-09-22). BEFORE-READING on a main DLL (`a5f807d1`, fix markers absent):
+# `2026-09-22_1928`, PARSEK-FAIL(expectation) on EXACTLY the seven endUT tokens - the
+# guard kept both straddling rows (`keep ... type=KerbalAssignment rec=4a7739f6`), the
+# merge read `permanent=2`, and so did every post-reload walk. AFTER-READING on the fixed
+# DLL (`e2db0b1c`): `2026-09-22_1931`, PASS attempt 1 (two `death interval screened by
+# endUT` lines, `Tombstoned 4 ... Kerbal=4`, `permanent=0` at the merge and after the
+# reload; the burn reached pe=76 km). The pins below are tightened off that reading and
+# `[expectations.rewind]` is armed on it.
+#
+# A MEASURED SIDE FINDING a reader will trip over: the merge leaves ZERO reservations,
+# not two temporary ones, because the new provisional's own crew rows never reach the
+# ledger - `DeduplicateAgainstLedger` keys KerbalAssignment on "" and drops them against
+# the prior re-fly's rows 0.02 s away (`Committed recording 'rec_bff51dd8...': ...
+# kerbals=2, dedup=4`). Filed as KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY. The crew are live
+# on the orbiting vessel, so the roster is right here, but a re-fly that killed them
+# again on this host would lose its own death row.
 # =====================================================================================
 tier = "operator"
 description = "Proof lane for the endUT tombstone ruling: rewind refly-autopilot-recorded slot 0 (Bill and Bob, boarded at launch, died after the rewind point on the superseded flight), burn the restored stack to orbit so the crew survive, merge, then save and reload. The death rows must be retired at the merge and stay retired after the reload."
@@ -110,7 +122,11 @@ required = [
   # The endUT clause deciding, per kerbal, on the straddling origin row.
   "PreRewindTombstoneGuard: death interval screened by endUT action=act_[0-9a-f]{32} kerbal=Bill Kerman rec=4a7739f6cc074185a82cbd10ccaeb01d ",
   "PreRewindTombstoneGuard: death interval screened by endUT action=act_[0-9a-f]{32} kerbal=Bob Kerman rec=4a7739f6cc074185a82cbd10ccaeb01d ",
-  "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
+  "PreRewindTombstoneGuard: 2 pre-rewind-boarded death interval\\(s\\) kept in scope by endUT",
+  # MEASURED on the after-reading `2026-09-22_1931`: Kerbal=4 (the two straddling rows
+  # plus the prior re-fly `rec_c54a110c`'s two). The main-DLL before-reading
+  # `2026-09-22_1928` read Kerbal=2 (only rec_c54a110c's).
+  "Tombstoned 4 career actions \\(.*Kerbal=4,",
   # 7.16 at the merge: no death-sourced permanent reservation survives.
   "Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 ",
   # 7.16 after the reload: a reservation walk that runs AFTER the post-merge LoadGame
@@ -128,11 +144,14 @@ forbidden = [
   "reason=sealedTipClosed",
 ]
 
-# REPORT-ONLY until a reading run: the fixture's 2 supersede rows and 8 tombstones plus
-# what the merge adds. ARMING WAITS FOR A MATCHING READING RUN, per the M-C2 rule.
+# ARMED on the after-reading `2026-09-22_1931` (supersedeRows=5 tombstones=12
+# rewindPoints=1). The main-DLL before-reading `2026-09-22_1928` read tombstones=10: the
+# two straddling death rows are the whole difference, so `tombstones min = 12` is a
+# save-side gate on the ruling. `rewindPoints` stays unpinned.
 [expectations.rewind]
-supersedeRows = { min = 3 }
-tombstones    = { min = 10 }
+gating        = true
+supersedeRows = { min = 5 }
+tombstones    = { min = 12 }
 
 [runtime]
 # Budget arithmetic (M-A5 S8): LoadGame 660 + SetSetting x2 240 + StopRecording 120

@@ -135,6 +135,10 @@ id = "RF-12W-rewind-batch-after-warp-crash"
 #
 # THE RESULT THAT MATTERS IS A CELL, NOT A TALLY: `MergeCrashedReFlyCreatesCPSupersede`,
 # which wants exactly `TerminalKind.Crashed` and had never executed anywhere, PASSES.
+# SINCE 2026-09-22 THE MERGING CELL THIS LANE REACHES IS `KerbalRecoveryOnSupersede`
+# instead (see the claim-to-token pin below): the endUT tombstone ruling gave it a
+# recoverable subject on this host, and it merges first. Re-read on the fixed DLL as
+# `2026-09-22_1941`; the re-shaped contract replays clean on that log.
 #
 # `total=39` is pinned EXACTLY and is source-derived
 # (`CommittedBatchTallySourceSyncTests` walks `Source/Parsek` and reds until it agrees
@@ -258,7 +262,21 @@ required = [
   # The CL family already solves this with committed claim-to-token pins, and RF-12 itself
   # pins `PASSED: KerbalDualResidenceCarveOutTest\.` for the same reason. MEASURED: present
   # once on both phase-4 green logs, ZERO on RF-12's unconcluded log and ZERO on RF-6's.
-  "PASSED: MergeCrashedReFlyCreatesCPSupersedeTest\\.MergeCrashedReFlyCreatesCPSupersede",
+  #
+  # RE-SHAPED 2026-09-22, and the reason is a SESSION-OWNERSHIP move, not a regression.
+  # The endUT tombstone ruling (TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START)
+  # stops the guard keeping Bill's and Bob's straddling death rows, so
+  # `KerbalRecoveryOnSupersede` no longer skips on this host: it runs its real merge and
+  # PASSES (`tombstoned 6 death action(s); 2 kerbal(s) verified non-Dead post-merge`,
+  # the cell's first pass anywhere), and because K sorts before M it SPENDS the session.
+  # `MergeCrashedReFlyCreatesCPSupersede` then skips on `No active re-fly session` -
+  # measured on `2026-09-22_1941` (the fixed DLL), PARSEK-FAIL(expectation) on exactly
+  # the old pin, `BATCH_COMPLETE ... passed=14 failed=0`. A batch reaches ONE merging
+  # cell and discovery order picks it, so the claim-to-token pin follows the cell that
+  # now owns the session. `MergeCrashedReFlyCreatesCPSupersede` keeps its live proof on
+  # RF-12L, whose crewless host gives `KerbalRecoveryOnSupersede` nothing to recover.
+  "PASSED: KerbalRecoveryOnSupersedeTest\\.KerbalRecoveryOnSupersede",
+  "KerbalRecoveryOnSupersede: tombstoned [1-9][0-9]* death action\\(s\\); 2 kerbal\\(s\\) verified non-Dead post-merge",
   "runtests start category=Rewind",
   "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
 ]
