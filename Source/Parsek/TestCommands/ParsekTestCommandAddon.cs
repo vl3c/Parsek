@@ -1276,6 +1276,8 @@ namespace Parsek.TestCommands
                 ActiveVesselIsEva = FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA,
                 StructuralSplitPending = flight != null && flight.StructuralSplitPending,
                 FlightEvaPresent = IsFlightEvaPresent(),
+                GhostChainsPending = HighLogic.LoadedScene == GameScenes.FLIGHT
+                    && (flight == null || !flight.FlightReadyObserved),
                 JournalPhase = phase,
             };
         }

@@ -128,6 +128,15 @@ namespace Parsek.TestCommands
         /// defers <c>flighteva-not-ready</c> while it is absent (scene still settling).</summary>
         public bool FlightEvaPresent;
 
+        /// <summary>The run is in FLIGHT but the flight scene has not reached
+        /// <c>OnFlightReady</c> yet (no <c>ParsekFlight</c> instance, or one whose
+        /// <c>FlightReadyObserved</c> is still false). <c>ListHandles kind=chains</c>
+        /// defers <c>ghost-chains-pending</c> on it: <c>LoadGame</c> completes on the
+        /// scene switch, a second or more BEFORE <c>OnFlightReady</c> evaluates the ghost
+        /// chains, so an undeferred read right after a load would observe the previous
+        /// instant, not the loaded scene.</summary>
+        public bool GhostChainsPending;
+
         /// <summary>The replayed journal phase for THIS command id (None if fresh).</summary>
         public JournalPhase JournalPhase;
     }
@@ -650,7 +659,16 @@ namespace Parsek.TestCommands
                     break;
 
                 case "ListHandles":
-                    // Deliberately NO extra guards - the one read-only member of this
+                    // ONE readiness defer, scoped to kind=chains alone: the chain set is
+                    // derived in OnFlightReady, which runs after LoadGame has already
+                    // answered, so a read before it would observe the previous instant.
+                    // A defer, not a guard: it waits for the scene's own answer and the
+                    // budget bounds a scene that never gets there. Every other family is
+                    // untouched.
+                    if (state.GhostChainsPending
+                        && Arg(parsed, "kind") == TestCommandListHandles.ChainsKindToken)
+                        return DispatchResult.Defer("ghost-chains-pending");
+                    // Otherwise deliberately NO extra guards - the one read-only member of this
                     // block. It carries neither load-in-flight nor merge-journal-in-flight
                     // (the reason those exist is a mutation racing a store swap or a
                     // journal rewrite, and this verb performs none) and no

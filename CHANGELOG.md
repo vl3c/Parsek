@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the command seam can read back the flight scene's ghost chains.**
+  `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
+  recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this
+  flight scene derived its chains at all) and a stable `digest=` over the whole set. An
+  optional `expectDigest=` compares the set against an earlier capture and answers
+  `match=`, so a lane can prove the chains a new scene derives after a save and reload
+  equal the ones it had before. The family waits for `OnFlightReady` before answering,
+  because a load completes before the chains are derived. The save-parse verifier gains a
+  `ghostChainNodes` structure window, a tripwire that reads 0 on every save today because
+  chain state is never persisted. The new lane `CI-3-chain-rederive-readback` uses both;
+  it is committed ahead of its reading runs and claims nothing yet. No game behavior
+  changed outside the automation seam.
+
 - **Tests: two Low T1 cells from the unit-test quality audit now observe production decisions.**
   Baseline keys compare separate findings with numeric drift and distinguish different rules,
   rather than comparing a function call with itself. Rewind cleanup tests null and empty RP

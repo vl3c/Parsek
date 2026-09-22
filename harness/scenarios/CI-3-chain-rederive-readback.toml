@@ -1,0 +1,152 @@
+schema = 1
+id = "CI-3-chain-rederive-readback"
+tier = "operator"
+# =====================================================================================
+# THE D18 SPAWN-IN-RUN WAVE, PR-B: `ghost-conversion-quicksave` and
+# `chain-state-rederived`, both on the `bdock-recorded` fixture (RH-1's and CI-2's host).
+#
+# WHAT THE TWO CELLS ARE, off the catalog (flight-recorder design 12-14). Ghost chains are
+# NOT persisted: `ParsekFlight.EvaluateAndApplyGhostChains` re-derives them from the
+# committed trees on every flight-scene load (its own summary: "Ghost chain state is NOT
+# persisted - it is re-derived from committed recordings on every scene load"), and a
+# claimed vessel that is live in the loaded scene is converted to a ghost there
+# (`VesselGhoster.GhostVessel`: snapshot, `Die()`, `Vessel ghosted:`).
+#   `ghost-conversion-quicksave` - a rewind loads the RewindPoint quicksave, the walker
+#       claims the docking partner, and the flight scene ghosts the REAL claimed vessel:
+#       `Ghosting vessel: pid=` -> `Vessel ghosted: pid=` (VesselGhoster.cs) and the
+#       summary `Ghost chains evaluated: N chain(s), M vessel(s) ghosted` with M >= 1.
+#   `chain-state-rederived` - the chain set read BEFORE a SaveGame + LoadGame equals the
+#       set read AFTER it, while the save file carries no chain node. The readback is
+#       the new `ListHandles kind=chains` family: the first capture is labelled `before`,
+#       the second passes `expectDigest=${before.digest}`, so the SEAM compares the two
+#       sets and the Info line carries `digest=<X> expected=<Y> match=<b>` into KSP.log.
+#       The required token below also back-references the two hex values, so the equality
+#       is checked by the harness's own regex, independently of the C# `match=`. The
+#       second capture is taken by a NEW `ParsekFlight` instance (the component is
+#       re-created per scene) whose `evaluated=true` says it ran its own evaluation - the
+#       set cannot have been carried over in memory. The save-side half is the
+#       `ghostChainNodes` structure facet (saveparse.GHOST_CHAIN_NODE_NAMES), a TRIPWIRE:
+#       no writer emits such a node today, so it reds only the day chain state starts
+#       being persisted, which is the day this readback would stop proving re-derivation.
+#
+# THE REWIND TARGET. rp2 (list order = append order) is `rp_1df613c7...` at UT 8950.59,
+# the Undock split of the committed docking tree 8c677bba...; its ONE open slot is 1
+# (`4af6cfd7...`, pid 1223410921, CommittedProvisional); slot 0 is the chain tip
+# `37d0dc07...` (Kerbal X, pid 3620499050, Immutable). The Kerbal X chain's spawnUT is
+# 8951.5 (CI-2's reading), still in the future at 8950.59, so the chain is kept.
+# FIRST-FLIGHT UNKNOWN, NAMED: pid 3620499050 is rp2's slot-0 sibling, so
+# `PostLoadStripper` may strip it before the walker can ghost it (`Strip stripped=[...]`),
+# in which case the run reads `0 vessel(s) ghosted` and the ghost-conversion token reds.
+# The FALLBACK is rp1 (`rp_f4edbb97...`, UT 693.29, the Interceptor's separation, open
+# slot 1 = Kerbal X Probe): there the Station (3620499050) is a real orbiting vessel from
+# the OTHER, already-committed tree, no sibling of the split, so the strip leaves it and
+# the walker's chain should ghost it. Reading run 1 flies rp2; if it reads M=0, reading
+# run 2 flies rp1 and this header records which one the claim stands on.
+# SECOND UNKNOWN: whether the F9 reload (`LoadGame ... allowLiveRecorder=refly`, S4.4's
+# shape) takes an `OnFlightReady` path that runs the evaluation. `evaluated=false` on the
+# second capture would be the finding that it does not.
+# TRAPS RESPECTED: CI-2's contract is NOT copied (its `Chain tip spawn blocked by
+# collision` forbid and its 22-recording count belong to a lane that jumps past the tip;
+# this lane never passes spawnUT). The walker's `Chain built:` lines are VerboseOnChange,
+# so a SECOND evaluation of an unchanged chain prints nothing; no token here depends on
+# the second evaluation re-printing them. RF7M-DEFECT-B's lesson (a forbidden list cannot
+# tell "gone" from "never ran") is why every absence here is paired with a required
+# presence: the readback requires `count=[1-9]` and `evaluated=true` on BOTH captures.
+# =====================================================================================
+description = "D18 spawn-in-run wave, PR-B (NEVER FLOWN, reading-run discipline): bdock-recorded rewound to rp=${handles.rp2} (the Undock split, UT 8950.59; fallback rp1) so the walker claims the docking partner and the flight scene GHOSTS the real claimed vessel (ghost-conversion-quicksave), then ListHandles kind=chains before a SaveGame + LoadGame(allowLiveRecorder=refly) and again after with expectDigest=${before.digest}, so the seam proves the chain set was RE-DERIVED identically by a new flight scene (chain-state-rederived), with the save-side ghostChainNodes tripwire at zero."
+instanceProfile = "stock-minimal"
+tags = ["CI-3", "chain-interaction", "ghost-chain", "ghost-conversion", "rederive",
+        "readback", "rewind", "refly", "quicksave", "R10", "runtime-handles", "kerbin",
+        "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The walker's and ghoster's lines are Verbose / VerboseOnChange; pinned, not assumed.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },     expect = "OK" },
+  # RH-1's finding: the boot PROMOTES the committed tip into a live recorder and
+  # InvokeRewind's dispatch guard refuses `recording-active` over it.
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp2}", slot = "1" },        expect = "OK", budget = 300 },
+  # CAPTURE 1: the chain set the rewound scene derived. Deferred by the seam until
+  # OnFlightReady ran (`ghost-chains-pending`).
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "before",         expect = "OK" },
+  # THE ROUND TRIP (S4.4's F5 + F9 shape): an inert mid-session save, then a real reload
+  # through the RF-3/A1 opt-in, which rebuilds the flight scene from the file.
+  { cmd = "SaveGame",   args = { name = "quicksave" },                         expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
+  # CAPTURE 2, compared BY THE SEAM against capture 1.
+  { cmd = "ListHandles", args = { kind = "chains", expectDigest = "${before.digest}" }, label = "after", expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# NOT CLAIMED UNTIL FLOWN. The two D18 values this lane exists for,
+# `ghost-conversion-quicksave` and `chain-state-rederived`, are claimed only after the
+# reading runs match and the armed re-flight plus its negative control are green.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture ships 21; a merged re-fly keeps its provisional (CI-2's measured 22 on the
+# same fixture). Bracketed rather than pinned until the reading run measures it.
+count = { min = 21, max = 23 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the reading runs (no `gating`). `ghostChainNodes` is the save-side
+# half of chain-state-rederived: zero on every save the writer produces today.
+ghostChainNodes = { max = 0 }
+
+[expectations.logContracts]
+required  = [
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_1df613c7a9b74aad8c60b483ba221dde slot=1",
+  "Invocation complete",
+  # ghost-conversion-quicksave: the real claimed vessel converted in the loaded scene.
+  "\\[Ghoster\\] Ghosting vessel: pid=[0-9]+ name=",
+  "\\[Ghoster\\] Vessel ghosted: pid=[0-9]+ name=",
+  "\\[Ghoster\\] Ghost chains evaluated: [1-9][0-9]* chain\\(s\\), [1-9][0-9]* vessel\\(s\\) ghosted",
+  # chain-state-rederived: capture 1 (no comparison) and capture 2 (compared). The
+  # back-reference makes the harness check the equality itself; `(?m)` lets `$` end a
+  # LINE (the contract is searched over the whole log), so capture 1 is the uncompared one.
+  "(?m)listhandles kind=chains count=[1-9][0-9]* truncated=false evaluated=true digest=[0-9a-f]{8}$",
+  "savegame name=quicksave .*saved=true",
+  "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
+  "listhandles kind=chains count=[1-9][0-9]* truncated=false evaluated=true digest=([0-9a-f]{8}) expected=\\1 match=true",
+  "answermergedialog choice=merge result=committed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  "listhandles kind=chains .* match=false",
+  "listhandles kind=chains .* evaluated=false",
+  "Failed to ghost vessel pid=",
+  "End reason=treeDiscarded",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): max(step_budget, 600) + 60 per DEFERRED verb (LoadGame x2,
+# InvokeRewind) and max(step_budget, dispatch + 60) for the rest:
+#   LoadGame x2 1320   InvokeRewind 660   SetSetting x2 240   StopRecording 120
+#   ListHandles x3 360   SaveGame 120   AnswerMergeDialog 180   RecordingState 120
+#   FlushAndQuit 120                                               -> sum 3240
+# 3700 clears it by 460.
+budgetSeconds = 3700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

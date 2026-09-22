@@ -9271,6 +9271,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "2026-09-08 (reading _1100, armed _1105 PASS, negative control _1106); "
             "stays operator because it rewinds and jumps a harvested docking fixture, "
             "the discipline's own reason, not a tag",
+        "CI-3-chain-rederive-readback.toml":
+            "operator by the reading-run discipline (CI-2's host and reason): the D18 "
+            "ghost-conversion-quicksave and chain-state-rederived cells, a rewind plus a "
+            "mid-re-fly SaveGame/LoadGame round trip over a harvested docking fixture",
         # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-10, authored 2026-09-08 and 2026-09-09).
         # All eleven
         # are `operator` by the READING-RUN discipline and none owes a human call.
@@ -22354,3 +22358,41 @@ def _cs_array_block(text, array_name):
             if depth == 0:
                 return text[open_at:i + 1]
     return None
+
+
+class ListHandlesExpectDigestValidationTests(unittest.TestCase):
+    """`ListHandles kind=chains expectDigest=`: the readback comparison arg. Each
+    fault below is a typed REJECTED on the seam, found only after a whole boot."""
+
+    def _errs(self, cmd, args):
+        return hlib.validate_list_handles_expect_digest(3, cmd, args)
+
+    def test_chains_family_is_in_the_closed_kind_set(self):
+        self.assertIn("chains", hlib.LISTHANDLES_KIND_VALUES)
+
+    def test_absent_arg_is_fine_on_every_family(self):
+        for kind in hlib.LISTHANDLES_KIND_VALUES:
+            with self.subTest(kind=kind):
+                self.assertEqual([], self._errs("ListHandles", {"kind": kind}))
+
+    def test_a_handle_reference_or_a_digest_is_accepted_on_chains(self):
+        for raw in ("${before.digest}", "0a1b2c3d"):
+            with self.subTest(raw=raw):
+                self.assertEqual([], self._errs(
+                    "ListHandles", {"kind": "chains", "expectDigest": raw}))
+
+    def test_other_family_is_refused(self):
+        errs = self._errs("ListHandles", {"kind": "committed", "expectDigest": "0a1b2c3d"})
+        self.assertTrue(any("expect-digest-kind-mismatch" in e for e in errs), errs)
+
+    def test_bad_value_is_refused(self):
+        for raw in ("0A1B2C3D", "0a1b2c3", "", "digest"):
+            with self.subTest(raw=raw):
+                errs = self._errs("ListHandles", {"kind": "chains", "expectDigest": raw})
+                self.assertTrue(any("expect-digest-invalid" in e for e in errs), errs)
+
+    def test_other_verb_and_case_variant_key_are_refused(self):
+        errs = self._errs("RecordingState", {"expectDigest": "0a1b2c3d"})
+        self.assertTrue(any("only the ListHandles verb" in e for e in errs), errs)
+        errs = self._errs("ListHandles", {"kind": "chains", "expectdigest": "0a1b2c3d"})
+        self.assertTrue(any("spelled 'expectDigest' exactly" in e for e in errs), errs)

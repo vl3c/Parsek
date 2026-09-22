@@ -6011,7 +6011,7 @@ class RuntimeHandleSmokeTests(unittest.TestCase):
         payload grammar has to stay the one the design specifies - a stub that
         quietly answered OK to every kind would make the capture legs vacuous."""
         import _fake_ksp
-        for kind in ("rewindpoints", "committed", "active"):
+        for kind in ("rewindpoints", "committed", "active", "chains"):
             with self.subTest(kind=kind):
                 payload = _fake_ksp._list_handles_payload(kind)
                 self.assertIsNotNone(payload)

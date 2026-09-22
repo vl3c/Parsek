@@ -585,6 +585,11 @@ class ParsekSaveSnapshot:
     dormant_routes: Tuple[RouteRow, ...] = ()
     dismissed_candidate_tree_ids: Tuple[str, ...] = ()
     prompted_candidate_tree_ids: Tuple[str, ...] = ()
+    # Nodes anywhere under the ParsekScenario whose NAME would carry ghost-chain
+    # state (see GHOST_CHAIN_NODE_NAMES). Zero on every save the C# writer produces
+    # today: ghost chains are re-derived from the committed trees on every flight
+    # scene load and never persisted. The count is the TRIPWIRE for that contract.
+    ghost_chain_nodes: int = 0
 
     @property
     def recordings(self) -> Tuple[RecordingRow, ...]:
@@ -599,6 +604,27 @@ class ParsekSaveSnapshot:
         for t in self.trees:
             out.extend(t.branch_points)
         return tuple(out)
+
+
+# Node names that would carry persisted ghost-chain state. No Parsek writer emits
+# any of them into the save (2026-09-22 grep: `CHAIN` / `CHAIN_BUILD` are written only
+# into the render-composition MANIFEST, a separate file in the KSP root, and
+# `CHAIN_ENTRY` is the KERBALS module's crew-slot chain, deliberately NOT listed), so a
+# save carrying one means chain state started being persisted - which would turn the
+# re-derivation a readback lane proves into a round trip of stored rows.
+GHOST_CHAIN_NODE_NAMES: Tuple[str, ...] = (
+    "GHOST_CHAIN", "GHOST_CHAINS", "CHAIN", "CHAIN_LINK", "CHAIN_BUILD")
+
+
+def _count_ghost_chain_nodes(scenario: SfsNode) -> int:
+    count = 0
+    stack = list(scenario.nodes)
+    while stack:
+        node = stack.pop()
+        if node.name in GHOST_CHAIN_NODE_NAMES:
+            count += 1
+        stack.extend(node.nodes)
+    return count
 
 
 def _find_parsek_scenarios(root: SfsNode) -> List[SfsNode]:
@@ -814,7 +840,8 @@ def parse_parsek_scenario(text: Optional[str]) -> ParsekSaveSnapshot:
         dismissed_candidate_tree_ids=(tuple(dismissed.values_named("treeId"))
                                       if dismissed is not None else ()),
         prompted_candidate_tree_ids=(tuple(prompted.values_named("treeId"))
-                                     if prompted is not None else ()))
+                                     if prompted is not None else ()),
+        ghost_chain_nodes=_count_ghost_chain_nodes(sc))
 
 
 def duplicate_recording_ids(snapshot: ParsekSaveSnapshot) -> Tuple[str, ...]:
@@ -1192,6 +1219,8 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
                 # writer-contract violation; surfacing it here is what makes
                 # the duplicate_recording_ids helper reach the run JSON.
                 "duplicateRecordingIds": list(duplicate_recording_ids(snapshot)),
+                # The no-persisted-chain-state tripwire (GHOST_CHAIN_NODE_NAMES).
+                "ghostChainNodes": snapshot.ghost_chain_nodes,
             },
             # Gate 12: the recorded-POINTS distribution, sibling of `structure`
             # and independently armable. Recorded UNCONDITIONALLY, which is how
@@ -1221,7 +1250,10 @@ REWIND_BLOCK_KEYS: Tuple[str, ...] = (
 STRUCTURE_BLOCK = "structure"  # nested under [expectations.recordings]
 STRUCTURE_BLOCK_KEYS: Tuple[str, ...] = (
     GATING_KEY, "trees", "committedTrees", "recordings",
-    "terminalStates", "branchPoints")
+    "terminalStates", "branchPoints", "ghostChainNodes")
+# The structure block's scalar (single-window) facets.
+STRUCTURE_SCALAR_KEYS: Tuple[str, ...] = (
+    "trees", "committedTrees", "recordings", "ghostChainNodes")
 
 # Gate 12. A SIBLING of `structure`, not a key inside it, and deliberately so:
 # gating is PER-BLOCK (see SaveStructureResult / adversarial-review finding 3),
@@ -1385,11 +1417,10 @@ def validate_structure_expectations(block: Any) -> List[str]:
     errs.extend(_validate_gating("expectations.recordings.structure", block))
     errs.extend(_validate_armed_empty(
         "expectations.recordings.structure", block,
-        ("trees", "committedTrees", "recordings", "terminalStates", "branchPoints")))
+        STRUCTURE_SCALAR_KEYS + ("terminalStates", "branchPoints")))
     errs.extend(_validate_armed_unreddable(
-        "expectations.recordings.structure", block,
-        ("trees", "committedTrees", "recordings")))
-    for key in ("trees", "committedTrees", "recordings"):
+        "expectations.recordings.structure", block, STRUCTURE_SCALAR_KEYS))
+    for key in STRUCTURE_SCALAR_KEYS:
         if key in block:
             errs.extend(_validate_window(
                 "expectations.recordings.structure.%s" % key, block[key]))
@@ -1521,8 +1552,8 @@ def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[st
     structure = (recordings.get(STRUCTURE_BLOCK)
                  if isinstance(recordings, dict) else None)
     if isinstance(structure, dict) and not any(
-            k in structure for k in ("trees", "committedTrees", "recordings",
-                                     "terminalStates", "branchPoints")):
+            k in structure for k in STRUCTURE_SCALAR_KEYS + ("terminalStates",
+                                                              "branchPoints")):
         warns.append("expectations.recordings.structure: declared with no assertion "
                      "key - the block reports nothing and gates nothing")
     points = (recordings.get(POINTS_BLOCK)
@@ -1727,7 +1758,7 @@ def evaluate_save_structure(
         if structure_spec is not None:
             out = per_block["recordings.structure"]
             measured = facets["recordings"]["structure"]
-            for key in ("trees", "committedTrees", "recordings"):
+            for key in STRUCTURE_SCALAR_KEYS:
                 if key in structure_spec:
                     _check_window("recordings.structure.%s" % key,
                                   structure_spec[key], measured[key], out)
