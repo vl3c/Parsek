@@ -126,26 +126,22 @@ namespace Parsek.Tests
 
         #region IsRendererOnDamagedTransform
 
-        [Fact]
-        public void IsRendererOnDamagedTransform_NullTransform_ReturnsFalse()
+        // Only a null Transform is reachable headlessly: a real one needs the Unity runtime,
+        // and an uninitialized one compares equal to null. So every names value here reaches
+        // the transform half of the guard only, and the parent walk would also answer false
+        // for a null start. The names half of the guard and the ancestor walk have no unit
+        // coverage; they need a live Transform.
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("bustedwheel")]
+        public void IsRendererOnDamagedTransform_NullTransform_ReturnsFalseForAnyNames(string name)
         {
-            var names = new HashSet<string> { "bustedwheel" };
-            Assert.False(GhostVisualBuilder.IsRendererOnDamagedTransform(null, names));
-        }
-
-        [Fact]
-        public void IsRendererOnDamagedTransform_NullNames_ReturnsFalse()
-        {
-            // Cannot create real Transform in tests (requires Unity runtime),
-            // but null names should short-circuit before accessing transform
-            Assert.False(GhostVisualBuilder.IsRendererOnDamagedTransform(null, null));
-        }
-
-        [Fact]
-        public void IsRendererOnDamagedTransform_EmptyNames_ReturnsFalse()
-        {
-            var names = new HashSet<string>();
-            Assert.False(GhostVisualBuilder.IsRendererOnDamagedTransform(null, names));
+            // null -> no set, "" -> empty set, otherwise a one-name set.
+            HashSet<string> damagedNames = name == null ? null
+                : name.Length == 0 ? new HashSet<string>()
+                : new HashSet<string> { name };
+            Assert.False(GhostVisualBuilder.IsRendererOnDamagedTransform(null, damagedNames));
         }
 
         #endregion

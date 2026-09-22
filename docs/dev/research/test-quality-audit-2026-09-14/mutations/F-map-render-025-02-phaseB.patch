@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/Rendering/RenderSessionState.cs b/Source/Parsek/Rendering/RenderSessionState.cs
+index 618c94338..d303ed571 100644
+--- a/Source/Parsek/Rendering/RenderSessionState.cs
++++ b/Source/Parsek/Rendering/RenderSessionState.cs
+@@ -124,8 +124,9 @@ namespace Parsek.Rendering
+             if (string.IsNullOrEmpty(recordingId)) return false;
+             lock (Lock)
+             {
+-                return Anchors.TryGetValue(
++                Anchors.TryGetValue(
+                     new AnchorKey(recordingId, sectionIndex, side), out ac);
++                return true;
+             }
+         }
+ 

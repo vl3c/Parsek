@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/PauseMenuGate.cs b/Source/Parsek/PauseMenuGate.cs
+index 921f840dd..12b547f00 100644
+--- a/Source/Parsek/PauseMenuGate.cs
++++ b/Source/Parsek/PauseMenuGate.cs
+@@ -32,7 +32,7 @@ namespace Parsek
+         {
+             Func<bool> probe = ProbeForTesting;
+             if (probe != null)
+-                return probe();
++                return false;
+ 
+             try
+             {

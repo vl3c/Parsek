@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/RecordingTreeRecordCodec.cs
+index d248a92b8..0114c510d 100644
+--- a/Source/Parsek/RecordingTreeRecordCodec.cs
++++ b/Source/Parsek/RecordingTreeRecordCodec.cs
+@@ -28,7 +28,7 @@ namespace Parsek
+                 recNode.AddValue("explicitEndUT", rec.ExplicitEndUT.ToString("R", ic));
+ 
+             if (rec.TerminalStateValue.HasValue)
+-                recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(ic));
++                recNode.AddValue("terminalState", rec.TerminalStateValue.Value.ToString());
+             if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
+                 recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(ic));
+             if (!string.IsNullOrEmpty(rec.EndpointBodyName))

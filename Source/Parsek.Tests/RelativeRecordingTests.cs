@@ -11,41 +11,10 @@ namespace Parsek.Tests
     /// </summary>
     public class RelativeRecordingTests
     {
-        #region TrackSection RELATIVE metadata
-
-        [Fact]
-        public void TrackSection_RelativeFrame_StoresAnchorVesselId()
-        {
-            var section = new TrackSection
-            {
-                environment = SegmentEnvironment.SurfaceMobile,
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.0,
-                anchorVesselId = 42u,
-                frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>()
-            };
-
-            Assert.Equal(ReferenceFrame.Relative, section.referenceFrame);
-            Assert.Equal(42u, section.anchorVesselId);
-        }
-
-        [Fact]
-        public void TrackSection_AbsoluteFrame_AnchorVesselIdDefaultsToZero()
-        {
-            var section = new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 100.0,
-                frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>()
-            };
-
-            Assert.Equal(0u, section.anchorVesselId);
-        }
-
-        #endregion
+        // TrackSection.anchorVesselId storage is pinned where it can break, in the codec:
+        // TrackSectionSerializationTests.RoundTrip_CurrentRelativeFrame_WithAnchorRecordingIdAndAnchorVesselId
+        // (Relative section, anchorPid written and read back) and
+        // RoundTrip_AtmosphericAbsolute_5Frames (Absolute section reads back 0).
 
         #region RELATIVE position contract: captured-log regression
 

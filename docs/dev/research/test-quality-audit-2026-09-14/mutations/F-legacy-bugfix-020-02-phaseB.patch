@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/Diagnostics/DiagnosticsStructs.cs b/Source/Parsek/Diagnostics/DiagnosticsStructs.cs
+index bce09b0e7..48cffbef6 100644
+--- a/Source/Parsek/Diagnostics/DiagnosticsStructs.cs
++++ b/Source/Parsek/Diagnostics/DiagnosticsStructs.cs
+@@ -286,7 +286,6 @@ namespace Parsek
+             ghostDestroysThisSession = 0;
+             reentryFxBuildsThisSession = 0;
+             reentryFxSkippedThisSession = 0;
+-            reentryFxDeferredThisSession = 0;
+             ghostReusedAcrossCycleThisSession = 0;
+             gcGen0Baseline = System.GC.CollectionCount(0);
+         }

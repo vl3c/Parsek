@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GameStateStore.cs b/Source/Parsek/GameStateStore.cs
+index 7492afc21..d61b47afb 100644
+--- a/Source/Parsek/GameStateStore.cs
++++ b/Source/Parsek/GameStateStore.cs
+@@ -89,7 +89,9 @@ namespace Parsek
+                 }
+             }
+ 
+-            events.Add(e);
++            int insertAt = events.Count;
++            while (insertAt > 0 && events[insertAt - 1].ut > e.ut) insertAt--;
++            events.Insert(insertAt, e);
+             ParsekLog.Verbose("GameStateStore",
+                 $"AddEvent: {e.eventType} key='{e.key}' tag='{e.recordingId ?? ""}' ut={e.ut:F1} (total={events.Count})");
+         }

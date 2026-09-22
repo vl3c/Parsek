@@ -123,41 +123,35 @@ namespace Parsek.Tests
             Assert.Single(sSilent.LegsById);
         }
 
-        // Pins the exact flag PAIR the Missions window's GetMissionView wrap sets
-        // (MissionStructureBuilder + MissionPeriodicity), the sibling of the route-pipeline
-        // flood fix. The per-frame display rebuild must (a) emit no "BuildMissionStructure:"
-        // line, (b) still build the structure, and (c) RESTORE both flags to their prior
-        // values afterwards - leaking a true would silence legitimate one-shot logs on later
-        // frames. (MissionStructureBuilder.Build emits no periodicity lines today, so the
-        // periodicity flag here is defensive parity with GetLoopUnitSet / ResolveLoopUnit.)
-        [Fact]
-        public void Build_DisplayMirrorSuppressFlagPair_SilencesLineAndRestoresFlags()
+        // Drives the production per-frame display wrap the Missions window's GetMissionView
+        // calls (MissionStructureBuilder.BuildForDisplay). It must (a) emit no
+        // "BuildMissionStructure:" line, (b) still build the structure, and (c) restore BOTH
+        // flags to their PRIOR values - leaking a true would silence legitimate one-shot logs
+        // on later frames, and forcing a false would un-silence a caller that set one. The
+        // mixed prior rows discriminate restore-to-prior from restore-to-false.
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        public void BuildForDisplay_SilencesLineAndRestoresPriorFlags(
+            bool priorStruct, bool priorPeriodicity)
         {
             var tree = Tree("t-missions-window", new[] { Leg("a", "C", 0, 1000, 2000) });
+            MissionStructureBuilder.SuppressLogging = priorStruct;
+            MissionPeriodicity.SuppressLogging = priorPeriodicity;
 
-            // Prior values (false from the fixture) must be restored after the wrap.
-            bool prevStruct = MissionStructureBuilder.SuppressLogging;
-            bool prevPeriodicity = MissionPeriodicity.SuppressLogging;
-            MissionStructureBuilder.SuppressLogging = true;
-            MissionPeriodicity.SuppressLogging = true;
-            MissionStructure structure;
-            try
-            {
-                structure = MissionStructureBuilder.Build(tree);
-            }
-            finally
-            {
-                MissionStructureBuilder.SuppressLogging = prevStruct;
-                MissionPeriodicity.SuppressLogging = prevPeriodicity;
-            }
+            MissionStructure structure = MissionStructureBuilder.BuildForDisplay(tree);
 
             Assert.DoesNotContain(logLines, l => l.Contains("BuildMissionStructure:"));
             Assert.Single(structure.LegsById);
-            // The wrap left no suppression state behind for the next frame.
-            Assert.Equal(prevStruct, MissionStructureBuilder.SuppressLogging);
-            Assert.Equal(prevPeriodicity, MissionPeriodicity.SuppressLogging);
-            Assert.False(MissionStructureBuilder.SuppressLogging);
-            Assert.False(MissionPeriodicity.SuppressLogging);
+            Assert.Equal(priorStruct, MissionStructureBuilder.SuppressLogging);
+            Assert.Equal(priorPeriodicity, MissionPeriodicity.SuppressLogging);
+
+            // The next plain Build logs exactly when the caller had not silenced it.
+            MissionStructureBuilder.Build(tree);
+            Assert.Equal(!priorStruct,
+                logLines.Exists(l => l.Contains("BuildMissionStructure:")
+                    && l.Contains("t-missions-window")));
         }
 
         [Fact]

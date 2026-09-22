@@ -1063,8 +1063,12 @@ namespace Parsek.Tests
         #region Event History
 
         [Fact]
-        public void EventHistory_CanFindMostRecentFacilityState()
+        public void AddEvent_NonResourceEvents_AppendInArrivalOrder()
         {
+            // No production lookup answers "most recent facility state"; what the store
+            // itself guarantees is that non-resource events are appended as they arrive -
+            // never sorted by UT, never coalesced - so a consumer walking the list sees
+            // them in capture order. The arrival order here is deliberately NOT UT order.
             GameStateStore.ResetForTesting();
 
             // Simulate history: pad upgraded twice
@@ -1094,23 +1098,16 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref destroyedEvt);
 
-            // Verify the events are in the store
             Assert.Equal(3, GameStateStore.EventCount);
 
-            // The most recent facility event for LaunchPad should have valueAfter=1.0
             var events = GameStateStore.Events;
-            var lastPadEvent = default(GameStateEvent);
-            for (int i = events.Count - 1; i >= 0; i--)
-            {
-                if (events[i].key == "SpaceCenter/LaunchPad" &&
-                    (events[i].eventType == GameStateEventType.FacilityUpgraded ||
-                     events[i].eventType == GameStateEventType.FacilityDowngraded))
-                {
-                    lastPadEvent = events[i];
-                    break;
-                }
-            }
-            Assert.Equal(1.0, lastPadEvent.valueAfter);
+            Assert.Equal(new[] { 100.0, 200.0, 150.0 },
+                new[] { events[0].ut, events[1].ut, events[2].ut });
+            Assert.Equal("SpaceCenter/LaunchPad", events[0].key);
+            Assert.Equal(0.5, events[0].valueAfter);
+            Assert.Equal("SpaceCenter/LaunchPad", events[1].key);
+            Assert.Equal(1.0, events[1].valueAfter);
+            Assert.Equal(GameStateEventType.BuildingDestroyed, events[2].eventType);
         }
 
         #endregion
@@ -1410,6 +1407,14 @@ namespace Parsek.Tests
         [Fact]
         public void CrewEntry_NullFields_DefaultToEmpty()
         {
+            // A CREW node carrying none of the three keys: only DeserializeFrom's own
+            // defaults can produce the empty strings.
+            var bare = GameStateBaseline.CrewEntry.DeserializeFrom(new ConfigNode("CREW"));
+            Assert.Equal("", bare.name);
+            Assert.Equal("", bare.status);
+            Assert.Equal("", bare.trait);
+
+            // Round trip of an all-null entry: SerializeInto writes explicit empty values.
             var entry = new GameStateBaseline.CrewEntry();
             // name, status, trait are all null by default
 

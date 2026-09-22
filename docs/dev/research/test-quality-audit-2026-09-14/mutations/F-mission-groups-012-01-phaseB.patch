@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MissionStructure.cs b/Source/Parsek/MissionStructure.cs
+index e2e4478b4..eaddd47b5 100644
+--- a/Source/Parsek/MissionStructure.cs
++++ b/Source/Parsek/MissionStructure.cs
+@@ -131,8 +131,6 @@ namespace Parsek
+             }
+             finally
+             {
+-                SuppressLogging = prevStructSuppress;
+-                MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
+             }
+         }
+ 

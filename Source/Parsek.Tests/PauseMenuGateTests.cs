@@ -43,9 +43,14 @@ namespace Parsek.Tests
         [Fact]
         public void IsPauseMenuOpen_ProbeReturnsFalse_PassesThrough()
         {
-            PauseMenuGate.ProbeForTesting = () => false;
+            // false is also the no-probe fallback, so the verdict alone cannot tell a
+            // pass-through from a gate that ignored the probe: the probe must be consulted,
+            // exactly once.
+            int probeCalls = 0;
+            PauseMenuGate.ProbeForTesting = () => { probeCalls++; return false; };
 
             Assert.False(PauseMenuGate.IsPauseMenuOpen());
+            Assert.Equal(1, probeCalls);
         }
 
         [Fact]

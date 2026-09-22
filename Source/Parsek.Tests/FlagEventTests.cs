@@ -280,22 +280,30 @@ namespace Parsek.Tests
                 Assert.Equal($"Message {i}", deserialized.FlagEvents[i].plaqueText);
             }
         }
-        [Fact]
-        public void ShouldRecordFlagEvent_NullPlacedBy_ReturnsFalse()
+        // A Vessel cannot pass the null check headlessly (an uninitialized MonoBehaviour
+        // compares equal to null), so every placedBy here reaches only the vessel half of
+        // the guard. The placedBy half is redundant with CrewContainsKerbalNamed's own name
+        // guard, which the cell below pins.
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("Jeb Kerman")]
+        public void ShouldRecordFlagEvent_NullVessel_ReturnsFalse(string placedBy)
         {
-            Assert.False(ParsekFlight.ShouldRecordFlagEvent(null, null));
+            Assert.False(ParsekFlight.ShouldRecordFlagEvent(placedBy, null));
         }
 
-        [Fact]
-        public void ShouldRecordFlagEvent_EmptyPlacedBy_ReturnsFalse()
+        // The crew carries a null entry and an empty-named member, so without the name
+        // guard a null name matches the null entry and an empty name matches the member.
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void CrewContainsKerbalNamed_NullOrEmptyName_ReturnsFalse(string kerbalName)
         {
-            Assert.False(ParsekFlight.ShouldRecordFlagEvent("", null));
-        }
+            var crew = CreateCrewList("", "Jeb Kerman");
+            crew.Insert(0, null);
 
-        [Fact]
-        public void ShouldRecordFlagEvent_NullVessel_ReturnsFalse()
-        {
-            Assert.False(ParsekFlight.ShouldRecordFlagEvent("Jeb Kerman", null));
+            Assert.False(ParsekFlight.CrewContainsKerbalNamed(crew, kerbalName));
         }
 
         [Fact]
@@ -509,7 +517,7 @@ namespace Parsek.Tests
         public void FormatPlaqueWithDate_NullText_ReturnsDateOnly()
         {
             string result = ParsekFlight.FormatPlaqueWithDate(null, "Year 1, Day 1, 0:00:00");
-            Assert.Contains("Year 1, Day 1, 0:00:00", result);
+            Assert.Equal("Year 1, Day 1, 0:00:00", result);
         }
 
         [Fact]

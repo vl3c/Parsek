@@ -1,0 +1,19 @@
+diff --git a/Source/Parsek/Rendering/AnchorCandidateBuilder.cs b/Source/Parsek/Rendering/AnchorCandidateBuilder.cs
+index d6c229df4..3c36e7a04 100644
+--- a/Source/Parsek/Rendering/AnchorCandidateBuilder.cs
++++ b/Source/Parsek/Rendering/AnchorCandidateBuilder.cs
+@@ -570,14 +570,6 @@ namespace Parsek.Rendering
+             // Sort by UT, then enum value for stable ordering. Equal UTs
+             // with different sides keep the start-before-end ordering by
+             // AnchorSide enum value (0 < 1).
+-            Array.Sort(arr, (x, y) =>
+-            {
+-                int cmp = x.UT.CompareTo(y.UT);
+-                if (cmp != 0) return cmp;
+-                cmp = ((int)x.Side).CompareTo((int)y.Side);
+-                if (cmp != 0) return cmp;
+-                return ((int)x.Source).CompareTo((int)y.Source);
+-            });
+             return arr;
+         }
+     }

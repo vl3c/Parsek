@@ -622,12 +622,33 @@ namespace Parsek.Tests
         [Fact]
         public void ResetVesselExistsOverride_RestoresDefault()
         {
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            // Both injected seams armed: the existence override answers every pid, and the
+            // guid resolver names a DIFFERENT launch than the recording captured.
+            int existsCalls = 0;
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => { existsCalls++; return true; });
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(
+                pid => "22222222-2222-2222-2222-222222222222");
+            var rec = new Recording
+            {
+                VesselPersistentId = 12345,
+                RecordedVesselGuid = "11111111-1111-1111-1111-111111111111"
+            };
             Assert.True(GhostPlaybackLogic.RealVesselExists(12345));
+            Assert.False(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+            existsCalls = 0;
 
             GhostPlaybackLogic.ResetVesselExistsOverride();
-            // After reset, PID 0 still returns false (guard clause)
-            Assert.False(GhostPlaybackLogic.RealVesselExists(0));
+
+            // A non-zero pid gets past the pid==0 guard, so only the reset keeps the stale
+            // override from answering. Headless, the default FlightGlobals path may throw.
+            try { GhostPlaybackLogic.RealVesselExists(12345); }
+            catch (Exception) { }
+            Assert.Equal(0, existsCalls);
+
+            // Re-arm ONLY the existence override: with the guid resolver cleared the live
+            // guid is unknown, so the pid-only fallback accepts the recording.
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            Assert.True(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
         }
 
         #endregion

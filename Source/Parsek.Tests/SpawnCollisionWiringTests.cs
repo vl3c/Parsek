@@ -136,27 +136,33 @@ namespace Parsek.Tests
             Assert.Single(chains);
         }
 
+        /// <summary>
+        /// The stamp SpawnAtChainTip applies when a collision refuses the tip spawn. The
+        /// collision check itself needs loaded vessels, so the stamp is driven through
+        /// VesselGhoster.MarkSpawnBlocked and the spawn path's call to it is read from IL.
+        /// </summary>
         [Fact]
-        public void SpawnBlocked_BlockedSinceUT_Tracked()
+        public void MarkSpawnBlocked_StampsBlockedSinceUT_WalkbackTimeoutMeasuresFromIt()
         {
-            // BlockedSinceUT must be set when SpawnBlocked is set.
-            // This is used for timeout calculations and diagnostic logging.
             var chain = MakeChain(100, "tip-rec");
 
-            Assert.False(chain.SpawnBlocked);
-            Assert.Equal(0.0, chain.BlockedSinceUT);
-
-            double blockedUT = 17150.0;
-            chain.SpawnBlocked = true;
-            chain.BlockedSinceUT = blockedUT;
+            VesselGhoster.MarkSpawnBlocked(chain, 17150.0, 3.5f);
 
             Assert.True(chain.SpawnBlocked);
-            Assert.Equal(blockedUT, chain.BlockedSinceUT);
+            Assert.Equal(17150.0, chain.BlockedSinceUT);
+            Assert.Equal(3.5f, chain.BlockedInitialDistance);
+            // The blocked-recheck path hands the stamp to the 5 s walkback timeout
+            // (stationary blocker): not yet at +4 s, due at +5 s.
+            Assert.False(SpawnCollisionDetector.ShouldTriggerWalkback(
+                chain.BlockedSinceUT, 17154.0, 5.0, 0f, 1.0f));
+            Assert.True(SpawnCollisionDetector.ShouldTriggerWalkback(
+                chain.BlockedSinceUT, 17155.0, 5.0, 0f, 1.0f));
 
-            // Duration calculation (for logging)
-            double currentUT = 17200.0;
-            double duration = currentUT - chain.BlockedSinceUT;
-            Assert.Equal(50.0, duration);
+            Assert.Equal(
+                1,
+                ILCallSet.CallCount(
+                    ILCallSet.Method(typeof(VesselGhoster), "SpawnAtChainTip"),
+                    typeof(VesselGhoster), "MarkSpawnBlocked"));
         }
 
         [Fact]
