@@ -258,7 +258,7 @@ namespace Parsek
             public string BannerText;
             // How often (game seconds) the rebuild predicate re-formats: 60 while every
             // drawn date and relative tail has minute resolution, 1 while a deadline sits
-            // within a minute of live UT and its tail reads in seconds.
+            // within two minutes of live UT and its tail can read in seconds.
             public double RefreshSeconds;
         }
 
