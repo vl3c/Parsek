@@ -561,19 +561,22 @@ def _fetch_artifact(ctx: ProvisionContext, art: "provlib.PinnedArtifact"
     the committed sha256, else a download. Returns (None, decision) after an abort.
     The caller re-verifies the returned bytes against the pin either way."""
     entry = _artifact_cache_entry(ctx, art.sha256)
+    # Read the entry ONCE and hash those bytes in memory: the bytes judged are the bytes
+    # used, so a writer replacing the file between a hash and a second read cannot slip
+    # unverified bytes through.
+    cached: Optional[bytes] = None
     present = entry is not None and os.path.isfile(entry)
-    decision = provlib.decide_artifact_fetch(art.sha256, present, _hash_cache_entry(entry))
-    if decision.action == provlib.FETCH_USE_CACHE:
+    if present:
         try:
             with open(entry, "rb") as fh:
-                data = fh.read()
-            log(ctx, "Info", "Download", "%s %s %s (no download)" % (art.name, decision.reason, entry))
-            return data, decision
+                cached = fh.read()
         except OSError as exc:
-            log(ctx, "Warn", "Download", "%s cache read failed %s: %s; downloading"
-                % (art.name, entry, exc))
-            decision = provlib.ArtifactFetchDecision(provlib.FETCH_DOWNLOAD,
-                                                     provlib.FETCH_REASON_CORRUPT, True)
+            log(ctx, "Warn", "Download", "%s cache read failed %s: %s" % (art.name, entry, exc))
+    decision = provlib.decide_artifact_fetch(
+        art.sha256, present, sha256_bytes(cached) if cached is not None else None)
+    if decision.action == provlib.FETCH_USE_CACHE:
+        log(ctx, "Info", "Download", "%s %s %s (no download)" % (art.name, decision.reason, entry))
+        return cached, decision
     if decision.reason == provlib.FETCH_REASON_CORRUPT:
         log(ctx, "Warn", "Download", "%s %s: %s does not hash to the pinned sha256; "
             "ignoring it and downloading" % (art.name, decision.reason, entry))
@@ -2641,7 +2644,22 @@ def seed_artifact_cache(pins: Dict, umbrella_root: str, source_dirs: Sequence[st
         for name in sorted(os.listdir(src)):
             path = os.path.join(src, name)
             if os.path.isfile(path) and not os.path.islink(path):
-                candidates[path] = sha256_file(path)
+                try:
+                    candidates[path] = sha256_file(path)
+                except OSError as exc:
+                    log(ctx, "Warn", "Seed", "unreadable, skipped: %s (%s)" % (path, exc))
+    if not dry_run and os.path.isdir(cache_dir):
+        import time
+        now = time.time()
+        for name in sorted(os.listdir(cache_dir)):
+            path = os.path.join(cache_dir, name)
+            try:
+                if os.path.isfile(path) and provlib.is_stale_cache_tmp(
+                        name, now - os.path.getmtime(path)):
+                    os.remove(path)
+                    log(ctx, "Info", "Seed", "removed stale temp file %s" % path)
+            except OSError as exc:
+                log(ctx, "Warn", "Seed", "could not remove stale temp file %s: %s" % (path, exc))
     cached_keys = [n for n in (os.listdir(cache_dir) if os.path.isdir(cache_dir) else [])
                    if provlib.artifact_cache_key(n) == n]
     plan = provlib.plan_cache_seed(pins, candidates, cached_keys)

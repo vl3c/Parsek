@@ -1183,6 +1183,22 @@ def decide_artifact_fetch(expected_sha256: Optional[str], entry_present: bool,
     return ArtifactFetchDecision(FETCH_DOWNLOAD, FETCH_REASON_CORRUPT, True)
 
 
+# A writer's temp file (`provision._write_cache_entry`: `<sha256>.tmp-<pid>`). One left
+# behind by a killed writer is garbage; one younger than the grace window may belong to
+# a writer in another worktree that is mid-copy, so it is left alone.
+CACHE_TMP_STALE_SECONDS = 3600
+
+
+def is_stale_cache_tmp(name: str, age_seconds: float,
+                       min_age_seconds: float = CACHE_TMP_STALE_SECONDS) -> bool:
+    """True for ``<64-hex>.tmp-<digits>`` at least ``min_age_seconds`` old. Anything else
+    in the cache dir (an entry, a foreign file, a young temp file) is never swept."""
+    stem, sep, pid = name.partition(".tmp-")
+    if not sep or not pid.isdigit() or artifact_cache_key(stem) != stem:
+        return False
+    return age_seconds >= min_age_seconds
+
+
 @dataclass(frozen=True)
 class SeedPlanEntry:
     source: str

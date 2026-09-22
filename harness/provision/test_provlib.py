@@ -480,6 +480,17 @@ class ArtifactCachePureTests(unittest.TestCase):
             [(e.source, e.sha256, e.comp, e.action) for e in plan])
         self.assertEqual([], provlib.plan_cache_seed({}, candidates, []))
 
+    def test_stale_temp_file_predicate(self):
+        stale = provlib.is_stale_cache_tmp
+        name = self.SHA_A + ".tmp-4242"
+        self.assertTrue(stale(name, 3600))
+        self.assertTrue(stale(name, 10 ** 6))
+        self.assertFalse(stale(name, 3599))                     # may be mid-copy
+        for other in (self.SHA_A, self.SHA_A + ".tmp-", self.SHA_A + ".tmp-12x",
+                      "junk.tmp-1", "A" * 64 + ".tmp-1", "notes.txt"):
+            with self.subTest(name=other):
+                self.assertFalse(stale(other, 10 ** 6))
+
     def test_action_plan_names_the_shared_cache(self):
         plan = provlib.build_action_plan({}, {})
         self.assertTrue(any(provlib.ARTIFACT_CACHE_RELDIR in a.detail for a in plan))
@@ -563,6 +574,30 @@ class ArtifactCacheShellTests(unittest.TestCase):
         self.assertEqual([], self.calls)
         self.assertEqual(3, sum("cache-hit" in l for l in ctx2.log_lines))
 
+    def test_a_hit_reads_the_entry_once_and_hashes_those_bytes(self):
+        # The live fetch must not hash the file and then re-read it (a swap between the
+        # two would slip unverified bytes through): with every file-hashing helper
+        # disabled, a hit still succeeds, so the hash came from the bytes it returned.
+        os.makedirs(os.path.dirname(self._entry("krpc")))
+        for comp in self.zips:
+            with open(self._entry(comp), "wb") as fh:
+                fh.write(self.zips[comp])
+        saved = (self.provision._hash_cache_entry, self.provision.sha256_file)
+
+        def forbidden(*_a, **_k):
+            raise AssertionError("the live fetch hashed the cache file on disk")
+
+        self.provision._hash_cache_entry = forbidden
+        self.provision.sha256_file = forbidden
+        try:
+            ctx = self._ctx()
+            self.provision.phase_download(ctx)
+        finally:
+            self.provision._hash_cache_entry, self.provision.sha256_file = saved
+        self.assertFalse(ctx.aborted, ctx.abort_reason)
+        self.assertEqual([], self.calls)
+        self.assertEqual(3, sum("cache-hit" in l for l in ctx.log_lines))
+
     def test_corrupt_entry_is_never_used_and_is_replaced(self):
         os.makedirs(os.path.dirname(self._entry("mechjeb2")))
         for comp in self.zips:
@@ -635,6 +670,63 @@ class ArtifactCacheShellTests(unittest.TestCase):
             fh.write(b"torn")
         self.provision.seed_artifact_cache(self.pins, self.um, [src])
         self.assertEqual(self.zips["krpc"], self._read(self._entry("krpc")))
+
+    def test_seed_skips_an_unreadable_file_with_a_warning(self):
+        src = self._seed_src()
+        bad = os.path.join(src, "renamed-krpc.zip")
+        real = self.provision.sha256_file
+
+        def flaky(path):
+            if os.path.normcase(path) == os.path.normcase(bad):
+                raise OSError("sharing violation")
+            return real(path)
+
+        self.provision.sha256_file = flaky
+        try:
+            ctx_lines = []
+            saved_log = self.provision.log
+
+            def capture(ctx, level, step, message):
+                ctx_lines.append((level, message))
+                saved_log(ctx, level, step, message)
+
+            self.provision.log = capture
+            try:
+                code = self.provision.seed_artifact_cache(self.pins, self.um, [src])
+            finally:
+                self.provision.log = saved_log
+        finally:
+            self.provision.sha256_file = real
+        self.assertEqual(1, code)
+        self.assertTrue(any(lv == "Warn" and "unreadable, skipped" in m and bad in m
+                            for lv, m in ctx_lines))
+        # The readable pinned file was still seeded; the unreadable one was not.
+        self.assertTrue(os.path.isfile(self._entry("krpc_mechjeb")))
+        self.assertFalse(os.path.exists(self._entry("krpc")))
+
+    def test_seed_sweeps_only_stale_temp_files(self):
+        import time
+        cache = os.path.dirname(self._entry("krpc"))
+        os.makedirs(cache)
+        old_tmp = os.path.join(cache, self.sha["krpc"] + ".tmp-111")
+        young_tmp = os.path.join(cache, self.sha["krpc"] + ".tmp-222")
+        foreign = os.path.join(cache, "README.txt")
+        for path in (old_tmp, young_tmp, foreign):
+            with open(path, "wb") as fh:
+                fh.write(b"x")
+        past = time.time() - 2 * provlib.CACHE_TMP_STALE_SECONDS
+        os.utime(old_tmp, (past, past))
+        os.utime(foreign, (past, past))
+        # A dry run sweeps nothing.
+        self.provision.seed_artifact_cache(self.pins, self.um, [self._seed_src()], dry_run=True)
+        self.assertTrue(os.path.exists(old_tmp))
+        self.provision.seed_artifact_cache(self.pins, self.um, [self._seed_src_again()])
+        self.assertFalse(os.path.exists(old_tmp))
+        self.assertTrue(os.path.exists(young_tmp))
+        self.assertTrue(os.path.exists(foreign))
+
+    def _seed_src_again(self):
+        return os.path.join(self.tmp.name, "other-worktree-cache")
 
     def test_cli_seed_needs_no_profile_and_a_bare_call_still_needs_one(self):
         src = os.path.join(self.tmp.name, "empty")
