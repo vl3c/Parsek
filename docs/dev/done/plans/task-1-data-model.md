@@ -635,8 +635,8 @@ namespace Parsek.Tests
 
 #### TerminalState enum
 
-**`TerminalState_AllValues_RoundTripAsInts`**
-- For each value in the enum (0-7), serialize as int string, parse back, assert match.
+**`TerminalState_AllValues_RoundTripThroughRecordCodecAsInts`** (renamed from `TerminalState_AllValues_RoundTripAsInts`)
+- For each value in the enum, save a recording through `RecordingTreeRecordCodec`, assert the on-disk value is the int string, load it back, assert match.
 - Ensures no gaps or misnumbered values.
 
 #### Recording tree with single node (simplest case)

@@ -219,16 +219,22 @@ namespace Parsek.Tests
         // --- TerminalState enum ---
 
         [Fact]
-        public void TerminalState_AllValues_RoundTripAsInts()
+        public void TerminalState_AllValues_RoundTripThroughRecordCodecAsInts()
         {
             var ic = CultureInfo.InvariantCulture;
             foreach (TerminalState ts in Enum.GetValues(typeof(TerminalState)))
             {
-                string serialized = ((int)ts).ToString(ic);
-                int parsed;
-                Assert.True(int.TryParse(serialized, NumberStyles.Integer, ic, out parsed));
-                Assert.True(Enum.IsDefined(typeof(TerminalState), parsed));
-                Assert.Equal(ts, (TerminalState)parsed);
+                var rec = new Recording { RecordingId = "rec_ts_" + (int)ts, TerminalStateValue = ts };
+                var recNode = new ConfigNode("RECORDING");
+                RecordingTreeRecordCodec.SaveRecordingInto(recNode, rec);
+
+                // On disk the member is its integer value, not its name: the loader's
+                // Enum.IsDefined guard only accepts integers.
+                Assert.Equal(((int)ts).ToString(ic), recNode.GetValue("terminalState"));
+
+                var restored = new Recording();
+                RecordingTreeRecordCodec.LoadRecordingFrom(recNode, restored);
+                Assert.Equal(ts, restored.TerminalStateValue);
             }
 
             // Verify we have all 9 values (0-8; 8 = Disassembled, added 2026-09-06

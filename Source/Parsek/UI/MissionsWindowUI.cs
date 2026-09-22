@@ -1254,21 +1254,8 @@ namespace Parsek
                 // the route-pipeline suppress wrap (RouteOrchestrator.ResolveLoopUnit) and
                 // GetLoopUnitSet below; MissionPeriodicity is gated too for parity (defensive -
                 // MissionStructureBuilder.Build emits no periodicity lines today). Restored in
-                // finally.
-                bool prevStructSuppress = MissionStructureBuilder.SuppressLogging;
-                bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
-                MissionStructureBuilder.SuppressLogging = true;
-                MissionPeriodicity.SuppressLogging = true;
-                MissionStructure structure;
-                try
-                {
-                    structure = MissionStructureBuilder.Build(tree);
-                }
-                finally
-                {
-                    MissionStructureBuilder.SuppressLogging = prevStructSuppress;
-                    MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
-                }
+                // finally inside BuildForDisplay.
+                MissionStructure structure = MissionStructureBuilder.BuildForDisplay(tree);
                 MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
                 cached = (structure, view);
                 missionViewCache[tree.Id] = cached;

@@ -518,13 +518,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DebrisTTL_InjectAndRetrieve()
+        public void SetDebrisExpiry_StoresExpiryPerPid_LaterCallOverwrites()
         {
-            var tree = MakeTree((100, "rec_bg"));
+            var tree = MakeTree((100, "rec_bg1"), (200, "rec_bg2"));
             var bgRecorder = new BackgroundRecorder(tree);
 
-            bgRecorder.InjectDebrisTTLForTesting(100, 130.0);
-            Assert.Equal(130.0, bgRecorder.GetDebrisTTLExpiryForTesting(100));
+            // The production TTL writer ParsekFlight.ProcessBreakupEvent calls for each
+            // debris child it adds to the active tree.
+            bgRecorder.SetDebrisExpiry(100, 130.0);
+            bgRecorder.SetDebrisExpiry(200, 160.0);
+            bgRecorder.SetDebrisExpiry(100, 145.5);
+
+            Assert.Equal(145.5, bgRecorder.GetDebrisTTLExpiryForTesting(100));
+            Assert.Equal(160.0, bgRecorder.GetDebrisTTLExpiryForTesting(200));
+            Assert.Equal(2, bgRecorder.DebrisTTLCount);
+            Assert.Contains(logLines, l =>
+                l.Contains("[BgRecorder]")
+                && l.Contains("Debris expiry set: pid=100, expiryUT=145.5"));
         }
 
         [Fact]
@@ -627,15 +637,26 @@ namespace Parsek.Tests
         #region ProcessPendingSplitChecks — Empty
 
         [Fact]
-        public void ProcessPendingSplitChecks_NoPending_DoesNotThrow()
+        public void ProcessPendingSplitChecks_OnePending_DrainsAndDispatchesOnce()
         {
             var tree = MakeTree((100, "rec_bg"));
             var bgRecorder = new BackgroundRecorder(tree);
+            // A check whose parent recording is not in the tree: the dispatch reaches
+            // HandleBackgroundVesselSplit and stops at its not-found guard, so no live
+            // vessel is needed to prove the drain ran.
+            bgRecorder.InjectPendingSplitCheckForTesting(100, 150.0, "rec_missing");
 
-            // Should return immediately with no pending checks
             bgRecorder.ProcessPendingSplitChecks();
 
-            // No error, no tree changes
+            Assert.Equal(0, bgRecorder.PendingSplitCheckCount);
+            Assert.Single(logLines, l =>
+                l.Contains("HandleBackgroundVesselSplit: parent recording not found")
+                && l.Contains("parentPid=100") && l.Contains("recId=rec_missing"));
+
+            // Drained, not re-queued: a second pass dispatches nothing.
+            bgRecorder.ProcessPendingSplitChecks();
+            Assert.Single(logLines, l =>
+                l.Contains("HandleBackgroundVesselSplit: parent recording not found"));
             Assert.Empty(tree.BranchPoints);
         }
 
