@@ -2086,6 +2086,56 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   - No production change; both patches revert to the base tree. Serialized full suite:
     23,820 passed / 0 failed / 1 skipped.
 
+- `testfix-low-04`, Low T1 slice 4 (2026-09-22): all 16 rows of
+  `work/phase-b-slice-low-t1-04.txt` (5 `catchall`, 3 `legacy-bugfix`, 3 `map-render`, 2 `ledger-career`, 1 `ghost-playback`,
+  1 `harness-seam`, 1 `logistics-route`). Counted the slice-4 way: 12 strengthened, of
+  which 5 renamed; 4 deleted; 0 deferred; 0 premise-wrong. One sibling cell was added.
+  Per commit, derived from `git diff origin/main...HEAD -- Source/Parsek.Tests`:
+  d01a4c7d1 six Facts folded into two Theories + 1 new cell, adae178a2 1 rename + 1
+  deletion, c560ecb80 1 rename + 1 deletion, 4a08cc759 2 renames + 1 deletion. Each row
+  has a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and
+  a `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - Given the production term the name claims (7): F-catchall-022-01 (the three Patch*
+    call sites now select their session toast latch through the behaviour-identical
+    `KspStatePatcher.DrawdownGuardSessionToastLatch`; the cell emits through all six
+    statics and requires the reset to re-arm each, where it used to re-arm its own local);
+    F-catchall-023-01 (a NON-zero pid after the reset, with a call-counting override that
+    must not be consulted, plus the guid resolver half); F-catchall-031-02 (Assert.Equal,
+    and a null-only mutant reds the named cell alone); F-harness-seam-002-02 (a real
+    `InGameTestRunner(null)` - discovery needs no host - so `ClearAllSceneHistory`'s own
+    flag decides; half the gap had already closed on main in ecb1ec1d9);
+    F-ledger-career-008-01 (a bare CREW node, so only `DeserializeFrom`'s defaults can
+    answer); F-map-render-011-01 (two candidates at distinct UTs, emitted in reverse UT
+    order); F-legacy-bugfix-024-01 (source-gated, fixture-limited: the three
+    `PersistFinalizedRecording` context literals are read from their own brace-matched
+    method bodies, one call per body, declaration anchored once).
+  - Renamed to what they prove (5): F-ledger-career-007-04
+    (`AddEvent_NonResourceEvents_AppendInArrivalOrder`; the "most recent facility" scan
+    was test-local); F-legacy-bugfix-008-01
+    (`ConvertMilestoneAchieved_UnparsableDetail_ZeroRewardsWithoutThrowing`; a
+    well-formed zero cannot tell parsed from never-parsed, so the Theory feeds details the
+    parse must reject); F-logistics-route-025-01
+    (`FormatSourceRecordingDisplay_LargePosition_NoThousandsSeparator`; dropping
+    InvariantCulture is value-equivalent for a positive int, recorded GREEN before and
+    after); F-map-render-025-01 (`AnchorSourceAndSide_AreByteBacked`); F-catchall-031-01
+    (the three `ShouldRecordFlagEvent` Facts fold into
+    `ShouldRecordFlagEvent_NullVessel_ReturnsFalse` over three placedBy values: no headless
+    Vessel passes the null check, and the register's mutant is value-equivalent because
+    `CrewContainsKerbalNamed` rejects an empty name on its own - the new
+    `CrewContainsKerbalNamed_NullOrEmptyName_ReturnsFalse` pins that guard and is the proof).
+  - Deleted in favour of a named twin (4): F-ghost-playback-018-01 (twin
+    `GhostPlaybackEngineTests.ClearLoadedVisualReferences_ResetsPendingSplitBuildState`),
+    F-legacy-bugfix-020-02 (twin `HealthCounters_Reset_ZerosReentryFxDeferred`),
+    F-map-render-025-02 (twins `AllowAnchorCorrection_NoAnchorInStore_ReturnsFalse` /
+    `_WrongSection_ReturnsFalse`); each twin is the only red, across every class that
+    reaches the SUT, under a mutant where the default value matters. F-catchall-060-02 is
+    the exception: the two redundant wheel-damage cells fold into the null-transform twin
+    (`IsRendererOnDamagedTransform_NullTransform_ReturnsFalseForAnyNames`), but NO headless
+    cell can red any mutant of that guard - deleting the names clause, the transform
+    check, or the whole guard all stay green, because the ancestor walk's own null test
+    answers false for a null start. The register's "red by NullReferenceException" is
+    wrong; the names half and the parent walk need a live Transform.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
