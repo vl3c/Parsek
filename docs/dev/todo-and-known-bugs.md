@@ -15,6 +15,51 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
+
+Done on the branch (owner-approved review items 1-8): house dates with a relative deadline
+tail; expanding name column in every table; milestone titles via the Timeline humanizer and
+facility names from `ScenarioUpgradeableFacilities.GetFacilityName`; Science mode draws
+Milestones plus Facilities only while a building is destroyed (no Level column), Sandbox
+hides the launcher; the empty Status columns, the triple pending marker and the Facilities
+section bar are gone, the Contracts-tab and Facilities-Status tooltips are corrected; minimum
+height 320; a `Timeline end` column plus a now-vs-pending split on every tab except
+Facilities (whose Timeline-end column is its split). Found on the way and fixed in the same
+branch: a FacilityDestruction / FacilityRepair is keyed by the DestructibleBuilding id
+(`SpaceCenter/LaunchPad/Facility/...`), which the walk never mapped to its facility row;
+divergence ignored a closing-plus-pending pair whose counts cancel. After review (PR #1764):
+the destroyed state NOW comes from stock's `ScenarioDestructibles` (see
+KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER for why the ledger cannot answer it), the
+ledger only projects destructions after live UT, a facility's change date is its own
+intact-to-destroyed transition, every cell is formatted once per rebuild on a per-minute
+cadence, and a row active now that ends and restarts later keeps its own end date.
+
+Science-mode destruction, answered from decompiled KSP 1.12.5 (the owner's question):
+`ScenarioDestructibles` is registered with `ScenarioCreationOptions` 3198 (every mode, new
+and existing games), `DestructibleBuilding` returns before damage only when
+`HighLogic.CurrentGame.Parameters.Difficulty.IndestructibleFacilities` is set, and that field
+defaults to false and is set true only by the Easy difficulty preset. So buildings CAN be
+destroyed in a default Science game; the committed `fresh-science` fixture carries
+`IndestructibleFacilities = False`.
+
+Open residue:
+1. No census picture of a destroyed facility, a recorded contract failure, populated
+   strategies, the split layout with pending rows, or Science mode with a destroyed
+   building. The gallery catalogue covers each as a synthetic state; a real one needs a
+   rewound career fixture (same need as item 4 of GUI-CENSUS-WAVE6-RESIDUE-2026-09-22).
+2. The Career launcher's tooltip still reads "Contracts, strategies and buildings along
+   the timeline." in Science mode, where the window has neither contracts nor strategies.
+   Left as is: a mode-dependent tooltip is a second copy for one sentence.
+3. Items 9-11 of the review were not approved (merge Strategies into Contracts, a Tech
+   tab, re-fly change history) and are not filed as work.
+4. GUI-6 still opens the Career window through the seam in its Sandbox flight
+   (`play-career-contracts-sandbox-flight-advanced`), a state a player can no longer reach
+   now that Sandbox hides the launcher. The capture is harmless (the Sandbox banner still
+   draws) and was not re-flown on this branch; drop the step the next time GUI-6 is edited.
+5. Minimum width: at 520x320 the Contracts title column shrinks to 119 px and clips, while
+   Accepted (145) and Deadline (220, sized for `Y12, D426, 05:17 (overdue 99d)`) keep
+   their widths. Accepted: the title reads in full once the window is widened.
+
 ## LISTHANDLES-CHAINS-DIGEST-SCOPE: the chains digest hashes each chain's links only as a COUNT, and covers only the kept (future, non-terminated) chains [FILED 2026-09-22 from the #1761 review. OPEN; a follow-up, deliberately not fixed in that PR]
 
 `TestCommandListHandles.ChainsDigest` hashes `pid|links|tip|spawnUT(R)|terminated;` per
@@ -75,6 +120,26 @@ off the walker's `ResolveTermination: ... terminalState=Destroyed` and
 A subject for either needs a chain whose tip is still in the future when the scene loads
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
 RealSpawn / Recover verb pair.
+
+## KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action [FILED 2026-09-23 from the PR #1764 review; OPEN]
+
+`GameStateFacilityRecorder` forwards only `FacilityUpgraded` to the ledger
+(`LedgerOrchestrator.OnKscSpending`, both the event-driven path and the poll). Its poll
+emits `BuildingDestroyed` / `BuildingRepaired` game-state events but forwards neither, and it
+runs only on scene load (`GameStateRecorder`), so a repair at the KSC is seen at the next
+scene change, carries no recording id, and is never converted: commit-time conversion
+(`GameStateEventConverter`, `LedgerOrchestrator` commit path) only takes events tagged with
+the committing recording. A destruction reaches the ledger only when its event happens to be
+tagged with a recording that later commits. Whether the repair's funds cost reaches the
+funds walk by another path (a `FundsChanged` event with reason `StructureRepair`) was not
+checked here.
+
+Nothing reads the ledger's destroyed state except the Career window, which since PR #1764
+takes the state NOW from `ScenarioDestructibles` and uses the ledger only for destructions
+after live UT; `KspStatePatcher` has no destroyed / repair handling. So nothing visible
+depends on it today. Fix direction, when wanted:
+forward `BuildingRepaired` like a KSC spending (untagged, with its cost), and decide whether
+a destruction outside a recording belongs in the ledger at all.
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 

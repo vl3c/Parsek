@@ -9,10 +9,10 @@ namespace Parsek.UI.Gallery
     /// <para><b>Every state is a synthetic LEDGER, not a synthetic view model.</b> Each
     /// builder assembles a <c>GameAction</c> list and a live UT and hands them to the real
     /// <see cref="CareerStateWindowUI.Build"/>, which is the same pure walk the window
-    /// runs over <c>EffectiveState.ComputeELS()</c>. So the current-vs-projected split,
-    /// the <c>(pending)</c> / <c>(closing)</c> tags, the divergence flag, the slot counts
-    /// and the facility levels are all decided by production code - the catalogue only
-    /// decides what happened in the career.</para>
+    /// runs over <c>EffectiveState.ComputeELS()</c>. So the now-vs-pending split, the
+    /// Timeline-end outcomes, the divergence flag, the slot counts and the facility levels
+    /// are all decided by production code - the catalogue only decides what happened in
+    /// the career.</para>
     ///
     /// <para>That is also what makes the completeness guard meaningful on this window: the
     /// ten <c>GameActionType</c> branches <c>Build</c> switches on are the row variants,
@@ -56,11 +56,14 @@ namespace Parsek.UI.Gallery
             // The split layout IS the divergent banner's own layout - a career with
             // pending contracts draws both at once - so one state carries both.
             into.Add(New("career.contracts.closing", ContractsTab,
-                "A contract active now that the recorded timeline completes, fails or "
-                + "cancels before its end - the (closing) tag.",
+                "Contracts active now that the recorded timeline completes, fails or "
+                + "cancels before its end - the Timeline-end column, with the failure in "
+                + "the alert colour.",
                 new[] { "GameActionType.ContractComplete", "GameActionType.ContractFail",
                         "GameActionType.ContractCancel",
-                        "ContractRow.IsClosingByTimelineEnd" },
+                        "ContractRow.IsClosingByTimelineEnd",
+                        "TimelineEndKind.Completed", "TimelineEndKind.Failed",
+                        "TimelineEndKind.Cancelled" },
                 () => Build(ContractsClosing())));
 
             into.Add(New("career.contracts.deadline-none", ContractsTab,
@@ -102,7 +105,8 @@ namespace Parsek.UI.Gallery
             into.Add(New("career.strategies.closing", StrategiesTab,
                 "A strategy active now that the recorded timeline deactivates.",
                 new[] { "GameActionType.StrategyDeactivate",
-                        "StrategyRow.IsClosingByTimelineEnd" },
+                        "StrategyRow.IsClosingByTimelineEnd",
+                        "TimelineEndKind.Deactivated" },
                 () => Build(StrategiesClosing())));
 
             into.Add(New("career.strategies.admin-above-one", StrategiesTab,
@@ -121,28 +125,33 @@ namespace Parsek.UI.Gallery
                 () => Build(FacilitiesUpgraded())));
 
             into.Add(New("career.facilities.upcoming-upgrade", FacilitiesTab,
-                "'L2 -> L3 (upcoming)' - the projected column's only visual form.",
+                "'upgrades to L3, <date>' - the Timeline-end column on the Facilities tab.",
                 new[] { "GameActionType.FacilityUpgrade",
                         "FacilityRow.HasUpcomingChange" },
                 () => Build(FacilitiesUpcoming())));
 
+            // Destroyed NOW is stock's state (ScenarioDestructibles), never the ledger's:
+            // a KSC repair reaches no ledger action. So the synthetic building is handed
+            // in as the live destroyed set, the way the window reads it.
             into.Add(New("career.facilities.destroyed", FacilitiesTab,
-                "A destroyed facility that the recorded timeline never repairs.",
-                new[] { "GameActionType.FacilityDestruction",
-                        "FacilityRow.CurrentDestroyed" },
-                () => Build(FacilitiesDestroyed(repairInTimeline: false))));
+                "A facility destroyed now (stock's live building state).",
+                new[] { "FacilityRow.CurrentDestroyed" },
+                () => Build(FacilitiesUpgraded(), LaunchPadBuilding)));
 
-            into.Add(New("career.facilities.destroyed-repair-pending", FacilitiesTab,
-                "Destroyed now, repaired later in the recorded timeline.",
-                new[] { "GameActionType.FacilityRepair",
-                        "FacilityRow.RepairPending" },
-                () => Build(FacilitiesDestroyed(repairInTimeline: true))));
+            // What the ledger CAN say: a committed flight that destroys a building after
+            // live UT. A repair in the recorded future has no mock state: KSC repairs
+            // never reach the ledger, so no career holds one.
+            into.Add(New("career.facilities.destroyed-in-timeline", FacilitiesTab,
+                "Intact now; a committed flight destroys it later: 'destroyed <date>'.",
+                new[] { "GameActionType.FacilityDestruction",
+                        "FacilityRow.DestroyedInTimeline" },
+                () => Build(FacilitiesDestroyedInTimeline())));
 
             // ---------- Milestones ----------
 
             into.Add(New("career.milestones.pending", MilestonesTab,
-                "A milestone the recorded timeline credits after live UT: the (pending) "
-                + "row status.",
+                "Milestones the recorded timeline credits after live UT: the 'Pending in "
+                + "timeline' group.",
                 new[] { "GameActionType.MilestoneAchievement",
                         "MilestoneRow.IsPendingCredit" },
                 () => Build(MilestonesPending())));
@@ -194,14 +203,22 @@ namespace Parsek.UI.Gallery
         /// about the input. The effective ledger the window walks is UT-ordered, so this
         /// makes the synthetic one the same shape.</para>
         /// </summary>
-        private static CareerStateWindowUI.CareerStateViewModel Build(List<GameAction> actions)
+        private static CareerStateWindowUI.CareerStateViewModel Build(
+            List<GameAction> actions, params string[] liveDestroyedBuildings)
         {
             actions.Sort((a, b) => a.UT.CompareTo(b.UT));
             return CareerStateWindowUI.Build(
                 actions, LiveUT, Game.Modes.CAREER,
                 new ContractsModule(), new StrategiesModule(),
-                new FacilitiesModule(), new MilestonesModule());
+                new FacilitiesModule(), new MilestonesModule(),
+                CareerStateWindowUI.FormatDate,
+                liveDestroyedBuildings);
         }
+
+        // One of the Launchpad's DestructibleBuilding ids, the shape the ledger and
+        // ScenarioDestructibles both key a building by.
+        private const string LaunchPadBuilding =
+            "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank";
 
         // ----- synthetic ledgers -----
 
@@ -250,13 +267,6 @@ namespace Parsek.UI.Gallery
             => new GameAction
             {
                 Type = GameActionType.FacilityDestruction, UT = ut,
-                FacilityId = facilityId, Effective = true,
-            };
-
-        private static GameAction Repair(string facilityId, double ut)
-            => new GameAction
-            {
-                Type = GameActionType.FacilityRepair, UT = ut,
                 FacilityId = facilityId, Effective = true,
             };
 
@@ -421,18 +431,17 @@ namespace Parsek.UI.Gallery
         private static List<GameAction> FacilitiesUpcoming()
         {
             var actions = FacilitiesUpgraded();
-            // After live UT, so the row reads "L2 -> L3 (upcoming)" in amber.
+            // After live UT, so the row's Timeline-end cell reads "upgrades to L3, ...".
             actions.Add(Upgrade("LaunchPad", 3, 1_500_000.0));
             actions.Add(Upgrade("Runway", 2, 1_700_000.0));
             return actions;
         }
 
-        private static List<GameAction> FacilitiesDestroyed(bool repairInTimeline)
+        private static List<GameAction> FacilitiesDestroyedInTimeline()
         {
             var actions = FacilitiesUpgraded();
-            actions.Add(Destroy("LaunchPad", 400_000.0));
-            if (repairInTimeline)
-                actions.Add(Repair("LaunchPad", 1_600_000.0));
+            // After live UT: a committed flight that takes the Launchpad down.
+            actions.Add(Destroy(LaunchPadBuilding, 1_600_000.0));
             return actions;
         }
 

@@ -459,12 +459,21 @@ namespace Parsek.Tests
         {
             GuiMockPayload payload = GuiMockCatalogue.ById("career.contracts.closing").Build();
             CareerStateWindowUI.ContractsTabVM tab = payload.Career.Value.Contracts;
-            // Completed / failed / cancelled after live UT all show as (closing) on the
-            // CURRENT row - the classification is the ledger walk's, not this test's.
+            // Completed / failed / cancelled after live UT each carry their own outcome
+            // on the CURRENT row - the classification is the ledger walk's, not this
+            // test's - so a future failure never reads like a completion.
             Assert.Equal(3, tab.CurrentRows.Count(r => r.IsClosingByTimelineEnd));
+            Assert.Equal(
+                new[]
+                {
+                    CareerStateWindowUI.TimelineEndKind.Cancelled,
+                    CareerStateWindowUI.TimelineEndKind.Completed,
+                    CareerStateWindowUI.TimelineEndKind.Failed,
+                },
+                tab.CurrentRows.Select(r => r.EndKind).OrderBy(k => k.ToString()).ToArray());
             foreach (CareerStateWindowUI.ContractRow row in tab.CurrentRows)
-                Assert.Equal("(closing)",
-                    CareerStateWindowUI.FormatContractRow_Pending(row));
+                Assert.NotEqual("",
+                    CareerStateWindowUI.FormatContractRow_TimelineEnd(row, ut => "D"));
         }
 
         [Fact]
@@ -481,22 +490,25 @@ namespace Parsek.Tests
             CareerStateWindowUI.FacilityRow pending =
                 upcoming.Rows.First(r => r.HasUpcomingChange
                                          && r.CurrentLevel != r.ProjectedLevel);
-            Assert.Contains("(upcoming)",
-                CareerStateWindowUI.FormatFacilityRow_Level(pending),
+            Assert.StartsWith("upgrades to L",
+                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(pending, true, ut => "D"),
                 StringComparison.Ordinal);
 
             CareerStateWindowUI.FacilitiesTabVM destroyed =
                 GuiMockCatalogue.ById("career.facilities.destroyed")
                     .Build().Career.Value.Facilities;
             Assert.Contains(destroyed.Rows,
-                r => CareerStateWindowUI.FormatFacilityRow_Status(r) == "(destroyed)");
+                r => CareerStateWindowUI.FormatFacilityRow_Level(r).EndsWith(
+                         "(destroyed)", StringComparison.Ordinal)
+                     && r.ProjectedDestroyed);
 
-            CareerStateWindowUI.FacilitiesTabVM repairPending =
-                GuiMockCatalogue.ById("career.facilities.destroyed-repair-pending")
+            CareerStateWindowUI.FacilitiesTabVM inTimeline =
+                GuiMockCatalogue.ById("career.facilities.destroyed-in-timeline")
                     .Build().Career.Value.Facilities;
-            Assert.Contains(repairPending.Rows,
-                r => CareerStateWindowUI.FormatFacilityRow_Status(r)
-                     == "(destroyed, repair pending)");
+            Assert.Contains(inTimeline.Rows,
+                r => !r.CurrentDestroyed
+                     && CareerStateWindowUI.FormatFacilityRow_TimelineEnd(r, true, ut => "D")
+                        .StartsWith("destroyed", StringComparison.Ordinal));
         }
 
         [Fact]

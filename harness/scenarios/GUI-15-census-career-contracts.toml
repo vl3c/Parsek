@@ -27,7 +27,7 @@ tier = "operator"
 # title from and the Title cell falls back to the raw contract id. That fallback branch
 # had never drawn either.
 #
-# THE MIN-SIZE CAPTURE. `CareerStateWindowUI` declares a 520x200 drag floor. The
+# THE MIN-SIZE CAPTURE. `CareerStateWindowUI` declares a 520x320 drag floor (520x200 until the 2026-09-22 round-3 rebuild, when the scroll body showed no row at all). The
 # Contracts table's fixed columns do not fit it and IMGUI does not reflow, so the
 # declared minimum is a size at which the window's own table is clipped - and no picture
 # proved it. Taken on the POPULATED tab, because an empty table clips nothing. Position
@@ -52,7 +52,7 @@ tier = "operator"
 #   - the eleven hover strings (four tab labels, six column headers, two pending
 #     toggles). Blocked by GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT, which is
 #     refuted at the strongest available setting rather than untried.
-description = "GUI census: the Career State window's Contracts tab with real rows, on the one fixture whose ledger sidecar carries two contract accepts and no terminal row - the populated form of a tab every previous capture photographed empty - plus the same tab at the window's own 520x200 drag floor."
+description = "GUI census: the Career State window's Contracts tab with real rows, on the one fixture whose ledger sidecar carries two contract accepts and no terminal row - the populated form of a tab every previous capture photographed empty - plus the same tab at the window's own 520x320 drag floor."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "career", "GUI-15", "pending-operator"]
 
@@ -87,7 +87,7 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "cc-career-contracts-active-advanced" }, expect = "OK" },
 
   # --- AND AT THE DECLARED DRAG FLOOR, on the same populated tab ---
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "520", h = "200" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "520", h = "320" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cc-career-contracts-minsize-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cc-career-contracts-minsize-advanced" }, expect = "OK" },
 

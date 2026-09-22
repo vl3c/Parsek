@@ -882,6 +882,33 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The Career window shows dates, says what the recorded timeline does to each row, and
+  only draws the tabs a game mode has.** Every Universal Time cell (banner, Accepted,
+  Deadline, Activated, Credited) is now the compact KSP date the Kerbals and Timeline windows
+  use, never raw seconds; a deadline also shows how far away it is, `(in 12d)`, or
+  `(overdue 3d)` in amber. The empty `Status` columns are replaced by a `Timeline end` column
+  that appears only when the recorded future changes a row: `completes Y1, D40`,
+  `FAILS Y1, D40` (amber, since a failure costs funds and reputation), `cancelled`,
+  `deactivates`, `upgrades to L2`, `destroyed`. A contract or strategy that is active now,
+  ends later and starts again after that says when the current one ends. Contracts, Strategies and now
+  Milestones all split into "now" and a foldable `Pending in timeline` group, which also
+  lists contracts and strategies the recorded future both starts and ends (those were on no
+  row before). Pending rows are no longer triple-marked (amber + `(pending)` + group
+  header); the group header is the marker and amber is kept for warnings. The name column
+  of every table stretches, so contract titles stop wrapping and the header bar spans the
+  table. Milestone names read `Kerbin - Science` (was `Kerbin/ Science`) and facility names
+  come from stock (`Research and Development`, `Launchpad`). In Science mode the window
+  drops the Contracts and Strategies tabs and the building levels (stock treats every
+  building as fully upgraded there; the window showed `L1`), keeping Milestones plus a
+  Facilities tab only while a building is destroyed or a committed flight destroys one. In
+  Sandbox the `Career` launcher is hidden. Whether a building is destroyed now is read from
+  the game's own building state, not the ledger: the ledger never hears of a repair at the
+  KSC, so reading it would have shown a repaired building as destroyed forever. The ledger
+  only adds a destruction a committed flight makes later, dated when the facility as a
+  whole goes down. The Facilities section bar that repeated the tab name is
+  gone, two tooltips that described the wrong thing are corrected, and the minimum window
+  height is 320 px (at 200 px no row was visible).
+
 - **The Kerbals window tells the truth about reservations, groups stand-ins under the kerbal
   they cover, and is now available in Basic mode.** A kerbal held by a committed flight used
   to read `Reserved until <date>`, but that reservation never ends when the date passes:
