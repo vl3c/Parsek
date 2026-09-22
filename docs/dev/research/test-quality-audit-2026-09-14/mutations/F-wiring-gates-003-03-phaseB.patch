@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 25f95031e..511ebfb00 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -8016,7 +8016,6 @@ namespace Parsek
+             RecordingTree tree, string activeRecId, Recording activeRec, BranchPoint breakupBp)
+         {
+             breakupBp.ParentRecordingIds.Add(activeRecId);
+-            tree.BranchPoints.Add(breakupBp);
+             activeRec.ChildBranchPointId = breakupBp.Id;
+         }
+ 

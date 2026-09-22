@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 175fec1dd..2c1797301 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -391,8 +391,6 @@ namespace Parsek
+         /// </summary>
+         internal static void ResetVesselExistsOverride()
+         {
+-            vesselExistsOverride = null;
+-            vesselGuidResolverOverride = null;
+         }
+ 
+         /// <summary>

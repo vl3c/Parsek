@@ -212,8 +212,10 @@ id = "V18T-depot-route-ts-arrival"
 #
 # WHAT IS GATED FROM ROUND 2 ON (G1 subjects (3) and (5), the two the first arming left
 # read-only). Every required regex below quotes the measured literal with only the
-# run-varying fields loosened (`currentUT=`, the pre-jump `ut=`, and the last digits of
-# `P=` / `fixedCadenceResidual=`, which drift in the 10th significant figure between
+# run-varying fields loosened (`currentUT=`, the pre-jump `ut=` and the LoopRoute
+# `loopUT=` computed from it, which sit on a physics tick: 11 archived runs read
+# `14589.726...` / `.746...` / `.766...`, so only its integer second is pinned; and
+# the last digits of `P=` / `fixedCadenceResidual=`, which drift in the 10th significant figure between
 # runs, even on one build - `21904.030242313424` vs `21904.0302461934` - while the anchor, the cadence,
 # the first launch and the minimum interval do not move at all):
 #   (3) the route-owned cadence: the `PhaseLock APPLIED` line with `method=joint-best-fit`,
@@ -667,7 +669,7 @@ required  = [
   "PhaseLock APPLIED: mission='Route: .*' tree=c9ef80ee91b34de2b3717a4fb8bd1226 anchor 17478\\.268634212287->22969\\.671921541973 P=21904\\.0302[0-9]* method=joint-best-fit cadence 16058\\.021895760137->21549\\.4251830898 fixedCadenceResidual=354\\.605[0-9]* fixedCadenceWithinTol=no zeroDrift=yes firstLaunch=22969\\.671921541973 minInterval=21549\\.4251830898 scheduleWithinTol=yes",
   "MissionLoopUnit: mission='Route: .*' tree=c9ef80ee91b34de2b3717a4fb8bd1226 members=5 foreignMembers=0 skipped=0 span=\\[1420\\.246738452149,17478\\.268634212287\\] spanDur=16058\\.021895760137 unit=Sec cadence=21549\\.4251830898 overlapCadence=21549\\.4251830898 overlaps=no owner=9 scheduled=yes phaseAnchor=22969\\.671921541973",
   "BuildMission: id=5420f805fcbb453b8d5928b71393f14b-backing tree=c9ef80ee91b34de2b3717a4fb8bd1226 excludedKeys=2 autoExcludedKeys=1 loopInterval=16058\\.001895760137 loopAnchorUT=-1 currentUT=[0-9.]+ \\(render phase owned by loop clock, anchor floored to spanEnd\\)",
-  "LoopRoute: route 5420f805 no dock crossing \\(dockCycleIdx=-1\\) .* ut=36139\\.[0-9]+ spanStart=1420\\.246738452149 spanEnd=17478\\.268634212287 cadence=21549\\.4251830898 anchor=22969\\.671921541973 loopUT=14589\\.746074331711 cycleIdx=0 tail=0 dockUT=17478\\.248634212287 lastObserved=0",
+  "LoopRoute: route 5420f805 no dock crossing \\(dockCycleIdx=-1\\) .* ut=36139\\.[0-9]+ spanStart=1420\\.246738452149 spanEnd=17478\\.268634212287 cadence=21549\\.4251830898 anchor=22969\\.671921541973 loopUT=14589\\.[0-9]+ cycleIdx=0 tail=0 dockUT=17478\\.248634212287 lastObserved=0",
   # ---- ROUND 2 (2026-09-07): G1 subject (5), the dock / station endpoint, off three identical logs ----
   "ResolveTrackingStationGhostSource: Tracking-station orbit source: context=tracking-station-startup recIndex=21 rec=a85a7ae00da043c28e13fe221630ce85 vessel=\"Kerbal X\" currentUT=[0-9.]+ source=Segment orbitSource=visible-segment reason=\\(none\\) terminal=Docked terminalBody=Kerbin",
   "factory chain rec=a85a7ae00da043c28e13fe221630ce85 idx=21 inst=0 phases=13 reaimed=False window=\\[1734\\.5,17478\\.2\\] faithfulFallback=False",
@@ -825,6 +827,23 @@ ids = ["5420f805fcbb453b8d5928b71393f14b"]
 #     pid is separately pinned builder-side against a live FLIGHTSTATE vessel.
 #   connectionKinds - same; `DockingPort` is a fixture property, not a claim
 #     about what this run did.
+
+# [expectations.unityExceptions] ARMED 2026-09-22 ON maxParsekFrames ONLY (todo
+# GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE, re-proof of the PR #1748 quit latch).
+# maxTotal stays report-only. A `Parsek.` frame on an exception stack is a finding at any
+# count, so this key is 0 whatever the stock noise does. BEFORE the latch: parsekFrames 3 in `2026-09-02_1315`, all
+# `Parsek.GhostMapPresence.EnsureGhostOrbitRenderers` after `flushandquit`. AFTER it:
+# `2026-09-22_1834_a2` read parsekFrames 0 (total 0, afterQuit 0, quit marker seen) on the driver-valid
+# attempt 2 (verdict PARSEK-FAIL on an unrelated LoopRoute `loopUT=` over-pin, todo
+# V18T-LOOPROUTE-LOOPUT-OVERPIN, since loosened); the latch line printed, the skip line did not (this
+# teardown did not reach the TS rebuild; the lane's other post-_1315 logs read 0 too).
+# CONTROLLED OFFLINE, no flight: this block PASSES that run's KSP.log, and over the same
+# bytes with V15T `2026-09-10_1917`'s real 15-line Parsek-frame `[EXC]` record appended
+# it reds on exactly one mismatch, `unityExceptions.parsekFrames 1 > maxParsekFrames 0
+# (Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)`, and passes at 1; readings in
+# the status doc's known-gate 11.
+[expectations.unityExceptions]
+maxParsekFrames = 0
 
 [runtime]
 # 300 LoadGame + 300 TimeJump + 300 TimeJump + 300 LoadGame(TS) + 120 export + the fast

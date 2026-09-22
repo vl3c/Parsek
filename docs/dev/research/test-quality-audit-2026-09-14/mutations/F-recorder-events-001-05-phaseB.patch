@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/TrajectoryTextSidecarCodec.cs b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+index e53c1c2c0..036fb29a7 100644
+--- a/Source/Parsek/TrajectoryTextSidecarCodec.cs
++++ b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+@@ -1569,6 +1569,7 @@ namespace Parsek
+         /// </summary>
+         internal static void DeserializePartEvents(ConfigNode sourceNode, Recording rec)
+         {
++            return;
+             var ns = NumberStyles.Float;
+             var ic = CultureInfo.InvariantCulture;
+ 

@@ -67,22 +67,31 @@ namespace Parsek.Tests
             Assert.Contains(";", s);
         }
 
-        [Fact]
-        public void BuildMilestoneDetail_ZeroRewards_ParsesToZero()
+        // A well-formed zero detail cannot tell a parsed zero from a never-parsed one (the
+        // awarded fields start at 0), so the cell feeds details the parse must REJECT: the
+        // converter still produces the milestone action, with every reward at zero, instead
+        // of throwing or carrying a half-parsed value.
+        [Theory]
+        [InlineData("funds=abc;rep=x;sci=?")]
+        [InlineData("funds=;rep=;sci=")]
+        [InlineData(null)]
+        public void ConvertMilestoneAchieved_UnparsableDetail_ZeroRewardsWithoutThrowing(string detail)
         {
-            var s = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0);
             var evt = new GameStateEvent
             {
                 ut = 100,
                 eventType = GameStateEventType.MilestoneAchieved,
                 key = "FirstLaunch",
-                detail = s
+                detail = detail
             };
 
             var action = GameStateEventConverter.ConvertMilestoneAchieved(evt, null);
 
+            Assert.Equal(GameActionType.MilestoneAchievement, action.Type);
+            Assert.Equal("FirstLaunch", action.MilestoneId);
             Assert.Equal(0f, action.MilestoneFundsAwarded);
             Assert.Equal(0f, action.MilestoneRepAwarded);
+            Assert.Equal(0f, action.MilestoneScienceAwarded);
         }
 
         [Fact]

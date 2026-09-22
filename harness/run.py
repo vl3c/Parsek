@@ -2512,10 +2512,17 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                      "uncountedExceptions": killed_stacks.uncounted,
                                      "parsekFrameSites": dict(killed_ue.parsek_frame_sites),
                                      "maxParsekFrames": None,
+                                     "parsekThrowSite": killed_ue.parsek_throw_site,
+                                     "parsekCaller": killed_ue.parsek_caller,
+                                     "parsekThrowSiteSites":
+                                         dict(killed_ue.parsek_throw_site_sites),
+                                     "maxParsekThrowSite": None,
                                      "reason": "killed-triage-only"}
         logger.info("Verify", "verify unityExceptions status=REPORT (killed-triage-only) "
-                              "total=%d counts=%s parsekFrames=%d afterQuit=%d"
+                              "total=%d counts=%s parsekFrames=%d parsekThrowSite=%d "
+                              "parsekCaller=%d afterQuit=%d"
                     % (killed_ue.total, dict(killed_ue.counts), killed_ue.parsek_frames,
+                       killed_ue.parsek_throw_site, killed_ue.parsek_caller,
                        killed_ue.after_quit))
         # The ghost-lifecycle row DOES run on a killed attempt, triage-only, and it
         # follows the unityExceptions precedent rather than the saveParse /
@@ -2727,13 +2734,17 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                      "quitMarkerSeen": ue_stacks.quit_marker_seen,
                                      "uncountedExceptions": ue_stacks.uncounted,
                                      "parsekFrameSites": dict(ue.parsek_frame_sites),
-                                     "maxParsekFrames": ue.max_parsek_frames}
+                                     "maxParsekFrames": ue.max_parsek_frames,
+                                     "parsekThrowSite": ue.parsek_throw_site,
+                                     "parsekCaller": ue.parsek_caller,
+                                     "parsekThrowSiteSites": dict(ue.parsek_throw_site_sites),
+                                     "maxParsekThrowSite": ue.max_parsek_throw_site}
         if ue.status == "FAIL":
             short_circuited = True
         logger.info("Verify", "verify unityExceptions status=%s gating=%s total=%d counts=%s "
-                              "parsekFrames=%d afterQuit=%d"
+                              "parsekFrames=%d parsekThrowSite=%d parsekCaller=%d afterQuit=%d"
                     % (ue.status, ue.gating, ue.total, dict(ue.counts), ue.parsek_frames,
-                       ue.after_quit))
+                       ue.parsek_throw_site, ue.parsek_caller, ue.after_quit))
         if ue.total and ue.max_total is None:
             logger.warn("Verify", "unityExceptions saw %d raw Unity exception line(s) "
                                   "(REPORT-ONLY, not gating; arm with "
@@ -2741,9 +2752,11 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                         % (ue.total, dict(ue.counts)))
         if ue.parsek_frames and ue.max_parsek_frames is None:
             logger.warn("Verify", "unityExceptions saw %d exception(s) with a Parsek frame on "
-                                  "the stack (REPORT-ONLY, not gating; arm with "
-                                  "[expectations.unityExceptions] maxParsekFrames = 0): %s"
-                        % (ue.parsek_frames, dict(ue.parsek_frame_sites)))
+                                  "the stack, %d of them at the throw site (REPORT-ONLY, not "
+                                  "gating; arm with [expectations.unityExceptions] "
+                                  "maxParsekFrames = 0 or maxParsekThrowSite = 0): %s"
+                        % (ue.parsek_frames, ue.parsek_throw_site,
+                           dict(ue.parsek_frame_sites)))
     else:
         detail.setdefault("unityExceptions",
                           {"status": "SKIPPED", "reason": "short-circuit"})

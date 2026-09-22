@@ -1050,9 +1050,18 @@ namespace Parsek.Tests
         [Fact]
         public void RunMerge_NullMarker_ReturnsFalse()
         {
-            MakeStandardFixture();
-            bool ok = MergeJournalOrchestrator.RunMerge(null, null);
+            // A real provisional, so only the marker guard stands between the call
+            // and marker.SessionId further down.
+            var (scenario, provisional) = MakeStandardFixture();
+            Assert.NotNull(provisional);
+            logLines.Clear();
+
+            bool ok = MergeJournalOrchestrator.RunMerge(null, provisional);
+
             Assert.False(ok);
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Contains(logLines, l => l.Contains("[MergeJournal]") && l.Contains("RunMerge: marker is null"));
+            Assert.DoesNotContain(logLines, l => l.Contains("RunMerge: provisional is null"));
         }
 
         [Fact]

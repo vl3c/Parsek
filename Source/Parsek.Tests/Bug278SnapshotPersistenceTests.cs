@@ -69,25 +69,68 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Sanity check: ensures the EndDebrisRecording context string is
-        /// distinguishable from the existing #280 sites
-        /// (OnBackgroundVesselWillDestroy / Shutdown). This protects against
-        /// accidentally collapsing the two breadcrumbs into a shared format,
-        /// which would defeat the diagnostic value: a future playtest would
-        /// not be able to tell whether a snapshot was lost via the TTL path
-        /// (#278 territory) or the destroy path (#280 territory).
+        /// Ensures the EndDebrisRecording context string is distinguishable from the
+        /// existing #280 sites (OnBackgroundVesselWillDestroy / Shutdown). This protects
+        /// against accidentally collapsing the breadcrumbs into a shared format, which
+        /// would defeat the diagnostic value: a future playtest would not be able to tell
+        /// whether a snapshot was lost via the TTL path (#278 territory) or the destroy
+        /// path (#280 territory). Source-gated, fixture-limited: the three context
+        /// literals are read from the PersistFinalizedRecording call inside each site's
+        /// own method body in BackgroundRecorder.cs, so the gate witnesses spelling, not
+        /// the runtime path that reaches each site.
         /// </summary>
         [Fact]
         public void EndDebrisRecording_BreadcrumbDistinctFromBug280Sites()
         {
-            uint pid = 67890;
-            var endDebrisCtx = $"EndDebrisRecording pid={pid}";
-            var destroyCtx = $"OnBackgroundVesselWillDestroy pid={pid}";
-            var shutdownCtx = $"Shutdown pid={pid}";
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string raw = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "BackgroundRecorder.cs")).Replace("\r\n", "\n");
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(raw);
+            string code = SourceScanText.StripCSharpComments(raw);
 
-            Assert.NotEqual(endDebrisCtx, destroyCtx);
-            Assert.NotEqual(endDebrisCtx, shutdownCtx);
-            Assert.StartsWith("EndDebrisRecording", endDebrisCtx);
+            string endDebris = PersistContextPrefix(prepared, code, "private void EndDebrisRecording(");
+            string destroy = PersistContextPrefix(
+                prepared, code, "public void OnBackgroundVesselWillDestroy(Vessel v)");
+            string shutdown = PersistContextPrefix(prepared, code, "internal void Shutdown(double ut)");
+
+            Assert.Equal("EndDebrisRecording pid=", endDebris);
+            Assert.Equal("OnBackgroundVesselWillDestroy pid=", destroy);
+            Assert.Equal("Shutdown pid=", shutdown);
+            Assert.Equal(3, new HashSet<string> { endDebris, destroy, shutdown }.Count);
+        }
+
+        // The literal run before the first interpolation hole of the context argument of the
+        // single PersistFinalizedRecording call inside the method the declaration opens.
+        // prepared (comments blanked, literals masked) locates the body; code (comments
+        // blanked, literals intact, same length) supplies the literal.
+        private static string PersistContextPrefix(string prepared, string code, string declaration)
+        {
+            int decl = prepared.IndexOf(declaration, StringComparison.Ordinal);
+            Assert.True(decl >= 0, $"declaration '{declaration}' not found in BackgroundRecorder.cs");
+            Assert.True(prepared.IndexOf(declaration, decl + 1, StringComparison.Ordinal) < 0,
+                $"declaration '{declaration}' occurs more than once");
+
+            int open = prepared.IndexOf('{', decl);
+            string body = SourceScanText.BraceMatchedBlock(prepared, open);
+            const string call = "PersistFinalizedRecording(";
+            int rel = body.IndexOf(call, StringComparison.Ordinal);
+            Assert.True(rel >= 0, $"no {call} call inside '{declaration}'");
+            Assert.True(body.IndexOf(call, rel + 1, StringComparison.Ordinal) < 0,
+                $"more than one {call} call inside '{declaration}'");
+
+            int callAt = open + rel;
+            int closeParen = callAt + call.Length;
+            for (int depth = 1; depth > 0; closeParen++)
+            {
+                if (prepared[closeParen] == '(') depth++;
+                else if (prepared[closeParen] == ')') depth--;
+            }
+            int quote = code.IndexOf("$\"", callAt, closeParen - callAt, StringComparison.Ordinal);
+            Assert.True(quote >= 0, $"the {call} call inside '{declaration}' has no interpolated context");
+            int hole = code.IndexOf('{', quote);
+            return code.Substring(quote + 2, hole - quote - 2);
         }
 
         /// <summary>

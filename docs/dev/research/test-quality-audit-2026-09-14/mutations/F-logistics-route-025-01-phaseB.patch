@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/UI/LogisticsDeliveryPresentation.cs b/Source/Parsek/UI/LogisticsDeliveryPresentation.cs
+index f7748b85f..96f64cfc9 100644
+--- a/Source/Parsek/UI/LogisticsDeliveryPresentation.cs
++++ b/Source/Parsek/UI/LogisticsDeliveryPresentation.cs
+@@ -519,7 +519,7 @@ namespace Parsek
+ 
+             if (hasTree && hasPosition)
+                 return string.Format(CultureInfo.InvariantCulture,
+-                    "{0} (rec {1} of tree '{2}')", recordingName, humanTreePosition, treeName);
++                    "{0} (rec {1:N0} of tree '{2}')", recordingName, humanTreePosition, treeName);
+             if (hasTree)
+                 return string.Format(CultureInfo.InvariantCulture,
+                     "{0} (tree '{1}')", recordingName, treeName);

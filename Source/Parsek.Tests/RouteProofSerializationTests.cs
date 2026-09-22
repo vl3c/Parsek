@@ -81,7 +81,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RouteProof_RoundTripsViaScenarioMetadata()
+        public void RouteProof_RoundTripsViaRecordCodec()
         {
             var rec = new Recording
             {
@@ -102,10 +102,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, rec);
+            RecordingTree.SaveRecordingInto(node, rec);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal(42u, loaded.TransferTargetVesselPid);
             Assert.Equal(RouteConnectionKind.DockingPort, loaded.TransferKind);
@@ -296,11 +296,11 @@ namespace Parsek.Tests
             Assert.True(loadedTree.RunManifestVoided);
             Assert.Null(loadedTree.RouteRunManifest);
 
-            var scenarioNode = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(scenarioNode, rec);
-            var loadedScenario = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(scenarioNode, loadedScenario);
-            Assert.True(loadedScenario.RunManifestVoided);
+            var codecNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(codecNode, rec);
+            var loadedCodec = new Recording();
+            RecordingTree.LoadRecordingFrom(codecNode, loadedCodec);
+            Assert.True(loadedCodec.RunManifestVoided);
         }
 
         [Fact]
@@ -347,7 +347,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RouteRunManifest_RoundTripsViaScenarioMetadata()
+        public void RouteRunManifest_RoundTripsViaRecordCodec()
         {
             var rec = new Recording
             {
@@ -364,10 +364,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, rec);
+            RecordingTree.SaveRecordingInto(node, rec);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.NotNull(loaded.RouteRunManifest);
             Assert.Equal(new List<uint> { 11u }, loaded.RouteRunManifest.TransportPartPersistentIds);
@@ -497,7 +497,7 @@ namespace Parsek.Tests
                 .BuildV3Metadata();
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.NotNull(loaded.RouteHarvestWindows);
             Assert.Single(loaded.RouteHarvestWindows);
@@ -526,7 +526,7 @@ namespace Parsek.Tests
                 .BuildV3Metadata();
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.NotNull(loaded.RouteRunManifest);
             Assert.True(loaded.RouteRunManifest.IsComplete);

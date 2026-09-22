@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/MergeJournalOrchestrator.cs b/Source/Parsek/MergeJournalOrchestrator.cs
+index 9cc360601..3e6cc52e8 100644
+--- a/Source/Parsek/MergeJournalOrchestrator.cs
++++ b/Source/Parsek/MergeJournalOrchestrator.cs
+@@ -907,7 +907,6 @@ namespace Parsek
+             ReFlySessionMarker marker, Recording provisional)
+         {
+             if (marker == null) return;
+-            if (provisional == null) return;
+ 
+             if (!marker.InPlaceContinuation)
+             {

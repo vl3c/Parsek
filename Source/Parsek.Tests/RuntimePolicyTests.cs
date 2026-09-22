@@ -394,6 +394,10 @@ namespace Parsek.Tests
         [Fact]
         public void GetActiveCycles_BeforeStart_ReturnsZero()
         {
+            // Pins the OUTPUT, not the currentUT < startUT early return: that return is
+            // redundant with the lastActiveCycle >= 0 clamp (either alone still yields 0,0),
+            // so only losing both reds this cell. The observable before-start refusal is
+            // TryComputeLoopPlaybackUT_RespectsPlaybackAndPauseWindows (currentUT 99).
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 50, startUT: 100, endUT: 160,
                 intervalSeconds: 20, maxCycles: 5,

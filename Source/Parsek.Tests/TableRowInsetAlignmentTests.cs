@@ -348,32 +348,47 @@ namespace Parsek.Tests
 
         /// <summary>
         /// The arithmetic the fix rests on, run against the numbers the 2026-09-11
-        /// census actually measured, so the reason the gutter is footprint + cell margin
-        /// is checkable without a flight. Unity reduces a styled group's content width
-        /// by <c>max(padding.left, firstChild.margin.left)</c> on the left and
+        /// census actually measured, with the header's right padding built the way
+        /// <c>EnsureSharedHeaderStyles</c> builds it
+        /// (<c>TableRowHorizontalInsetPx + (int)VerticalScrollbarGutterWidth()</c>) through
+        /// the SHIPPED gutter rule <c>ParsekUI.ComposeScrollbarGutterWidth</c>, fed the
+        /// measured skin terms (the live wrapper reads <c>GUI.skin</c>, which cannot run
+        /// headless; <see cref="TheReservedGutterIsDerivedFromTheSkinScrollbarAndOneCellMargin"/>
+        /// pins that the wrapper routes through the footprint and cell-margin readers).
+        /// A gutter rule that takes the max of the two terms instead of their sum reds
+        /// here. Unity reduces a styled group's content width by
+        /// <c>max(padding.left, firstChild.margin.left)</c> on the left and
         /// <c>max(padding.right, lastChild.margin.right)</c> on the right (decompiled
         /// <c>GUILayoutGroup.SetHorizontal</c>, UnityEngine.IMGUIModule, KSP 1.12.5).
         /// </summary>
         [Fact]
         public void HeaderAndBodyContentWidthsMatchOnlyWithFootprintPlusCellMargin()
         {
-            const int cellMargin = 4;       // GUI.skin label / box / button margin R
-            const int footprint = 16;       // verticalScrollbar fixedWidth 15 + margin.left 1
+            // Census-measured layout facts (run 2026-09-11_1706_GUI-6-census-flight-playback),
+            // kept literal because Unity produced them, not Parsek: every cell style
+            // reports margin R4, the bar is 15 wide, and each scroll view's content is one
+            // 16px footprint narrower than the header row above it.
+            const int cellMargin = 4;
             const int barFixedWidth = 15;   // what PR #1679 reserved
-
-            // Real Spawn Control (730) and the Structure window (980), as measured: the
-            // header row spans the window's content width and the body's scroll-view
-            // content is one footprint narrower.
-            foreach (int headerRectWidth in new[] { 730, 980 })
+            var measuredHeaderAndBodyRectWidths = new[]
             {
-                int bodyRectWidth = headerRectWidth - footprint;
+                Tuple.Create(730, 714),     // Real Spawn Control
+                Tuple.Create(980, 964),     // Structure window
+            };
+
+            foreach (var widths in measuredHeaderAndBodyRectWidths)
+            {
+                int headerRectWidth = widths.Item1;
+                int footprint = widths.Item1 - widths.Item2;
+                int shippedHeaderPaddingRight = ParsekUI.TableRowHorizontalInsetPx
+                    + (int)ParsekUI.ComposeScrollbarGutterWidth(footprint, cellMargin);
                 // Body row: the shared row style, zero horizontal padding, 4px cells.
-                int bodyContent = ContentWidth(bodyRectWidth, 0, 0, cellMargin, cellMargin);
+                int bodyContent = ContentWidth(widths.Item2, 0, 0, cellMargin, cellMargin);
 
                 Assert.Equal(
                     bodyContent,
-                    ContentWidth(headerRectWidth, 0, footprint + cellMargin,
-                        cellMargin, cellMargin));
+                    ContentWidth(headerRectWidth, ParsekUI.TableRowHorizontalInsetPx,
+                        shippedHeaderPaddingRight, cellMargin, cellMargin));
 
                 // The two reservations that do NOT work, and by exactly how much: the
                 // 5px measured after #1679 splits into 1px of scrollbar margin and the

@@ -202,13 +202,54 @@ namespace Parsek.Tests
                 l.Contains("MigrateActiveReFlyForkIntoCommittedTree"));
         }
 
+        // The two null guards are separate, so each gets a cell where ONLY its own
+        // argument is null and the other is fully valid: a both-null call returns at
+        // the marker guard and can never witness the provisional guard, and with the
+        // marker guard gone the provisional guard would still return first. Each cell
+        // stands up a committed tree the migration WOULD mutate, then asserts it did not.
         [Fact]
-        public void NullArgs_ReturnSilently()
+        public void NullProvisional_WithInPlaceMarker_ReturnsWithoutTouchingTheCommittedTree()
         {
-            // No exceptions; defensive null-guard.
-            MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
-                marker: null, provisional: null);
-            // No assertions beyond "didn't throw".
+            var head = NewRec("rec_head", "tree_1", MergeState.CommittedProvisional);
+            var committedTree = NewTree("tree_1", activeId: "rec_head");
+            committedTree.AddOrReplaceRecording(head);
+            RecordingStore.AddCommittedInternal(head);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario());
+            var marker = NewMarker("sess_1", "tree_1", "rec_fork", inPlace: true);
+
+            var ex = Record.Exception(() =>
+                MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
+                    marker, provisional: null));
+
+            Assert.Null(ex);
+            Assert.Single(committedTree.Recordings);
+            Assert.Equal("rec_head", committedTree.ActiveRecordingId);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("MigrateActiveReFlyForkIntoCommittedTree"));
+        }
+
+        [Fact]
+        public void NullMarker_WithProvisional_ReturnsWithoutTouchingTheCommittedTree()
+        {
+            var head = NewRec("rec_head", "tree_1", MergeState.CommittedProvisional);
+            var fork = NewRec("rec_fork", "tree_1", MergeState.NotCommitted);
+            var committedTree = NewTree("tree_1", activeId: "rec_head");
+            committedTree.AddOrReplaceRecording(head);
+            RecordingStore.AddCommittedInternal(head);
+            RecordingStore.AddCommittedInternal(fork);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario());
+
+            var ex = Record.Exception(() =>
+                MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
+                    marker: null, provisional: fork));
+
+            Assert.Null(ex);
+            Assert.False(committedTree.Recordings.ContainsKey("rec_fork"));
+            Assert.Equal("rec_head", committedTree.ActiveRecordingId);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("MigrateActiveReFlyForkIntoCommittedTree"));
         }
     }
 }

@@ -324,23 +324,34 @@ namespace Parsek.Tests
         //  Logging assertions
         // ────────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// The destroy handler's diagnostic line reports whether the committed snapshot
+        /// survived the mark. The handler needs a live Vessel, so the line is built by
+        /// ParsekFlight.FormatContinuationVesselDestroyedMessage, driven here after the real
+        /// mark, and the handler's call to it is read out of the IL.
+        /// </summary>
         [Fact]
-        public void ContinuationVesselDestroyed_LogMessageFormat_ContainsExpectedText()
+        public void ContinuationVesselDestroyed_HandlerLogsSnapshotPreservedThroughFormatter()
         {
-            // Note: This tests the expected log message FORMAT, not that production
-            // code actually emits it (OnVesselWillDestroy requires KSP runtime).
-            // Verifies the log message contract for the destruction handler.
             var rec = MakeCommittedRecording("TestRocket", 55555);
-            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            ParsekFlight.MarkContinuationVesselDestroyed(rec);
 
-            ParsekLog.Info("Flight",
-                $"Continuation vessel destroyed (pid={55555}), " +
-                $"VesselDestroyed=true, VesselSnapshot preserved={rec.VesselSnapshot != null}");
+            string line = ParsekFlight.FormatContinuationVesselDestroyedMessage(55555u, rec);
+            Assert.Contains("Continuation vessel destroyed (pid=55555)", line);
+            Assert.Contains("VesselSnapshot preserved=True", line);
 
-            Assert.Contains(logLines, l =>
-                l.Contains("[Flight]") &&
-                l.Contains("Continuation vessel destroyed") &&
-                l.Contains("VesselSnapshot preserved=True"));
+            // Mirror: a recording whose snapshot is gone reports it, so a bug #95
+            // re-null is visible in KSP.log.
+            var nulled = MakeCommittedRecording("TestRocket", 55555);
+            nulled.VesselSnapshot = null;
+            Assert.Contains("VesselSnapshot preserved=False",
+                ParsekFlight.FormatContinuationVesselDestroyedMessage(55555u, nulled));
+
+            var handler = ILCallSet.Method(typeof(ParsekFlight), "OnVesselWillDestroy");
+            Assert.Equal(
+                1,
+                ILCallSet.CallCount(
+                    handler, typeof(ParsekFlight), "FormatContinuationVesselDestroyedMessage"));
         }
 
         [Fact]

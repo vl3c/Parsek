@@ -1032,6 +1032,32 @@ def root_height(root, log_rects):
     return max(1, bottom - rect[1] + WINDOW_BOTTOM_PAD)
 
 
+# The dump's `fontStyle` wire names (GuiTreeAssembler.FontStyleWireName) -> the
+# page's one-letter codes. `n` is kept: a style that UN-bolds a bold skin style says
+# so, and the page must then draw it at normal weight.
+FONT_STYLE_CODES = {"normal": "n", "bold": "b", "italic": "i", "boldItalic": "bi"}
+
+
+def compact_font(node):
+    """The node's font DELTA as page keys: `fs` (pixels) and `fw` (a style code).
+
+    The recorder writes `fontSize` / `fontStyle` only when the drawing style's font
+    departs from the skin's style of the same name, so an absent key means "the
+    skin default the page already draws". Without this a `new GUIStyle(label)` copy
+    at 10 px - the main window's version footer - was drawn at the page's 13 px
+    label size and clipped inside the 35 px rect the game laid it out in. Pixels
+    map 1:1: the footer's run fits its rect at 10 px Arial, and at the scaled
+    13/12 it would not."""
+    out = {}
+    size = node.get("fontSize")
+    if isinstance(size, int) and not isinstance(size, bool) and size > 0:
+        out["fs"] = size
+    code = FONT_STYLE_CODES.get(node.get("fontStyle"))
+    if code:
+        out["fw"] = code
+    return out
+
+
 def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
                  grid_runs=None, thumb_runs=None, text_offsets=None):
     """One dump node -> the page's compact node: rect made parent-relative (so a
@@ -1060,6 +1086,9 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
         out["v"] = node["value"]
     if node.get("textValue"):
         out["tv"] = node["textValue"]
+    font = compact_font(node)
+    if font:
+        out.update(font)
     sel = node.get("selectedIndex")
     if (out["k"] == "buttongrid" and isinstance(sel, int)
             and not isinstance(sel, bool) and sel >= 0):
@@ -1706,8 +1735,13 @@ def is_window_source(path):
 def scan_shots_dir(path, scenarios_dir, want_colors=True, verbose=False):
     """One `<runId>_<specId>_shots` directory -> capture records."""
     base = os.path.basename(path.rstrip("/\\"))
-    m = re.match(r"(?P<run>\d{4}-\d{2}-\d{2}_\d{4})_(?P<spec>.+?)_shots$", base)
-    run_id = m.group("run") if m else base
+    # run.py's collision guard appends `_run<N>` (a second run in the same minute)
+    # and `_a<N>` (a retry attempt) AFTER the scenario id (hlib.format_run_id). They
+    # belong to the RUN, not the spec: read as part of the spec id they named no
+    # scenario, so the capture lost its dataset and never paired in Compare.
+    m = re.match(r"(?P<run>\d{4}-\d{2}-\d{2}_\d{4})_(?P<spec>.+?)"
+                 r"(?P<sfx>(?:_run\d+)?(?:_a\d+)?)_shots$", base)
+    run_id = (m.group("run") + m.group("sfx")) if m else base
     spec_id = m.group("spec") if m else ""
     fixture = spec_fixture(scenarios_dir, spec_id) if spec_id else ""
     logpath = os.path.join(path, "KSP.log")
@@ -3225,6 +3259,16 @@ function richText(parent, text){
   }
   return parent;
 }
+/* The recorded font DELTA (`fs` / `fw`, see compact_font): only a node whose
+   style departs from the skin carries one, so everything else keeps the page's
+   calibrated default. On a window root it is the TITLE's font. */
+function applyFont(d, n){
+  if (n.fs) d.style.fontSize = n.fs + 'px';
+  if (n.fw){
+    d.style.fontWeight = (n.fw === 'b' || n.fw === 'bi') ? '700' : '400';
+    d.style.fontStyle = (n.fw === 'i' || n.fw === 'bi') ? 'italic' : 'normal';
+  }
+}
 function renderNode(n, out, opts){
   opts = opts || {};
   /* `dis` dims a control that the frame gave us no colour for. Where it DID -
@@ -3242,6 +3286,7 @@ function renderNode(n, out, opts){
     d.style.background = n.bg;
   }
   if (n.fg) d.style.color = n.fg;
+  applyFont(d, n);
   if (n.k === 'toggle'){
     /* The box is empty and its MARK is drawn in CSS; a glyph typed here was the
        wrong shape. A toggle in the button style hides the box entirely and takes
@@ -3363,6 +3408,7 @@ function renderCapture(cap, host, opts){
     if (r.bg) w.style.background = r.bg;
     var t = el('div','kt', r.title || '');
     if (r.fg) t.style.color = r.fg;
+    applyFont(t, r);
     w.appendChild(t);
     (r.c || []).forEach(function(ch){
       renderNode(ch, w, {win: cap.window, tab: cap.tab, tabNames: cap.tabNames});
