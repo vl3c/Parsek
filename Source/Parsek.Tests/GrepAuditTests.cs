@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using Xunit;
@@ -58,6 +59,88 @@ namespace Parsek.Tests
         public void GrepAudit_SourceParsekStartsNoBackgroundThreads()
         {
             RunGrepAuditScript("grep-audit-background-threads.ps1", RunManagedBackgroundThreadsAudit);
+        }
+
+        [Fact]
+        public void GrepAudit_GuiMockWriteSetIsUiOnly()
+        {
+            RunGrepAuditScript("grep-audit-gui-mock-writeset.ps1", RunManagedGuiMockWriteSetAudit);
+        }
+
+        [Fact]
+        public void GrepAudit_GuiMockWriteSetScanIsNotVacuous()
+        {
+            // Anti-vacuity for the gate above, over SYNTHETIC lines rather than over the
+            // tree: the gallery files' own headers name every store they do not touch, so
+            // a scan that read comments would fire on the prose that documents the rule
+            // and would have to be silenced by deleting the explanation.
+            Assert.Empty(GuiMockLineViolations(
+                "            // RecordingStore.CommittedRecordings is never read here."));
+            Assert.Empty(GuiMockLineViolations(
+                "        /// <para>Never calls MissionStore.Missions.</para>"));
+            // A literal is not code either: a state's Covers keys are literals like
+            // "RosterStatus.Lost", and the mask is what keeps them from reading as types.
+            Assert.Empty(GuiMockLineViolations(
+                "                new[] { \"RosterStatus.Lost\", \"KerbalEndState.Dead\" },"));
+            // An allowlisted type is clean.
+            Assert.Empty(GuiMockLineViolations(
+                "            return MissionStructureListBuilder.Build(tree, structure);"));
+        }
+
+        [Fact]
+        public void GrepAudit_GuiMockWriteSetCatchesEveryWriteTheDenylistMissed()
+        {
+            // THE REGRESSION CELLS. Each of these three passed the first version of this
+            // gate - the denylist - and each is a real write into shared state. They are
+            // pinned as NEGATIVE cases so the allowlist cannot quietly become a denylist
+            // again.
+            foreach (string line in new[]
+                     {
+                         "            Ledger.AddActions(actions);",
+                         "            CrewReservationManager.ClearReplacementsInternal();",
+                         "            RS.ResetForTesting();",
+                         "            RecordingStore.ClearCommitted();",
+                         "            MissionStore.Missions.Clear();",
+                         "            RouteStore.CommittedRoutes.Clear();",
+                         "            EffectiveState.ComputeERS();",
+                         "            GamePersistence.SaveGame(\"x\", \"y\", SaveMode.OVERWRITE);",
+                     })
+            {
+                List<string> hits = GuiMockLineViolations(line);
+                Assert.True(hits.Count > 0,
+                    "the write-set gate accepts '" + line.Trim()
+                    + "', which reaches shared state from a gallery file");
+            }
+
+            // And the ALIAS, which is how RS.ResetForTesting() got in: banned outright,
+            // because an alias defeats a name-based gate by construction.
+            List<string> aliasHits = GuiMockLineViolations(
+                "using RS = Parsek.RecordingStore;");
+            Assert.Single(aliasHits);
+            Assert.StartsWith("[alias]", aliasHits[0], StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void GrepAudit_GuiMockAllowlistMirrorsTheScriptsOwn()
+        {
+            // Two copies of one list, so a type added to the script and not here (or the
+            // reverse) would make the managed fallback and the pwsh gate disagree - and on
+            // a runner without pwsh only the fallback runs.
+            string path = Path.Combine(ResolveRepoRoot(), "scripts",
+                                       "grep-audit-gui-mock-writeset.ps1");
+            Assert.True(File.Exists(path), "the script moved: " + path);
+            string src = File.ReadAllText(path);
+            int at = src.IndexOf("$allowedTypes = @(", StringComparison.Ordinal);
+            Assert.True(at > 0, "the $allowedTypes initializer moved");
+            int end = src.IndexOf("\n)", at, StringComparison.Ordinal);
+            Assert.True(end > at, "the $allowedTypes initializer has no terminator");
+            var scriptTypes = new List<string>();
+            foreach (Match m in Regex.Matches(src.Substring(at, end - at), @"'([A-Za-z0-9_]+)'"))
+                scriptTypes.Add(m.Groups[1].Value);
+
+            Assert.Equal(
+                GuiMockAllowedTypes.OrderBy(t => t, StringComparer.Ordinal).ToArray(),
+                scriptTypes.OrderBy(t => t, StringComparer.Ordinal).ToArray());
         }
 
         private static void RunGrepAuditScript(string scriptFileName, Action<string> managedFallback)
@@ -288,6 +371,178 @@ namespace Parsek.Tests
                     "managed " + label + " audit saw ZERO pattern hits — the allowlisted definitions alone "
                         + "should match, so the scan is broken (wrong root or dead patterns), not clean.");
             }
+        }
+
+        /// <summary>
+        /// Every type a GUI-state-gallery file may reference, mirroring
+        /// <c>$allowedTypes</c> in <c>scripts/grep-audit-gui-mock-writeset.ps1</c>. A cell
+        /// below asserts the two lists are EQUAL, so neither can drift.
+        ///
+        /// <para>AN ALLOWLIST RATHER THAN A DENYLIST, and the reason is measured: the
+        /// first version banned a list of store names and a review walked three writes
+        /// straight through it - <c>Ledger.AddActions(...)</c>,
+        /// <c>CrewReservationManager.ClearReplacementsInternal()</c> and
+        /// <c>RS.ResetForTesting()</c> behind <c>using RS = Parsek.RecordingStore;</c>.
+        /// A denylist can only ban the writers somebody thought of.</para>
+        /// </summary>
+        internal static readonly string[] GuiMockAllowedTypes =
+        {
+            "GuiMockSession", "GuiMockCatalogue", "GuiMockState", "GuiMockPayload",
+            "GuiMockStructure", "GuiMockWitness", "GuiMockSuppressionSite",
+            "GuiMockKerbalsStates", "GuiMockCareerStates", "GuiMockStructureStates",
+            "MissionInputs", "RosterInputs", "RouteShape", "FlightShape",
+
+            "TestCommandUiMock", "TestCommandUiAction", "TestCommandUiState",
+            "TestCommandUiFind", "TestCommandCaptureScreenshot", "TestCommandDumpGuiTree",
+            "TestCommandSaveGame", "TestCommandScene", "UiActionOp", "UiActionRect",
+            "UiWindowSpec", "UiWindowHandle", "UiActionPending", "UiActionSettleOutcome",
+            "GuiTreeDumpPollOutcome", "ParsedCommand", "DeferralBudget",
+            "ParsekTestCommandAddon", "MockIntent",
+
+            "KerbalsWindowUI", "KerbalsPresentation", "CareerStateWindowUI",
+            "StructureListWindowUI", "ParsekUI", "UiComplexityMode", "UiSurface",
+            "UiSurfaceVisibility",
+
+            "KerbalsModule", "KerbalEndState", "GameAction", "GameActionType",
+            "StrategyResource", "ContractsModule", "StrategiesModule", "FacilitiesModule",
+            "MilestonesModule", "Game",
+            "Recording", "RecordingTree", "BranchPoint", "BranchPointType", "PartEvent",
+            "PartEventType", "TerminalState", "StructureStep", "StructureStepKind",
+            "MissionStructure", "MissionStructureBuilder", "MissionStructureListBuilder",
+            "MissionCompositionBuilder", "StructureLocationFormatter",
+            "Route", "RouteStop", "RouteEndpoint", "RouteConnectionWindow",
+            "RouteStructureListBuilder", "RouteEndpointLocationFormatter",
+
+            "ParsekLog", "GuiTreeRecorder", "GuiTreeResult", "GuiTreeNode",
+            "GuiTreeAssembler",
+
+            "System", "Parsek", "Logistics", "Gallery", "TestCommands", "UI",
+            "Action", "Func", "List", "Dictionary", "HashSet", "IEnumerable",
+            "IReadOnlyList", "IReadOnlyCollection", "IReadOnlyDictionary",
+            "KeyValuePair", "StringComparer", "StringComparison", "CultureInfo",
+            "Exception", "InvalidOperationException", "ArgumentOutOfRangeException",
+            "DateTime", "Math", "Enum", "StringBuilder", "Guid", "Globalization",
+            "Rect", "Time", "UnityEngine", "Object",
+        };
+
+        /// <summary>The GUI-state-gallery write set, as absolute paths. Named once so the
+        /// managed fallback and the negative cells cannot describe different sets.</summary>
+        internal static List<string> GuiMockScanSet(string repoRoot)
+        {
+            string sourceRoot = Path.Combine(repoRoot, "Source", "Parsek");
+            string galleryDir = Path.Combine(sourceRoot, "UI", "Gallery");
+            Assert.True(Directory.Exists(galleryDir),
+                "gui-mock write-set audit: gallery directory not found (this gate is "
+                + "vacuous): " + galleryDir);
+            var files = new List<string>(
+                Directory.EnumerateFiles(galleryDir, "*.cs", SearchOption.AllDirectories));
+            foreach (string rel in new[]
+                     {
+                         Path.Combine("TestCommands", "ParsekTestCommandAddon.UiMock.cs"),
+                         Path.Combine("TestCommands", "TestCommandUiMock.cs"),
+                     })
+            {
+                string p = Path.Combine(sourceRoot, rel);
+                Assert.True(File.Exists(p),
+                    "gui-mock write-set audit: scan-set file not found (this gate is "
+                    + "vacuous): " + p);
+                files.Add(p);
+            }
+            return files;
+        }
+
+        // The three regexes the script uses, mirrored. The LITERAL mask is not optional: a
+        // catalogue state's Covers keys are literals like "RosterStatus.Lost", and without
+        // it every one reads as a type reference.
+        private static readonly Regex GuiMockTypeRef =
+            new Regex(@"(?<![A-Za-z0-9_.])([A-Z][A-Za-z0-9_]*)\s*\.",
+                      RegexOptions.CultureInvariant);
+        private static readonly Regex GuiMockAliasUsing =
+            new Regex(@"^\s*using\s+[A-Za-z_][A-Za-z0-9_]*\s*=",
+                      RegexOptions.CultureInvariant);
+        private static readonly Regex GuiMockStringLiteral =
+            new Regex("\"(?:[^\"\\\\]|\\\\.)*\"", RegexOptions.CultureInvariant);
+
+        /// <summary>Strips a C# LINE comment, which is what makes this gate scannable at
+        /// all: the gallery files' own headers explain which stores they do not touch, so
+        /// a scan over raw text would fire on the prose that documents the rule.</summary>
+        internal static string StripLineComment(string line)
+        {
+            if (line == null) return string.Empty;
+            int cut = line.IndexOf("//", StringComparison.Ordinal);
+            return cut >= 0 ? line.Substring(0, cut) : line;
+        }
+
+        /// <summary>
+        /// Every un-allowlisted type reference and every alias on one source line, as the
+        /// script would report them. Empty for a clean line.
+        /// </summary>
+        internal static List<string> GuiMockLineViolations(string rawLine)
+        {
+            var hits = new List<string>();
+            string code = GuiMockStringLiteral.Replace(StripLineComment(rawLine), "\"\"");
+            if (code.Trim().Length == 0) return hits;
+            if (GuiMockAliasUsing.IsMatch(code))
+            {
+                hits.Add("[alias] " + code.Trim());
+                return hits;
+            }
+            var allowed = new HashSet<string>(GuiMockAllowedTypes, StringComparer.Ordinal);
+            foreach (Match m in GuiMockTypeRef.Matches(code))
+            {
+                string name = m.Groups[1].Value;
+                if (allowed.Contains(name)) continue;
+                hits.Add("[type] " + name);
+            }
+            return hits;
+        }
+
+        // Managed mirror of scripts/grep-audit-gui-mock-writeset.ps1: the same scan set,
+        // the same allowlist, the same comment stripping and literal masking. INVERTED
+        // from the allowlist gates above - this one scans NAMED FILES and allows NAMED
+        // TYPES - so it does not reuse RunManagedAllowlistAudit.
+        private static void RunManagedGuiMockWriteSetAudit(string repoRoot)
+        {
+            List<string> files = GuiMockScanSet(repoRoot);
+            Assert.True(files.Count >= 5,
+                "managed gui-mock write-set audit: only " + files.Count + " file(s) in the "
+                + "scan set; the layout moved and this gate is vacuous.");
+
+            string repoRootNorm = repoRoot.Replace('\\', '/');
+            var violations = new List<string>();
+            int referencesSeen = 0;
+            var allowed = new HashSet<string>(GuiMockAllowedTypes, StringComparer.Ordinal);
+            foreach (string path in files)
+            {
+                string rel = path.Replace('\\', '/');
+                if (rel.StartsWith(repoRootNorm, StringComparison.OrdinalIgnoreCase))
+                    rel = rel.Substring(repoRootNorm.Length).TrimStart('/');
+
+                int lineNumber = 0;
+                foreach (string raw in File.ReadLines(path))
+                {
+                    lineNumber++;
+                    Assert.True(raw.IndexOf("/*", StringComparison.Ordinal) < 0,
+                        "managed gui-mock write-set audit: block comment in " + rel + ":"
+                        + lineNumber + "; the line-based stripper cannot see inside one.");
+                    string code = GuiMockStringLiteral.Replace(
+                        StripLineComment(raw), "\"\"");
+                    if (code.Trim().Length == 0) continue;
+                    referencesSeen += GuiMockTypeRef.Matches(code).Count;
+                    foreach (string hit in GuiMockLineViolations(raw))
+                        violations.Add(rel + ":" + lineNumber + ": " + hit);
+                }
+            }
+
+            Assert.True(referencesSeen >= 100,
+                "managed gui-mock write-set audit parsed only " + referencesSeen
+                + " type reference(s); the parse broke and this gate is vacuous");
+            Assert.True(violations.Count == 0,
+                "managed gui-mock write-set audit failed: a GUI-state-gallery file names a "
+                + "type outside the allowlist, or aliases one. A mocked view model must "
+                + "reach NO save - every member the applier writes is a UI-layer field no "
+                + "writer reads (docs/dev/design-gui-state-gallery.md section 7.5, layer "
+                + "1).\n" + string.Join("\n", violations));
         }
 
         private static bool TryFindExecutable(string fileName, out string path)

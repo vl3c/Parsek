@@ -57,3 +57,12 @@ Source/Parsek/MissionStructure.cs | TerminalStateValue = rec.TerminalStateValue,
 # InGameTests builds recordings from scratch in object initializers; a fixture stating its
 # own starting verdict is not a production verdict decision.
 Source/Parsek/InGameTests/
+
+# -- GUI state gallery ---------------------------------------------------------------
+# GuiMockStructureStates builds DETACHED Recording objects in an object initializer and
+# hands them straight to the two pure structure-list builders. Nothing is added to any
+# store, no crew end state was ever inferred against a prior verdict, and the graph is
+# unreachable after the builder returns - so there is no stale pair to retire. Same
+# rationale as the InGameTests entry above, one layer out: a fixture stating its own
+# starting verdict is not a production verdict decision.
+Source/Parsek/UI/Gallery/GuiMockStructureStates.cs | TerminalStateValue = terminal,

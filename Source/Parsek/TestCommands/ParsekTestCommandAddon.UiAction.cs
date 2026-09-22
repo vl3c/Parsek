@@ -205,6 +205,31 @@ namespace Parsek.TestCommands
             internal string EditRowKey;
             internal string EditDraft;
             internal bool EditCommitted;
+
+            // mock (op=mock). The WITNESS list is carried rather than re-derived by the
+            // settle, and that is deliberate: re-deriving would mean rebuilding the
+            // payload, and a second Build() call could produce a different object from
+            // the one the window is actually drawing - which would make the read-back a
+            // statement about a model nothing drew.
+            internal string MockStateId;
+            internal List<string> MockWitnesses;
+            internal bool MockBasicMode;
+            internal int MockCovers;
+            internal string MockLabel;
+
+            // THREE-PHASE, unlike every other op here. Phase 1 applies the window's
+            // CHROME and captures it WITHOUT the mock; phase 2 installs the data and
+            // captures again; the witness check then requires every witness to be present
+            // in the second capture AND absent from the first. The pre-apply baseline is
+            // what turns "this string was on screen" into "only the mock put it there".
+            internal bool MockAwaitingBaseline;
+            internal List<string> MockBaseline;
+
+            // Carried across the two phases: the built payload (built ONCE, at execute,
+            // so the model the window draws is the model the witnesses came from) and the
+            // chrome restore closure.
+            internal Parsek.UI.Gallery.GuiMockPayload MockPayload;
+            internal Action MockRestoreChrome;
         }
 
         private UiActionPending uiActionPending;
@@ -286,6 +311,13 @@ namespace Parsek.TestCommands
                 if (op == UiActionOp.Dismiss)
                 {
                     UiActionDismissOp(cmd);
+                    return;
+                }
+                if (op == UiActionOp.Mock)
+                {
+                    // Outside OpNeedsWindow on purpose: the describe form names no
+                    // window, so the requirement is per-INTENT and the applier checks it.
+                    UiActionMockOp(cmd, ui, scene);
                     return;
                 }
                 UiActionDescribe(ui, scene);
@@ -603,6 +635,16 @@ namespace Parsek.TestCommands
             if (uiActionPending.Op == UiActionOp.Run)
             {
                 TryCompleteUiActionRun(now);
+                return;
+            }
+
+            // `mock` likewise, and for `find`'s exact reason: its completion signal is a
+            // CAPTURE arriving, because the capture IS its read-back - the only thing
+            // that can witness a data swap is the draw (see
+            // TestCommandUiMock.NotAppliedReason).
+            if (uiActionPending.Op == UiActionOp.Mock)
+            {
+                TryCompleteUiActionMock(now);
                 return;
             }
 

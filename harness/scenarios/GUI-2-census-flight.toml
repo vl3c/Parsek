@@ -55,7 +55,8 @@ tier = "operator"
 # image cannot say which rows a filter left visible, which control was disabled or what
 # nests inside what, and `harness/tools/gui_tree_view.py` draws the dump's boxes over the
 # matching screenshot. FOUR captures and four dumps: 8 files, far inside the harvest's
-# 64-file cap. (It was FIVE until 2026-09-11: the `flight-spawncontrol-advanced` pair went
+# file-count cap (64 when this lane was written, 1024 since the GUI state gallery's P1b).
+# (It was FIVE until 2026-09-11: the `flight-spawncontrol-advanced` pair went
 # with the window that does not draw here - a PNG of a scene with no Real Spawn Control in
 # it, under a label naming it, is the false reading the two-phase settle exists to
 # prevent.) The `GuiTree` in-game cell is NOT driven here - GUI-1 owns that batch, and

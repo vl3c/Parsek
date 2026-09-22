@@ -9,7 +9,9 @@ tier = "operator"
 #
 # WHY IT NEEDS THREE NEW VERBS. Two of them close a measured instrument gap:
 #   - the always-collect leg has harvested `<instance>/Screenshots/` into
-#     `results/<runId>_shots/` since V3 (hlib.select_run_screenshots, 64-file cap) and
+#     `results/<runId>_shots/` since V3 (hlib.select_run_screenshots, a file-count cap
+#     that was 64 and is 1024 since the gallery's P1b - see hlib.ARTIFACT_MAX_SCREENSHOTS)
+#     and
 #     `tools/contact_sheet.py` renders whatever it finds, but NOTHING ever wrote a file
 #     there: the only screenshot path in the game is the player's F1 key. That tool's own
 #     empty-state text ("no screenshots captured (the V4 capture verbs feed this)") has
@@ -82,9 +84,12 @@ tier = "operator"
 #
 # 23 PNGs (18 Advanced + 5 Basic) and 23 dumps beside them: 46 files, plus ONE more the
 # `GuiTree` batch below writes itself (`parsek-guitree-probe.gui.json`, its probe
-# window's own capture) = 47, against the harvest's 64-file cap
-# (hlib.ARTIFACT_MAX_SCREENSHOTS). That is why the dump steps do not need the cap raised
-# and why a 24th capture would want the arithmetic re-checked rather than just added.
+# window's own capture) = 47, against the harvest's file-count cap
+# (hlib.ARTIFACT_MAX_SCREENSHOTS). That cap was 64 when this lane was written, which is
+# why the dump steps did not need it raised; it is 1024 since the GUI state gallery's P1b
+# (a capture PAIR is two files, so 64 harvested at most 32 STATES and silently dropped the
+# rest), so this arithmetic has three hundred-odd captures of headroom now. Re-check it
+# anyway before adding a 24th capture: the BYTE cap is the one that binds at scale.
 #
 # THE 23rd IS `ksc-logistics-nearmiss-advanced`, added 2026-09-21 off a state-coverage
 # audit of every capture this census had taken. It is the highest-yield single step the

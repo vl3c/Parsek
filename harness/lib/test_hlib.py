@@ -12515,7 +12515,14 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # verdict was INVALID on an unrelated step, which is why the inventory row stays
         # in bucket B). Neither number in the assertion below moves either way: this cell
         # counts declarations, not lanes.
-        self.assertIn("**113 categories / %d declarations**" % stated_decls, body,
+        # 113 -> 114 with `GuiMock` (2026-09-22, P1 of the GUI state gallery): five
+        # SPACECENTER cells proving the suppression-plus-draw path, which is the one thing
+        # no headless cell can reach. Its own category for the standing reason, and it
+        # ships UNDRIVEN on purpose - P1 has no lane, so claiming the row from an
+        # unrelated census lane would be a tally nobody measured. This assertion counts
+        # DECLARATIONS and CATEGORIES, so both numbers moved.
+        self.assertIn("**%d categories / %d declarations**"
+                      % (len(self.rows), stated_decls), body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
@@ -15143,6 +15150,250 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual([], hlib.validate_ui_action_step(
             2, {"op": "find", "window": "settings", "text": "Close", "ctrl": "button",
                 "index": "2"}))
+
+    # ---- op=mock: the GUI state gallery primitive (P1) ----
+
+    def test_the_mock_op_vocabularies_mirror_the_c_sharp_tables(self):
+        """Reads OUTSIDE harness/. THREE tables have to agree with the C#: the op token,
+        the nine refusal reasons, and the two arg keys. Each is mirrored rather than
+        derived for the reason every closed-arg row is: a token renamed on one side alone
+        validates as legal here and is a typed REJECTED after a whole KSP boot.
+
+        The refusal set is read off the C# reason CONSTS as a SET, so this cell fails on a
+        token ADDED there and not here as well as on a rename - which a per-token
+        assertIn could not."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiMock.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# mock half moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+
+        self.assertIn("mock", hlib.UIACTION_OP_VALUES)
+        cs_reasons = set(re.findall(r'Reason = "([a-z-]+)"', stripped))
+        self.assertEqual(set(hlib.UIACTION_MOCK_REFUSALS), cs_reasons,
+                         "hlib.UIACTION_MOCK_REFUSALS %r vs the C# reason consts %r"
+                         % (sorted(hlib.UIACTION_MOCK_REFUSALS), sorted(cs_reasons)))
+        self.assertIn('MockStateArg = "%s"' % hlib.UIACTION_MOCK_STATE_KEY, stripped)
+        self.assertIn('DescribeArg = "%s"' % hlib.UIACTION_DESCRIBE_KEY, stripped)
+        self.assertIn('ClearToken = "%s"' % hlib.UIACTION_MOCK_CLEAR_TOKEN, stripped)
+        op_path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                               "TestCommandUiAction.cs")
+        with open(op_path, encoding="utf-8-sig") as fh:
+            self.assertIn('MockOpToken = "mock"', fh.read())
+
+    def test_the_mockable_windows_mirror_the_c_sharp_supported_set(self):
+        """Reads OUTSIDE harness/. `op=mock` on a window with no injection seam answers
+        mock-window-unsupported after a whole boot, so the validator refuses it here -
+        which is only worth doing while the two sets agree. Derived from the C# array's
+        comment-free initializer, resolving each GuiMockSession constant to its VALUE so a
+        renamed constant reds instead of silently dropping a row."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "UI", "Gallery", "GuiMockCatalogue.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# catalogue moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+        at = stripped.find("SupportedWindows =")
+        self.assertGreater(at, 0, "SupportedWindows initializer not found")
+        end = stripped.find("};", at)
+        self.assertGreater(end, at)
+        body = stripped[at:end]
+
+        session_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "Gallery",
+                                    "GuiMockSession.cs")
+        with open(session_path, encoding="utf-8-sig") as fh:
+            session = fh.read()
+        constants = dict(re.findall(
+            r'internal const string (\w+Window) = "([a-z]+)"', session))
+        cs_windows = [constants[name]
+                      for name in re.findall(r"GuiMockSession\.(\w+Window)", body)
+                      if name in constants]
+        self.assertEqual(list(hlib.UIACTION_MOCKABLE_WINDOWS), cs_windows,
+                         "hlib.UIACTION_MOCKABLE_WINDOWS %r vs the C# SupportedWindows %r "
+                         "(ORDER included - the refusal message names the set in this "
+                         "order)"
+                         % (list(hlib.UIACTION_MOCKABLE_WINDOWS), cs_windows))
+        for window in hlib.UIACTION_MOCKABLE_WINDOWS:
+            self.assertIn(window, hlib.UIACTION_WINDOW_VALUES)
+
+    def test_the_mock_op_is_absent_from_the_ops_needing_a_window(self):
+        """Stated rather than implied, because the absence is a DESIGN decision with a
+        different reason from the other four: `describe=true` reports the whole catalogue
+        and names no window, so an unconditional requirement would refuse that form
+        outright. The apply and clear forms still require one - checked by the per-op
+        branch, whose cells follow."""
+        self.assertIn("mock", hlib.UIACTION_OP_VALUES)
+        self.assertNotIn("mock", hlib.UIACTION_OPS_NEEDING_WINDOW)
+
+    def test_uiaction_mock_requires_a_state_or_describe_and_refuses_both(self):
+        errors = hlib.validate_ui_action_step(0, {"op": "mock"})
+        self.assertTrue(any("mock-arg-missing" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "mock", "window": "kerbals",
+                "mockState": "kerbals.roster.lost", "describe": "true"})
+        self.assertTrue(any("opposite things" in e for e in errors), errors)
+
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "mock", "describe": "true"}))
+
+    def test_uiaction_mock_apply_requires_a_mockable_window_matching_the_state(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "mock", "mockState": "kerbals.roster.lost"})
+        self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "mock", "window": "timeline",
+                "mockState": "timeline.entry.superseded"})
+        self.assertTrue(any("mock-window-unsupported" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            2, {"op": "mock", "window": "kerbals",
+                "mockState": "career.banner.divergent"})
+        self.assertTrue(any("mock-state-window-mismatch" in e for e in errors), errors)
+
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "mock", "window": "kerbals",
+                "mockState": "kerbals.roster.lost"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            4, {"op": "mock", "window": "kerbals", "mockState": "none"}))
+
+    def test_uiaction_mock_args_are_flagged_on_other_ops(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "kerbals", "mockState": "kerbals.roster.lost"})
+        self.assertTrue(any("only op=mock reads it" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "open", "window": "kerbals", "describe": "true"})
+        self.assertTrue(any("only op=mock reads it" in e for e in errors), errors)
+
+    def test_uiaction_describe_is_a_closed_boolean_and_mockstate_is_not(self):
+        self.assertEqual(("UiAction", hlib.UIACTION_DESCRIBE_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.UIACTION_DESCRIBE_KEY])
+        self.assertEqual(("true", "false"), hlib.UIACTION_DESCRIBE_VALUES)
+        self.assertNotIn(hlib.UIACTION_MOCK_STATE_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
+        self.assertNotIn(hlib.UIACTION_MOCK_STATE_KEY, hlib.UIACTION_STATE_VALUES)
+
+    def test_no_committed_spec_uses_op_mock_until_the_mirror_reads_the_mock_block(self):
+        """THE GATE that keeps a mocked capture from lying on the mirror page.
+
+        A mocked capture carries its provenance INSIDE the artifact (a `mock` block in its
+        `.gui.json`), and `harness/tools/gui_tree_view.py` reads it today. The MIRROR does
+        not yet: it derives a capture's dataset from the lane's `fixture.saveTemplate`, and
+        a gallery lane HAS one (it needs a loaded game) - so until the mirror learns the
+        block, a mocked capture files under a REAL fixture's name and CAN pair against a
+        real capture in Compare. That is the one thing that page must not do.
+
+        So no committed spec may drive `op=mock` yet. WHAT LIFTS THIS CELL: the mirror's
+        `scan_shots_dir` reading the `mock` block and setting `fixture = "mock"` plus the
+        `mocked` capture key (the P2 half, being built on branch `mirror-gallery-p2`). When
+        that lands, replace the body with the positive assertion - a gallery lane's
+        captures file under `fixture=mock` - rather than deleting the cell."""
+        mirror = os.path.join(HARNESS_ROOT, "tools", "gui_mirror.py")
+        self.assertTrue(os.path.isfile(mirror),
+                        "the mirror generator moved; this gate is vacuous: %s" % mirror)
+        with open(mirror, encoding="utf-8") as fh:
+            mirror_src = fh.read()
+        mirror_reads_mock = ('"mock"' in mirror_src and "stateId" in mirror_src)
+
+        offenders = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            for index, step in enumerate(
+                    (spec.get("driver", {}) or {}).get("steps", []) or []):
+                step = step or {}
+                if step.get("cmd") != "UiAction":
+                    continue
+                if str((step.get("args", {}) or {}).get("op")) != "mock":
+                    continue
+                offenders.append("%s step %d" % (name, index))
+
+        if mirror_reads_mock:
+            # The mirror half landed: this cell has done its job and the assertion below
+            # inverts - a gallery lane is now expected to exist and to file under `mock`.
+            # Kept as a marker rather than deleted so the transition is deliberate.
+            return
+
+        self.assertEqual(
+            [], offenders,
+            "a committed spec drives UiAction op=mock while harness/tools/gui_mirror.py "
+            "still files captures by fixture.saveTemplate. Until the mirror reads the "
+            "dump's `mock` block (P2, branch mirror-gallery-p2), a mocked capture would "
+            "appear under a REAL fixture's name and could pair against a real capture in "
+            "Compare - the one lie that page must not tell. Offending steps: %s"
+            % ", ".join(offenders))
+
+    def test_the_save_refusal_under_a_live_mock_scope_mirrors_the_c_sharp_const(self):
+        """Reads OUTSIDE harness/. Three verbs answer this refusal - `SaveGame`,
+        `LoadGame` and `RunTests` - and the rule is uniform on purpose: a lane clears its
+        mock scope before anything that saves or loads. It is LANE HYGIENE rather than a
+        data guard (nothing injected is read by a save path), which is exactly why it has
+        to be spelled the same on both sides: a lane reads the token, not the reasoning."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandSaveGame.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# SaveGame half moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+        self.assertIn('RefusedGuiMockReason = "%s"' % hlib.SAVEGAME_REFUSED_GUI_MOCK_REASON,
+                      stripped)
+
+        # And all three verbs really do read it, derived from the addon's comment-stripped
+        # source so a removed guard reds here rather than in a lane.
+        addon = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                             "ParsekTestCommandAddon.cs")
+        with open(addon, encoding="utf-8-sig") as fh:
+            addon_src = "\n".join(
+                line for line in fh.read().splitlines()
+                if not line.strip().startswith("//")
+                and not line.strip().startswith("///"))
+        # TWO reads per verb - the Warn line and the response message - so three verbs is
+        # six. Counted rather than pattern-matched per verb because the guard bodies are
+        # deliberately identical, and the count is what a deleted guard moves.
+        self.assertEqual(
+            6, addon_src.count("TestCommandSaveGame.RefusedGuiMockReason"),
+            "the gui-mock refusal is read %d time(s) in the addon; SaveGame, LoadGame and "
+            "RunTests must each refuse while a scope is live (twice each: the log line and "
+            "the response), or the lane-hygiene rule is three special cases instead of a "
+            "rule"
+            % addon_src.count("TestCommandSaveGame.RefusedGuiMockReason"))
+        for verb in ("savegame refused reason=", "loadgame refused reason=",
+                     "runtests refused reason="):
+            self.assertIn(verb + '" + TestCommandSaveGame.RefusedGuiMockReason',
+                          addon_src,
+                          "no %s guard reads the gui-mock refusal" % verb.split()[0])
+
+    def test_the_harvest_cap_fits_a_gallery_run(self):
+        """P1b, the single highest-leverage number in the gallery design.
+
+        A capture PAIR is TWO files - both `.png` and `.gui.json` are harvested suffixes -
+        so the old 64-file cap harvested at most 32 STATES and dropped the rest into
+        `skipped_over_cap`, reported as artifacts.screenshotsSkipped and easy to miss.
+        Every current lane reads 0 skipped because GUI-1's 45 files sit just under it,
+        which is exactly why nothing noticed the ceiling.
+
+        Pinned here so a later edit cannot quietly walk it back, with the STATE arithmetic
+        spelled out rather than the raw number asserted alone."""
+        self.assertEqual(1024, hlib.ARTIFACT_MAX_SCREENSHOTS)
+        states_per_run = hlib.ARTIFACT_MAX_SCREENSHOTS // 2
+        self.assertGreaterEqual(
+            states_per_run, 400,
+            "the gallery targets ~400 states in ONE boot and a capture pair is two "
+            "files; %d files harvests only %d states"
+            % (hlib.ARTIFACT_MAX_SCREENSHOTS, states_per_run))
+        self.assertEqual(768 * 1024 * 1024, hlib.ARTIFACT_MAX_SCREENSHOT_BYTES)
+        self.assertGreater(hlib.ARTIFACT_MAX_SCREENSHOT_BYTES, 257 * 1024 * 1024)
+        self.assertEqual(2 * 1024 * 1024 * 1024, hlib.ARTIFACT_SHOTS_MAX_TOTAL_BYTES)
+        self.assertIn(".png", hlib.ARTIFACT_SHOTS_SUFFIXES)
+        self.assertIn(".gui.json", hlib.ARTIFACT_SHOTS_SUFFIXES)
 
     def test_uiaction_find_args_are_flagged_on_other_ops(self):
         errors = hlib.validate_ui_action_step(

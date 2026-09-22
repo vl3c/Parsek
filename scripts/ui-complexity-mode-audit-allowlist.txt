@@ -65,7 +65,15 @@ Source/Parsek/ParsekSettingsPersistence.cs
 # playback, logistics, ledger or rewind behavior is reachable from either, and the
 # verbs are inert unless PARSEK_TEST_COMMANDS=1 arms the addon.
 #
-# Deliberately only these TWO files. ParsekTestCommandAddon.cs (the pump) and
+# A THIRD file joined them with the GUI state gallery:
+# ParsekTestCommandAddon.UiMock.cs reads the APPLIED mode twice, and for the two
+# reasons the sibling applier does - the derived capture label carries the mode
+# token (so a basic and an advanced capture of one state do not collide), and the
+# gloops-recording refusal is reached through ParsekUI.WouldRefuseModeChange,
+# which is the production predicate op=complexity already uses. Neither is a
+# second writer of the mode: that file never calls SetUiComplexityMode.
+#
+# Deliberately only these THREE files. ParsekTestCommandAddon.cs (the pump) and
 # TestCommandVerbs.cs (the known-verb table) are NOT listed: the pump dispatches
 # `UiAction` by name and never names the mode, and the verb table's rationale
 # comment was reworded to describe "the interface-mode setting" rather than to
@@ -74,3 +82,4 @@ Source/Parsek/ParsekSettingsPersistence.cs
 # for the whole file's future contents.
 Source/Parsek/TestCommands/TestCommandUiAction.cs
 Source/Parsek/TestCommands/ParsekTestCommandAddon.UiAction.cs
+Source/Parsek/TestCommands/ParsekTestCommandAddon.UiMock.cs

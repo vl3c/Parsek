@@ -2227,10 +2227,31 @@ namespace Parsek
 
         internal int GetActiveChainIndex(string slotOwnerName, KerbalSlot slot)
         {
+            return ResolveActiveChainIndex(slotOwnerName, slot, reservations.ContainsKey);
+        }
+
+        /// <summary>
+        /// The chain-occupant decision, with the live reservation map behind a predicate
+        /// so it is a pure function of its inputs.
+        ///
+        /// <para>Extracted with NO behaviour change - the instance overload above is now a
+        /// one-line delegation - so a caller that has reservations but no
+        /// <c>KerbalsModule</c> instance reaches THIS decision rather than a copy of it.
+        /// The GUI state gallery is that caller: its synthetic roster states classify
+        /// chain members through the real rule, which is what makes an <c>active</c> /
+        /// <c>displaced</c> / <c>retired</c> chain line in a mocked capture a picture the
+        /// product can actually produce.</para>
+        /// </summary>
+        /// <param name="isReserved">Whether a kerbal name currently holds a reservation.
+        /// Null is read as "nothing is reserved", which answers
+        /// <see cref="ActiveOwnerIndex"/> - the owner is in his own seat.</param>
+        internal static int ResolveActiveChainIndex(
+            string slotOwnerName, KerbalSlot slot, Func<string, bool> isReserved)
+        {
             if (slot != null && slot.OwnerPermanentlyGone)
                 return NoActiveChainOccupant;
 
-            if (!reservations.ContainsKey(slotOwnerName))
+            if (isReserved == null || !isReserved(slotOwnerName))
                 return ActiveOwnerIndex;
 
             if (slot == null)
@@ -2241,7 +2262,7 @@ namespace Parsek
             for (int i = 0; i < slot.Chain.Count; i++)
             {
                 string standIn = slot.Chain[i];
-                if (standIn == null || !reservations.ContainsKey(standIn))
+                if (standIn == null || !isReserved(standIn))
                     return i;
             }
 

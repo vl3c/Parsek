@@ -275,9 +275,14 @@ namespace Parsek.Tests
             // fail-closed BEFORE any dispatch so a malformed list (an empty token is
             // the RunAll arm in disguise) is a terminal REJECTED, never a partial run.
             Assert.Contains("TryParseCategorySelector(category, out selectorCategories, out selectorProblem)", body);
-            // Four independent reject arms, each terminal.
-            Assert.Equal(4, Count(body, "SetExecResult(\"REJECTED\""));
-            Assert.Equal(4, Count(body, "return;"));
+            // FIVE independent reject arms, each terminal. The fifth (2026-09-22) is the
+            // GUI-state-gallery lane-hygiene refusal: a test batch quicksaves and reverts
+            // persistent.sfs, so running one with a mock scope live is a lane asking for a
+            // picture it will not get. It is checked FIRST, ahead of every arg parse,
+            // because it is a state of the game rather than a property of this command.
+            Assert.Contains("Parsek.UI.Gallery.GuiMockSession.IsLive", body);
+            Assert.Equal(5, Count(body, "SetExecResult(\"REJECTED\""));
+            Assert.Equal(5, Count(body, "return;"));
             // The reject arms must precede the dispatch, or a fall-through would run the
             // batch anyway with the verdict overwritten by the later PendingVerdict.
             Assert.True(

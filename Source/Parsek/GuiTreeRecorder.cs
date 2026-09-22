@@ -1587,6 +1587,11 @@ namespace Parsek
                 MatrixM11 = matrixM11,
                 MatrixM03 = matrixM03,
                 MatrixM13 = matrixM13,
+                // GUI state gallery: provenance travels INSIDE the artifact, so a mocked
+                // capture announces itself forever rather than through a filename
+                // convention a person can copy by hand. Null for every ordinary capture,
+                // which is what makes "absent means real" the reader's rule.
+                Mock = BuildMockProvenance(),
             };
             for (int i = 0; i < GuiTreeFunnels.Count; i++)
             {
@@ -1652,6 +1657,34 @@ namespace Parsek
             // The capture is over, so the interceptions come off. FlushCapture runs from
             // LateUpdate, outside any GUI pass, so this is done here and now.
             RequestUnpatch();
+        }
+
+        /// <summary>
+        /// The <c>mock</c> header block for a capture taken inside a GUI-state-gallery
+        /// scope, or NULL for every ordinary capture.
+        ///
+        /// <para>It reads the LIVE session rather than taking the state id as an argument,
+        /// because the capture path has three callers (the <c>DumpGuiTree</c> verb, the
+        /// <c>op=find</c> in-memory arm and the mock op's own settle arm) and only one of
+        /// them knows about mocks. Reading the session here is what makes provenance
+        /// automatic for all three - in particular for the lane's own
+        /// <c>DumpGuiTree</c>, which is the capture that actually reaches the mirror.</para>
+        /// </summary>
+        private static GuiTreeMockProvenance BuildMockProvenance()
+        {
+            if (!Parsek.UI.Gallery.GuiMockSession.IsLive) return null;
+            var provenance = new GuiTreeMockProvenance
+            {
+                StateId = Parsek.UI.Gallery.GuiMockSession.StateId,
+                Window = Parsek.UI.Gallery.GuiMockSession.Window,
+                Catalogue = Parsek.UI.Gallery.GuiMockSession.CatalogueId,
+                States = Parsek.UI.Gallery.GuiMockCatalogue.All.Count,
+            };
+            Parsek.UI.Gallery.GuiMockState state =
+                Parsek.UI.Gallery.GuiMockCatalogue.ById(provenance.StateId);
+            if (state != null && state.Covers != null)
+                provenance.Covers.AddRange(state.Covers);
+            return provenance;
         }
 
         /// <summary>
