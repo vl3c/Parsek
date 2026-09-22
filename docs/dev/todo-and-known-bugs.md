@@ -1046,7 +1046,28 @@ Roadmap "Priority register (2026-09-11)" item C1.
   bytes pass. No other lane is armed, so V15T / V18T / V26T / V23M stay report-only and
   nothing reds before the C2 guard lands.
 
-## UNITY-PARSEK-FRAME-CALLER-SHAPE: two lanes read a Parsek frame on a STOCK throw that Parsek code merely called into, every run [FILED 2026-09-22 by the unity-scanner sweep (UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES). A FINDING TO TRIAGE (wave ruling A4-b: a `Parsek.` frame in any NRE stack is a finding). REPORT-ONLY; neither lane arms `maxParsekFrames`]
+## ~~UNITY-PARSEK-FRAME-CALLER-SHAPE: two lanes read a Parsek frame on a STOCK throw that Parsek code merely called into, every run~~ [**RULED and APPLIED 2026-09-22 on branch `unity-caller-shape`: SPLIT THE METRIC.** `hlib.scan_unity_exception_stacks` reports `parsekThrowSite` (the throw site, the first non-BCL frame line, is a Parsek frame) and `parsekCaller` (a Parsek frame is present but not the throw site) beside `parsekFrames`, which keeps its meaning and is their sum; `[expectations.unityExceptions] maxParsekThrowSite` gates on the throw-site subset. V23M and RF-11 read parsekThrowSite 0 on every collected log and ARM `maxParsekThrowSite = 0` (controlled offline); neither arms `maxParsekFrames`. The V23M product question moved to V23M-FORWARD-JUMP-PACKS-LANDED-WHEELS. Full record: `autotest-status.md` known-gate 11, "THE THROW-SITE SPLIT". FILED 2026-09-22 by the unity-scanner sweep (UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES)]
+
+**Ruling and what was done (2026-09-22).** The operator ruled "split the metric" rather than
+a seam-caller allowlist. The scanner now keys each Parsek-frame occurrence by its throw site:
+the first frame line of the block, skipping message continuation lines and treating the
+runtime and engine layers (`System.` / `Mono.` / `UnityEngine.`) as transparent up to
+`UnityEngine.DebugLogHandler:LogException`, because they throw for their caller's arguments
+or state (S0.7's `System.Math.Sign(NaN)` under `SolveHyperbolicKepler` would otherwise read
+as a caller, as would a dead-`Transform` access or a `GUILayout` mismatch under a Parsek
+frame). Both lanes' frames are callers:
+V23M 6 / 0 / 6 (parsekFrames / throwSite / caller) in every log, RF-11 1 / 0 / 1 (the `[EXC]`
+twin only; the `[ERR]` twin has no Parsek frame). Both arm `maxParsekThrowSite = 0`; the
+offline control appends S0.7 `2026-07-30_1833`'s real throw-site record and reds on exactly
+one mismatch, and V15T `2026-09-10_1917`'s caller record appended still passes. Stated cost:
+the split does not make callers harmless. The two real V-family Parsek defects the scanner
+found (the teardown `EnsureGhostOrbitRenderers` NRE, the pre-fix `GetActiveVesselSafe` NRE)
+are caller shapes (still, after the `UnityEngine.` widening: their throw sites are the KSP
+frames `MapObject.Awake` and `FlightGlobals.get_ActiveVessel`). The throw-site gate is
+strictly weaker than `maxParsekFrames` and is armed only where that one cannot be, and the
+RF-11 seam shape still counts as a Parsek frame (GS-4 reds on it, by the earlier ruling).
+
+The original filing, kept as the record:
 
 **What is true.** The new `parsekFrames` count reads any `Parsek.` frame on the stack, so it
 also counts an exception thrown deep in stock code that a Parsek method called. The
@@ -1070,6 +1091,42 @@ defect (V23M: does the forward jump pack a landed wheeled vessel in a state stoc
 packs it in?) or a class the instrument should split out (for example by reporting the
 innermost frame's depth, or a seam-caller allowlist for `ParsekTestCommandAddon`). Until
 then neither lane arms `maxParsekFrames`; each would red on every run.
+
+## V23M-FORWARD-JUMP-PACKS-LANDED-WHEELS: does the loop forward jump pack a landed wheeled vessel in a state stock never packs it in? [FILED 2026-09-22 off UNITY-PARSEK-FRAME-CALLER-SHAPE. A PRODUCT QUESTION, not a verified defect. Report-only: V23M's `maxParsekThrowSite = 0` does not see it (a caller shape), and its `maxParsekFrames` / `maxTotal` stay unarmed]
+
+**What is measured.** In every one of V23M's 5 unique runs (6 collected logs,
+`2026-08-24_1924` through `2026-09-10_2102`) exactly 6 NREs carry a Parsek frame, all
+before the quit, all this stack (trimmed):
+
+```
+[LOG] Packing Kerbal X for orbit
+[EXC] NullReferenceException
+    VehiclePhysics.VPWheelCollider.OnDisableVehicle ()
+    VehiclePhysics.VehicleBase.RemoveVehicleBehaviour / UnregisterVehicleBehaviour
+    VehiclePhysics.VehicleBehaviour.OnDisable ()
+    UnityEngine.Behaviour:set_enabled(Boolean)
+    ModuleWheelBase:DisableWheelCollider / InopWheelCollider / InopUpdate
+    ModuleWheelBase:OnSubsystemsModified -> ModuleWheels.WheelSubsystems:AddSubsystem
+    ModuleWheelBase:onPartPack(Part) <- EventData`1:Fire(Part) <- Part:Pack()
+    Vessel:Vessel.GoOnRails_Patch1(Vessel)
+    Parsek.TimeJumpManager:PutLoadedVesselsOnRails()
+    Parsek.TimeJumpManager:ExecuteForwardJump(Double)
+    Parsek.ParsekFlight:FastForwardToEventUT <- StartLoopPlaybackImpl
+```
+
+The other 10,677 to 10,794 NREs of each run are the same stock `VPWheelCollider` class with
+no Parsek frame, which is why the lane's `maxTotal` has never armed.
+
+**The question.** `TimeJumpManager.PutLoadedVesselsOnRails` calls `Vessel.GoOnRails()` on
+the landed Mun lander as part of the loop forward jump. Stock packs a landed wheeled vessel
+through `GoOnRails` too (warp, scene change), so the first thing to establish is whether the
+6 per-run NREs also appear when stock packs the same craft (for example a plain timewarp
+over the same landed vessel with no Parsek jump), or only under the jump. If only under the
+jump, the jump reaches `Part.Pack` with the wheel's `VehicleBase` already torn down (or not
+yet built), and the fix belongs in `TimeJumpManager` (defer the pack a frame, or pack via the
+same path warp uses). If stock throws the same way, it is stock wheel noise with a Parsek
+caller and nothing is owed. Needs a live reading on the dev instance; no flight is
+scheduled by this entry.
 
 ## REGISTRY-GROWTH-DECISIONS-2026-09-11: two registry values the 2026-09-10 wave measured but was not allowed to register, D4 `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 1 and 2). An OPERATOR DECISION, not a defect. RULED YES and APPLIED 2026-09-15 (register B1 / B2); only D9's LIVE control stays owed]
 
