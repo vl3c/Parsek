@@ -534,7 +534,18 @@ Always present on a node: `kind`, `rect`, `localRect`, `clipDepth`, `style`, `en
 Present when applicable: `tooltip`, `value` (a toggle's state), `textValue` (a text
 field's content, a slider's value, a button grid's selected label), `selectedIndex`,
 `controlId`, `windowId`, `horizontal` (a layout group's orientation), `contentOrigin`,
-`argSize`.
+`argSize`, `fontSize` / `fontStyle` (see below).
+
+`fontSize` / `fontStyle` ARE THE DRAWING STYLE'S FONT DELTA (additive, 2026-09-22; the schema
+id did not move). A style NAME cannot say that a `new GUIStyle(GUI.skin.label)` copy draws at
+10 px, so each is written only when the style departs from the current skin's style of the
+same name (or, for a name the skin does not carry, when the size is explicit or the style is
+not normal); a size of 0 ("the font's default") is never written. `fontStyle` is one of
+`normal` / `bold` / `italic` / `boldItalic` (`GuiTreeAssembler.FontStyleWireName`). On a
+`window` node the pair describes the TITLE - the main window's bold 16 px title reads
+`"fontSize": 16, "fontStyle": "bold"`. Layout groups never carry them (they draw no text).
+The rule is `GuiTreeAssembler.ResolveFontDelta`; the recorder applies it in
+`GuiTreeRecorder.StampFontDelta`.
 
 `mock` IS THE GUI-STATE-GALLERY PROVENANCE, and it is ABSENT on every ordinary capture -
 which is the reader's rule: absent means a real-save capture. A capture taken inside a

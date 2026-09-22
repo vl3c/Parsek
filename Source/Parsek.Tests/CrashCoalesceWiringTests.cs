@@ -169,16 +169,57 @@ namespace Parsek.Tests
             var bp = coalescer.Tick(100.5);
             Assert.NotNull(bp);
 
-            // Wire into tree (simulating ProcessBreakupEvent logic)
-            bp.ParentRecordingIds.Add("rec1");
-            tree.BranchPoints.Add(bp);
-            rec.ChildBranchPointId = bp.Id;
+            Assert.Empty(tree.BranchPoints);
+            Assert.Null(rec.ChildBranchPointId);
 
-            // Verify wiring
-            Assert.Single(tree.BranchPoints);
+            // The wiring step ProcessBreakupEvent runs once its guards pass.
+            ParsekFlight.WireBreakupIntoTree(tree, tree.ActiveRecordingId, rec, bp);
+
+            Assert.Same(bp, Assert.Single(tree.BranchPoints));
             Assert.Equal(BranchPointType.Breakup, tree.BranchPoints[0].Type);
-            Assert.Contains("rec1", tree.BranchPoints[0].ParentRecordingIds);
+            Assert.Equal(new[] { "rec1" }, tree.BranchPoints[0].ParentRecordingIds);
             Assert.Equal(bp.Id, rec.ChildBranchPointId);
+        }
+
+        /// <summary>
+        /// Spelling witness (source-gated, fixture-limited): ProcessBreakupEvent needs a
+        /// live flight scene, so the cell above drives the extracted wiring step and this
+        /// gate pins that ProcessBreakupEvent's own body is where it is called.
+        /// </summary>
+        [Fact]
+        public void ProcessBreakupEvent_WiresThroughWireBreakupIntoTree()
+        {
+            string path = LocateParsekFlightSource();
+            Assert.True(System.IO.File.Exists(path), $"ParsekFlight.cs not found at {path}");
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(
+                System.IO.File.ReadAllText(path).Replace(CrLf, Lf));
+
+            const string decl = "void ProcessBreakupEvent(BranchPoint breakupBp)";
+            int declIdx = prepared.IndexOf(decl, StringComparison.Ordinal);
+            Assert.True(declIdx >= 0, "ProcessBreakupEvent declaration not found");
+            Assert.Equal(declIdx, prepared.LastIndexOf(decl, StringComparison.Ordinal));
+            string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', declIdx));
+
+            const string call = "WireBreakupIntoTree(activeTree, activeRecId, activeRec, breakupBp);";
+            int callIdx = body.IndexOf(call, StringComparison.Ordinal);
+            Assert.True(callIdx >= 0, "ProcessBreakupEvent no longer wires the breakup through WireBreakupIntoTree");
+            Assert.Equal(callIdx, body.LastIndexOf(call, StringComparison.Ordinal));
+        }
+
+        private static readonly string CrLf = new string(new[] { (char)13, (char)10 });
+        private static readonly string Lf = new string((char)10, 1);
+
+        private static string LocateParsekFlightSource()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = System.IO.Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                if (System.IO.File.Exists(candidate)) return candidate;
+                dir = System.IO.Path.GetDirectoryName(dir);
+            }
+            return System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
         }
 
         [Fact]

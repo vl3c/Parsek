@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameStateStore.cs b/Source/Parsek/GameStateStore.cs
+index 7492afc21..03710ff49 100644
+--- a/Source/Parsek/GameStateStore.cs
++++ b/Source/Parsek/GameStateStore.cs
+@@ -838,7 +838,7 @@ namespace Parsek
+             float existing;
+             if (committedScienceSubjects.TryGetValue(id, out existing))
+             {
+-                if (science > existing)
++                if (true)
+                 {
+                     committedScienceSubjects[id] = science;
+                     updated++;

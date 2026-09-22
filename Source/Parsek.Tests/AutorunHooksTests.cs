@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Linq;
 using Parsek.InGameTests;
 using Xunit;
@@ -135,18 +137,51 @@ namespace Parsek.Tests
             Assert.Empty(cfg.Warnings);
         }
 
-        // Guards edge 14 (read-once mechanism): Parse is a pure function of its
-        // inputs - identical inputs yield an identical parse - which is what makes
-        // caching the result at Awake safe against a mid-process env mutation.
+        // Guards edge 14 (read-once): the env contract is read ONCE per process, at
+        // addon Awake, so a mid-process env mutation cannot change behavior. The
+        // property lives at the caller, not in Parse (a pure static cannot witness it),
+        // and the caller is a MonoBehaviour no headless test can drive, so this is a
+        // source gate over TestRunnerShortcut.cs: every env read and the one Parse call
+        // sit inside ParseAutorunConfigOnce, whose only call site is Awake. Fails if the
+        // per-frame poll (or any other method) re-reads or re-parses the environment.
         [Fact]
-        public void Parse_IsDeterministic()
+        public void AutorunEnv_IsReadOnlyInParseAutorunConfigOnce_WhichOnlyAwakeCalls()
         {
-            var a = AutorunHooks.Parse("A,B", "1", null);
-            var b = AutorunHooks.Parse("A,B", "1", null);
+            string repoRoot = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string raw = File.ReadAllText(Path.Combine(
+                repoRoot, "Source", "Parsek", "InGameTests", "TestRunnerShortcut.cs"));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(
+                raw.Replace("\r\n", "\n"));
 
-            Assert.Equal(a.Enabled, b.Enabled);
-            Assert.Equal(a.ExitArmed, b.ExitArmed);
-            Assert.Equal(a.Categories.ToArray(), b.Categories.ToArray());
+            string parseOnce = DeclaredBody(prepared, "private void ParseAutorunConfigOnce()");
+            string awake = DeclaredBody(prepared, "void Awake()");
+
+            Assert.Equal(3, Occurrences(prepared, "GetEnvironmentVariable("));
+            Assert.Equal(3, Occurrences(parseOnce, "GetEnvironmentVariable("));
+            Assert.Equal(1, Occurrences(prepared, "AutorunHooks.Parse("));
+            Assert.Equal(1, Occurrences(parseOnce, "AutorunHooks.Parse("));
+
+            // The declaration plus exactly one call, and that call is in Awake.
+            Assert.Equal(2, Occurrences(prepared, "ParseAutorunConfigOnce()"));
+            Assert.Equal(1, Occurrences(awake, "ParseAutorunConfigOnce()"));
+        }
+
+        private static string DeclaredBody(string prepared, string declaration)
+        {
+            Assert.Equal(1, Occurrences(prepared, declaration));
+            int at = prepared.IndexOf(declaration, StringComparison.Ordinal);
+            return SourceScanText.BraceMatchedBlock(
+                prepared, prepared.IndexOf('{', at + declaration.Length));
+        }
+
+        private static int Occurrences(string text, string needle)
+        {
+            int count = 0;
+            for (int i = text.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+                 i = text.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+                count++;
+            return count;
         }
 
         // --- R5 isolated arm (design edge case 20) ---

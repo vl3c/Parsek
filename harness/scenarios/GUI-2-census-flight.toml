@@ -9,8 +9,8 @@ tier = "operator"
 # SAME classes over the SAME store, so a second full tab walk in flight would produce
 # nine near-identical images and buy nothing GUI-1 has not already photographed. What
 # genuinely differs in flight is:
-#   - the MAIN window, which gains the flight status box (`DrawFlightStatus`: State,
-#     Recorded Points, Duration, Active Ghosts) and the Real Spawn Control launcher;
+#   - the MAIN window, which gains the Real Spawn Control launcher (the flight status
+#     box it used to carry was removed on 2026-09-22 at the owner's review);
 #   - `spawncontrol` (Real Spawn Control) and `gloops` (the Gloops Flight Recorder),
 #     the two windows `ParsekKSC.OnGUI` does not draw at all - asking for either at the
 #     Space Center is a REJECTED (`window-not-in-scene`) by design. Only `gloops` is

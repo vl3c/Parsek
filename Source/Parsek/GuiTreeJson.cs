@@ -245,6 +245,12 @@ namespace Parsek
                   .Append(Num(node.ArgWidth.Value)).Append(", ")
                   .Append(Num(node.ArgHeight.Value)).Append(']');
             }
+            // ADDITIVE (schema id unchanged): present only when the drawing style's font
+            // departs from the skin's style of the same name - see GuiTreeEvent.FontSize.
+            if (node.FontSize.HasValue)
+                sb.Append(", \"fontSize\": ").Append(Num(node.FontSize.Value));
+            if (node.FontStyleName != null)
+                sb.Append(", \"fontStyle\": ").Append(Str(node.FontStyleName));
             sb.Append(", \"children\": ");
             WriteNodes(sb, node.Children, depth);
             sb.Append('}');

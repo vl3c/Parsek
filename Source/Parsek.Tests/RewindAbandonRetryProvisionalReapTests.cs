@@ -209,22 +209,25 @@ namespace Parsek.Tests
                 l.Contains("removedFromCommittedTrees=1"));
         }
 
-        [Fact]
-        public void EmptyRpId_ReturnsZero()
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void EmptyRpId_ReturnsZero(string rpId)
         {
-            RecordingStore.AddCommittedInternal(Provisional(
-                "rec_orphan", sessionId: "sess_old", rpId: "rp_target",
-                supersedeTarget: "rec_origin"));
+            var orphan = Provisional(
+                "rec_orphan_matching_rp", sessionId: "sess_old", rpId: rpId,
+                supersedeTarget: "rec_origin");
+            RecordingStore.AddCommittedInternal(orphan);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario());
 
             int reaped = RewindInvoker.ReapPriorProvisionalsForRp(
-                rpId: null, newSessionId: "sess_new");
+                rpId: rpId, newSessionId: "sess_new");
 
             Assert.Equal(0, reaped);
-            Assert.NotNull(FindCommitted("rec_orphan"));
-
-            reaped = RewindInvoker.ReapPriorProvisionalsForRp(
-                rpId: string.Empty, newSessionId: "sess_new");
-            Assert.Equal(0, reaped);
+            Assert.Same(orphan, FindCommitted("rec_orphan_matching_rp"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[ReFlySession]") &&
+                l.Contains("ReapPriorProvisional: removed orphan"));
         }
 
         [Fact]

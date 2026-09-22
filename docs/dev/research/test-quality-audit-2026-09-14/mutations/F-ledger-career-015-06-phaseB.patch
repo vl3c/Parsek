@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/KerbalsModule.cs b/Source/Parsek/KerbalsModule.cs
+index eac8697da..70ccce127 100644
+--- a/Source/Parsek/KerbalsModule.cs
++++ b/Source/Parsek/KerbalsModule.cs
+@@ -1581,7 +1581,8 @@ namespace Parsek
+                     var slot = kvp.Value;
+                     for (int i = 0; i < slot.Chain.Count; i++)
+                     {
+-                        if (!ShouldEnsureChainEntryInRoster(slot, i))
++                        if (!ShouldEnsureChainEntryInRoster(slot, i)
++                            || IsDisplacedChainEntry(slot, i))
+                             continue;
+ 
+                         // Rescue-completion guard (#615): the post-spawn rescue
