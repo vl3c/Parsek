@@ -1246,6 +1246,100 @@ def _first_grid_value(roots):
     return None
 
 
+def _first_grid_index(roots):
+    """The pushed-in cell of the first selection grid, as the grid itself
+    recorded it (`si`), or None."""
+    stack = list(roots)
+    while stack:
+        node = stack.pop(0)
+        if node.get("k") == "buttongrid" and isinstance(node.get("si"), int):
+            return node["si"]
+        stack.extend(node.get("c") or ())
+    return None
+
+
+MODE_RANK = {"basic": 0, "advanced": 1}
+
+
+def tab_order(tabs_by_window, captures):
+    """Per window, tab token -> its position on the tab bar.
+
+    The seam's `uiaction tab ... index=N` line is the grid index it clicked; where
+    a tab was reached some other way, the window's own grid says which cell was
+    pushed in (`si`) in the capture filed under that tab. The seam wins where
+    both speak, since it is the one that named the token.
+    """
+    out = defaultdict(dict)
+    for w, toks in tabs_by_window.items():
+        for tok, idx in toks.items():
+            out[w][tok] = idx
+    for cap in captures:
+        if cap["tab"] and isinstance(cap.get("gridIndex"), int):
+            out[cap["window"]].setdefault(cap["tab"], cap["gridIndex"])
+    return out
+
+
+def rail_group(cap, order):
+    """(sort key, tab token) of the rail group a capture is listed under.
+
+    The capture's own tab where it has one. A capture of a tabbed window taken
+    with no tab selected by the seam is grouped by the cell its grid shows, and
+    one with neither leads the list: that is the window as it opens.
+    """
+    tab = cap["tab"]
+    if not tab and isinstance(cap.get("gridIndex"), int):
+        for tok, idx in order.items():
+            if idx == cap["gridIndex"]:
+                tab = tok
+                break
+    if not tab:
+        return (0, -1, ""), ""
+    if tab in order:
+        return (1, order[tab], tab), tab
+    return (2, 0, tab), tab
+
+
+def is_stale(cap):
+    """Not the current picture of its state: a hover the log says photographed
+    nothing, a capture a later run of the same key replaced, or one its own lane
+    no longer produces."""
+    return bool(cap.get("hoverEmpty") or cap.get("supersededBy")
+                or cap.get("retired"))
+
+
+def rail_rows(captures, order_by_window):
+    """Each window's rail, in reading order.
+
+    One row per (tab, state, mode), the row being the current capture of that
+    state where there is one (model order among equals, which is what the rail
+    listed before it was ordered). Rows are grouped by tab, tabs in the window's
+    own tab-bar order, and within a tab run from the least drawn to the most -
+    the node count of the window's own tree - so reading down a tab shows the
+    window filling in. Basic before Advanced on a tie, then the label, so the
+    order is total and a regeneration cannot shuffle it.
+    """
+    firsts = OrderedDict()
+    for pos, cap in sorted(enumerate(captures),
+                           key=lambda pc: (is_stale(pc[1]), pc[0])):
+        k = (cap["window"], cap["tab"] or "", cap["state"] or "", cap["mode"] or "")
+        firsts.setdefault(k, cap)
+    per_window = defaultdict(list)
+    for (win, _t, _s, _m), cap in firsts.items():
+        per_window[win].append(cap)
+    out = {}
+    for win, caps in per_window.items():
+        order = order_by_window.get(win) or {}
+        rows = []
+        for cap in caps:
+            gkey, gtok = rail_group(cap, order)
+            rows.append((gkey, cap.get("complexity") or 0,
+                         MODE_RANK.get(cap["mode"] or "", 2), cap["label"],
+                         cap["id"], gtok))
+        rows.sort(key=lambda r: r[:5])
+        out[win] = [{"id": r[4], "g": r[5]} for r in rows]
+    return out
+
+
 def flatten_texts(node, acc=None):
     acc = [] if acc is None else acc
     if node.get("t"):
@@ -1352,8 +1446,11 @@ def window_compare_summary(captures, keys, window, missing=()):
     by_id = {c["id"]: c for c in captures}
     caps = [c for c in captures if c["window"] == window]
     live = [c for c in caps if not c.get("hoverEmpty")]
+    # A key whose latest capture its own lane no longer produces is not a state
+    # the window has any more, so it is left out of the state counts too.
     win_keys = {k: v for k, v in keys.items()
-                if (by_id.get(v["after"]) or {}).get("window") == window}
+                if (by_id.get(v["after"]) or {}).get("window") == window
+                and not v.get("retired")}
     real_keys = {k for k, v in win_keys.items()
                  if not (by_id.get(v["after"]) or {}).get("mocked")}
     mock_keys = set(win_keys) - real_keys
@@ -1382,6 +1479,7 @@ def window_compare_summary(captures, keys, window, missing=()):
         "capturesReal": len([c for c in caps if not c.get("mocked")]),
         "capturesMocked": len([c for c in caps if c.get("mocked")]),
         "superseded": len([c for c in caps if c.get("supersededBy")]),
+        "retired": len([c for c in caps if c.get("retired")]),
         "hoverNotCaptured": len([c for c in caps if c.get("hoverEmpty")]),
         "labelDisagreements": len([c for c in caps if c.get("disagrees")]),
         "statesReal": len(real_keys),
@@ -1779,7 +1877,107 @@ def scan_shots_dir(path, scenarios_dir, want_colors=True, verbose=False):
             "log": replay["captures"].get(label) or {},
         })
     return {"captures": caps, "tabs": replay["tabs"], "windows": replay["windows"],
-            "runId": run_id, "specId": spec_id, "fixture": fixture}
+            "runId": run_id, "specId": spec_id, "fixture": fixture,
+            "complete": run_complete(path)}
+
+
+def run_complete(shots_dir):
+    """Whether the run behind a shots directory flew to the end.
+
+    run.py writes its result JSON beside the shots directory, under the same
+    name without the `_shots` suffix. `True` is a PASS verdict; `False` is a
+    result that says anything else (a failed or partial run can be missing
+    captures it would otherwise have taken); `None` is no readable result, where
+    the caller has to fall back to what the run did photograph.
+    """
+    base = shots_dir.rstrip("/\\")
+    if base.endswith("_shots"):
+        base = base[:-len("_shots")]
+    path = base + ".json"
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            verdict = (json.load(fh) or {}).get("verdict")
+    except Exception:
+        return None
+    if not verdict:
+        return None
+    return verdict == "PASS"
+
+
+def run_sort_key(run_id):
+    """A run id as an orderable value: the minute stamp, then run.py's `_run<N>`
+    collision counter, then the `_a<N>` retry attempt (hlib.format_run_id). An
+    absent counter is the first of its kind, so `_1841` sorts before
+    `_1841_run2`."""
+    m = re.match(r"^(\d{4}-\d{2}-\d{2}_\d{4})(?:_run(\d+))?(?:_a(\d+))?$",
+                 run_id or "")
+    if not m:
+        return (run_id or "", 0, 0)
+    return (m.group(1), int(m.group(2) or 1), int(m.group(3) or 1))
+
+
+def mark_retired(captures, runs):
+    """Mark every capture its own lane no longer produces.
+
+    `runs` is `[{"specId", "runId", "complete"}]`, one per shots directory. For a
+    capture of scenario S at run R, each NEWER run of S is a witness if it is
+    complete (a PASS result, and at least one capture - a PASS whose dumps are
+    gone proves nothing) or, where no result says, if it photographed the same
+    window. A capture that no witness reproduced - neither its key nor its label -
+    and that no later capture of its key already superseded is RETIRED, dated
+    from the first witness. A failed run is never a witness: a lane that crashed
+    half way lacks captures for a reason that is not the product.
+
+    Returns the retired captures.
+    """
+    by_run = {}
+    for r in runs:
+        by_run[(r["specId"], r["runId"])] = {
+            "complete": r.get("complete"), "keys": set(), "labels": set(),
+            "windows": set(), "n": 0}
+    for cap in captures:
+        slot = by_run.setdefault((cap["specId"], cap["runId"]), {
+            "complete": None, "keys": set(), "labels": set(), "windows": set(),
+            "n": 0})
+        slot["keys"].add(cap.get("key") or "")
+        slot["labels"].add(cap["label"])
+        slot["windows"].add(cap["window"])
+        slot["n"] += 1
+    runs_of = defaultdict(list)
+    for (spec, run) in by_run:
+        runs_of[spec].append(run)
+    for spec in runs_of:
+        runs_of[spec].sort(key=run_sort_key)
+    out = []
+    for cap in captures:
+        if cap.get("supersededBy") or not cap["specId"]:
+            continue
+        mine = run_sort_key(cap["runId"])
+        since = None
+        reproduced = False
+        for run in runs_of[cap["specId"]]:
+            if run_sort_key(run) <= mine:
+                continue
+            slot = by_run[(cap["specId"], run)]
+            if slot["complete"] is True:
+                witness = slot["n"] > 0
+            elif slot["complete"] is None:
+                witness = cap["window"] in slot["windows"]
+            else:
+                witness = False
+            if not witness:
+                continue
+            if (cap.get("key") or "") in slot["keys"] or cap["label"] in slot["labels"]:
+                reproduced = True
+                break
+            if since is None:
+                since = run
+        if since is not None and not reproduced:
+            cap["retired"] = {"spec": cap["specId"], "since": since}
+            out.append(cap)
+    return out
 
 
 def spec_fixture(scenarios_dir, spec_id):
@@ -1950,6 +2148,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
 
         roots = []
         parsek_rects = []
+        own_roots = []
+        parsek_roots = []
         for root in dump.get("roots") or ():
             rect = [int(v) for v in (root.get("rect") or [0, 0, 0, 0])]
             key = (root.get("text") or "", tuple(rect))
@@ -1983,7 +2183,15 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
                                     cap["log"].get("openWindows"))
                 if owner:
                     window_titles[owner].add(root.get("text") or "")
+                if owner == window:
+                    own_roots.append(node)
+                parsek_roots.append(node)
             roots.append(node)
+        # How much the subject window drew: the rail's simple-to-complex order
+        # within a tab. Its own root(s) when the seam's rect names one, every
+        # Parsek root otherwise.
+        complexity = sum(count_nodes(r) for r in (own_roots or parsek_roots))
+        own_grid_si = _first_grid_index(own_roots)
 
         photo = None
         if with_photos and pix and (parsek_rects or cap["log"].get("dialog")):
@@ -2028,6 +2236,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             "roots": roots,
             "photo": photo,
             "counts": dump.get("counts") or {},
+            "complexity": complexity,
+            "gridIndex": own_grid_si,
         })
 
     # ---- photo payloads under the size budget -------------------------------
@@ -2056,9 +2266,14 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
     # A selection grid reports only the SELECTED item's text (`textValue`), so no
     # single capture knows what the other tabs are called. Across the census each
     # tab was selected in turn, so the set of captures does know - and every name
-    # on the tab bar is therefore still a string the game drew.
+    # on the tab bar is therefore still a string the game drew. The NEWEST capture
+    # of a tab names it: a tab renamed in the product keeps its seam token, and
+    # first-seen let a pre-rename heading ("Roster State") name the tab in the
+    # rail, the header and Compare long after every new capture read "Roster".
     tab_display = defaultdict(dict)
-    for cap in captures:
+    for cap in sorted(captures, key=lambda c: (c["capturedUtc"],
+                                               run_sort_key(c["runId"])),
+                      reverse=True):
         if not cap["tab"]:
             continue
         name = _first_grid_value(cap["roots"])
@@ -2156,6 +2371,17 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             "measured": measure_pair(before, after) if changed else None,
         }
 
+    # ---- retired: a state its own lane stopped producing --------------------
+    # Superseding needs a later capture of the SAME key, so a state a re-flown
+    # lane no longer photographs at all (the Kerbals "owner chain" after the
+    # round-2 rebuild) stayed current forever. See `mark_retired`.
+    mark_retired(captures, [{"specId": s["specId"], "runId": s["runId"],
+                             "complete": s.get("complete")} for s in scans])
+    for k, info in keys.items():
+        after = next(c for c in by_key[k] if c["id"] == info["after"])
+        if after.get("retired"):
+            info["retired"] = after["retired"]
+
     fixtures = OrderedDict()
     for cap in captures:
         fixtures.setdefault(cap["fixture"], {"key": cap["fixture"], "specIds": []})
@@ -2242,6 +2468,9 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         "noteVerdicts": list(NOTE_VERDICTS),
         "windows": windows,
         "windowSummaries": summaries,
+        # Each window's rail rows in reading order (`rail_rows`): ordered here,
+        # so the page lists them and never sorts them itself.
+        "railRows": rail_rows(captures, tab_order(tabs_by_window, captures)),
         "captures": captures,
         "keys": keys,
         "missing": missing,
@@ -2564,6 +2793,8 @@ table.sum .wlink:hover{text-decoration:underline}
 .badge.nohover{border-color:#7a6a3a;background:#2a2620;color:#cbb782}
 .badge.disagree{border-color:#a05a5a;background:#2e2020;color:#e0a0a0}
 #rail .s.stale{opacity:.5;font-style:italic}
+#rail .tg{padding:4px 10px 1px 16px;font-size:10px;color:var(--dim);
+  text-transform:uppercase;letter-spacing:.06em;border-top:1px solid #2a2a2a}
 #rail .s .badge{margin-left:2px;flex:0 0 auto}
 #stagehead{font-size:14px;color:#e6e6e6;margin:0 0 2px;display:flex;gap:8px;
   align-items:baseline;flex-wrap:wrap}
@@ -2731,6 +2962,8 @@ function stripPrefix(t){
   return s;
 }
 function capsFor(win){ return M.captures.filter(function(c){ return c.window === win; }); }
+/* The generator's `is_stale`: not the current picture of its state. */
+function isStale(c){ return !!(c.hoverEmpty || c.supersededBy || c.retired); }
 function status(msg, warn){
   var s = document.getElementById('status');
   s.textContent = msg || '';
@@ -2738,9 +2971,10 @@ function status(msg, warn){
 }
 
 /* ---- what a capture declares about itself ---- */
-/* Four flags, none of them a judgement this page makes: MOCKED comes out of the
+/* Five flags, none of them a judgement this page makes: MOCKED comes out of the
    dump's own provenance block, SUPERSEDED out of a later capture existing for
-   the same key, the hover one out of the pointer op's own reported tooltip (or,
+   the same key, RETIRED out of a newer run of the same lane not producing it, the
+   hover one out of the pointer op's own reported tooltip (or,
    where the log predates that key, out of the capture's own tree being
    byte-identical to a sibling of the same run), and the last out of the label
    and the seam log saying different things about what was on screen. */
@@ -2758,6 +2992,12 @@ function capFlags(cap){
     out.push({ cls: 'sup', text: 'superseded', short: 'old',
       title: 'a later run photographed this same key: ' + cap.supersededBy
              + '. Kept as the BEFORE of that pair; not counted as coverage.' });
+  }
+  if (cap.retired){
+    out.push({ cls: 'sup', text: 'retired', short: 'retired',
+      title: 'no longer captured by ' + cap.retired.spec + ' since '
+             + cap.retired.since + '. Kept for reference; not counted as '
+             + 'coverage.' });
   }
   if (cap.hoverEmpty){
     out.push({ cls: 'nohover', text: 'hover not captured', short: 'no hover',
@@ -3204,9 +3444,10 @@ function pick(win, tab, state, mode, fixture){
      picture of that state, so a click never lands on it. It stays reachable as
      the BEFORE of its own Compare pair and from its own rail row, which is how a
      re-flown lane retires its predecessor without a label being named anywhere.
-     If every candidate is superseded (nothing else was ever photographed) the
+     A capture its own lane no longer produces (RETIRED) is left out the same
+     way. If every candidate is out (nothing else was ever photographed) the
      pool is left alone rather than emptied. */
-  var live = pool.filter(function(c){ return !c.supersededBy; });
+  var live = pool.filter(function(c){ return !c.supersededBy && !c.retired; });
   if (live.length) pool = live;
   var cmp = rank(win);
   var exact = pool.filter(function(c){ return c.fixture === fixture; });
@@ -3766,17 +4007,40 @@ function buildRail(){
       if (!showAll && !isSel){ sr.classList.add('hidden'); folded++; }
     }
     var seen = {};
-    /* The CURRENT capture of each state first: a superseded one is shown only
-       where nothing newer exists, so the rail lists what the mirror would
-       actually draw. */
-    capsFor(w.token).slice().sort(function(a, b){
-      return (a.supersededBy ? 1 : 0) - (b.supersededBy ? 1 : 0);
-    }).forEach(function(c){
+    /* The generator's `rail_rows`: one row per state, the CURRENT capture of it
+       where there is one, grouped by tab in the tab bar's order and running from
+       the least drawn to the most within a tab. A model without it (a hand-built
+       one) falls back to the current-first capture order. */
+    var ordered = (M.railRows || {})[w.token];
+    var rows = ordered
+      ? ordered.map(function(r){ var c = byId[r.id];
+                                 return c ? { c: c, g: r.g } : null; })
+               .filter(Boolean)
+      : capsFor(w.token).slice().sort(function(a, b){
+          return (isStale(a) ? 1 : 0) - (isStale(b) ? 1 : 0);
+        }).map(function(c){ return { c: c, g: null }; });
+    /* A thin tab header between groups, only where the window has more than one
+       group; it folds away with its rows when every one of them is hidden. */
+    var groups = {};
+    rows.forEach(function(r){ if (r.g !== null) groups[r.g] = 1; });
+    var headed = Object.keys(groups).length > 1;
+    var gcur = null, ghead = null, gshown = 0;
+    function closeGroup(){
+      if (ghead && !gshown) ghead.classList.add('hidden');
+    }
+    rows.forEach(function(r){
+      var c = r.c;
       var k = [c.tab || '', c.state || '', c.mode || ''].join('|');
       if (seen[k]) return;
       seen[k] = 1;
+      if (headed && r.g !== gcur){
+        closeGroup();
+        gcur = r.g; gshown = 0;
+        ghead = el('div', 'tg', r.g ? tabName(w.token, r.g) : '(no tab)');
+        list.appendChild(ghead);
+      }
       var sr = el('div', 's' + (c.id === S.capture ? ' sel' : '')
-                       + ((c.hoverEmpty || c.supersededBy) ? ' stale' : ''));
+                       + (isStale(c) ? ' stale' : ''));
       sr.appendChild(el('span', null, stateLabel(w.token, c.tab, c.state, c.mode)));
       appendFlags(sr, c, true);
       sr.title = 'dataset ' + c.fixture + ', run ' + c.runId + ' (' + c.label + ')';
@@ -3787,9 +4051,11 @@ function buildRail(){
         select(c, true);
         if (S.view === 'compare') buildCompare();
       };
-      if (c.hoverEmpty || c.supersededBy) fold(sr, c.id === S.capture);
+      if (isStale(c)) fold(sr, c.id === S.capture);
+      if (!sr.classList.contains('hidden')) gshown++;
       list.appendChild(sr);
     });
+    closeGroup();
     M.missing.filter(function(m){ return m.window === w.token; }).forEach(function(m){
       var sr = el('div', 's gap');
       sr.textContent = stateLabel(w.token, m.tab, null, m.mode) + '  (no capture)';
@@ -3803,7 +4069,8 @@ function buildRail(){
       var more = el('div', 's more', showAll ? 'hide ' + hideable
                                             : 'show ' + folded + ' hidden');
       more.title = 'States with no hover captured, captures a later run '
-        + 'replaced, and states the seam knows but no lane photographed.';
+        + 'replaced, states their own lane no longer produces, and states the '
+        + 'seam knows but no lane photographed.';
       more.onclick = function(){ S.showHidden[w.token] = !showAll; buildRail(); };
       if (showAll || folded) list.appendChild(more);
     }
@@ -4414,6 +4681,7 @@ def _page_model(model):
         "noteVerdicts": model.get("noteVerdicts") or list(NOTE_VERDICTS),
         "windows": model["windows"],
         "windowSummaries": model.get("windowSummaries") or {},
+        "railRows": model.get("railRows") or {},
         "modes": model["modes"],
         "captures": model["captures"],
         "keys": model["keys"],
@@ -4433,7 +4701,7 @@ def build_index(model):
     per_window = {}
     for cap in model["captures"]:
         w = per_window.setdefault(cap["window"], {
-            "captures": 0, "capturesMocked": 0, "superseded": 0,
+            "captures": 0, "capturesMocked": 0, "superseded": 0, "retired": 0,
             "hoverNotCaptured": 0, "labelDisagreements": 0,
             "states": {}, "fixtures": {}})
         w["captures"] += 1
@@ -4441,6 +4709,8 @@ def build_index(model):
             w["capturesMocked"] += 1
         if cap.get("supersededBy"):
             w["superseded"] += 1
+        if cap.get("retired"):
+            w["retired"] += 1
         if cap.get("hoverEmpty"):
             w["hoverNotCaptured"] += 1
         if cap.get("disagrees"):
@@ -4453,6 +4723,8 @@ def build_index(model):
             row["mocked"] = True
         if cap.get("supersededBy"):
             row["superseded"] += 1
+        if cap.get("retired"):
+            row["retired"] = cap["retired"]
         if cap.get("hoverEmpty"):
             row["hoverNotCaptured"] = row.get("hoverNotCaptured", 0) + 1
         if cap.get("disagrees"):
@@ -4468,6 +4740,9 @@ def build_index(model):
         "mockedCaptureCount": len([c for c in caps if c.get("mocked")]),
         "distinctKeyCount": len(model["keys"]),
         "supersededCaptureCount": len([c for c in caps if c.get("supersededBy")]),
+        "retiredCaptureCount": len([c for c in caps if c.get("retired")]),
+        "retiredKeyCount": len([k for k, v in model["keys"].items()
+                                if v.get("retired")]),
         "hoverNotCapturedCount": len([c for c in caps if c.get("hoverEmpty")]),
         "labelDisagreementCount": len([c for c in caps if c.get("disagrees")]),
         "defaultFixture": model["defaultFixture"],
@@ -4477,7 +4752,8 @@ def build_index(model):
         "missing": model["missing"],
         "compare": {k: {"before": v["before"], "after": v["after"],
                         "changed": v["changed"],
-                        "superseded": v.get("superseded") or []}
+                        "superseded": v.get("superseded") or [],
+                        "retired": v.get("retired")}
                     for k, v in model["keys"].items()},
         "photoBytes": model.get("photoBytes", 0),
     }
