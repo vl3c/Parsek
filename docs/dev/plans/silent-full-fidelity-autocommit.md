@@ -304,7 +304,7 @@ never nulled. Cold-load (site 3) relies on the prior session's force-written sid
 - `ScenarioAutoCommitResourcesAppliedTests`: the silent path now routes through
   `MergeDialog.MergeCommit` -> `RecordingStore.CommitPendingTree` + `MarkTreeAsApplied`, NOT
   the `CommitPendingTreeAsApplied` wrapper these tests exercise directly, so they do not break;
-  `SceneExitAutoMerge_AdvancesRecordingIndexes` (:162) comment updated to note the retired routing.
+  `SafetyNetAutoCommit_AdvancesRecordingIndexes` (:162) comment updated to note the retired routing.
 - Full-fidelity retention (the P1 contract): `MergeDialogVesselTests.ApplyVesselDecisions_
   KeepsSpawnableSnapshot_NullsGhostOnly` (added) pins that a spawnable leaf keeps its
   `VesselSnapshot` while a ghost-only leaf is nulled with its `GhostVisualSnapshot` preserved

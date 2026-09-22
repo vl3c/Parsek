@@ -6827,7 +6827,7 @@ keeps its `dispatchWindowPeriod = 0` line and ROUTE nodes round-trip byte-identi
 **there is NO schema bump.** It is still reported into the M-A7 manifest's route record
 so a reading run can see what a save carries. Nothing in the logistics runtime ever read
 it. Pinned by `RouteCodecTests.Serialize_InterBodyRoute_StillWritesTheZeroPeriodLine_NoSchemaMove`
-and the pre-existing `Serialize_PreM5Route_ByteIdenticalBaseline`.
+and the pre-existing `Serialize_SingleStop_ByteIdenticalToBaseline`.
 
 Observability: one line per route-line BUILD,
 `Route scope: route=<8hex> origin=<body> destination=<body> scope=<...> basis=<...>`
