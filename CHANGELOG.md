@@ -15,6 +15,20 @@ _(unreleased — entries accumulate here per commit)_
   rather than comparing a function call with itself. Rewind cleanup tests null and empty RP
   identifiers independently against matching orphans, so removing the early return fails both
   cases. No production behavior changed.
+- **Automated testing: the raw-Unity-exception scan reads the stack under each exception.**
+  The scan counted exception lines only, so a stock NRE and one thrown with Parsek on the
+  stack looked the same, and a Parsek-frame NRE inside an armed `maxTotal` budget passed
+  unnoticed. Every result now also records `parsekFrames` (exceptions of ANY class with
+  a `Parsek.` frame on their stack, plus the innermost such frame), `afterQuit`
+  (exceptions after the harness's `Application.Quit`), the number of exceptions outside
+  the four counted classes, and whether the quit line was seen; the existing counts are
+  unchanged. A spec can arm `[expectations.unityExceptions] maxParsekFrames`
+  independently of `maxTotal`. GS-4 and W1 arm it at 0 (W1's count stays report-only),
+  after a sweep of every collected KSP.log read 0 on both lanes; the red direction was
+  proven offline on their archived logs. The sweep also found Parsek frames on a stock
+  throw in V23M (`TimeJumpManager`, every run) and RF-11 (the seam's `LoadGame`), filed
+  for triage. Harness-only; no game code changed.
+
 - **Dev: the GUI mirror is simplified to explore, choose, note, export.** The page statistics live only in the rail header; the top bar keeps Mirror / Compare, the photo toggle and a "Notes (N)" button, with the dataset, mode and other-mods preferences folded under "options". The main column shows one header line per state (window, tab, state and Basic / Advanced in words, dataset and run in small print, help behind a "?"), a status line that stays empty unless a click or fallback has something to say, and the notes box (verdict plus a textarea that saves as you type) directly under the hover strip, which keeps a fixed height so the notes row no longer jumps. The focus bar is gone: the address bar is kept in step as `#win=...&cap=...` (`&focus=1` scopes the rail; `#cap=...&bare=1` is unchanged). The Notes panel lists every saved note (click to jump, x to delete), copies all of them as JSON or markdown, clears all after a confirm, and folds import away. Rail rows read as words ("tooltip logistics - Advanced"), carry the dataset in their tooltip, mark a noted state with a dot, and fold no-hover, superseded and never-captured rows behind one "show N hidden" link per window; the per-window "cmp" button is gone since Compare follows the selected window. Storage keys and the `parsek-gui-mirror-notes/1` export schema are unchanged (`harness/tools/gui_mirror.py`).
 - **Automated testing: the optimizer's boundary-seam rule now has a deterministic live
   witness.** When a loaded background vessel goes on rails with nothing left to play, the
