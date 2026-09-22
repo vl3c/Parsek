@@ -717,6 +717,52 @@ namespace Parsek.Tests
                 $"Expected Ledger.StateVersion bump after retag (before={versionBefore} after={Ledger.StateVersion})");
         }
 
+        [Fact]
+        public void SplitOriginAtRewindUT_PreRewindBoardedDeath_RetaggedToTipByEndUT()
+        {
+            // TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START, splitter side:
+            // a KerbalAssignment that boarded before the rewind and encodes a death
+            // after it moves to TIP by its EndUT (the mirror of the tombstone guard);
+            // the same interval with a non-death outcome stays on HEAD by its UT.
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 34.0,
+                treeId: "tree_7d", terminal: TerminalState.Destroyed);
+            InstallOriginInTree(origin, "tree_7d");
+
+            var death = new GameAction
+            {
+                UT = 8.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = origin.RecordingId,
+                KerbalName = "Bill Kerman",
+                StartUT = 8.0f,
+                EndUT = 53.0f,
+                KerbalEndStateField = KerbalEndState.Dead,
+            };
+            var aboard = new GameAction
+            {
+                UT = 8.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = origin.RecordingId,
+                KerbalName = "Bob Kerman",
+                StartUT = 8.0f,
+                EndUT = 53.0f,
+                KerbalEndStateField = KerbalEndState.Aboard,
+            };
+            Ledger.AddAction(death);
+            Ledger.AddAction(aboard);
+
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            Assert.Equal(result.TipRecordingId, death.RecordingId);
+            Assert.Equal(origin.RecordingId, aboard.RecordingId);
+            Assert.Equal(1, result.ActionsRetagged);
+            Assert.Contains(logLines, l =>
+                l.Contains("Step9: ledger action retag") && l.Contains("actionsRetagged=1 ")
+                && l.Contains("deathIntervalsRetaggedByEndUT=1 "));
+        }
+
         // =====================================================================
         // 8. Partial-resume idempotent
         // =====================================================================

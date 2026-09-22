@@ -56,8 +56,11 @@ namespace Parsek
         /// <para>
         /// The predicate is the exact mirror of <c>RecordingTreeSplitter</c>'s
         /// step-2.9 ledger retag on the other side of the same seam, which moves
-        /// an origin-tagged action to TIP iff <c>a.UT &gt;= rewindUT</c> and leaves
-        /// everything earlier on the kept HEAD. Keeping the two predicates
+        /// an origin-tagged action to TIP iff its attribution UT
+        /// (<see cref="ComputeAttributionUT"/>: <c>UT</c>, or <c>EndUT</c> for a
+        /// death-encoding KerbalAssignment) is <c>&gt;= rewindUT</c>, and leaves
+        /// everything earlier on the kept HEAD. Both sides read the key through
+        /// that one helper, never a raw <c>UT</c>. Keeping the two predicates
         /// bit-identical (raw <c>rewindUT</c>, no epsilon, same comparison sense)
         /// is what makes "the split kept it, so the tombstone pass keeps it too"
         /// true rather than approximately true. Do NOT introduce an epsilon here
@@ -78,8 +81,76 @@ namespace Parsek
         {
             if (action == null) return false;
             if (double.IsNaN(rewindCutoffUT)) return false;
-            if (double.IsNaN(action.UT)) return false;
-            return action.UT < rewindCutoffUT;
+            double attributionUT = ComputeAttributionUT(action);
+            if (double.IsNaN(attributionUT)) return false;
+            return attributionUT < rewindCutoffUT;
+        }
+
+        /// <summary>
+        /// TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: the timeline UT
+        /// that decides which side of a rewind cut an action belongs to. It is the
+        /// SINGLE screening key for both sides of the seam:
+        /// <see cref="IsPreRewindAttributedAction"/> (the tombstone write-set) and
+        /// <c>RecordingTreeSplitter.ShouldRetagLedgerActionToTip</c> (the step-2.9
+        /// ledger retag). Neither side may compare a raw <see cref="GameAction.UT"/>
+        /// on its own, or the pair stops being bit-identical.
+        ///
+        /// <para>
+        /// A <see cref="GameActionType.KerbalAssignment"/> whose encoded outcome is
+        /// <see cref="KerbalEndState.Dead"/> is an interval (boarding at
+        /// <see cref="GameAction.StartUT"/>, death at <see cref="GameAction.EndUT"/>),
+        /// and the event a merge refunds is the DEATH, not the boarding. It is
+        /// screened by its <see cref="GameAction.EndUT"/>, so a crew member who
+        /// boarded before the rewind point and died after it on the superseded
+        /// branch is recovered by the merge (design 7.16). A re-fly that kills the
+        /// crew again files its OWN death row under the provisional's id at tree
+        /// commit (<c>LedgerOrchestrator.NotifyLedgerTreeCommitted</c> runs before
+        /// <c>MergeDialog.TryCommitReFlySupersede</c>), and the supersede closure
+        /// never contains the provisional, so this clause cannot reach that row.
+        /// </para>
+        ///
+        /// <para>
+        /// Every other action, interval-shaped or not (a non-death KerbalAssignment
+        /// included), stays on <see cref="GameAction.UT"/>. A death row with a NaN
+        /// EndUT has no known death instant and falls back to
+        /// <see cref="GameAction.UT"/>. NaN comes back only when the chosen key is
+        /// NaN; callers treat it as "not provably pre-rewind".
+        /// </para>
+        ///
+        /// <para>
+        /// TWO KNOWN LIMITS (TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS). (1)
+        /// <see cref="GameAction.EndUT"/> is a float: late in a career (UT around 2e7 s,
+        /// where a float step is 2 s) a death within about 1 s after the rewind point can
+        /// round BELOW the double cutoff and stay kept, while the paired KerbalDeath
+        /// reputation row (double UT) is refunded. Screening on the owning recording's
+        /// double EndUT is not a drop-in: the splitter's step 2.9 runs after
+        /// <c>SplitAtUT</c> has already truncated the origin to the rewind point, so the
+        /// two sides would read different recordings and the pair would stop being
+        /// bit-identical. (2) A Destroyed terminal marks every START crew member Dead at
+        /// the recording's end, so a kerbal who actually died BEFORE the rewind on a vessel
+        /// that flew on past it carries an end-of-recording EndUT and is now tombstoned.
+        /// Both are rare; neither changes the mirror.
+        /// </para>
+        /// </summary>
+        internal static double ComputeAttributionUT(GameAction action)
+        {
+            if (action == null) return double.NaN;
+            if (IsDeathEncodingInterval(action))
+                return (double)action.EndUT;
+            return action.UT;
+        }
+
+        /// <summary>
+        /// True iff <paramref name="action"/> is a KerbalAssignment whose end state is
+        /// Dead and whose EndUT is known: the one action class screened by its end
+        /// (see <see cref="ComputeAttributionUT"/>).
+        /// </summary>
+        internal static bool IsDeathEncodingInterval(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.KerbalAssignment
+                && action.KerbalEndStateField == KerbalEndState.Dead
+                && !float.IsNaN(action.EndUT);
         }
     }
 }
