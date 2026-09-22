@@ -1337,11 +1337,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// SplitAtSection step 10: transfer terminal-state fields from the original
-        /// (first half) to the newly-allocated second half (which represents the
-        /// end-of-recording state). The first half keeps its start-state fields.
-        /// </summary>
-        /// <summary>
         /// TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, cause (b), ruling of
         /// 2026-09-23 (the Recovered handoff). <see cref="Recording.CrewEndStates"/> are
         /// the crew's fate at the END of the recording, inferred against its terminal
@@ -1380,6 +1375,11 @@ namespace Parsek
                 "first half cleared for the chain-handoff re-derivation");
         }
 
+        /// <summary>
+        /// SplitAtSection step 10: transfer terminal-state fields from the original
+        /// (first half) to the newly-allocated second half (which represents the
+        /// end-of-recording state). The first half keeps its start-state fields.
+        /// </summary>
         private static void TransferTerminalFieldsToSecondHalf(Recording original, Recording second)
         {
             second.VesselSnapshot = original.VesselSnapshot;
