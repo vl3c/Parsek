@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
+  mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
+  flies the existing station-interceptor rendezvous and docking, and then drives a stock
+  Switch-To click on a nearby vessel. Its first flights found that a launch made while a
+  committed recording is being resumed is recorded into that committed flight instead of a
+  new one, so the lane `BDOCK-2-second-dock-harvest` stays blocked on that finding.
 - **Automated testing: the command seam can read back the flight scene's ghost chains.**
   `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
   recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this

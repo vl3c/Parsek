@@ -9577,6 +9577,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "2026-09-08 (reading _1100, armed _1105 PASS, negative control _1106); "
             "stays operator because it rewinds and jumps a harvested docking fixture, "
             "the discipline's own reason, not a tag",
+        "BDOCK-2-second-dock-harvest.toml":
+            "operator because it is a FIXTURE PRODUCER (the bdock-second-dock-recorded "
+            "harvest), flown once on request and harvested; it claims no cell and owes "
+            "no human call, so it is not a tag",
         "CI-3-chain-rederive-readback.toml":
             "operator by the reading-run discipline (CI-2's host and reason): the D18 "
             "ghost-conversion-quicksave and chain-state-rederived cells, a rewind plus a "

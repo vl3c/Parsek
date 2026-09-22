@@ -1,0 +1,142 @@
+# =============================================================================
+# BDOCK-2: THE D18 SECOND-DOCK HARVEST (PR-D of the D18 spawn-in-run wave).
+#
+# INTENDED to produce the `bdock-second-dock-recorded` fixture for a CI-4 lane; BLOCKED
+# (see STATUS above the steps). It boots `bdock-recorded` (BDOCK-1's produced save: the
+# Station Kerbal X, pid 3620499050, in a ~110 km orbit and the ACTIVE vessel; the
+# undocked Interceptor half, pid 1223410921, a few metres away; both docking trees
+# committed), then:
+#
+#   1. mission bdock_second_dock flies B-DOCK's own Interceptor half with a THIRD
+#      Kerbal X: launch, ascent, circularize, two-step separation, rendezvous,
+#      match velocity, hard dock to the Station. The committed docking tree already
+#      claims pid 3620499050 via MERGE (UT 8949.3), so a dock from a NEW tree would add
+#      a second MERGE claim on the same pid from a second tree - the two-link chain of
+#      catalog S4.7 (iv).
+#   2. The background tail: a stock map Switch-To click (seam SimulateStockSwitchClick)
+#      on pid 1223410921, its engines activated while focused, a plain kRPC switch back
+#      to the docked combination, and its engines deactivated while it is a background
+#      recording. The click's outcome is a MEASUREMENT: on a correct second tree the
+#      half (a committed tip of ANOTHER tree) is pre-switch Case C and the click is
+#      refused; the analysis of which vessel could honestly carry a background-event
+#      claim lives in todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED.
+#   3. The post-mission CommitTree commits the tree.
+#
+# HARVEST: snapshot + harvest first (never --force):
+#   python harness/tools/harvest_bdock_station.py --save-dir harness/results/<runId>_save
+#       --target-name bdock-second-dock-recorded --keep-parsek --expect-situation ORBITING
+# =============================================================================
+schema = 1
+id = "BDOCK-2-second-dock-harvest"
+tier = "operator"
+description = "D18 PR-D harvest driver, BLOCKED: bdock-recorded booted, a THIRD Kerbal X flies B-DOCK's Interceptor half and hard-docks to the orbiting Station, then a stock Switch-To click on the undocked Interceptor half measures the background tail. Three flights (2026-09-22 _2157 / _2235 / _2239) found the launch records INTO the committed docking tree (todo FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE), so no second tree and no fixture yet; the single-parent Dock token is the defect's witness."
+instanceProfile = "stock-minimal"
+tags = ["BDOCK-2", "bdock", "mechjeb", "dock", "rendezvous", "harvest", "fixture-producer",
+        "ghost-chain", "D18", "switch-segment"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "bdock_second_dock"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+# STATUS: BLOCKED - THIS SPEC CANNOT YET PRODUCE ITS FIXTURE. Three flights, 2026-09-22:
+# FLIGHT 1 (`2026-09-22_2157`; a seam StopRecording before the mission) MISSION-OK and
+# hard-docked, then PARSEK-FAIL(expectation) on the switch tokens. The Station is
+# bdock-recorded's active vessel and its committed tree's tip, so scene entry PROMOTES
+# it into a committed-tree restore (RH-1's finding); the launch_vessel scene change
+# stashed that clone as `LimboVesselSwitch`, the new scene reinstalled it "as outsider"
+# for the fresh rollout, and the launch recorded on the post-switch trigger INSIDE the
+# committed docking tree (a parentless root, then a same-tree Dock with the tip
+# 37d0dc07 as a second parent) - no second tree.
+# FLIGHT 2 (`2026-09-22_2235`, SPACECENTER boot to avoid the restore) INVALID
+# MISSION-CONNECT-TIMEOUT: the kRPC server never answered at the Space Center.
+# FLIGHT 3 (`2026-09-22_2239`, FLIGHT boot, recorder left live) MISSION-OK and docked,
+# and PARSEK-FAIL(expectation) on exactly the single-parent Dock token below: the same
+# LimboVesselSwitch join, so StopRecording was not the trigger.
+# Filed as todo FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE (the product path) and
+# D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED (why neither D18 target cell has a producer here).
+# The spec stays committed as the harvest's driver and the defect's reproduction: the
+# single-parent Dock token is the witness that reds while the join persists.
+steps = [
+  { cmd = "LoadGame",      args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",    args = { name = "verboseLogging", value = "true" },     expect = "OK" },
+  { cmd = "SetSetting",    args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",     expect = "MISSION-OK", budget = 6000 },
+  { cmd = "CommitTree",                                                            expect = "OK" },
+  { cmd = "ListHandles",   args = { kind = "chains" },                             expect = "OK" },
+  { cmd = "RecordingState",                                                        expect = "OK" },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[driver.missionParams]
+# bdock_dock_transfer's Interceptor-half values, unchanged (BDOCK-1, nightly).
+interceptorApoapsisMeters   = 90000
+interceptorPeriapsisMeters  = 90000
+apoErrorMeters              = 10000
+periErrorMeters             = 10000
+ascentTimeoutSeconds        = 1200
+circularizeTimeoutSeconds   = 2400
+separationTimeoutSeconds    = 120
+craftName                   = "Kerbal X"
+launchSite                  = "LaunchPad"
+launchTimeoutSeconds        = 300
+launchSettleDebounceFrames  = 3
+approachDistanceMeters      = 100
+maxPhasingOrbits            = 5
+matchSpeedMetersPerSec      = 1.0
+matchTimeoutSeconds         = 600
+dockSpeedMetersPerSec       = 0.5
+rendezvousTimeoutSeconds    = 30000
+dockTimeoutSeconds          = 1800
+dockNoProgressSeconds       = 120
+# The background tail. 1223410921 is bdock-recorded's undocked Interceptor half;
+# propagated from the fixture's own orbit nodes it stays within ~0.9 km of the
+# Station for eight game hours, inside the 2.25 km orbital load range.
+bgSubjectPid                = 1223410921
+dockSettleSeconds           = 10
+bgSettleSeconds             = 5
+bgEventHoldSeconds          = 5
+bgReturnSettleSeconds       = 10
+bgBackgroundHoldSeconds     = 10
+bgPhaseTimeoutSeconds       = 120
+
+[dimensionsCovered]
+# A fixture producer: it claims nothing. CI-4 owns the D18 claims off this save.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  # The second dock, a cross-tree foreign dock onto the committed Station: ONE parent
+  # (the new tree's own recording) and the Station's pid as the merged child's. Flight
+  # 1's same-tree shape printed TWO parents and is what this pins against.
+  "Tree merge created: type=Dock, bp=\\S+, parents=\\[[0-9a-f]+\\], child=\\S+ \\(pid=3620499050\\)",
+  # The background tail is ATTEMPTED, not required to land: the click reaches its gate.
+  # Its outcome is a measurement, and the expected one is a typed refusal - the
+  # subject is the TIP of committed tree 8c677bba, so a loaded click with a live
+  # recording is pre-switch Case C (`C-loaded-separate-committed`, the dialog that
+  # makes the player commit or discard first), and an unloaded one is Case B. A
+  # standalone segment inside the active tree is reachable only for a vessel no
+  # committed tree matches; the D18 row records why that leaves
+  # `background-event-claims` without an honest producer on this fixture.
+  "switchclick gate targetPid=1223410921 ",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 300 LoadGame + 2 x 120 SetSetting + 6000 mission + 120 CommitTree
+# + 120 ListHandles + 120 RecordingState + 120 FlushAndQuit = 7140; 7600 clears it.
+budgetSeconds = 7600
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

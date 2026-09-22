@@ -1,0 +1,154 @@
+# Declared param schema for mission bdock_second_dock (B-DOCK-2, the D18 second-dock
+# harvest: a third Kerbal X launched from the bdock-recorded fixture docks to the
+# orbiting Station, then a stock Switch-To click puts a pre-existing vessel into the
+# active tree as a background recording). run.py parses this with tomllib and injects
+# it as validate_spec's `mission_schemas` argument. Only DECLARED params are checked.
+# The Interceptor-half keys are bdock_dock_transfer's own (the machine delegates to
+# mlib.bdock_decide); the STATION-* and transfer keys are absent because this lane
+# never flies the Station and never transfers.
+
+# --- Interceptor phasing park (~90 km, below the ~110 km Station). ---
+[params.interceptorApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.interceptorPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.separationTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.craftName]
+required = true
+type = "string"
+
+[params.launchSite]
+required = false
+type = "string"
+
+[params.launchTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.launchSettleDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# --- Rendezvous / match / dock (bdock_dock_transfer's semantics). ---
+[params.approachDistanceMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.maxPhasingOrbits]
+required = true
+type = "number"
+min = 1.0
+
+[params.matchSpeedMetersPerSec]
+required = true
+type = "number"
+min = 0.0
+
+[params.matchTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.dockSpeedMetersPerSec]
+required = true
+type = "number"
+min = 0.0
+
+[params.rendezvousTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.dockTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.dockNoProgressSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.rendezvousNoProgressFrames]
+required = false
+type = "int"
+min = 2
+max = 100000
+
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# --- The background tail (GAME seconds at 1x; the tail never warps). ---
+# persistentId of the pre-existing vessel the tail stock-clicks; 0 disables the tail.
+[params.bgSubjectPid]
+required = true
+type = "int"
+min = 0
+
+[params.dockSettleSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.bgSettleSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.bgEventHoldSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.bgReturnSettleSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.bgBackgroundHoldSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.bgPhaseTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+

@@ -15,6 +15,106 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: a launch made while a committed-tree restore clone is active records INTO that committed tree as a parentless root, and the commit then rewrites the committed history [FILED 2026-09-23 off the D18 PR-D harvest (`BDOCK-2-second-dock-harvest`). A PRODUCT finding, reproduced on two flights. OPEN; not fixed]
+
+**What happens.** Boot `bdock-recorded` into FLIGHT. Its active vessel (the Station, pid
+3620499050) is the tip `37d0dc07` of committed tree `8c677bba`, so scene entry runs
+`TryRestoreCommittedTreeForSpawnedActiveVessel` and PROMOTES the tip into a live recorder
+on a copy-on-write clone of that tree (RH-1's finding). Then kRPC `launch_vessel` rolls a
+new Kerbal X onto the pad (a FLIGHT-to-FLIGHT `StartWithNewLaunch`):
+
+1. `StashActiveTreeForVesselSwitch: stashed tree 'Kerbal X' as LimboVesselSwitch (12
+   recording(s), 1 background entry(ies))`.
+2. The new scene captures the rollout (`FreshRollout: captured scene-entry vessel
+   pid=<P> ... StartupBehaviour=NEW_FROM_FILE`) and then
+   `RestoreActiveTreeFromPendingForVesselSwitch: tree 'Kerbal X' reinstalled as outsider
+   for active vessel 'Kerbal X' (pid=<P>, not in BackgroundMap)`.
+3. The first engine burn fires the post-switch watcher: `Auto-record started (post-switch
+   EngineActivity)`, and `PrepareActiveTreeForFreshPostSwitchRecording` adds the new
+   launch as a PARENTLESS root recording inside the committed tree's clone (the
+   `first staging on pad` auto-record line prints too, but the post-switch start wins).
+4. The later dock onto the Station is authored as a SAME-TREE merge with the committed tip
+   as a second parent (`Tree merge created: type=Dock, ... parents=[<new root>,37d0dc07]`),
+   and the post-mission `CommitTreeFlight` re-commits the whole clone: 21 recordings in
+   ONE tree, the committed tip `37d0dc07` re-stamped Docked with a child branch point, and
+   the committed root `5157d655` (split by the optimizer at load) re-stamped Destroyed.
+
+Run `2026-09-22_2157` (preceded by a seam `StopRecording`) and run `2026-09-22_2239`
+(recorder left live) both took this path, so the StopRecording is not the trigger. The
+second is the lane's PARSEK-FAIL(expectation): its one mismatch is the required
+single-parent Dock token (`Tree merge created: type=Dock, bp=\S+, parents=\[[0-9a-f]+\],
+child=\S+ \(pid=3620499050\)`), which the two-parent same-tree merge cannot match. The
+FRESH-rollout refusal that BDOCK-1's Limbo path prints (`refusing to adopt fresh-rollout
+vessel`) has no counterpart on the vessel-switch restore path. A fresh launch belongs in a
+new tree; the fresh-rollout pid is already captured when step 2 runs.
+
+**Scope, stated.** Measured only on the harness shape (kRPC `launch_vessel` from FLIGHT).
+Whether a player reaches it (the VAB round trip goes FLIGHT -> EDITOR -> FLIGHT, a
+different scene path) is not established. BDOCK-1 does not hit it: its launch follows a
+mid-mission `CommitTree`, whose re-adoption is stashed as plain `Limbo`.
+
+**Consequence for the harness.** Any lane that boots a recorded fixture whose active vessel
+is a committed tip and then launches cannot produce a second tree; that blocks the D18
+PR-D harvest (D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED).
+
+## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: the `bdock-second-dock-recorded` harvest could not produce an honest fixture, and neither target cell has a producer on this path [FILED 2026-09-23 off the D18 PR-D build. OPEN; three separate blockers, each with a named next step]
+
+PR-D was to harvest a save in which a THIRD Kerbal X docks to `bdock-recorded`'s Station in
+a NEW tree, and a genuinely background-recorded vessel carries a ghosting-trigger event,
+then author CI-4 on it for `cross-tree-chain-linking` and `background-event-claims`. The
+mission (`bdock_second_dock`, a wrapper over B-DOCK's own machine) flies: run
+`2026-09-22_2157` launched, rendezvoused and HARD-DOCKED to the Station (MISSION-OK, wall
+1,476 s). Three things stand between that and a fixture:
+
+1. **No second tree.** The launch records into the committed docking tree
+   (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE, 2 of 2 flights). A SPACECENTER boot
+   would avoid the restore, but run `2026-09-22_2235` measured that an autopilot lane
+   cannot start there: `MISSION-CONNECT-TIMEOUT` (the kRPC server never answered at the
+   Space Center within the 30 s connect budget). NEXT: fix the product path, or harvest
+   from a derived source whose active vessel is not a committed tip (for example one of
+   the landed never-recorded `Kerbal X Debris` vessels) with the station captured by
+   orbit SMA (Station 709,675.644 m vs the Interceptor half 709,680.883 m, constant on
+   rails) - a fourth flight and a derived fixture, outside PR-D's budget.
+2. **`background-event-claims` has no honest producer here.** `GhostChainWalker.
+   ScanBackgroundEventClaims` claims a recording whose pid is outside the tree's root
+   lineage, and `BackgroundRecorder` records only `BackgroundMap` members. A vessel enters
+   that map through a split (a split product), a dock merge (lineage), a post-switch
+   start (a Launch branch point from `activeTree.ActiveRecordingId` captured at the
+   switch, so lineage - UNLESS the tree had no active recording at that moment, when
+   the recording is parentless), or a stock Switch-To STANDALONE segment
+   (`StartStandaloneContinuationSegment`: no parent, no branch point). But a stock click on a
+   vessel that a DIFFERENT committed tree matches, with a live recording, is pre-switch
+   Case C (`MapFocusObjectOnSelectPatch`, `C-loaded-separate-committed`: commit or
+   discard first), and an out-of-bubble one is Case B. Every vessel in Kerbin orbit in
+   `bdock-recorded` is a committed tip, so the stock-click route needs a vessel NO
+   committed tree matches, in the bubble at the dock. None exists in orbit. Run `_2157`
+   measured the click refused `dialog-required case=B-unloaded` (the FLIGHT boot unpacked
+   the Station and the undocked Interceptor half 5 m apart, the half took a 121 m SMA
+   bump and was 3.1 km away at the dock). Run `_2239` found the half loaded and the click
+   went through - but only because the active tree was itself the clone of the half's
+   committed tree (item 1), so there was no Case C: `route=committed-spawned-clone`, a
+   `VesselSwitchContinuation` segment under the half's own tip `4af6cfd7` (lineage, not
+   standalone). NEXT, two candidates: a never-recorded vessel
+   near the dock site (a launch made with auto-record off, or a pre-Parsek vessel), which
+   is a new fixture; or the non-stock switch path a player reaches with the `[` / `]`
+   keys (kRPC `active_vessel`, which arms no intent and so no Case C): switch away to a
+   vessel that never triggers, so the tree has no active recording, then to the loaded
+   committed subject and fire an engine, which starts a PARENTLESS post-switch recording
+   of it in the active tree. That second path needs the subject in the bubble at the
+   dock, which a FLIGHT boot of this fixture does not give (item 1's bump).
+3. **`cross-tree-chain-linking`'s witnesses cannot fire on a same-pid second dock.** The
+   two literals (`Cross-tree link: vessel=`, `MergeCrossTreeLinks: absorbed`) print only
+   in `MergeCrossTreeLinks`, which runs when a chain's TIP recording carries a pid OTHER
+   than the chain's origin and another chain claims that pid. A second dock onto the same
+   Station keeps pid 3620499050 (both KSP docks here kept the Station's pid and launch
+   guid `97813bb6...`), so its claim POOLS into the existing chain by pid in
+   `ComputeAllGhostChains` step 4 and the merge pass never runs. That pooled two-link
+   chain is what the unit test `CrossTree_TwoLinks_ChainsExtend` calls "PID-based
+   cross-tree linking" - so whether the pooled shape (with each link from a different
+   tree) may claim the cell is an OPERATOR RULING, not something a flight can settle.
+   The merge-pass shape needs the docked vessel to keep the ARRIVING craft's pid and that
+   pid to be claimed by another tree.
+
 ## LISTHANDLES-CHAINS-DIGEST-SCOPE: the chains digest hashes each chain's links only as a COUNT, and covers only the kept (future, non-terminated) chains [FILED 2026-09-22 from the #1761 review. OPEN; a follow-up, deliberately not fixed in that PR]
 
 `TestCommandListHandles.ChainsDigest` hashes `pid|links|tip|spawnUT(R)|terminated;` per
