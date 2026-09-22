@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/TrajectoryTextSidecarCodec.cs b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+index e53c1c2c0..6bf56c7a7 100644
+--- a/Source/Parsek/TrajectoryTextSidecarCodec.cs
++++ b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+@@ -30,7 +30,6 @@ namespace Parsek
+             ptNode.AddValue("velX", pt.velocity.x.ToString("R", ic));
+             ptNode.AddValue("velY", pt.velocity.y.ToString("R", ic));
+             ptNode.AddValue("velZ", pt.velocity.z.ToString("R", ic));
+-            ptNode.AddValue("funds", pt.funds.ToString("R", ic));
+             ptNode.AddValue("science", pt.science.ToString("R", ic));
+             ptNode.AddValue("rep", pt.reputation.ToString("R", ic));
+             // Phase 7: emit recordedGroundClearance only when finite. Non-
