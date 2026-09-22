@@ -22,7 +22,7 @@ _(unreleased — entries accumulate here per commit)_
   source toggles OFF, its archive filter ON, its Custom range revealed (the window's only
   two sliders, plus `From:` / `To:` - zero hits program-wide before), two time-range
   presets and the entry list scrolled - eight states that read one identical value in
-  every prior dump; the Career window's two `Pending in timeline` folds collapsed; the
+  every prior dump; the
   Missions window's expanded-stats columns (six header strings with zero hits
   program-wide), both archive filters, three sort states across its two COLLIDING tables,
   and all three in-place rename editors ARMED - the mid-edit layout no census gesture
@@ -52,7 +52,11 @@ _(unreleased — entries accumulate here per commit)_
   block kinds and only `ChainId` is enumerated), so a recording inside one is undrawable
   and its rename editor answers `edit-not-drawn`; and the Career `Pending in timeline`
   fold needs a career whose recorded future DIVERGES from now rather than merely a long
-  one, so those two captures were dropped. Each is filed with what it needs.
+  one, so those two captures were dropped. Each is filed with what it needs. The wave also
+  turned up ONE product finding, filed and not fixed here (this PR adds no C#): a route
+  name's `->` arrow renders as a missing-glyph box in both uGUI route confirms, because the
+  TextMeshPro font KSP's dialog canvas uses has no glyph for U+2192 - the composed name is
+  correct and the IMGUI Logistics window in the same frame renders it fine.
 
 - **Automated testing: the GUI census can now photograph the product FAILING, refusing and
   being authored, not only resting.** Eleven new operator-tier census lanes

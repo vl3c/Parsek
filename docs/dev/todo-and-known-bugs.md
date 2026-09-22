@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and why [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). SEVEN items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan. None is a product defect. OPEN; each names what it needs]
+## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and one product finding [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). EIGHT items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan; 8 IS a product finding, verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
 
 **Read 5 and 6 before authoring any census lane.** Both are cases where every log contract
 PASSED over a picture that showed the wrong thing, which is the failure mode a census is
@@ -48,10 +48,15 @@ deliberately drive the FILTER rather than the flag.
 routes can still answer `dialog-target-unavailable`. The two route-carrying fixtures
 (`interbody-route-recorded`, `depot-route-recorded`) carry no dormant entry at all, and
 GUI-25 declares `popup=deletedormantroute` as a REJECTED naming the reason rather than
-photographing nothing under a dialog label. `Confirm: Delete Dormant Route` is therefore
-the ONE row of `TestCommandUiDialogRaise`'s ten-row table with no host anywhere. NEEDS a
-fixture with a dormant route, which is a rewind-visibility state a builder would have to
-produce.
+photographing nothing under a dialog label. That makes `Confirm: Delete Dormant Route` ONE
+OF TWO rows of `TestCommandUiDialogRaise`'s ten-row table with no host anywhere - NOT the
+only one, which an earlier draft of this entry claimed. The other is `popup=rewind`,
+unphotographable on the whole committed set for its own reason: its spawn site silently
+returns when `RecordingStore.GetRewindRecording` is null and `rewindSave` is empty in all
+27 occurrences across the 21 fixtures that carry the key (recorded in the wave-5 residue
+and in `design-gui-inventory.md`'s "what stays unreachable" paragraph). So EIGHT of the ten
+raisable rows have a host and two do not. NEEDS a fixture with a dormant route, which is a
+rewind-visibility state a builder would have to produce.
 
 **3. REAL SPAWN CONTROL'S FOUR SORT STATES HAVE NO OPENABLE HOST**
 (`GUI-CENSUS-SPAWN-CONTROL-SORT-HAS-NO-OPENABLE-HOST`). `op=sort` is one of the three ops
@@ -126,6 +131,24 @@ never `Partial`, and the op's own settle check compares against exactly those tw
 mixed picture the census CAN take is one vessel excluded among included siblings, which
 GUI-27 does. NEEDS a per-interval-key affordance in the op (a `key=interval:<key>` prefix)
 if the suffix is ever judged worth a capture; nothing in the product is wrong.
+
+**8. A ROUTE NAME'S `->` ARROW RENDERS AS A MISSING-GLYPH BOX IN EVERY uGUI CONFIRM
+(PRODUCT).** The one PRODUCT finding in this entry - items 1 to 7 are gaps. Seen in
+GUI-25's `ib-dlg-deleteroute.png` (run `2026-09-21_2316`): the Delete Route confirm reads
+`Delete route 'Route: KSC [box] Mun'?` where the route name's arrow should be.
+`RouteCreationFormatters.cs:487` builds the name as `"Route: " + origin + " → " +
+endpoint`, and that is NOT the bug - the IMGUI Logistics window in the SAME frame renders
+it correctly, which the dump beside the PNG proves three times over (`Route: KSC →
+Mun`, the caret row, and the `Round-trip linked to '...'` note all carry U+2192). The
+difference is the RENDERER: `LogisticsWindowUI.cs:2874` interpolates the same string into a
+`PopupDialog` body, and the TextMeshPro font KSP's dialog canvas uses has no glyph for
+U+2192, so TMP substitutes its missing-glyph box. Every uGUI surface that interpolates a
+route name is affected - the two route confirms - while every IMGUI surface is fine. The
+Create Supply Route confirm is NOT affected: it builds its body from `Origin:` /
+`Endpoint:` lines and never embeds the composed name. NEEDS a decision rather than an
+obvious fix: either ASCII-ise the arrow in the composed name (which changes the IMGUI
+surfaces too, where it currently looks right), or substitute at the two dialog-body sites
+only. Not fixed here - this PR adds no C#.
 
 ## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
 

@@ -461,11 +461,16 @@ failure mode no log contract can catch:
    in their first captures while `op=dialog` reported `open=true count=1` and the dismiss
    confirmed the modal had stood through the capture. `op=close` the covering window before
    any raise. GUI-10 never hit it because only the 250 px `main` window was open.
-2. **`op=run await=false` is a RACE the seam cannot win for a fast category.** `running=` is
-   read at DISPATCH. `TrajectoryMath`'s whole eight-cell batch ran in 149 ms and the capture
-   landed 58 ms later, so the PNG read `idle | 8 passed` under a label claiming a running
-   batch. Pick a category whose batch outlives the command poll - `Periodicity` (nine
-   batch-eligible Lambert-solving cells) does - and read the PNG afterwards regardless.
+2. **`op=run await=false` is a RACE the seam cannot win, and the best margin on record is
+   about one second.** `running=` is read at DISPATCH. `TrajectoryMath`'s whole eight-cell
+   batch ran in 149 ms and the capture landed 58 ms later, so the PNG read `idle | 8 passed`
+   under a label claiming a running batch. `Periodicity` is the LONGEST SPACECENTER
+   category measured at 1.43 s, and 816 ms of that is ONE of its nine cells - so GUI-26's
+   screenshot, requested 115 ms in, is reproducible, while the `.gui.json` beside it was
+   written SIXTEEN MILLISECONDS before `BATCH_COMPLETE` and is correct by a coin flip. So:
+   the PNG is the product of a running-batch label, the dump pin stays at `patched=` and
+   says nothing about the batch (a pin that demanded a running dump would be flaky on a
+   16 ms race), and the image is read after the flight.
 3. **`op=expand key=all` cannot open a GROUPED display block**, so a recording inside one is
    undrawable and `op=edit field=recordingname` on it answers `edit-not-drawn`. The
    Recordings tab has two block kinds and only `ChainId` is enumerated;

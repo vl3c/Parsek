@@ -1455,8 +1455,9 @@ sticky icon alpha, and `popup=rewind` on the whole committed fixture set. Full r
 FOUR LANES CLAIM THE TABLE ABOVE, all FLOWN PASS 2026-09-22 on one pinned automation DLL
 (`d3a4dbbfc23d9d1e9c6cd166075c53e769e3e89d8629b6cfcfb3b89fd0f5518e`), nine flights, every
 lane's final verdict PASS on attempt 1 at 55-88 s: `GUI-24-census-timeline-filters`
-(`fixtures/local-saves/c1-gui`, SPACECENTER - every Timeline row plus the Career
-`pending:` folds), `GUI-25-census-missions-state-sort-edit` (`interbody-route-recorded`,
+(`fixtures/local-saves/c1-gui`, SPACECENTER - every Timeline row of the table above, and
+NOT the Career `pending:` row, whose two steps that lane dropped - see below),
+`GUI-25-census-missions-state-sort-edit` (`interbody-route-recorded`,
 SPACECENTER - `expandedStats`, both archive keys, three `op=sort` states, all three
 `op=edit` editors, the Logistics sort, `popup=deleteroute` and the link + cadence pair),
 `GUI-26-census-createroute-and-running-batch` (`rover-route-recorded`, SPACECENTER -

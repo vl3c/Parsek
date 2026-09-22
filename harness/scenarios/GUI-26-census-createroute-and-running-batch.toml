@@ -44,12 +44,31 @@ tier = "operator"
 # (`Starting test run` 02:00:51.213 -> `BATCH_COMPLETE` 02:00:51.362) while the capture
 # landed at 02:00:51.420, so the PNG read `idle | 8 passed` with `Cancel` greyed - a
 # picture of RESULTS under a label claiming a running batch. `Periodicity` is NINE
-# batch-eligible SPACECENTER declarations of re-aim END-TO-END tests, each solving
-# Lambert transfers across five synodic windows, which is orders of magnitude more work
-# per test than a `TrajectoryMath` assertion. (c) Its four `*_FeasibilitySweep_Diagnostic`
-# cells carry `AllowBatchExecution = false` and are batch-skipped by design, so
-# `discovered=` counts thirteen and the batch runs nine - which is why `discovered=` is
-# REGEXED here rather than pinned.
+# batch-eligible SPACECENTER declarations of re-aim END-TO-END tests solving Lambert
+# transfers across five synodic windows, and it is the LONGEST SPACECENTER CATEGORY ON
+# RECORD - which is a modest thing to be, so the numbers are here rather than an
+# "orders of magnitude" claim. (c) Its four `*_FeasibilitySweep_Diagnostic` cells carry
+# `AllowBatchExecution = false` and are batch-skipped by design, so `discovered=` counts
+# thirteen and the batch runs nine - which is why `discovered=` is REGEXED here rather
+# than pinned.
+#
+# THE MARGIN IS ~1 s AND ONE TEST CARRIES IT, measured off the accepted flight
+# (`2026-09-21_2305`): the batch ran 02:06:14.714 -> 02:06:16.140, i.e. 1.43 s, and 816 ms
+# of that is ONE cell (`Reaim_KerbinToEeloo_BandWalk_...`); the other eight are 22-140 ms
+# each. So the nine cells do not collectively outlast the poll - one of them does.
+#
+# THEREFORE: THE PNG IS THE PRODUCT OF THIS LABEL AND THE `.gui.json` BESIDE IT IS
+# TIMING-DEPENDENT. On the accepted flight the screenshot request landed at
+# 02:06:14.829 - 115 ms in, about 1 s of margin - and the PNG reads
+# `RUNNING | 2 passed 0 failed 4 skipped` with `Cancel` ENABLED, which is reproducible.
+# The DUMP was written at 02:06:16.124, SIXTEEN MILLISECONDS before `BATCH_COMPLETE`, and
+# reads `RUNNING | 7 passed ... 0 failed 4 skipped` with `Periodicity (8/13)`: correct by
+# a coin flip. A re-flight may well write an IDLE dump and still pass every contract here,
+# because the dump pin is `dumpguitree ok ... patched=17/17` and says nothing about the
+# batch. That is deliberate rather than an oversight - a pin that required a running dump
+# would make this lane flaky on a 16 ms race - and it is why the dump step is KEPT (a
+# control-tree dump of the runner window is worth having either way) while the claim this
+# label makes rests on the image.
 #
 # `running=true` IS PINNED as a log contract and that is the instrument rather than a
 # decoration: if the batch had already finished when the op answered, this lane's PNG is
@@ -120,7 +139,9 @@ steps = [
   { cmd = "UiAction", args = { op = "expand", window = "testrunner", key = "category:Periodicity", state = "true" }, expect = "OK" },
 
   # --- THE RUNNING STATE. Everything after this step but the capture pair waits for the
-  # batch; the pair is admitted by the six-verb relaxation.
+  # batch; the pair is admitted by the six-verb relaxation. THE PNG IS THIS LABEL'S
+  # PRODUCT AND THE DUMP IS TIMING-DEPENDENT - the accepted flight wrote it 16 ms before
+  # `BATCH_COMPLETE`. See the header.
   { cmd = "UiAction", args = { op = "run", window = "testrunner", category = "Periodicity", await = "false" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "rr-testrunner-running-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "rr-testrunner-running-advanced" }, expect = "OK" },

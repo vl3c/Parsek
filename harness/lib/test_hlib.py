@@ -8764,13 +8764,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # well as in each spec's header, because it is the one thing a future re-harvest
         # could silently violate.
         "GUI-24-census-timeline-filters.toml":
-                                       "tier=operator by CADENCE (capture host) AND by MECHANISM: it stages the operator-local `c1-gui`, so no other machine can fly it. Owed: the ordinary promotion call.",
+                                       "tier=operator by CADENCE (capture host) AND by MECHANISM: it stages the operator-local `c1-gui`, so no other machine can fly it. FLOWN PASS 2026-09-22 (run _2327, attempt 1, 62 s, 8 PNG + 8 dumps). Its first flight _2252 was also PASS (88 s) but carried two Career captures that photographed no fold - the `Pending in timeline` fold needs a DIVERGING career, not a long one - so those two steps were dropped and _2327 is the record. Owed: the ordinary promotion call.",
         "GUI-25-census-missions-state-sort-edit.toml":
-                                       "tier=operator by CADENCE (capture host). Owed: the ordinary promotion call.",
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2316, attempt 1, 66 s, 11 PNG + 10 dumps). Three earlier runs are not the record: _2254 and _2255 read INVALID(driver-verdict-mismatch) on this lane's own `edit-not-drawn` (a recording inside a grouped display block, which `op=expand key=all` cannot open), and _2258 PASSED every contract with its dialog PNG hidden behind the full-width Logistics window. Owed: the ordinary promotion call.",
         "GUI-26-census-createroute-and-running-batch.toml":
-                                       "tier=operator by CADENCE (capture host). Owed: the ordinary promotion call.",
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2305, attempt 1, 59 s, 2 PNG + 1 dump). Its first flight _2300 PASSED every contract with BOTH captures wrong (the modal hidden behind the Logistics window, and the runner photographed idle because the TrajectoryMath batch finished in 149 ms). The accepted run's PNG is the product of the running-batch label; the dump beside it was written 16 ms before BATCH_COMPLETE and is timing-dependent. Owed: the ordinary promotion call.",
         "GUI-27-census-missions-include.toml":
-                                       "tier=operator by CADENCE (capture host). Owed: the ordinary promotion call.",
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2304, attempt 1, 58 s, 3 PNG + 3 dumps) - the only lane of the wave whose FIRST flight is its record. Owed: the ordinary promotion call.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are

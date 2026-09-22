@@ -2618,11 +2618,14 @@ WHAT THE AUDIT GOT WRONG, corrected here and in the spec headers rather than inh
 
 AUTHORED AND FLOWN 2026-09-22, ALL FOUR GREEN, on ONE pinned automation DLL (deployed
 sha256 `d3a4dbbfc23d9d1e9c6cd166075c53e769e3e89d8629b6cfcfb3b89fd0f5518e`, built from the
-authoring worktree, re-asserted after the last flight and never moved). NINE flights: 6
-PASS and 3 non-green, every lane's FINAL verdict PASS on attempt 1, measured walls 55-88 s.
-THE THREE NON-GREEN ARE ALL ONE LANE'S OWN SPEC (GUI-25 runs `_2254` / `_2255`, both
-`INVALID(driver-verdict-mismatch)` on the same `edit-not-drawn`); none is a product
-failure.
+authoring worktree, re-asserted after the last flight and never moved). NINE flights,
+counted off the nine result JSONs: 7 PASS and 2 INVALID, every lane's FINAL verdict PASS
+on attempt 1, measured walls 55-88 s. BOTH NON-GREEN ARE ONE LANE'S OWN SPEC (GUI-25 runs
+`_2254` and `_2255`, both `INVALID(driver-verdict-mismatch)` on the same
+`edit-not-drawn`); neither is a product failure. Three of the seven PASSes are SUPERSEDED
+rehearsals of specs that changed afterwards and are not the record: `_2252` (GUI-24, with
+the two Career captures that photographed nothing), `_2258` (GUI-25, its dialog PNG
+hidden) and `_2300` (GUI-26, both captures wrong).
 
 THE WAVE'S SHARPEST PRODUCT IS FOUR CORRECTIONS THE FLIGHTS FORCED, and every one was
 invisible to the log contracts - three of the four were runs that PASSED every pinned line
@@ -2651,11 +2654,27 @@ over a picture showing the wrong thing:
     `TrajectoryMath` batch ran in 149 ms (`Starting test run` 02:00:51.213 ->
     `BATCH_COMPLETE` 02:00:51.362) and the capture landed at 02:00:51.420. The category
     moved to `Periodicity`, whose nine batch-eligible cells solve Lambert transfers, and
-    the re-flight reads `RUNNING | 2 passed 0 failed 4 skipped` with `Cancel` ENABLED and
-    the other three buttons greyed. The lesson is general: `running=` is read at DISPATCH,
-    so it is necessary and never sufficient - the PNG is the check.
+    the re-flight's PNG reads `RUNNING | 2 passed 0 failed 4 skipped` with `Cancel`
+    ENABLED and the other three buttons greyed. THE MARGIN IS THIN AND WORTH STATING:
+    `Periodicity` is the longest SPACECENTER category on record at 1.43 s
+    (02:06:14.714 -> 02:06:16.140) and 816 ms of that is ONE of its nine cells, so the
+    screenshot - requested 115 ms in - is reproducible, while the `.gui.json` beside it
+    was written 16 ms before `BATCH_COMPLETE` and reads `RUNNING | 7 passed ...`
+    `Periodicity (8/13)`: correct by a coin flip. THE PNG IS THE PRODUCT OF THAT LABEL AND
+    THE DUMP IS TIMING-DEPENDENT; a re-flight may write an idle dump and still pass every
+    contract, because the dump pin is `patched=` and says nothing about the batch. The
+    lesson is general: `running=` is read at DISPATCH, so it is necessary and never
+    sufficient - the image is the check.
 
 All four are filed in `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22`.
+
+AND ONE PRODUCT FINDING, the wave's only one: a route name's arrow renders as a
+MISSING-GLYPH BOX in both uGUI route confirms (`ib-dlg-deleteroute.png` reads
+`Delete route 'Route: KSC [box] Mun'?`). The composed name is correct and the IMGUI
+Logistics window in the SAME frame renders it three times over - the dump beside that PNG
+carries U+2192 in the row, the caret and the round-trip note - so the fault is the
+TextMeshPro font KSP's dialog canvas uses, which has no glyph for it. Filed as item 8 of
+the same entry; not fixed, since this PR adds no C#.
 
 WHICH BUILD THE NINE FLIGHTS RAN, stated because the branch merged `origin/main` AFTER
 them: the pinned DLL is this branch at `064ec857` plus `origin/main` at `854412858`, so it
@@ -2713,9 +2732,9 @@ GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT.
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
 | GUI-24-census-timeline-filters | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2327`, attempt 1, 62 s, 8 PNG + 8 dumps, every dump `patched=17/17`; its first flight `_2252` was also PASS at 88 s but carried the two Career captures that photographed nothing). ALL EIGHT TIMELINE STATES LANDED, verified toggle by toggle in the dumps against a baseline that reads all three sources ON: `Actions=False` (361 nodes), `Events=False` (247), `Recordings=False` (210) - so two of the three filters visibly DROP ROWS; `Archived=True` at 370 nodes, UNCHANGED from the baseline, which is the measured proof of the no-archived-row finding; `Custom=True` with `From:` / `To:` present (zero hits program-wide before); `This Year=True` (363) and `Last Day=True` (123) - the preset really filtered; and `scrollY want=600 after=600` unclamped, so the entry list is genuinely longer than the viewport and the scrolled PNG is a lower band. | D14 `career`, `scene-ksc` |
-| GUI-25-census-missions-state-sort-edit | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2316`, attempt 1, 66 s, 11 PNG + 10 dumps; preceded by `_2254` / `_2255` INVALID on this lane's own `edit-not-drawn` and `_2258` PASS whose dialog PNG was hidden - both corrected, see above). MEASURED: the Info toggle's SIX extra columns present in the tree (`MaxAlt` `MaxSpd` `Dist` `Pts` `Start` `End`, 1147 nodes against 877) - zero hits program-wide before; the sort arrow AND the row order both move (`Name ▼` puts the groups `#5, #4, #3, Duna Supply 1`, `Duration ▲` puts them `#3, #4, Duna Supply 1, #5`), and `Status ▼` appears TWICE in the Logistics dump, which is the measured proof that one sort state drives both route tables; both archive checkboxes FLIP against their baselines (Recordings tab `True`->`False`, the opposite label sense; Missions tab `False`->`True`); all three editors drew a real `textfield` node carrying its draft (`Draft recording name` at the Probe row, `Draft group name` on the `Kerbal X #3` header, `Draft mission title`), and the group arm's COMMIT of the rival recording draft is visible in the same dump as `├─ Draft recording name`; the `Confirm: Delete Route` modal photographed over the Space Center with `Delete` / `Cancel`; and the linked pair reads `Round-trip linked to 'Route: KSC -> Mun'` / `'... Duna'` with `Unlink` ENABLED on both and `Cadence: 2x (~7.9d)` against the partner's `1x (every window)`. | D14 `sandbox`, `scene-ksc` |
+| GUI-25-census-missions-state-sort-edit | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2316`, attempt 1, 66 s, 11 PNG + 10 dumps; preceded by `_2254` / `_2255` INVALID on this lane's own `edit-not-drawn` and `_2258` PASS whose dialog PNG was hidden - both corrected, see above). MEASURED: the Info toggle's SIX extra columns present in the tree (`MaxAlt` `MaxSpd` `Dist` `Pts` `Start` `End`, 1147 nodes against 877) - zero hits program-wide before; the sort arrow AND the row order both move (`Name` descending puts the groups `#5, #4, #3, Duna Supply 1`, `Duration` ascending puts them `#3, #4, Duna Supply 1, #5`), and a `Status` arrow appears TWICE in the Logistics dump, which is the measured proof that one sort state drives both route tables; both archive checkboxes FLIP against their baselines (Recordings tab `True`->`False`, the opposite label sense; Missions tab `False`->`True`); all three editors drew a real `textfield` node carrying its draft (`Draft recording name` at the Probe row, `Draft group name` on the `Kerbal X #3` header, `Draft mission title`), and the group arm's COMMIT of the rival recording draft is visible in the same dump as "|- Draft recording name"; the `Confirm: Delete Route` modal photographed over the Space Center with `Delete` / `Cancel`; and the linked pair reads `Round-trip linked to 'Route: KSC -> Mun'` / `'... Duna'` with `Unlink` ENABLED on both and `Cadence: 2x (~7.9d)` against the partner's `1x (every window)`. | D14 `sandbox`, `scene-ksc` |
 | GUI-26-census-createroute-and-running-batch | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2305`, attempt 1, 59 s, 2 PNG + 1 dump; its first flight `_2300` was PASS on every contract with BOTH captures wrong - see above). MEASURED: the `Create Supply Route?` confirm over the Space Center, reading `Origin: Kerbin (Runway)` / `Endpoint: Kerbin (0.006 deg, -74.726 deg, 66m)` / `LiquidFuel: 97.6` / three inventory items / `Transit: 45s` with all THREE buttons (`Create Paused`, `Create and Activate`, `Cancel`) - the route-creation workflow's only modal and the first picture of it. And the test runner MID-BATCH: `RUNNING \| 2 passed 0 failed 4 skipped (624 total)` with `Cancel` ENABLED and `Run All` / `Run All + Isolated` / `Reset` all greyed, which no `await=true` capture can produce. | D14 `sandbox`, `scene-ksc` |
-| GUI-27-census-missions-include | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2304`, attempt 1, 58 s, 3 PNG + 3 dumps). All three include forms landed and the counts are in the dumps: `key=none` -> `excluded=3`, 8 of 20 checkboxes still ticked at 402 nodes; `key=all` -> `excluded=0 links=1`, 15 of 22 ticked at 435 nodes, and THE PARTNER JOURNEY IS REAL - `uiaction select link ... link=4fe5e39e0ae94b86b1a6ed2949369155 include=true` with the node count rising 402 -> 435, which is the foreign-subtree renderer's first coverage anywhere; and the mixed tab from `key=vessel:a32f62f5...` -> `head=a32f62f52dc84d6a94daf93460ec6548 vessel=Kerbal X keysChanged=2`, 12 of 22 ticked. | D14 `sandbox`, `scene-ksc` |
+| GUI-27-census-missions-include | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2304`, attempt 1, 58 s, 3 PNG + 3 dumps). All three include forms landed and the counts are in the dumps, counted over the `Parsek - Missions` ROOT ONLY (a dump is process-wide, so the kRPC window contributes three more toggles with one ticked - an earlier draft of this row counted those too and read 8/20, 15/22, 12/22): `key=none` -> `excluded=3`, 7 of 17 checkboxes still ticked at 402 nodes; `key=all` -> `excluded=0 links=1`, 14 of 19 ticked at 435 nodes, and THE PARTNER JOURNEY IS REAL - `uiaction select link ... link=4fe5e39e0ae94b86b1a6ed2949369155 include=true` with the node count rising 402 -> 435, which is the foreign-subtree renderer's first coverage anywhere (and is also why the toggle total itself moves, 17 -> 19); and the mixed tab from `key=vessel:a32f62f5...` -> `head=a32f62f52dc84d6a94daf93460ec6548 vessel=Kerbal X keysChanged=2`, 11 of 19 ticked. | D14 `sandbox`, `scene-ksc` |
 
 ### The GS-2/GS-3 orbital-deploy lane, all three LIVE-PROVEN (3)
 
