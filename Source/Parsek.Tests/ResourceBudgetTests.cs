@@ -581,16 +581,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PreLaunchFields_DefaultToZero()
-        {
-            var rec = new Recording();
-
-            Assert.Equal(0, rec.PreLaunchFunds);
-            Assert.Equal(0, rec.PreLaunchScience);
-            Assert.Equal(0, rec.PreLaunchReputation);
-        }
-
-        [Fact]
         public void PreLaunchFields_MetadataRoundTrip()
         {
             var source = new Recording

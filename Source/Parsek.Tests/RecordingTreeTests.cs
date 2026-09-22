@@ -1257,18 +1257,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TreeFormatVersion_MissingOnCurrentTreeLoad_DefaultsZero()
+        public void TreeFormatVersion_MissingOnCurrentTreeLoad_DefaultsZeroAndKeepsTree()
         {
+            var source = new RecordingTree
+            {
+                Id = "tree_delta",
+                TreeName = "Delta Test",
+                RootRecordingId = "rec_d"
+            };
+            source.Recordings["rec_d"] = new Recording
+            {
+                RecordingId = "rec_d",
+                VesselName = "Ship D",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
             var node = new ConfigNode("RECORDING_TREE");
-            node.AddValue("id", "tree_delta");
-            node.AddValue("treeName", "Delta Test");
-            node.AddValue("rootRecordingId", "rec_d");
-            node.AddValue("recordingSchemaGeneration",
-                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
+            source.Save(node);
 
+            // Missing version on a current-generation tree: loads as version 0 AND the
+            // tree survives - a missing key is not a reason to drop the tree.
+            node.RemoveValue("treeFormatVersion");
             var tree = RecordingTree.Load(node);
 
             Assert.Equal(0, tree.TreeFormatVersion);
+            Assert.Equal("rec_d", tree.RootRecordingId);
+            Assert.True(tree.Recordings.ContainsKey("rec_d"));
+
+            // A present value is parsed, not replaced: a sentinel the writer never emits
+            // (CurrentTreeFormatVersion is 0) distinguishes the parse from the default.
+            node.AddValue("treeFormatVersion", "7");
+            Assert.Equal(7, RecordingTree.Load(node).TreeFormatVersion);
         }
 
         // --- Edge cases ---
