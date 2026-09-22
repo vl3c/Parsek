@@ -2072,7 +2072,8 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `Key_SameFindingTwice_IsStable` -> `Key_SeparateInstancesSameShape_EqualKeys_RuleStillDistinguishes`:
     the cell compared `KeyOf(f)` with itself. It now keys two separate findings with
     numerically drifted messages (equal keys) and a different RuleId (different key).
-    RED under both mutants, each on the named cell alone: the register's default-key stub
+    RED under both mutants (17 passed / 3 failed each: the named cell plus two pre-existing
+    Gate / Apply / MultiMatch cells that also key findings): the register's default-key stub
     (`mutations/F-analyzer-002-02-default-phaseB.patch`) and a digest-mask drop
     (`mutations/F-analyzer-002-02-phaseB.patch`). The old cell stays GREEN under the
     default-key stub.
