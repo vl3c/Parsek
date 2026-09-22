@@ -8396,6 +8396,7 @@ class UnityExceptionScanTests(unittest.TestCase):
         }
         armed = {}
         armed_parsek_frames = {}
+        armed_throw_site = {}
         declared = set()
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
@@ -8408,16 +8409,23 @@ class UnityExceptionScanTests(unittest.TestCase):
                 if hlib.UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY in block:
                     armed_parsek_frames[name] = block.get(
                         hlib.UNITY_EXCEPTIONS_MAX_PARSEK_FRAMES_KEY)
-        self.assertEqual(sorted(set(expected) | set(self.ARMED_MAX_PARSEK_FRAMES)),
+                if hlib.UNITY_EXCEPTIONS_MAX_PARSEK_THROW_SITE_KEY in block:
+                    armed_throw_site[name] = block.get(
+                        hlib.UNITY_EXCEPTIONS_MAX_PARSEK_THROW_SITE_KEY)
+        self.assertEqual(sorted(set(expected) | set(self.ARMED_MAX_PARSEK_FRAMES)
+                                | set(self.ARMED_MAX_PARSEK_THROW_SITE)),
                          sorted(declared),
                          "a committed spec outside the armed allowlist armed the scan")
-        # The declared VALUES, not just the membership. A declared block arming neither
-        # key gates NOTHING (it degrades to the same report-only an absent block gets),
-        # so it cannot appear in `declared` without appearing in one of the two tables.
+        # The declared VALUES, not just the membership. A declared block arming no key
+        # gates NOTHING (it degrades to the same report-only an absent block gets), so it
+        # cannot appear in `declared` without appearing in one of the three tables.
         self.assertEqual(expected, armed,
                          "an armed ceiling moved without its evidence moving with it")
         self.assertEqual(self.ARMED_MAX_PARSEK_FRAMES, armed_parsek_frames,
                          "a maxParsekFrames arming moved without its evidence moving with it")
+        self.assertEqual(self.ARMED_MAX_PARSEK_THROW_SITE, armed_throw_site,
+                         "a maxParsekThrowSite arming moved without its evidence moving "
+                         "with it")
 
     # `maxParsekFrames` arming (todo UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES, roadmap
     # "Priority register (2026-09-11)" item C1). A `Parsek.` frame in an exception stack
@@ -8444,6 +8452,28 @@ class UnityExceptionScanTests(unittest.TestCase):
         # disk); control host `_1939` (total 2, both stock / MechJeb after the quit).
         # W1 arms no maxTotal.
         "W1-watch-distance-cutoff.toml": 0,
+    }
+
+    # `maxParsekThrowSite` arming (operator ruling 2026-09-22 on todo
+    # UNITY-PARSEK-FRAME-CALLER-SHAPE: split the metric). For the two lanes whose Parsek
+    # frames are all CALLERS of a stock throw, so `maxParsekFrames = 0` would red every
+    # run. A lane arms it only when the offline sweep read parsekThrowSite 0 on every log
+    # it has; the offline negative control (known-gate 11) appends S0.7
+    # `2026-07-30_1833`'s real throw-site `ArithmeticException` record to the latest log
+    # and reds on exactly one mismatch, while V15T `2026-09-10_1917`'s caller-shape NRE
+    # record appended still PASSES. `UnityStackScanTests.
+    # test_throw_site_lanes_red_only_on_an_injected_throw_site` re-drives it headlessly.
+    ARMED_MAX_PARSEK_THROW_SITE = {
+        # 5 unique runs / 6 collected logs (`2026-08-24_1924`, `_1926`, `_2000`,
+        # `2026-08-25_0016`, `2026-09-10_2102` = `2026-09-11_0004` local): parsekFrames 6,
+        # parsekThrowSite 0 in each (`TimeJumpManager.PutLoadedVesselsOnRails` over the
+        # stock wheel NRE, todo V23M-FORWARD-JUMP-PACKS-LANDED-WHEELS). Control host
+        # `2026-09-10_2102`.
+        "V23M-mun-landing-player-loop.toml": 0,
+        # 3 collected logs (`2026-09-09_1922`, `_1929`, `_2001`): parsekFrames 1,
+        # parsekThrowSite 0 in each (the seam's `LoadGameImpl` over a stock scene-switch
+        # NRE). Control host `_2001`.
+        "RF-11-both-slots-in-sequence.toml": 0,
     }
 
     def test_over_budget_classifies_parsek_fail(self):
@@ -8721,6 +8751,200 @@ class UnityStackScanTests(unittest.TestCase):
         self.assertEqual(1, len(warn))
         self.assertIn("maxParsekFrames", warn[0])
         self.assertIn("maxTotal", warn[0])
+
+    # THROW SITE vs CALLER (operator ruling 2026-09-22, todo
+    # UNITY-PARSEK-FRAME-CALLER-SHAPE). The throw site is the block's first non-BCL frame
+    # line; each excerpt below pins one shape.
+    THROW_SITE_EXC = (
+        "[EXC 12:00:04.000] NullReferenceException: Object reference not set to an instance of an object\n"
+        "\tParsek.GhostMapPresence.EnsureGhostOrbitRenderers () (at <0a1b2c3d>:0)\n"
+        "\tParsek.Patches.GhostTrackingBuildVesselsListPatch:Prefix()\n"
+        "\tUnityEngine.DebugLogHandler:LogException(Exception, Object)\n")
+    # V23M's measured caller shape (trimmed): a stock throw several frames below Parsek.
+    CALLER_EXC = (
+        "[EXC 00:03:36.474] NullReferenceException\n"
+        "\tVehiclePhysics.VPWheelCollider.OnDisableVehicle () (at <4b449f2841f84227adfaad3149c8fdba>:0)\n"
+        "\tUnityEngine.DebugLogHandler:LogException(Exception, Object)\n"
+        "\tPart:Pack()\n"
+        "\tVessel:Vessel.GoOnRails_Patch1(Vessel)\n"
+        "\tParsek.TimeJumpManager:PutLoadedVesselsOnRails()\n"
+        "\tParsek.TimeJumpManager:ExecuteForwardJump(Double)\n")
+    # RF-11's measured ERR / EXC twin: the [ERR] stack stops at the dispatch.
+    TWIN = (
+        "[ERR 19:22:33.072] Exception handling event onGameSceneLoadRequested in class SpaceCenterCamera2:System.NullReferenceException: Object reference not set to an instance of an object\n"
+        "  at SpaceCenterCamera2.OnSceneSwitch (GameScenes scene) [0x00000] in <4b449f2841f84227adfaad3149c8fdba>:0 \n"
+        "  at EventData`1[T].Fire (T data) [0x000b0] in <4b449f2841f84227adfaad3149c8fdba>:0 \n"
+        "\n"
+        "[EXC 19:22:33.072] NullReferenceException: Object reference not set to an instance of an object\n"
+        "\tSpaceCenterCamera2.OnSceneSwitch (GameScenes scene) (at <4b449f2841f84227adfaad3149c8fdba>:0)\n"
+        "\tEventData`1:Fire(GameScenes)\n"
+        "\tHighLogic:HighLogic.LoadScene_Patch1(GameScenes)\n"
+        "\tFlightDriver:StartAndFocusVessel(Game, Int32)\n"
+        "\tParsek.TestCommands.ParsekTestCommandAddon:LoadGameImpl(ParsedCommand)\n")
+    # S0.7 `2026-07-30_1833`'s measured shape (trimmed): Parsek passes NaN to the BCL.
+    BCL_THROW_EXC = (
+        "[EXC 18:33:01.552] ArithmeticException: Function does not accept floating point Not-a-Number values.\n"
+        "\tSystem.Math.Sign (System.Double value) (at <9577ac7a62ef43179789031239ba8798>:0)\n"
+        "\tParsek.BallisticExtrapolator+TwoBodyOrbit.SolveHyperbolicKepler (System.Double meanAnomaly, System.Double eccentricity) (at <a955>:0)\n"
+        "\tParsek.FlightRecorder.OnPhysicsFrame (Vessel v) (at <a955>:0)\n")
+
+    def split(self, st):
+        # The invariant every shape keeps: the two halves partition parsekFrames.
+        self.assertEqual(st.parsek_frames, st.parsek_throw_site + st.parsek_caller)
+        self.assertEqual(st.parsek_throw_site, sum(st.parsek_throw_site_sites.values()))
+        return (st.parsek_frames, st.parsek_throw_site, st.parsek_caller)
+
+    def test_parsek_innermost_frame_is_a_throw_site(self):
+        st = self.scan(self.THROW_SITE_EXC)
+        self.assertEqual((1, 1, 0), self.split(st))
+        self.assertEqual({"Parsek.GhostMapPresence.EnsureGhostOrbitRenderers": 1},
+                         st.parsek_throw_site_sites)
+
+    def test_parsek_frame_below_a_stock_throw_is_a_caller(self):
+        for text in (self.CALLER_EXC, self.PARSEK_EXC):
+            with self.subTest(text=text[:30]):
+                st = self.scan(text)
+                self.assertEqual((1, 0, 1), self.split(st))
+                self.assertEqual({}, st.parsek_throw_site_sites)
+
+    def test_err_exc_twin_reads_neither_then_caller(self):
+        # The [ERR] record's stack is the stock handler alone (no Parsek frame at all);
+        # the [EXC] twin carries the Parsek caller. Nothing reads as a throw site.
+        st = self.scan(self.TWIN)
+        self.assertEqual(2, st.counts["NullReferenceException"])
+        self.assertEqual((1, 0, 1), self.split(st))
+
+    def test_err_shape_parsek_handler_that_threw_is_a_throw_site(self):
+        st = self.scan(self.PARSEK_ERR)
+        self.assertEqual((1, 1, 0), self.split(st))
+
+    def test_bcl_frames_are_transparent_to_the_throw_site(self):
+        # Math.Sign(NaN), Dictionary.get_Item, Enumerable.First: the BCL throws for its
+        # caller's arguments, so the first NON-BCL frame is the throw site.
+        for text, site in ((self.BCL_THROW_EXC,
+                            "Parsek.BallisticExtrapolator+TwoBodyOrbit.SolveHyperbolicKepler"),
+                           (self.UNCOUNTED_EXC, "Parsek.RecordingStore.Foo"),
+                           (self.UNCOUNTED_ERR, "Parsek.ParsekFlight.OnVesselDestroy")):
+            with self.subTest(site=site):
+                st = self.scan(text)
+                self.assertEqual((1, 1, 0), self.split(st))
+                self.assertEqual({site: 1}, st.parsek_throw_site_sites)
+
+    def test_only_the_bcl_is_transparent(self):
+        # A Unity, KSP or other-mod frame first is a real stock throw site, so the
+        # Parsek frame under it is a caller; `SystemHeat.` is not the `System.` namespace.
+        header = "[EXC 12:00:05.000] NullReferenceException: x\n"
+        for first in ("\tUnityEngine.Object:get_name()\n",
+                      "  at (wrapper managed-to-native) UnityEngine.Object.GetName(UnityEngine.Object)\n",
+                      "\tFlightGlobals.get_ActiveVessel () (at <4b44>:0)\n",
+                      "\tSystemHeat.Modules.Foo:Bar()\n",
+                      "\tMonoBehaviourExt:Run()\n"):
+            with self.subTest(first=first.strip()):
+                st = self.scan(header + first + "\tParsek.WatchModeController:GetActiveVesselSafe()\n")
+                self.assertEqual((1, 0, 1), self.split(st))
+        for first in ("  at System.Collections.Generic.Dictionary`2[TKey,TValue].get_Item (TKey key) [0x0] in <x>:0\n",
+                      "  at (wrapper managed-to-native) System.Math.Sign(double)\n",
+                      "\tMono.Something:Throw()\n"):
+            with self.subTest(first=first.strip()):
+                st = self.scan(header + first + "\tParsek.WatchModeController:GetActiveVesselSafe()\n")
+                self.assertEqual((1, 1, 0), self.split(st))
+
+    def test_message_continuation_lines_are_not_the_throw_site(self):
+        # A multi-line exception message and a blank line precede the first frame.
+        text = ("[EXC 12:00:06.000] InvalidOperationException: first line of message\n"
+                "second line of the message, no parens here\n"
+                "\n"
+                "\tParsek.RecordingStore:Foo()\n"
+                "\tUnityEngine.DebugLogHandler:LogException(Exception, Object)\n")
+        self.assertEqual((1, 1, 0), self.split(self.scan(text)))
+
+    def test_truncated_and_stock_only_stacks_count_in_neither(self):
+        header = self.PARSEK_EXC.splitlines()[0] + "\n"
+        st = self.scan(header + self.LOG + self.STOCK_EXC + self.STOCK_ERR + header)
+        self.assertEqual((0, 0, 0), self.split(st))
+
+    def test_throw_site_rule_mutations_are_caught(self):
+        # Mutation-style: each half of the rule is load-bearing. Were BCL frames not
+        # transparent, S0.7's shape would flip to caller; were the throw site "any
+        # Parsek frame", V23M's caller shape would flip to throw site.
+        saved = hlib.UNITY_THROW_SITE_TRANSPARENT_FRAME
+        try:
+            hlib.UNITY_THROW_SITE_TRANSPARENT_FRAME = re.compile(r"(?!)")
+            self.assertEqual((1, 0, 1), self.split(self.scan(self.BCL_THROW_EXC)))
+        finally:
+            hlib.UNITY_THROW_SITE_TRANSPARENT_FRAME = saved
+        saved = hlib.UNITY_STACK_FRAME
+        try:
+            hlib.UNITY_STACK_FRAME = re.compile(r"^\s*(?:at\s+)?Parsek\.")
+            self.assertEqual((1, 1, 0), self.split(self.scan(self.CALLER_EXC)))
+        finally:
+            hlib.UNITY_STACK_FRAME = saved
+        self.assertEqual((1, 0, 1), self.split(self.scan(self.CALLER_EXC)))
+
+    def test_max_parsek_throw_site_gates_only_on_the_throw_site_subset(self):
+        # Callers (V23M, RF-11 shapes) pass it at any count; one throw site reds it.
+        callers = self.CALLER_EXC * 6 + self.TWIN
+        r = self._eval(callers, {"maxParsekThrowSite": 0})
+        self.assertEqual(("PASS", True, 7, 0, 7),
+                         (r.status, r.gating, r.parsek_frames, r.parsek_throw_site,
+                          r.parsek_caller))
+        r = self._eval(callers + self.BCL_THROW_EXC, {"maxParsekThrowSite": 0})
+        self.assertEqual(("unityExceptions.parsekThrowSite 1 > maxParsekThrowSite 0 "
+                          "(Parsek.BallisticExtrapolator+TwoBodyOrbit.SolveHyperbolicKepler=1)",),
+                         r.mismatches)
+        self.assertEqual((0, None, None), (r.max_parsek_throw_site, r.max_total,
+                                           r.max_parsek_frames))
+        self.assertEqual("PASS", self._eval(callers + self.BCL_THROW_EXC,
+                                            {"maxParsekThrowSite": 1}).status)
+        # All three armed and all three over: three mismatches in key order.
+        r = self._eval(callers + self.BCL_THROW_EXC,
+                       {"maxTotal": 1, "maxParsekFrames": 0, "maxParsekThrowSite": 0})
+        self.assertEqual(3, len(r.mismatches))
+        self.assertIn("maxTotal 1", r.mismatches[0])
+        self.assertIn("maxParsekFrames 0", r.mismatches[1])
+        self.assertIn("maxParsekThrowSite 0", r.mismatches[2])
+
+    def test_max_parsek_throw_site_without_a_stack_scan_fails_closed(self):
+        r = hlib.evaluate_unity_exceptions({"NullReferenceException": 0},
+                                           {"maxParsekThrowSite": 0})
+        self.assertEqual("FAIL", r.status)
+        self.assertEqual(("unityExceptions.parsekThrowSite unmeasured (no stack scan) "
+                          "with maxParsekThrowSite 0 armed",), r.mismatches)
+
+    def test_report_only_block_carries_the_split(self):
+        r = self._eval(self.CALLER_EXC + self.THROW_SITE_EXC, None)
+        self.assertEqual((hlib.UNITY_EXCEPTIONS_STATUS_REPORT, 2, 1, 1),
+                         (r.status, r.parsek_frames, r.parsek_throw_site, r.parsek_caller))
+        self.assertEqual({"Parsek.GhostMapPresence.EnsureGhostOrbitRenderers": 1},
+                         r.parsek_throw_site_sites)
+
+    def test_block_validation_accepts_the_throw_site_ceiling(self):
+        ok = hlib.validate_unity_exception_expectations
+        self.assertEqual([], ok({"maxParsekThrowSite": 0}))
+        self.assertEqual([], ok({"maxTotal": 6, "maxParsekFrames": 0, "maxParsekThrowSite": 0}))
+        for bad in ({"maxParsekThrowSite": -1}, {"maxParsekThrowSite": "0"},
+                    {"maxParsekThrowSite": True}, {"maxParsekThrowSites": 0},
+                    {"maxParsekThrowSite": 0.0}):
+            with self.subTest(block=bad):
+                self.assertTrue(ok(bad), bad)
+        self.assertEqual([], hlib.unity_exception_expectation_warnings({"maxParsekThrowSite": 0}))
+        self.assertIn("maxParsekThrowSite", hlib.unity_exception_expectation_warnings({})[0])
+
+    def test_throw_site_lanes_red_only_on_an_injected_throw_site(self):
+        # The headless shape of the offline negative control, through each COMMITTED
+        # spec's own block: the lane's own caller shape passes, one appended throw site
+        # reds on exactly the parsekThrowSite mismatch.
+        armed = UnityExceptionScanTests.ARMED_MAX_PARSEK_THROW_SITE
+        self.assertTrue(armed)
+        callers = self.CALLER_EXC + self.TWIN + self.QUIT + self.STOCK_EXC
+        for name in sorted(armed):
+            with self.subTest(spec=name):
+                block = load_spec(name)["expectations"][hlib.UNITY_EXCEPTIONS_BLOCK]
+                self.assertEqual("PASS", self._eval(callers, block).status)
+                r = self._eval(callers + self.THROW_SITE_EXC, block)
+                self.assertEqual("FAIL", r.status)
+                self.assertEqual(1, len(r.mismatches), r.mismatches)
+                self.assertIn("parsekThrowSite 1 > maxParsekThrowSite 0", r.mismatches[0])
 
     def test_armed_lanes_red_on_an_injected_parsek_frame(self):
         # The headless shape of the offline negative control, through each COMMITTED

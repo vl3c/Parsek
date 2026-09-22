@@ -140,7 +140,13 @@ id = "RF-11-both-slots-in-sequence"
 # because the key the restore reads is `resumeRewindSave`.
 #
 # The 9 report-only `NullReferenceException`s the unityExceptions row carries are ALL
-# stock `SpaceCenterCamera2.UpdateTransformOverview` with no Parsek frame in any stack.
+# stock `SpaceCenterCamera2.UpdateTransformOverview`, read by eye as having no Parsek frame.
+# CORRECTED 2026-09-22: the stack-reading scan finds one NRE in each of the 3 collected
+# logs that carries a Parsek CALLER frame (the `[EXC]` twin of the
+# `SpaceCenterCamera2.OnSceneSwitch` NRE, under the seam's own
+# `Parsek.TestCommands.ParsekTestCommandAddon.LoadGameImpl` scene load), so
+# `maxParsekFrames` stays unarmed; the throw-site count is 0 in all 3 and
+# `maxParsekThrowSite = 0` is ARMED (todo UNITY-PARSEK-FRAME-CALLER-SHAPE, see the block).
 # `tier = "operator"`.
 # =====================================================================================
 tier = "operator"
@@ -287,6 +293,16 @@ gating        = true
 rewindPoints  = { min = 0, max = 0 }
 supersedeRows = { min = 4 }
 tombstones    = { min = 8 }
+
+[expectations.unityExceptions]
+# `maxParsekThrowSite = 0` ARMED 2026-09-22 (operator ruling on todo
+# UNITY-PARSEK-FRAME-CALLER-SHAPE: split the metric). The 3 collected logs
+# (`2026-09-09_1922`, `_1929`, `_2001`) read parsekFrames 1 / parsekThrowSite 0 /
+# parsekCaller 1 each: the stock scene-switch NRE under the seam's `LoadGameImpl`.
+# `maxTotal` stays report-only (totals 10, 9, 11, all stock). Negative control
+# discharged OFFLINE (autotest-status known-gate 11): the latest log plus one injected
+# real throw-site Parsek exception reds on exactly one mismatch.
+maxParsekThrowSite = 0
 
 [runtime]
 # Budget arithmetic (M-A5 S8), deferred verbs at max(step,600)+60 and the rest at
