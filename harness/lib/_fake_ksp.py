@@ -249,9 +249,23 @@ def main(argv=None):
                             "id=%s cmd=%s verdict=REJECTED seq=%d "
                             "msg=kind-arg-invalid kind=%s\n" % (cid, cmd, seq, kind))
                     continue
+                # kind=chains: the optional expectDigest= comparison, answered as the
+                # seam answers it (the digest is fixed here, one chain, so a smoke leg
+                # can drive both the match and the mismatch by what it substitutes).
+                tail = ""
+                if kind == "chains":
+                    tail = " evaluated=true digest=%s" % _FAKE_CHAINS_DIGEST
+                    expect = fields.get("expectDigest")
+                    if expect is not None:
+                        match = "true" if expect == _FAKE_CHAINS_DIGEST else "false"
+                        handles = handles.replace(
+                            "digest=%s" % _FAKE_CHAINS_DIGEST,
+                            "digest=%s expected=%s match=%s"
+                            % (_FAKE_CHAINS_DIGEST, expect, match), 1)
+                        tail += " expected=%s match=%s" % (expect, match)
                 _append(log_path,
                         "[LOG] [Parsek][INFO][TestCommands] listhandles kind=%s "
-                        "count=1 truncated=false\n" % kind)
+                        "count=1 truncated=false%s\n" % (kind, tail))
                 _append(responses_path, "id=%s cmd=%s verdict=OK seq=%d %s\n"
                         % (cid, cmd, seq, handles))
                 continue
@@ -332,7 +346,15 @@ def _list_handles_payload(kind):
     if kind == "active":
         return ("kind=active tree=tree_fake0 activeRec=rec_fake0 activePid=100000 "
                 "bg=1 truncated=false bg0pid=100001 bg0rec=rec_fake1")
+    if kind == "chains":
+        return ("kind=chains count=1 truncated=false evaluated=true digest=%s "
+                "chain0pid=100000 chain0links=1 chain0tip=rec_fake0 "
+                "chain0spawnUT=1234.5 chain0terminated=false" % _FAKE_CHAINS_DIGEST)
     return None
+
+
+# The fake chain set's digest (any eight lowercase hex digits; the stub does not hash).
+_FAKE_CHAINS_DIGEST = "0badc0de"
 
 
 def _drop_recording(root):

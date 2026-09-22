@@ -10,6 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the command seam can read back the flight scene's ghost chains.**
+  `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
+  recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this
+  flight scene derived its chains at all) and a stable `digest=` over the whole set. An
+  optional `expectDigest=` compares the set against an earlier capture and answers
+  `match=`, so a lane can prove the chains a new scene derives after a save and reload
+  equal the ones it had before. The family waits for `OnFlightReady` before answering,
+  because a load completes before the chains are derived. The save-parse verifier gains a
+  `ghostChainNodes` structure window, a tripwire that reads 0 on every save today because
+  chain state is never persisted. The new lane `CI-3-chain-rederive-readback` uses both:
+  after a rewind, the flight scene turns the docking partner into a ghost, and the
+  chain set reads back identical after a quicksave round trip in which that vessel is
+  no longer in the save. That proves the chains are re-derived, and it claims the D18
+  cells `ghost-conversion-quicksave` and `chain-state-rederived`. No game behavior
+  changed outside the automation seam.
 - **Automated testing: two more ghost-chain coverage cells are claimed on an existing lane.**
   `V26T-interbody-route-ts-arrival` already printed both on every run from its fixture's
   committed chains: a recording refused a spawn because it is an intermediate link of a

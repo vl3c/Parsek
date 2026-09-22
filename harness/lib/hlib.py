@@ -2108,7 +2108,22 @@ RUNTESTS_STRICT_VALUES: Tuple[str, ...] = ("true", "false")
 # enforced separately in validate_spec, because this table models CLOSED values
 # and a missing key is not a value.
 LISTHANDLES_KIND_KEY = "kind"
-LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active")
+LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active",
+                                             "chains")
+
+# `ListHandles kind=chains expectDigest=<hex8>`: the OPTIONAL readback comparison.
+# NOT a closed-value arg (its value is a digest, normally `${<label>.digest}` from an
+# earlier chains capture), so it cannot ride VERB_SCOPED_CLOSED_ARGS; validate_spec
+# checks it by hand. The seam REJECTS it on any other family
+# (`expect-digest-kind-mismatch`) and on any value that is not eight lowercase hex
+# digits (`expect-digest-invalid`), both after a whole boot.
+LISTHANDLES_EXPECT_DIGEST_KEY = "expectDigest"
+LISTHANDLES_EXPECT_DIGEST_RE = re.compile(r"^[0-9a-f]{8}$")
+# The seam's two refusal reasons for the arg, byte-equal to
+# `TestCommandListHandles.ExpectDigestKindMismatchReason` / `ExpectDigestInvalidReason`
+# (pinned by ListHandlesSourceSyncTests).
+LISTHANDLES_EXPECT_DIGEST_KIND_MISMATCH_REASON = "expect-digest-kind-mismatch"
+LISTHANDLES_EXPECT_DIGEST_INVALID_REASON = "expect-digest-invalid"
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
 # validate_spec, so a fifth such arg is one row rather than a fifth copied block.
@@ -3360,6 +3375,44 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 "driver.steps[%d].args: %s only mean anything on op=rect, but this step "
                 "is op=%s -- they would be silently ignored"
                 % (index, ",".join(stray), op))
+    return errors
+
+
+def validate_list_handles_expect_digest(index: int, cmd: str,
+                                        step_args: Dict) -> List[str]:
+    """Pre-launch check of ``ListHandles kind=chains expectDigest=``: only that verb
+    and family read it, and its value must be a handle reference or eight lowercase
+    hex digits. Each fault is a typed REJECTED that would otherwise cost a boot."""
+    errors: List[str] = []
+    for key in step_args:
+        if (isinstance(key, str) and key != LISTHANDLES_EXPECT_DIGEST_KEY
+                and key.lower() == LISTHANDLES_EXPECT_DIGEST_KEY.lower()):
+            errors.append(
+                "driver.steps[%d].args.%s: the seam arg is spelled %r exactly (the C# "
+                "lookup is case-sensitive), so this key would be sent and silently "
+                "ignored" % (index, key, LISTHANDLES_EXPECT_DIGEST_KEY))
+    if LISTHANDLES_EXPECT_DIGEST_KEY not in step_args:
+        return errors
+    if cmd != "ListHandles":
+        errors.append(
+            "driver.steps[%d].args.%s: only the ListHandles verb reads it, but this "
+            "step is %r -- the arg would be silently ignored"
+            % (index, LISTHANDLES_EXPECT_DIGEST_KEY, cmd))
+        return errors
+    if step_args.get(LISTHANDLES_KIND_KEY) != "chains":
+        errors.append(
+            "driver.steps[%d].args.%s: only kind=chains computes a digest; the seam "
+            "answers REJECTED %s on any other family"
+            % (index, LISTHANDLES_EXPECT_DIGEST_KEY,
+               LISTHANDLES_EXPECT_DIGEST_KIND_MISMATCH_REASON))
+    raw = step_args.get(LISTHANDLES_EXPECT_DIGEST_KEY)
+    if not (isinstance(raw, str) and (value_is_handle_templated(raw)
+                                      or LISTHANDLES_EXPECT_DIGEST_RE.match(raw))):
+        errors.append(
+            "driver.steps[%d].args.%s: %r must be ${<label>.digest} or eight lowercase "
+            "hex digits; the seam answers REJECTED %s otherwise"
+            % (index, LISTHANDLES_EXPECT_DIGEST_KEY, raw,
+               LISTHANDLES_EXPECT_DIGEST_INVALID_REASON))
     return errors
 
 
@@ -5464,6 +5517,7 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 "seam answers REJECTED kind-arg-missing."
                 % (i, LISTHANDLES_KIND_KEY,
                    " or ".join(repr(v) for v in LISTHANDLES_KIND_VALUES)))
+        errors.extend(validate_list_handles_expect_digest(i, cmd, step_args))
         # GUI census: the two verbs whose required args and per-op arg sets cannot be
         # expressed by the flat closed-value table above. Same purpose as the
         # ListHandles block: catch a spec fault pre-launch instead of after a boot.

@@ -9577,6 +9577,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "2026-09-08 (reading _1100, armed _1105 PASS, negative control _1106); "
             "stays operator because it rewinds and jumps a harvested docking fixture, "
             "the discipline's own reason, not a tag",
+        "CI-3-chain-rederive-readback.toml":
+            "operator by the reading-run discipline (CI-2's host and reason): the D18 "
+            "ghost-conversion-quicksave and chain-state-rederived cells, a rewind plus a "
+            "mid-re-fly SaveGame/LoadGame round trip over a harvested docking fixture",
         # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-10, authored 2026-09-08 and 2026-09-09).
         # All eleven
         # are `operator` by the READING-RUN discipline and none owes a human call.
@@ -10615,6 +10619,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2, recordings 22 incl. the re-fly provisional the merge keeps,
                        # branchPoints Dock 1 / Undock 1 / JointBreak 10, terminals as measured).
                        "CI-2-refly-claim-tip-pid.toml",
+                       # CI-3: `structure` armed 2026-09-22 off three readings
+                       # (`2026-09-22_1951` rp2, `_1954` / `_1956` rp1) with identical
+                       # facets, including the ghostChainNodes tripwire at 0.
+                       "CI-3-chain-rederive-readback.toml",
                        # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
                        # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and
                        # the merged-main confirmation - plus its own negative control
@@ -22670,3 +22678,120 @@ def _cs_array_block(text, array_name):
             if depth == 0:
                 return text[open_at:i + 1]
     return None
+
+
+class ListHandlesExpectDigestValidationTests(unittest.TestCase):
+    """`ListHandles kind=chains expectDigest=`: the readback comparison arg. Each
+    fault below is a typed REJECTED on the seam, found only after a whole boot."""
+
+    def _errs(self, cmd, args):
+        return hlib.validate_list_handles_expect_digest(3, cmd, args)
+
+    def test_chains_family_is_in_the_closed_kind_set(self):
+        self.assertIn("chains", hlib.LISTHANDLES_KIND_VALUES)
+
+    def test_absent_arg_is_fine_on_every_family(self):
+        for kind in hlib.LISTHANDLES_KIND_VALUES:
+            with self.subTest(kind=kind):
+                self.assertEqual([], self._errs("ListHandles", {"kind": kind}))
+
+    def test_a_handle_reference_or_a_digest_is_accepted_on_chains(self):
+        for raw in ("${before.digest}", "0a1b2c3d"):
+            with self.subTest(raw=raw):
+                self.assertEqual([], self._errs(
+                    "ListHandles", {"kind": "chains", "expectDigest": raw}))
+
+    def test_other_family_is_refused(self):
+        errs = self._errs("ListHandles", {"kind": "committed", "expectDigest": "0a1b2c3d"})
+        self.assertTrue(any("expect-digest-kind-mismatch" in e for e in errs), errs)
+
+    def test_bad_value_is_refused(self):
+        for raw in ("0A1B2C3D", "0a1b2c3", "", "digest"):
+            with self.subTest(raw=raw):
+                errs = self._errs("ListHandles", {"kind": "chains", "expectDigest": raw})
+                self.assertTrue(any("expect-digest-invalid" in e for e in errs), errs)
+
+    def test_other_verb_and_case_variant_key_are_refused(self):
+        errs = self._errs("RecordingState", {"expectDigest": "0a1b2c3d"})
+        self.assertTrue(any("only the ListHandles verb" in e for e in errs), errs)
+        errs = self._errs("ListHandles", {"kind": "chains", "expectdigest": "0a1b2c3d"})
+        self.assertTrue(any("spelled 'expectDigest' exactly" in e for e in errs), errs)
+
+
+class ListHandlesSourceSyncTests(unittest.TestCase):
+    """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandListHandles.cs`.
+    hlib's closed `kind=` set and its `expectDigest=` key and refusal reasons are a
+    MIRROR of that file, and a drift is invisible until a boot answers a REJECTED the
+    pre-launch validator said could not happen (or the reverse: a family the seam
+    accepts, refused pre-launch).
+
+    The C# is read as CODE: every line is stripped of its `//` comment
+    (quote-aware, `strip_cs_line_comment`) before anything is matched, so the
+    doc comments that quote these very literals cannot count. The kind set is taken
+    from the `case <X>KindToken:` labels inside `ParseKind`'s own body (what the
+    parse ACCEPTS), resolved through the `const string` declarations."""
+
+    PATH = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandListHandles.cs")
+
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.isfile(cls.PATH):
+            raise AssertionError("the C# ListHandles half moved; this mirror is "
+                                 "vacuous: %s" % cls.PATH)
+        with open(cls.PATH, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        cls.code = "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+        cls.consts = dict(re.findall(
+            r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', cls.code))
+
+    def _parse_kind_body(self):
+        head = re.search(r"\bstatic\s+bool\s+ParseKind\s*\(", self.code)
+        self.assertIsNotNone(head, "ParseKind declaration not found")
+        start = self.code.index("{", head.end())
+        depth, i = 0, start
+        while True:
+            ch = self.code[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.code[start:i + 1]
+            i += 1
+
+    def test_the_accepted_kind_set_equals_hlibs_closed_set(self):
+        labels = re.findall(r"\bcase\s+(\w+)\s*:", self._parse_kind_body())
+        self.assertTrue(labels, "no case labels parsed out of ParseKind")
+        accepted = {self.consts[name] for name in labels}
+        self.assertEqual(set(hlib.LISTHANDLES_KIND_VALUES), accepted)
+        self.assertEqual(len(hlib.LISTHANDLES_KIND_VALUES), len(labels))
+
+    def test_the_expect_digest_key_and_reasons_are_byte_equal(self):
+        self.assertEqual(hlib.LISTHANDLES_EXPECT_DIGEST_KEY,
+                         self.consts["ExpectDigestArgKey"])
+        self.assertEqual(hlib.LISTHANDLES_EXPECT_DIGEST_KIND_MISMATCH_REASON,
+                         self.consts["ExpectDigestKindMismatchReason"])
+        self.assertEqual(hlib.LISTHANDLES_EXPECT_DIGEST_INVALID_REASON,
+                         self.consts["ExpectDigestInvalidReason"])
+
+    def test_the_comment_strip_is_not_decorative(self):
+        """Anti-vacuity: a synthetic source whose COMMENT names a fifth family and a
+        commented-out case must parse to the real labels only."""
+        synthetic = "\n".join([
+            '        internal const string AKindToken = "a"; // "b" in prose',
+            '        // internal const string BKindToken = "b";',
+            "        internal static bool ParseKind(string raw)",
+            "        {",
+            "            switch (raw)",
+            "            {",
+            "                case AKindToken: return true;",
+            "                // case BKindToken: return true;",
+            "            }",
+            "            return false;",
+            "        }",
+        ])
+        code = "\n".join(strip_cs_line_comment(l) for l in synthetic.split("\n"))
+        consts = dict(re.findall(
+            r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', code))
+        self.assertEqual({"AKindToken": "a"}, consts)
+        self.assertEqual(["AKindToken"], re.findall(r"\bcase\s+(\w+)\s*:", code))
