@@ -671,10 +671,10 @@ _(unreleased — entries accumulate here per commit)_
 
 - **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
   Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's
-  hook on that rebuild repaired any ghost missing its orbit line. During shutdown (or while
-  Parsek itself was removing every ghost) that repair rebuilt objects that were already
-  being destroyed, and stock code threw with Parsek on the stack. The repair now stands
-  down once the game is quitting or while all ghosts are being removed; nothing changes
+  hook on that rebuild repaired any ghost missing its orbit line. During shutdown that
+  repair rebuilt objects that were already being destroyed, and stock code threw with
+  Parsek on the stack. The repair now stands down once the game is quitting (and, as a
+  narrower extra guard, while Parsek's remove-all-ghosts loop is running); nothing changes
   during play.
 
 - **A supply route's overview line no longer disappears wholesale while a ghost flies one

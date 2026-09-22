@@ -517,6 +517,11 @@ namespace Parsek
         /// than <see cref="ghostTeardownDepth"/>: the single-ghost removers raise that one
         /// while the OTHER ghosts stay alive and may still need an orbit-renderer repair,
         /// whereas inside a remove-all every tracked ghost is about to be destroyed.
+        /// SCOPE: this guards only SYNCHRONOUS re-entry while the loop runs. Stock
+        /// <c>Vessel.Die()</c> fires <c>onVesselWillDestroy</c> and then <c>Object.Destroy</c>,
+        /// which Unity defers to the end of the frame, so <c>onVesselDestroy</c> (the event
+        /// SpaceTracking rebuilds on) fires from <c>Vessel.OnDestroy</c> AFTER this counter
+        /// has dropped back to zero. It does not cover that path.
         /// </summary>
         private static int removeAllGhostVesselsDepth;
 
@@ -9646,14 +9651,18 @@ namespace Parsek
         /// on ghosts missing their renderer. Must be called after all Awake methods
         /// complete (e.g., from a buildVesselsList Prefix or from Start). (#195)
         ///
-        /// <para>The repair is skipped while the application is quitting or while
-        /// <see cref="RemoveAllGhostVessels"/> is killing every ghost: each ghost's
-        /// <c>Die()</c> / <c>OnDestroy</c> fires stock <c>onVesselDestroy</c>, SpaceTracking
-        /// rebuilds its list, and the buildVesselsList Prefix lands here for ghosts that are
-        /// themselves about to be destroyed in the same teardown. Rebuilding their
+        /// <para>The repair is skipped while the application is quitting: Unity's quit
+        /// teardown runs every vessel's <c>OnDestroy</c>, which fires stock
+        /// <c>onVesselDestroy</c>, SpaceTracking rebuilds its list, and the buildVesselsList
+        /// Prefix lands here for ghosts that are themselves being destroyed. Rebuilding their
         /// MapObject then throws inside stock (<c>MapObject.Awake</c> /
         /// <c>FlightGlobals.ActiveVessel</c>) with Parsek frames on the stack, and the
-        /// repaired renderer would not outlive the teardown anyway.</para>
+        /// repaired renderer would not outlive the teardown anyway. The quit latch is what
+        /// covers that observed NRE. The repair is also skipped while
+        /// <see cref="RemoveAllGhostVessels"/>'s Die loop is on the stack, which guards only
+        /// synchronous re-entry during the loop: <c>Die()</c> defers the destroy, so the
+        /// <c>onVesselDestroy</c> rebuilds it causes run after the loop, outside that scope
+        /// (see <see cref="removeAllGhostVesselsDepth"/>).</para>
         /// </summary>
         internal static int EnsureGhostOrbitRenderers()
         {
