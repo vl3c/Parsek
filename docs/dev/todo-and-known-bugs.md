@@ -4062,7 +4062,9 @@ re-home and the recovery XP path do not, and the load-time `MigrateKerbalAssignm
 compares whole per-recording row sets without going through the dedup. Pinned through the
 real commit path by
 `OnRecordingCommitted_TwoRecordingsSameKerbal002sApart_BothKeepTheirRows` and its mirror,
-`OnRecordingCommitted_SameRecordingRecommitted_StillDedups`.
+`OnRecordingCommitted_SameRecordingRecommitted_StillDedups`. LIVE: RF-12S's armed re-flight on
+the fixed DLL (`2026-09-22_2010`) read the provisional's `dedup=2` (was 4) and `2 reservations
+remain (permanent=0 temporary=2)` (was 0).
 
 ## TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. OPEN, needs two design decisions]
 

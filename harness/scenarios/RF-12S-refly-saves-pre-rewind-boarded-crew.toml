@@ -47,6 +47,10 @@ id = "RF-12S-refly-saves-pre-rewind-boarded-crew"
 # merge should read `2 reservations remain (permanent=0 temporary=2)` instead of 0; every
 # other count (Kerbal=4, tombstones=12, supersedeRows=5) is unchanged, because the
 # provisional is outside the superseded closure. The side finding below is now FIXED.
+# ARMED RE-FLIGHT on the dedup-fixed DLL (`689f4033`): `2026-09-22_2010`, PASS attempt 1
+# (`dedup=2` for the provisional, `2 reservations remain (permanent=0 temporary=2)`,
+# Kerbal=4, tombstones=12). Control, offline: the new token reds on exactly that one
+# entry against the endUT-only runs `_1931` / `_1937`, and `_1928` (main) reds on 9.
 #
 # A MEASURED SIDE FINDING a reader will trip over: the merge leaves ZERO reservations,
 # not two temporary ones, because the new provisional's own crew rows never reach the
