@@ -3544,8 +3544,42 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         self.assertEqual(
             {"trees": 0, "committedTrees": 0, "recordings": 0,
              "terminalStates": {}, "branchPoints": {},
-             "duplicateRecordingIds": []},
+             "duplicateRecordingIds": [], "ghostChainNodes": 0},
             obs["recordings"]["structure"])
+
+    def test_no_committed_fixture_persists_ghost_chain_state(self):
+        """Ghost chains are re-derived on every flight load, never saved. Every
+        committed fixture's persistent.sfs reads zero on the tripwire - including the
+        ones carrying the crew-slot CHAIN_ENTRY node, which the name set excludes."""
+        readings = {}
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            path = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(path):
+                continue
+            snap = saveparse.parse_parsek_scenario(_read(path))
+            if snap.parsed and snap.scenario_found:
+                readings[name] = snap.ghost_chain_nodes
+        self.assertTrue(readings)
+        self.assertEqual({}, {k: v for k, v in readings.items() if v})
+
+    def test_ghost_chain_tripwire_counts_named_nodes_at_any_depth(self):
+        text = "\n".join([
+            "GAME", "{", "\tSCENARIO", "\t{", "\t\tname = ParsekScenario",
+            "\t\tGHOST_CHAINS", "\t\t{", "\t\t\tGHOST_CHAIN", "\t\t\t{",
+            "\t\t\t\tCHAIN_LINK", "\t\t\t\t{", "\t\t\t\t}", "\t\t\t}",
+            "\t\t}", "\t\tKERBALS", "\t\t{", "\t\t\tCHAIN_ENTRY", "\t\t\t{",
+            "\t\t\t}", "\t\t}", "\t}", "}", ""])
+        snap = saveparse.parse_parsek_scenario(text)
+        self.assertTrue(snap.parsed, snap.error)
+        self.assertEqual(3, snap.ghost_chain_nodes)
+        exp = {"recordings": {"structure": {"gating": True,
+                                            "ghostChainNodes": {"max": 0}}}}
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            exp["recordings"]["structure"]))
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.structure.ghostChainNodes 3 > max 0",),
+                         r.mismatches)
 
 
 class SpecSurfaceValidationTests(unittest.TestCase):

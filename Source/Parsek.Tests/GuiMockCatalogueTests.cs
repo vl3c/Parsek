@@ -239,11 +239,12 @@ namespace Parsek.Tests
         [Fact]
         public void EveryMockableWindowIsRefusedInAModeThatHidesIt()
         {
-            // Basic HIDES the Kerbals and Career launchers and the mode switch
-            // force-closes both, so a Basic apply would photograph a window no player can
-            // open. Checked against the PRODUCTION visibility predicate rather than a
-            // per-state pin, which is why design 7.1's per-state Mode field was dropped.
-            Assert.False(GuiMockCatalogue.IsMockableInMode(
+            // Basic HIDES the Career launcher and the mode switch force-closes it, so a
+            // Basic apply would photograph a window no player can open. Checked against the
+            // PRODUCTION visibility predicate rather than a per-state pin, which is why
+            // design 7.1's per-state Mode field was dropped. Kerbals draws in Basic since
+            // the 2026-09-22 owner re-ruling, so it is mockable in both modes.
+            Assert.True(GuiMockCatalogue.IsMockableInMode(
                 GuiMockSession.KerbalsWindow, UiComplexityMode.Basic));
             Assert.False(GuiMockCatalogue.IsMockableInMode(
                 GuiMockSession.CareerWindow, UiComplexityMode.Basic));
@@ -348,9 +349,9 @@ namespace Parsek.Tests
             KerbalsPresentation.RosterRow lost = set.Involved.Concat(set.Plain)
                 .Single(r => r.Status == KerbalsPresentation.RosterStatus.Lost);
             Assert.Equal("Jebediah Kerman", lost.Name);
-            // The Since cell is dated - which only the real builder can do, from the
-            // flight that produced the loss.
-            Assert.NotEqual(KerbalsPresentation.EmptyCell, lost.SinceText);
+            // The status hover names the mission - which only the real builder can do,
+            // from the flight that produced the loss.
+            Assert.Contains("Mun Landing 1", lost.StatusTooltipText);
             Assert.NotEqual(KerbalsPresentation.EmptyCell, lost.LastFlightText);
         }
 
@@ -376,15 +377,18 @@ namespace Parsek.Tests
         public void TheTwoDeepChainStateProducesADisplacedMemberAndAnActiveOne()
         {
             GuiMockState state = GuiMockCatalogue.ById("kerbals.roster.chain-two-deep");
-            // The chain only DRAWS when its row is expanded, so the state has to say so.
-            Assert.Contains("Jebediah Kerman", state.ExpandKeys);
+            // Stand-ins are rows of their own under the owner since the slot grouping, so
+            // the state expands nothing.
+            Assert.Empty(state.ExpandKeys);
 
             GuiMockPayload payload = state.Build();
             KerbalsPresentation.RosterRowSet set = payload.Kerbals.Value.Roster;
             KerbalsPresentation.RosterRow owner = set.Involved.Concat(set.Plain)
                 .Single(r => r.Name == "Jebediah Kerman");
-            Assert.Equal(2, owner.Chain.Count);
-            var chainStatuses = owner.Chain.Select(m => m.Status).ToList();
+            Assert.Equal(2, owner.SlotMemberCount);
+            var chainStatuses = set.Involved
+                .Where(r => r.Depth == 1 && r.SlotOwnerName == "Jebediah Kerman")
+                .Select(r => r.MemberStatus.Value).ToList();
             Assert.Contains(KerbalsWindowUI.ChainMemberStatus.Active, chainStatuses);
             Assert.Contains(KerbalsWindowUI.ChainMemberStatus.Displaced, chainStatuses);
         }
@@ -394,8 +398,9 @@ namespace Parsek.Tests
         {
             KerbalsPresentation.RosterRow row = StandInRow("kerbals.roster.standin-aboard");
             Assert.False(string.IsNullOrEmpty(row.StatusTooltipText),
-                "an active stand-in who is aboard a craft carries the only hover text in "
-                + "the whole window, and this is the state that photographs it");
+                "an active stand-in who is aboard a craft whose name overflows the cell "
+                + "carries the vessel in its hover text, and this is the state that "
+                + "photographs it");
             Assert.DoesNotContain("aboard", row.StatusText, StringComparison.Ordinal);
         }
 
@@ -418,7 +423,7 @@ namespace Parsek.Tests
             string inline = KerbalsPresentation.FormatStatus(
                 KerbalsPresentation.RosterStatus.StandIn,
                 name: "Lars Kerman", slotOwnerName: shortestStockName,
-                reservation: null, assignedVesselName: "X", formatDate: null);
+                hold: null, assignedVesselName: "X", assignedVesselIsEva: false);
             Assert.DoesNotContain("aboard", inline, StringComparison.Ordinal);
             Assert.True(
                 ("Stand-in for " + shortestStockName + " (aboard X)").Length

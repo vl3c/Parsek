@@ -317,7 +317,8 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-refly-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
-  # kerbals (Advanced only - Basic hides its launcher)
+  # kerbals (drawn in both modes since the 2026-09-22 owner re-ruling; its Basic picture
+  # is GUI-11's `bdk-kerbals-roster-basic`)
   { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
@@ -408,8 +409,8 @@ steps = [
   { cmd = "UiAction", args = { op = "close", window = "testrunner" }, expect = "OK" },
 
   # --- Basic pass ---
-  # The mode switch itself CLOSES the gated, lock-owning windows (career, kerbals,
-  # testrunner, gloops, spawncontrol, group picker) and clamps the Missions window's tab
+  # The mode switch itself CLOSES the gated, lock-owning windows (career, testrunner,
+  # gloops, spawncontrol, group picker) and clamps the Missions window's tab
   # to index 0. Everything is already shut here, so the switch is only doing the surface
   # gating - which is the thing being photographed.
   { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },

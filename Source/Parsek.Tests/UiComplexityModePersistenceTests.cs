@@ -308,7 +308,7 @@ namespace Parsek.Tests
             Assert.Equal(UiComplexityMode.Basic, ParsekUI.PendingUiComplexityModeForTesting);
             Assert.Equal(UiComplexityMode.Advanced, ParsekUI.AppliedUiComplexityMode);
             Assert.True(UiSurfaceVisibility.IsVisible(
-                UiSurface.MainButtonKerbals, ParsekUI.AppliedUiComplexityMode));
+                UiSurface.MainButtonCareer, ParsekUI.AppliedUiComplexityMode));
             Assert.DoesNotContain(logLines, l => l.Contains("Mode changed: uiComplexityMode="));
 
             ParsekUI.ApplyPendingUiComplexityModeIfAny();
@@ -316,7 +316,7 @@ namespace Parsek.Tests
             Assert.Null(ParsekUI.PendingUiComplexityModeForTesting);
             Assert.Equal(UiComplexityMode.Basic, ParsekUI.AppliedUiComplexityMode);
             Assert.False(UiSurfaceVisibility.IsVisible(
-                UiSurface.MainButtonKerbals, ParsekUI.AppliedUiComplexityMode));
+                UiSurface.MainButtonCareer, ParsekUI.AppliedUiComplexityMode));
         }
 
         // Both controllers can be alive across a scene handover and both call the apply

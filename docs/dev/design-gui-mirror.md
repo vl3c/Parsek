@@ -415,7 +415,11 @@ Compare header, and clicking one says why.
 One real state the corpus is still missing:
 `bdk-kerbals-roster-standin-chain-advanced`, which exists only in a shots
 directory nothing indexes. Adding it is a `--shots` argument, not a code change
-(`docs/dev/todo-and-known-bugs.md`).
+(`docs/dev/todo-and-known-bugs.md`). MOOT since 2026-09-22: the Kerbals Roster
+dropped the chain fold, so that state is gone from the product; and the Kerbals
+window now draws in Basic, so the gen7 regeneration (which indexes GUI-11
+`2026-09-22_2004`) holds a Basic Kerbals Roster capture and lists only Kerbals'
+Basic `outcomes` tab as missing - seven missing states, not nine.
 
 STALE BY FOUR LANES as of the same day: the wave-6 lanes `GUI-24` through
 `GUI-27` flew while this was being read and are not in the numbers above. The

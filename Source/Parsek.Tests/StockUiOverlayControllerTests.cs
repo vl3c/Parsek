@@ -154,7 +154,9 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// ReservedActive tooltip should identify the Parsek slot owner per §5.2. Fails if the overlay falls back to an ambiguous reservation message when slot ownership is available.
+        /// ReservedActive tooltip on a reserved STAND-IN names the owner whose seat he serves,
+        /// in the Kerbals window's words ("Reserved for &lt;owner&gt;"). Fails if the overlay
+        /// falls back to an ambiguous reservation message when slot ownership is available.
         /// </summary>
         [Fact]
         public void BuildApplicantMarks_ReservedActiveTooltipIncludesSlotOwner()
@@ -166,7 +168,56 @@ namespace Parsek.Tests
 
             var mark = Assert.Single(marks).Value;
             Assert.Equal(ApplicantOverlayKind.ReservedActive, mark.Kind);
-            Assert.Equal("Reserved by Parsek for slot 'Jebediah Kerman'", mark.Tooltip);
+            Assert.Equal("Reserved for Jebediah Kerman - held by a committed flight (Parsek)",
+                mark.Tooltip);
+        }
+
+        /// <summary>
+        /// The 2026-09-22 review's recommendation 9: a reserved slot OWNER is not reserved
+        /// "for slot 'himself'". Fails if the overlay goes back to naming the kerbal's own
+        /// slot on his own badge, which the Kerbals window's status cell already dropped.
+        /// </summary>
+        [Fact]
+        public void BuildApplicantMarks_AReservedOwnerIsNotReservedForHimself()
+        {
+            var marks = StockUiOverlayController.BuildApplicantMarks(
+                new[] { "Jebediah Kerman" },
+                _ => KerbalReservationKind.ReservedActive,
+                name => name);
+
+            var mark = Assert.Single(marks).Value;
+            Assert.Equal("Reserved - held by a committed flight (Parsek)", mark.Tooltip);
+            Assert.DoesNotContain("slot", mark.Tooltip);
+        }
+
+        /// <summary>
+        /// A permanent (death) reservation is ReservedActive to GetReservationKind; the badge
+        /// must still read the window's Lost, not Reserved.
+        /// </summary>
+        [Fact]
+        public void BuildApplicantMarks_APermanentReservationReadsLost()
+        {
+            var marks = StockUiOverlayController.BuildApplicantMarks(
+                new[] { "Jebediah Kerman", "Bill Kerman" },
+                _ => KerbalReservationKind.ReservedActive,
+                name => name,
+                name => name == "Jebediah Kerman");
+
+            Assert.Equal("Lost on a committed flight (Parsek)", marks["Jebediah Kerman"].Tooltip);
+            Assert.Equal(StockUiOverlayController.LostOverlayTooltip, marks["Jebediah Kerman"].Tooltip);
+            Assert.Equal("Reserved - held by a committed flight (Parsek)", marks["Bill Kerman"].Tooltip);
+        }
+
+        [Fact]
+        public void BuildApplicantMarks_TheRetiredBadgeReadsRetiredStandIn()
+        {
+            var marks = StockUiOverlayController.BuildApplicantMarks(
+                new[] { "Lars Kerman" },
+                _ => KerbalReservationKind.ReservedRetired);
+
+            var mark = Assert.Single(marks).Value;
+            Assert.Equal(StockUiOverlayController.RetiredStandInOverlayTooltip, mark.Tooltip);
+            Assert.Equal("Retired stand-in (Parsek)", mark.Tooltip);
         }
 
         /// <summary>

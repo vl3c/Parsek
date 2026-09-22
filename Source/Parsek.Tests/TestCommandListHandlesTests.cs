@@ -465,6 +465,258 @@ namespace Parsek.Tests
                 TestCommandListHandles.CountFromPayload(null, ListHandlesKind.Committed));
         }
 
+        // ----- chains family -----
+
+        private static ChainRow Chain(uint pid, int links, string tip, double spawnUt,
+            bool terminated = false)
+            => new ChainRow
+            {
+                Pid = pid,
+                Links = links,
+                TipRecordingId = tip,
+                SpawnUt = spawnUt,
+                Terminated = terminated,
+            };
+
+        [Fact]
+        public void ParseKind_accepts_chains_and_maps_it_to_its_own_member()
+        {
+            ListHandlesKind kind;
+            string reason;
+            Assert.True(TestCommandListHandles.ParseKind("chains", out kind, out reason));
+            Assert.Equal(ListHandlesKind.Chains, kind);
+            Assert.Null(reason);
+            Assert.Equal("chains", TestCommandListHandles.KindToken(kind));
+        }
+
+        [Theory]
+        [InlineData("Chains")]
+        [InlineData("chain")]
+        [InlineData("CHAINS")]
+        public void ParseKind_chains_is_case_sensitive_and_exact(string raw)
+        {
+            ListHandlesKind kind;
+            string reason;
+            Assert.False(TestCommandListHandles.ParseKind(raw, out kind, out reason));
+            Assert.Equal(TestCommandListHandles.KindArgInvalidReason, reason);
+        }
+
+        [Fact]
+        public void Chains_payload_emits_the_documented_key_sequence_in_pid_order()
+        {
+            var rows = new List<ChainRow>
+            {
+                Chain(3620499050u, 1, "37d0dc074351408ba0374230793abb1c", 8951.5),
+                Chain(7u, 2, "tipB", 100.25, terminated: true),
+            };
+            List<KeyValuePair<string, string>> payload =
+                TestCommandListHandles.BuildChainsPayload(rows, evaluated: true, expectedDigest: null);
+
+            Assert.Equal(new[]
+            {
+                "kind", "count", "truncated", "evaluated", "digest",
+                "chain0pid", "chain0links", "chain0tip", "chain0spawnUT", "chain0terminated",
+                "chain1pid", "chain1links", "chain1tip", "chain1spawnUT", "chain1terminated",
+            }, Keys(payload));
+            Dictionary<string, string> m = Map(payload);
+            Assert.Equal("chains", m["kind"]);
+            Assert.Equal("2", m["count"]);
+            Assert.Equal("false", m["truncated"]);
+            Assert.Equal("true", m["evaluated"]);
+            // Pid ascending, whatever order the live dictionary yielded.
+            Assert.Equal("7", m["chain0pid"]);
+            Assert.Equal("2", m["chain0links"]);
+            Assert.Equal("tipB", m["chain0tip"]);
+            Assert.Equal("100.25", m["chain0spawnUT"]);
+            Assert.Equal("true", m["chain0terminated"]);
+            Assert.Equal("3620499050", m["chain1pid"]);
+            Assert.Equal("8951.5", m["chain1spawnUT"]);
+            Assert.Equal("false", m["chain1terminated"]);
+        }
+
+        [Fact]
+        public void Chains_digest_is_pinned_fnv1a_and_empty_set_is_the_offset_basis()
+        {
+            // Pinned values, computed independently (FNV-1a 32 over the canonical lines).
+            // A change here moves every archived capture's digest, so it is a deliberate
+            // wire change, not a refactor.
+            Assert.Equal("811c9dc5", TestCommandListHandles.ChainsDigest(new List<ChainRow>()));
+            Assert.Equal("811c9dc5", TestCommandListHandles.ChainsDigest(null));
+            Assert.Equal("bbd83d3b", TestCommandListHandles.ChainsDigest(new List<ChainRow>
+            {
+                Chain(3620499050u, 1, "37d0dc074351408ba0374230793abb1c", 8951.5),
+            }));
+            // Order-independent: the digest sorts by pid itself.
+            var a = new List<ChainRow>
+            {
+                Chain(3620499050u, 1, "37d0dc074351408ba0374230793abb1c", 8951.5),
+                Chain(7u, 2, "tipB", 100.25, terminated: true),
+            };
+            var b = new List<ChainRow> { a[1], a[0] };
+            Assert.Equal("8952919c", TestCommandListHandles.ChainsDigest(a));
+            Assert.Equal("8952919c", TestCommandListHandles.ChainsDigest(b));
+        }
+
+        [Fact]
+        public void Chains_digest_moves_on_every_identity_field()
+        {
+            ChainRow baseRow = Chain(10u, 1, "tip", 50.0);
+            string d0 = TestCommandListHandles.ChainsDigest(new List<ChainRow> { baseRow });
+            var variants = new[]
+            {
+                Chain(11u, 1, "tip", 50.0),
+                Chain(10u, 2, "tip", 50.0),
+                Chain(10u, 1, "tiq", 50.0),
+                Chain(10u, 1, "tip", 50.000000000000007),
+                Chain(10u, 1, "tip", 50.0, terminated: true),
+            };
+            foreach (ChainRow v in variants)
+                Assert.NotEqual(d0, TestCommandListHandles.ChainsDigest(new List<ChainRow> { v }));
+        }
+
+        [Fact]
+        public void Chains_payload_and_digest_are_culture_invariant()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                var rows = new List<ChainRow> { Chain(7u, 2, "tipB", 100.25, terminated: true) };
+                Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
+                string invariant = TestCommandListHandles.ChainsDigest(rows);
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                List<KeyValuePair<string, string>> payload =
+                    TestCommandListHandles.BuildChainsPayload(rows, true, null);
+                Assert.Equal("100.25", Map(payload)["chain0spawnUT"]);
+                Assert.Equal(invariant, TestCommandListHandles.ChainsDigest(rows));
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
+        public void Chains_cap_truncates_the_listing_but_not_the_count_or_digest()
+        {
+            var rows = new List<ChainRow>();
+            for (uint i = 0; i < TestCommandListHandles.MaxChains + 2; i++)
+                rows.Add(Chain(i + 1, 1, "t" + i.ToString(CultureInfo.InvariantCulture), i));
+            List<KeyValuePair<string, string>> payload =
+                TestCommandListHandles.BuildChainsPayload(rows, true, null);
+            Dictionary<string, string> m = Map(payload);
+            Assert.Equal((TestCommandListHandles.MaxChains + 2).ToString(CultureInfo.InvariantCulture), m["count"]);
+            Assert.Equal("true", m["truncated"]);
+            Assert.Equal(TestCommandListHandles.MaxChains * 5 + 5, payload.Count);
+            // A difference in a chain the listing cut must still move the digest.
+            var changed = new List<ChainRow>(rows);
+            changed[changed.Count - 1] = Chain(changed[changed.Count - 1].Pid, 9, "x", 1);
+            Assert.NotEqual(m["digest"], TestCommandListHandles.ChainsDigest(changed));
+        }
+
+        [Fact]
+        public void Chains_payload_outside_flight_is_the_empty_unevaluated_answer()
+        {
+            List<KeyValuePair<string, string>> payload =
+                TestCommandListHandles.BuildChainsPayload(null, evaluated: false, expectedDigest: null);
+            Assert.Equal(new[] { "kind", "count", "truncated", "evaluated", "digest" }, Keys(payload));
+            Dictionary<string, string> m = Map(payload);
+            Assert.Equal("0", m["count"]);
+            Assert.Equal("false", m["evaluated"]);
+            Assert.Equal("811c9dc5", m["digest"]);
+        }
+
+        [Fact]
+        public void Chains_payload_with_expected_digest_answers_match()
+        {
+            var rows = new List<ChainRow>
+            {
+                Chain(3620499050u, 1, "37d0dc074351408ba0374230793abb1c", 8951.5),
+            };
+            List<KeyValuePair<string, string>> same =
+                TestCommandListHandles.BuildChainsPayload(rows, true, "bbd83d3b");
+            Assert.Equal(new[]
+            {
+                "kind", "count", "truncated", "evaluated", "digest", "expected", "match",
+                "chain0pid", "chain0links", "chain0tip", "chain0spawnUT", "chain0terminated",
+            }, Keys(same));
+            Assert.Equal("true", Map(same)["match"]);
+            Assert.Equal("bbd83d3b", Map(same)["expected"]);
+
+            List<KeyValuePair<string, string>> other =
+                TestCommandListHandles.BuildChainsPayload(rows, true, "811c9dc5");
+            Assert.Equal("false", Map(other)["match"]);
+        }
+
+        [Fact]
+        public void ParseExpectDigest_absent_is_a_plain_read_on_every_family()
+        {
+            string expected, reason;
+            Assert.True(TestCommandListHandles.ParseExpectDigest(
+                null, ListHandlesKind.Committed, out expected, out reason));
+            Assert.Null(expected);
+            Assert.Null(reason);
+            Assert.True(TestCommandListHandles.ParseExpectDigest(
+                null, ListHandlesKind.Chains, out expected, out reason));
+            Assert.Null(expected);
+        }
+
+        [Fact]
+        public void ParseExpectDigest_on_another_family_is_rejected()
+        {
+            string expected, reason;
+            Assert.False(TestCommandListHandles.ParseExpectDigest(
+                "bbd83d3b", ListHandlesKind.Committed, out expected, out reason));
+            Assert.Equal("expect-digest-kind-mismatch", reason);
+            Assert.Null(expected);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("BBD83D3B")]            // the digest is lowercase on the wire
+        [InlineData("bbd83d3")]
+        [InlineData("bbd83d3b0")]
+        [InlineData("bbd83d3g")]
+        [InlineData("${before.digest}")]    // an unsubstituted handle reaching the wire
+        public void ParseExpectDigest_rejects_everything_but_eight_lowercase_hex(string raw)
+        {
+            string expected, reason;
+            Assert.False(TestCommandListHandles.ParseExpectDigest(
+                raw, ListHandlesKind.Chains, out expected, out reason));
+            Assert.Equal("expect-digest-invalid", reason);
+        }
+
+        [Fact]
+        public void ParseExpectDigest_accepts_a_digest_on_chains()
+        {
+            string expected, reason;
+            Assert.True(TestCommandListHandles.ParseExpectDigest(
+                "0a1b2c3d", ListHandlesKind.Chains, out expected, out reason));
+            Assert.Equal("0a1b2c3d", expected);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void ChainsLogTail_reads_the_payload_and_is_empty_for_other_families()
+        {
+            var rows = new List<ChainRow> { Chain(1u, 1, "t", 2.0) };
+            List<KeyValuePair<string, string>> plain =
+                TestCommandListHandles.BuildChainsPayload(rows, true, null);
+            string digest = Map(plain)["digest"];
+            Assert.Equal(" evaluated=true digest=" + digest,
+                TestCommandListHandles.ChainsLogTail(plain, ListHandlesKind.Chains));
+
+            List<KeyValuePair<string, string>> compared =
+                TestCommandListHandles.BuildChainsPayload(rows, true, "811c9dc5");
+            Assert.Equal(" evaluated=true digest=" + digest + " expected=811c9dc5 match=false",
+                TestCommandListHandles.ChainsLogTail(compared, ListHandlesKind.Chains));
+
+            List<KeyValuePair<string, string>> committed =
+                TestCommandListHandles.BuildCommittedPayload(null);
+            Assert.Equal(string.Empty,
+                TestCommandListHandles.ChainsLogTail(committed, ListHandlesKind.Committed));
+            Assert.Equal("1", TestCommandListHandles.CountFromPayload(plain, ListHandlesKind.Chains));
+        }
+
         // ----- registration -----
 
         [Fact]

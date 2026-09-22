@@ -1299,6 +1299,18 @@ namespace Parsek
                 // (ConvertExperienceGained refuses a nameless event). Pinned by the
                 // two-crew cell in LedgerRecoveryKerbalExperienceTests.
                 case GameActionType.KerbalExperience: return a.KerbalName ?? "";
+                // KerbalAssignment: per (recording, kerbal). Falling through to "" made
+                // every assignment row collide with every other one inside the 0.1 s
+                // window, whatever the kerbal or recording (KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY,
+                // measured on RF-12S: a re-fly provisional's crew rows at UT 131.9 were
+                // dropped against the PRIOR re-fly's rows at 131.88, so a re-fly that killed
+                // them again lost its own death row; two split children starting at one UT
+                // lost the second child's crew the same way). A re-commit of the SAME
+                // recording still dedups. The only producer that sends this type through a
+                // dedup is OnRecordingCommitted step 3c; MigrateKerbalAssignments compares
+                // whole per-recording row sets and never passes through here.
+                case GameActionType.KerbalAssignment:
+                    return (a.RecordingId ?? "") + "|" + (a.KerbalName ?? "");
                 default: return "";
             }
         }

@@ -25,10 +25,22 @@ tier = "operator"
 #     load surface is gated elsewhere and its analyzer row needs no exemption.
 #
 # WHAT IT PHOTOGRAPHS (6 PNGs, each with a `<label>.gui.json` dump beside it): the Roster
-# tab closed, fully expanded, and with ONE owner row's replacement chain open; the
-# Flights tab with every group unfolded and with every group folded to its header line.
-# The closed/open pairs are the point - the fold is the "minimal, need-to-know" ruling made
-# visible, and a reviewer reads it as a diff.
+# tab closed, fully expanded, and in BASIC mode; the Flights tab with every group unfolded
+# and with every group folded to its header line. The closed/open pairs are the point -
+# the fold is the "minimal, need-to-know" ruling made visible, and a reviewer reads it as
+# a diff.
+#
+# THE 2026-09-22 ROUND (the Kerbals review's approved items). The Roster is GROUPED BY
+# SLOT: each stand-in is a row of its own drawn directly under the owner he covers, so
+# the per-owner chain fold is gone and with it the `roster:<name>` expand key - the
+# `roster:Bill Kerman` step and its `bdk-kerbals-roster-owner-chain-advanced` capture
+# were removed, and `roster:(available)` (the plain bucket) is the one Roster key left.
+# The Since column is gone; a reservation reads `Reserved: aboard <vessel>` with the
+# release rule in its hover (a reservation does not lift when its date passes -
+# `KerbalReservationReleaseTests`). And the window draws in BASIC since the owner
+# re-ruling of the same day, which the new `bdk-kerbals-roster-basic` capture pins:
+# the window was open when the mode switched, and the describe echo after the switch
+# must still list it (it left the Basic close set).
 #
 # `op=expand window=kerbals` IS NEW WITH THIS PR. Its two prefixes are per TAB: `roster:`
 # drives a row's replacement-chain view plus that tab's plain-kerbal fold row, `flights:`
@@ -51,10 +63,9 @@ tier = "operator"
 # EXPLICITLY so the boot route is a property of the spec rather than of the fixture's
 # vessel count.
 #
-# NO BASIC PASS. The Kerbals launcher is Basic-HIDDEN (`UI/UiComplexityMode.cs:181`), so
-# Basic has no picture of this window by construction and `GUI-1` / `GUI-5` already
-# photograph the main window's mode diff. A Basic capture here would add a seventh PNG that
-# says nothing this lane is about.
+# ONE BASIC CAPTURE, not a Basic pass: the window is the same in both modes (no
+# Basic-specific variant), so one Roster picture proves it draws and survives the switch;
+# `GUI-1` / `GUI-5` photograph the main window's mode diff.
 #
 # FLOWN 2026-09-15, TWICE. Reading run `2026-09-15_1559` (PASS attempt 1, 60 s) and, after
 # the two defects it found were fixed, re-flight `2026-09-15_1616` (PASS attempt 1, 58 s,
@@ -127,16 +138,16 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-expanded-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-expanded-advanced" }, expect = "OK" },
 
-  # ONE OWNER ROW'S CHAIN, and nothing else: `key=none` first so the picture carries a
-  # single expansion, then the named key. `changed=` on the pair says how much the bulk
-  # collapse had to undo, which is the in-run check that the previous capture was open.
-  # The key is the SLOT OWNER: a stand-in's row is not expandable (the chain belongs to the
-  # slot, and the slot belongs to the owner), so `roster:Jane Kerman` - what the first two
-  # flights used - is no longer an offered key.
+  # BASIC, with the window left OPEN across the switch: the Kerbals window left the Basic
+  # close set (owner re-ruling 2026-09-22), so the describe echo after the switch must
+  # still list it, and the capture is what a Basic player sees. Back to Advanced at once so
+  # the Flights captures below stay comparable with their earlier runs.
   { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "none" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "roster:Bill Kerman" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-owner-chain-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-owner-chain-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
 
   # THE FLIGHTS TAB WITH EVERY GROUP OPEN, so the per-flight rows (date, mission, outcome
   # word, "as <stand-in>") are the picture. The `key=all` is REQUIRED and not redundant
@@ -183,11 +194,12 @@ required = [
   # --- describe echoes, in step order ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,kerbals",
+  # The Kerbals window SURVIVED the switch to Basic (it is no longer in the close set).
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,kerbals",
   # --- the expansions. `state=` carries the direction, which is what makes the captures
   # either side of them a diff rather than two pictures of the same thing.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=none state=false changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=roster:Bill Kerman state=true changed=1 expanded=1 total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=kerbals key=flights:Bill Kerman state=true changed=1 expanded=1 total=[0-9]+",
   # --- the negative dialog assertion (see the header) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
@@ -196,7 +208,7 @@ required = [
   # --- every dump, each pinning the arm-time funnel reading for its own frame ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-collapsed-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-expanded-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-owner-chain-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-roster-basic .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-flights-unfolded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bdk-kerbals-flights-folded-advanced .*patched=17/17",
 ]

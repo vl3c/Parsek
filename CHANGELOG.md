@@ -10,6 +10,39 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the command seam can read back the flight scene's ghost chains.**
+  `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
+  recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this
+  flight scene derived its chains at all) and a stable `digest=` over the whole set. An
+  optional `expectDigest=` compares the set against an earlier capture and answers
+  `match=`, so a lane can prove the chains a new scene derives after a save and reload
+  equal the ones it had before. The family waits for `OnFlightReady` before answering,
+  because a load completes before the chains are derived. The save-parse verifier gains a
+  `ghostChainNodes` structure window, a tripwire that reads 0 on every save today because
+  chain state is never persisted. The new lane `CI-3-chain-rederive-readback` uses both:
+  after a rewind, the flight scene turns the docking partner into a ghost, and the
+  chain set reads back identical after a quicksave round trip in which that vessel is
+  no longer in the save. That proves the chains are re-derived, and it claims the D18
+  cells `ghost-conversion-quicksave` and `chain-state-rederived`. No game behavior
+  changed outside the automation seam.
+- **Automated testing: two more ghost-chain coverage cells are claimed on an existing lane.**
+  `V26T-interbody-route-ts-arrival` already printed both on every run from its fixture's
+  committed chains: a recording refused a spawn because it is an intermediate link of a
+  claimed vessel's chain, and chains marked terminated because their tip vessel was
+  destroyed. Those three lines are now required fixture literals, and the lane claims
+  D18 `intermediate-spawn-suppression` plus the destroyed half of
+  `chain-terminated-destruction-recovery`. Proven by an armed re-flight and a negative control. The recovery half, and a seam verb pair to
+  spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
+  Harness-only; no game code changed.
+- **Automated testing: RF-12S proves the re-fly crew-recovery fix end to end.** The lane
+  rewinds a recorded crewed flight to the moment after launch where its upper stack
+  separated. It flies the restored stack to orbit with a new small mission, so the crew
+  who died on the original flight survive the re-fly, then merges and reloads the game.
+  On a build without the fix the crew stay Dead after the merge and after the reload; with
+  it they come back, and the save carries the two extra tombstones. The lane is armed on
+  that save count. RF-12W's in-game batch now reaches the crew-recovery check first (it
+  passes there for the first time), so its pinned cell changed with it.
+
 - **Automated testing: provisioning shares one artifact cache across worktrees.** The
   provisioner used to download every pinned release zip on every run into the worktree's
   own cache, so a fresh worktree failed as soon as an upstream URL rotted (the MechJeb2
@@ -780,6 +813,32 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A re-fly that saves crew who boarded before the rewind point now brings them back.**
+  When a flight's crew boarded at launch, the rewind point came later in the same flight,
+  and the original flight then killed them, merging a re-fly kept them Dead. The death
+  row's boarding time came before the rewind point, and the merge treats anything before
+  the rewind point as part of the flight it keeps. A kerbal-death row is now placed on the
+  timeline by the moment of death: a death after the rewind point is refunded by the
+  merge, as design 7.16 promises. The tombstone guard and the tree splitter's ledger retag
+  share that rule through one helper, so both sides of the seam still agree exactly.
+  Every other ledger row keeps its old placement. A re-fly that kills the crew again
+  records its own death under the re-fly's recording, which the merge never touches;
+  with the dedup fix below that now also holds when the same slot is re-flown more than
+  once. The fix holds in-session, and
+  after a reload on saves where the merge did not split the original recording at the
+  rewind point. It does not yet survive a reload in the common case: the first re-fly of
+  a crewed slot whose recording started at launch splits that recording, and the next
+  load restores the Dead rows. That is no worse than before this fix; it is tracked as
+  TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT.
+
+- **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
+  The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart
+  as the same row, whatever the kerbal or flight. Re-flying a slot a second time
+  therefore lost the new flight's crew rows against the previous attempt's, so a crew
+  killed again could read alive. The same collision could also drop one of two crews
+  starting at the same instant. Rows are now matched per flight and kerbal; committing
+  the same flight twice still records it once.
+
 - **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
   Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's
   hook on that rebuild repaired any ghost missing its orbit line. During shutdown that
@@ -824,6 +883,35 @@ _(unreleased — entries accumulate here per commit)_
   matched it to the facility row. The Facilities section bar that repeated the tab name is
   gone, two tooltips that described the wrong thing are corrected, and the minimum window
   height is 320 px (at 200 px no row was visible).
+
+- **The Kerbals window tells the truth about reservations, groups stand-ins under the kerbal
+  they cover, and is now available in Basic mode.** A kerbal held by a committed flight used
+  to read `Reserved until <date>`, but that reservation never ends when the date passes:
+  `KerbalReservationReleaseTests` drives the real ledger walk with the clock before, during,
+  at and long after a recovered flight, and the kerbal stays reserved and filtered from the
+  crew dialog every time. Only removing the flight frees him. The status now names what
+  holds him (`Reserved: aboard <vessel>`, `Reserved: <mission>`, `Reserved for <owner>` for a
+  stand-in), and its hover says that passing time does not release it. Whether a recovered
+  kerbal should be released when his flight ends is filed as a todo for the owner to decide;
+  reservations work exactly as before. Also on the Roster tab: each stand-in is a row directly
+  under the kerbal whose seat he covers, which replaces the chain fold that repeated those
+  rows; a stand-in Parsek already deleted from the stock roster is no longer listed as
+  `Available` (the c1 career showed Jebediah's deleted stand-in that way); the `Since` column
+  is gone, so the window's minimum width drops from 700 to 586; a `Lost` status's hover names
+  the mission and says re-flying it from a rewind point can undo the loss, and every Last
+  flight cell scrolls the Timeline to that flight; a kerbal on EVA reads `On EVA` instead of
+  `Assigned (<his own name>)`. The Flights tab dates a mission by its launch only, and its
+  Crew column is gone: a stand-in who flew a seat shows as `(flown by <stand-in>)` in the
+  Mission cell. The window draws in Basic too (owner re-ruling): it is the only place that
+  says why a reserved kerbal is missing from stock crew assignment, and it is read-only, so it
+  no longer closes when you switch to Basic. Outside the window, two crew events stop being
+  silent: a one-shot screen message when Parsek swaps a reserved kerbal out of a launched
+  craft (`<kerbal> is reserved by a committed flight; <stand-in> takes the seat.`), and a
+  refused dismissal of a Parsek-managed kerbal raises the same "Action Blocked" dialog the
+  hire, contract, facility and tech blocks raise. The Astronaut Complex badge tooltips use
+  the window's words (`Reserved - held by a committed flight (Parsek)`, `Reserved for <owner>
+  - ...`, `Lost on a committed flight (Parsek)`, `Retired stand-in (Parsek)`) and no longer
+  read "Reserved by Parsek for slot 'Jebediah Kerman'" on Jebediah himself.
 
 - **The main window drops its flight status block and gets a bold title.** The four
   flight-only lines at the top of the main window (`State:`, `Recorded Points:`,

@@ -344,7 +344,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # [expectations.world]  vesselPid -> resource totals / roster (M-B2)          -> ACTIVE (verifier 8)
 # [expectations.rewind] supersedeRows / tombstones / rewindPoints (M-C2/R9)   -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.recordings.structure] trees / committedTrees / recordings /
-#   terminalStates / branchPoints (M-C2/R9)                                   -> ACTIVE (verifier 7b, report-only until gating = true)
+#   terminalStates / branchPoints / ghostChainNodes (M-C2/R9)                 -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.recordings.points] total / largest / smallest /
 #   trivialRecordings (gate 12)                                              -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.routes] count / dormant / stops / sourceRefs / cycles /
@@ -1570,7 +1570,10 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    rows, REWIND_POINTS/CHILD_SLOTs) and evaluates `[expectations.rewind]`
    (supersedeRows / tombstones / rewindPoints count windows) plus
    `[expectations.recordings.structure]` (trees / committedTrees / recordings
-   windows, terminalStates and branchPoints buckets by enum NAME) plus
+   windows, terminalStates and branchPoints buckets by enum NAME, and the
+   `ghostChainNodes` window: nodes under the ParsekScenario named in
+   `saveparse.GHOST_CHAIN_NODE_NAMES`, the tripwire for the contract that ghost
+   chains are re-derived on every flight load and never persisted) plus
    `[expectations.recordings.points]` (gate 12: the per-recording `pointCount`
    distribution summarised as total / largest / smallest / trivialRecordings
    count windows) plus `[expectations.routes]` (2026-09-02: the SUPPLY-ROUTE

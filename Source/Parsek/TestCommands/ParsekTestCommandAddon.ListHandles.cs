@@ -49,6 +49,17 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            string expectArg = ArgOrNull(cmd, TestCommandListHandles.ExpectDigestArgKey);
+            string expectedDigest;
+            if (!TestCommandListHandles.ParseExpectDigest(expectArg, kind, out expectedDigest, out rejectReason))
+            {
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "listhandles rejected reason={0} kind={1} expectDigest={2}",
+                    rejectReason, kindArg, expectArg));
+                SetExecResult("REJECTED", null, rejectReason);
+                return;
+            }
+
             List<KeyValuePair<string, string>> payload;
             switch (kind)
             {
@@ -58,16 +69,24 @@ namespace Parsek.TestCommands
                 case ListHandlesKind.Committed:
                     payload = TestCommandListHandles.BuildCommittedPayload(GatherCommittedTreeGroups());
                     break;
+                case ListHandlesKind.Chains:
+                {
+                    bool evaluated;
+                    List<ChainRow> chainRows = GatherChainRows(out evaluated);
+                    payload = TestCommandListHandles.BuildChainsPayload(chainRows, evaluated, expectedDigest);
+                    break;
+                }
                 default:
                     payload = TestCommandListHandles.BuildActivePayload(GatherActiveRow());
                     break;
             }
 
             ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
-                "listhandles kind={0} count={1} truncated={2}",
+                "listhandles kind={0} count={1} truncated={2}{3}",
                 TestCommandListHandles.KindToken(kind),
                 TestCommandListHandles.CountFromPayload(payload, kind),
-                TestCommandListHandles.TruncatedFromPayload(payload)));
+                TestCommandListHandles.TruncatedFromPayload(payload),
+                TestCommandListHandles.ChainsLogTail(payload, kind)));
             SetExecResult("OK", payload, null);
         }
 
@@ -160,6 +179,44 @@ namespace Parsek.TestCommands
                 groups.Add(group);
             }
             return groups;
+        }
+
+        /// <summary>
+        /// The flight scene's derived ghost chains (<c>ParsekFlight.ActiveGhostChains</c>:
+        /// the future-spawn, non-terminated chains the scene keeps after
+        /// <c>FilterAndGhostChains</c>), plus whether this scene has evaluated them at all.
+        /// Outside a live FLIGHT the answer is the empty, unevaluated set - a true
+        /// observation, not a defer. Inside FLIGHT the dispatcher has already deferred
+        /// until <c>OnFlightReady</c> ran, so <paramref name="evaluated"/> false there
+        /// means that scene's <c>OnFlightReady</c> took a path that skips the evaluation.
+        /// </summary>
+        private static List<ChainRow> GatherChainRows(out bool evaluated)
+        {
+            var rows = new List<ChainRow>();
+            evaluated = false;
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT || flight == null)
+                return rows;
+
+            evaluated = flight.GhostChainEvaluationCount > 0;
+            Dictionary<uint, GhostChain> chains = flight.ActiveGhostChains;
+            if (chains == null)
+                return rows;
+            foreach (KeyValuePair<uint, GhostChain> entry in chains)
+            {
+                GhostChain chain = entry.Value;
+                if (chain == null)
+                    continue;
+                rows.Add(new ChainRow
+                {
+                    Pid = entry.Key,
+                    Links = chain.Links != null ? chain.Links.Count : 0,
+                    TipRecordingId = chain.TipRecordingId,
+                    SpawnUt = chain.SpawnUT,
+                    Terminated = chain.IsTerminated,
+                });
+            }
+            return rows;
         }
 
         /// <summary>

@@ -12383,6 +12383,7 @@ namespace Parsek
         /// </summary>
         private void EvaluateAndApplyGhostChains()
         {
+            ghostChainEvaluationCount++;
             var trees = RecordingStore.CommittedTrees;
             if (trees == null || trees.Count == 0)
             {
@@ -27225,6 +27226,17 @@ namespace Parsek
         /// Returns null when no chains are active.
         /// </summary>
         internal Dictionary<uint, GhostChain> ActiveGhostChains => activeGhostChains;
+
+        private int ghostChainEvaluationCount;
+
+        /// <summary>
+        /// How many times THIS flight-scene instance has run
+        /// <see cref="EvaluateAndApplyGhostChains"/>, on any of its exits. Zero means the
+        /// scene never derived its chain set (the component is re-created per scene, so a
+        /// load always starts at zero). Read by the automation seam's
+        /// <c>ListHandles kind=chains</c> to tell "derived an empty set" from "never derived".
+        /// </summary>
+        internal int GhostChainEvaluationCount => ghostChainEvaluationCount;
 
         // ════════════════════════════════════════════════════════════════
         //  Real Spawn Control: proximity check and warp

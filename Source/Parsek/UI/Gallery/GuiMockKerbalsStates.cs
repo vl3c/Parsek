@@ -26,14 +26,19 @@ namespace Parsek.UI.Gallery
     /// invariant F0 fallback, so a date cell in a mocked capture is the calendar string
     /// the game would print, and the headless unit suite still gets a deterministic
     /// number.</para>
+    ///
+    /// <para><b>No roster state expands anything.</b> Since the 2026-09-22 slot grouping
+    /// a stand-in is a row of its own drawn under the owner he covers, so the per-owner
+    /// chain fold (and its <c>roster:&lt;name&gt;</c> expand key) is gone; the one
+    /// remaining Roster fold is the plain-kerbal bucket.</para>
     /// </summary>
     internal static class GuiMockKerbalsStates
     {
         private const string RosterTab = "roster";
         private const string FlightsTab = "outcomes";
 
-        // Window sizing: the Roster tab's own minimum is 700 (KerbalsWindowUI.MinWindowWidth)
-        // and its four columns want ~760 to show "Last flight" without clipping. 900x520
+        // Window sizing: the Roster tab's own minimum is 586 (KerbalsWindowUI.MinWindowWidth)
+        // and its three columns want ~760 to show "Last flight" without clipping. 900x520
         // leaves every catalogue state's rows on screen without a scroll.
         private const int RectW = 900;
         private const int RectH = 520;
@@ -45,16 +50,16 @@ namespace Parsek.UI.Gallery
             into.Add(Roster(
                 "kerbals.roster.lost",
                 "The window's most consequential state: a kerbal lost on a recorded flight, "
-                + "red deadStyle, dated by the flight that killed him.",
+                + "red deadStyle, with the mission and the re-fly remedy in the status hover.",
                 new[] { "RosterStatus.Lost", "KerbalEndState.Dead" },
                 BuildLostRoster));
 
             into.Add(Roster(
                 "kerbals.roster.retired",
-                "A retired stand-in - a whole status word with no picture in the current design.",
+                "A retired stand-in - a whole status word with no picture in the current design, "
+                + "listed under the owner whose seat he gave back.",
                 new[] { "RosterStatus.Retired", "ChainMemberStatus.Retired" },
-                BuildRetiredRoster,
-                expand: new[] { "Jebediah Kerman" }));
+                BuildRetiredRoster));
 
             // There is no plain "standin-active" state beside the one below: with the
             // vessel name pushed into the hover text (see the note there), the two
@@ -80,11 +85,11 @@ namespace Parsek.UI.Gallery
                     aboardVessel: "Duna Surface Sample Return Ascent Stage")));
 
             into.Add(Roster(
-                "kerbals.roster.reserved-dated",
-                "The dated half of the reservation form - every capture reads "
-                + "'until recovery'.",
-                new[] { "RosterStatus.Reserved" },
-                () => BuildReservedRoster(permanent: false, untilUT: 2_160_000.0)));
+                "kerbals.roster.reserved-recovered",
+                "A reservation from a flight that ends recovered: the status names the "
+                + "flight rather than a date, because the date passing never released it.",
+                new[] { "RosterStatus.Reserved", "KerbalEndState.Recovered" },
+                BuildReservedRecoveredRoster));
 
             into.Add(Roster(
                 "kerbals.roster.reserved-for-owner",
@@ -95,20 +100,17 @@ namespace Parsek.UI.Gallery
 
             into.Add(Roster(
                 "kerbals.roster.chain-two-deep",
-                "A two-deep replacement chain expanded: the mid-branch glyph and a "
-                + "(displaced) member, neither of which any capture shows.",
-                new[] { "ChainMemberStatus.Displaced", "ChainMemberStatus.Active",
-                        "RosterRow.Chain" },
-                BuildTwoDeepChainRoster,
-                expand: new[] { "Jebediah Kerman" }));
+                "A two-deep replacement chain: two stand-in rows under one owner, the "
+                + "mid-branch glyph and a reserved stand-in, neither of which any capture shows.",
+                new[] { "ChainMemberStatus.Active", "RosterRow.Chain" },
+                BuildTwoDeepChainRoster));
 
             into.Add(Roster(
                 "kerbals.roster.owner-permanently-gone",
                 "A slot whose owner is permanently gone: no chain member is Active, so the "
                 + "freed stand-ins stop being labelled as covering a slot nobody returns to.",
                 new[] { "RosterStatus.Lost", "ChainMemberStatus.Displaced" },
-                BuildOwnerGoneRoster,
-                expand: new[] { "Jebediah Kerman" }));
+                BuildOwnerGoneRoster));
 
             into.Add(Roster(
                 "kerbals.roster.all-statuses",
@@ -129,8 +131,8 @@ namespace Parsek.UI.Gallery
 
             into.Add(Flights(
                 "kerbals.flights.standin-crew",
-                "The Crew column's entire reason to exist: 'as <stand-in>', unphotographed "
-                + "even on the fixture that has three stand-ins.",
+                "The Mission cell's '(flown by <stand-in>)' note, unphotographed even on "
+                + "the fixture that has three stand-ins.",
                 new[] { "KerbalEndState.Recovered", "FlightRow.CrewNote" },
                 () => BuildFlights(FlightShape.StandInCrew)));
 
@@ -353,15 +355,17 @@ namespace Parsek.UI.Gallery
             return inputs.Build();
         }
 
-        private static KerbalsWindowUI.KerbalsViewModel BuildReservedRoster(
-            bool permanent, double untilUT)
+        private static KerbalsWindowUI.KerbalsViewModel BuildReservedRecoveredRoster()
         {
+            // A finite reservation (ReservedUntilUT = the flight's end) is what a
+            // Recovered flight produces; KerbalsModule never compares it to the current
+            // game time, so the status names the flight instead of the UT.
             var inputs = new RosterInputs()
                 .Kerbal("Bill Kerman", "Engineer")
                 .Kerbal("Valentina Kerman", "Pilot")
-                .Reserve("Valentina Kerman", untilUT, permanent)
-                .Segment("Valentina Kerman", "rec-minmus-1", "tree-minmus", "Minmus Station",
-                         1_900_000.0, 2_040_000.0, KerbalEndState.Aboard);
+                .Reserve("Valentina Kerman", 2_040_000.0, permanent: false)
+                .Segment("Valentina Kerman", "rec-minmus-1", "tree-minmus", "Minmus Hop",
+                         1_900_000.0, 2_040_000.0, KerbalEndState.Recovered);
             return inputs.Build();
         }
 

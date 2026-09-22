@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 namespace Parsek.TestCommands
 {
@@ -18,6 +19,10 @@ namespace Parsek.TestCommands
 
         /// <summary><c>kind=active</c>: the live flight tree and its background members.</summary>
         Active = 3,
+
+        /// <summary><c>kind=chains</c>: the live flight scene's derived ghost chains
+        /// (<c>ParsekFlight.ActiveGhostChains</c>).</summary>
+        Chains = 4,
     }
 
     /// <summary>One child slot of a rewind point, already resolved to open/closed.</summary>
@@ -82,6 +87,17 @@ namespace Parsek.TestCommands
         internal List<BackgroundRow> Background;
     }
 
+    /// <summary>One derived ghost chain, as the flight scene holds it.</summary>
+    internal struct ChainRow
+    {
+        /// <summary>The claimed vessel's pid (the chain map's key).</summary>
+        internal uint Pid;
+        internal int Links;
+        internal string TipRecordingId;
+        internal double SpawnUt;
+        internal bool Terminated;
+    }
+
     /// <summary>
     /// Pure decision half of the ADDITIVE <c>ListHandles kind=&lt;family&gt;</c> seam verb
     /// (R10 runtime-handle plumbing). The applier
@@ -122,6 +138,30 @@ namespace Parsek.TestCommands
         /// <summary>Wire literal for <see cref="ListHandlesKind.Active"/>.</summary>
         internal const string ActiveKindToken = "active";
 
+        /// <summary>Wire literal for <see cref="ListHandlesKind.Chains"/>.</summary>
+        internal const string ChainsKindToken = "chains";
+
+        /// <summary>The OPTIONAL <c>expectDigest=</c> arg's key. Read only by
+        /// <c>kind=chains</c>: the digest of an earlier capture, carried onto this
+        /// step's wire by the harness's <c>${label.digest}</c> substitution, so the seam
+        /// itself answers whether the two chain sets are identical.</summary>
+        internal const string ExpectDigestArgKey = "expectDigest";
+
+        /// <summary><c>expectDigest=</c> on a family other than <c>chains</c>: only the
+        /// chains family computes a digest, so the arg would otherwise be silently
+        /// ignored and a readback the author believes is compared would not be.</summary>
+        internal const string ExpectDigestKindMismatchReason = "expect-digest-kind-mismatch";
+
+        /// <summary><c>expectDigest=</c> that is not exactly eight lowercase hex digits
+        /// (the digest's own wire shape). Covers an UNSUBSTITUTED <c>${...}</c> literal,
+        /// which is what a handle that failed to resolve would put on the wire.</summary>
+        internal const string ExpectDigestInvalidReason = "expect-digest-invalid";
+
+        /// <summary>The FNV-1a 32-bit offset basis: the digest of the empty chain set.</summary>
+        internal const uint DigestOffsetBasis = 2166136261u;
+
+        private const uint DigestPrime = 16777619u;
+
         /// <summary>Most rewind points enumerated in one response.</summary>
         internal const int MaxRewindPoints = 16;
 
@@ -134,9 +174,13 @@ namespace Parsek.TestCommands
         /// <summary>Most background members enumerated in one response.</summary>
         internal const int MaxBackgroundMembers = 16;
 
+        /// <summary>Most ghost chains enumerated in one response. The digest always
+        /// covers EVERY chain, so a cut never hides a difference from the readback.</summary>
+        internal const int MaxChains = 16;
+
         /// <summary>
         /// Parses the REQUIRED <c>kind=</c> arg. Fail-closed and case-sensitive: only the
-        /// three lowercase literals are accepted, so <c>Rewindpoints</c> / <c>RP</c> /
+        /// four lowercase literals are accepted, so <c>Rewindpoints</c> / <c>RP</c> /
         /// an empty value are all <see cref="KindArgInvalidReason"/> rather than a
         /// tolerated spelling. Absent is its own reason so a spec author reads "you did
         /// not ask for a family" separately from "that is not a family".
@@ -163,6 +207,10 @@ namespace Parsek.TestCommands
                     kind = ListHandlesKind.Active;
                     rejectReason = null;
                     return true;
+                case ChainsKindToken:
+                    kind = ListHandlesKind.Chains;
+                    rejectReason = null;
+                    return true;
                 default:
                     rejectReason = KindArgInvalidReason;
                     return false;
@@ -177,6 +225,7 @@ namespace Parsek.TestCommands
                 case ListHandlesKind.RewindPoints: return RewindPointsKindToken;
                 case ListHandlesKind.Committed: return CommittedKindToken;
                 case ListHandlesKind.Active: return ActiveKindToken;
+                case ListHandlesKind.Chains: return ChainsKindToken;
                 default: return string.Empty;
             }
         }
@@ -189,6 +238,88 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static bool SlotOpen(bool tipResolved, MergeState tipState)
             => tipResolved && tipState != MergeState.Immutable;
+
+        /// <summary>
+        /// Parses the OPTIONAL <c>expectDigest=</c> arg. Absent is fine (the capture is a
+        /// plain read, <paramref name="expected"/> null). Present is accepted only on
+        /// <c>kind=chains</c> and only as exactly eight lowercase hex digits; anything else
+        /// is a REJECTED, fail-closed like <c>kind=</c>, because a comparison the seam
+        /// silently skipped would read as a comparison that matched.
+        /// </summary>
+        internal static bool ParseExpectDigest(string raw, ListHandlesKind kind,
+            out string expected, out string rejectReason)
+        {
+            expected = null;
+            rejectReason = null;
+            if (raw == null)
+                return true;
+            if (kind != ListHandlesKind.Chains)
+            {
+                rejectReason = ExpectDigestKindMismatchReason;
+                return false;
+            }
+            if (!IsDigestShape(raw))
+            {
+                rejectReason = ExpectDigestInvalidReason;
+                return false;
+            }
+            expected = raw;
+            return true;
+        }
+
+        private static bool IsDigestShape(string raw)
+        {
+            if (raw.Length != 8)
+                return false;
+            for (int i = 0; i < raw.Length; i++)
+            {
+                char c = raw[i];
+                bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                if (!hex)
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The chain set's identity digest: FNV-1a 32 over the UTF-8 bytes of one
+        /// canonical line per chain, <c>pid|links|tip|spawnUT(R)|terminated;</c>, in pid
+        /// order, as eight lowercase hex digits. Pid order is taken here (a dictionary
+        /// walk has no order contract), and the spawn UT is "R"-formatted so two chains
+        /// that differ in the last bit of the UT still differ. The empty set digests to
+        /// the offset basis, <c>811c9dc5</c>. Deterministic across processes by
+        /// construction: no hash seed, no culture, no platform string hash.
+        /// </summary>
+        internal static string ChainsDigest(IReadOnlyList<ChainRow> rows)
+        {
+            List<ChainRow> sorted = SortChains(rows);
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            uint hash = DigestOffsetBasis;
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                ChainRow row = sorted[i];
+                string line = string.Concat(
+                    row.Pid.ToString(ic), "|",
+                    row.Links.ToString(ic), "|",
+                    row.TipRecordingId ?? string.Empty, "|",
+                    row.SpawnUt.ToString("R", ic), "|",
+                    Bool(row.Terminated), ";");
+                byte[] bytes = Encoding.UTF8.GetBytes(line);
+                for (int b = 0; b < bytes.Length; b++)
+                {
+                    hash ^= bytes[b];
+                    hash = unchecked(hash * DigestPrime);
+                }
+            }
+            return hash.ToString("x8", ic);
+        }
+
+        private static List<ChainRow> SortChains(IReadOnlyList<ChainRow> rows)
+        {
+            var sorted = rows != null ? new List<ChainRow>(rows) : new List<ChainRow>();
+            sorted.Sort((a, b) => a.Pid.CompareTo(b.Pid));
+            return sorted;
+        }
 
         // ----- payload builders -----
         //
@@ -345,6 +476,75 @@ namespace Parsek.TestCommands
                 payload.Add(Kv(prefix + "rec", members[i].RecordingId ?? string.Empty));
             }
             return payload;
+        }
+
+        /// <summary>
+        /// <c>kind=chains count=&lt;n&gt; truncated=&lt;b&gt; evaluated=&lt;b&gt;
+        /// digest=&lt;hex8&gt;</c>, then <c>expected=&lt;hex8&gt; match=&lt;b&gt;</c> when an
+        /// <paramref name="expectedDigest"/> was supplied, then, per enumerated chain in
+        /// pid order, <c>chain&lt;i&gt;pid chain&lt;i&gt;links chain&lt;i&gt;tip
+        /// chain&lt;i&gt;spawnUT chain&lt;i&gt;terminated</c>.
+        ///
+        /// <para><paramref name="evaluated"/> says whether the flight scene has run its
+        /// ghost-chain evaluation at all since it was created. It is what separates "this
+        /// scene derived an EMPTY chain set" from "this scene never derived one" (an
+        /// <c>OnFlightReady</c> path that returns before the evaluation, or any scene
+        /// other than FLIGHT, where the answer is the empty, unevaluated one). The digest
+        /// covers every chain, not only the enumerated ones.</para>
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> BuildChainsPayload(
+            IReadOnlyList<ChainRow> rows, bool evaluated, string expectedDigest)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            List<ChainRow> sorted = SortChains(rows);
+            int total = sorted.Count;
+            int shown = Math.Min(total, MaxChains);
+            string digest = ChainsDigest(sorted);
+
+            var payload = new List<KeyValuePair<string, string>>
+            {
+                Kv("kind", ChainsKindToken),
+                Kv("count", total.ToString(ic)),
+                Kv("truncated", Bool(total > MaxChains)),
+                Kv("evaluated", Bool(evaluated)),
+                Kv("digest", digest),
+            };
+            if (expectedDigest != null)
+            {
+                payload.Add(Kv("expected", expectedDigest));
+                payload.Add(Kv("match", Bool(string.Equals(
+                    digest, expectedDigest, StringComparison.Ordinal))));
+            }
+            for (int i = 0; i < shown; i++)
+            {
+                ChainRow row = sorted[i];
+                string prefix = "chain" + i.ToString(ic);
+                payload.Add(Kv(prefix + "pid", row.Pid.ToString(ic)));
+                payload.Add(Kv(prefix + "links", row.Links.ToString(ic)));
+                payload.Add(Kv(prefix + "tip", row.TipRecordingId ?? string.Empty));
+                payload.Add(Kv(prefix + "spawnUT", row.SpawnUt.ToString("R", ic)));
+                payload.Add(Kv(prefix + "terminated", Bool(row.Terminated)));
+            }
+            return payload;
+        }
+
+        /// <summary>
+        /// The chains family's extra Info-line tail, read out of the built payload for
+        /// the reason <see cref="CountFromPayload"/> is: <c> evaluated=.. digest=..</c>,
+        /// plus <c> expected=.. match=..</c> when the payload carries a comparison. Empty
+        /// for every other family, so their pinned log lines do not move.
+        /// </summary>
+        internal static string ChainsLogTail(
+            IReadOnlyList<KeyValuePair<string, string>> payload, ListHandlesKind kind)
+        {
+            if (kind != ListHandlesKind.Chains)
+                return string.Empty;
+            string tail = " evaluated=" + ValueOrEmpty(payload, "evaluated")
+                + " digest=" + ValueOrEmpty(payload, "digest");
+            string expected = ValueOrEmpty(payload, "expected");
+            if (expected.Length > 0)
+                tail += " expected=" + expected + " match=" + ValueOrEmpty(payload, "match");
+            return tail;
         }
 
         /// <summary>

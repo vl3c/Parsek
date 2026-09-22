@@ -49,6 +49,67 @@ Open residue:
 3. Items 9-11 of the review were not approved (merge Strategies into Contracts, a Tech
    tab, re-fly change history) and are not filed as work.
 
+## LISTHANDLES-CHAINS-DIGEST-SCOPE: the chains digest hashes each chain's links only as a COUNT, and covers only the kept (future, non-terminated) chains [FILED 2026-09-22 from the #1761 review. OPEN; a follow-up, deliberately not fixed in that PR]
+
+`TestCommandListHandles.ChainsDigest` hashes `pid|links|tip|spawnUT(R)|terminated;` per
+chain, where `links` is `chain.Links.Count`. Two chains with the same pid, tip and spawn UT
+but a DIFFERENT link set of the same length (another claiming recording, another branch
+point, another interaction type) digest identically, so CI-3's readback equality is
+blind to a link-level change. And the family reads `ParsekFlight.ActiveGhostChains`, which
+`FilterAndGhostChains` has already reduced to chains whose spawn UT is still in the future
+and which are not terminated: a terminated or past-spawn chain is outside both captures, so
+the readback says nothing about how those are re-derived (on bdock-recorded at rp1, 12 of
+the 13 evaluated chains are outside it).
+
+Fix direction: add each link's `recordingId` (and branch point id) to the canonical line,
+and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or a
+`scope=all` arg) so terminated chains are read back too. Either change moves CI-3's pinned
+`digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
+re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
+(`bbd83d3b`, `8952919c`) recomputed.
+## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. OPEN; a follow-on design item]
+
+D18 is at 6 of 12 after PR-A. The cells still open are the ones where the PLAYER acts on a
+ghost chain: spawning a ghost as a real vessel through Real Spawn Control
+(`SpawnControlUI` / `ParsekFlight`'s proximity spawn path), docking with it, and recovering
+it. No seam verb drives either action today, so a driven lane can only observe what a
+committed fixture already contains (V26T's claims, CI-2's claim) or what a rewind derives
+(CI-3). What the next wave needs, and deliberately did not build:
+
+- `RealSpawn rec=<id|${handle}>`: drive the same entry point the Real Spawn Control button
+  uses for one committed recording, answering the spawned vessel's KSP-unique pid (the
+  handle a follow-on `SimulateStockSwitchClick pid=` or a dock mission needs). Refusals
+  mirror the UI's own gates (not spawnable, already spawned, proximity blocked).
+- `Recover pid=<pid|${handle}>`: recover a live vessel through the stock recovery path, so
+  a chain whose tip was spawned can reach the `Recovered` terminal and the recovery half of
+  `chain-terminated-destruction-recovery` (and the spawn-side
+  `Terminated chain spawn suppressed:` line) gets a subject.
+
+Both need the M-A2 design pass (design-autotest-command-seam.md), the pure / applier
+split, the dispatch rows, the hlib verb and role tables and `GuiCensusSeamVerbTests`'s
+vocabulary sync, before any lane can use them.
+
+## D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED: the recovery half of `chain-terminated-destruction-recovery` and the spawn-side suppression line have no driven subject [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A. OPEN; needs D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR or a harvested save with a Recovered chain tip]
+
+PR-A claims `chain-terminated-destruction-recovery` on V26T for the DESTROYED half only,
+off the walker's `ResolveTermination: ... terminalState=Destroyed` and
+`Chain built: ... terminated=True` lines. Two parts of the cell stay unwitnessed:
+
+1. **The Recovered half.** `GhostChainWalker.ResolveTermination` marks a chain terminated
+   for a `Destroyed`, `Recovered` or `Disassembled` tip. No committed fixture carries a
+   chain whose tip recording ends `Recovered` (every archived termination line reads
+   `terminalState=Destroyed`, V26T's 23 and BDOCK-1's 5-6 alike).
+2. **The spawn-side suppression.** `GhostPlaybackLogic.ShouldSuppressSpawnForChain` logs
+   `Terminated chain spawn suppressed: rec=... vessel=... vesselPid=...` when a terminated
+   chain's tip reaches its spawn decision. Zero archived logs print it: on V26T the fixture
+   clock is past every terminated chain's spawn UT, so the flight scene drops those chains
+   (`Skipping chain for pid=... currentUT >= spawnUT`) before the terminated check, and on
+   BDOCK-1 the chains are staging debris that never reach a spawn decision.
+
+A subject for either needs a chain whose tip is still in the future when the scene loads
+and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
+RealSpawn / Recover verb pair.
+
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
 **What was wrong.** `phase_download` fetched every pinned release zip from its URL on
@@ -738,9 +799,9 @@ generated from the artifacts:
 
 **Still open on this entry after that.** The gallery itself: the catalogue, the
 `op=mock` seam, `GalleryRun`, the two lanes and the harvest cap. Plus three
-mirror-side remainders: `bdk-kerbals-roster-standin-chain-advanced` is the one
-real state no indexed shots directory holds (a `--shots` argument on the next
-regeneration, not a code change); a CONTENT mislabel is outside what a seam log
+mirror-side remainders: `bdk-kerbals-roster-standin-chain-advanced` WAS the one
+real state no indexed shots directory held - moot since 2026-09-22, when the Kerbals
+Roster dropped the chain fold for slot-grouped rows, so the state no longer exists; a CONTENT mislabel is outside what a seam log
 can witness, so `fs-timeline-overview-empty-advanced` (not the empty branch) and
 `b1-missions-recordings-live-advanced` (an empty tab) stay unflagged and judging
 them would mean typing `empty` into the generator; and two hover labels
@@ -785,20 +846,58 @@ windows are store-shaped (frame-keyed caches, index-into-the-live-list row ident
 belong to synthetic SAVE fixtures rather than an in-memory mock; and any such fixture work
 must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE`.
 
+## KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME: a reservation from a committed flight stays in force after the flight's recorded end, including a Recovered flight's finite `ReservedUntilUT` [FILED 2026-09-22 off the Kerbals-window review (open question 1). BACKEND BEHAVIOUR, NOT CHANGED. OPEN for the owner to decide]
+
+**What is true (measured).** `KerbalReservationReleaseTests` commits one flight for
+Jebediah (start UT 100, end UT 300) and drives the REAL walk -
+`LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT` with the clock at 50, 200, 300 and
+10000, plus the uncut `RecalculateAndPatch()`. For a `Recovered` end state the reservation is
+present at every clock with `ReservedUntilUT = 300` and `IsPermanent = false`;
+`KerbalsModule.IsKerbalAvailable` answers false and `ShouldFilterFromCrewDialog` answers true
+(so the VAB/SPH crew dialog keeps hiding him and `SwapReservedCrewInFlight` keeps swapping
+him out) - before the flight even launched, and long after it recovered him. An `Aboard`
+flight behaves the same with `+inf`. The one release the cells measure is the flight leaving
+the committed set (`RecordingStore.RemoveCommittedById` + a recalc): then he is available.
+
+**Why.** `ReservedUntilUT` is written by `KerbalsModule.ProcessAction` (`endUT = rec.EndUT` for
+Recovered, `+inf` otherwise) and read by NOTHING in the backend - its only other reader was the
+Kerbals window's `Reserved until <date>` text. Every consumer keys on dictionary membership
+(`reservations.ContainsKey`): `IsKerbalAvailable`, `ShouldFilterFromCrewDialog`,
+`GetReservationKind`, `ResolveActiveChainIndex` (so the stand-in stays the active occupant),
+`ComputeRetiredSet`. A current-UT cutoff walk does not help either:
+`CrewReservationManager.RecomputeAfterCutoffWalk` re-derives the reservations from the WHOLE
+effective ledger, deliberately projecting future flights' crew holds.
+
+**The design said otherwise.** `docs/dev/done/game-actions/game-actions-kerbals-implementation-design.md`
+3.2 specified "`Recovered` -> temporary, `reservedUntilUT = recoveryUT`" and its test list
+named `Recalculate_RecoveredCrew_TemporaryReservation` as the guard against "crew locked
+forever"; that cell pins only the stored value, never a release.
+
+**What changed instead (2026-09-22).** Only the WORDING: the Kerbals window no longer prints
+`Reserved until <date>`; it names the holding flight (`Reserved: aboard <vessel>` /
+`Reserved: <mission>`) and its hover says passing time does not release it
+(`KerbalsPresentation.ReservationHoldRule`). Reservation semantics are untouched.
+
+**Owner decision needed.** Either (a) the timeline-wide hold is intended - a committed flight
+owns its crew for the whole timeline, because a rewind before its launch must still find
+them free to fly it - and the design doc 3.2 line plus `ReservedUntilUT` are stale and should
+be retired; or (b) a Recovered kerbal should return at `ReservedUntilUT`, which means making
+`IsKerbalAvailable` / `ShouldFilterFromCrewDialog` / `ResolveActiveChainIndex` compare it with
+the current UT, re-running the active-occupant and retirement derivations on a clock change,
+and deciding what a rewind to before the flight's end does to a kerbal the player has since
+crewed. (b) is a behaviour change with rewind, stand-in retirement and swap consequences; if it
+is chosen, `KerbalReservationReleaseTests` inverts and the window's hover rule changes with it.
+
 ## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
 
 **What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
 the two things its row model could not answer off existing data.
 
-1. **`Since` is `-` for four of the six statuses.** A loss is dated by the flight whose end
-   state is Dead, and a reservation by the kerbal's latest recorded flight (the flight that
-   created the hold). Retirement, stand-in placement and a live crew assignment have no
-   recorded start anywhere: `ComputeRetiredSet` rebuilds the retired set from scratch every
-   walk, `KerbalSlot.Chain` stores names with no UT, and a roster assignment is a live KSP
-   fact with no history. The column shows `-` rather than a number that would be a guess.
-   **Fix (if wanted):** persist a UT beside each chain entry and each retirement, which is a
-   `KERBAL_SLOTS` shape change and therefore a schema-generation bump - not worth it for one
-   column, which is why it is filed rather than done.
+1. ~~**`Since` is `-` for four of the six statuses.**~~ MOOT 2026-09-22: the Since column
+   was removed by the Kerbals review round (it was mostly dashes, could read a future date
+   after a rewind, and dated a mission by its end while the Flights tab dated it by its
+   start). The loss date moved into the Lost status hover; a reservation names its flight
+   instead of a date (see KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME above).
 
 2. **The "as &lt;stand-in&gt;" fallback is time-blind.** The primary source is per-flight
    truth - the recording's own raw crew, through the new
@@ -814,14 +913,17 @@ the two things its row model could not answer off existing data.
    becomes the wanted reading (it is not today: operator ruling 2026-09-15 keeps the
    grouping per owner).
 
-3. **The `as <stand-in>` crew note has NO picture.** Five census lanes flew the rebuild on
-   2026-09-15 and every Crew cell in every capture reads `-`, for a structural reason:
+3. **The stand-in note has NO picture** (the `as <stand-in>` Crew column until 2026-09-22,
+   now `(flown by <stand-in>)` in the Mission cell - the column is gone because it read `-`
+   everywhere). Five census lanes flew the rebuild on 2026-09-15 and every Crew cell in
+   every capture reads `-`, for a structural reason:
    both crewed fixtures reserve their owners BECAUSE the owners are still aboard, so no
    committed flight anywhere was flown BY a stand-in. The note's logic carries six unit
    cells (raw crew, owner-aboard, out-of-chain crewmate, the replacement fallback,
    raw-beats-map, no-slot); what is missing is a fixture where a stand-in flew.
-   Unphotographed with it: `Lost`, `Retired`, and the `Reserved for <owner> until <date>`
-   form (it needs a reserved stand-in with a finite return UT).
+   Unphotographed with it: `Retired` and the `Reserved for <owner>` form (it needs a
+   reserved stand-in). `Lost` has a real picture on the c1 career (`GUI-1`
+   `ksc-kerbals-roster-advanced`).
 4. **`GUI-8-census-empty-states` photographs the fold CLOSED.** Its roster capture now
    reads one row, `Available, no recorded flights (4)`, which is the honest new picture but
    not a picture of the four rows behind it. One `op=expand key=all` step plus a second
@@ -839,7 +941,8 @@ the two things its row model could not answer off existing data.
    his OWN gets it filed under the kerbal he covers, counted in that kerbal's bucket
    summary, and - if it is the latest-ending one - printed in that kerbal's Roster `Last
    flight` cell. His own Flights group does not carry it at all. The `as <stand-in>` crew
-   note (item 2) is a label on the owner's row, not a fix.
+   note (item 2; the Mission cell's `(flown by <stand-in>)` since 2026-09-22) is a label
+   on the owner's row, not a fix.
    **Fix:** persist the flown crew per recording (a `CREW_FLOWN` node beside
    `CREW_END_STATES`, or a per-entry `flownBy` key) and key the end states by who actually
    flew, so `ReverseMapCrewNames` stops being the only answer. That is a schema-generation
@@ -4175,7 +4278,101 @@ writes supersede rows, tombstones, and flips MergeState). Re-arming afterwards w
 later cells a marker pointing at an already-merged provisional. The precondition guard
 subsumes the problem.
 
-## TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09 while diagnosing the entry above. An OPEN QUESTION, deliberately not filed as a bug on this evidence]
+## TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS: two rare shapes the endUT death screen gets wrong [NOTED 2026-09-22 in #1759 review. OPEN, low]
+
+Both are documented on `TombstoneAttributionHelper.ComputeAttributionUT`.
+(1) FLOAT PRECISION. `GameAction.EndUT` is a float. Late in a career (UT around 2e7 s,
+where a float step is 2 s) a death within about 1 s after the rewind point can round
+below the double cutoff. The death row is then kept while its KerbalDeath reputation row
+(double UT) is refunded, so the kerbal stays Dead with the reputation hit undone.
+Screening on the owning recording's double EndUT is not a drop-in: step 2.9 runs after
+`SplitAtUT` has already truncated the origin, so the guard and the splitter would read
+different recordings and stop being bit-identical. A real fix stores the death UT as a
+double on the row, which is a serialized-field change.
+(2) PRE-REWIND DEATH ON A SURVIVING VESSEL. A Destroyed terminal marks every START crew
+member Dead at the recording's end, so a kerbal who actually died BEFORE the rewind on a
+vessel that flew on past it (e.g. killed on EVA, then the vessel crashed later) carries
+the end-of-recording EndUT and is now tombstoned. Rare, and the per-kerbal death instant
+is not recorded anywhere the screen could read.
+
+## ~~KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY~~: a re-fly's own crew rows are dropped as duplicates of an unrelated assignment row 0.1 s away [FOUND 2026-09-22 on RF-12S's after-reading. FIXED in the same PR (#1759)]
+
+`LedgerOrchestrator.GetActionKey` has no `KerbalAssignment` case, so it returns "" for
+every assignment row, and `DeduplicateAgainstLedger` treats ANY new assignment row as a
+duplicate of ANY existing assignment row whose UT is within 0.1 s. That covers any
+kerbal on any recording. MEASURED on `2026-09-22_1931_RF-12S-refly-saves-pre-rewind-boarded-crew`:
+the merge committed the new re-fly provisional `rec_bff51dd8` (Bill and Bob, UT 131.9),
+and `Committed recording 'rec_bff51dd8...': 6 actions added to ledger (... kerbals=2,
+dedup=4 ...)` shows its two crew rows deduped against the PRIOR re-fly `rec_c54a110c`'s
+rows (UT 131.88). The saved ledger carries no assignment row for the new provisional,
+and the merge leaves `0 reservations remain`.
+
+WHY IT MATTERS. The endUT ruling (entry below) rests on "a re-fly that kills the crew
+again files its own death row". That holds on the FIRST re-fly of a straddling slot
+(`CommitTombstones_ReFlyOwnDeathRow_OutsideTheClosure_Survives` pins the closure exclusion, but it inserts the row directly and so bypasses this dedup). But on a SECOND re-fly of the same slot, or
+whenever the new provisional starts within 0.1 s of any existing assignment row, the new
+death row is dropped here, and the merge then tombstones the old one: the re-killed
+crew would come back alive. It is independent of the endUT change and was present on
+main, where the same run shape also deduped (`2026-09-22_1928`).
+
+WHY IT HAD TO LAND WITH THE endUT FIX. On main the guard kept the straddling origin
+death row, which masked the dropped re-fly row: a re-kill still read Dead. The endUT fix
+retires that row, so without this fix a second re-fly that killed the crew again would
+read alive until the next load, a regression against main.
+
+FIXED: `GetActionKey` keys `KerbalAssignment` on `RecordingId + "|" + KerbalName`, so
+two recordings' rows never collapse and a re-commit of the SAME recording still dedups.
+Caller set re-derived: of the four `DeduplicateAgainstLedger` callers, only
+`OnRecordingCommitted` (step 3c) produces this type. The discard re-home, the science
+re-home and the recovery XP path do not, and the load-time `MigrateKerbalAssignments`
+compares whole per-recording row sets without going through the dedup. Pinned through the
+real commit path by
+`OnRecordingCommitted_TwoRecordingsSameKerbal002sApart_BothKeepTheirRows` and its mirror,
+`OnRecordingCommitted_SameRecordingRecommitted_StillDedups`. LIVE: RF-12S's armed re-flight on
+the fixed DLL (`2026-09-22_2010`) read the provisional's `dedup=2` (was 4) and `2 reservations
+remain (permanent=0 temporary=2)` (was 0).
+
+## TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. OPEN, needs two design decisions]
+
+MEASURED HEADLESSLY by `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
+(skipped, naming this entry). The shape: crew board at launch on a recording that spans
+the rewind point (the first re-fly of a crewed slot whose recording started at launch,
+i.e. the COMMON player shape), so the merge splits it into HEAD + TIP. The split, the
+endUT-screened retag and `CommitTombstones` retire both deaths in-session. Then the next
+load's `LedgerOrchestrator.MigrateKerbalAssignments` re-derives every committed
+recording's KerbalAssignment rows, and the test reads FOUR Dead rows back, all with fresh
+ActionIds no tombstone covers: HEAD 8..34 and TIP 34..53, for each of two kerbals. On
+main the same shape is Dead after a reload anyway (the guard kept the row), so this
+cancels the new fix's benefit on reload without making anything worse. It does not
+reach `refly-autopilot-recorded` (RF-12S's host), whose closure root has no points, so
+its merge does not split.
+
+TWO INDEPENDENT CAUSES, each with its own decision:
+
+(a) TIP. Step 2.9 retags the stored row to TIP unchanged, so it keeps the ORIGIN's `UT`
+    and `StartUT`. `KerbalAssignmentActionsMatch` compares those against TIP's own
+    derivation, fails, and `ReplaceActionsForRecording` writes a fresh-id row.
+    Option a1: Migrate inherits the replaced row's ActionId per (recording, kerbal), so
+    a re-derived row stays covered by a tombstone on the row it replaces. It changes
+    ledger identity for EVERY re-derived row. No committed fixture tombstones a row that
+    would be re-derived today (checked on `refly-autopilot-recorded`: its two tombstoned
+    assignment rows match their derivation).
+    Option a2: the retag rewrites the moved row to TIP's window (`UT` / `StartUT` =
+    TIP's start), so it matches TIP's derivation. That is local to the splitter, but it
+    rewrites a ledger row's timing and its `SplitMutationLedger` undo must restore it.
+(b) HEAD. `RecordingOptimizer.SplitAtSection` moves the terminal state to TIP but leaves
+    the origin's `CrewEndStates` (Dead) on HEAD, so HEAD derives a death it never had.
+    Option b1: the rewind splitter moves CrewEndStates to TIP and gives HEAD Unknown or
+    Aboard. Both map to an INDEFINITE temporary reservation, which would lock out crew
+    that the re-fly recovers (the reservation merge takes the max endUT).
+    Option b2: give HEAD Recovered, which reserves until HEAD's end, the right
+    reservation, but the Kerbals window would show a wrong fate. Or add a new end state
+    for "continued into the next segment", an enum addition that bumps no schema
+    generation but needs a reservation rule and UI wording.
+Whatever is chosen must keep the guard/splitter mirror bit-identical (the retag key is
+`TombstoneAttributionHelper.ComputeAttributionUT`) and un-skip the test above.
+
+## ~~TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START~~: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09. RULED 2026-09-22: screen death intervals by `endUT`. FIXED on branch `tombstone-endut` and LIVE-PROVEN by RF-12S; two follow-ups filed above]
 
 `KerbalAssignment` is an INTERVAL action (`startUT`..`endUT`) but
 `TombstoneAttributionHelper.IsPreRewindAttributedAction` screens it by its `UT`. On
@@ -4213,6 +4410,63 @@ must not be taken from RF-12W, where both answers agree; it needs the shape RF-1
 authored for (pre-rewind-boarded crew, re-fly lands them). Decisions owed: (1) yes or no on
 `endUT` screening for death-encoding intervals; (2) whether RF-12L is flown to its intended
 conclusion first, as the lane that would prove the change.
+
+OPERATOR RULING 2026-09-22 ("Fly RF-12L, then fix"): (1) YES, screen a `KerbalAssignment`
+whose encoded outcome is a death by its `endUT`, on both sides of the seam, every other
+interval action staying on `UT`; (2) the lane that proves it flies first.
+
+WHAT WAS DONE (branch `tombstone-endut`). One shared key,
+`TombstoneAttributionHelper.ComputeAttributionUT` (`EndUT` for a Dead `KerbalAssignment`
+with a known end, `UT` otherwise), read by `IsPreRewindAttributedAction` and by the new
+`RecordingTreeSplitter.ShouldRetagLedgerActionToTip`, which step 2.9 now calls instead of
+comparing `a.UT` inline. `TombstoneScreeningMirrorTests` walks one synthetic ledger
+through both predicates and asserts they are complements; reverting either side to the
+raw `UT` reds four cells. `CommitTombstones` logs each death interval the clause keeps in
+scope (`PreRewindTombstoneGuard: death interval screened by endUT ...`) plus a count line.
+THE PREMISE, RE-DERIVED FROM CODE: a re-fly that kills the crew again files its own death
+row at `NotifyLedgerTreeCommitted`, which `MergeCommit` runs BEFORE
+`TryCommitReFlySupersede`, under the provisional's id. The closure never contains the
+provisional (`EnqueuePidPeerSiblings` skips a NotCommitted or active-session peer, and
+MergeState flips only at Finalize), so the clause cannot reach that row;
+`CommitTombstones_ReFlyOwnDeathRow_OutsideTheClosure_Survives` pins it. CL-4's flights
+measured the OTHER half (the tombstone releases a permanent reservation for a re-flown
+kerbal who SURVIVED: `permanent=0 temporary=1`); no flight has yet measured a re-kill
+merge.
+
+WHY RF-12L AS AUTHORED CANNOT BE THE PROOF. It re-flies `rewind-b9` slot 1, a CREWLESS
+probe whose recording starts at the rewind point, so no straddling death row exists and
+both DLLs read the same. The only committed straddling crewed host is
+`refly-autopilot-recorded` slot 0 (Bill and Bob, origin `4a7739f6` spanning 29.94 to
+413.53, rewind at 131.54), and that stack carries no parachute, with a sea-level Poodle
+TWR below 1 even with the tank dry, so it cannot land. A landing would not reach the
+in-batch merge cells anyway, because a landing in flight stamps no terminal. The proving
+lane is therefore a scene-exit merge with the crew surviving: RF-12S
+(`RF-12S-refly-saves-pre-rewind-boarded-crew`), with the new `rf12s_refly_orbit_insert`
+mission burning the restored stack to orbit, then `AnswerMergeDialog merge`, then
+`SaveGame` + `LoadGame` for the reload.
+
+FLOWN 2026-09-22. Before-reading on a main DLL (markers verified absent)
+`2026-09-22_1928`: PARSEK-FAIL(expectation) on exactly the endUT tokens - `keep ...
+type=KerbalAssignment rec=4a7739f6` for both kerbals, `permanent=2` at the merge and after
+the reload, tombstones=10. After-reading on the fixed DLL `2026-09-22_1931`: PASS, two
+`death interval screened by endUT` lines, `Kerbal=4`, `permanent=0` at the merge and after
+the reload, tombstones=12. Armed re-flight `_1937` PASS with `[expectations.rewind]`
+gating; the main-DLL run, replayed offline against the armed contract, is the negative
+control (`rewind.tombstones 10 < min 12` plus nine log tokens). RF-12W re-read on the
+fixed DLL (`_1941`) went red on exactly the predicted `PASSED:
+MergeCrashedReFlyCreatesCPSupersede` pin, because `KerbalRecoveryOnSupersede` now passes
+there and spends the session; its contract was re-shaped to follow that cell.
+
+FOLLOW-UPS FILED ABOVE: TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT (the fix
+does not survive a reload on the common split shape) and KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY
+(a re-fly's own crew rows can be deduped away, which breaks the premise on a re-fly of a
+re-fly).
+
+KNOCK-ON (predicted, then measured on `_1941`): on the fixed DLL, RF-12W's
+`KerbalRecoveryOnSupersede` cell stops skipping (Bill's and Bob's straddling rows are no
+longer kept), runs its real merge first (K sorts before M) and spends the session, so
+`MergeCrashedReFlyCreatesCPSupersede` skips and RF-12W's old `PASSED:` pin reds. RF-12W's
+claim-to-token pin now follows `KerbalRecoveryOnSupersede`.
 
 ## ~~REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached~~ [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. FIXED 2026-09-15 on branch `render-and-recorder-hygiene`: the second candidate and the sixth-segment sentence are gone; `ResolveFixtureDir` / `DescribeCandidates` are untouched]
 

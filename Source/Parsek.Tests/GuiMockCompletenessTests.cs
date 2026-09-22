@@ -205,14 +205,14 @@ namespace Parsek.Tests
                       r => !string.IsNullOrEmpty(r.StatusTooltipText))) },
                 { "RosterRow.Chain",
                   () => AnyKerbals(vm => AllRosterRows(vm).Any(
-                      r => r.Chain != null && r.Chain.Count > 1)) },
+                      r => r.SlotMemberCount > 1)) },
                 { "FlightRow.MultiSegment",
                   () => AnyKerbals(vm => vm.Flights != null && vm.Flights.Any(
                       g => g.Rows != null && g.Rows.Any(r => r.SegmentCount > 1))) },
                 { "FlightRow.CrewNote",
                   () => AnyKerbals(vm => vm.Flights != null && vm.Flights.Any(
                       g => g.Rows != null && g.Rows.Any(
-                          r => r.CrewNoteText != KerbalsPresentation.EmptyCell))) },
+                          r => !string.IsNullOrEmpty(r.StandInName)))) },
                 { "StructureStep.CollapsedRun",
                   () => AnyStructure(steps => steps.Any(
                       st => st.Label != null && st.Label.Contains(" x"))) },

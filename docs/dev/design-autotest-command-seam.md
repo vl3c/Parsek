@@ -1356,7 +1356,8 @@ No side effects, so every refusal is `REJECTED` and there is no `ERROR` terminal
 
 | arg | values | meaning |
 |---|---|---|
-| `kind` | `rewindpoints` \| `committed` \| `active` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
+| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
+| `expectDigest` | eight lowercase hex digits | OPTIONAL, `kind=chains` only. The digest of an earlier chains capture, normally `${<label>.digest}`; the answer then carries `expected=` and `match=`. On any other family `REJECTED expect-digest-kind-mismatch`; any other shape (including an unsubstituted `${...}`) `REJECTED expect-digest-invalid`. Checked pre-launch by `hlib.validate_list_handles_expect_digest`. |
 
 **Payload grammar.** Every value is `InvariantCulture` and percent-encoded on the wire
 like every other payload; keys are `<family><i>` and `<family><i><attr>` with `i`
@@ -1391,9 +1392,31 @@ signal that `count` exceeds what was enumerated - never a silent cut.
   family the D5 `chain-continuation-switch` lane reads: `bg<i>pid` is the switch target
   the consume site's bg-member-continuation route requires
   (`activeTree.BackgroundMap.ContainsKey(newPid)`, ParsekFlight `TryConsumeStockActionIntent`).
+- `kind=chains count=<n> truncated=<b> evaluated=<b> digest=<hex8> [expected=<hex8>
+  match=<b>] chain<i>pid=<claimed vessel pid> chain<i>links=<n> chain<i>tip=<TipRecordingId>
+  chain<i>spawnUT=<UT, "R"> chain<i>terminated=<b>` from `ParsekFlight.ActiveGhostChains`
+  (the chains the flight scene KEEPS after `FilterAndGhostChains`: future spawn UT, not
+  terminated - so `terminated` reads false on every member today and is carried for the
+  day that filter changes), sorted by pid ascending, capped at 16. `evaluated` is
+  whether this flight-scene instance has run `EvaluateAndApplyGhostChains` at all
+  (`ParsekFlight.GhostChainEvaluationCount > 0`), which is what separates "derived an
+  empty set" from "never derived one"; outside FLIGHT the answer is the empty,
+  unevaluated one. `digest` is FNV-1a 32 over `pid|links|tip|spawnUT(R)|terminated;` per
+  chain in pid order, covering EVERY chain (not only the enumerated ones); the empty set
+  is `811c9dc5`. It exists so the D18 `chain-state-rederived` readback can be compared
+  BY THE SEAM: a capture before `SaveGame` + `LoadGame` is labelled, and the capture
+  after passes `expectDigest=${<label>.digest}`, so the answer's `match=` is the
+  comparison and the Info line carries it into KSP.log. This family carries ONE
+  readiness defer: in FLIGHT, before `OnFlightReady` (`ParsekFlight.FlightReadyObserved`
+  false, or no `ParsekFlight` yet), the dispatcher answers `DEFER ghost-chains-pending`,
+  because `LoadGame` completes on the scene switch a second or more before
+  `OnFlightReady` derives the chains, and an undeferred read would observe the previous
+  instant. The other three families are untouched by it.
 
 **Observability.** One Info line per call, `listhandles kind=<k> count=<n>
-truncated=<b>` (a refusal logs `listhandles rejected reason=<r> kind=<raw>` at Warn, the
+truncated=<b>`, with the chains family appending ` evaluated=<b> digest=<hex8>` and, when
+compared, ` expected=<hex8> match=<b>` (a refusal logs `listhandles rejected reason=<r> kind=<raw>` at Warn,
+with ` expectDigest=<raw>` appended when the refusal is of that arg, the
 way every other verb's refusal does). The enumerated ids themselves are NOT in
 KSP.log (the pump's `exec id=<id> verdict=OK` line carries no payload): they live in
 the response channel `parsek-test-responses.txt`, which the harness collects with the
@@ -1403,9 +1426,10 @@ start rp=<id> slot=<n>` and `Re-Fly (Rewind-to-Separation) StartInvoke: sess=<s>
 rp=<id>` for the first consumer), so the identity proof is the response line's `rp0=`
 against those two, measured on `2026-09-08_0844_RH-1-live-rp-handle-rewind`.
 
-**Pure decision.** `TestCommandListHandles` (`ParseKind`, the three `Build*Payload`
-builders over plain DTO rows, the caps as named constants), xUnit-covered in
-`TestCommandListHandlesTests.cs`. The partial `ParsekTestCommandAddon.ListHandles.cs`
+**Pure decision.** `TestCommandListHandles` (`ParseKind`, `ParseExpectDigest`,
+`ChainsDigest`, the four `Build*Payload` builders over plain DTO rows, `ChainsLogTail`,
+the caps as named constants), xUnit-covered in `TestCommandListHandlesTests.cs`; the
+chains defer in `TestCommandC1DispatchTests.cs`. The partial `ParsekTestCommandAddon.ListHandles.cs`
 only walks the live objects into DTOs. ERS note: the walk reads `CommittedTrees`, the
 un-audited tree surface SealSlot already walks, never the audited flat lists.
 
