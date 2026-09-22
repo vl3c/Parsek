@@ -10,6 +10,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI census photographs the Missions window's fold states.** The
+  operator lane `GUI-1-census-ksc` took exactly one picture of each of the window's two
+  tabs, so every fold arrow in the GUI mirror pointed at nothing - a reader could see that
+  a row collapses and never what collapsing hides. Six new captures (each with its
+  control-tree dump) show both tabs collapsed and fully expanded, plus one Recordings chain
+  block expanded inside its group folder with the other fifteen shut, and one Missions
+  row's `Events (N)` digest open on its own. Spec-only, driven entirely by the existing
+  `UiAction op=expand` vocabulary; no product code changed. Reading run `2026-09-22_1631`
+  (PASS, 87 s): the Missions tab goes 922 -> 1769 drawn nodes between the collapsed and
+  expanded captures, the Recordings tab 415 -> 1915, and the two deep folds read 999 and
+  453. Two measurements came out of it: a chain block only draws inside an OPEN group
+  folder (expanding the chain alone flips the flag and changes no pixel), and on this host
+  the window restores fully collapsed in both tabs.
+
 - **Automated testing: the GUI state gallery, phase 1 - a window can now be handed MOCKED
   DATA while the real IMGUI draw code computes every rect and every string.** The census is
   honest and incomplete: a harness flight can only photograph a state some fixture save plus
