@@ -262,9 +262,12 @@ steps = [
 D10 = ["route-map-lines-inter-body", "route-transfer-leg-drop"]
 D14 = ["kerbin", "duna", "scene-ts", "sandbox"]
 # D18, ADDED 2026-09-22 (the D18 spawn-in-run wave, PR-A; operator rulings of the same
-# day), CLAIMED CONDITIONAL ON THE ARMED RE-FLIGHT AND ITS NEGATIVE CONTROL (the H59
-# precedent this block already follows for `route-transfer-leg-drop`). Neither cell needed a
-# new flight to be FOUND: this fixture's committed ghost chains print both on every run.
+# day), CLAIMED and DISCHARGED the same day: ARMED RE-FLIGHT `2026-09-22_1948` PASS attempt
+# 1 (62 s, DLL built from origin/main `ce9821bd9`, deployed sha256 `46e19c78...`); NEGATIVE
+# CONTROL `2026-09-22_1949`, the two claim tokens inverted in place (`vessel=Kerbal Y`,
+# `terminated=False`) and reverted, PARSEK-FAIL(expectation) on exactly those two
+# mismatches. Neither cell needed a new flight to be FOUND: this fixture's committed ghost
+# chains print both on every run.
 #   `intermediate-spawn-suppression` <- `Intermediate spawn suppressed:
 #       rec=58130506e8f84025b78a95d2497534ab vessel=Kerbal X` (GhostPlaybackLogic
 #       `ShouldSuppressSpawnForChain`, Verbose rate-limited, so ONE line per run): the

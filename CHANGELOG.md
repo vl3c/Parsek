@@ -16,7 +16,7 @@ _(unreleased — entries accumulate here per commit)_
   claimed vessel's chain, and chains marked terminated because their tip vessel was
   destroyed. Those three lines are now required fixture literals, and the lane claims
   D18 `intermediate-spawn-suppression` plus the destroyed half of
-  `chain-terminated-destruction-recovery`. The recovery half, and a seam verb pair to
+  `chain-terminated-destruction-recovery`. Proven by an armed re-flight and a negative control. The recovery half, and a seam verb pair to
   spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
   Harness-only; no game code changed.
 
