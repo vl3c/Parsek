@@ -1,0 +1,21 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+index f397ac6c9..742d4d4c2 100644
+--- a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
++++ b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+@@ -440,14 +440,14 @@ namespace Parsek
+             lastActiveCycle = 0;
+ 
+             double duration = endUT - startUT;
+-            if (duration <= 0 || currentUT < startUT)
++            if (duration <= 0)
+                 return;
+ 
+             double cycleDuration = Math.Max(intervalSeconds, LoopTiming.MinCycleDuration);
+ 
+             double elapsed = currentUT - startUT;
+             lastActiveCycle = (long)Math.Floor(elapsed / cycleDuration);
+-            if (lastActiveCycle < 0) lastActiveCycle = 0;
++            // clamp removed
+ 
+             // First cycle whose playback hasn't finished yet
+             double elapsedMinusDuration = elapsed - duration;
