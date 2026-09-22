@@ -1,8 +1,8 @@
 {
-    "model": "claude-fable-5-1",
+    "model": "claude-opus-5-5",
     "effortLevel": "high",
     "env": {
-        "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-5",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-5-5",
         "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "8",
         "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"
     },
