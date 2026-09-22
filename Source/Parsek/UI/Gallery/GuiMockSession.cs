@@ -70,6 +70,19 @@ namespace Parsek.UI.Gallery
         internal static readonly GuiMockSuppressionSite CareerVmRebuild =
             new GuiMockSuppressionSite { Site = "career-vm-rebuild", Window = CareerWindow };
 
+        /// <summary>
+        /// Career State's explicit <c>InvalidateCache</c>, reached from
+        /// <c>LedgerOrchestrator.OnTimelineDataChanged</c> through
+        /// <c>ParsekUI.OnTimelineDataChanged</c>.
+        ///
+        /// <para>The OTHER writer of that window's cached VM, and the one the first build
+        /// missed: suppressing the rebuild PREDICATE alone let any ledger write null the
+        /// mocked VM, after which the predicate answered "do not rebuild" and the draw
+        /// dereferenced a null Nullable every frame.</para>
+        /// </summary>
+        internal static readonly GuiMockSuppressionSite CareerInvalidate =
+            new GuiMockSuppressionSite { Site = "career-invalidate", Window = CareerWindow };
+
         /// <summary>Kerbals' explicit <c>InvalidateCache</c> (the timeline hook).</summary>
         internal static readonly GuiMockSuppressionSite KerbalsInvalidate =
             new GuiMockSuppressionSite { Site = "kerbals-invalidate", Window = KerbalsWindow };
@@ -88,6 +101,7 @@ namespace Parsek.UI.Gallery
         internal static readonly GuiMockSuppressionSite[] SuppressionSites =
         {
             CareerVmRebuild,
+            CareerInvalidate,
             KerbalsInvalidate,
             KerbalsLiveCrew,
         };
@@ -99,6 +113,7 @@ namespace Parsek.UI.Gallery
         private static int appliedFrame;
         private static string appliedUtc;
         private static Action restore;
+        private static string brokenReason;
         private static readonly HashSet<string> notedSites =
             new HashSet<string>(StringComparer.Ordinal);
 
@@ -129,6 +144,36 @@ namespace Parsek.UI.Gallery
         {
             return stateId != null
                    && string.Equals(window, windowToken, StringComparison.Ordinal);
+        }
+
+        /// <summary>Why the live scope is no longer showing its state, or null when it is
+        /// intact. Read by the applier's settle and by the clear.</summary>
+        internal static string BrokenReason { get { return brokenReason; } }
+
+        /// <summary>True when the live scope has been observed to have lost its mocked
+        /// model. A scope in this state must never report OK: the window is drawing
+        /// something else under the state's label.</summary>
+        internal static bool IsBroken { get { return stateId != null && brokenReason != null; } }
+
+        /// <summary>
+        /// Records that a window's mocked model is gone even though the scope is live -
+        /// something outside the declared suppression set wrote the injected member.
+        ///
+        /// <para>It does NOT clear the scope, and that is deliberate: the observation
+        /// happens inside a DRAW pass, where running a restore closure (which writes the
+        /// window's open flag, rect and tab) is the wrong place to reach. The applier
+        /// reads <see cref="IsBroken"/> on its next poll and answers
+        /// <c>mock-scope-broken</c>, which both restores and tells the lane.</para>
+        /// </summary>
+        internal static void NoteScopeBroken(GuiMockSuppressionSite site, string reason)
+        {
+            if (!Owns(site.Window)) return;
+            if (brokenReason != null) return;
+            brokenReason = reason ?? "unknown";
+            ParsekLog.Warn(LogTag,
+                "mock scope broken state=" + (stateId ?? "-") + " window=" + (window ?? "-")
+                + " site=" + site.Site + " reason=" + brokenReason
+                + " (the window is no longer drawing the mocked model)");
         }
 
         /// <summary>
@@ -163,6 +208,7 @@ namespace Parsek.UI.Gallery
             appliedFrame = frame;
             appliedUtc = utc ?? string.Empty;
             restore = restoreAction;
+            brokenReason = null;
             notedSites.Clear();
             return true;
         }
@@ -190,6 +236,7 @@ namespace Parsek.UI.Gallery
             restore = null;
             appliedFrame = 0;
             appliedUtc = null;
+            brokenReason = null;
             notedSites.Clear();
 
             if (toRun != null)
@@ -234,6 +281,7 @@ namespace Parsek.UI.Gallery
             restore = null;
             appliedFrame = 0;
             appliedUtc = null;
+            brokenReason = null;
             notedSites.Clear();
         }
     }

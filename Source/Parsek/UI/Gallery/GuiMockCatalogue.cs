@@ -70,10 +70,55 @@ namespace Parsek.UI.Gallery
         /// <summary>Whether this build can mock <paramref name="window"/> at all.</summary>
         internal static bool IsSupportedWindow(string window)
         {
-            for (int i = 0; i < SupportedWindows.Length; i++)
-                if (string.Equals(SupportedWindows[i], window, StringComparison.Ordinal))
+            for (int i = 0; i < GuiMockCatalogue.SupportedWindows.Length; i++)
+                if (string.Equals(GuiMockCatalogue.SupportedWindows[i], window,
+                                  StringComparison.Ordinal))
                     return true;
             return false;
+        }
+
+        /// <summary>
+        /// The main-window LAUNCHER surface a mockable window is reached through, when it
+        /// has one.
+        ///
+        /// <para>It exists because the complexity mode decides whether a window can be on
+        /// screen at all: Basic HIDES the Kerbals and Career State launchers
+        /// (<c>UiSurfaceVisibility.IsVisible</c>) and the mode switch FORCE-CLOSES both
+        /// (<c>ParsekUI.BuildGatedWindowCloseSet</c>), so applying a mock to one of them
+        /// in Basic would photograph a window no player can open - and the coverage audit
+        /// already established those index rows are UNREACHABLE rather than uncaptured.
+        /// The applier refuses with <c>mock-refused-mode</c> instead of producing the
+        /// picture.</para>
+        ///
+        /// <para>Structure List has NO launcher: it is opened from a Missions or Logistics
+        /// row, it is not in the gated close set, and it draws in both modes - so it
+        /// answers false here and is mockable in either.</para>
+        /// </summary>
+        internal static bool TryGetLauncherSurface(string window, out UiSurface surface)
+        {
+            surface = default(UiSurface);
+            if (string.Equals(window, GuiMockSession.KerbalsWindow, StringComparison.Ordinal))
+            {
+                surface = UiSurface.MainButtonKerbals;
+                return true;
+            }
+            if (string.Equals(window, GuiMockSession.CareerWindow, StringComparison.Ordinal))
+            {
+                surface = UiSurface.MainButtonCareer;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="window"/> can be mocked in <paramref name="mode"/>:
+        /// true when it has no launcher surface, or its launcher draws in that mode.
+        /// </summary>
+        internal static bool IsMockableInMode(string window, UiComplexityMode mode)
+        {
+            UiSurface surface;
+            if (!TryGetLauncherSurface(window, out surface)) return true;
+            return UiSurfaceVisibility.IsVisible(surface, mode);
         }
 
         /// <summary>The supported set, comma-joined, for the

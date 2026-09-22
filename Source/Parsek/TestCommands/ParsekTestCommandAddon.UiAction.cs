@@ -216,6 +216,20 @@ namespace Parsek.TestCommands
             internal bool MockBasicMode;
             internal int MockCovers;
             internal string MockLabel;
+
+            // THREE-PHASE, unlike every other op here. Phase 1 applies the window's
+            // CHROME and captures it WITHOUT the mock; phase 2 installs the data and
+            // captures again; the witness check then requires every witness to be present
+            // in the second capture AND absent from the first. The pre-apply baseline is
+            // what turns "this string was on screen" into "only the mock put it there".
+            internal bool MockAwaitingBaseline;
+            internal List<string> MockBaseline;
+
+            // Carried across the two phases: the built payload (built ONCE, at execute,
+            // so the model the window draws is the model the witnesses came from) and the
+            // chrome restore closure.
+            internal Parsek.UI.Gallery.GuiMockPayload MockPayload;
+            internal Action MockRestoreChrome;
         }
 
         private UiActionPending uiActionPending;

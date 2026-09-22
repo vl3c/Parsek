@@ -102,57 +102,254 @@ namespace Parsek.Tests
         };
 
         /// <summary>
-        /// Members a catalogue state cannot reach, each with the reason. An exemption is
-        /// a STATEMENT, so it is checked: a member that stops existing (or stops being
-        /// unreachable) reds the cell below rather than silently excusing a gap.
+        /// Members NO catalogue state can reach, each with the reason it draws nothing.
+        ///
+        /// <para>An exemption is a STATEMENT about the product, so it is checked: a member
+        /// that stops existing - or stops being unreachable - reds
+        /// <see cref="EveryExemptionNamesARealMemberOfAGuardedEnum"/> rather than silently
+        /// excusing a gap. The list is short on purpose; an exemption is the answer of
+        /// last resort, after "add a state" and "the enum does not belong under the
+        /// guard".</para>
         /// </summary>
         private static readonly Dictionary<string, string> Exempt =
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                // GameActionType has ~40 members and Build() branches on ten. The guard
-                // is scoped to that method's BODY, so the rest never appear as branches
-                // and need no entry here - which is the point of scoping.
+                // The chain builder emits Retired / Active / Displaced and nothing else
+                // (KerbalsPresentation.BuildChainMembers is an exhaustive if/else over
+                // those three), so Unknown is a declared-but-unreachable member. The
+                // window HAS a "(?)" arm for it, which is why it stays in the enum.
+                { "ChainMemberStatus.Unknown",
+                  "BuildChainMembers emits only Retired / Active / Displaced, so no "
+                  + "recording can produce an Unknown chain member" },
+
+                // Every GameActionType the Career VM walk does NOT branch on. The walk
+                // switches on ten; the rest are other subsystems' rows (recordings,
+                // kerbals, routes, science, funds, reputation) that this window never
+                // renders. Listed as ONE reason rather than forty entries by the
+                // scope-derived check below - see NonCareerGameActionTypes.
             };
 
-        [Fact]
-        public void EveryGuardedEnumsBranchSetIsClaimedByACatalogueState()
+        /// <summary>
+        /// The <c>GameActionType</c> members the Career VM walk deliberately does not
+        /// branch on, derived from its own comment-stripped BODY rather than listed.
+        ///
+        /// <para>That derivation is the honest form: the enum has around forty members and
+        /// the window renders ten of them, so a hand-kept exemption list would be
+        /// thirty rows of "this window does not draw route rows" - and would go stale
+        /// silently the moment the walk grew an arm. The reflection guard below therefore
+        /// asks only about the members the walk MENTIONS, and this method is what makes
+        /// that set derived instead of pinned.</para>
+        /// </summary>
+        private static HashSet<string> CareerWalkBranchMembers()
         {
+            GuardedEnum gameActions = Guarded.Single(g => g.ShortName == "GameActionType");
+            return new HashSet<string>(BranchMembers(gameActions), StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// The BOOL-DRIVEN branches, each with a predicate proving the catalogue reaches
+        /// it. Reflection cannot see these - several of the most consequential cells in
+        /// these windows are decided by a bool rather than by an enum - so each is a NAMED
+        /// branch key a state must claim, and the predicate is what stops a claimed key
+        /// that nothing produces from reading as coverage.
+        /// </summary>
+        private static Dictionary<string, Func<bool>> BoolBranches()
+            => new Dictionary<string, Func<bool>>(StringComparer.Ordinal)
+            {
+                { "CareerBanner.Divergent",
+                  () => AnyCareer(vm => vm.HasDivergence) },
+                { "ContractRow.IsPendingAccept",
+                  () => AnyCareer(vm => vm.Contracts.ProjectedRows.Any(
+                      r => r.IsPendingAccept)) },
+                { "ContractRow.IsClosingByTimelineEnd",
+                  () => AnyCareer(vm => vm.Contracts.CurrentRows.Any(
+                      r => r.IsClosingByTimelineEnd)) },
+                { "StrategyRow.IsPendingActivate",
+                  () => AnyCareer(vm => vm.Strategies.ProjectedRows.Any(
+                      r => r.IsPendingActivate)) },
+                { "StrategyRow.IsClosingByTimelineEnd",
+                  () => AnyCareer(vm => vm.Strategies.CurrentRows.Any(
+                      r => r.IsClosingByTimelineEnd)) },
+                { "FacilityRow.HasUpcomingChange",
+                  () => AnyCareer(vm => vm.Facilities.Rows.Any(
+                      r => r.HasUpcomingChange && r.CurrentLevel != r.ProjectedLevel)) },
+                { "FacilityRow.CurrentDestroyed",
+                  () => AnyCareer(vm => vm.Facilities.Rows.Any(
+                      r => r.CurrentDestroyed && r.ProjectedDestroyed)) },
+                { "FacilityRow.RepairPending",
+                  () => AnyCareer(vm => vm.Facilities.Rows.Any(
+                      r => r.CurrentDestroyed && !r.ProjectedDestroyed)) },
+                { "MilestoneRow.IsPendingCredit",
+                  () => AnyCareer(vm => vm.Milestones.Rows.Any(r => r.IsPendingCredit)) },
+                { "MilestoneRow.ZeroReward",
+                  () => AnyCareer(vm => vm.Milestones.Rows.Any(
+                      r => r.FundsAwarded == 0f && r.RepAwarded == 0f
+                           && r.ScienceAwarded == 0f)) },
+                { "RosterRow.StatusTooltip",
+                  () => AnyKerbals(vm => AllRosterRows(vm).Any(
+                      r => !string.IsNullOrEmpty(r.StatusTooltipText))) },
+                { "RosterRow.Chain",
+                  () => AnyKerbals(vm => AllRosterRows(vm).Any(
+                      r => r.Chain != null && r.Chain.Count > 1)) },
+                { "FlightRow.MultiSegment",
+                  () => AnyKerbals(vm => vm.Flights != null && vm.Flights.Any(
+                      g => g.Rows != null && g.Rows.Any(r => r.SegmentCount > 1))) },
+                { "FlightRow.CrewNote",
+                  () => AnyKerbals(vm => vm.Flights != null && vm.Flights.Any(
+                      g => g.Rows != null && g.Rows.Any(
+                          r => r.CrewNoteText != KerbalsPresentation.EmptyCell))) },
+                { "StructureStep.CollapsedRun",
+                  () => AnyStructure(steps => steps.Any(
+                      st => st.Label != null && st.Label.Contains(" x"))) },
+                { "StructureStep.RouteOrigin",
+                  () => AnyStructure(steps => steps.Any(
+                      st => st.Kind == StructureStepKind.Origin)) },
+            };
+
+        /// <summary>The bool-branch keys, so the cover-key validity cell accepts them
+        /// beside the enum members without a second copy of the list.</summary>
+        internal static IEnumerable<string> DeclaredBoolBranchKeys()
+            => BoolBranches().Keys;
+
+        [Fact]
+        public void EveryGuardedEnumMemberIsClaimedOrExemptedOrOutOfTheWindowsReach()
+        {
+            // REFLECTION over Enum.GetValues, which is what design 11.1 specifies and what
+            // the first version did NOT do: it collected `EnumName.Member` MENTIONS from
+            // the draw source with a regex, so a NEW enum member with no `case` arm stayed
+            // green - the guard could not see a member nobody had written about yet. It
+            // also required only 4 of 6 RosterStatus members for that reason.
+            //
+            // The source scan is still here, in the narrow role it is actually good for:
+            // deciding which GameActionType members the Career walk renders at all (that
+            // enum has around forty members and the window draws ten). For every OTHER
+            // guarded enum the whole member set must be claimed or exempted.
             var claimed = new HashSet<string>(StringComparer.Ordinal);
             foreach (GuiMockState state in GuiMockCatalogue.All)
                 foreach (string cover in state.Covers)
                     claimed.Add(cover);
 
-            int branchesSeen = 0;
+            HashSet<string> careerWalk = CareerWalkBranchMembers();
+            Assert.True(careerWalk.Count >= 10,
+                "the Career walk scan found only " + careerWalk.Count + " branches; the "
+                + "parse or the method moved");
+
+            int membersChecked = 0;
             var misses = new List<string>();
             foreach (GuardedEnum guarded in Guarded)
             {
-                List<string> branches = BranchMembers(guarded);
-                Assert.True(branches.Count > 0,
-                    "no " + guarded.ShortName + " branch found in " + guarded.RelativePath
-                    + (guarded.MethodMarker == null ? "" : " / " + guarded.MethodMarker)
-                    + " - the scan is broken (moved file, renamed method), not the source. "
-                    + "Never-drawn is a FAILURE here, not a skip.");
-                branchesSeen += branches.Count;
+                string[] members = Enum.GetNames(guarded.EnumType);
+                Assert.True(members.Length > 0,
+                    guarded.ShortName + " has no members; reflection is broken");
 
-                foreach (string member in branches)
+                foreach (string member in members)
                 {
                     string key = guarded.ShortName + "." + member;
+
+                    // GameActionType is scoped to what the window's own walk renders; the
+                    // rest of that enum belongs to other subsystems entirely.
+                    if (guarded.ShortName == "GameActionType" && !careerWalk.Contains(member))
+                        continue;
+
+                    membersChecked++;
                     if (claimed.Contains(key)) continue;
                     if (Exempt.ContainsKey(key)) continue;
                     misses.Add(key + "  (" + guarded.Why + "; add a state to "
                                + "Source/Parsek/UI/Gallery/ whose Covers names \""
-                               + key + "\")");
+                               + key + "\", or an Exempt entry saying why it draws "
+                               + "nothing)");
                 }
             }
 
-            // A hardcoded FLOOR so the loop above cannot go vacuous: 4 RosterStatus + 3
-            // ChainMemberStatus + 3 KerbalEndState + 9 TerminalState + 10 GameActionType.
-            Assert.True(branchesSeen >= 29,
-                "the guarded scan found only " + branchesSeen + " branches across "
-                + Guarded.Length + " enums; the parse or the source moved");
+            // A hardcoded FLOOR so the loop cannot go vacuous: 6 RosterStatus + 4
+            // ChainMemberStatus + 4 KerbalEndState + 9 TerminalState + 10 rendered
+            // GameActionType = 33.
+            Assert.True(membersChecked >= 33,
+                "the guard checked only " + membersChecked + " members across "
+                + Guarded.Length + " enums; reflection or the scoping broke");
 
             Assert.True(misses.Count == 0,
-                "catalogue states claim no branch key for:\n  " + string.Join("\n  ", misses));
+                "catalogue states claim no branch key for:\n  "
+                + string.Join("\n  ", misses));
+        }
+
+        [Fact]
+        public void TheBoolDrivenBranchesAreClaimedByNamedKeysToo()
+        {
+            // The OTHER half of design 11.1, and the half the first version had no reach
+            // into at all: several of these windows' most consequential cells are decided
+            // by a BOOL rather than by an enum - the divergence banner, (pending),
+            // (closing), (destroyed), (upcoming), the pending-accept split. Reflection
+            // cannot see those, so each is a NAMED branch key a state must claim, checked
+            // here against the real formatter that renders it.
+            var claimed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (GuiMockState state in GuiMockCatalogue.All)
+                foreach (string cover in state.Covers)
+                    claimed.Add(cover);
+
+            Dictionary<string, Func<bool>> boolBranches = BoolBranches();
+            var unproduced = new List<string>();
+            foreach (var pair in boolBranches)
+            {
+                if (!pair.Value())
+                {
+                    unproduced.Add(pair.Key + " is claimed by the guard and NO catalogue "
+                                   + "state produces it");
+                }
+            }
+            Assert.True(unproduced.Count == 0,
+                string.Join("\n  ", unproduced));
+
+            // And every one of them is NAMED by at least one state, so a reader of a
+            // state's Covers can see which bool-driven cell it exists for.
+            var unclaimed = new List<string>();
+            foreach (string key in boolBranches.Keys)
+                if (!claimed.Contains(key)) unclaimed.Add(key);
+            Assert.True(unclaimed.Count == 0,
+                "these bool-driven branches are produced but no state CLAIMS them, so "
+                + "nothing ties the picture to the branch:\n  "
+                + string.Join("\n  ", unclaimed));
+        }
+
+        private static bool AnyCareer(
+            Func<CareerStateWindowUI.CareerStateViewModel, bool> match)
+        {
+            foreach (GuiMockState state in
+                     GuiMockCatalogue.ForWindow(GuiMockSession.CareerWindow))
+            {
+                if (match(state.Build().Career.Value)) return true;
+            }
+            return false;
+        }
+
+        private static bool AnyKerbals(Func<KerbalsWindowUI.KerbalsViewModel, bool> match)
+        {
+            foreach (GuiMockState state in
+                     GuiMockCatalogue.ForWindow(GuiMockSession.KerbalsWindow))
+            {
+                if (match(state.Build().Kerbals.Value)) return true;
+            }
+            return false;
+        }
+
+        private static bool AnyStructure(Func<List<StructureStep>, bool> match)
+        {
+            foreach (GuiMockState state in
+                     GuiMockCatalogue.ForWindow(GuiMockSession.StructureWindow))
+            {
+                if (match(state.Build().Structure.Steps)) return true;
+            }
+            return false;
+        }
+
+        private static IEnumerable<KerbalsPresentation.RosterRow> AllRosterRows(
+            KerbalsWindowUI.KerbalsViewModel vm)
+        {
+            KerbalsPresentation.RosterRowSet set = vm.Roster;
+            if (set.Involved != null)
+                for (int i = 0; i < set.Involved.Count; i++) yield return set.Involved[i];
+            if (set.Plain != null)
+                for (int i = 0; i < set.Plain.Count; i++) yield return set.Plain[i];
         }
 
         [Fact]
@@ -175,7 +372,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EveryCoverKeyNamesARealMemberOfAGuardedEnum()
+        public void EveryCoverKeyNamesARealEnumMemberOrADeclaredBoolBranch()
         {
             // The mirror direction: a state that claims a key nothing guards is coverage
             // theatre, and a TYPO in a cover key would otherwise leave the real member
@@ -184,6 +381,7 @@ namespace Parsek.Tests
             foreach (GuardedEnum guarded in Guarded)
                 foreach (string member in Enum.GetNames(guarded.EnumType))
                     valid.Add(guarded.ShortName + "." + member);
+            foreach (string key in DeclaredBoolBranchKeys()) valid.Add(key);
 
             foreach (GuiMockState state in GuiMockCatalogue.All)
             {
@@ -191,8 +389,9 @@ namespace Parsek.Tests
                 {
                     Assert.True(valid.Contains(cover),
                         "state '" + state.Id + "' claims branch key '" + cover
-                        + "', which is not a member of any guarded enum. Either the key "
-                        + "is a typo or the enum belongs under the guard.");
+                        + "', which is neither a member of a guarded enum nor a declared "
+                        + "bool-driven branch. Either the key is a typo, or the branch "
+                        + "belongs under the guard.");
                 }
             }
         }

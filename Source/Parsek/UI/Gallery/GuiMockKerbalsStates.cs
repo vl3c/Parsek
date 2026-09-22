@@ -56,12 +56,11 @@ namespace Parsek.UI.Gallery
                 BuildRetiredRoster,
                 expand: new[] { "Jebediah Kerman" }));
 
-            into.Add(Roster(
-                "kerbals.roster.standin-active",
-                "An active stand-in covering a reserved owner's slot.",
-                new[] { "RosterStatus.StandIn", "ChainMemberStatus.Active" },
-                () => BuildStandInRoster(aboardVessel: null)));
-
+            // There is no plain "standin-active" state beside the one below: with the
+            // vessel name pushed into the hover text (see the note there), the two
+            // produce the SAME drawn cells, and two states with an identical witness set
+            // are one picture filed twice. The active-stand-in row without a vessel is
+            // still photographed - by kerbals.roster.all-statuses, which carries one.
             // NOTE, and it is a product finding rather than a catalogue choice: there is
             // no INLINE "Stand-in for X (aboard Y)" state here because the product cannot
             // produce one for any real kerbal. FormatStatus keeps the vessel inline only
@@ -76,7 +75,7 @@ namespace Parsek.UI.Gallery
                 "A stand-in who is also aboard a craft: the vessel moves into the cell's "
                 + "hover text, because the inline form does not fit the 220px column for "
                 + "any real kerbal name.",
-                new[] { "RosterStatus.StandIn" },
+                new[] { "RosterStatus.StandIn", "RosterRow.StatusTooltip" },
                 () => BuildStandInRoster(
                     aboardVessel: "Duna Surface Sample Return Ascent Stage")));
 
@@ -98,7 +97,8 @@ namespace Parsek.UI.Gallery
                 "kerbals.roster.chain-two-deep",
                 "A two-deep replacement chain expanded: the mid-branch glyph and a "
                 + "(displaced) member, neither of which any capture shows.",
-                new[] { "ChainMemberStatus.Displaced", "ChainMemberStatus.Active" },
+                new[] { "ChainMemberStatus.Displaced", "ChainMemberStatus.Active",
+                        "RosterRow.Chain" },
                 BuildTwoDeepChainRoster,
                 expand: new[] { "Jebediah Kerman" }));
 
@@ -131,14 +131,14 @@ namespace Parsek.UI.Gallery
                 "kerbals.flights.standin-crew",
                 "The Crew column's entire reason to exist: 'as <stand-in>', unphotographed "
                 + "even on the fixture that has three stand-ins.",
-                new[] { "KerbalEndState.Recovered" },
+                new[] { "KerbalEndState.Recovered", "FlightRow.CrewNote" },
                 () => BuildFlights(FlightShape.StandInCrew)));
 
             into.Add(Flights(
                 "kerbals.flights.multi-segment",
                 "One mission that collapsed three recorded segments - the row the "
                 + "2026-09-15 mission collapse produced.",
-                new[] { "KerbalEndState.Recovered", "KerbalEndState.Aboard" },
+                new[] { "FlightRow.MultiSegment" },
                 () => BuildFlights(FlightShape.MultiSegment)));
 
             into.Add(Flights(
@@ -196,25 +196,25 @@ namespace Parsek.UI.Gallery
 
         private sealed class RosterInputs
         {
-            internal readonly List<KerbalsPresentation.RosterKerbal> Roster =
+            internal readonly List<KerbalsPresentation.RosterKerbal> roster =
                 new List<KerbalsPresentation.RosterKerbal>();
-            internal readonly Dictionary<string, KerbalsModule.KerbalSlot> Slots =
+            internal readonly Dictionary<string, KerbalsModule.KerbalSlot> slots =
                 new Dictionary<string, KerbalsModule.KerbalSlot>(StringComparer.Ordinal);
-            internal readonly Dictionary<string, KerbalsModule.KerbalReservation> Reservations =
+            internal readonly Dictionary<string, KerbalsModule.KerbalReservation> reservations =
                 new Dictionary<string, KerbalsModule.KerbalReservation>(StringComparer.Ordinal);
-            internal readonly List<string> Retired = new List<string>();
-            internal readonly List<KerbalsWindowUI.CrewEndStateEntry> EndStates =
+            internal readonly List<string> retired = new List<string>();
+            internal readonly List<KerbalsWindowUI.CrewEndStateEntry> endStates =
                 new List<KerbalsWindowUI.CrewEndStateEntry>();
-            internal readonly Dictionary<string, string> MissionNames =
+            internal readonly Dictionary<string, string> missionNames =
                 new Dictionary<string, string>(StringComparer.Ordinal);
-            internal readonly Dictionary<string, IReadOnlyCollection<string>> RawCrew =
+            internal readonly Dictionary<string, IReadOnlyCollection<string>> rawCrewById =
                 new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
-            internal readonly Dictionary<string, string> Replacements =
+            internal readonly Dictionary<string, string> replacements =
                 new Dictionary<string, string>(StringComparer.Ordinal);
 
             internal RosterInputs Kerbal(string name, string trait, string aboard = null)
             {
-                Roster.Add(new KerbalsPresentation.RosterKerbal
+                roster.Add(new KerbalsPresentation.RosterKerbal
                 {
                     Name = name,
                     Trait = trait,
@@ -233,13 +233,13 @@ namespace Parsek.UI.Gallery
                     OwnerPermanentlyGone = ownerGone,
                 };
                 slot.Chain.AddRange(chain);
-                Slots[owner] = slot;
+                slots[owner] = slot;
                 return this;
             }
 
             internal RosterInputs Reserve(string name, double untilUT, bool permanent)
             {
-                Reservations[name] = new KerbalsModule.KerbalReservation
+                reservations[name] = new KerbalsModule.KerbalReservation
                 {
                     KerbalName = name,
                     ReservedUntilUT = untilUT,
@@ -250,7 +250,7 @@ namespace Parsek.UI.Gallery
 
             internal RosterInputs Retire(string name)
             {
-                Retired.Add(name);
+                retired.Add(name);
                 return this;
             }
 
@@ -261,7 +261,7 @@ namespace Parsek.UI.Gallery
                                           KerbalEndState endState,
                                           params string[] rawCrew)
             {
-                EndStates.Add(new KerbalsWindowUI.CrewEndStateEntry
+                endStates.Add(new KerbalsWindowUI.CrewEndStateEntry
                 {
                     KerbalName = kerbal,
                     RecordingName = missionName,
@@ -271,9 +271,9 @@ namespace Parsek.UI.Gallery
                     EndUT = endUT,
                     EndState = endState,
                 });
-                MissionNames[recordingId] = missionName;
+                missionNames[recordingId] = missionName;
                 if (rawCrew != null && rawCrew.Length > 0)
-                    RawCrew[recordingId] = new List<string>(rawCrew);
+                    rawCrewById[recordingId] = new List<string>(rawCrew);
                 return this;
             }
 
@@ -281,31 +281,34 @@ namespace Parsek.UI.Gallery
             /// <c>KerbalsWindowUI.BuildViewModel</c> does.</summary>
             internal KerbalsWindowUI.KerbalsViewModel Build()
             {
-                var traits = new Dictionary<string, string>(StringComparer.Ordinal);
-                for (int i = 0; i < Roster.Count; i++)
-                    traits[Roster[i].Name] = Roster[i].Trait ?? "";
-                foreach (var pair in Slots)
-                    if (!traits.ContainsKey(pair.Key))
-                        traits[pair.Key] = pair.Value.OwnerTrait ?? "";
+                // The trait map is the WINDOW'S own builder rather than a copy of it: the
+                // group headers read "Name [Trait]", so a second implementation here is
+                // one more way a mocked header could differ from a real one.
+                Dictionary<string, string> traits =
+                    KerbalsWindowUI.BuildTraitMap(roster, slots);
 
                 List<KerbalsPresentation.FlightGroup> flights =
                     KerbalsPresentation.BuildFlightRows(
-                        EndStates, MissionNames, RawCrew, Replacements, Slots, traits,
+                        endStates, missionNames, rawCrewById, replacements, slots,
+                        traits,
                         KerbalsWindowUI.FormatRowDate);
 
                 // The active-chain rule is the production one, reached through the pure
-                // overload KerbalsModule exposes for exactly this - not a copy of it.
+                // overload KerbalsModule exposes for exactly this - not a copy of it. The
+                // reservation predicate is hoisted so the delegate is allocated ONCE per
+                // build rather than once per slot the roster walk classifies.
+                Func<string, bool> isReserved = reservations.ContainsKey;
                 KerbalsWindowUI.ActiveChainIndexFunc activeIndexOf =
                     slot => KerbalsModule.ResolveActiveChainIndex(
-                        slot != null ? slot.OwnerName : null, slot, Reservations.ContainsKey);
+                        slot != null ? slot.OwnerName : null, slot, isReserved);
 
                 KerbalsPresentation.RosterRowSet rows = KerbalsPresentation.BuildRosterRows(
-                    Roster, Slots, Reservations, Retired, flights, activeIndexOf,
+                    roster, slots, reservations, retired, flights, activeIndexOf,
                     KerbalsWindowUI.FormatRowDate);
 
                 return new KerbalsWindowUI.KerbalsViewModel
                 {
-                    EndStates = EndStates,
+                    EndStates = endStates,
                     Flights = flights,
                     Roster = rows,
                 };
@@ -481,16 +484,22 @@ namespace Parsek.UI.Gallery
                     break;
 
                 case FlightShape.MixedBuckets:
+                    // The DEATH IS LAST, and that ordering is the honest shape rather
+                    // than a detail: a kerbal who died on mission C cannot fly mission D,
+                    // so the first version of this state (Dead at UT 214k, then flying at
+                    // UT 1.9M) described a career stock KSP cannot produce. "Still
+                    // aboard" and "Outcome unknown" are different - a segment ending with
+                    // him aboard or unresolved is followed by later flights all the time.
                     inputs.Segment("Jebediah Kerman", "rec-a", "tree-a", "LKO Shakedown",
                                    90_000.0, 96_000.0, KerbalEndState.Recovered)
                           .Segment("Jebediah Kerman", "rec-b", "tree-b", "Mun Flyby",
                                    120_000.0, 151_000.0, KerbalEndState.Recovered)
-                          .Segment("Jebediah Kerman", "rec-c", "tree-c", "Mun Landing 1",
-                                   180_000.0, 214_400.0, KerbalEndState.Dead)
+                          .Segment("Jebediah Kerman", "rec-c", "tree-c", "Kerbin Survey",
+                                   180_000.0, 214_400.0, KerbalEndState.Unknown)
                           .Segment("Jebediah Kerman", "rec-d", "tree-d", "Minmus Outpost",
                                    1_900_000.0, 2_040_000.0, KerbalEndState.Aboard)
-                          .Segment("Jebediah Kerman", "rec-e", "tree-e", "Kerbin Survey",
-                                   2_500_000.0, 2_505_000.0, KerbalEndState.Unknown);
+                          .Segment("Jebediah Kerman", "rec-e", "tree-e", "Eve Descent",
+                                   2_500_000.0, 2_505_000.0, KerbalEndState.Dead);
                     break;
 
                 default:

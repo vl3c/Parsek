@@ -1816,6 +1816,26 @@ namespace Parsek.TestCommands
         // mis-spelled scene is a REJECTED arg error, never a load-failed save error.
         private void LoadGameImpl(ParsedCommand cmd)
         {
+            // GUI state gallery, LANE HYGIENE and nothing more - the same rule SaveGame
+            // answers. A mock scope cannot survive what this verb does (a load destroys
+            // the window instances it injected into; a test batch quicksaves and reverts
+            // persistent.sfs), and while no injected member reaches a save, a lane that
+            // runs either with a scope live is asking for a picture it will not get. The
+            // rule is uniform across every verb that saves or loads, so it reads as a
+            // rule rather than as three special cases.
+            if (Parsek.UI.Gallery.GuiMockSession.IsLive)
+            {
+                ParsekLog.Warn(Tag,
+                    "loadgame refused reason=" + TestCommandSaveGame.RefusedGuiMockReason
+                    + " mockState=" + Parsek.UI.Gallery.GuiMockSession.StateId
+                    + " mockWindow=" + Parsek.UI.Gallery.GuiMockSession.Window);
+                SetExecResult("REJECTED", null,
+                    TestCommandSaveGame.RefusedGuiMockReason
+                    + " mockState=" + Parsek.UI.Gallery.GuiMockSession.StateId
+                    + " (clear it with UiAction op=mock mockState=none first)");
+                return;
+            }
+
             string save = ArgOrNull(cmd, "save");
             string name = ArgOrNull(cmd, "name");
             string sceneArg = ArgOrNull(cmd, "scene");
@@ -2036,6 +2056,26 @@ namespace Parsek.TestCommands
         // unreachable by any unattended path. This arg is the unattended route to them.
         private void RunTestsImpl(ParsedCommand cmd)
         {
+            // GUI state gallery, LANE HYGIENE and nothing more - the same rule SaveGame
+            // answers. A mock scope cannot survive what this verb does (a load destroys
+            // the window instances it injected into; a test batch quicksaves and reverts
+            // persistent.sfs), and while no injected member reaches a save, a lane that
+            // runs either with a scope live is asking for a picture it will not get. The
+            // rule is uniform across every verb that saves or loads, so it reads as a
+            // rule rather than as three special cases.
+            if (Parsek.UI.Gallery.GuiMockSession.IsLive)
+            {
+                ParsekLog.Warn(Tag,
+                    "runtests refused reason=" + TestCommandSaveGame.RefusedGuiMockReason
+                    + " mockState=" + Parsek.UI.Gallery.GuiMockSession.StateId
+                    + " mockWindow=" + Parsek.UI.Gallery.GuiMockSession.Window);
+                SetExecResult("REJECTED", null,
+                    TestCommandSaveGame.RefusedGuiMockReason
+                    + " mockState=" + Parsek.UI.Gallery.GuiMockSession.StateId
+                    + " (clear it with UiAction op=mock mockState=none first)");
+                return;
+            }
+
             string category = ArgOrNull(cmd, "category");
             string isolatedRaw = ArgOrNull(cmd, "isolated");
             string strictRaw = ArgOrNull(cmd, "strict");

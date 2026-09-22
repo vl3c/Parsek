@@ -158,7 +158,8 @@ namespace Parsek.Tests
                 Assert.True(carriers == 1,
                     "state '" + state.Id + "' populated " + carriers + " payload carriers");
 
-                List<string> witnesses = GuiMockWitness.Expected(payload, state.Tab);
+                List<string> witnesses = GuiMockWitness.Expected(payload, state.Tab,
+                                                                 state.Covers);
                 Assert.True(witnesses.Count > 0,
                     "state '" + state.Id + "' produced NO witness string, so its "
                     + "mock-not-applied read-back would be vacuous for exactly that state. "
@@ -167,6 +168,98 @@ namespace Parsek.Tests
                 foreach (string w in witnesses)
                     Assert.False(string.IsNullOrWhiteSpace(w));
             }
+        }
+
+        [Fact]
+        public void EveryStateThatClaimsABranchWitnessesTheRowThatCarriesIt()
+        {
+            // The review's finding: 22 of 46 witness sets missed the state's point, and 7
+            // matched what a REAL window draws. A witness derived from "the first row" is
+            // a statement about the window, not about the state - so a state that claims a
+            // branch must witness the ROW that carries it.
+            foreach (GuiMockState state in GuiMockCatalogue.All)
+            {
+                if (state.Covers.Length == 0) continue;
+                List<string> covered = GuiMockWitness.Covered(
+                    state.Build(), state.Tab, state.Covers);
+                Assert.True(covered.Count > 0,
+                    "state '" + state.Id + "' claims " + string.Join(",", state.Covers)
+                    + " and no witness derives from the row carrying it. Either the state "
+                    + "does not actually produce that branch, or GuiMockWitness.Covered "
+                    + "has no derivation for it - both are real gaps.");
+                List<string> all = GuiMockWitness.Expected(
+                    state.Build(), state.Tab, state.Covers);
+                foreach (string c in covered) Assert.Contains(c, all);
+            }
+        }
+
+        [Fact]
+        public void NoTwoStatesShareAnIdenticalWitnessSet()
+        {
+            // Two states with the same witness set are one picture filed twice: whatever
+            // distinguishes them is invisible to the read-back, so a lane cannot tell
+            // which one it captured. The review found four such pairs; each was dropped or
+            // differentiated rather than exempted, so this cell has no allowlist on
+            // purpose - an exemption here would be the very thing it exists to prevent.
+            var byWitness = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (GuiMockState state in GuiMockCatalogue.All)
+            {
+                string key = state.Window + "|" + (state.Tab ?? "-") + "|"
+                    + string.Join("\u0001", GuiMockWitness.Expected(
+                        state.Build(), state.Tab, state.Covers));
+                string prior;
+                Assert.False(byWitness.TryGetValue(key, out prior),
+                    "states '" + (prior ?? "?") + "' and '" + state.Id + "' derive the "
+                    + "SAME witness set on the same window and tab, so nothing in the "
+                    + "read-back can tell them apart. Differentiate one or drop it.");
+                byWitness[key] = state.Id;
+            }
+        }
+
+        [Fact]
+        public void NoWitnessIsABareNumber()
+        {
+            // The doc claimed this exclusion before the code implemented it, which the
+            // review caught. A UT, a level, a reward and a deadline are all numbers a real
+            // window draws every frame, so a numeric witness is satisfied by any capture
+            // of the same window.
+            foreach (GuiMockState state in GuiMockCatalogue.All)
+            {
+                foreach (string witness in GuiMockWitness.Expected(
+                             state.Build(), state.Tab, state.Covers))
+                {
+                    Assert.True(witness.Any(char.IsLetter),
+                        "state '" + state.Id + "' witness '" + witness
+                        + "' has no letter in it, so it is a number the window draws "
+                        + "whatever model it holds");
+                }
+            }
+        }
+
+        [Fact]
+        public void EveryMockableWindowIsRefusedInAModeThatHidesIt()
+        {
+            // Basic HIDES the Kerbals and Career launchers and the mode switch
+            // force-closes both, so a Basic apply would photograph a window no player can
+            // open. Checked against the PRODUCTION visibility predicate rather than a
+            // per-state pin, which is why design 7.1's per-state Mode field was dropped.
+            Assert.False(GuiMockCatalogue.IsMockableInMode(
+                GuiMockSession.KerbalsWindow, UiComplexityMode.Basic));
+            Assert.False(GuiMockCatalogue.IsMockableInMode(
+                GuiMockSession.CareerWindow, UiComplexityMode.Basic));
+            foreach (string window in GuiMockCatalogue.SupportedWindows)
+            {
+                Assert.True(GuiMockCatalogue.IsMockableInMode(
+                    window, UiComplexityMode.Advanced),
+                    "window '" + window + "' is not mockable even in Advanced");
+            }
+            // Structure List has no launcher surface at all, so it is mockable in both -
+            // it is opened from a row and is not in the gated close set.
+            UiSurface unused;
+            Assert.False(GuiMockCatalogue.TryGetLauncherSurface(
+                GuiMockSession.StructureWindow, out unused));
+            Assert.True(GuiMockCatalogue.IsMockableInMode(
+                GuiMockSession.StructureWindow, UiComplexityMode.Basic));
         }
 
         [Fact]
@@ -416,47 +509,17 @@ namespace Parsek.Tests
             Assert.Contains("%", flow, StringComparison.Ordinal);
         }
 
-        [Fact]
-        public void EveryStructureStepCarriesAnEventWordFromTheSharedVocabulary()
-        {
-            // The vocabulary set the two shared namers can produce. A step label outside
-            // it (plus the two suffixed forms the builders legitimately append) means a
-            // builder typed a word of its own, which is the one thing the catalogue
-            // must not do.
-            var vocabulary = new HashSet<string>(StringComparer.Ordinal);
-            foreach (BranchPointType t in Enum.GetValues(typeof(BranchPointType)))
-            {
-                vocabulary.Add(MissionCompositionBuilder.BranchEventName(t, null));
-                foreach (string cause in new[] { "DECOUPLE", "UNDOCK", "CRASH", "OVERHEAT",
-                                                 "STRUCTURAL_FAILURE" })
-                    vocabulary.Add(MissionCompositionBuilder.BranchEventName(t, cause));
-            }
-            foreach (TerminalState t in Enum.GetValues(typeof(TerminalState)))
-                vocabulary.Add(MissionCompositionBuilder.TerminalName(t));
-
-            foreach (GuiMockState state in
-                     GuiMockCatalogue.ForWindow(GuiMockSession.StructureWindow))
-            {
-                GuiMockStructure structure = state.Build().Structure;
-                Assert.NotEmpty(structure.Steps);
-                foreach (StructureStep step in structure.Steps)
-                {
-                    if (step.Kind == StructureStepKind.Origin
-                        || step.Kind == StructureStepKind.Delivery
-                        || step.Kind == StructureStepKind.Stop)
-                    {
-                        // Route rows are named by RouteStructureListBuilder instead; the
-                        // route cells are asserted in their own cell below.
-                        continue;
-                    }
-                    string head = step.Label.Split(' ')[0];
-                    Assert.True(vocabulary.Contains(head) || vocabulary.Contains(step.Label),
-                        "state '" + state.Id + "' step label '" + step.Label + "' is not "
-                        + "in the shared branch-event / terminal vocabulary. A builder "
-                        + "must call the namer, never type the word.");
-                }
-            }
-        }
+        // NOTE: the "every structure step label is in the shared vocabulary" cell that
+        // used to live here is GONE, and its removal is the point rather than a loss. It
+        // asserted that a step's Label came from MissionCompositionBuilder's branch-event
+        // or terminal namer, which encoded the SAME misreading the catalogue had: the
+        // terminal pass writes Label = "End" and puts the terminal word in STATUS, staging
+        // rows read "Staged <part>" / "Fairing jettisoned", and route rows read "Dock" /
+        // "Undock". A cell built on a wrong premise agreed with wrong data. The mechanical
+        // replacement is GuiMockStructureBuilderFidelityTests, which asserts every state's
+        // rows EQUAL real-builder output for its OWN inputs and fails on any string literal
+        // assigned to a drawn StructureStep field - a property no vocabulary list can be
+        // wrong about.
 
         [Fact]
         public void TheRouteStatesProduceTheRealStopLabels()

@@ -150,21 +150,88 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TheCareerRebuildPredicateIsUnchangedWithNoSessionAndFalseWithOne()
+        public void ACareerSessionSuppressesARebuildButNeverDereferencesANullCache()
         {
-            // The production site, driven directly. With no session it answers exactly
-            // what it always did; with one it answers false whatever its inputs say.
+            // The production site, driven directly, and the ORDER inside it is the fix for
+            // a real defect: suppressing ahead of the null check meant a nulled mocked VM
+            // was never rebuilt and the draw dereferenced a null Nullable every frame, so
+            // a capture photographed a half-drawn window under the mocked label.
             Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
                 null, Game.Modes.CAREER, 100.0),
                 "with no session a null cache must still rebuild");
 
             Assert.True(GuiMockSession.Begin("career.banner.divergent",
                 GuiMockSession.CareerWindow, 1, "t", () => { }));
+
+            // A NON-NULL cache is suppressed: that is what keeps a mocked VM alive past
+            // the UT-text compare, which would otherwise clobber it within one game-second.
+            CareerStateWindowUI.CareerStateViewModel? mocked =
+                new CareerStateWindowUI.CareerStateViewModel
+                {
+                    Mode = Game.Modes.CAREER,
+                    LiveUT = 100.0,
+                    TerminalUT = 100.0,
+                    NextRelevantActionUT = double.PositiveInfinity,
+                };
             Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
+                mocked, Game.Modes.CAREER, 10_000.0),
+                "a live career session must suppress the rebuild for a NON-NULL cache "
+                + "whatever the UT says");
+
+            // A NULL cache always rebuilds, session or not, AND marks the scope broken so
+            // the applier answers mock-scope-broken instead of reporting a state the
+            // window is no longer showing.
+            Assert.False(GuiMockSession.IsBroken);
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
                 null, Game.Modes.CAREER, 100.0),
-                "a live career session must suppress the rebuild even for a null cache - "
-                + "the UT-text compare would otherwise clobber the mock within one "
-                + "game-second");
+                "a null cache must rebuild even under a live session, or the draw "
+                + "dereferences a null Nullable");
+            Assert.True(GuiMockSession.IsBroken);
+            Assert.Equal("cached-vm-nulled", GuiMockSession.BrokenReason);
+            Assert.Contains(logLines,
+                l => l.Contains("[GuiMock]") && l.Contains("mock scope broken")
+                     && l.Contains("reason=cached-vm-nulled"));
+        }
+
+        [Fact]
+        public void TheCareerInvalidateSiteIsSuppressedSoTheCacheIsNeverNulledMidScope()
+        {
+            // The hole the first build left: LedgerOrchestrator.OnTimelineDataChanged
+            // reaches CareerStateWindowUI.InvalidateCache through
+            // ParsekUI.OnTimelineDataChanged, which is a SECOND writer of the cached VM.
+            // Suppressing only the rebuild predicate let any ledger write break a scope.
+            Assert.True(GuiMockSession.Begin("career.banner.divergent",
+                GuiMockSession.CareerWindow, 1, "t", () => { }));
+            Assert.True(GuiMockSession.Suppressed(GuiMockSession.CareerInvalidate));
+            Assert.False(GuiMockSession.IsBroken,
+                "the suppressed invalidate must not mark the scope broken - it never got "
+                + "to null anything");
+        }
+
+        [Fact]
+        public void NoteScopeBrokenIsAOneShotAndIsInertWithoutAMatchingSession()
+        {
+            GuiMockSession.NoteScopeBroken(GuiMockSession.CareerVmRebuild, "x");
+            Assert.False(GuiMockSession.IsBroken);
+            Assert.Empty(logLines);
+
+            Assert.True(GuiMockSession.Begin("kerbals.roster.lost",
+                GuiMockSession.KerbalsWindow, 1, "t", () => { }));
+            // A site of ANOTHER window cannot break this scope.
+            GuiMockSession.NoteScopeBroken(GuiMockSession.CareerVmRebuild, "x");
+            Assert.False(GuiMockSession.IsBroken);
+
+            GuiMockSession.NoteScopeBroken(GuiMockSession.KerbalsInvalidate, "first");
+            GuiMockSession.NoteScopeBroken(GuiMockSession.KerbalsInvalidate, "second");
+            Assert.Equal("first", GuiMockSession.BrokenReason);
+            Assert.Single(logLines, l => l.Contains("mock scope broken"));
+
+            // And a fresh scope starts intact.
+            Assert.True(GuiMockSession.Clear("test", 1));
+            Assert.True(GuiMockSession.Begin("kerbals.roster.retired",
+                GuiMockSession.KerbalsWindow, 2, "t", () => { }));
+            Assert.False(GuiMockSession.IsBroken);
+            Assert.Null(GuiMockSession.BrokenReason);
         }
     }
 }

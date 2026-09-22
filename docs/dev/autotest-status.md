@@ -2,7 +2,8 @@
 
 Last updated: 2026-09-22 (**THE GUI STATE GALLERY, PHASE 1: `op=mock` ADDED to the M-A2
 `UiAction` verb - 20 -> 21 ops, implemented seam verbs unchanged at 36 - plus a compiled
-catalogue of 46 synthetic states across three windows, and the P1b harvest-cap raise**,
+catalogue of 43 synthetic states across three windows, five in-game `GuiMock` cells, and
+the P1b harvest-cap raise**,
 branch `gallery-p1`. What it closes: the census can only photograph a state some fixture
 save plus op sequence REACHES, which the 2026-09-21 coverage audit measured at about 166 of
 roughly 480 enumerated states - with the gap falling almost entirely on the product's
@@ -45,11 +46,18 @@ GUI-1's 45 files sit just under the old ceiling, which is exactly why nothing no
 `ARTIFACT_SHOTS_MAX_TOTAL_BYTES` is deliberately unchanged - it bounds the retained results
 tree rather than one run.
 
-**NOT FLOWN, by construction.** P1 ships no lane; the two gallery lanes and the
-`GalleryRun` batch verb are P2, and the design's own acceptance gate for P1 is `op=mock`
-green in-game for three windows. The headless half is complete (catalogue, session
-lifecycle, every refusal, the three source gates, the write-set grep gate, the dump
-round-trip) and the harness half is mirrored and mutation-checked. Residue and deferrals:
+**NOT FLOWN, by construction, and the status line says so.** P1 ships no lane; the two
+gallery lanes and the `GalleryRun` batch verb are P2, and the design's own acceptance gate
+for P1 is `op=mock` green in-game for three windows. The in-game half EXISTS as of the
+post-review follow-up - a `GuiMock` category with five SPACECENTER cells covering the
+three windows' apply-draw-clear round trip, the `SaveGame` refusal and the
+inert-with-no-scope property - and is driven by NO committed spec on purpose, so the
+category inventory reads 113 of 114 driven rather than a claimed row nobody measured. An
+hlib gate additionally refuses any committed spec that drives the op until
+`tools/gui_mirror.py` reads the dump's `mock` block. The headless half is complete
+(catalogue, session lifecycle, every refusal, the three source gates, the write-set
+ALLOWLIST gate, the builder-fidelity gate, the id-shape gate, the dump round-trip) and the
+harness half is mirrored and mutation-checked. Residue and deferrals:
 `docs/dev/todo-and-known-bugs.md` -> `GUI-MOCK-P1-RESIDUE-2026-09-22`, which also carries
 the one PRODUCT finding the catalogue surfaced - the inline `Stand-in for X (aboard Y)`
 status form is unreachable for any real kerbal name. Full contract:

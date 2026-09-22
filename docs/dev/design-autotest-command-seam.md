@@ -2932,9 +2932,11 @@ vocabulary, and an open-valued selector gets its own key.
 
 **ABSENT FROM `OpNeedsWindow`, and that is the fifth deliberate absence there** - for a
 different reason from `pointer` / `dialog` / `raise` / `dismiss`, which name no window at
-all. `op=mock` needs one for apply and clear and must NOT need one for `describe=true`,
+all. `op=mock` needs one for apply AND CLEAR and must NOT need one for `describe=true`,
 which reports the whole catalogue, so the requirement is per-INTENT and lives in the applier
-(mirrored by the harness's own `op=mock` branch, which reads the same rule).
+(mirrored by the harness's own `op=mock` branch, which reads the same rule). The CLEAR reads
+it too: a clear naming a window other than the live scope's is
+`mock-state-window-mismatch` rather than a teardown of whatever happened to be live.
 
 **THE READ-BACK IS DRAW-PRODUCED, and that is the load-bearing part.** Reading back the
 field the applier just wrote is the vacuous read-back `op=rect` was first written with and
@@ -2948,6 +2950,16 @@ calls (`KerbalsPresentation` row text, `CareerStateWindowUI.FormatFacilityRow_Le
 only be in the tree because the window drew THIS model. The match is a CONTAINS (a fold
 header draws as `<arrow> ` plus its text), an EMPTY witness list answers not-applied, and
 the catalogue unit suite refuses a state that produces none.
+
+**IT IS THREE-PHASE, which is one more than any other op in this family.** Phase 1 applies
+the window's CHROME (open flag, rect, tab) and captures it WITHOUT the mock; phase 2
+installs the data and captures again; the read-back then requires every witness to be
+PRESENT in the second capture and ABSENT from the first. The pre-apply baseline is what
+turns "this string was on screen" into "only the mock put it there" - a witness the real
+window already draws witnesses nothing, and it is the one check that catches that. The tree
+walk is additionally scoped to the TARGET WINDOW's own subtree (matched by the same
+`windowId` `op=find` uses), because a whole-tree walk would accept a witness some other
+window drew.
 
 Because the capture IS the read-back, `mock` owns its own poll exactly as `find` does (the
 recorder flushes from `LateUpdate`, one frame after the shared settle would have declared
@@ -2985,16 +2997,36 @@ classifying it, and mirrored by `hlib.UIACTION_MOCK_REFUSALS`:
 | `mock-refused-scene` | PRE-CALL | the state declares a scene the game is not in |
 | `mock-refused-recording` | PRE-CALL | a Gloops recording is live (the `complexity` refusal) |
 | `mock-refused-session-live` | PRE-CALL | a scope is already live; one at a time by design |
-| `mock-not-applied` | POST-SETTLE | the frame did not draw the mocked model, or the capture failed |
+| `mock-refused-mode` | PRE-CALL | the CURRENT complexity mode hides that window's launcher, so no player can have it on screen |
+| `mock-not-applied` | POST-SETTLE | the frame did not draw the mocked model, the capture failed, or a witness was ALREADY in the pre-apply baseline |
 | `mock-restore-failed` | POST-CALL | restore threw; Error, force-close, drop the session |
+| `mock-scope-broken` | POST-SETTLE | the scope is live and the window LOST its mocked model - something outside the declared suppression set wrote the injected member |
+
+`mock-scope-broken` is deliberately not folded into `mock-not-applied`: not-applied means
+the frame never drew the model, while this means it was there and went AWAY, which sends an
+author to a MISSING SUPPRESSION SITE rather than to the state or the lane. The case is real
+rather than defensive - Career State's cached view model has two writers, and suppressing
+only the rebuild predicate left the other one able to null a mocked VM mid-scope.
+
+**Three OTHER verbs refuse while a scope is live**, all answering
+`save-refused-gui-mock`: `SaveGame`, `LoadGame` and `RunTests`. Uniform on purpose - a test
+batch quicksaves and reverts `persistent.sfs`, a load destroys the window instances the
+scope injected into, and a lane that runs either with a mock live is asking for a picture it
+will not get. It is lane hygiene either way: nothing injected is read by a save path.
 
 **Tail role, unchanged:** `UiAction` is already `world-mutating` because `op=complexity`
 persists a setting, so `op=mock` adds nothing to that row - and it genuinely persists
 nothing, which is the whole crash-safety argument.
 
-**Supported windows in P1:** `kerbals`, `career`, `structure` (46 states). Any other window
+**Supported windows in P1:** `kerbals`, `career`, `structure` (43 states). Any other window
 answers `mock-window-unsupported` NAMING the supported set, because a phase adds windows and
 the refusal has to say what this build carries rather than what the design plans.
+
+**NEVER FLOWN.** P1 ships no lane, so the op is unflown by construction and the five in-game
+`GuiMock` cells are driven by no committed spec. An hlib gate additionally REFUSES any
+committed spec that drives `op=mock` until `gui_mirror.py` reads the dump's `mock` block -
+without that, a mocked capture files under a real fixture's name and can pair against a real
+capture in Compare.
 
 **First consumers.** `GUI-1-census-ksc` (nine KSC windows, 22 captures across Advanced and
 Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form of the main

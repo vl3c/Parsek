@@ -214,6 +214,17 @@ namespace Parsek
 
         public void InvalidateCache()
         {
+            // GUI state gallery: this is the OTHER writer of cachedVM, reached from
+            // LedgerOrchestrator.OnTimelineDataChanged through
+            // ParsekUI.OnTimelineDataChanged - so suppressing only the rebuild PREDICATE
+            // left a hole: any ledger write nulled the mocked VM, the predicate then
+            // answered "do not rebuild", and the draw dereferenced a null Nullable every
+            // frame. Suppressed here, and the predicate additionally always rebuilds a
+            // NULL cache (see ShouldRebuildCachedVM) so the hole cannot reopen even if a
+            // third writer appears.
+            if (Parsek.UI.Gallery.GuiMockSession.Suppressed(
+                    Parsek.UI.Gallery.GuiMockSession.CareerInvalidate))
+                return;
             cachedVM = null;
             ParsekLog.Verbose("UI", "CareerStateWindow: cache invalidated");
         }
@@ -902,12 +913,24 @@ namespace Parsek
             // capture needs. The predicate is false in every player build (only
             // ParsekTestCommandAddon.UiMock can create a session) and it logs one Verbose
             // line per site per session, never per poll.
+            //
+            // A NULL CACHE IS ALWAYS REBUILT, session or not, and that ORDER is the fix
+            // for a real defect: suppressing ahead of the null check meant a nulled mocked
+            // VM was never rebuilt and the draw dereferenced a null Nullable every frame,
+            // so a capture photographed a half-drawn window under the mocked state's
+            // label. The scope is marked BROKEN so the applier answers
+            // `mock-scope-broken` instead of reporting a state it is no longer showing.
+            if (cachedVM == null)
+            {
+                Parsek.UI.Gallery.GuiMockSession.NoteScopeBroken(
+                    Parsek.UI.Gallery.GuiMockSession.CareerVmRebuild,
+                    "cached-vm-nulled");
+                return true;
+            }
+
             if (Parsek.UI.Gallery.GuiMockSession.Suppressed(
                     Parsek.UI.Gallery.GuiMockSession.CareerVmRebuild))
                 return false;
-
-            if (cachedVM == null)
-                return true;
 
             var vm = cachedVM.Value;
             if (vm.Mode != currentMode)

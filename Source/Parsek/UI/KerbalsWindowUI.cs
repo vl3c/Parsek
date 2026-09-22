@@ -1250,7 +1250,11 @@ namespace Parsek
             };
         }
 
-        private static Dictionary<string, string> BuildTraitMap(
+        /// <summary>Internal rather than private because the GUI state gallery's roster
+        /// builders hand the SAME map to <c>BuildFlightRows</c> that this window does -
+        /// a copy of it there would be one more way a mocked group header could differ
+        /// from a real one.</summary>
+        internal static Dictionary<string, string> BuildTraitMap(
             IReadOnlyList<KerbalsPresentation.RosterKerbal> roster,
             IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots)
         {

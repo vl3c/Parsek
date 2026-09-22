@@ -130,7 +130,7 @@ namespace Parsek.Tests
 
             foreach (var row in expected)
             {
-                int at = code.IndexOf("Action " + row.Method + "(", StringComparison.Ordinal);
+                int at = code.IndexOf("void " + row.Method + "(", StringComparison.Ordinal);
                 Assert.True(at >= 0,
                     "install arm " + row.Method + " not found in " + ApplierPath
                     + "; this gate is vacuous");
@@ -153,22 +153,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EveryInstallArmReturnsARestoreClosure()
+        public void EveryInstallArmPushesItsOwnUndoAsItWrites()
         {
-            // A restore closure is what makes the paired op a pair. An arm that installed
-            // and returned a no-op would leave the mock standing after the clear and the
-            // next real capture would photograph it.
+            // A restore closure is what makes the paired op a pair, and the UNDO STACK is
+            // what makes the install transactional: each arm pushes an undo as it writes,
+            // so a throw part-way through unwinds exactly what happened instead of leaving
+            // half an install standing with no way back. An arm that wrote without pushing
+            // would leave the mock standing after the clear, and the next REAL capture
+            // would photograph it.
             string code = PreparedSource(ApplierPath);
             foreach (string method in new[]
                      { "InstallKerbalsMock", "InstallCareerMock", "InstallStructureMock" })
             {
-                int at = code.IndexOf("Action " + method + "(", StringComparison.Ordinal);
-                Assert.True(at >= 0);
+                int at = code.IndexOf("void " + method + "(", StringComparison.Ordinal);
+                Assert.True(at >= 0,
+                    "install arm " + method + " not found; this gate is vacuous");
                 string body = SourceScanText.BraceMatchedBlock(code, code.IndexOf('{', at));
-                Assert.True(body.IndexOf("return () =>", StringComparison.Ordinal) >= 0
-                            || body.IndexOf("return ()", StringComparison.Ordinal) >= 0,
-                    method + " returns no restore closure");
+                Assert.True(body.IndexOf("undo.Add(", StringComparison.Ordinal) >= 0,
+                    method + " pushes no undo, so a throw mid-install has no way back");
             }
+
+            // And the caller really unwinds on a throw rather than swallowing it.
+            int dataAt = code.IndexOf("Action InstallMockData(", StringComparison.Ordinal);
+            Assert.True(dataAt >= 0, "InstallMockData moved; this gate is vacuous");
+            string dataBody = SourceScanText.BraceMatchedBlock(
+                code, code.IndexOf('{', dataAt));
+            Assert.True(dataBody.IndexOf("Unwind(undo)", StringComparison.Ordinal) >= 0,
+                "InstallMockData does not unwind a partial install");
+            Assert.True(dataBody.IndexOf("throw;", StringComparison.Ordinal) >= 0,
+                "InstallMockData swallows an install exception instead of re-throwing it");
         }
 
         // ----- the every-exit-clears discipline -----
@@ -256,6 +269,7 @@ namespace Parsek.Tests
         private static string SiteFieldName(GuiMockSuppressionSite site)
         {
             if (site.Site == GuiMockSession.CareerVmRebuild.Site) return "CareerVmRebuild";
+            if (site.Site == GuiMockSession.CareerInvalidate.Site) return "CareerInvalidate";
             if (site.Site == GuiMockSession.KerbalsInvalidate.Site) return "KerbalsInvalidate";
             if (site.Site == GuiMockSession.KerbalsLiveCrew.Site) return "KerbalsLiveCrew";
             throw new InvalidOperationException(

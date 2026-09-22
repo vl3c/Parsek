@@ -2234,8 +2234,23 @@ UIACTION_MOCK_REFUSALS: Tuple[str, ...] = (
     "mock-refused-scene",
     "mock-refused-recording",
     "mock-refused-session-live",
+    # The CURRENT complexity mode hides the window's launcher, so no player can have it on
+    # screen: Basic hides the Kerbals and Career State launchers and the mode switch
+    # force-closes both. Refused rather than drawn - the one thing this feature may not do
+    # is put an impossible picture on the mirror.
+    "mock-refused-mode",
     "mock-not-applied",
-    "mock-restore-failed")
+    "mock-restore-failed",
+    # The scope is live and the window has been OBSERVED to have lost its mocked model -
+    # something outside the declared suppression set wrote the injected member. Distinct
+    # from mock-not-applied: that means the frame never drew the model, this means it was
+    # there and went away, which sends an author to a MISSING SUPPRESSION SITE.
+    "mock-scope-broken")
+
+# The `SaveGame` / `LoadGame` / `RunTests` refusal while a mock scope is live. LANE
+# HYGIENE rather than a data guard - nothing injected is read by a save path - so a lane
+# clears its scope (`mockState=none`) before any verb that saves or loads.
+SAVEGAME_REFUSED_GUI_MOCK_REASON = "save-refused-gui-mock"
 
 # The windows the P1 applier has an injection seam and a builder family for, mirroring
 # GuiMockCatalogue.SupportedWindows. `op=mock` on any other window answers

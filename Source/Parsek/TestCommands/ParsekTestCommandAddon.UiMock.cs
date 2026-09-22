@@ -85,7 +85,7 @@ namespace Parsek.TestCommands
             }
             if (intent == TestCommandUiMock.MockIntent.Clear)
             {
-                UiMockClear();
+                UiMockClear(ArgOrNull(cmd, "window"));
                 return;
             }
 
@@ -114,13 +114,54 @@ namespace Parsek.TestCommands
 
         // ----- clear (the paired op) -----
 
-        private void UiMockClear()
+        private void UiMockClear(string rawWindow)
         {
+            // The clear READS `window=`, which the first version ignored: hlib requires
+            // the arg on every non-describe form and design 18.2 says the seam does too,
+            // so ignoring it made the doc, the validator and the code disagree - and a
+            // clear naming the WRONG window still tore down the live scope.
+            UiWindowSpec spec;
+            string winReject;
+            if (!TestCommandUiAction.TryResolveWindow(rawWindow, out spec, out winReject))
+            {
+                ParsekLog.Warn(GuiMockSession.LogTag,
+                    "mock rejected reason=" + winReject + " op=clear window="
+                    + (rawWindow ?? "-"));
+                SetExecResult("REJECTED", null,
+                    winReject == TestCommandUiAction.WindowUnknownReason
+                        ? winReject + " window=" + (rawWindow ?? string.Empty)
+                          + " valid=" + TestCommandUiAction.ValidWindowNames
+                        : winReject);
+                return;
+            }
+
             string stateId = GuiMockSession.StateId;
             string window = GuiMockSession.Window;
+
+            if (window != null
+                && !string.Equals(window, spec.Name, StringComparison.Ordinal))
+            {
+                // A clear that names another window is a lane bug, and tearing the scope
+                // down anyway would hide it: the lane would believe it cleared one window
+                // and have cleared a different one.
+                ParsekLog.Warn(GuiMockSession.LogTag,
+                    "mock rejected reason=" + TestCommandUiMock.StateWindowMismatchReason
+                    + " op=clear window=" + spec.Name + " liveWindow=" + window
+                    + " state=" + (stateId ?? "-"));
+                SetExecResult("REJECTED", null,
+                    TestCommandUiMock.StateWindowMismatchReason + " window=" + spec.Name
+                    + " liveWindow=" + window
+                    + " (the live scope belongs to another window; clear THAT one)");
+                return;
+            }
             int held = GuiMockSession.IsLive
                 ? Time.frameCount - GuiMockSession.AppliedFrame
                 : -1;
+
+            // A scope that LOST its model mid-flight is reported on the clear too, so a
+            // lane that took a capture without polling the apply still learns the picture
+            // it got was not the state it asked for.
+            string broken = GuiMockSession.BrokenReason;
 
             Exception failure;
             bool cleared = GuiMockSession.Clear("seam-clear", held, out failure);
@@ -133,6 +174,18 @@ namespace Parsek.TestCommands
                 SetExecResult("ERROR", null,
                     TestCommandUiMock.RestoreFailedReason + " window=" + (window ?? "-")
                     + " state=" + (stateId ?? "-"));
+                return;
+            }
+
+            if (broken != null)
+            {
+                ParsekLog.Error(GuiMockSession.LogTag,
+                    "mock clear reason=" + TestCommandUiMock.ScopeBrokenReason
+                    + " state=" + (stateId ?? "-") + " window=" + (window ?? "-")
+                    + " brokenReason=" + broken);
+                SetExecResult("ERROR", null,
+                    TestCommandUiMock.ScopeBrokenReason + " state=" + (stateId ?? "-")
+                    + " reason=" + broken);
                 return;
             }
 
@@ -247,6 +300,27 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // The complexity mode decides whether this window can be ON SCREEN at all.
+            // Basic hides the Kerbals and Career launchers and the mode switch
+            // force-closes both, so a Basic apply would photograph a window no player can
+            // open. Checked against the PRODUCTION predicate rather than a per-state pin.
+            UiComplexityMode appliedMode = ParsekUI.AppliedUiComplexityMode;
+            if (!GuiMockCatalogue.IsMockableInMode(spec.Name, appliedMode))
+            {
+                ParsekLog.Warn(GuiMockSession.LogTag,
+                    "mock rejected reason=" + TestCommandUiMock.RefusedModeReason
+                    + " state=" + state.Id + " window=" + spec.Name
+                    + " mode=" + TestCommandUiAction.ModeToken(
+                        appliedMode == UiComplexityMode.Basic));
+                SetExecResult("REJECTED", null,
+                    TestCommandUiMock.RefusedModeReason + " window=" + spec.Name
+                    + " mode=" + TestCommandUiAction.ModeToken(
+                        appliedMode == UiComplexityMode.Basic)
+                    + " (this window's launcher is hidden in that mode, so no player can "
+                    + "have it on screen; set op=complexity mode=advanced first)");
+                return;
+            }
+
             if (GuiMockSession.IsLive)
             {
                 ParsekLog.Warn(GuiMockSession.LogTag,
@@ -274,64 +348,51 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            List<string> witnesses = GuiMockWitness.Expected(payload, state.Tab);
+            List<string> witnesses = GuiMockWitness.Expected(payload, state.Tab,
+                                                             state.Covers);
+            if (witnesses.Count == 0)
+            {
+                // A state whose payload produced nothing drawable would make its own
+                // read-back vacuous. The catalogue unit suite refuses such a state, so
+                // this is the belt to those braces rather than a reachable path.
+                ParsekLog.Error(GuiMockSession.LogTag,
+                    "mock rejected reason=" + TestCommandUiMock.NotAppliedReason
+                    + " state=" + state.Id + " (no derivable witness)");
+                SetExecResult("ERROR", null,
+                    TestCommandUiMock.NotAppliedReason + " state=" + state.Id
+                    + " (no derivable witness)");
+                return;
+            }
 
-            Action restore;
+            // ---- PHASE 1: chrome only, then capture the window as it is WITHOUT the
+            // mock. Every witness must be ABSENT from that baseline, which is what turns
+            // "this string is plausible" into "only the mock put it there" - a witness the
+            // real window already draws is no witness at all, and the review found seven
+            // states in that shape. The chrome (open / rect / tab) is applied FIRST so the
+            // baseline is of the same window at the same size and tab: a baseline taken
+            // over a closed window would be empty and prove nothing.
+            Action restoreChrome;
             try
             {
-                restore = InstallMock(ui, spec, state, payload);
+                restoreChrome = InstallMockChrome(ui, spec, state);
             }
             catch (Exception ex)
             {
                 ParsekLog.Error(GuiMockSession.LogTag,
-                    "mock install threw state=" + state.Id + " window=" + spec.Name
-                    + ": " + ex.GetType().Name + ": " + ex.Message);
-                // The install is transactional by construction: each arm captures its
-                // previous values BEFORE writing, so a throw part-way leaves whatever it
-                // had already written. Clear through the session machinery when one was
-                // created; there is none here, so force the window shut instead.
+                    "mock chrome install threw state=" + state.Id
+                    + " window=" + spec.Name + ": "
+                    + ex.GetType().Name + ": " + ex.Message);
                 ForceCloseMockedWindow(spec.Name);
                 SetExecResult("ERROR", null, TestCommandUiAction.ThrewReason);
                 return;
             }
 
-            if (!GuiMockSession.Begin(state.Id, spec.Name, Time.frameCount,
-                                      DateTime.UtcNow.ToString(
-                                          "yyyy-MM-ddTHH:mm:ssZ",
-                                          System.Globalization.CultureInfo.InvariantCulture),
-                                      restore))
+            string armReason;
+            if (!TryArmMockCapture(out armReason))
             {
-                // Unreachable: the live check above already refused. Restore rather than
-                // leak the install if it ever became reachable.
-                restore();
-                SetExecResult("REJECTED", null, TestCommandUiMock.RefusedSessionLiveReason);
-                return;
-            }
-
-            string armPath;
-            try
-            {
-                armPath = GuiTreeRecorder.ArmForNextRepaint(
-                    UiMockCaptureLabel, writeToDisk: false);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Error(GuiMockSession.LogTag,
-                    "mock arm threw state=" + state.Id + ": "
-                    + ex.GetType().Name + ": " + ex.Message);
-                GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
-                GuiMockSession.Clear("arm-threw", 0);
-                SetExecResult("ERROR", null, TestCommandUiMock.NotAppliedReason);
-                return;
-            }
-            if (string.IsNullOrEmpty(armPath))
-            {
-                string reason = GuiTreeRecorder.LastArmRefusalReason ?? "unknown";
-                ParsekLog.Error(GuiMockSession.LogTag,
-                    "mock arm refused state=" + state.Id + " reason=" + reason);
-                GuiMockSession.Clear("arm-refused", 0);
+                restoreChrome();
                 SetExecResult("ERROR", null,
-                    TestCommandUiMock.NotAppliedReason + " reason=" + reason);
+                    TestCommandUiMock.NotAppliedReason + " reason=" + armReason);
                 return;
             }
 
@@ -348,6 +409,9 @@ namespace Parsek.TestCommands
                 MockLabel = TestCommandUiMock.DeriveLabel(
                     TestCommandUiMock.DefaultLabelPrefix, state.Id, basic),
                 FindCaptureSeqAtArm = GuiTreeRecorder.CaptureSeq,
+                MockAwaitingBaseline = true,
+                MockPayload = payload,
+                MockRestoreChrome = restoreChrome,
             };
 
             ParsekLog.Info(GuiMockSession.LogTag,
@@ -359,8 +423,41 @@ namespace Parsek.TestCommands
                 + " witness=" + Int(witnesses.Count)
                 + " frame=" + Int(Time.frameCount)
                 + " note=" + (state.Note ?? "-")
-                + " (awaiting one capture)");
+                + " (awaiting the pre-apply baseline capture)");
             SetExecResult(PendingVerdict, null, null);
+        }
+
+        /// <summary>
+        /// Arms one in-memory GUI-tree capture, reporting the recorder's own refusal
+        /// reason rather than a bare bool. Shared by both phases so the arm's three
+        /// failure shapes (a throwing Harmony apply, a refused arm, a disarmed recorder)
+        /// are handled once.
+        /// </summary>
+        private bool TryArmMockCapture(out string reason)
+        {
+            reason = null;
+            string path;
+            try
+            {
+                path = GuiTreeRecorder.ArmForNextRepaint(
+                    UiMockCaptureLabel, writeToDisk: false);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(GuiMockSession.LogTag,
+                    "mock arm threw: " + ex.GetType().Name + ": " + ex.Message);
+                GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
+                reason = "arm-threw";
+                return false;
+            }
+            if (string.IsNullOrEmpty(path))
+            {
+                reason = GuiTreeRecorder.LastArmRefusalReason ?? "arm-refused";
+                ParsekLog.Error(GuiMockSession.LogTag,
+                    "mock arm refused reason=" + reason);
+                return false;
+            }
+            return true;
         }
 
         // ----- settle: the DRAW-PRODUCED read-back -----
@@ -384,6 +481,99 @@ namespace Parsek.TestCommands
             string verb = completionVerb;
             UiActionPending pending = uiActionPending;
             int heldFrames = Time.frameCount - pending.StartFrame;
+
+            // PHASE 1 -> PHASE 2. The baseline capture has landed: read the window as it
+            // is WITHOUT the mock, install the data, and arm again. Everything else in
+            // this method is phase 2, so the phase flag is consumed here and the pending
+            // struct is re-armed wholesale (the struct-assignment rule).
+            if (pending.MockAwaitingBaseline)
+            {
+                if (outcome != GuiTreeDumpPollOutcome.Settled)
+                {
+                    ClearTwoPhase();
+                    ParsekLog.Error(GuiMockSession.LogTag,
+                        "mock baseline capture failed reason="
+                        + TestCommandUiMock.NotAppliedReason
+                        + " state=" + (pending.MockStateId ?? "-")
+                        + " window=" + (pending.Window ?? "-")
+                        + " outcome=" + outcome);
+                    if (pending.MockRestoreChrome != null) pending.MockRestoreChrome();
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                        TestCommandUiMock.NotAppliedReason + " outcome=" + outcome
+                        + " phase=baseline",
+                        dequeueHead: true);
+                    return;
+                }
+
+                var baseline = new List<string>();
+                CollectTreeTexts(GuiTreeRecorder.LastTree, baseline,
+                                 WindowIdForMock(pending.Window));
+
+                Action restoreData;
+                try
+                {
+                    restoreData = InstallMockData(ParsekUI.ActiveInstance, pending.Window,
+                                                  pending.MockStateId, pending.MockPayload);
+                }
+                catch (Exception ex)
+                {
+                    ClearTwoPhase();
+                    ParsekLog.Error(GuiMockSession.LogTag,
+                        "mock data install threw state=" + (pending.MockStateId ?? "-")
+                        + " window=" + (pending.Window ?? "-") + ": "
+                        + ex.GetType().Name + ": " + ex.Message);
+                    if (pending.MockRestoreChrome != null) pending.MockRestoreChrome();
+                    ForceCloseMockedWindow(pending.Window);
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                        TestCommandUiAction.ThrewReason, dequeueHead: true);
+                    return;
+                }
+
+                Action restoreChrome = pending.MockRestoreChrome;
+                if (!GuiMockSession.Begin(
+                        pending.MockStateId, pending.Window, Time.frameCount,
+                        DateTime.UtcNow.ToString(
+                            "yyyy-MM-ddTHH:mm:ssZ",
+                            System.Globalization.CultureInfo.InvariantCulture),
+                        () => { restoreData(); if (restoreChrome != null) restoreChrome(); }))
+                {
+                    ClearTwoPhase();
+                    // Unreachable: the execute path refused a live scope. Unwind rather
+                    // than leak the install if it ever became reachable.
+                    restoreData();
+                    if (restoreChrome != null) restoreChrome();
+                    EmitExecutedTerminal(id, seq, verb, "REJECTED", null,
+                        TestCommandUiMock.RefusedSessionLiveReason, dequeueHead: true);
+                    return;
+                }
+
+                string armReason;
+                if (!TryArmMockCapture(out armReason))
+                {
+                    ClearTwoPhase();
+                    GuiMockSession.Clear("arm-failed", 0);
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                        TestCommandUiMock.NotAppliedReason + " reason=" + armReason,
+                        dequeueHead: true);
+                    return;
+                }
+
+                ParsekLog.Info(GuiMockSession.LogTag,
+                    "mock baseline state=" + (pending.MockStateId ?? "-")
+                    + " window=" + (pending.Window ?? "-")
+                    + " baselineNodes=" + Int(baseline.Count)
+                    + " (installed; awaiting the applied capture)");
+
+                pending.MockAwaitingBaseline = false;
+                pending.MockBaseline = baseline;
+                pending.MockPayload = null;
+                pending.MockRestoreChrome = null;
+                pending.StartFrame = Time.frameCount;
+                pending.FindCaptureSeqAtArm = GuiTreeRecorder.CaptureSeq;
+                uiActionPending = pending;
+                return;
+            }
+
             ClearTwoPhase();
 
             if (outcome != GuiTreeDumpPollOutcome.Settled)
@@ -405,8 +595,31 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // A scope observed to have LOST its model cannot report OK whatever the tree
+            // says: the window drew something, and it was not this state. Checked ahead of
+            // the witness walk because the reason is more specific - it names a missing
+            // suppression site rather than a bad state or a bad lane.
+            if (GuiMockSession.IsBroken)
+            {
+                string brokenReason = GuiMockSession.BrokenReason;
+                ParsekLog.Error(GuiMockSession.LogTag,
+                    "mock scope broken reason=" + TestCommandUiMock.ScopeBrokenReason
+                    + " state=" + (pending.MockStateId ?? "-")
+                    + " window=" + (pending.Window ?? "-")
+                    + " brokenReason=" + (brokenReason ?? "-")
+                    + " frames=" + Int(heldFrames));
+                GuiMockSession.Clear("scope-broken", heldFrames);
+                EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                    TestCommandUiMock.ScopeBrokenReason
+                    + " window=" + (pending.Window ?? string.Empty)
+                    + " state=" + (pending.MockStateId ?? string.Empty)
+                    + " reason=" + (brokenReason ?? string.Empty),
+                    dequeueHead: true);
+                return;
+            }
+
             var drawn = new List<string>();
-            CollectTreeTexts(GuiTreeRecorder.LastTree, drawn);
+            CollectTreeTexts(GuiTreeRecorder.LastTree, drawn, WindowIdForMock(pending.Window));
 
             string missing;
             if (!TestCommandUiMock.WitnessesDrawn(pending.MockWitnesses, drawn, out missing))
@@ -433,6 +646,35 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // EVERY witness must be ABSENT from the pre-apply baseline of the SAME
+            // window. Without this the read-back only proves a plausible string was on
+            // screen; with it, the string can only have come from the mock. It is also the
+            // one check that catches a witness the real window happens to draw - which is
+            // a CATALOGUE fault (a witness that says nothing about the state), so the
+            // reason names the state rather than the lane.
+            string shared;
+            if (!TestCommandUiMock.WitnessesAbsentFromBaseline(
+                    pending.MockWitnesses, pending.MockBaseline, out shared))
+            {
+                ParsekLog.Error(GuiMockSession.LogTag,
+                    "mock not applied reason=" + TestCommandUiMock.NotAppliedReason
+                    + " state=" + (pending.MockStateId ?? "-")
+                    + " window=" + (pending.Window ?? "-")
+                    + " witnessAlreadyDrawn=" + (shared ?? "-")
+                    + " baselineNodes=" + Int(pending.MockBaseline != null
+                                              ? pending.MockBaseline.Count : 0)
+                    + " (the unmocked window already drew this string, so it witnesses "
+                    + "nothing)");
+                GuiMockSession.Clear("witness-in-baseline", heldFrames);
+                EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                    TestCommandUiMock.NotAppliedReason
+                    + " window=" + (pending.Window ?? string.Empty)
+                    + " state=" + (pending.MockStateId ?? string.Empty)
+                    + " witnessAlreadyDrawn=" + (shared ?? string.Empty),
+                    dequeueHead: true);
+                return;
+            }
+
             ParsekLog.Info(GuiMockSession.LogTag,
                 "mock applied state=" + (pending.MockStateId ?? "-")
                 + " nodes=" + Int(drawn.Count) + " readback=ok"
@@ -447,14 +689,48 @@ namespace Parsek.TestCommands
                 null, dequeueHead: true);
         }
 
-        /// <summary>Every non-empty text in a captured tree, depth-first. The witness
+        /// <summary>
+        /// Every non-empty text drawn INSIDE the target window, depth-first. The witness
         /// predicate matches by CONTAINS over this set (see
-        /// <c>TestCommandUiMock.WitnessesDrawn</c>).</summary>
-        private static void CollectTreeTexts(GuiTreeResult tree, List<string> into)
+        /// <c>TestCommandUiMock.WitnessesDrawn</c>).
+        ///
+        /// <para><b>WINDOW-SCOPED, and the scope is the point.</b> A whole-tree walk would
+        /// accept a witness some OTHER window happened to draw - the main window's
+        /// launcher labels, the Timeline's own rows, a tooltip strip - which turns the
+        /// read-back into "was this string anywhere on screen" rather than "did THIS
+        /// window draw the mocked model". The window is matched by the same
+        /// <c>windowId</c> <c>op=find</c> uses (each window class publishes the key its id
+        /// is hashed from), which is exact and cannot drift.</para>
+        ///
+        /// <para>A window ABSENT from the capture yields an empty set, so the witness walk
+        /// answers <c>mock-not-applied</c> - which is the honest reading of "the frame did
+        /// not draw this window".</para>
+        /// </summary>
+        private static void CollectTreeTexts(GuiTreeResult tree, List<string> into,
+                                             int windowId)
         {
             if (tree == null) return;
-            for (int i = 0; i < tree.Roots.Count; i++)
-                CollectTreeTexts(tree.Roots[i], into);
+            GuiTreeNode windowNode = FindWindowNode(tree, windowId);
+            if (windowNode == null) return;
+            CollectTreeTexts(windowNode, into);
+        }
+
+        /// <summary>The IMGUI window id of one mockable window, resolved through the same
+        /// handle row the rest of the seam uses. Zero when the host is gone, which makes
+        /// the scoped walk find nothing and the settle answer not-applied.</summary>
+        private static int WindowIdForMock(string window)
+        {
+            ParsekUI ui = ParsekUI.ActiveInstance;
+            if (ui == null || string.IsNullOrEmpty(window)) return 0;
+            try
+            {
+                UiWindowHandle handle = ResolveWindowHandle(ui, window);
+                return handle.GetWindowId != null ? handle.GetWindowId() : 0;
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
         }
 
         private static void CollectTreeTexts(GuiTreeNode node, List<string> into)
@@ -478,40 +754,18 @@ namespace Parsek.TestCommands
         /// rather than silently installing nothing and answering
         /// <c>mock-not-applied</c>.</para>
         /// </summary>
-        private static Action InstallMock(ParsekUI ui, UiWindowSpec spec,
-                                          GuiMockState state, GuiMockPayload payload)
+        private static Action InstallMockChrome(ParsekUI ui, UiWindowSpec spec,
+                                                GuiMockState state)
         {
             UiWindowHandle handle = ResolveWindowHandle(ui, spec.Name);
 
-            // Chrome first, and the same for every window: open flag, tab, rect. Captured
-            // and restored here rather than per arm so a new window's arm cannot forget
-            // one of the three.
+            // The same three for every window: open flag, tab, rect. Captured here rather
+            // than per arm so a new window's arm cannot forget one of them - and applied
+            // BEFORE the data, so the pre-apply baseline capture is of the same window at
+            // the same size and tab as the mocked one.
             bool prevOpen = handle.GetOpen();
             Rect prevRect = handle.GetRect();
             int prevTab = handle.GetTab != null ? handle.GetTab() : -1;
-
-            Action restoreChrome = () =>
-            {
-                if (prevTab >= 0 && handle.SetTab != null) handle.SetTab(prevTab);
-                handle.SetRect(prevRect);
-                handle.SetOpen(prevOpen);
-            };
-
-            Action restoreData;
-            switch (spec.Name)
-            {
-                case GuiMockSession.KerbalsWindow:
-                    restoreData = InstallKerbalsMock(ui, state, payload);
-                    break;
-                case GuiMockSession.CareerWindow:
-                    restoreData = InstallCareerMock(ui, payload);
-                    break;
-                case GuiMockSession.StructureWindow:
-                    restoreData = InstallStructureMock(ui, payload);
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(spec), spec.Name);
-            }
 
             if (state.RectW > 0 && state.RectH > 0)
                 handle.SetRect(new Rect(prevRect.x, prevRect.y, state.RectW, state.RectH));
@@ -529,52 +783,124 @@ namespace Parsek.TestCommands
 
             return () =>
             {
-                restoreData();
-                restoreChrome();
+                if (prevTab >= 0 && handle.SetTab != null) handle.SetTab(prevTab);
+                handle.SetRect(prevRect);
+                handle.SetOpen(prevOpen);
             };
         }
 
-        private static Action InstallKerbalsMock(ParsekUI ui, GuiMockState state,
-                                                 GuiMockPayload payload)
+        /// <summary>
+        /// Installs ONE window's mocked data and returns the closure that puts the member
+        /// back. Every arm restores to the value that makes the window REBUILD its real
+        /// model rather than to the pre-mock object: the invalidations suppressed during
+        /// the scope were DEFERRED, not dropped, and putting a stale view model back would
+        /// let a later real capture in the same boot photograph it.
+        /// </summary>
+        private static Action InstallMockData(ParsekUI ui, string window, string stateId,
+                                              GuiMockPayload payload)
+        {
+            if (ui == null) throw new InvalidOperationException(
+                "no live ParsekUI to install a mock into (window=" + window + ")");
+            GuiMockState state = GuiMockCatalogue.ById(stateId);
+
+            // TRANSACTIONAL. Each arm pushes an undo onto this stack as it writes, so a
+            // throw part-way through unwinds what it had already done instead of leaving
+            // half an install standing with no restore closure to put it back. The Kerbals
+            // arm is the one that needs it - it writes a view model AND then N expand keys.
+            var undo = new List<Action>();
+            try
+            {
+                switch (window)
+                {
+                    case GuiMockSession.KerbalsWindow:
+                        InstallKerbalsMock(ui, state, payload, undo);
+                        break;
+                    case GuiMockSession.CareerWindow:
+                        InstallCareerMock(ui, payload, undo);
+                        break;
+                    case GuiMockSession.StructureWindow:
+                        InstallStructureMock(ui, payload, undo);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(window), window);
+                }
+            }
+            catch (Exception)
+            {
+                Unwind(undo);
+                throw;
+            }
+            return () => Unwind(undo);
+        }
+
+        /// <summary>Runs an undo stack in REVERSE, swallowing nothing but continuing past
+        /// a throw so one bad undo cannot orphan the rest.</summary>
+        private static void Unwind(List<Action> undo)
+        {
+            for (int i = undo.Count - 1; i >= 0; i--)
+            {
+                try
+                {
+                    undo[i]();
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(GuiMockSession.LogTag,
+                        "mock undo step threw: " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+        }
+
+        private static void InstallKerbalsMock(ParsekUI ui, GuiMockState state,
+                                               GuiMockPayload payload, List<Action> undo)
         {
             KerbalsWindowUI w = ui.GetKerbalsUI();
-            KerbalsWindowUI.KerbalsViewModel? prev = w.CachedViewModelForTesting;
-            var expandedByUs = new List<string>();
 
             w.CachedViewModelForTesting = payload.Kerbals;
+            // NULL on restore, not the pre-mock view model. The invalidations suppressed
+            // during the scope were DEFERRED rather than dropped - the comment on
+            // OnLiveCrewStateChanged says exactly that - so putting the old object back
+            // would leave a stale roster a later REAL capture in the same boot could
+            // photograph. Null is what the draw's own
+            // `if (cachedVM == null) cachedVM = GatherViewModel()` rebuilds from.
+            undo.Add(() => { w.CachedViewModelForTesting = null; });
+
             // The chain view and the plain-bucket fold are a SEPARATE transient set from
             // the view model, so a state whose point is an expanded chain has to drive it
             // - through the window's own expand setter, which is the same member
-            // `op=expand` writes.
+            // `op=expand` writes. One undo per key, pushed as it is written, so a throw
+            // half-way through unwinds exactly what happened.
             for (int i = 0; i < state.ExpandKeys.Length; i++)
             {
-                if (w.SetRosterExpandedForTesting(state.ExpandKeys[i], true))
-                    expandedByUs.Add(state.ExpandKeys[i]);
+                string key = state.ExpandKeys[i];
+                if (!w.SetRosterExpandedForTesting(key, true)) continue;
+                undo.Add(() => w.SetRosterExpandedForTesting(key, false));
             }
-
-            return () =>
-            {
-                for (int i = 0; i < expandedByUs.Count; i++)
-                    w.SetRosterExpandedForTesting(expandedByUs[i], false);
-                w.CachedViewModelForTesting = prev;
-            };
         }
 
-        private static Action InstallCareerMock(ParsekUI ui, GuiMockPayload payload)
+        private static void InstallCareerMock(ParsekUI ui, GuiMockPayload payload,
+                                              List<Action> undo)
         {
             CareerStateWindowUI w = ui.GetCareerStateUI();
-            CareerStateWindowUI.CareerStateViewModel? prev = w.CachedVMForTesting;
             w.CachedVMForTesting = payload.Career;
-            return () => { w.CachedVMForTesting = prev; };
+            // NULL for the Kerbals reason: a suppressed ledger invalidation was deferred,
+            // not dropped, and the draw always rebuilds a null cache (which is now the
+            // FIRST thing ShouldRebuildCachedVM checks).
+            undo.Add(() => { w.CachedVMForTesting = null; });
         }
 
-        private static Action InstallStructureMock(ParsekUI ui, GuiMockPayload payload)
+        private static void InstallStructureMock(ParsekUI ui, GuiMockPayload payload,
+                                                 List<Action> undo)
         {
             StructureListWindowUI w = ui.GetStructureListUI();
+            // This window has no rebuild-on-null path - `steps` is written only by an
+            // OpenFor* call - so its restore puts the captured target BACK rather than
+            // nulling it. That asymmetry with the other two arms is the window's, not the
+            // gallery's.
             StructureListWindowUI.GalleryTargetSnapshot prev = w.CaptureGalleryTarget();
             w.OpenWithGallerySteps(payload.Structure.RouteMode, payload.Structure.Title,
                                    payload.Structure.Steps);
-            return () => { w.RestoreGalleryTarget(prev); };
+            undo.Add(() => w.RestoreGalleryTarget(prev));
         }
 
         /// <summary>

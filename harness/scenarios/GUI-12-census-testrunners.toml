@@ -75,8 +75,9 @@ tier = "operator"
 # a second pass would be the same picture under a different label.
 #
 # SEVEN captures and seven dumps = 14 files, plus the `GuiTree` cell's own probe dump
-# (`parsek-guitree-probe.gui.json`), against the harvest's 64-file cap
-# (`hlib.ARTIFACT_MAX_SCREENSHOTS`).
+# (`parsek-guitree-probe.gui.json`), against the harvest's file-count cap
+# (`hlib.ARTIFACT_MAX_SCREENSHOTS`) - 64 when this lane was written, 1024 since the GUI
+# state gallery's P1b.
 #
 # A `describe` FOLLOWS the run as well as every open, and that one is not decoration: it
 # is the in-run proof that the window is STILL OPEN after a batch whose teardown reverts

@@ -12491,7 +12491,14 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # verdict was INVALID on an unrelated step, which is why the inventory row stays
         # in bucket B). Neither number in the assertion below moves either way: this cell
         # counts declarations, not lanes.
-        self.assertIn("**113 categories / %d declarations**" % stated_decls, body,
+        # 113 -> 114 with `GuiMock` (2026-09-22, P1 of the GUI state gallery): five
+        # SPACECENTER cells proving the suppression-plus-draw path, which is the one thing
+        # no headless cell can reach. Its own category for the standing reason, and it
+        # ships UNDRIVEN on purpose - P1 has no lane, so claiming the row from an
+        # unrelated census lane would be a tally nobody measured. This assertion counts
+        # DECLARATIONS and CATEGORIES, so both numbers moved.
+        self.assertIn("**%d categories / %d declarations**"
+                      % (len(self.rows), stated_decls), body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
@@ -15246,6 +15253,99 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual(("true", "false"), hlib.UIACTION_DESCRIBE_VALUES)
         self.assertNotIn(hlib.UIACTION_MOCK_STATE_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
         self.assertNotIn(hlib.UIACTION_MOCK_STATE_KEY, hlib.UIACTION_STATE_VALUES)
+
+    def test_no_committed_spec_uses_op_mock_until_the_mirror_reads_the_mock_block(self):
+        """THE GATE that keeps a mocked capture from lying on the mirror page.
+
+        A mocked capture carries its provenance INSIDE the artifact (a `mock` block in its
+        `.gui.json`), and `harness/tools/gui_tree_view.py` reads it today. The MIRROR does
+        not yet: it derives a capture's dataset from the lane's `fixture.saveTemplate`, and
+        a gallery lane HAS one (it needs a loaded game) - so until the mirror learns the
+        block, a mocked capture files under a REAL fixture's name and CAN pair against a
+        real capture in Compare. That is the one thing that page must not do.
+
+        So no committed spec may drive `op=mock` yet. WHAT LIFTS THIS CELL: the mirror's
+        `scan_shots_dir` reading the `mock` block and setting `fixture = "mock"` plus the
+        `mocked` capture key (the P2 half, being built on branch `mirror-gallery-p2`). When
+        that lands, replace the body with the positive assertion - a gallery lane's
+        captures file under `fixture=mock` - rather than deleting the cell."""
+        mirror = os.path.join(HARNESS_ROOT, "tools", "gui_mirror.py")
+        self.assertTrue(os.path.isfile(mirror),
+                        "the mirror generator moved; this gate is vacuous: %s" % mirror)
+        with open(mirror, encoding="utf-8") as fh:
+            mirror_src = fh.read()
+        mirror_reads_mock = ('"mock"' in mirror_src and "stateId" in mirror_src)
+
+        offenders = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            for index, step in enumerate(
+                    (spec.get("driver", {}) or {}).get("steps", []) or []):
+                step = step or {}
+                if step.get("cmd") != "UiAction":
+                    continue
+                if str((step.get("args", {}) or {}).get("op")) != "mock":
+                    continue
+                offenders.append("%s step %d" % (name, index))
+
+        if mirror_reads_mock:
+            # The mirror half landed: this cell has done its job and the assertion below
+            # inverts - a gallery lane is now expected to exist and to file under `mock`.
+            # Kept as a marker rather than deleted so the transition is deliberate.
+            return
+
+        self.assertEqual(
+            [], offenders,
+            "a committed spec drives UiAction op=mock while harness/tools/gui_mirror.py "
+            "still files captures by fixture.saveTemplate. Until the mirror reads the "
+            "dump's `mock` block (P2, branch mirror-gallery-p2), a mocked capture would "
+            "appear under a REAL fixture's name and could pair against a real capture in "
+            "Compare - the one lie that page must not tell. Offending steps: %s"
+            % ", ".join(offenders))
+
+    def test_the_save_refusal_under_a_live_mock_scope_mirrors_the_c_sharp_const(self):
+        """Reads OUTSIDE harness/. Three verbs answer this refusal - `SaveGame`,
+        `LoadGame` and `RunTests` - and the rule is uniform on purpose: a lane clears its
+        mock scope before anything that saves or loads. It is LANE HYGIENE rather than a
+        data guard (nothing injected is read by a save path), which is exactly why it has
+        to be spelled the same on both sides: a lane reads the token, not the reasoning."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandSaveGame.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# SaveGame half moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+        self.assertIn('RefusedGuiMockReason = "%s"' % hlib.SAVEGAME_REFUSED_GUI_MOCK_REASON,
+                      stripped)
+
+        # And all three verbs really do read it, derived from the addon's comment-stripped
+        # source so a removed guard reds here rather than in a lane.
+        addon = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                             "ParsekTestCommandAddon.cs")
+        with open(addon, encoding="utf-8-sig") as fh:
+            addon_src = "\n".join(
+                line for line in fh.read().splitlines()
+                if not line.strip().startswith("//")
+                and not line.strip().startswith("///"))
+        # TWO reads per verb - the Warn line and the response message - so three verbs is
+        # six. Counted rather than pattern-matched per verb because the guard bodies are
+        # deliberately identical, and the count is what a deleted guard moves.
+        self.assertEqual(
+            6, addon_src.count("TestCommandSaveGame.RefusedGuiMockReason"),
+            "the gui-mock refusal is read %d time(s) in the addon; SaveGame, LoadGame and "
+            "RunTests must each refuse while a scope is live (twice each: the log line and "
+            "the response), or the lane-hygiene rule is three special cases instead of a "
+            "rule"
+            % addon_src.count("TestCommandSaveGame.RefusedGuiMockReason"))
+        for verb in ("savegame refused reason=", "loadgame refused reason=",
+                     "runtests refused reason="):
+            self.assertIn(verb + '" + TestCommandSaveGame.RefusedGuiMockReason',
+                          addon_src,
+                          "no %s guard reads the gui-mock refusal" % verb.split()[0])
 
     def test_the_harvest_cap_fits_a_gallery_run(self):
         """P1b, the single highest-leverage number in the gallery design.

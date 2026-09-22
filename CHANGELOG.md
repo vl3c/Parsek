@@ -18,36 +18,57 @@ _(unreleased — entries accumulate here per commit)_
   A new automation-only op, `UiAction op=mock window=<token> mockState=<catalogue id>`,
   swaps ONE window's view model for a synthetic one from a catalogue compiled into
   `Parsek.dll`, so a capture can show a state no save reaches. **Only DATA is mocked**: the
-  draw code is never bypassed or imitated, and every builder feeds the real pure
-  presentation helper rather than typing a rendered string - the Kerbals states run
-  `KerbalsPresentation.BuildRosterRows` / `BuildFlightRows` over synthetic inputs, the
-  Career states run the real `CareerStateWindowUI.Build` over a synthetic ledger, and the
-  Structure states take every event word from
-  `MissionCompositionBuilder.BranchEventName` / `TerminalName` and every route stop label
-  from `RouteStructureListBuilder.FormatStopLabel`. 46 states ship across three windows:
-  Kerbals (the lost and retired statuses and the whole stand-in chain vocabulary, none of
-  which has a picture in the current design), Career State (the divergence banner - the
-  window's entire point, unphotographed - plus the pending-in-timeline split, the Flow
-  column, facility levels above 1 and both destroyed forms), and Structure List (the six
-  unphotographed terminal statuses, the EVA / breakup event words, and the route pickup and
-  depot-origin forms). **The apply's read-back is DRAW-PRODUCED**: it arms the GUI-tree
-  recorder in memory and asserts that witness strings DERIVED from the payload through the
-  same per-column formatters the draw method calls appear in the tree that frame produced -
-  reading back the field just written is the vacuous read-back `op=rect` had to be fixed
-  for, and it cannot fire on any input. **Nothing injected can reach a save**, structurally:
-  every member the applier writes is a UI-layer field that `ParsekScenario.OnSave`, the
-  sidecar writers and every store never read, enforced by a new grep gate
-  (`scripts/grep-audit-gui-mock-writeset.ps1`), and `SaveGame` additionally refuses
-  `save-refused-gui-mock` while a scope is live. A mocked capture announces itself forever
-  through an additive `mock` block in its `.gui.json` (the schema id does not move; absent
-  means a real capture), which the offline viewer already reads. A completeness guard
-  derives each supported window's enum BRANCH SET out of its comment-stripped source and
-  names any member no catalogue state claims, so a new draw branch reds in the same build
-  that adds it. NO PLAYER-FACING SURFACE and no player-build behaviour change: the op is
-  inert unless `PARSEK_TEST_COMMANDS=1` arms the addon, and the three cache suppressions are
-  one predicate read each, false in every build where no armed seam created a session.
-  Design: `docs/dev/design-gui-state-gallery.md` (section 18 records what the code forced to
-  change from the design and why).
+  draw code is never bypassed or imitated, and nothing typed by hand reaches a cell the
+  window draws. The Kerbals states run `KerbalsPresentation.BuildRosterRows` /
+  `BuildFlightRows` over synthetic inputs; the Career states run the real
+  `CareerStateWindowUI.Build` over a synthetic ledger whose strategy and milestone ids are
+  the stock ones, each with its own declared Source -> Target flow; and the Structure List
+  states build DETACHED `RecordingTree` / `Route` graphs and run the REAL
+  `MissionStructureListBuilder` / `RouteStructureListBuilder` over them. 43 states ship
+  across three windows: Kerbals (the lost and retired statuses and the whole stand-in chain
+  vocabulary, none of which has a picture in the current design), Career State (the
+  divergence banner - the window's entire point, unphotographed - plus the Flow column,
+  facility levels above 1 and both destroyed forms), and Structure List (the six
+  unphotographed terminal STATUS words, the EVA / breakup event words, and the route pickup
+  and depot-origin forms).
+
+  **The apply's read-back is DRAW-PRODUCED, and it is three-phase.** Phase 1 applies the
+  window's chrome and captures it WITHOUT the mock; phase 2 installs the data and captures
+  again; the check then requires every witness to be present in the second capture and
+  absent from the first, over the TARGET WINDOW's own subtree. The witnesses are derived
+  from the payload through the same per-column formatters the draw method calls, and the row
+  that carries the state's own declared branch is derived FIRST - so a witness says
+  something about the state rather than about the window. Reading back the field just
+  written is the vacuous read-back `op=rect` had to be fixed for, and it cannot fire on any
+  input.
+
+  **Nothing injected can reach a save**, structurally: every member the applier writes is a
+  UI-layer field that `ParsekScenario.OnSave`, the sidecar writers and every store never
+  read. A new grep gate (`scripts/grep-audit-gui-mock-writeset.ps1`) enforces it as an
+  ALLOWLIST of the types a gallery file may name, with `using X = Y` aliases banned outright
+  - a denylist can only ban the writers somebody thought of. `SaveGame`, `LoadGame` and
+  `RunTests` each refuse `save-refused-gui-mock` while a scope is live, and every exit path
+  clears unconditionally. A mocked capture announces itself forever through an additive
+  `mock` block in its `.gui.json` (the schema id does not move; absent means a real
+  capture), which the offline viewer already reads.
+
+  **Guards:** a completeness guard reflects over each guarded enum's whole member set and
+  additionally names every BOOL-driven branch a state must claim (the divergence banner,
+  `(pending)`, `(closing)`, destroyed, upcoming, a status tooltip, a collapsed run), each
+  with a predicate proving the catalogue reaches it; a builder-fidelity gate asserts every
+  Structure state's rows EQUAL real-builder output and fails on any string literal assigned
+  to a drawn row field; an id-shape gate pins the stock strategy names and cross-checks the
+  milestone ids against the committed fixtures' own ledgers; and three source gates keep the
+  applier's install arms, its four suppression sites and every exit path honest.
+
+  **NO PLAYER-FACING SURFACE and no player-build behaviour change**: the op is inert unless
+  `PARSEK_TEST_COMMANDS=1` arms the addon, and the four cache suppressions are one predicate
+  read each, false in every build where no armed seam created a session. **NOTHING HAS
+  FLOWN**: P1 ships no lane by design, the five in-game `GuiMock` cells are driven by no
+  committed spec, and an hlib gate refuses any committed spec that drives the op until the
+  mirror reads the dump's `mock` block. Design:
+  `docs/dev/design-gui-state-gallery.md` (section 18 records what the code forced to change
+  from the design and why).
 
 - **Automated testing: the harvest cap no longer silently drops most of a capture-heavy
   run.** `ARTIFACT_MAX_SCREENSHOTS` goes from 64 to 1024 and

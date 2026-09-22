@@ -129,7 +129,7 @@ namespace Parsek.Tests
         public void EveryRefusalTokenIsKebabCaseDistinctAndInTheValidSet()
         {
             string[] tokens = TestCommandUiMock.ValidRefusalNames.Split(',');
-            Assert.Equal(9, tokens.Length);
+            Assert.Equal(11, tokens.Length);
             Assert.Equal(tokens.Length, tokens.Distinct(StringComparer.Ordinal).Count());
             foreach (string token in tokens)
             {
@@ -148,8 +148,10 @@ namespace Parsek.Tests
                          TestCommandUiMock.RefusedSceneReason,
                          TestCommandUiMock.RefusedRecordingReason,
                          TestCommandUiMock.RefusedSessionLiveReason,
+                         TestCommandUiMock.RefusedModeReason,
                          TestCommandUiMock.NotAppliedReason,
                          TestCommandUiMock.RestoreFailedReason,
+                         TestCommandUiMock.ScopeBrokenReason,
                      })
             {
                 Assert.Contains(token, tokens);
@@ -248,7 +250,7 @@ namespace Parsek.Tests
             };
             List<string> witnesses = GuiMockWitness.Expected(
                 new GuiMockPayload { Window = GuiMockSession.KerbalsWindow, Kerbals = vm },
-                "roster");
+                "roster", new string[0]);
             Assert.Equal(new[] { "Mun Landing 1 - Lost" }, witnesses);
             Assert.Equal(2, GuiMockWitness.MinWitnessLength);
         }
@@ -258,17 +260,20 @@ namespace Parsek.Tests
         {
             // A roster witness under the Flights tab would answer not-applied over a
             // perfectly good mock, which is why the STATE pins the tab.
-            GuiMockPayload roster =
-                GuiMockCatalogue.ById("kerbals.roster.lost").Build();
-            Assert.NotEmpty(GuiMockWitness.Expected(roster, "roster"));
+            GuiMockState rosterState = GuiMockCatalogue.ById("kerbals.roster.lost");
+            Assert.NotEmpty(GuiMockWitness.Expected(
+                rosterState.Build(), "roster", rosterState.Covers));
 
-            GuiMockPayload flights =
-                GuiMockCatalogue.ById("kerbals.flights.lost-outcome").Build();
-            List<string> underOutcomes = GuiMockWitness.Expected(flights, "outcomes");
+            GuiMockState flightState =
+                GuiMockCatalogue.ById("kerbals.flights.lost-outcome");
+            List<string> underOutcomes = GuiMockWitness.Expected(
+                flightState.Build(), "outcomes", flightState.Covers);
             Assert.NotEmpty(underOutcomes);
             // And the two halves really are different strings, so the scoping is not a
             // distinction without a difference.
-            Assert.NotEqual(GuiMockWitness.Expected(flights, "roster"), underOutcomes);
+            Assert.NotEqual(
+                GuiMockWitness.Expected(flightState.Build(), "roster", flightState.Covers),
+                underOutcomes);
         }
 
         // ----- payloads -----

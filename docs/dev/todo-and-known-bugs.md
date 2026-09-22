@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## GUI-MOCK-P1-RESIDUE-2026-09-22: one product finding and four deferrals from the GUI state gallery's first phase [FILED 2026-09-22 with the P1 + P1b build. FIVE items. Item 1 is a PRODUCT finding, verified at its source site and pinned by a unit cell; items 2 to 5 are deferrals with a named owning phase. OPEN]
+## GUI-MOCK-P1-RESIDUE-2026-09-22: three product findings and three deferrals from the GUI state gallery's first phase [FILED 2026-09-22 with the P1 + P1b build, EXTENDED the same day after the clean review. SIX items. Items 1 to 3 are PRODUCT findings, each verified at its source site and pinned by a cell; items 4 to 6 are deferrals with a named owning phase. OPEN]
 
 **Where this came from.** Building the catalogue of synthetic GUI states
 (`docs/dev/design-gui-state-gallery.md`, P1) meant constructing each state's INPUTS and
@@ -40,7 +40,29 @@ it. The boundary is pinned against the REAL formatter by
 `GuiMockCatalogueTests.TheInlineStandInVesselFormIsUnreachableForRealNames`, which fails the
 moment the form fits and tells the next author to ADD the inline catalogue state.
 
-**2. DEFERRED to P2: the mirror half of P1.** `fixture=mock`, the `MOCKED DATA` badge, the
+**2. PRODUCT: the Structure List window's "Switch" event word is unreachable.**
+`MissionCompositionBuilder.BranchEventName` renders `BranchPointType.VesselSwitchContinuation`
+as `"Switch"`, and the structure-list builder's branch-point pass SKIPS that type by name
+("an observation boundary, not a physical event"). So the word exists in the vocabulary and
+no Log window can ever draw it. Found by building the catalogue against the real builders: a
+state claiming a "Switch" row could not be written. Pinned by
+`GuiMockStructureBuilderFidelityTests.NoSwitchContinuationRowCanBeDrawnSoNoStateClaimsOne`,
+which runs a tree carrying exactly that branch point and asserts the row is absent.
+Fix: either emit the row (a switch IS a thing that happened to the run, and the Missions tab
+already shows it) or drop the `VesselSwitchContinuation` arm from `BranchEventName` so the
+vocabulary stops claiming a word nothing renders. NOT fixed here: which way it goes is a
+product decision about whether an observation boundary belongs in a chronological log, and
+that is exactly the kind of question the owner's iteration loop exists to answer.
+
+**3. PRODUCT: `MissionStructureListBuilder`'s terminal row makes the Event column
+redundant on a one-leg run.** Its terminal pass writes `Label = "End"` always and puts the
+terminal word in STATUS - which is the right split when several legs end differently, and
+reads as a wasted column on a single-leg mission whose last two rows are `End | Splashed`
+under a Status column that was empty on every row above. Not a defect and not fixed: it is a
+layout judgement, and `structure.mission.terminal-*` now photographs it so the owner can
+make that call against a picture rather than against a description.
+
+**4. DEFERRED to P2: the mirror half of P1.** `fixture=mock`, the `MOCKED DATA` badge, the
 `mockedCaptureCount` index field and the pinned default dataset all live in
 `harness/tools/gui_mirror.py`, which had an open PR against it while P1 was built. The
 LOAD-BEARING half - the provenance that travels inside the artifact - shipped: every capture
@@ -50,29 +72,24 @@ mirror learns the block, a mocked capture files under its lane's `fixture.saveTe
 CAN pair with a real capture in Compare, which is the one lie that page must not tell - so
 P2 must land the mirror half before any gallery lane's output is shown to the owner.
 
-**3. DEFERRED to P2: `GUI-13` and `GUI-14` are taken.** The design named the two gallery
+**5. DEFERRED to P2: `GUI-13` and `GUI-14` are taken.** The design named the two gallery
 lanes `GUI-13-gallery-mock` and `GUI-14-gallery-mock-flight`; both numbers were claimed by
 the 2026-09-21 census wave (`GUI-13-census-logistics-candidates`,
 `GUI-14-census-settings-and-facility`). P2 picks fresh ids and checks every OPEN PR branch
 for collisions, not just `origin/main`.
 
-**4. DEFERRED: no in-game `GuiMock` category cells yet.** The design's test plan (section
-13) asks for one in-game cell per supported window - apply a known state, assert the window
-drew the mocked row set, restore, assert the real model is back - plus one asserting a
-`SaveGame` attempt refuses and one asserting a scene change clears. P1 ships the headless
-half of all four (the catalogue, the session lifecycle, the source gates and the write-set
-grep gate) and the SUPPRESSION-PLUS-DRAW path is proven only by the op's own draw-produced
-read-back at run time. Adding in-game cells moves the pinned `BATCH_COMPLETE` tallies of
-every committed spec that pins the categories they would join
-(`CommittedBatchTallySourceSyncTests`), so it is deliberately a separate change rather than
-a rider on this one.
-
-**5. DEFERRED: no lane has flown `op=mock`.** The op is unflown by construction - P1 ships
-no lane, P2 owns the two gallery lanes, and provisioning is operator-gated. Until then the
-apply path's live behaviour (the Harmony arm inside a KSP frame, the suppression holding
-across a real `onVesselChange`, the restore) is covered only by the headless suite and by
-the op's own refusals. The first flight is the acceptance gate the design names for P1:
-`op=mock` green in-game for three windows.
+**6. DEFERRED: no lane has flown `op=mock`, and the five in-game cells are unflown too.**
+The op is unflown by construction - P1 ships no lane, P2 owns the two gallery lanes, and
+provisioning is operator-gated. The in-game half now EXISTS (`GuiMock`, five SPACECENTER
+cells: the three windows' apply-draw-clear round trip, the `SaveGame` refusal, and the
+inert-with-no-scope property measured on a running game), and it is driven by NO committed
+spec on purpose - a new category no spec pins keeps every other spec's `BATCH_COMPLETE`
+tally honest, and claiming the row from an unrelated census lane would be a tally nobody
+measured. So the suppression-plus-draw path has a witness written but not yet taken. The
+first flight is the acceptance gate the design names for P1: `op=mock` green in-game for
+three windows. Until then every pin in `GuiMockApplyInGameTest.cs` is a prediction, and each
+failure message prints what it measured so that flight corrects a pin rather than guessing
+at one.
 
 ---
 

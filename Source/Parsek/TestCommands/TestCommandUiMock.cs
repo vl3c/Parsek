@@ -97,6 +97,29 @@ namespace Parsek.TestCommands
         internal const string RefusedSessionLiveReason = "mock-refused-session-live";
 
         /// <summary>
+        /// PRE-CALL: the CURRENT complexity mode hides the window's launcher, so no player
+        /// can have it on screen.
+        ///
+        /// <para>Basic hides the Kerbals and Career State launchers - the surface-level
+        /// visibility predicate decides it - AND the mode switch force-closes both
+        /// (<c>ParsekUI.BuildGatedWindowCloseSet</c>), so a Basic apply would photograph a
+        /// window the product cannot show, which the coverage audit already classifies as
+        /// UNREACHABLE rather than uncaptured. Refused rather than drawn, because the one
+        /// thing this feature may not do is put an impossible picture on the mirror. The
+        /// applier reaches that predicate through
+        /// <c>GuiMockCatalogue.IsMockableInMode</c>, which is where the mode vocabulary
+        /// lives; naming it here in prose keeps this file out of the mode gate's
+        /// allowlist.</para>
+        ///
+        /// <para>The design's section 7.1 gave each state an optional <c>Mode</c> field
+        /// for this. A per-state pin would have been the weaker answer: it puts the
+        /// decision on 46 declarations instead of on the one production predicate that
+        /// already owns it, and a new state could still get it wrong. Recorded in
+        /// design-gui-state-gallery.md section 18.</para>
+        /// </summary>
+        internal const string RefusedModeReason = "mock-refused-mode";
+
+        /// <summary>
         /// POST-SETTLE: the frame that settled the apply did not draw the mocked model.
         ///
         /// <para><b>The load-bearing one.</b> Its read-back is DRAW-PRODUCED and must
@@ -120,6 +143,23 @@ namespace Parsek.TestCommands
         /// clean state rather than from a half-restored one.</summary>
         internal const string RestoreFailedReason = "mock-restore-failed";
 
+        /// <summary>
+        /// POST-SETTLE: the scope is live and the window has been OBSERVED to have lost
+        /// its mocked model - something outside the declared suppression set wrote the
+        /// injected member.
+        ///
+        /// <para>Distinct from <see cref="NotAppliedReason"/> on purpose: not-applied
+        /// means the frame never drew the model, while this means the model was there and
+        /// went AWAY, which sends an author to a MISSING SUPPRESSION SITE rather than to
+        /// the state or the lane. The case is real rather than defensive: Career State's
+        /// cached VM has TWO writers, and the first build suppressed only the rebuild
+        /// predicate - so any ledger write nulled a mocked VM mid-scope.</para>
+        ///
+        /// <para>A clear also reports it, so a lane that never polls an apply still learns
+        /// the capture it took was not the state it asked for.</para>
+        /// </summary>
+        internal const string ScopeBrokenReason = "mock-scope-broken";
+
         /// <summary>Every refusal token, comma-joined. Echoed in the
         /// <see cref="ArgMissingReason"/> message the way <c>op-arg-invalid</c> echoes
         /// its valid set, and mirrored by <c>hlib.UIACTION_MOCK_REFUSALS</c>.</summary>
@@ -127,7 +167,8 @@ namespace Parsek.TestCommands
         {
             ArgMissingReason, StateUnknownReason, WindowUnsupportedReason,
             StateWindowMismatchReason, RefusedSceneReason, RefusedRecordingReason,
-            RefusedSessionLiveReason, NotAppliedReason, RestoreFailedReason,
+            RefusedSessionLiveReason, RefusedModeReason, NotAppliedReason,
+            RestoreFailedReason, ScopeBrokenReason,
         });
 
         // ----- arg parses -----
@@ -370,6 +411,43 @@ namespace Parsek.TestCommands
                 if (!found)
                 {
                     firstMissing = want;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Whether NO witness appears in the PRE-APPLY baseline of the same window.
+        ///
+        /// <para>This is the half that makes the read-back mean something. A witness the
+        /// UNMOCKED window already draws witnesses nothing - it is satisfied by any
+        /// capture of that window - and the review found seven states in exactly that
+        /// shape, witnessing only a launch row every mission run draws. So the applier
+        /// captures the window once with its chrome applied and its data untouched, and a
+        /// witness present in THAT capture is a catalogue fault rather than a lane
+        /// fault.</para>
+        ///
+        /// <para>An EMPTY baseline passes: a window that drew nothing at all before the
+        /// mock (the ordinary case for a window the lane just opened onto an empty save)
+        /// shares nothing with the witness set by definition.</para>
+        /// </summary>
+        internal static bool WitnessesAbsentFromBaseline(IReadOnlyList<string> witnesses,
+                                                         IReadOnlyList<string> baseline,
+                                                         out string firstShared)
+        {
+            firstShared = null;
+            if (witnesses == null || baseline == null) return true;
+            for (int i = 0; i < witnesses.Count; i++)
+            {
+                string want = witnesses[i];
+                if (string.IsNullOrEmpty(want)) continue;
+                for (int j = 0; j < baseline.Count; j++)
+                {
+                    string drawn = baseline[j];
+                    if (drawn == null) continue;
+                    if (drawn.IndexOf(want, StringComparison.Ordinal) < 0) continue;
+                    firstShared = want;
                     return false;
                 }
             }
