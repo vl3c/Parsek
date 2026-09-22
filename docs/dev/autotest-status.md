@@ -1515,7 +1515,7 @@ moon lane.
 | Machine lock (multi-agent exclusivity) | ONE lockfile `<umbrella>/automation/.ksp-machine.lock` arbitrating `run.py` AND `provision.py`, replacing the two mutually-blind per-instance locks (`.harness-run.lock` / `.provision.lock`) | SHIPPED 2026-08-02. Closes four leaks found by a full audit of the pre-existing three-tier lock: (1) **provision-under-run** - the two locks never read each other, so a routine `provision.py --profile stock-minimal` could run DEPLOY (overwriting `Parsek.dll`, settings, MM cache) during the harness's pre-launch or post-exit window, when the coarse EC-1 "any KSP alive" probe passes; DEMONSTRATED live during the audit (a provision logged `lock decision=acquired-free` 21 minutes into a held run lock). (2) **per-attempt scope** - acquire/release sat inside `run_attempt`, leaving the lock free between a selection's scenarios; a sibling arriving in any gap killed every remaining scenario with non-retryable `INVALID(instance-locked)`. Now held for the whole invocation, with a timestamp heartbeat at each scenario boundary, and ADMIT moved under it (the DLL-hash check could previously be invalidated by a concurrent provision between check and launch). (3) **non-atomic acquire** - read-decide-write with no `O_EXCL`; two racers could both reclaim the same stale lock and both launch. Now an atomic exclusive create with a single bounded reclaim retry that refuses rather than loops. (4) **no wall-clock expiry** - the `timestamp` field was written and read by nothing, so a hard-killed holder whose pid Windows recycled wedged the instance permanently with no `--force`; now pid-liveness OR a 4h lease, with the liveness probe failing CLOSED and release re-reading to confirm ownership. Granularity is the MACHINE, not the instance dir, because the monopolised resources are machine-global (kRPC 50000/50001, one GPU) - a per-instance key let two profiles both acquire and both bind 50000, where the loser's bind fails soft and its mission drives the WINNER's game (a false-PASS path). Fail-fast on contention preserved (design edge 7 / EC-10); `--dry-run`, the unit suites, `collect-logs.py` and `dotnet build` deliberately do NOT take it. Coverage: the lock WIRING (the shell half) had ZERO cells before this - `test_run_smoke.py` on main never referenced `acquire_run_lock` / `release_run_lock` - and now has 28 driving real lockfile I/O, plus 18 in a dedicated `provision/test_machinelock.py` that drives the shared protocol directly (so the loser-of-a-race branches, and provision's half, are covered on their own terms rather than only through run.py); the pure `provlib` decision already had 7 cells (5 `LockTests` + 2 `LockfileReleaseTests`) and now has 22. 68 lock cells total, counted mechanically. HARDENED 2026-08-02 by two independent clean reviews, which found the first cut did NOT deliver its headline guarantee: (a) `provision.py` had a SECOND, weaker acquire whose `FileExistsError` branch unconditionally `os.replace`d the lockfile - reachable with no stale lock at all, so a provision starting alongside a run overwrote the run's live lock and DEPLOYed over its instance; (b) `run.py`'s reclaim called a bare `os.remove` on whatever was at the path, so two racers that both judged the same stale lock both proceeded - the loser deleted the WINNER's fresh lock and both held (reproduced with a PoC by the reviewer). Both are closed by extracting ONE shared protocol (`harness/provision/machinelock.py`): winning is decided solely by the exclusive create, and a stale lock is reclaimed by atomic rename to a pid-unique quarantine followed by a BYTE COMPARE against what was judged - a mismatch means a fresh holder appeared, which is restored and refused. A THIRD review round (of the fix itself) confirmed both originals dead and found three more in the same "unverified write to the lock path" family, all now closed and each pinned by a cell in the new `provision/test_machinelock.py`: two correlated read failures compared `None == None`, "verified", and deleted a LIVE holder's lock (a single AV/backup hold spans both reads); the empty file that exists between a winner's exclusive create and the close of its write parsed as "no lock" and was reclaimable (safe on Windows only by the winner's open handle blocking the rename - a platform accident, so the guard is now in the protocol and holds on POSIX too); and the restore path could `os.replace` over a third party that had legitimately won the briefly-free path, so it is now an exclusive create that stands down. The heartbeat's re-verify was moved BEFORE its swap - checking after the write is worthless, since by then the reclaimer's lock is already overwritten and the read only ever shows our own. Also from review: a failed heartbeat is now FATAL to the selection (it previously warned and kept flying unlocked beside whoever reclaimed it), the heartbeat preserves `startedIso` so a refusal reports when the hold BEGAN, and the lease moved 4h -> 8h because the worst committed spec (BDOCK-1, 6900s x 2 attempts) left only ~10 minutes of margin - now pinned by `LeaseCoversWorstCaseScenarioTests` so a future budget rise reds here instead of in a night flight. LIVE-PROVEN 2026-08-02 with a real foreign holder process: `run.py` refuses naming holder pid/worktree/selection/since, `provision.py` aborts `EC-10`, and the holder's lockfile is byte-identical afterwards. Suites green after merging main: lib 1163 / provision 236 / missions 1111. KNOWN CONSTRAINT: the key is the umbrella root, so "machine-wide" holds by convention for the documented sibling layout, not by construction (`--umbrella-root` / `--instance-dir` can decouple it) - filed under DEV-INSTANCE-UNLOCKED. **The deferred residual R8 "`_ksp_running_against` coarseness" (`design-autotest-stack-setup.md:740`, NOT the roadmap's R8) must not narrow the zombie probe without re-reading `harness/README.md`**: that probe is a second, independent guard on port 50000 and the GPU |
 | Tier runner (agent-requested, on demand) | One command flies a whole tier and leaves a classified outcome: `harness/tools/tier_runner.py --tier {daily|nightly|operator}`, invoked by an agent when the operator requests a tier run (`run-tier` project skill, `.claude/skills/run-tier/SKILL.md`) | SHIPPED 2026-08-05. **REFRAMED 2026-08-05** to the agent-requested model the operator asked for ("run them by type"): the Task Scheduler registration script was REMOVED (git history keeps it), the `run-tier` skill was added, and `cadence_runner.py` / `test_cadence_runner.py` / `results/cadence/` / `PARSEK_CADENCE_RUNPY_ARGS` were renamed to `tier_runner.py` / `test_tier_runner.py` / `results/tier-runs/` / `PARSEK_TIER_RUNPY_ARGS`. **NOTHING IS SCHEDULED.** The rename is MECHANICAL - identifiers, paths and the `[Cadence]`->`[TierRun]` log prefix only, no decision or policy changed - so the live proof below still stands for the current code. The runner owns ONLY what run.py cannot: an `ES_SYSTEM_REQUIRED` wake hold (a multi-hour tier nobody is sitting with is otherwise suspended ~2 min in, mid-flight), an advisory lock/KSP preflight that SKIPS rather than queues (a run.py refusal would stamp one junk `INVALID(instance-locked)` result JSON per selected spec - 46 for the nightly tier - into `results/` and the contact-sheet index), outcome classification into GREEN / RED / NEEDS-PROVISION / LOCKED / NO-SELECTION with the verdict tally and any KILLED called out, a one-line-per-invocation `results/tier-runs/history.txt` skim surface, and 60-day rotation of its OWN logs only. It NEVER provisions (which worktree's DLL the instance carries is a human call) and never re-runs a finding. `--tier` is a `choices=` set because run.py's own `--tier` silently selects ZERO on a typo and exits 0 - a walk-away run that reads green having flown nothing. LIVE-PROVEN 2026-08-05: a full `--tier daily` invocation flew end to end through the pre-rename runner and classified GREEN, history line `2026-08-05T07:07:59Z tier=daily outcome=GREEN exit=0 PASS=22`. Exit codes 0/1/2/3/4. Pure decisions unit-tested in `harness/lib/test_tier_runner.py` (69 cells). Tier spec counts on 2026-08-05: daily 22 / nightly 46 / operator 11. Mechanics + the review recipe: `harness/README.md` -> "Running a tier on request (agent-driven)" |
 
-## Test cases (all 279 committed scenarios)
+## Test cases (all 283 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -2613,6 +2613,128 @@ WHAT THE AUDIT GOT WRONG, corrected here and in the spec headers rather than inh
 | GUI-21-census-logistics-hold-origin-empty | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-21** (`2026-09-21_2113`, attempt 1, 58 s, 1 PNG + 1 dump). `Last cycle blocked: B is short 154.4 LiquidFuel - delivers when it has the full amount (checked 10.0m ago)`, the cyan `New (not yet run)` cell with its `New - use Send Once to test` guidance line, `0 / 1 skipped`, `Status: Paused - Paused - not auto-dispatching`, and NO `Recent cycles:` header - a blocked cycle emits no ledger cargo rows, so the ABSENCE is the state. The detail panel rides along with a large set of rows no capture had: `Delivers per cycle: (nothing)`, both `-` steppers `enabled=false`, `Cadence: 1x (~2.7m)`, `Priority: 0`, `Link round-trip...`, `Log (Mission)` and the three-entry `Source recordings:` line. | D14 `sandbox`, `scene-flight` |
 | GUI-22-census-logistics-hold-destination-full | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-21** (`2026-09-21_2117`, attempt 1, 53 s, 1 PNG + 1 dump). `Last cycle blocked: destination has no room for LiquidFuel - delivers when it has room for the full manifest (checked 10.0m ago)` with `0 / 1 skipped`. CONFIRMED ABSENT, as the header predicted from the source: `tanks full` has zero hits - the capacity line is gated on `RouteStatus == DestinationFull` and this route's status is `Paused`, which is the only status the loop dispatch path ever assigns. | D14 `sandbox`, `scene-flight` |
 | GUI-23-census-logistics-hold-funds-short | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-21** (`2026-09-21_2119`, attempt 1, 55 s, 1 PNG + 1 dump). `Last cycle blocked: not enough funds at KSC - short 1 funds for this dispatch (checked 10.0m ago)`, `0 / 2 skipped` - the only two-skip reading of the four - and the Career-only block its header declared a MAY: `Cost/run: 7,410 funds  (transport not recovered in the recording)`. | D14 `career`, `scene-flight` |
+
+### The GUI census, wave 6: the seam-op wave (4)
+
+AUTHORED AND FLOWN 2026-09-22, ALL FOUR GREEN, on ONE pinned automation DLL (deployed
+sha256 `d3a4dbbfc23d9d1e9c6cd166075c53e769e3e89d8629b6cfcfb3b89fd0f5518e`, built from the
+authoring worktree, re-asserted after the last flight and never moved). NINE flights,
+counted off the nine result JSONs: 7 PASS and 2 INVALID, every lane's FINAL verdict PASS
+on attempt 1, measured walls 55-88 s. BOTH NON-GREEN ARE ONE LANE'S OWN SPEC (GUI-25 runs
+`_2254` and `_2255`, both `INVALID(driver-verdict-mismatch)` on the same
+`edit-not-drawn`); neither is a product failure. Three of the seven PASSes are SUPERSEDED
+rehearsals of specs that changed afterwards and are not the record: `_2252` (GUI-24, with
+the two Career captures that photographed nothing), `_2258` (GUI-25, its dialog PNG
+hidden) and `_2300` (GUI-26, both captures wrong).
+
+THE WAVE'S SHARPEST PRODUCT IS FOUR CORRECTIONS THE FLIGHTS FORCED, and every one was
+invisible to the log contracts - three of the four were runs that PASSED every pinned line
+over a picture showing the wrong thing:
+
+  * **GUI-24's Career pair photographed no fold.** `op=expand window=career key=none` ran
+    correctly (`state=false expanded=0 total=2`) and both captures showed the ordinary tab:
+    `CareerStateWindowUI` draws `Pending in timeline (N)` only when
+    `RowsEqual(CurrentRows, ProjectedRows)` is FALSE, and the operator's 110-recording
+    career reads `slots 0/2 now, 0/2 at timeline end`. The fold needs a DIVERGING career,
+    not a long one. Both steps were REMOVED rather than relabelled.
+  * **GUI-25's recording-rename step could not draw.** `edit-not-drawn` twice, over a row
+    inside a multi-member `Kerbal X (2)` block that `key=all` cannot open: the Recordings
+    tab draws TWO kinds of collapsible block and the seam enumerates only `ChainId`, while
+    `DrawGroupedRecordingBlock` keys its block `"<groupName>::<identity>"`. `key=all`
+    answered `changed=29 expanded=52 total=52` - every key it knows - and that block still
+    drew collapsed. The lane now keys the edit to a single-member block, which draws as a
+    plain row.
+  * **Both Logistics modals were HIDDEN in their own PNGs.** GUI-25 `_2258` and GUI-26
+    `_2300` both PASSED every contract, with `uiaction dialog open=true count=1` naming the
+    live popup and a `dismiss ok` after the capture, and both pictures showed the
+    full-width Logistics window with no dialog in it: a `PopupDialog` is uGUI and KSP's
+    legacy IMGUI pass paints over it. Both lanes now close the covering window first.
+  * **GUI-26's running-batch capture photographed RESULTS.** `running=true` was pinned and
+    passed while the PNG read `idle | 8 passed` with `Cancel` greyed, because the whole
+    `TrajectoryMath` batch ran in 149 ms (`Starting test run` 02:00:51.213 ->
+    `BATCH_COMPLETE` 02:00:51.362) and the capture landed at 02:00:51.420. The category
+    moved to `Periodicity`, whose nine batch-eligible cells solve Lambert transfers, and
+    the re-flight's PNG reads `RUNNING | 2 passed 0 failed 4 skipped` with `Cancel`
+    ENABLED and the other three buttons greyed. THE MARGIN IS THIN AND WORTH STATING:
+    `Periodicity` is the longest SPACECENTER category on record at 1.43 s
+    (02:06:14.714 -> 02:06:16.140) and 816 ms of that is ONE of its nine cells, so the
+    screenshot - requested 115 ms in - is reproducible, while the `.gui.json` beside it
+    was written 16 ms before `BATCH_COMPLETE` and reads `RUNNING | 7 passed ...`
+    `Periodicity (8/13)`: correct by a coin flip. THE PNG IS THE PRODUCT OF THAT LABEL AND
+    THE DUMP IS TIMING-DEPENDENT; a re-flight may write an idle dump and still pass every
+    contract, because the dump pin is `patched=` and says nothing about the batch. The
+    lesson is general: `running=` is read at DISPATCH, so it is necessary and never
+    sufficient - the image is the check.
+
+All four are filed in `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22`.
+
+AND ONE PRODUCT FINDING, the wave's only one: a route name's arrow renders as a
+MISSING-GLYPH BOX in both uGUI route confirms (`ib-dlg-deleteroute.png` reads
+`Delete route 'Route: KSC [box] Mun'?`). The composed name is correct and the IMGUI
+Logistics window in the SAME frame renders it three times over - the dump beside that PNG
+carries U+2192 in the row, the caret and the round-trip note - so the fault is the
+TextMeshPro font KSP's dialog canvas uses, which has no glyph for it. Filed as item 8 of
+the same entry; not fixed, since this PR adds no C#.
+
+WHICH BUILD THE NINE FLIGHTS RAN, stated because the branch merged `origin/main` AFTER
+them: the pinned DLL is this branch at `064ec857` plus `origin/main` at `854412858`, so it
+does NOT carry PR #1736's Logistics clause-catalog refactor (`LogisticsClauseCatalog.cs`,
+`LogisticsHoldClauses.cs`, `LogisticsRejectClauses.cs` and the two presentation files that
+now delegate to them). No lane here pins a hold or reject clause string - GUI-25's
+Logistics captures are the route table's sort order, the round-trip note and the cadence
+cell, and GUI-26's is the Create Route confirm - so the readings stand, and a re-flight
+buys a newer DLL rather than a different answer.
+
+Four lanes, each photographing window states nothing in the census could reach before,
+because until #1734 nothing but a player click could write them: `UiAction op=state` (the
+Timeline's three source toggles, both archive filters, the Custom range reveal, the
+time-range presets, the scroll offset and the Recordings tab's expanded-stats columns),
+`op=sort` (three of the 44 unphotographed sort states across two colliding tables plus the
+Logistics route table), `op=select` (the Missions tab's per-vessel include affordance and
+the partner-journey membership), `op=edit` (all three in-place rename editors, armed but
+never committed), `op=run await=false` (the test runner photographed WHILE a batch runs),
+the three Logistics raise rows and `RouteCommand action=link|set-cadence|unlink`.
+
+THREE OF THE FOUR WRITE STATE A SAVE WOULD KEEP - the two archive flags, `op=select`'s two
+Mission fields, the recording rename a rival arm commits, and the route link and cadence -
+so each runs on the throwaway copy the harness stages and NO FIXTURE IS EVER HARVESTED
+FROM THESE RUNS. That is recorded here as well as in each spec header because it is the
+one thing a future re-harvest could silently violate.
+
+SEVEN STATES IN THE FAMILY STILL HAVE NO PICTURE. The four the flights measured are above;
+the three below were derived from the committed bytes before the wave flew and are filed
+rather than faked:
+
+- **No archived recording and no archived mission exists anywhere.** The `hidden` key a
+  `Recording.Hidden` row would write appears ZERO times across all 59 committed fixtures
+  and in the operator's own career; `archived` reads `False` in all 9 of its occurrences.
+  So both archive captures show the FILTER CONTROL in its other position (which the dump
+  proves, since `GuiTreeJson` records a toggle's own `value`) and never a dropped or
+  re-appearing row. Filed as
+  GUI-CENSUS-NO-HOST-CARRIES-AN-ARCHIVED-RECORDING-OR-MISSION.
+- **No committed fixture carries a DORMANT route**, so the `Confirm: Delete Dormant Route`
+  modal cannot be raised at all - the dormant list is disjoint from the committed one, and
+  GUI-25 declares that raise as a REJECTED naming the reason. Filed as
+  GUI-CENSUS-NO-FIXTURE-CARRIES-A-DORMANT-ROUTE.
+- **Real Spawn Control's four sort states are unreachable through the seam.** `op=sort`
+  refuses a closed window, and `SpawnControlUI.DrawIfOpen` FORCE-CLOSES itself on its first
+  draw when `ResolveAutoCloseReason` finds no nearby spawn candidate - which GUI-2 already
+  measured and pins (`uiaction error reason=window-self-closed window=spawncontrol`). Filed
+  as GUI-CENSUS-SPAWN-CONTROL-SORT-HAS-NO-OPENABLE-HOST.
+
+ONE STATE THE WAVE-6 LANE PLAN ASKED FOR IS NOT REACHABLE THROUGH THE OP THAT WAS MEANT TO
+REACH IT, and this is a correction rather than a gap: the `" (partial)"` row suffix.
+`op=select key=vessel:<anything>` RESOLVES A ROW - by `OwnerHeadId` first, then by any one
+of that row's interval keys - and then calls `ApplyVesselInclusion` over ALL of that row's
+own keys, so the classified outcome is `All` or `None` and never `Partial`. Filed as
+GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT.
+
+| Test case | Tier | Parsek surface verified | Coverage cells |
+|---|---|---|---|
+| GUI-24-census-timeline-filters | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2327`, attempt 1, 62 s, 8 PNG + 8 dumps, every dump `patched=17/17`; its first flight `_2252` was also PASS at 88 s but carried the two Career captures that photographed nothing). ALL EIGHT TIMELINE STATES LANDED, verified toggle by toggle in the dumps against a baseline that reads all three sources ON: `Actions=False` (361 nodes), `Events=False` (247), `Recordings=False` (210) - so two of the three filters visibly DROP ROWS; `Archived=True` at 370 nodes, UNCHANGED from the baseline, which is the measured proof of the no-archived-row finding; `Custom=True` with `From:` / `To:` present (zero hits program-wide before); `This Year=True` (363) and `Last Day=True` (123) - the preset really filtered; and `scrollY want=600 after=600` unclamped, so the entry list is genuinely longer than the viewport and the scrolled PNG is a lower band. | D14 `career`, `scene-ksc` |
+| GUI-25-census-missions-state-sort-edit | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2316`, attempt 1, 66 s, 11 PNG + 10 dumps; preceded by `_2254` / `_2255` INVALID on this lane's own `edit-not-drawn` and `_2258` PASS whose dialog PNG was hidden - both corrected, see above). MEASURED: the Info toggle's SIX extra columns present in the tree (`MaxAlt` `MaxSpd` `Dist` `Pts` `Start` `End`, 1147 nodes against 877) - zero hits program-wide before; the sort arrow AND the row order both move (`Name` descending puts the groups `#5, #4, #3, Duna Supply 1`, `Duration` ascending puts them `#3, #4, Duna Supply 1, #5`), and a `Status` arrow appears TWICE in the Logistics dump, which is the measured proof that one sort state drives both route tables; both archive checkboxes FLIP against their baselines (Recordings tab `True`->`False`, the opposite label sense; Missions tab `False`->`True`); all three editors drew a real `textfield` node carrying its draft (`Draft recording name` at the Probe row, `Draft group name` on the `Kerbal X #3` header, `Draft mission title`), and the group arm's COMMIT of the rival recording draft is visible in the same dump as "|- Draft recording name"; the `Confirm: Delete Route` modal photographed over the Space Center with `Delete` / `Cancel`; and the linked pair reads `Round-trip linked to 'Route: KSC -> Mun'` / `'... Duna'` with `Unlink` ENABLED on both and `Cadence: 2x (~7.9d)` against the partner's `1x (every window)`. | D14 `sandbox`, `scene-ksc` |
+| GUI-26-census-createroute-and-running-batch | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2305`, attempt 1, 59 s, 2 PNG + 1 dump; its first flight `_2300` was PASS on every contract with BOTH captures wrong - see above). MEASURED: the `Create Supply Route?` confirm over the Space Center, reading `Origin: Kerbin (Runway)` / `Endpoint: Kerbin (0.006 deg, -74.726 deg, 66m)` / `LiquidFuel: 97.6` / three inventory items / `Transit: 45s` with all THREE buttons (`Create Paused`, `Create and Activate`, `Cancel`) - the route-creation workflow's only modal and the first picture of it. And the test runner MID-BATCH: `RUNNING \| 2 passed 0 failed 4 skipped (624 total)` with `Cancel` ENABLED and `Run All` / `Run All + Isolated` / `Reset` all greyed, which no `await=true` capture can produce. | D14 `sandbox`, `scene-ksc` |
+| GUI-27-census-missions-include | operator (census class; `pending-operator`) | **FLOWN PASS 2026-09-22** (`2026-09-21_2304`, attempt 1, 58 s, 3 PNG + 3 dumps). All three include forms landed and the counts are in the dumps, counted over the `Parsek - Missions` ROOT ONLY (a dump is process-wide, so the kRPC window contributes three more toggles with one ticked - an earlier draft of this row counted those too and read 8/20, 15/22, 12/22): `key=none` -> `excluded=3`, 7 of 17 checkboxes still ticked at 402 nodes; `key=all` -> `excluded=0 links=1`, 14 of 19 ticked at 435 nodes, and THE PARTNER JOURNEY IS REAL - `uiaction select link ... link=4fe5e39e0ae94b86b1a6ed2949369155 include=true` with the node count rising 402 -> 435, which is the foreign-subtree renderer's first coverage anywhere (and is also why the toggle total itself moves, 17 -> 19); and the mixed tab from `key=vessel:a32f62f5...` -> `head=a32f62f52dc84d6a94daf93460ec6548 vessel=Kerbal X keysChanged=2`, 11 of 19 ticked. | D14 `sandbox`, `scene-ksc` |
 
 ### The GS-2/GS-3 orbital-deploy lane, all three LIVE-PROVEN (3)
 
