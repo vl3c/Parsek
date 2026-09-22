@@ -1939,6 +1939,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The pending release that last triggered <see cref="RecalculateIfKerbalReservationReleaseDue"/>,
+        /// so a walk that for any reason does not move the release cannot re-trigger it
+        /// every frame. NaN = none yet.
+        /// </summary>
+        private static double lastTriggeredReservationReleaseUT = double.NaN;
+
+        /// <summary>
+        /// The cheap crossed-an-end check for time passing OUTSIDE the paths that already
+        /// recalculate (scene load, commit, rewind, flight warp exit): the KSC and
+        /// Tracking Station clocks and the crew-assignment dialog opening. Compares
+        /// <paramref name="nowUT"/> with the earliest time-based reservation release the
+        /// last walk left pending (<see cref="KerbalsModule.NextReservationReleaseUT"/>)
+        /// and, only when the clock has reached it, runs the ordinary current-timeline
+        /// recalculation once. Everything per call is two double comparisons; a full
+        /// recalculation happens once per crossed release, never per frame.
+        /// Returns true when it recalculated.
+        /// </summary>
+        internal static bool RecalculateIfKerbalReservationReleaseDue(double nowUT, string reason)
+        {
+            var kerbals = kerbalsModule;
+            if (kerbals == null) return false;
+            double next = kerbals.NextReservationReleaseUT;
+            if (!KerbalsModule.IsReservationReleaseDue(nowUT, next, lastTriggeredReservationReleaseUT))
+                return false;
+            // A load or a rewind's UT adjustment in progress is not a clock to act on; the
+            // load / post-rewind recalculation that follows judges the right instant.
+            if (ParsekScenario.IsOnLoadInProgress || RecordingStore.RewindUTAdjustmentPending)
+                return false;
+
+            lastTriggeredReservationReleaseUT = next;
+            string safeReason = string.IsNullOrEmpty(reason) ? "reservation-release" : reason;
+            ParsekLog.Info(Tag,
+                "Kerbal reservation release due: nextReleaseUT="
+                + next.ToString("R", CultureInfo.InvariantCulture)
+                + " nowUT=" + nowUT.ToString("R", CultureInfo.InvariantCulture)
+                + " reason=" + safeReason + " - recalculating");
+            RecalculateAndPatchForCurrentTimelineIfFutureActions(nowUT, safeReason);
+            return true;
+        }
+
+        /// <summary>
         /// Recalculates after a live KSC/flight event has just been written to the
         /// ledger. If committed actions still exist after the event UT, keep the walk
         /// cutoff at that live UT so future rewards are not patched into KSP early.
@@ -6877,6 +6918,9 @@ namespace Parsek
             OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
             DeferOneFrameForTesting = null;
+            KerbalsModule.LiveClockUTProviderForTesting = null;
+            KerbalsModule.LoadedSaveUTProviderForTesting = null;
+            lastTriggeredReservationReleaseUT = double.NaN;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 

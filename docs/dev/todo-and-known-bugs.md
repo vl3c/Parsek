@@ -812,7 +812,44 @@ windows are store-shaped (frame-keyed caches, index-into-the-live-list row ident
 belong to synthetic SAVE fixtures rather than an in-memory mock; and any such fixture work
 must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE`.
 
-## KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME: a reservation from a committed flight stays in force after the flight's recorded end, including a Recovered flight's finite `ReservedUntilUT` [FILED 2026-09-22 off the Kerbals-window review (open question 1). BACKEND BEHAVIOUR, NOT CHANGED. OPEN for the owner to decide]
+## ~~KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME~~: a reservation from a committed flight stays in force after the flight's recorded end, including a Recovered flight's finite `ReservedUntilUT` [FILED 2026-09-22 off the Kerbals-window review (open question 1). OWNER DECISION 2026-09-23: option (b), the design is right and the code is the bug. FIXED 2026-09-23 on branch `kerbal-reservation-release`]
+
+**Fix (2026-09-23).** One predicate, `KerbalsModule.IsReservedAt(name, nowUT)` = a reservation
+exists AND it is in force at `nowUT` (`IsReservationActiveAt`: permanent, or open-ended `+inf`,
+or `nowUT < ReservedUntilUT`; the kerbal is free AT exactly the recovery UT, because the
+common live case is a commit run at that very clock; an unknown clock HOLDS). The walk
+captures its clock ONCE in `PrePass` (`ResolveWalkClockUT`: the loaded save's
+`flightState.universalTime` while `ParsekScenario.OnLoad` is on the stack, because Planetarium
+still reads the previous scene's clock there; else the walk's cutoff; else the adjusted rewind
+UT while a rewind's clock adjustment is pending; else live Planetarium; tests drive it through
+`KerbalsModule.LiveClockUTProviderForTesting` / `LoadedSaveUTProviderForTesting`), and
+`CrewReservationManager.RecomputeAfterCutoffWalk` now passes its cutoff through. EVERY consumer
+routes through `IsReservedNow` (= `IsReservedAt` at the walk clock): `IsKerbalAvailable`,
+`ShouldFilterFromCrewDialog`, `IsManaged`, `GetReservationKind`, `GetActiveChainIndex` /
+`ResolveActiveChainIndex`, `ComputeRetiredSet`, `EnsureChainDepth`, and every `ApplyToRoster`
+step, including the `crewReplacements` swap map (so a returned owner is never swapped out of the
+craft he boards). The raw `Reservations` map is kept (the Kerbals window names the holding flight
+from it; the tombstone roster cleanup still preserves anyone a surviving flight names);
+`ActiveReservations` is the in-force view the window now reads. A released owner creates no slot
+and demands no chain depth, so the EXISTING displacement machinery does the return: an unused
+stand-in is deleted, a used one retired, the chain keeps its names; a rewind before the end
+re-reserves him, recreates the stand-in under the persisted name and reactivates a retired one.
+Re-evaluation: the existing recalculations (scene load, commit, rewind, flight warp exit) now
+judge against the clock; the KSC and Tracking Station `Update` and the crew-assignment dialog
+(`CrewAutoAssignPatch` prefix on `RefreshCrewLists`) call
+`LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue`, two double comparisons against
+`KerbalsModule.NextReservationReleaseUT` that run the ordinary current-timeline recalculation
+once per crossed release (never per frame; stands down during OnLoad and a pending rewind
+adjustment). Logging: `Reservation released: '<name>' endUT=.. nowUT=..` and `Reservation
+re-reserved: ...` once per actual transition, `released=` / `walkClockUT=` / `nextReleaseUT=` on
+the PostWalk summary. `KerbalReservationReleaseTests` inverted (held before the end, free from
+it, re-reserved by a rewind before it, stand-in deleted / retired / recreated by name, the L3
+shape generating no stand-in, the due-check firing once). The window reads `Reserved until
+<date>` for a finite hold again, with the hover rule `Free again from <date>, when that flight
+ends.`; open-ended holds keep `ReservationHoldRule`. Aboard (`+inf`) holds are UNCHANGED; see
+KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL below.
+
+**The original filing, kept for the record.**
 
 **What is true (measured).** `KerbalReservationReleaseTests` commits one flight for
 Jebediah (start UT 100, end UT 300) and drives the REAL walk -
@@ -854,6 +891,33 @@ and deciding what a rewind to before the flight's end does to a kerbal the playe
 crewed. (b) is a behaviour change with rewind, stand-in retirement and swap consequences; if it
 is chosen, `KerbalReservationReleaseTests` inverts and the window's hover rule changes with it.
 
+## KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: a kerbal whose committed flight ends Aboard stays reserved forever, even after the real vessel spawned from that flight is recovered [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME. PRODUCT GAP against design 9.3 (STRANDED "stays open until a future recording rescues the kerbal"). OPEN - not changed by that fix, which deliberately left `+inf` holds alone]
+
+**What is true (read, and pinned by one xUnit cell).** An Aboard (or Unknown) end state maps to
+`ReservedUntilUT = +inf` (`Source/Parsek/KerbalsModule.cs:626`, `:637`), and reservations for one
+kerbal merge by MAX end (`KerbalsModule.cs:644`), so no later row can shorten an open-ended hold.
+Nothing re-stamps the Aboard row either: `ParsekScenario.OnVesselRecovered`
+(`Source/Parsek/ParsekScenario.cs:7766`) calls `UpdateRecordingsForTerminalEvent`, which only
+touches PENDING-tree recordings - "Committed recordings are never modified by terminal events"
+(`ParsekScenario.cs:7884`) - and the outside-flight recovery path only writes a
+`FundsEarning(Recovery)` row (`LedgerOrchestrator.OnVesselRecoveryFunds`, `LedgerOrchestrator.cs:5269`)
+plus `KerbalExperience` rows (`recovery-kerbal-xp`, `LedgerOrchestrator.cs:4990`), neither of which
+the kerbals walk reads as an end. So recovering the spawned real vessel from the Tracking Station
+returns the kerbal to Available in stock while Parsek keeps him reserved: filtered from the crew
+dialog, mapped to a stand-in in `crewReplacements`, `Reserved: aboard <vessel>` in the Kerbals
+window. Flying the spawned vessel home through a switch continuation does not help either: the
+continuation's Recovered row merges with the parent's `+inf` row by max.
+`KerbalReservationReleaseTests.AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold`
+pins the merge half.
+
+**Fix direction (not taken).** A rescue / recovery of the vessel a committed Aboard flight ended
+on is the design's "rescue recording provides endUT". Candidates: let a later Recovered row for
+the same kerbal and the same physical vessel (launch guid, `VesselLaunchIdentity`) close an
+earlier Aboard row instead of merging by max; or write a ledger row at a real-vessel recovery of
+a Parsek-spawned vessel (`SpawnedVesselPersistentId`, guid-gated) that bounds its crew's hold.
+Either changes reservation semantics across rewinds (a rewind to before the recovery must hold
+the kerbal again), so it needs its own design pass and live proof.
+
 ## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
 
 **What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
@@ -863,7 +927,8 @@ the two things its row model could not answer off existing data.
    was removed by the Kerbals review round (it was mostly dashes, could read a future date
    after a rewind, and dated a mission by its end while the Flights tab dated it by its
    start). The loss date moved into the Lost status hover; a reservation names its flight
-   instead of a date (see KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME above).
+   instead of a date (see KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME above; since that fix a
+   finite Recovered hold reads its release date again, in the Status cell).
 
 2. **The "as &lt;stand-in&gt;" fallback is time-blind.** The primary source is per-flight
    truth - the recording's own raw crew, through the new

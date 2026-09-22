@@ -813,6 +813,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal whose committed flight ended with his recovery is free again once game time
+  passes that recovery.** A Recovered flight's crew reservation was meant to last from the
+  start of time until the recovery (design 9.3), but nothing ever compared it with the
+  clock, so the kerbal stayed hidden from the crew dialog forever and a stand-in was
+  generated for him even when the flight was committed after he was already home. Every
+  reservation check now asks whether the hold is in force at the current game time; the
+  kerbal is free from the recovery instant on. When he returns, an unused stand-in is
+  deleted and one who flew a committed flight is retired, as the design describes, and the
+  returning kerbal is not swapped out of a craft he boards. Rewinding to before the
+  recovery reserves him again, brings back the same stand-in name, and reactivates a
+  retired stand-in. Loads judge the hold against the loaded save's own time. Time passing
+  in the Space Center or the Tracking Station, and the crew dialog opening, trigger one
+  recalculation when a recovery time is crossed. The Kerbals window again shows
+  `Reserved until <date>` for such a hold, and its hover says when he is free. Kerbals
+  whose flight ends with them still aboard a vessel stay reserved with no end date, as
+  before.
 - **A re-fly that saves crew who boarded before the rewind point now brings them back.**
   When a flight's crew boarded at launch, the rewind point came later in the same flight,
   and the original flight then killed them, merging a re-fly kept them Dead. The death
