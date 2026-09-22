@@ -602,10 +602,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal(45000.5, loaded.PreLaunchFunds);
             Assert.Equal(123.456, loaded.PreLaunchScience, 3);
@@ -615,11 +615,12 @@ namespace Parsek.Tests
         [Fact]
         public void PreLaunchFields_MissingKeysDefaultToZero()
         {
-            var node = new ConfigNode("RECORDING");
-            // No preLaunch keys at all
+            var node = RecordingCodecTestNodes.BareCurrentContract("prelaunch-missing");
+            Assert.Null(node.GetValue("preLaunchFunds"));
+            Assert.Null(node.GetValue("preLaunchScience"));
+            Assert.Null(node.GetValue("preLaunchRep"));
 
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            var loaded = RecordingCodecTestNodes.LoadPastSchemaGate(node);
 
             Assert.Equal(0, loaded.PreLaunchFunds);
             Assert.Equal(0, loaded.PreLaunchScience);

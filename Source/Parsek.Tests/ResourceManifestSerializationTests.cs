@@ -310,18 +310,18 @@ namespace Parsek.Tests
         #region DockTargetVesselPid Round-Trip
 
         [Fact]
-        public void DockTargetVesselPid_RoundTrip_ViaScenario()
+        public void DockTargetVesselPid_RoundTrip_ViaRecordCodec()
         {
             var rec = new Recording();
             rec.RecordingId = "test-dock";
             rec.DockTargetVesselPid = 12345;
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, rec);
+            RecordingTree.SaveRecordingInto(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-dock";
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal(12345u, loaded.DockTargetVesselPid);
         }
@@ -329,12 +329,10 @@ namespace Parsek.Tests
         [Fact]
         public void DockTargetVesselPid_LegacyRecording_DefaultsZero()
         {
-            var node = new ConfigNode("RECORDING");
-            // No dockTargetPid value — simulates legacy recording
+            var node = RecordingCodecTestNodes.BareCurrentContract("test-legacy-dock");
+            Assert.Null(node.GetValue("dockTargetPid"));
 
-            var loaded = new Recording();
-            loaded.RecordingId = "test-legacy-dock";
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            var loaded = RecordingCodecTestNodes.LoadPastSchemaGate(node);
 
             Assert.Equal(0u, loaded.DockTargetVesselPid);
         }
@@ -347,7 +345,7 @@ namespace Parsek.Tests
             rec.DockTargetVesselPid = 0;
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, rec);
+            RecordingTree.SaveRecordingInto(node, rec);
 
             Assert.Null(node.GetValue("dockTargetPid"));
         }

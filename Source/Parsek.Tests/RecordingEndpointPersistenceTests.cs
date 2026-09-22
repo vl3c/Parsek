@@ -40,7 +40,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SaveLoadRecordingMetadata_EndpointDecisionRoundTrips()
+        public void RecordCodecSaveLoad_EndpointDecisionRoundTrips()
         {
             var source = new Recording
             {
@@ -50,10 +50,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal(RecordingEndpointPhase.OrbitSegment, loaded.EndpointPhase);
             Assert.Equal("Mun", loaded.EndpointBodyName);

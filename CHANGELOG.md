@@ -10,6 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Tests: recording-metadata round-trips now run through the codec that saved games use.**
+  40 cells in ten test classes saved and loaded recordings through
+  `ParsekScenario.SaveRecordingMetadata` / `LoadRecordingMetadataForTests`, a test-only
+  copy with no production caller. 28 now use `RecordingTree.SaveRecordingInto` /
+  `LoadRecordingFrom`, the pair `RecordingTree.Save` / `Load` call. The other 12 are deleted
+  because they duplicated an existing record-codec cell. The copy and its twelve helpers
+  are deleted too. Missing-key cells, including three existing tree-codec cells, now load a
+  node from the production writer. The loader's schema gate had rejected their hand-built
+  nodes before reading any key, so their default-value checks passed without testing
+  anything. The two format-version-0 checks now pin the current stamp and the gate's
+  rejection. Checked by mutation: dropping `dockTargetPid`, `hidden` or
+  `preLaunchFunds` from the production writer fails the retargeted cells, while the old
+  cells still pass. The retarget found one gap in the production codec, filed as
+  LOOP-TIME-UNIT-NOT-PERSISTED; its two round-trip cells are skipped under that id. No
+  production behavior changed.
 - **Tests: two Low T1 cells from the unit-test quality audit now observe production decisions.**
   Baseline keys compare separate findings with numeric drift and distinguish different rules,
   rather than comparing a function call with itself. Rewind cleanup tests null and empty RP
