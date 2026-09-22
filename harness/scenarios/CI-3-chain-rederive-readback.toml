@@ -29,19 +29,50 @@ tier = "operator"
 #       no writer emits such a node today, so it reds only the day chain state starts
 #       being persisted, which is the day this readback would stop proving re-derivation.
 #
-# THE REWIND TARGET. rp2 (list order = append order) is `rp_1df613c7...` at UT 8950.59,
-# the Undock split of the committed docking tree 8c677bba...; its ONE open slot is 1
-# (`4af6cfd7...`, pid 1223410921, CommittedProvisional); slot 0 is the chain tip
-# `37d0dc07...` (Kerbal X, pid 3620499050, Immutable). The Kerbal X chain's spawnUT is
-# 8951.5 (CI-2's reading), still in the future at 8950.59, so the chain is kept.
-# FIRST-FLIGHT UNKNOWN, NAMED: pid 3620499050 is rp2's slot-0 sibling, so
-# `PostLoadStripper` may strip it before the walker can ghost it (`Strip stripped=[...]`),
-# in which case the run reads `0 vessel(s) ghosted` and the ghost-conversion token reds.
-# The FALLBACK is rp1 (`rp_f4edbb97...`, UT 693.29, the Interceptor's separation, open
-# slot 1 = Kerbal X Probe): there the Station (3620499050) is a real orbiting vessel from
-# the OTHER, already-committed tree, no sibling of the split, so the strip leaves it and
-# the walker's chain should ghost it. Reading run 1 flies rp2; if it reads M=0, reading
-# run 2 flies rp1 and this header records which one the claim stands on.
+# THE REWIND TARGET IS rp1, AND READING RUN 1 IS WHY. rp1 (list order = append order) is
+# `rp_f4edbb97...` at UT 693.29, the Interceptor's separation in the docking tree
+# 8c677bba...; its open slot is 1 (`500c0ba9...`, Kerbal X Probe, pid 2307686926,
+# CommittedProvisional). The Station (Kerbal X, pid 3620499050, the docking partner the
+# walker claims `via MERGE`) belongs to the OTHER, already-committed tree and is not in
+# rp1's PidSlotMap, so the strip leaves it and the walker's chain should GHOST it - the
+# catalog's own definition of the cell (the committed interaction's partner despawned and
+# ghosted after the rewind). Both kept chains spawn at UT 8951.55, ~8,250 s after rp1.
+# READING RUN 1 (`2026-09-22_1951`, PASS attempt 1, 63 s) flew rp2 (`rp_1df613c7...`,
+# UT 8950.59, the Undock split) instead, and read the mechanism clean - `Strip stripped=[]
+# selected=1223410921`, `Ghosting vessel: pid=2307686926 name=Kerbal X Probe`, `Ghost
+# chains evaluated: 14 chain(s), 1 vessel(s) ghosted`, capture 1 `count=2 digest=926f4295`,
+# capture 2 after the F9 reload `digest=926f4295 expected=926f4295 match=true`,
+# `ghostChainNodes=0` - but its captures measured the race that disqualifies rp2: capture 2
+# was taken at UT 8951.528 against both chains' spawnUT 8951.548, a 0.02 s margin (the
+# quicksave's UT is later than the rewind by the real time the steps take, and the chains
+# drop out of the kept set once the clock passes spawnUT; the Kerbal X tip spawned 0.04 s
+# after capture 2). The ghosted vessel there was the Probe (a BACKGROUND_EVENT claim), not
+# the MERGE-claimed partner, which was not in rp2's scene at all.
+# READING RUN 2 (`2026-09-22_1954`, rp1, PASS attempt 1, 59 s) read exactly the predicted
+# shape: `Strip stripped=[] selected=2307686926`, `Skipped 1 claim(s) from
+# session-suppressed recording(s)` (the Probe's own BACKGROUND_EVENT claim, from the slot
+# being re-flown - which is why the ACTIVE vessel is not ghosted), `Ghosting vessel:
+# pid=3620499050 name=Kerbal X` -> `Vessel ghosted: pid=3620499050 name=Kerbal X` ->
+# `Ghost chains evaluated: 13 chain(s), 1 vessel(s) ghosted`, capture 1 at UT 693.65
+# `count=1 ... digest=6ad6ec1c` (chain0 = 3620499050, tip 37d0dc07..., spawnUT
+# 8951.547978548946), then after the F9 reload `Chain vessel pid=3620499050 not loaded in
+# scene` (the ghosted Station is ABSENT from the quicksave), `Ghost chains evaluated: 13
+# chain(s), 0 vessel(s) ghosted`, and capture 2 at UT 694.09 `digest=6ad6ec1c
+# expected=6ad6ec1c match=true`. That pair is the strongest form of the claim: the chain
+# came back identical although the vessel it claims is no longer in the save, so it can only
+# have been re-derived from the committed trees. Recordings 22 (the fixture's 21 plus the
+# merged provisional, CI-2's count), `ghostChainNodes=0`, and the structure facets equal
+# reading run 1's. The literals below are pinned off it; the digest is fixture-derived
+# (pid, link count, tip id and spawn UT are all committed bytes).
+# READING RUN 3 (`2026-09-22_1956`, the pinned rp1 shape, report-only structure) PASS attempt
+# 1 with every facet equal. ARMED RE-FLIGHT `2026-09-22_1957` PASS attempt 1, saveParse
+# gating PASS; `_1959` flew the armed spec again (the negative control's seeding step aborted
+# on an ambiguous anchor before the launch) and PASSED again. NEGATIVE CONTROL
+# `2026-09-22_2000`, three seeds applied in place and reverted - `Vessel ghosted:
+# pid=3620499051`, the capture-2 literal `digest=6ad6ec1d expected=6ad6ec1d`, and
+# `ghostChainNodes = { min = 1 }` - PARSEK-FAIL(expectation) on exactly the two seeded log
+# tokens plus saveParse's `recordings.structure.ghostChainNodes 0 < min 1`, analyzer green.
+# LIVE-PROVEN. PR-B DLL, deployed sha256 `096ff6c8...`.
 # SECOND UNKNOWN: whether the F9 reload (`LoadGame ... allowLiveRecorder=refly`, S4.4's
 # shape) takes an `OnFlightReady` path that runs the evaluation. `evaluated=false` on the
 # second capture would be the finding that it does not.
@@ -53,7 +84,7 @@ tier = "operator"
 # tell "gone" from "never ran") is why every absence here is paired with a required
 # presence: the readback requires `count=[1-9]` and `evaluated=true` on BOTH captures.
 # =====================================================================================
-description = "D18 spawn-in-run wave, PR-B (NEVER FLOWN, reading-run discipline): bdock-recorded rewound to rp=${handles.rp2} (the Undock split, UT 8950.59; fallback rp1) so the walker claims the docking partner and the flight scene GHOSTS the real claimed vessel (ghost-conversion-quicksave), then ListHandles kind=chains before a SaveGame + LoadGame(allowLiveRecorder=refly) and again after with expectDigest=${before.digest}, so the seam proves the chain set was RE-DERIVED identically by a new flight scene (chain-state-rederived), with the save-side ghostChainNodes tripwire at zero."
+description = "D18 spawn-in-run wave, PR-B (LIVE-PROVEN 2026-09-22: readings rp2 `_1951`, rp1 `_1954` / `_1956`, armed `_1957` PASS, negative control `_2000` red on exactly its three seeds): bdock-recorded rewound to rp=${handles.rp1} (the Interceptor separation, UT 693.29; reading run 1 on rp2 measured a 0.02 s spawnUT race) so the walker claims the docking partner and the flight scene GHOSTS the real claimed vessel (ghost-conversion-quicksave), then ListHandles kind=chains before a SaveGame + LoadGame(allowLiveRecorder=refly) and again after with expectDigest=${before.digest}, so the seam proves the chain set was RE-DERIVED identically by a new flight scene (chain-state-rederived), with the save-side ghostChainNodes tripwire at zero."
 instanceProfile = "stock-minimal"
 tags = ["CI-3", "chain-interaction", "ghost-chain", "ghost-conversion", "rederive",
         "readback", "rewind", "refly", "quicksave", "R10", "runtime-handles", "kerbin",
@@ -75,7 +106,7 @@ steps = [
   # InvokeRewind's dispatch guard refuses `recording-active` over it.
   { cmd = "StopRecording",                                                     expect = "OK" },
   { cmd = "ListHandles", args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
-  { cmd = "InvokeRewind", args = { rp = "${handles.rp2}", slot = "1" },        expect = "OK", budget = 300 },
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp1}", slot = "1" },        expect = "OK", budget = 300 },
   # CAPTURE 1: the chain set the rewound scene derived. Deferred by the seam until
   # OnFlightReady ran (`ghost-chains-pending`).
   { cmd = "ListHandles", args = { kind = "chains" }, label = "before",         expect = "OK" },
@@ -91,40 +122,67 @@ steps = [
 ]
 
 [dimensionsCovered]
-# NOT CLAIMED UNTIL FLOWN. The two D18 values this lane exists for,
-# `ghost-conversion-quicksave` and `chain-state-rederived`, are claimed only after the
-# reading runs match and the armed re-flight plus its negative control are green.
+# CLAIM-IS-NOT-GATE: both D18 values ride REQUIRED tokens every reading observed, CLAIMED
+# 2026-09-22 and discharged the same day (armed `_1957`, negative control `_2000`):
+#   `ghost-conversion-quicksave` <- `Ghosting vessel: pid=3620499050 name=Kerbal X` ->
+#       `Vessel ghosted: pid=3620499050 name=Kerbal X` -> `Ghost chains evaluated: 13
+#       chain(s), 1 vessel(s) ghosted`, on the scene the RewindPoint quicksave loaded, with
+#       the re-flown slot's own claim skipped (`Skipped 1 claim(s) from session-suppressed
+#       recording(s)`) and the active vessel's ghosting forbidden.
+#   `chain-state-rederived` <- capture 1 `digest=6ad6ec1c`, then after the SaveGame +
+#       LoadGame `Chain vessel pid=3620499050 not loaded in scene` and capture 2
+#       `digest=6ad6ec1c expected=6ad6ec1c match=true` (plus the back-referenced form),
+#       with the armed `ghostChainNodes = { max = 0 }` on the produced save.
+# D9 `rewind-to-separation` stays RH-1's on this fixture; this lane's subject is what the
+# rewind and the reload do to the chain set, not the rewind.
 D14 = ["kerbin", "sandbox", "scene-flight"]
+D18 = ["ghost-conversion-quicksave", "chain-state-rederived"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The fixture ships 21; a merged re-fly keeps its provisional (CI-2's measured 22 on the
-# same fixture). Bracketed rather than pinned until the reading run measures it.
-count = { min = 21, max = 23 }
+# MEASURED 22 on both readings: the fixture's 21 plus the re-fly provisional the merge
+# keeps (CI-2's measured 22 on the same fixture).
+count = { min = 22, max = 22 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY until the reading runs (no `gating`). `ghostChainNodes` is the save-side
-# half of chain-state-rederived: zero on every save the writer produces today.
+# ARMED 2026-09-22 off three readings whose facets matched window for window (rp2 `_1951`,
+# rp1 `_1954`, rp1 pinned `_1956`). `ghostChainNodes` is the save-side half of
+# chain-state-rederived: zero on every save the writer produces today. trees admits 3 for
+# the duplicate-tree writer hazard (observed 2), CI-2's bracket.
+gating          = true
+trees           = { min = 2, max = 3 }
+committedTrees  = { min = 2, max = 2 }
+recordings      = { min = 22, max = 22 }
+branchPoints    = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 }, JointBreak = { min = 10, max = 10 } }
+terminalStates  = { Docked = { min = 1, max = 1 }, Orbiting = { min = 6, max = 6 }, Destroyed = { min = 12, max = 12 }, SubOrbital = { min = 1, max = 1 } }
 ghostChainNodes = { max = 0 }
 
 [expectations.logContracts]
 required  = [
   "listhandles kind=rewindpoints count=3 truncated=false",
-  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_1df613c7a9b74aad8c60b483ba221dde slot=1",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_f4edbb9721bc43649a6c1727dca67b1e slot=1",
   "Invocation complete",
-  # ghost-conversion-quicksave: the real claimed vessel converted in the loaded scene.
-  "\\[Ghoster\\] Ghosting vessel: pid=[0-9]+ name=",
-  "\\[Ghoster\\] Vessel ghosted: pid=[0-9]+ name=",
-  "\\[Ghoster\\] Ghost chains evaluated: [1-9][0-9]* chain\\(s\\), [1-9][0-9]* vessel\\(s\\) ghosted",
+  # ghost-conversion-quicksave: the MERGE-claimed docking partner, a real vessel in the
+  # RewindPoint quicksave, converted to a ghost by the loaded scene. The re-flown slot's
+  # own claim is skipped as session-suppressed, which is what keeps the ACTIVE vessel real.
+  "\\[ChainWalker\\] Skipped 1 claim\\(s\\) from session-suppressed recording\\(s\\)",
+  "\\[Ghoster\\] Ghosting vessel: pid=3620499050 name=Kerbal X ",
+  "\\[Ghoster\\] Vessel ghosted: pid=3620499050 name=Kerbal X",
+  "\\[Ghoster\\] Ghost chains evaluated: 13 chain\\(s\\), 1 vessel\\(s\\) ghosted",
   # chain-state-rederived: capture 1 (no comparison) and capture 2 (compared). The
   # back-reference makes the harness check the equality itself; `(?m)` lets `$` end a
   # LINE (the contract is searched over the whole log), so capture 1 is the uncompared one.
-  "(?m)listhandles kind=chains count=[1-9][0-9]* truncated=false evaluated=true digest=[0-9a-f]{8}$",
+  "(?m)listhandles kind=chains count=1 truncated=false evaluated=true digest=6ad6ec1c$",
   "savegame name=quicksave .*saved=true",
   "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
-  "listhandles kind=chains count=[1-9][0-9]* truncated=false evaluated=true digest=([0-9a-f]{8}) expected=\\1 match=true",
+  # After the reload: the ghosted vessel is absent from the quicksave, and the chain is
+  # back anyway - re-derived, since nothing else could have supplied it.
+  "\\[Ghoster\\] Chain vessel pid=3620499050 not loaded in scene",
+  "\\[Ghoster\\] Ghost chains evaluated: 13 chain\\(s\\), 0 vessel\\(s\\) ghosted",
+  "listhandles kind=chains count=1 truncated=false evaluated=true digest=([0-9a-f]{8}) expected=\\1 match=true",
+  "listhandles kind=chains count=1 truncated=false evaluated=true digest=6ad6ec1c expected=6ad6ec1c match=true",
   "answermergedialog choice=merge result=committed",
 ]
 forbidden = [
@@ -133,6 +191,8 @@ forbidden = [
   "listhandles kind=chains .* match=false",
   "listhandles kind=chains .* evaluated=false",
   "Failed to ghost vessel pid=",
+  # The re-flown vessel must never be the one ghosted.
+  "Ghosting vessel: pid=2307686926 ",
   "End reason=treeDiscarded",
 ]
 

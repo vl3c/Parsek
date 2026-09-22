@@ -10303,6 +10303,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2, recordings 22 incl. the re-fly provisional the merge keeps,
                        # branchPoints Dock 1 / Undock 1 / JointBreak 10, terminals as measured).
                        "CI-2-refly-claim-tip-pid.toml",
+                       # CI-3: `structure` armed 2026-09-22 off three readings
+                       # (`2026-09-22_1951` rp2, `_1954` / `_1956` rp1) with identical
+                       # facets, including the ghostChainNodes tripwire at 0.
+                       "CI-3-chain-rederive-readback.toml",
                        # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
                        # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and
                        # the merged-main confirmation - plus its own negative control

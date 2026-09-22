@@ -19,8 +19,11 @@ _(unreleased — entries accumulate here per commit)_
   equal the ones it had before. The family waits for `OnFlightReady` before answering,
   because a load completes before the chains are derived. The save-parse verifier gains a
   `ghostChainNodes` structure window, a tripwire that reads 0 on every save today because
-  chain state is never persisted. The new lane `CI-3-chain-rederive-readback` uses both;
-  it is committed ahead of its reading runs and claims nothing yet. No game behavior
+  chain state is never persisted. The new lane `CI-3-chain-rederive-readback` uses both:
+  after a rewind, the flight scene turns the docking partner into a ghost, and the
+  chain set reads back identical after a quicksave round trip in which that vessel is
+  no longer in the save. That proves the chains are re-derived, and it claims the D18
+  cells `ghost-conversion-quicksave` and `chain-state-rederived`. No game behavior
   changed outside the automation seam.
 
 - **Tests: two Low T1 cells from the unit-test quality audit now observe production decisions.**
