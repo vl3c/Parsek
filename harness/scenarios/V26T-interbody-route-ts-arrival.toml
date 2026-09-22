@@ -270,7 +270,7 @@ D14 = ["kerbin", "duna", "scene-ts", "sandbox"]
 # chains print both on every run.
 #   `intermediate-spawn-suppression` <- `Intermediate spawn suppressed:
 #       rec=58130506e8f84025b78a95d2497534ab vessel=Kerbal X` (GhostPlaybackLogic
-#       `ShouldSuppressSpawnForChain`, Verbose rate-limited, so ONE line per run): the
+#       `ShouldSuppressSpawnForChain`, Verbose rate-limited, so at least one line per process): the
 #       recording is an intermediate link of the MERGE-claimed Kerbal X chain (pid
 #       4277041026, tip 7e0d79b5...), and the spawn decision refuses it during the
 #       tracking-station load.
