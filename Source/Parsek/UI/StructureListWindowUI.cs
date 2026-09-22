@@ -18,7 +18,9 @@ namespace Parsek
     /// </summary>
     internal class StructureListWindowUI
     {
-        private enum TargetMode { None, Mission, Route }
+        /// <summary>Internal rather than private because the gallery snapshot below
+        /// carries one, and an internal struct cannot have a private-typed field.</summary>
+        internal enum TargetMode { None, Mission, Route }
 
         private readonly ParsekUI parentUI;
 
@@ -124,6 +126,67 @@ namespace Parsek
             isOpen = true;
             ParsekLog.Info("UI",
                 $"Structure window opened: mode=Route route={routeId ?? "<null>"} steps={steps.Count}");
+        }
+
+        // ------------------------- the GUI state gallery seam -------------------------
+        //
+        // This window has NO invalidation key at all - `steps` is rebuilt only by
+        // OpenForMission / OpenForRoute - so a mocked step list survives indefinitely and
+        // needs no cache suppression. What it does need is a way IN that does not resolve
+        // a target out of the store, which is what these three give the automation-only
+        // `UiAction op=mock` applier. They are unreachable in a player build: nothing
+        // calls them but that applier, which is inert unless PARSEK_TEST_COMMANDS=1.
+
+        /// <summary>Everything the target state consists of, so a mock's restore is a
+        /// complete inverse rather than a guess.</summary>
+        internal struct GalleryTargetSnapshot
+        {
+            internal TargetMode Mode;
+            internal string TargetId;
+            internal string Title;
+            internal List<StructureStep> Steps;
+            internal bool IsOpen;
+        }
+
+        /// <summary>Captures the current target BEFORE a mock overwrites it.</summary>
+        internal GalleryTargetSnapshot CaptureGalleryTarget()
+            => new GalleryTargetSnapshot
+            {
+                Mode = mode,
+                TargetId = targetId,
+                Title = title,
+                Steps = steps,
+                IsOpen = isOpen,
+            };
+
+        /// <summary>Puts a captured target back.</summary>
+        internal void RestoreGalleryTarget(GalleryTargetSnapshot snapshot)
+        {
+            mode = snapshot.Mode;
+            targetId = snapshot.TargetId;
+            title = snapshot.Title ?? "Structure";
+            steps = snapshot.Steps ?? new List<StructureStep>();
+            isOpen = snapshot.IsOpen;
+        }
+
+        /// <summary>
+        /// Opens the window on a supplied step list, bypassing <see cref="Rebuild"/>.
+        ///
+        /// <para>It sets <c>targetId</c> to null on purpose: there is no real target, and
+        /// a fabricated id would be a token some later reader could try to resolve. Every
+        /// other field the draw method reads - the mode (which picks the empty-list
+        /// wording), the title and the steps - is supplied.</para>
+        /// </summary>
+        internal void OpenWithGallerySteps(bool routeMode, string displayTitle,
+                                           List<StructureStep> mockedSteps)
+        {
+            mode = routeMode ? TargetMode.Route : TargetMode.Mission;
+            targetId = null;
+            title = string.IsNullOrEmpty(displayTitle)
+                ? (routeMode ? "Route structure" : "Mission structure")
+                : displayTitle;
+            steps = mockedSteps ?? new List<StructureStep>();
+            isOpen = true;
         }
 
         // Resolves the target's data and (re)builds the step list. Kept off the per-frame

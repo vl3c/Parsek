@@ -1688,9 +1688,11 @@ and a harness cell reads that set out of the source to keep the two from driftin
 #### UiAction (additive; drive the Parsek windows for a capture)
 
 `UiAction
-op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback|raise|dismiss|run>
+op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog|playback|raise|dismiss|run|state|sort|select|edit|mock>
 [window=] [tab=] [mode=] [x= y= w= h=] [park=] [focus=] [nudge=] [text=] [ctrl=] [index=]
-[key=] [state=] [mission=] [route=] [group=] [recording=] [popup=] [press=] [category=]`.
+[key=] [state=] [value=] [column=] [dir=] [include=] [field=] [draft=] [commit=]
+[mission=] [route=] [group=] [recording=] [popup=] [press=] [category=] [await=]
+[mockState=] [describe=]`.
 Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
 the `ListHandles` one: the Parsek UI is hosted in SPACECENTER as well as FLIGHT, so a KSC
 census under a flight row would defer to its budget and TIMEOUT. A scene that hosts no
@@ -2900,6 +2902,131 @@ about opening windows: `op=complexity` PERSISTS `uiComplexityMode` through
 the Missions tab clamp, which is `SetSetting`'s own row. The other ops are weaker (a
 window open flag is transient), but the table is per-VERB and its fail-safe direction is
 world-mutating, so the honest label costs nothing - the unmet tail skips `inert` too.
+
+**`op=mock` - the GUI state gallery primitive (P1, 2026-09-22).** It hands ONE window a
+synthetic VIEW MODEL from a catalogue compiled into `Parsek.dll` while the real IMGUI draw
+code computes every rect and every string, so a census can photograph states no save
+reaches. Full design: `docs/dev/design-gui-state-gallery.md`. Three forms:
+
+```
+UiAction op=mock window=<token> mockState=<catalogue id>   - apply (two-phase)
+UiAction op=mock window=<token> mockState=none             - clear (the paired op)
+UiAction op=mock describe=true                             - report the catalogue
+```
+
+PAIRED, in the `raise` / `dismiss` shape, because this seam has no saved-previous-value
+machinery and no automatic restore anywhere: the house pattern is an explicit pair plus an
+unconditional clear on every exit path (`ReleaseRaisedDialogInputLock`). Scene change, level
+loaded and `FlushAndQuit` all clear; an exception in apply, settle or capture clears; and a
+process that dies mid-mock leaves nothing, because every injected member is a UI-layer field
+no save path reads (the grep gate `scripts/grep-audit-gui-mock-writeset.ps1` keeps that
+true). `SaveGame` additionally answers `REJECTED save-refused-gui-mock` while a scope is
+live - lane hygiene, not the data guard.
+
+**SPELLED `mockState=` AND NOT `state=`**, which the design sketched. `state=` is ONE arg key
+with ONE closed vocabulary across `expand` / `playback` / `op=state` (`true` / `false`,
+mirrored by `hlib.UIACTION_STATE_VALUES` and enforced pre-launch by
+`VERB_SCOPED_CLOSED_ARGS`), so a catalogue id in it is a validation error before any boot.
+The same rule made `op=find`'s control filter `ctrl=` rather than `kind=`: one key, one
+vocabulary, and an open-valued selector gets its own key.
+
+**ABSENT FROM `OpNeedsWindow`, and that is the fifth deliberate absence there** - for a
+different reason from `pointer` / `dialog` / `raise` / `dismiss`, which name no window at
+all. `op=mock` needs one for apply AND CLEAR and must NOT need one for `describe=true`,
+which reports the whole catalogue, so the requirement is per-INTENT and lives in the applier
+(mirrored by the harness's own `op=mock` branch, which reads the same rule). The CLEAR reads
+it too: a clear naming a window other than the live scope's is
+`mock-state-window-mismatch` rather than a teardown of whatever happened to be live.
+
+**THE READ-BACK IS DRAW-PRODUCED, and that is the load-bearing part.** Reading back the
+field the applier just wrote is the vacuous read-back `op=rect` was first written with and
+had to be fixed for: it compares a value with itself and cannot fire on any input. Only the
+DRAW witnesses a data swap. So the settle arms
+`GuiTreeRecorder.ArmForNextRepaint(label, writeToDisk: false)` - the `op=find` mechanism -
+and asserts that every WITNESS string appears in the tree that frame produced. The witnesses
+are DERIVED from the payload through the same pure per-column formatters the draw method
+calls (`KerbalsPresentation` row text, `CareerStateWindowUI.FormatFacilityRow_Level`,
+`MissionCompositionBuilder.TerminalName`), never typed - so a witness is a string that can
+only be in the tree because the window drew THIS model. The match is a CONTAINS (a fold
+header draws as `<arrow> ` plus its text), an EMPTY witness list answers not-applied, and
+the catalogue unit suite refuses a state that produces none.
+
+**IT IS THREE-PHASE, which is one more than any other op in this family.** Phase 1 applies
+the window's CHROME (open flag, rect, tab) and captures it WITHOUT the mock; phase 2
+installs the data and captures again; the read-back then requires every witness to be
+PRESENT in the second capture and ABSENT from the first. The pre-apply baseline is what
+turns "this string was on screen" into "only the mock put it there" - a witness the real
+window already draws witnesses nothing, and it is the one check that catches that. The tree
+walk is additionally scoped to the TARGET WINDOW's own subtree (matched by the same
+`windowId` `op=find` uses), because a whole-tree walk would accept a witness some other
+window drew.
+
+Because the capture IS the read-back, `mock` owns its own poll exactly as `find` does (the
+recorder flushes from `LateUpdate`, one frame after the shared settle would have declared
+victory over a null tree) and is deliberately NOT in `SettleChecksHostShowUi`: an undrawn
+window is simply absent from the tree, which the witness check already answers.
+
+OK payloads, `k=v` and InvariantCulture throughout:
+
+```
+uiaction mock window=kerbals mockState=kerbals.roster.lost applied=true
+         covers=2 witness=3 label=mock-kerbals-roster-lost-advanced
+         mode=advanced frame=184122
+uiaction mock mockState=none cleared=true window=kerbals state=kerbals.roster.lost
+uiaction mock describe=true catalogue=gui-mock/1 states=46
+         windows=kerbals,career,structure supported=kerbals,career,structure
+         live=- s0=... s1=...
+```
+
+`label=` is on the wire because a step-driven lane and the P2 batch verb both need the SAME
+derivation (`TestCommandUiMock.DeriveLabel`), and a spec that typed its own label would drift
+from the mirror's parse. `witness=` is how many draw-produced strings the settle asserted, so
+a reader of a passing run can see the read-back had something to check. A CLEAR with nothing
+live is an OK with `cleared=false`, not a refusal - the `already=` rule: a lane's teardown
+step must stay safe after a state that never applied.
+
+Refusals, each an `internal const string ...Reason` on `TestCommandUiMock` with a doc comment
+classifying it, and mirrored by `hlib.UIACTION_MOCK_REFUSALS`:
+
+| reason | class | when |
+| --- | --- | --- |
+| `mock-arg-missing` | PRE-CALL | neither `mockState=` nor `describe=true` (or both) |
+| `mock-state-unknown` | PRE-CALL | `mockState=` names no catalogue id |
+| `mock-window-unsupported` | PRE-CALL | the window has no injection seam in THIS build |
+| `mock-state-window-mismatch` | PRE-CALL | the id's window is not the `window=` arg |
+| `mock-refused-scene` | PRE-CALL | the state declares a scene the game is not in |
+| `mock-refused-recording` | PRE-CALL | a Gloops recording is live (the `complexity` refusal) |
+| `mock-refused-session-live` | PRE-CALL | a scope is already live; one at a time by design |
+| `mock-refused-mode` | PRE-CALL | the CURRENT complexity mode hides that window's launcher, so no player can have it on screen |
+| `mock-not-applied` | POST-SETTLE | the frame did not draw the mocked model, the capture failed, or a witness was ALREADY in the pre-apply baseline |
+| `mock-restore-failed` | POST-CALL | restore threw; Error, force-close, drop the session |
+| `mock-scope-broken` | POST-SETTLE | the scope is live and the window LOST its mocked model - something outside the declared suppression set wrote the injected member |
+
+`mock-scope-broken` is deliberately not folded into `mock-not-applied`: not-applied means
+the frame never drew the model, while this means it was there and went AWAY, which sends an
+author to a MISSING SUPPRESSION SITE rather than to the state or the lane. The case is real
+rather than defensive - Career State's cached view model has two writers, and suppressing
+only the rebuild predicate left the other one able to null a mocked VM mid-scope.
+
+**Three OTHER verbs refuse while a scope is live**, all answering
+`save-refused-gui-mock`: `SaveGame`, `LoadGame` and `RunTests`. Uniform on purpose - a test
+batch quicksaves and reverts `persistent.sfs`, a load destroys the window instances the
+scope injected into, and a lane that runs either with a mock live is asking for a picture it
+will not get. It is lane hygiene either way: nothing injected is read by a save path.
+
+**Tail role, unchanged:** `UiAction` is already `world-mutating` because `op=complexity`
+persists a setting, so `op=mock` adds nothing to that row - and it genuinely persists
+nothing, which is the whole crash-safety argument.
+
+**Supported windows in P1:** `kerbals`, `career`, `structure` (43 states). Any other window
+answers `mock-window-unsupported` NAMING the supported set, because a phase adds windows and
+the refusal has to say what this build carries rather than what the design plans.
+
+**NEVER FLOWN.** P1 ships no lane, so the op is unflown by construction and the five in-game
+`GuiMock` cells are driven by no committed spec. An hlib gate additionally REFUSES any
+committed spec that drives `op=mock` until `gui_mirror.py` reads the dump's `mock` block -
+without that, a mocked capture files under a real fixture's name and can pair against a real
+capture in Compare.
 
 **First consumers.** `GUI-1-census-ksc` (nine KSC windows, 22 captures across Advanced and
 Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form of the main

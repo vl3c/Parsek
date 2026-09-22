@@ -1,4 +1,4 @@
-# In-game test category inventory (all 113 categories)
+# In-game test category inventory (all 114 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -118,6 +118,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
+| `GuiMock` | 5 | 0 | 5 | 0 | 0 | 5 | NOT DRIVEN (P1 of the GUI state gallery, 2026-09-22). Five SPACECENTER cells proving the one thing no headless cell can reach: that a mocked view model, installed into a real window, is actually DRAWN, that the cache suppression holds across a live `onVesselChange` and a live ledger-invalidate dispatch, that a `SaveGame` attempt is refused while a scope is live, and that every declared suppression site is inert with no scope. Its OWN category for the standing reason - a cell added to an existing category moves a `BATCH_COMPLETE` tally committed specs pin - and it RE-OPENS the driven axis at 113 of 114, deliberately: P1 ships no lane (the gallery lanes and the `GalleryRun` batch verb are P2), so there is nothing to claim the row with yet and claiming it from an unrelated census lane would be a tally nobody measured. NEVER FLOWN - every pin in the file is a prediction, and each failure message prints what it measured so the first flight corrects a pin rather than guessing at one. The self-skip column is 5: every cell degrades to `InGameAssert.Skip` naming the missing context (no live `ParsekUI`, a window hidden by the current complexity mode, a state absent from the catalogue) rather than failing on a host it cannot use. Bucket **C** until P2's lane drives it | C |
 | `GuiTree` | 1 | 1 | 1 | 1 | 0 | 1 | GUI-1-census-ksc (one ordinary `RunTests category="GuiTree"` step added 2026-09-11, and LIVE-PROVEN the same day: reading run `2026-09-11_0548`, PASS attempt 1, 96 s wall, every verifier PASS or REPORT, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree scene=SPACECENTER` matched verbatim and now pinned WHOLE off that run. THREE EXECUTIONS READ THE IDENTICAL LINE - runs `2026-09-10_2255` and attempt 2 `_2256` first, inside a lane that read INVALID on one unrelated seam step, then `_0548` under a verdict - with the run-time self-skip NOT firing on any of them (`repaintPasses=5`, so its probe window saw a Repaint pass well inside the 240-frame budget). The lane is the KSC GUI census, so the batch runs at SPACECENTER, where the attributes derive total=1 = 0 scene-skipped + 0 batch-skipped + 1 executable - measured exactly. It draws its own probe window, so no host fixture is at stake and the census lane was the cheapest carrier rather than a considered host choice; the flights confirm that reading, since the probe drew on the one host that was tried. PROMOTED to bucket **A** by the reading run, on the promotion rule below - the tally is pinned WHOLE *and* the lane drives the category at its own boot; GUI-1 is an ordinary single-category lane, so it joins A1's path rather than A3's. The self-skip column stays 1: the cell can still give up if no Repaint arrives, and the skip is what it falls back to) | A |
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
@@ -207,9 +208,11 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **113 categories / 624 declarations**. Buckets **A 87 categories
-(350 declarations)**, **B 26 categories (274 declarations)**, **C 0 categories (0
-declarations)** - all three re-derived mechanically 2026-09-11 by counting the table's
+Totals, re-derived: **114 categories / 629 declarations**. Buckets **A 87 categories
+(350 declarations)**, **B 26 categories (274 declarations)**, **C 1 category (5
+declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
+gallery, which ships no lane by design (P2 owns the two gallery lanes). All re-derived
+mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
 the one row that moved is `GuiTree`, promoted by its reading run `2026-09-11_0548`.
@@ -309,12 +312,14 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **113 of 113 categories**, covering **624 of 624
-declarations** (re-derived mechanically 2026-09-11 the same way: count the table rows
-whose Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 624
-declarations in 113 categories over `Source/Parsek`, `GuiTree` among them at total=1. The
-2026-09-08 reading was 112 of 112; the GUI-tree dump spike opened a 113th row on
-2026-09-10 and `GUI-1-census-ksc` claimed it on 2026-09-11). DRIVEN IS NOT FLOWN, and the
+Driven by a committed spec: **113 of 114 categories**, covering **624 of 629
+declarations** (re-derived mechanically the same way: count the table rows whose
+Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 629 declarations in
+114 categories over `Source/Parsek`. The 2026-09-08 reading was 112 of 112; the GUI-tree
+dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on
+2026-09-11; the GUI state gallery's P1 opened a 114th on 2026-09-22 and left it
+UNCLAIMED, which is the honest state - P1 ships no lane, and claiming the row from an
+unrelated census lane would be a tally nobody measured). DRIVEN IS NOT FLOWN, and the
 `GuiTree` row spent a day as the cleanest illustration of that in the table: GUI-1 flew on
 2026-09-10 and the cell EXECUTED AND PASSED (1 of 1, zero skips, run `2026-09-10_2255`),
 yet the row stayed in **B** because the lane itself read INVALID on an unrelated seam step

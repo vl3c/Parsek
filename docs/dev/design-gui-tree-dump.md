@@ -508,6 +508,9 @@ Every repair is counted and reported, so a reader can tell a clean capture
   "funnels": [
     {"name": "GUI.DoLabel", "patched": true, "hits": 5}
   ],
+  "mock": {"stateId": "kerbals.roster.lost", "window": "kerbals",
+           "catalogue": "gui-mock/1", "states": 46,
+           "covers": ["RosterStatus.Lost", "KerbalEndState.Dead"]},
   "roots": [
     {
       "kind": "window",
@@ -532,6 +535,25 @@ Present when applicable: `tooltip`, `value` (a toggle's state), `textValue` (a t
 field's content, a slider's value, a button grid's selected label), `selectedIndex`,
 `controlId`, `windowId`, `horizontal` (a layout group's orientation), `contentOrigin`,
 `argSize`.
+
+`mock` IS THE GUI-STATE-GALLERY PROVENANCE, and it is ABSENT on every ordinary capture -
+which is the reader's rule: absent means a real-save capture. A capture taken inside a
+`UiAction op=mock` scope (`docs/dev/design-gui-state-gallery.md`) carries the catalogue
+state id that drove it, the window, the catalogue contract token, how many states the
+catalogue held at capture time, and the branch keys the state claims.
+
+It lives in the DUMP rather than in the filename because the owner must never have to
+remember which half of the mirror is real, and a filename convention is something a person
+can copy by hand. It is also load-bearing for the mirror's dataset split: the mirror derives
+a capture's dataset from the lane's `fixture.saveTemplate`, and a gallery lane HAS one (it
+needs a loaded game), so without this block a mocked capture would file under a real
+fixture's name and pair against real captures in Compare.
+
+ADDITIVE at the unchanged schema id, the same additive-is-not-a-bump reasoning the recording
+schema uses for a new enum member: no key is renamed, no layout changes, and an older reader
+ignores an unknown object. It is written from ONE guarded site (`header.Mock != null`), which
+`test_gui_tree_view.py` reads so an unconditional write - which would stamp every census dump
+as mocked - reds locally.
 
 `selectedIndex` IS THE BUTTON GRID'S SELECTED CELL, zero-based, and it is what makes a
 capture's TAB readable from the dump instead of derived from the tab body. It is additive at
