@@ -15,6 +15,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LISTHANDLES-CHAINS-DIGEST-SCOPE: the chains digest hashes each chain's links only as a COUNT, and covers only the kept (future, non-terminated) chains [FILED 2026-09-22 from the #1761 review. OPEN; a follow-up, deliberately not fixed in that PR]
+
+`TestCommandListHandles.ChainsDigest` hashes `pid|links|tip|spawnUT(R)|terminated;` per
+chain, where `links` is `chain.Links.Count`. Two chains with the same pid, tip and spawn UT
+but a DIFFERENT link set of the same length (another claiming recording, another branch
+point, another interaction type) digest identically, so CI-3's readback equality is
+blind to a link-level change. And the family reads `ParsekFlight.ActiveGhostChains`, which
+`FilterAndGhostChains` has already reduced to chains whose spawn UT is still in the future
+and which are not terminated: a terminated or past-spawn chain is outside both captures, so
+the readback says nothing about how those are re-derived (on bdock-recorded at rp1, 12 of
+the 13 evaluated chains are outside it).
+
+Fix direction: add each link's `recordingId` (and branch point id) to the canonical line,
+and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or a
+`scope=all` arg) so terminated chains are read back too. Either change moves CI-3's pinned
+`digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
+re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
+(`bbd83d3b`, `8952919c`) recomputed.
 ## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. OPEN; a follow-on design item]
 
 D18 is at 6 of 12 after PR-A. The cells still open are the ones where the PLAYER acts on a

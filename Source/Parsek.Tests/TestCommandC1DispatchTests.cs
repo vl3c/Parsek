@@ -44,6 +44,38 @@ namespace Parsek.Tests
             Assert.Equal(reason, r.Reason);
         }
 
+        // ----- ListHandles kind=chains readiness defer -----
+
+        [Fact]
+        public void ListHandles_chains_defers_until_the_flight_scene_is_ready()
+        {
+            DispatchState st = Flight();
+            st.GhostChainsPending = true;
+            AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=ListHandles kind=chains"), st),
+                "ghost-chains-pending");
+        }
+
+        [Fact]
+        public void ListHandles_chains_executes_once_the_flight_scene_is_ready()
+        {
+            DispatchState st = Flight();
+            st.GhostChainsPending = false;
+            Assert.Equal(DispatchDecision.Execute,
+                TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=ListHandles kind=chains"), st).Decision);
+        }
+
+        [Theory]
+        [InlineData("rewindpoints")]
+        [InlineData("committed")]
+        [InlineData("active")]
+        public void ListHandles_other_families_ignore_the_chains_readiness_bit(string kind)
+        {
+            DispatchState st = Flight();
+            st.GhostChainsPending = true;
+            Assert.Equal(DispatchDecision.Execute,
+                TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=ListHandles kind=" + kind), st).Decision);
+        }
+
         // ----- InvokeRewind -----
 
         [Fact]
