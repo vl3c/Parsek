@@ -994,16 +994,31 @@ BG_KINDS = ("window", "box", "button", "repeatbutton", "buttongrid", "textfield"
 CLICK_KINDS = ("button", "repeatbutton", "toggle", "buttongrid", "slider", "textfield")
 
 
+# The bottom chrome of an auto-fitted window: the gap between its last child's
+# bottom edge and its own border. Measured on ksc-main-advanced (2026-09-11_0548):
+# the seam's applied rect was 300 tall while the Close row ended 286 px in, and the
+# frame's border sits 14 px under Close in Basic mode as well.
+WINDOW_BOTTOM_PAD = 14
+
+
 def root_height(root, log_rects):
-    """A GUILayout window reports h=0 in the dump; the seam's own `rect` line
-    reports what it was actually laid out at, and the child extent is the last
-    resort."""
+    """A GUILayout window reports h=0 in the dump because its host zeroes the
+    height every frame so IMGUI re-fits it to the content (`ParsekKSC.cs`,
+    `ParsekFlight.cs`). So the CONTENT decides: the child extent plus the bottom
+    chrome. The seam's own `rect` line is the height the window had when the
+    seam applied it, which goes stale the moment the content shrinks - the Basic
+    mode main window drew 74 px of empty panel under Close from it - so it is
+    only a fallback for a window that drew no children at all."""
     rect = list(root.get("rect") or [0, 0, 0, 0])
     if rect[3] > 0:
         return rect[3]
+    applied = 0
     for _w, r in (log_rects or {}).items():
         if len(r) == 4 and r[0] == rect[0] and r[1] == rect[1] and r[2] == rect[2] and r[3] > 0:
-            return r[3]
+            applied = r[3]
+            break
+    if not root.get("children") and applied:
+        return applied
     bottom = rect[1]
 
     def walk(node):
@@ -1014,7 +1029,7 @@ def root_height(root, log_rects):
             walk(ch)
 
     walk(root)
-    return max(1, bottom - rect[1] + 4)
+    return max(1, bottom - rect[1] + WINDOW_BOTTOM_PAD)
 
 
 def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
