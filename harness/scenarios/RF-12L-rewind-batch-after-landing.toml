@@ -9,7 +9,11 @@ id = "RF-12L-rewind-batch-after-landing"
 # `Rewind` category. The two lanes exist separately because the terminal a lane produces
 # DECIDES which cells it can reach, and the two terminals reach DISJOINT sets:
 #
-#   `MergeCrashedReFlyCreatesCPSupersede` wants Crashed and only RF-12W can give it.
+#   `MergeCrashedReFlyCreatesCPSupersede` wants Crashed. RF-12W gave it first, but since
+#     2026-09-22 (the endUT tombstone ruling) RF-12W's batch merges in
+#     `KerbalRecoveryOnSupersede` first and spends the session, so THIS lane - whose
+#     re-fly also concluded destroyed, and whose crewless host gives the recovery cell
+#     nothing to recover - now carries the cell's live proof (the `PASSED:` pin below).
 #   `MergeReFlyStructuralMutationAutoSeals` DEFERS when the chain tip is Destroyed
 #     (`MergeReFlyStructuralMutationAutoSealsTest`'s third guard), so RF-12W closes it
 #     and only a NON-destroyed conclusion can open it.

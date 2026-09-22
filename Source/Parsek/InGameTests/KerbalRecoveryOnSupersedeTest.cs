@@ -88,8 +88,9 @@ namespace Parsek.InGameTests
             // those deaths. Gathered through the SAME pre-rewind screen as the death
             // rows for the same reason - a row the guard keeps is on the timeline the
             // merge KEEPS, so asserting it is tombstoned asserts against correct
-            // behaviour. In practice the penalty lands at the recording's END and so
-            // sits after the cutoff even when its own KerbalAssignment row straddles.
+            // behaviour. The penalty lands at the death instant, and a death row is
+            // itself screened by its endUT (TombstoneAttributionHelper.ComputeAttributionUT),
+            // so the two rows of one death fall on the same side of the cutoff.
             var deathRepActionIds = new HashSet<string>();
             foreach (var a in Ledger.Actions)
             {
@@ -329,15 +330,15 @@ namespace Parsek.InGameTests
             {
                 skipMessage =
                     "Every kerbal-death row in the supersede subtree STRADDLES the rewind: "
-                    + "its action UT precedes cutoffUT="
+                    + "its attribution UT (the death's endUT, or the action UT when the end "
+                    + "is unknown) precedes cutoffUT="
                     + rewindCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
                     + ", so PreRewindTombstoneGuard keeps it on the timeline the merge "
                     + "KEEPS and the kerbal stays permanently reserved Dead. Kept action(s): "
                     + string.Join(", ", keptActionIds.ToArray())
                     + "; kerbal(s): " + string.Join(", ", new List<string>(straddlingKerbals).ToArray())
                     + ". The recovery invariant has no subject here. Run this test on a "
-                    + "re-fly whose crew BOARDED after the rewind point (a BG-crash with "
-                    + "kerbals aboard, not a crewed stack rewound after launch).";
+                    + "re-fly whose crew DIED after the rewind point.";
                 return false;
             }
 

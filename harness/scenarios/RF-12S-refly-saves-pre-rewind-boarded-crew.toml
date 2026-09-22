@@ -1,0 +1,180 @@
+schema = 1
+id = "RF-12S-refly-saves-pre-rewind-boarded-crew"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 12S. THE PROOF OF THE endUT RULING.
+#
+# TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START (ruled 2026-09-22): a
+# `KerbalAssignment` that encodes a DEATH is screened by its `endUT` on both sides of the
+# rewind seam (`TombstoneAttributionHelper.ComputeAttributionUT`). The shape that tells
+# the two answers apart: crew who BOARDED before the rewind point, DIED after it on the
+# flight the merge supersedes, and SURVIVE the re-fly. On main the death row is kept by
+# its boarding UT and the kerbal stays permanently Dead after the merge; on the fixed
+# DLL the row is retired and the kerbal comes back (design 7.16).
+#
+# WHY NOT RF-12L, WHICH THE RULING NAMED. RF-12L re-flies `rewind-b9` slot 1, a CREWLESS
+# probe whose recording starts AT the rewind point: there is no straddling death row, so
+# both DLLs read identically there. The only committed host with the shape is
+# `refly-autopilot-recorded` slot 0 - Bill and Bob on the Kerbal X upper stack, whose
+# origin `4a7739f6` spans 29.94 -> 413.53 (boarded at launch, Dead at the extrapolated
+# splashdown) around the RewindPoint at 131.54, RF-12W's host and RF-12W's slot. That
+# stack carries NO parachute and its Poodle cannot hold it up at sea level even dry, so
+# the crew cannot be LANDED; the mission puts them in ORBIT instead
+# (`rf12s_refly_orbit_insert`). A landing would not have reached an in-batch merge
+# anyway: a landing in flight stamps no terminal state. The proving merge is the
+# scene-exit one (`AnswerMergeDialog merge`), where finalization stamps `Orbiting` and
+# the crew read Aboard.
+#
+# THE RELOAD HALF. The merge's answer must survive the next load, where
+# `MigrateKerbalAssignments` re-derives every KerbalAssignment row. `SaveGame` +
+# `LoadGame scene=spacecenter` is the in-process reload (S0.11's shape). On THIS host the
+# merge does not split the origin (the closure root is the prior re-fly `rec_c54a110c`,
+# which has no points), so the migrated rows match their derivation and the tombstones
+# hold. The SPLIT shape does not hold across a reload, and that is filed separately
+# (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, pinned headlessly by
+# `TombstoneReloadMigrationTests`); this lane cannot see it by construction.
+#
+# STATUS (2026-09-22). BEFORE-READING on a main DLL (`a5f807d1`, fix markers absent):
+# `2026-09-22_1928`, PARSEK-FAIL(expectation) on EXACTLY the seven endUT tokens - the
+# guard kept both straddling rows (`keep ... type=KerbalAssignment rec=4a7739f6`), the
+# merge read `permanent=2`, and so did every post-reload walk. AFTER-READING on the fixed
+# DLL (`e2db0b1c`): `2026-09-22_1931`, PASS attempt 1 (two `death interval screened by
+# endUT` lines, `Tombstoned 4 ... Kerbal=4`, `permanent=0` at the merge and after the
+# reload; the burn reached pe=76 km). The pins below are tightened off that reading and
+# `[expectations.rewind]` is armed on it.
+#
+# RE-DERIVED 2026-09-22 FOR THE DEDUP FIX (same PR). With KerbalAssignment keyed per
+# (recording, kerbal), the new provisional's two crew rows survive the commit, so the
+# merge should read `2 reservations remain (permanent=0 temporary=2)` instead of 0; every
+# other count (Kerbal=4, tombstones=12, supersedeRows=5) is unchanged, because the
+# provisional is outside the superseded closure. The side finding below is now FIXED.
+# ARMED RE-FLIGHT on the dedup-fixed DLL (`689f4033`): `2026-09-22_2010`, PASS attempt 1
+# (`dedup=2` for the provisional, `2 reservations remain (permanent=0 temporary=2)`,
+# Kerbal=4, tombstones=12). Control, offline: the new token reds on exactly that one
+# entry against the endUT-only runs `_1931` / `_1937`, and `_1928` (main) reds on 9.
+#
+# A MEASURED SIDE FINDING a reader will trip over: the merge leaves ZERO reservations,
+# not two temporary ones, because the new provisional's own crew rows never reach the
+# ledger - `DeduplicateAgainstLedger` keys KerbalAssignment on "" and drops them against
+# the prior re-fly's rows 0.02 s away (`Committed recording 'rec_bff51dd8...': ...
+# kerbals=2, dedup=4`). Filed as KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY. The crew are live
+# on the orbiting vessel, so the roster is right here, but a re-fly that killed them
+# again on this host would lose its own death row.
+# =====================================================================================
+tier = "operator"
+description = "Proof lane for the endUT tombstone ruling: rewind refly-autopilot-recorded slot 0 (Bill and Bob, boarded at launch, died after the rewind point on the superseded flight), burn the restored stack to orbit so the crew survive, merge, then save and reload. The death rows must be retired at the merge and stay retired after the reload."
+instanceProfile = "stock-minimal"
+tags = ["RF-12S", "rewind", "refly", "merge", "tombstone", "crew-loss", "reload",
+        "autopilot", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# RF-12W's host, unchanged: the one committed save whose RewindPoint restores a CREWED
+# stack whose origin recording started before the rewind point.
+saveTemplate       = "fixtures/saves/refly-autopilot-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "rf12s_refly_orbit_insert"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the per-row guard lines and the reservation walk are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  # InvokeRewind REJECTs `recording-active`; RF-12W's order.
+  { cmd = "StopRecording",                                                         expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles", expect = "OK" },
+  # Slot 0: the crewed stack.
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },       expect = "OK", budget = 300 },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 900 },
+  # Drives the scene exit, finalization (terminal Orbiting) and the merge.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                        expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                        expect = "OK" },
+  # THE RELOAD: persist the merged career, then load it back.
+  { cmd = "SaveGame",          args = { name = "persistent" },                     expect = "OK" },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[driver.missionParams]
+# The burn-sweep defaults, written out so a reader sees them (mlib `rfo_decide` header).
+pitchDeg                = -10.0
+headingDeg              = 90.0
+throttle                = 1.0
+targetPeriapsisMeters   = 75000.0
+periapsisDebounceFrames = 2
+minStartAltitudeMeters  = 10000.0
+# Bill and Bob: the handoff must carry BOTH pre-rewind-boarded kerbals.
+minCrew                 = 2
+igniteFrames            = 20
+burnFrames              = 600
+
+[dimensionsCovered]
+# BASICS ONLY until a reading run, on RH-1's claim-is-not-gate ground.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RF-10 pins the cold-boot census at exactly 11; the re-fly adds its provisional.
+count = { min = 11, max = 30 }
+
+[expectations.logContracts]
+# THREE FAMILIES: the re-fly happened, the merge retired the straddling deaths (THE
+# DISCRIMINATOR - each of these reds on a DLL without the endUT clause), and the answer
+# survived the reload.
+required = [
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "Added [1-9][0-9]* supersede relations for subtree rooted at",
+  # The endUT clause deciding, per kerbal, on the straddling origin row.
+  "PreRewindTombstoneGuard: death interval screened by endUT action=act_[0-9a-f]{32} kerbal=Bill Kerman rec=4a7739f6cc074185a82cbd10ccaeb01d ",
+  "PreRewindTombstoneGuard: death interval screened by endUT action=act_[0-9a-f]{32} kerbal=Bob Kerman rec=4a7739f6cc074185a82cbd10ccaeb01d ",
+  "PreRewindTombstoneGuard: 2 pre-rewind-boarded death interval\\(s\\) kept in scope by endUT",
+  # MEASURED on the after-reading `2026-09-22_1931`: Kerbal=4 (the two straddling rows
+  # plus the prior re-fly `rec_c54a110c`'s two). The main-DLL before-reading
+  # `2026-09-22_1928` read Kerbal=2 (only rec_c54a110c's).
+  "Tombstoned 4 career actions \\(.*Kerbal=4,",
+  # 7.16 at the merge: no death-sourced permanent reservation survives, and the re-fly's
+  # OWN crew rows (Aboard, in orbit) are in the ledger. The `2 ... temporary=2` half is
+  # the KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY fix: before it, `_1931` read `0 reservations
+  # remain` because those rows were deduped against the prior re-fly's.
+  "Recomputed after tombstones: 2 reservations remain \\(permanent=0 temporary=2\\)",
+  # 7.16 after the reload: a reservation walk that runs AFTER the post-merge LoadGame
+  # still reads no permanent reservation.
+  "(?s)Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 .*exec id=[0-9]+ cmd=LoadGame start.*PostWalk summary: reservations=[0-9]+ permanent=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The pre-ruling answer: the guard keeping a straddling death row by its boarding UT.
+  "PreRewindTombstoneGuard: keep action=act_[0-9a-f]{32} type=KerbalAssignment rec=4a7739f6cc074185a82cbd10ccaeb01d ",
+  # The reload resurrecting a death: any post-merge, post-reload walk that makes Bill or
+  # Bob permanent, or any permanent reservation at all after the reload.
+  "(?s)Recomputed after tombstones: .*exec id=[0-9]+ cmd=LoadGame start.*'(Bill|Bob) Kerman' endUT(=INDEFINITE \\(Dead\\)|->\\S+ \\(permanent=True\\))",
+  "(?s)Recomputed after tombstones: .*exec id=[0-9]+ cmd=LoadGame start.*PostWalk summary: reservations=[0-9]+ permanent=[1-9]",
+  "reason=sealedTipClosed",
+]
+
+# ARMED on the after-reading `2026-09-22_1931` (supersedeRows=5 tombstones=12
+# rewindPoints=1). The main-DLL before-reading `2026-09-22_1928` read tombstones=10: the
+# two straddling death rows are the whole difference, so `tombstones min = 12` is a
+# save-side gate on the ruling. `rewindPoints` stays unpinned.
+[expectations.rewind]
+gating        = true
+supersedeRows = { min = 5 }
+tombstones    = { min = 12 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8): LoadGame 660 + SetSetting x2 240 + StopRecording 120
+#   + ListHandles 120 + InvokeRewind 660 + mission 900 (raw) + AnswerMergeDialog 240
+#   + RecordingState 120 + SaveGame 120 + LoadGame 660 + FlushAndQuit 120 = 3960.
+# 4200 clears it by 240.
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

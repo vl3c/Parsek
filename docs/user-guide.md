@@ -217,20 +217,21 @@ The **Warp to Next Spawn** button at the bottom warps to whichever candidate spa
 
 ### Kerbals Window
 
-Click the "Kerbals" button in the main Parsek window to open the Kerbals window. The main button stays count-free; the detail lives inside the window itself. The window has two tabs, both read-only column tables:
+Click the "Kerbals" button in the main Parsek window to open the Kerbals window. It is available in both Basic and Advanced mode: it is where Parsek explains why a kerbal you committed to a recorded flight is missing from the crew assignment list. The main button stays count-free; the detail lives inside the window itself. The window has two tabs, both read-only column tables:
 
-- **Roster** — one row per kerbal, answering "who can I fly right now, and why not".
-  - **Kerbal** — name and trait. The row of a kerbal whose slot has stand-ins gets a fold arrow; clicking it lists the replacement chain underneath, labelled `(active)`, `(retired)` or `(displaced)`. A stand-in's own row has no arrow — the chain belongs to the kerbal whose slot it is.
-  - **Status now** — one of `Available`, `Assigned (vessel name)`, `Reserved until <date>` (or `Reserved until recovery` when no return date is known yet, or `Reserved for <kerbal> until <date>` when a stand-in is being held for someone else's slot), `Stand-in for <kerbal>` (only while he is actually covering the slot — a stand-in the owner has come back to displace reads as available again, and the cell adds `(aboard <vessel>)`, or names the craft on hover when it does not fit), `Retired`, or `Lost`.
-  - **Since** — the date the current status started, for the two Parsek can date: a loss and a reservation. Everything else shows `-`.
-  - **Last flight** — the kerbal's most recent recorded flight and how it ended.
-  - Kerbals with nothing to report — available, no reservation, no stand-in, no recorded flight — are collected behind one closed row, `Available, no recorded flights (N)`. Click it to list them.
-- **Flights** — every recorded flight a kerbal took, grouped per kerbal.
+- **Roster** - one row per kerbal, answering "who can I fly right now, and why not". Rows are grouped by crew slot: a kerbal's stand-ins are listed directly under him, marked with a tree line.
+  - **Kerbal** - name and trait.
+  - **Status now** - one of `Available`, `Assigned (vessel name)`, `On EVA`, `Reserved: aboard <vessel>` (a committed flight ends with him aboard that vessel), `Reserved: <mission>` (a committed flight holds him), `Reserved for <kerbal>` (a stand-in held while covering someone else's seat), `Stand-in for <kerbal>` (only while he is actually covering the seat; the cell adds `(aboard <vessel>)` when it fits, or names the craft on hover), `Retired`, or `Lost`. Hover a `Reserved` status to see which flight holds the kerbal: a reservation does not end when the flight's date passes; it lasts while that flight stays in your timeline. Hover a `Lost` status to see the mission he died on; re-flying that mission from a rewind point can undo the loss.
+  - **Last flight** - the kerbal's most recent recorded flight and how it ended. Click it to scroll the Timeline window to that flight.
+  - Kerbals with nothing to report - available, no reservation, no stand-in, no recorded flight - are collected behind one closed row, `Available, no recorded flights (N)`. Click it to list them.
+- **Flights** - every mission a kerbal flew, grouped per kerbal.
   - Each group's header reads `Name [Trait] - N missions: n recovered, n lost, n aboard, n unknown`, and clicking it folds the rows away and leaves that summary.
-  - **One row per mission**, not one per recorded flight segment: a mission flown across several segments (a launch, a docking, a landing) is one row. Rows carry the mission's start **Date** (calendar time, the same form the Timeline uses), the **Mission** name, its final **Outcome** (`Recovered`, `Lost`, `Still aboard`, or `Outcome unknown` when the mission has no recorded ending), and a **Crew** note reading `as <kerbal>` when a stand-in flew that seat instead of its owner. Hovering the Outcome cell lists every segment and how each one ended; hovering the Mission cell names the underlying recording.
+  - **One row per mission**, not one per recorded flight segment: a mission flown across several segments (a launch, a docking, a landing) is one row. Rows carry the mission's launch **Date** (calendar time, the same form the Timeline uses), the **Mission** name (followed by `(flown by <kerbal>)` when a stand-in flew that seat instead of its owner), and its final **Outcome** (`Recovered`, `Lost`, `Still aboard`, or `Outcome unknown` when the mission has no recorded ending). Hovering the Outcome cell lists every segment and how each one ended; hovering the Mission cell names the underlying recording.
   - **Click any row to scroll the Timeline window to the mission's last recorded flight** (it opens the Timeline if it is closed).
 
-The window is draggable and resizable. Fold/expand state is transient: it survives closing and reopening the window, and resets on a scene change.
+When Parsek takes a reserved kerbal out of a craft you launched and seats his stand-in, a short on-screen message says so. Trying to dismiss a kerbal Parsek manages (reserved, standing in, or retired) shows an "Action Blocked" dialog explaining why. In the Astronaut Complex, Parsek's badge tooltips use the same words as this window.
+
+The window is draggable and resizable. Fold state is transient: it survives closing and reopening the window, and resets on a scene change.
 
 ### Career State Window
 

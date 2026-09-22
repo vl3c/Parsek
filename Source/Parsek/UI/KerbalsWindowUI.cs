@@ -8,13 +8,14 @@ namespace Parsek
     /// <summary>
     /// Kerbals window - two read-only COLUMN TABLES:
     ///   * "Roster" (seam tab token <c>roster</c>): one row per kerbal the player can
-    ///     see, with what he is doing right now, when that started and how his last
-    ///     flight ended. Rows Parsek has something to say about are listed first; plain
-    ///     available kerbals with no recorded flight collapse under one fold row.
+    ///     see, with what he is doing right now and how his last flight ended, grouped
+    ///     by slot (each stand-in listed under the kerbal he covers). Rows Parsek has
+    ///     something to say about are listed first; plain available kerbals with no
+    ///     recorded flight collapse under one fold row.
     ///   * "Flights" (seam tab token <c>outcomes</c>): per-kerbal flight history, one
-    ///     row per MISSION (one recording tree) with its calendar start date, mission
-    ///     name, final outcome word and the stand-in who flew it. The segments a mission
-    ///     collapsed are counted and listed in the outcome cell's hover text.
+    ///     row per MISSION (one recording tree) with its launch date, mission name (plus
+    ///     the stand-in who flew it, when one did) and final outcome word. The segments a
+    ///     mission collapsed are counted and listed in the outcome cell's hover text.
     ///
     /// <para>Both tabs draw their column-header row and their body rows with the shared
     /// inset containers (<c>ParsekUI.GetTableRowStyle</c> /
@@ -55,42 +56,39 @@ namespace Parsek
         internal const string KerbalsInputLockId = "Parsek_KerbalsWindow";
 
         // ---- column widths, per tab ----
-        // Roster: the Name cell holds "Valentina Kerman [Scientist]" (28 chars) and the
-        // Status cell "Reserved for Valentina Kerman until Y1, D23" (43); Since and Date
-        // hold one compact date, which KSPUtil.PrintDateCompact renders down to the
-        // minute ("Y1, D01, 02:29", 14 chars = 98 px at the skin's ~7 px advance) - the
-        // first flight measured that clipped at 80. Last flight expands.
-        private const float ColW_RosterName = 190f;
+        // Roster: the Name cell holds "Valentina Kerman [Scientist]" (28 chars = 196 px at
+        // the skin's ~7 px advance), and a stand-in row prefixes a three-character tree
+        // glyph, hence 210. Last flight expands. The Flights Date cell holds one compact
+        // date, which KSPUtil.PrintDateCompact renders down to the minute
+        // ("Y1, D01, 02:29", 14 chars = 98 px) - the first flight measured that clipped
+        // at 80.
+        internal const float ColW_RosterName = 210f;
         /// <summary>Internal because <see cref="KerbalsPresentation"/> budgets the
         /// "Status now" text against it: the stand-in form only carries its vessel inline
         /// when the composed string fits this column, otherwise the vessel moves into the
         /// cell's hover text.</summary>
         internal const float ColW_RosterStatus = 220f;
-        private const float ColW_RosterSince = 130f;
-        // Flights: Date holds the same compact date, Mission a mission name, Outcome the
-        // longest outcome word ("Outcome unknown", 15 chars), Crew note expands.
+        // Flights: Date holds the compact date, Mission expands (a mission name plus the
+        // rare "(flown by <stand-in>)" note), Outcome the longest outcome word
+        // ("Outcome unknown", 15 chars).
         private const float ColW_FlightDate = 130f;
-        private const float ColW_FlightMission = 210f;
         private const float ColW_FlightOutcome = 110f;
 
         /// <summary>
         /// Minimum width, derived from the Roster tab (the wider of the two tables) rather
-        /// than guessed. Every term is measured off the census dumps, whose header cells
-        /// sit at x=284 / 478 / 702 / 836 inside a window placed at x=270:
+        /// than guessed. Every term is measured off the census dumps (the 2026-09-15
+        /// reading: each fixed cell consumes its width + 4 px of skin margin, and the first
+        /// cell sits 14 px inside the window edge):
         ///
-        /// <para>540 px of fixed columns (190 + 220 + 130) + 12 px of inter-column cell
-        /// margin (the 4 px the skin adds between neighbours, three times: 478-284=194,
-        /// 702-478=224, 836-702=134) + 4 px of margin before the expanding column + 100 px
-        /// of readable sliver for it + 28 px of window chrome (14 px per side: 284-270) +
+        /// <para>430 px of fixed columns (210 + 220) + 8 px of inter-column cell margin
+        /// (4 px after each fixed column) + 4 px of margin before the expanding column +
+        /// 100 px of readable sliver for it + 28 px of window chrome (14 px per side) +
         /// 16 px of scrollbar gutter (<c>ParsekUI.DefaultVerticalScrollbarFootprintWidth</c>)
-        /// = <b>700</b>.</para>
-        ///
-        /// <para>The previous 570 was 540 + 30 and left out the chrome, the margins and the
-        /// gutter, so the smallest size the player could drag to clipped the fixed columns -
-        /// IMGUI does not reflow a pinned width. Recorded in
+        /// = <b>586</b>. It was 700 while the Roster carried a 130 px Since column (removed
+        /// by the 2026-09-22 review) beside a 190 px Name column. Recorded in
         /// <c>docs/dev/design-gui-kerbals-window.md</c> section 5.</para>
         /// </summary>
-        internal const float MinWindowWidth = 700f;
+        internal const float MinWindowWidth = 586f;
         internal const float MinWindowHeight = 150f;
 
         /// <summary>
@@ -105,11 +103,12 @@ namespace Parsek
         internal const string WindowIdKey = "ParsekKerbals";
 
         /// <summary>
-        /// First-open width: the Roster tab's 540 px of fixed columns plus 200 px for the
-        /// expanding "Last flight" column plus the window chrome, rounded to 760. The old
-        /// 410 was half of Career's 820 so the two could sit side by side; two column
-        /// tables do not fit in 410, and 760 still leaves Career's own 820 room on a
-        /// 1920-wide screen.
+        /// First-open width, unchanged at 760 by the 2026-09-22 column removal: the Roster
+        /// tab's 430 px of fixed columns leave the expanding "Last flight" column about
+        /// 280 px at this width, which fits a mission name plus its outcome word with room
+        /// to spare. The old 410 was half of Career's 820 so the two could sit side by
+        /// side; two column tables do not fit in 410, and 760 still leaves Career's own 820
+        /// room on a 1920-wide screen.
         /// </summary>
         internal const float DefaultWindowWidth = 760f;
         private const float DefaultWindowHeight = 400f;
@@ -149,12 +148,6 @@ namespace Parsek
         // InvalidateCache does NOT clear this - fold is UI preference, not data.
         internal readonly HashSet<string> foldedKerbals = new HashSet<string>(StringComparer.Ordinal);
 
-        // Transient expand state for a Roster row's replacement-chain view.
-        // Default-collapsed - the set only contains kerbal names currently expanded, so
-        // the initial view is one line per kerbal. Orthogonal to data, so not cleared by
-        // InvalidateCache.
-        private readonly HashSet<string> expandedSlots = new HashSet<string>(StringComparer.Ordinal);
-
         // The Roster tab's plain-kerbal bucket. Closed by default (the "minimal,
         // need-to-know" ruling); transient like the two sets above.
         private bool plainBucketExpanded;
@@ -166,7 +159,6 @@ namespace Parsek
         private GUIStyle recoveredStyle;
         private GUIStyle aboardStyle;
         private GUIStyle activeChainStyle;
-        private GUIStyle displacedStyle;
         // Toggle button style for tab bar - mirrors CareerStateWindowUI / TimelineWindowUI:
         // the "on" background is copied from GUI.skin.button.active so the selected tab
         // looks visibly pushed in.
@@ -407,48 +399,35 @@ namespace Parsek
 
         // ------------------------- the op=expand seam -------------------------
 
-        /// <summary>Every Roster row key the expand seam can drive: each kerbal whose row
-        /// carries a replacement chain, plus the plain-kerbal fold row. Enumerated off the
-        /// built view model so a key the window does not draw is never offered.</summary>
+        /// <summary>Every Roster row key the expand seam can drive: the plain-kerbal fold
+        /// row, and nothing else since the 2026-09-22 slot grouping removed the per-owner
+        /// chain fold (a stand-in is a row of its own under his owner, always drawn).
+        /// Enumerated off the built view model so a key the window does not draw is never
+        /// offered: a roster with no plain kerbal offers none.</summary>
         internal List<string> EnumerateRosterExpandKeysForTesting()
         {
             var keys = new List<string>();
             if (cachedVM == null) return keys;
             KerbalsPresentation.RosterRowSet set = cachedVM.Value.Roster;
-            AppendChainKeys(set.Involved, keys);
-            AppendChainKeys(set.Plain, keys);
-            keys.Add(PlainBucketKey);
+            if (set.Plain != null && set.Plain.Count > 0) keys.Add(PlainBucketKey);
             return keys;
         }
 
-        private static void AppendChainKeys(
-            List<KerbalsPresentation.RosterRow> rows, List<string> keys)
-        {
-            if (rows == null) return;
-            for (int i = 0; i < rows.Count; i++)
-            {
-                if (rows[i].Chain != null && rows[i].Chain.Count > 0)
-                    keys.Add(rows[i].FoldKey);
-            }
-        }
-
-        /// <summary>Writes one Roster expand key. Returns whether the state changed.</summary>
+        /// <summary>Writes one Roster expand key. Returns whether the state changed; any
+        /// key but <see cref="PlainBucketKey"/> changes nothing.</summary>
         internal bool SetRosterExpandedForTesting(string key, bool expanded)
         {
-            if (string.Equals(key, PlainBucketKey, StringComparison.Ordinal))
-            {
-                if (plainBucketExpanded == expanded) return false;
-                plainBucketExpanded = expanded;
-                return true;
-            }
-            return expanded ? expandedSlots.Add(key) : expandedSlots.Remove(key);
+            if (!string.Equals(key, PlainBucketKey, StringComparison.Ordinal)) return false;
+            if (plainBucketExpanded == expanded) return false;
+            plainBucketExpanded = expanded;
+            return true;
         }
 
         /// <summary>How many Roster keys are expanded right now (the seam's
         /// <c>expanded=</c> term).</summary>
         internal int ExpandedRosterCountForTesting
         {
-            get { return expandedSlots.Count + (plainBucketExpanded ? 1 : 0); }
+            get { return plainBucketExpanded ? 1 : 0; }
         }
 
         /// <summary>Every Flights group key the expand seam can drive: one per kerbal with
@@ -590,10 +569,6 @@ namespace Parsek
             {
                 normal = { textColor = new Color(0.6f, 0.8f, 0.95f) }
             };
-            displacedStyle = new GUIStyle(GUI.skin.label)
-            {
-                normal = { textColor = new Color(0.5f, 0.5f, 0.5f) }
-            };
             // Tab bar button: selected tab looks pressed via onNormal.background copied
             // from GUI.skin.button.active.background (matches CareerStateWindowUI and
             // TimelineWindowUI toggle idiom).
@@ -717,7 +692,7 @@ namespace Parsek
         }
 
         // Header and body rows both open with parentUI.GetTableRowStyle() and declare the
-        // same three fixed widths plus one expanding column, which is what keeps each cell
+        // same two fixed widths plus one expanding column, which is what keeps each cell
         // under its own header (ParsekUI.TableRowHorizontalInsetPx). The header is INSIDE
         // the body's scroll view, so it must NOT reserve a scrollbar gutter.
         private void DrawRosterColumnHeader()
@@ -725,10 +700,6 @@ namespace Parsek
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label("Kerbal", columnHeaderStyle, GUILayout.Width(ColW_RosterName));
             GUILayout.Label("Status now", columnHeaderStyle, GUILayout.Width(ColW_RosterStatus));
-            GUILayout.Label(
-                new GUIContent("Since",
-                    "When the status started, for the two the mod dates: a loss and a reservation."),
-                columnHeaderStyle, GUILayout.Width(ColW_RosterSince));
             GUILayout.Label(
                 new GUIContent("Last flight",
                     "The kerbal's most recent recorded flight, and how it ended."),
@@ -738,33 +709,16 @@ namespace Parsek
 
         private void DrawRosterRow(KerbalsPresentation.RosterRow row, bool dimmed)
         {
-            bool expandable = row.Chain != null && row.Chain.Count > 0;
-            bool expanded = expandedSlots.Contains(row.FoldKey);
             GUIStyle cellStyle = dimmed
                 ? grayStyle
                 : StyleForRosterStatus(row.Status);
 
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            string nameCell = FormatRosterNameCell(row, expandable, expanded);
-            if (expandable)
-            {
-                if (GUILayout.Button(
-                        new GUIContent(nameCell,
-                            "Shows the stand-ins who have covered this kerbal's slot."),
-                        cellStyle, GUILayout.Width(ColW_RosterName)))
-                {
-                    if (expanded) expandedSlots.Remove(row.FoldKey);
-                    else expandedSlots.Add(row.FoldKey);
-                    ParsekLog.Verbose("UI",
-                        $"Kerbal slot '{row.FoldKey}' {(expanded ? "collapsed" : "expanded")} ({row.Chain.Count} chain members)");
-                }
-            }
-            else
-            {
-                GUILayout.Label(nameCell, cellStyle, GUILayout.Width(ColW_RosterName));
-            }
-            // The status cell carries hover text for exactly one status: an active stand-in
-            // who is also aboard a craft whose name does not fit the column inline.
+            GUILayout.Label(FormatRosterNameCell(row), cellStyle,
+                GUILayout.Width(ColW_RosterName));
+            // Hover text on the status cell: Lost (the mission and the way back), Reserved
+            // (what holds the kerbal and what does not free him), and a stand-in aboard a
+            // craft too long to name inline.
             if (string.IsNullOrEmpty(row.StatusTooltipText))
             {
                 GUILayout.Label(row.StatusText, cellStyle, GUILayout.Width(ColW_RosterStatus));
@@ -774,34 +728,48 @@ namespace Parsek
                 GUILayout.Label(new GUIContent(row.StatusText, row.StatusTooltipText),
                     cellStyle, GUILayout.Width(ColW_RosterStatus));
             }
-            GUILayout.Label(row.SinceText, cellStyle, GUILayout.Width(ColW_RosterSince));
-            GUILayout.Label(row.LastFlightText, cellStyle, GUILayout.ExpandWidth(true));
-            GUILayout.EndHorizontal();
-
-            if (expandable && expanded)
+            // The Last flight cell is the same Timeline cross-link every Flights row is,
+            // when there is a flight to jump to. One label-styled button either way, so the
+            // row declares exactly the columns its header does (TableRowInsetAlignmentTests).
+            bool canJump = !string.IsNullOrEmpty(row.LastFlightRecordingId);
+            if (GUILayout.Button(
+                    new GUIContent(row.LastFlightText,
+                        canJump ? LastFlightJumpTooltip : null),
+                    cellStyle, GUILayout.ExpandWidth(true))
+                && canJump)
             {
-                int lastIdx = row.Chain.Count - 1;
-                for (int c = 0; c < row.Chain.Count; c++)
-                {
-                    ChainMember member = row.Chain[c];
-                    GUILayout.Label(
-                        FormatRosterChainMemberText(member, isLast: (c == lastIdx)),
-                        StyleForChainMember(member.Status));
-                }
+                var timelineUI = parentUI != null ? parentUI.GetTimelineUI() : null;
+                Action<string> scrollCallback = timelineUI != null
+                    ? timelineUI.ScrollToRecording
+                    : (Action<string>)null;
+                OnFatesRowClicked(scrollCallback, row.LastFlightRecordingId);
             }
+            GUILayout.EndHorizontal();
         }
 
-        /// <summary>The Name cell: the fold arrow when the row has a chain, then
-        /// <c>"Name [Trait]"</c> (the bracket dropped when the trait is unknown). The two
-        /// leading spaces on a leaf row line its name up with an arrow-prefixed one.</summary>
-        internal static string FormatRosterNameCell(
-            KerbalsPresentation.RosterRow row, bool expandable, bool expanded)
+        /// <summary>The Roster "Last flight" cell's hover text when the kerbal has a
+        /// flight to jump to.</summary>
+        internal const string LastFlightJumpTooltip =
+            "Scrolls the Timeline window to this kerbal's latest recorded flight.";
+
+        /// <summary>
+        /// The Name cell: <c>"Name [Trait]"</c> (the bracket dropped when the trait is
+        /// unknown). A stand-in listed under the kerbal whose slot he is in carries the
+        /// tree glyph - <c>"\u251c\u2500 "</c> mid-group, <c>"\u2514\u2500 "</c> on the
+        /// last stand-in - indented one <see cref="SubitemIndent"/> step per level past
+        /// the first.
+        /// </summary>
+        internal static string FormatRosterNameCell(KerbalsPresentation.RosterRow row)
         {
             string who = string.IsNullOrEmpty(row.Trait)
                 ? row.Name
                 : row.Name + " [" + row.Trait + "]";
-            if (!expandable) return "  " + who;
-            return (expanded ? UnfoldedArrow : FoldedArrow) + " " + who;
+            if (row.Depth <= 0) return who;
+            var sb = new System.Text.StringBuilder();
+            for (int d = 1; d < row.Depth; d++) sb.Append(SubitemIndent);
+            sb.Append(row.IsLastInSlot ? "\u2514\u2500 " : "\u251c\u2500 ");
+            sb.Append(who);
+            return sb.ToString();
         }
 
         private GUIStyle StyleForRosterStatus(KerbalsPresentation.RosterStatus s)
@@ -816,60 +784,25 @@ namespace Parsek
             }
         }
 
-        private GUIStyle StyleForChainMember(ChainMemberStatus s)
-        {
-            switch (s)
-            {
-                case ChainMemberStatus.Active: return activeChainStyle;
-                case ChainMemberStatus.Retired: return grayStyle;
-                case ChainMemberStatus.Displaced: return displacedStyle;
-                default: return grayStyle;
-            }
-        }
-
         /// <summary>
-        /// Leading indent used by every subitem row under a fold/expand parent in this
-        /// window. Four spaces puts the first subitem character roughly under the
-        /// parent kerbal-name's first character (after the fold arrow).
+        /// The indent one nesting level past the first adds in front of a nested row's
+        /// tree glyph (a stand-in of a stand-in who owns a slot of his own).
         /// </summary>
-        internal const string SubitemIndent = "    ";
-
-        /// <summary>
-        /// Renders a Roster chain-member subitem row as a single pre-indented string with
-        /// a tree-branch glyph. <paramref name="isLast"/> picks between the "mid" and
-        /// "last" tree characters.
-        /// </summary>
-        internal static string FormatRosterChainMemberText(ChainMember m, bool isLast)
-        {
-            string branch = isLast ? "\u2514\u2500 " : "\u251c\u2500 ";
-            return SubitemIndent + branch + FormatChainMember(m);
-        }
-
-        internal static string FormatChainMember(ChainMember m)
-        {
-            string tag;
-            switch (m.Status)
-            {
-                case ChainMemberStatus.Active: tag = "active"; break;
-                case ChainMemberStatus.Retired: tag = "retired"; break;
-                case ChainMemberStatus.Displaced: tag = "displaced"; break;
-                default: tag = "?"; break;
-            }
-            return $"{m.Name} ({tag})";
-        }
+        internal const string SubitemIndent = "   ";
 
         // ------------------------- the Flights tab -------------------------
 
         private void DrawFlightsColumnHeader()
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label("Date", columnHeaderStyle, GUILayout.Width(ColW_FlightDate));
-            GUILayout.Label("Mission", columnHeaderStyle, GUILayout.Width(ColW_FlightMission));
-            GUILayout.Label("Outcome", columnHeaderStyle, GUILayout.Width(ColW_FlightOutcome));
             GUILayout.Label(
-                new GUIContent("Crew",
-                    "Who actually flew it, when a stand-in covered this kerbal's seat."),
+                new GUIContent("Date", "When the mission launched."),
+                columnHeaderStyle, GUILayout.Width(ColW_FlightDate));
+            GUILayout.Label(
+                new GUIContent("Mission",
+                    "The mission, and who flew it when a stand-in covered this kerbal's seat."),
                 columnHeaderStyle, GUILayout.ExpandWidth(true));
+            GUILayout.Label("Outcome", columnHeaderStyle, GUILayout.Width(ColW_FlightOutcome));
             GUILayout.EndHorizontal();
         }
 
@@ -904,18 +837,14 @@ namespace Parsek
                     "Scrolls the Timeline window to this mission's last recorded flight."),
                 cellStyle, GUILayout.Width(ColW_FlightDate));
             clicked |= GUILayout.Button(
-                new GUIContent(row.MissionText, DescribeFlightRow(row)),
-                cellStyle, GUILayout.Width(ColW_FlightMission));
+                new GUIContent(row.MissionCellText, DescribeFlightRow(row)),
+                cellStyle, GUILayout.ExpandWidth(true));
             // The outcome is the mission's FINAL one, so its hover carries the per-segment
             // list the row collapsed - which is where the detail the segment rows used to
             // show went.
             clicked |= GUILayout.Button(
                 new GUIContent(row.OutcomeText, DescribeFlightRowOutcome(row)),
                 cellStyle, GUILayout.Width(ColW_FlightOutcome));
-            clicked |= GUILayout.Button(
-                new GUIContent(row.CrewNoteText,
-                    "Who actually flew it, when a stand-in covered this kerbal's seat."),
-                cellStyle, GUILayout.ExpandWidth(true));
             GUILayout.EndHorizontal();
 
             if (clicked)
@@ -1094,27 +1023,28 @@ namespace Parsek
                     ParsekLog.Verbose("UI", "KerbalsWindow: no crew roster to gather");
                     return rows;
                 }
-                Dictionary<string, string> vesselOf = GatherAssignedVessels();
+                var evaCrew = new HashSet<string>(StringComparer.Ordinal);
+                Dictionary<string, string> vesselOf = GatherAssignedVessels(evaCrew);
                 KerbalsModule kerbals = LedgerOrchestrator.Kerbals;
 
                 foreach (ProtoCrewMember pcm in HighLogic.CurrentGame.CrewRoster.Crew)
                 {
                     if (pcm == null || string.IsNullOrEmpty(pcm.name)) continue;
-                    rows.Add(BuildRosterKerbal(pcm, vesselOf));
+                    rows.Add(BuildRosterKerbal(pcm, vesselOf, evaCrew));
                     crew++;
                 }
                 foreach (ProtoCrewMember pcm in HighLogic.CurrentGame.CrewRoster.Applicants)
                 {
                     if (pcm == null || string.IsNullOrEmpty(pcm.name)) continue;
                     if (kerbals == null || !kerbals.IsManaged(pcm.name)) { skipped++; continue; }
-                    rows.Add(BuildRosterKerbal(pcm, vesselOf));
+                    rows.Add(BuildRosterKerbal(pcm, vesselOf, evaCrew));
                     extra++;
                 }
                 foreach (ProtoCrewMember pcm in HighLogic.CurrentGame.CrewRoster.Tourist)
                 {
                     if (pcm == null || string.IsNullOrEmpty(pcm.name)) continue;
                     if (kerbals == null || !kerbals.IsManaged(pcm.name)) { skipped++; continue; }
-                    rows.Add(BuildRosterKerbal(pcm, vesselOf));
+                    rows.Add(BuildRosterKerbal(pcm, vesselOf, evaCrew));
                     extra++;
                 }
             }
@@ -1132,7 +1062,7 @@ namespace Parsek
         }
 
         private static KerbalsPresentation.RosterKerbal BuildRosterKerbal(
-            ProtoCrewMember pcm, Dictionary<string, string> vesselOf)
+            ProtoCrewMember pcm, Dictionary<string, string> vesselOf, HashSet<string> evaCrew)
         {
             string vessel = null;
             if (vesselOf != null) vesselOf.TryGetValue(pcm.name, out vessel);
@@ -1140,19 +1070,22 @@ namespace Parsek
             {
                 Name = pcm.name,
                 Trait = pcm.trait ?? "",
-                AssignedVesselName = vessel
+                AssignedVesselName = vessel,
+                AssignedVesselIsEva = vessel != null && evaCrew != null && evaCrew.Contains(pcm.name)
             };
         }
 
         /// <summary>
         /// Crew name -> the vessel it is aboard right now. Ghost-map ProtoVessels are
         /// skipped first (<c>GhostMapPresence.IsGhostMapVessel</c>), so a ghost's recorded
-        /// crew never reads as a live assignment.
+        /// crew never reads as a live assignment. A kerbal whose vessel is an EVA vessel
+        /// (<c>Vessel.isEVA</c>) is also added to <paramref name="evaCrew"/>, so the row
+        /// reads <c>On EVA</c> rather than naming the kerbal's own EVA vessel.
         /// </summary>
-        private static Dictionary<string, string> GatherAssignedVessels()
+        private static Dictionary<string, string> GatherAssignedVessels(HashSet<string> evaCrew)
         {
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
-            int vessels = 0, ghosts = 0, seated = 0;
+            int vessels = 0, ghosts = 0, seated = 0, eva = 0;
             try
             {
                 var all = FlightGlobals.Vessels;
@@ -1171,6 +1104,7 @@ namespace Parsek
                         if (pcm == null || string.IsNullOrEmpty(pcm.name)) continue;
                         map[pcm.name] = vessel.vesselName ?? "";
                         seated++;
+                        if (vessel.isEVA && evaCrew != null && evaCrew.Add(pcm.name)) eva++;
                     }
                 }
             }
@@ -1181,7 +1115,7 @@ namespace Parsek
                 return map;
             }
             ParsekLog.Verbose("UI",
-                $"KerbalsWindow: live crew map - vessels={vessels} ghostsSkipped={ghosts} seated={seated}");
+                $"KerbalsWindow: live crew map - vessels={vessels} ghostsSkipped={ghosts} seated={seated} onEva={eva}");
             return map;
         }
 
@@ -1240,6 +1174,7 @@ namespace Parsek
 
             ParsekLog.Verbose("UI",
                 $"KerbalsWindow: built VM - roster={rosterRows.Involved.Count}+{rosterRows.Plain.Count} "
+                + $"omittedStandIns={rosterRows.OmittedStandIns} "
                 + $"flightGroups={flights.Count} endStates={endStates.Count}");
 
             return new KerbalsViewModel

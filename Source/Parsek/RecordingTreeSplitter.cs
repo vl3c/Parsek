@@ -332,6 +332,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Step-2.9 retag predicate: true iff <paramref name="action"/> is tagged to
+        /// <paramref name="originRecordingId"/> and its attribution UT
+        /// (<see cref="TombstoneAttributionHelper.ComputeAttributionUT"/>) is
+        /// <c>&gt;= rewindUT</c>, i.e. it belongs to the post-rewind TIP. This is the
+        /// exact complement of <see cref="TombstoneAttributionHelper.IsPreRewindAttributedAction"/>
+        /// for every action with a non-NaN key (same helper, raw rewindUT, no epsilon);
+        /// the pair is pinned by <c>TombstoneScreeningMirrorTests</c>. A NaN key stays
+        /// on HEAD here while the guard leaves it in tombstone scope - the
+        /// long-standing "not provably pre-rewind" asymmetry, unchanged.
+        /// </summary>
+        internal static bool ShouldRetagLedgerActionToTip(
+            GameAction action, string originRecordingId, double rewindUT)
+        {
+            if (action == null) return false;
+            if (!string.Equals(action.RecordingId, originRecordingId, StringComparison.Ordinal))
+                return false;
+            return TombstoneAttributionHelper.ComputeAttributionUT(action) >= rewindUT;
+        }
+
+        /// <summary>
         /// Splits the origin recording named by <paramref name="marker"/>'s
         /// closure root at <c>marker.RewindPointUT</c> when the origin's UT
         /// bounds strictly span the rewind point. See plan §"Step 2" — the
@@ -952,16 +972,17 @@ namespace Parsek
                 $"debrisSections={result.DebrisAnchorRewrites.ToString(ic)}");
 
             // Step 2.9: ledger action retag. Walk Ledger.Actions; rewrite
-            // RecordingId on every action tagged to origin whose UT >= rewindUT.
+            // RecordingId on every action tagged to origin whose attribution UT
+            // (ShouldRetagLedgerActionToTip) is >= rewindUT.
             var actions = Ledger.Actions;
+            int deathIntervalsRetaggedByEndUT = 0;
             if (actions != null)
             {
                 for (int i = 0; i < actions.Count; i++)
                 {
                     var a = actions[i];
-                    if (a == null) continue;
-                    if (!string.Equals(a.RecordingId, origin.RecordingId, StringComparison.Ordinal)) continue;
-                    if (!(a.UT >= rewindUT)) continue;
+                    if (!ShouldRetagLedgerActionToTip(a, origin.RecordingId, rewindUT)) continue;
+                    if (!(a.UT >= rewindUT)) deathIntervalsRetaggedByEndUT++;
                     snapshot.Ledger.Add(SplitMutationLedger.LedgerAction(
                         a, origin.RecordingId, tip.RecordingId));
                     a.RecordingId = tip.RecordingId;
@@ -972,6 +993,7 @@ namespace Parsek
             }
             ParsekLog.Verbose(Tag,
                 $"Step9: ledger action retag — actionsRetagged={result.ActionsRetagged.ToString(ic)} " +
+                $"deathIntervalsRetaggedByEndUT={deathIntervalsRetaggedByEndUT.ToString(ic)} " +
                 $"ledgerStateVersion={Ledger.StateVersion.ToString(ic)}");
 
             // Step 2.9b: milestone retag. Predicate: StartUT >= rewindUT - epsilon.

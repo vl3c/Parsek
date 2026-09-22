@@ -9665,6 +9665,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "Destroyed in flight, which is the one terminal a live re-fly can "
             "reach. Its header pre-registers per-cell predictions the flight "
             "refutes or confirms. Owes a flight, not a human call",
+        "RF-12S-refly-saves-pre-rewind-boarded-crew.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-22 as the proof "
+            "lane of the endUT tombstone ruling. Flies a before-reading on a main DLL "
+            "(where its discriminating tokens must red) and an after-reading plus an "
+            "armed run on the fixed DLL. Owes flights, not a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -10590,6 +10595,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `tombstones` re-pinned 1 -> 2 on 2026-09-10 off `2026-09-09_2158_CL-4-refly-crew-standin`
                        # (the KerbalDeath reputation penalty row is tombstoned with the death).
                        "CL-4-refly-crew-standin.toml",
+                       # RF-12S: `rewind` armed 2026-09-22 off its after-reading
+                       # `2026-09-22_1931` (supersedeRows 5, tombstones 12); the main-DLL
+                       # before-reading `_1928` read tombstones 10, so the floor is the
+                       # save-side gate on the endUT ruling.
+                       "RF-12S-refly-saves-pre-rewind-boarded-crew.toml",
                        # RF-11: `rewind` armed 2026-09-09 through the full cycle -
                        # reading run `2026-09-09_1631`, armed re-flight `_1659` on the
                        # same three numbers, negative control `_1700` (rewindPoints

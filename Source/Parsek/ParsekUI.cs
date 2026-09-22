@@ -530,8 +530,10 @@ namespace Parsek
         /// </list>
         /// <para>Deliberately ABSENT: <c>recordingsTableUI</c> (survives as the Missions
         /// window), <c>structureListUI</c> (reachable from the Missions and Logistics rows,
-        /// both kept), and the ungated <c>timelineUI</c> / <c>logisticsUI</c> /
-        /// <c>settingsUI</c> / <c>missionsUI</c>.</para>
+        /// both kept), <c>kerbalsUI</c> (drawn in Basic since the 2026-09-22 owner
+        /// re-ruling: it is the only surface that explains why a reserved kerbal is
+        /// missing from stock crew assignment), and the ungated <c>timelineUI</c> /
+        /// <c>logisticsUI</c> / <c>settingsUI</c> / <c>missionsUI</c>.</para>
         /// </summary>
         internal IReadOnlyList<GatedWindowCloseTarget> BuildGatedWindowCloseSet()
         {
@@ -543,12 +545,6 @@ namespace Parsek
                     () => careerStateUI.IsOpen,
                     () => careerStateUI.HasInputLock,
                     () => { careerStateUI.IsOpen = false; careerStateUI.ReleaseInputLock(); }),
-                new GatedWindowCloseTarget(
-                    "Kerbals",
-                    KerbalsWindowUI.KerbalsInputLockId,
-                    () => kerbalsUI.IsOpen,
-                    () => kerbalsUI.HasInputLock,
-                    () => { kerbalsUI.IsOpen = false; kerbalsUI.ReleaseInputLock(); }),
                 new GatedWindowCloseTarget(
                     "GloopsRecorder",
                     GloopsRecorderUI.InputLockId,
@@ -947,10 +943,11 @@ namespace Parsek
                 GUI.color = prevLogisticsColor;
             }
 
-            // --- Kerbals / Career (hidden in Basic, with their LEADING separator) ---
-            // The separator that opens this group is gated with it: in Basic the group
-            // vanishes and the single Space below still divides Logistics from Settings,
-            // so Basic shows one gap there rather than two (design 7.1).
+            // --- Kerbals / Career, with their LEADING separator ---
+            // Kerbals draws in both modes (owner re-ruling 2026-09-22), Career is hidden in
+            // Basic. The separator that opens this group is gated on the group being
+            // non-empty, so Basic shows Logistics, one gap, Kerbals, one gap, Settings -
+            // never two gaps in a row (design 7.1).
             bool showKerbalsButton =
                 UiSurfaceVisibility.IsVisible(UiSurface.MainButtonKerbals, complexity);
             bool showCareerButton =

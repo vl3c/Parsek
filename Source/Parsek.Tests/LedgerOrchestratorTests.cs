@@ -167,6 +167,54 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.ScienceEarning, Ledger.Actions[0].Type);
         }
 
+        private static int AssignmentRows(string recordingId, string kerbal)
+        {
+            int n = 0;
+            foreach (var a in Ledger.Actions)
+                if (a.Type == GameActionType.KerbalAssignment
+                    && a.RecordingId == recordingId && a.KerbalName == kerbal)
+                    n++;
+            return n;
+        }
+
+        // KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY, the RF-12S shape through the real commit
+        // path: two re-fly provisionals of the same slot, 0.02 s apart, same kerbal. Each
+        // files its own death row; before the key the second was dropped as a duplicate
+        // of the first, so a re-fly that killed the crew again lost its own death.
+        [Fact]
+        public void OnRecordingCommitted_TwoRecordingsSameKerbal002sApart_BothKeepTheirRows()
+        {
+            RecordingStore.ResetForTesting();
+            LedgerOrchestrator.Initialize();
+            InstallCrewedRecording("rec-refly-1", KerbalEndState.Dead, "Bill Kerman");
+            InstallCrewedRecording("rec-refly-2", KerbalEndState.Dead, "Bill Kerman");
+
+            bool science = false;
+            LedgerOrchestrator.OnRecordingCommitted("rec-refly-1", 131.88, 429.4, null, ref science);
+            LedgerOrchestrator.OnRecordingCommitted("rec-refly-2", 131.90, 225.7, null, ref science);
+
+            Assert.Equal(1, AssignmentRows("rec-refly-1", "Bill Kerman"));
+            Assert.Equal(1, AssignmentRows("rec-refly-2", "Bill Kerman"));
+        }
+
+        // The mirror direction: a re-commit of the SAME recording (the re-fly merge tail
+        // re-commits recordings already in the ledger) must still dedup its own rows.
+        [Fact]
+        public void OnRecordingCommitted_SameRecordingRecommitted_StillDedups()
+        {
+            RecordingStore.ResetForTesting();
+            LedgerOrchestrator.Initialize();
+            InstallCrewedRecording("rec-refly-1", KerbalEndState.Dead, "Bill Kerman");
+
+            bool science = false;
+            LedgerOrchestrator.OnRecordingCommitted("rec-refly-1", 131.88, 429.4, null, ref science);
+            LedgerOrchestrator.OnRecordingCommitted("rec-refly-1", 131.88, 429.4, null, ref science);
+
+            Assert.Equal(1, AssignmentRows("rec-refly-1", "Bill Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Committed recording 'rec-refly-1'") && l.Contains("dedup=1"));
+        }
+
         // The COMMIT summary, from a real OnRecordingCommitted walk. Until the 2026-09-16
         // audit this cell added a row by hand, called RecalculateAndPatch and asserted the
         // RECALC's completion line - which RecalculateAndPatch_RunsWithoutError below
