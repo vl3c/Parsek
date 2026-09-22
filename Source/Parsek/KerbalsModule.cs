@@ -102,9 +102,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Slack for "the held flight ended at or before the recovery": a recording's end
-        /// and the recovery that follows it are read from the same frozen KSC clock, but a
-        /// recording's EndUT is its last sample, which can trail the scene-exit instant.
+        /// Slack for "the held flight ended at or before the recovery": the recording's end
+        /// (its last sample or scene-exit stamp) and the recovery (the stock event's clock
+        /// read) are taken at different moments of the same scene change, so a pair that
+        /// is one instant in game terms can differ by a frame either way.
         /// </summary>
         internal const double RecoveryClosureEndToleranceSeconds = 1.0;
 

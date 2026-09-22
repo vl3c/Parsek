@@ -1036,6 +1036,19 @@ tables in `LegacyTreeMigrationTests`, `SupersedeCommitTests`, `RecalculationFuzz
 still holds: a later Recovered flight in a different tree is not a recovery of the Aboard
 flight's vessel.
 
+**Live proof (2026-09-23, automation DLL verified to carry the new literals before each
+flight).** `L3-career-science-recover` run `2026-09-22_2325` PASS attempt 1: the commit walk
+still re-reserves Jeb (`Reservation re-reserved: 'Jebediah Kerman' endUT=INDEFINITE
+nowUT=347.2`, `Stand-in generated: 'Valdas Kerman'`), then the recovery writes `Crew
+reservation closed by recovery: 'Jebediah Kerman' recoveryUT=347.3
+recordingId=9dbe6297... vessel='Jumping Flea' openHolds=1`, the walk logs `Reservation
+bounded by recovery` and `Reservation released: 'Jebediah Kerman' endUT=347.3 nowUT=347.3`,
+and `Stand-in 'Valdas Kerman' displaced -> deleted (unused)`. No later walk re-reserves him;
+the produced save has Jeb `state = Available`, the stand-in only as a persisted chain name,
+and the `type = 34` row in `ledger.pgld`. `CL-4-refly-crew-standin` run `2026-09-22_2332`
+PASS attempt 1: the re-fly still generates its required stand-in (`Stand-in generated:
+'Caller Kerman' (Pilot) for slot 'Jebediah Kerman' depth 0`), and no recovery row is written.
+
 **Residual (not fixed).** (1) The spawned-vessel arm (a Parsek-spawned vessel recovered
 from the Tracking Station, or flown home through a switch continuation) is unit-proven
 only: it needs the Aboard flight's `SpawnedVesselPersistentId` to still name the live pid
