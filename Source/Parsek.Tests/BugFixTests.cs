@@ -322,23 +322,64 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Verifies the fallback chain pattern used in DestroyGhost and HandleGhostDestroyed:
-        /// state?.vesselName ?? traj?.VesselName ?? "Unknown"
+        /// DestroyGhost names the ghost state?.vesselName ?? traj?.VesselName ?? "Unknown"
+        /// through GhostPlaybackEngine.ResolveDestroyedGhostName. Both names are present
+        /// here, so the state name winning is the ordering claim.
         /// </summary>
         [Fact]
-        public void VesselName_FallbackChain_UsesStateFirst()
+        public void DestroyedGhostName_FallbackChain_UsesStateFirst()
         {
             var state = new GhostPlaybackState { vesselName = "From State" };
-            string name = state.vesselName ?? "Unknown";
-            Assert.Equal("From State", name);
+            var traj = new Recording { VesselName = "From Traj" };
+            Assert.Equal("From State", GhostPlaybackEngine.ResolveDestroyedGhostName(state, traj));
         }
 
         [Fact]
-        public void VesselName_FallbackChain_FallsToDefault()
+        public void DestroyedGhostName_FallbackChain_FallsToTrajectoryThenDefault()
         {
-            var state = new GhostPlaybackState(); // vesselName is null
-            string name = state.vesselName ?? "Unknown";
-            Assert.Equal("Unknown", name);
+            var unnamed = new GhostPlaybackState();
+            Assert.Equal("From Traj",
+                GhostPlaybackEngine.ResolveDestroyedGhostName(unnamed, new Recording { VesselName = "From Traj" }));
+            Assert.Equal("Unknown", GhostPlaybackEngine.ResolveDestroyedGhostName(unnamed, null));
+            Assert.Equal("Unknown", GhostPlaybackEngine.ResolveDestroyedGhostName(null, null));
+        }
+
+        /// <summary>
+        /// Spelling witness (source-gated, fixture-limited): DestroyGhost itself cannot run
+        /// headless (its resource teardown calls Unity), so the pure helper above is pinned
+        /// directly and this gate pins that DestroyGhost's own body is where it is called.
+        /// </summary>
+        [Fact]
+        public void DestroyGhost_NamesTheGhostThroughResolveDestroyedGhostName()
+        {
+            string path = LocateEngineSource();
+            Assert.True(System.IO.File.Exists(path), $"GhostPlaybackEngine.cs not found at {path}");
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(
+                System.IO.File.ReadAllText(path).Replace("\r\n", "\n"));
+
+            const string decl = "internal void DestroyGhost(int index, IPlaybackTrajectory traj = null,";
+            int declIdx = prepared.IndexOf(decl, StringComparison.Ordinal);
+            Assert.True(declIdx >= 0, "DestroyGhost declaration not found");
+            Assert.Equal(declIdx, prepared.LastIndexOf(decl, StringComparison.Ordinal));
+            string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', declIdx));
+
+            const string call = "string name = ResolveDestroyedGhostName(state, traj);";
+            int callIdx = body.IndexOf(call, StringComparison.Ordinal);
+            Assert.True(callIdx >= 0, "DestroyGhost no longer names the ghost through ResolveDestroyedGhostName");
+            Assert.Equal(callIdx, body.LastIndexOf(call, StringComparison.Ordinal));
+        }
+
+        private static string LocateEngineSource()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = System.IO.Path.Combine(dir, "Source", "Parsek", "GhostPlaybackEngine.cs");
+                if (System.IO.File.Exists(candidate)) return candidate;
+                dir = System.IO.Path.GetDirectoryName(dir);
+            }
+            return System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Parsek", "GhostPlaybackEngine.cs"));
         }
     }
 

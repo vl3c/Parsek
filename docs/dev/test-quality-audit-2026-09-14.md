@@ -2065,6 +2065,184 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `DisassembledTerminalStateTests`, `SessionSuppressionWiringTests`): 149 passed / 0
     failed before, 148 passed / 0 failed after - exactly the one removed cell.
 
+- `testfix-low-02` (2026-09-22): Low T1 slice 2 (`work/phase-b-slice-low-t1-02.txt`, 16
+  ids: 3 `recording-tree`, 2 each `catchall`, `legacy-bugfix`, `recorder-events`,
+  `rewind-refly`, 1 each `map-render`, `mission-groups`, `spawn-vessel`,
+  `trajectory-orbit`, `wiring-gates`). Counted the slice-4 way: 11 strengthened, of which 5
+  renamed; 3 deleted; 0 deferred; 2 premise-wrong. Three cells were added (one mirror, two
+  call-site source gates, both "source-gated, fixture-limited"), two siblings were re-aimed
+  alongside their row, and four siblings were deleted as subsumed (each green under every
+  mutant tried, its claim carried by the re-aimed row). Two behaviour-identical extractions:
+  `GhostPlaybackEngine.ResolveDestroyedGhostName` and `ParsekFlight.WireBreakupIntoTree`;
+  every class that reads either production file re-ran green (427 and 857 cells). Per
+  commit, derived from `git diff origin/main...HEAD -- Source/Parsek.Tests`: 8f27c01a8 4
+  renames + 2 new + 2 deletions, 943e05977 2 renames + 2 deletions, 9cba48eca 2 deletions,
+  23d453c2f 1 deletion, ee289af56 1 new. Each row has a proof row in `mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against the branch tip.
+  - Strengthened: F-catchall-050-02 / -03 (renamed `CodecLoad_*`: the cells loaded through
+    `ParsekScenario.LoadRecordingMetadataForTests`, whose Save/Load pair has NO production
+    caller; they now load through `RecordingTreeRecordCodec.LoadRecordingFrom` into a
+    pre-seeded target and with orphan orbit keys, plus the mirror
+    `CodecRoundTrip_LocationFields_Survive`), F-legacy-bugfix-001-01 (renamed; the
+    `FallsToDefault` sibling re-aimed with it), F-legacy-bugfix-025-03 (save through
+    `SaveRecordingFilesToPathsForTesting`; the out-of-band sibling re-aimed as the
+    incrementEpoch=false mirror), F-map-render-027-01 (renamed; raw 0x81 / 0x80 through the
+    binary codec - 73 flag / sidecar cells were green under a reserved-bit-masking reader),
+    F-mission-groups-013-03 (renamed; the register's "no negative duration is
+    constructible" is wrong: ExplicitStartUT alone reads StartUT=500, EndUT=0),
+    F-recorder-events-024-03 (GameEvents Add/Remove run headless, contrary to the cell's own
+    comment), F-recording-tree-027-02, F-rewind-refly-009-02, F-trajectory-orbit-016-01 (a
+    consistent order flip on both encode and decode was green across 1,511 relative /
+    anchor / debris cells) and F-wiring-gates-003-03.
+  - Deleted, twin reds under the row's mutant across every class reaching the method:
+    F-recording-tree-027-01 (`RecordingFieldExtensionTests.MaxDistanceFromLaunch_RoundTrip_PreservedAcrossReload`),
+    F-recording-tree-028-01 (`CrewReplacementTests.SaveCrewReplacements_WithData_RoundTrips`),
+    F-spawn-vessel-013-03 (`SeedUT_RecordingStartUTInFuture_ReturnsCurrentUT`; at equality
+    both branches return the same value, and the `>=` -> `>` mutant is green class-wide).
+  - Premise-wrong, kept: F-recorder-events-007-02 (the before-start return in
+    `GetActiveCycles` is an equivalent mutant next to the `lastActiveCycle` clamp; the cell
+    pins the output and reds only when both go; the proposed TryCompute pin already exists
+    as the currentUT=99 theory row; a comment now says so) and F-rewind-refly-020-04
+    (already re-aimed by 8d0c07363, after the audit snapshot; reds under the row's mutant
+    with no edit).
+  - Follow-up, not done here: `ParsekScenario.SaveRecordingMetadata` /
+    `LoadRecordingMetadataForTests` are test-only (11 test files use them), so every other
+    cell built on that pair pins a copy of the codec rather than the codec. CLOSED by
+    `retarget-recording-metadata-tests` (2026-09-22): every such cell now drives
+    `RecordingTree.SaveRecordingInto` / `LoadRecordingFrom`, the pair is deleted, and the one
+    key the codec lacks is filed as LOOP-TIME-UNIT-NOT-PERSISTED.
+- `testfix-low-03` (2026-09-22): Low T1 slice 3, the remainder of slice 1
+  (`work/phase-b-slice-low-t1-03.txt`, 14 ids; slice 1's other two rows,
+  F-analyzer-002-02 and F-rewind-refly-019-02, are on `testfix-low-01`). Counting rule:
+  every kept row is strengthened, and a rename is a SUBSET of that. Slice total: 11
+  strengthened, 5 of those also renamed (one split into two cells), 3 deleted, 0
+  premise-wrong. Per-commit split, derived from the diff: 4 rows (`429e2e205`), 4 rows
+  (`6de00c759`, one deletion), 4 rows (`bcadedb4d`, two deletions), 2 rows (`b1f13d313`).
+  Each row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  that `git apply --check`s against this branch. Two behaviour-identical extractions:
+  `ParsekUI.ComposeScrollbarGutterWidth` and `FlightRecorder.FormatGrowthRateAtStop`; the
+  two patches that mutate them apply on top of those extractions.
+  - Renamed (each also strengthened): F-catchall-040-02 ->
+    `OnRailsSoiTransition_ProducerClosesAndOpensAtTheOneBoundaryUT` (drives
+    `TransitionTrackSectionAtSoiBoundary`, which picks both boundary UTs from one input);
+    F-ghost-playback-015-01 ->
+    `TheNumbersAreInvariantFormatted_UnderACultureWithANonAsciiMinusSign` (every token is
+    an int, so only the negative sign can separate invariant from culture formatting, and
+    recIdx -1 is a real input); F-harness-seam-008-01 ->
+    `AutorunEnv_IsReadOnlyInParseAutorunConfigOnce_WhichOnlyAwakeCalls` (source-gated,
+    fixture-limited: the read-once caller is a MonoBehaviour); F-recording-tree-052-08 ->
+    `CommitScienceSubjects_EqualValue_RetainsValueAndIsNotCountedAsAnUpdate` (the register
+    proposed DELETE; declined, because the equal value is the only input separating `>`
+    from `>=`, and a `>=` mutant was green across `CommittedScienceDictTests` and
+    `GameStateEventTests` - the `updated` counter in the commit summary is the witness);
+    F-rewind-refly-019-01 -> split into
+    `NullProvisional_WithInPlaceMarker_ReturnsWithoutTouchingTheCommittedTree` and
+    `NullMarker_WithProvisional_ReturnsWithoutTouchingTheCommittedTree`, each red under its
+    own single-guard deletion.
+  - Strengthened in place: F-catchall-023-03 (header padding through the shipped gutter
+    rule), F-ledger-career-015-05 / -015-06 (drive `ApplyToRoster` over the class's fake
+    facade, which now records `TryRecreateStandIn` requests; the two rows need mirror
+    mutants - deleting the call-site guard, and skipping every displaced entry - because
+    each leaves the other cell green), F-logging-004-01 (the production formatter's exact
+    line under de-DE), F-recorder-events-001-02 (event-free roundtrip through the
+    production codec), F-recorder-events-001-04 (`RecordingTree.LoadRecordingFrom` over a
+    `BuildV3Metadata` node: a legacy `Build()` node is rejected by the schema gate before
+    the linkage keys are read, which kept the first attempt green under the mutant).
+  - Deleted, each after its named twin red under the row's mutant across every class
+    reaching the method while the deleted cell stayed green:
+    F-legacy-bugfix-020-01 (twin `HybridSpike_TotalBelowBudget_DoesNotFireBreakdown`;
+    the hybrid `totalMs > 0 ? ... : "n/a"` fraction sentinels are unreachable behind the
+    8 ms budget guard - a mutant rewriting one leaves all 70 cells of the five breakdown
+    classes green - and the proposed mainLoop replacement already exists as
+    `Bug460MainLoopBreakdownTests.ZeroTrajectoriesAndOverlap_RendersMeanAsNa`),
+    F-logistics-route-035-01 (twin
+    `TheRelayIsEligibleWithRoverBAsTheSourceAndLanderAAsTheDestination`; the dump's
+    `ITestOutputHelper` constructor and `FormatDouble` helper went with it),
+    F-recorder-events-001-05 (twin `PartEvents_SerializationRoundtrip_LightOn`).
+  - Filtered classes after the slice: `TableRowInsetAlignmentTests` 9,
+    `ReferenceFrameTrackingTests` 20, `GhostPartEventApplyLogTests` 28,
+    `AutorunHooksTests` 73, `KerbalReservationTests` 64, `Bug581HybridBreakdownTests` 14
+    (15 before), `ObservabilityLoggingTests` 18, `RoverRelayCOracleTests` 3 (4 before),
+    `PartEventTests` 164 (165 before), `CommittedScienceDictTests` 7,
+    `MergeJournalForkMigrationTests` 6 (5 before), all passed / 0 failed.
+- `testfix-low-01` (2026-09-16, OPEN, do not merge until reviewed): the Low T1 sweep's
+  first slice is PARTIAL - 2 of 16 rows proven and landed; the remaining 14 wait on
+  dedicated implementer dispatches (`work/phase-b-slice-low-t1-01.txt`).
+  - F-analyzer-002-02, strengthened + renamed
+    `Key_SameFindingTwice_IsStable` -> `Key_SeparateInstancesSameShape_EqualKeys_RuleStillDistinguishes`:
+    the cell compared `KeyOf(f)` with itself. It now keys two separate findings with
+    numerically drifted messages (equal keys) and a different RuleId (different key).
+    RED under both mutants (17 passed / 3 failed each: the named cell plus two pre-existing
+    Gate / Apply / MultiMatch cells that also key findings): the register's default-key stub
+    (`mutations/F-analyzer-002-02-default-phaseB.patch`) and a digest-mask drop
+    (`mutations/F-analyzer-002-02-phaseB.patch`). The old cell stays GREEN under the
+    default-key stub.
+  - F-rewind-refly-019-02, strengthened: `EmptyRpId_ReturnsZero` became a Theory over
+    null and empty rpId, each with an orphan whose own `ProvisionalForRpId` matches the
+    call, plus a no-reap log assertion. RED 0 passed / 2 failed under the register's
+    deleted-early-return mutant (`mutations/F-rewind-refly-019-02-phaseB.patch`);
+    restored class 8 passed / 0 failed. Earlier GREEN mutant runs came from a stale
+    testhost and are superseded; the trace-confirmed RED run is recorded.
+  - No production change; both patches revert to the base tree. Serialized full suite:
+    23,820 passed / 0 failed / 1 skipped.
+
+- `testfix-low-04`, Low T1 slice 4 (2026-09-22): all 16 rows of
+  `work/phase-b-slice-low-t1-04.txt` (5 `catchall`, 3 `legacy-bugfix`, 3 `map-render`, 2 `ledger-career`, 1 `ghost-playback`,
+  1 `harness-seam`, 1 `logistics-route`). Counted the slice-4 way: 12 strengthened, of
+  which 5 renamed; 4 deleted; 0 deferred; 0 premise-wrong. One sibling cell was added.
+  Per commit, derived from `git diff origin/main...HEAD -- Source/Parsek.Tests`:
+  d01a4c7d1 six Facts folded into two Theories + 1 new cell, adae178a2 1 rename + 1
+  deletion, c560ecb80 1 rename + 1 deletion, 4a08cc759 2 renames + 1 deletion. Each row
+  has a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and
+  a `*-phaseB.patch` that `git apply --check`s against a clean tree.
+  - Given the production term the name claims (7): F-catchall-022-01 (the three Patch*
+    call sites now select their session toast latch through the behaviour-identical
+    `KspStatePatcher.DrawdownGuardSessionToastLatch`; the cell emits through all six
+    statics and requires the reset to re-arm each, where it used to re-arm its own local);
+    F-catchall-023-01 (a NON-zero pid after the reset, with a call-counting override that
+    must not be consulted, plus the guid resolver half); F-catchall-031-02 (Assert.Equal,
+    and a null-only mutant reds the named cell alone); F-harness-seam-002-02 (a real
+    `InGameTestRunner(null)` - discovery needs no host - so `ClearAllSceneHistory`'s own
+    flag decides; half the gap had already closed on main in ecb1ec1d9);
+    F-ledger-career-008-01 (a bare CREW node, so only `DeserializeFrom`'s defaults can
+    answer); F-map-render-011-01 (two candidates at distinct UTs, emitted in reverse UT
+    order); F-legacy-bugfix-024-01 (source-gated, fixture-limited: the three
+    `PersistFinalizedRecording` context literals are read from their own brace-matched
+    method bodies, one call per body, declaration anchored once).
+  - Renamed to what they prove (5): F-ledger-career-007-04
+    (`AddEvent_NonResourceEvents_AppendInArrivalOrder`; the "most recent facility" scan
+    was test-local); F-legacy-bugfix-008-01
+    (`ConvertMilestoneAchieved_UnparsableDetail_ZeroRewardsWithoutThrowing`; a
+    well-formed zero cannot tell parsed from never-parsed, so the Theory feeds details the
+    parse must reject); F-logistics-route-025-01
+    (`FormatSourceRecordingDisplay_LargePosition_NoThousandsSeparator`; dropping
+    InvariantCulture is value-equivalent for a positive int, recorded GREEN before and
+    after); F-map-render-025-01 (`AnchorSourceAndSide_AreByteBacked`); F-catchall-031-01
+    (the three `ShouldRecordFlagEvent` Facts fold into
+    `ShouldRecordFlagEvent_NullVessel_ReturnsFalse` over three placedBy values: no headless
+    Vessel passes the null check, and the register's mutant is value-equivalent because
+    `CrewContainsKerbalNamed` rejects an empty name on its own - the new
+    `CrewContainsKerbalNamed_NullOrEmptyName_ReturnsFalse` pins that guard and is the proof).
+  - Deleted in favour of a named twin (3): F-ghost-playback-018-01 (twin
+    `GhostPlaybackEngineTests.ClearLoadedVisualReferences_ResetsPendingSplitBuildState`) and
+    F-legacy-bugfix-020-02 (twin `HealthCounters_Reset_ZerosReentryFxDeferred`): under a
+    mutant where the default value matters, each twin is the only red across every class
+    that reaches the SUT. F-map-render-025-02 (twins
+    `AllowAnchorCorrection_NoAnchorInStore_ReturnsFalse` / `_WrongSection_ReturnsFalse`):
+    the twins are NOT the only reds. Under its patch (TryLookup reports a miss as found)
+    17 cells fail, 439 passed / 17 failed: the two named twins, three
+    `RenderSessionStateTests.TryLookup_*` cells, one `EnsurePassIntegrityTests` cell and
+    eleven `AnchorPropagationTests`; the deleted cell was green among the passes.
+  - Deleted with the coverage gap still OPEN (1): F-catchall-060-02. The two redundant
+    wheel-damage cells fold into the null-transform cell
+    (`IsRendererOnDamagedTransform_NullTransform_ReturnsFalseForAnyNames`), but no cell reds
+    under any mutant of the guard: deleting the names clause, the transform check, or the
+    whole guard all stay green, because the ancestor walk's own null test answers false for
+    a null start. The register's "red by NullReferenceException" is wrong. The guard's names
+    half and the parent walk need a live Transform; the in-game cell the register proposed
+    is filed as `TQ-2-wheel-damage-guard-needs-live-transform` in `todo-and-known-bugs.md`.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

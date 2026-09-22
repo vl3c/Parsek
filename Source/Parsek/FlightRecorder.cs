@@ -8230,12 +8230,7 @@ namespace Parsek
             if (DiagnosticsState.hasActiveGrowthRate)
             {
                 var finalGr = DiagnosticsState.activeGrowthRate;
-                ParsekLog.Verbose("Diagnostics",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Recording growth rate at stop: {0} points, {1} events, {2:F1}s elapsed, " +
-                        "{3:F2} pts/s, {4:F2} evts/s, est {5} bytes",
-                        finalGr.totalPoints, finalGr.totalEvents, finalGr.elapsedSeconds,
-                        finalGr.pointsPerSecond, finalGr.eventsPerSecond, finalGr.estimatedFinalBytes));
+                ParsekLog.Verbose("Diagnostics", FormatGrowthRateAtStop(finalGr));
                 DiagnosticsState.hasActiveGrowthRate = false;
             }
 
@@ -9971,6 +9966,19 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Recorder", "recorded-point",
                     $"Recorded point #{Recording.Count}: {point}", 5.0);
             }
+        }
+
+        /// <summary>
+        /// The one-line growth-rate summary FinalizeRecordingState logs when a recording
+        /// stops. Invariant-formatted: the elapsed time and both rates are doubles.
+        /// </summary>
+        internal static string FormatGrowthRateAtStop(RecordingGrowthRate gr)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Recording growth rate at stop: {0} points, {1} events, {2:F1}s elapsed, " +
+                "{3:F2} pts/s, {4:F2} evts/s, est {5} bytes",
+                gr.totalPoints, gr.totalEvents, gr.elapsedSeconds,
+                gr.pointsPerSecond, gr.eventsPerSecond, gr.estimatedFinalBytes);
         }
 
         /// <summary>

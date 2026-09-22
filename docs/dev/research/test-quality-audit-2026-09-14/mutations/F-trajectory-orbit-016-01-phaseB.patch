@@ -1,0 +1,22 @@
+diff --git a/Source/Parsek/TrajectoryMath.RelativeFrame.cs b/Source/Parsek/TrajectoryMath.RelativeFrame.cs
+index 8e168d896..bd8c3374b 100644
+--- a/Source/Parsek/TrajectoryMath.RelativeFrame.cs
++++ b/Source/Parsek/TrajectoryMath.RelativeFrame.cs
+@@ -49,7 +49,7 @@ namespace Parsek
+             Quaternion anchorWorldRotation)
+         {
+             Quaternion anchorInverse = PureInverse(PureNormalize(anchorWorldRotation));
+-            return SanitizeQuaternion(PureMultiply(anchorInverse, focusWorldRotation));
++            return SanitizeQuaternion(PureMultiply(focusWorldRotation, anchorInverse));
+         }
+ 
+         /// <summary>
+@@ -61,7 +61,7 @@ namespace Parsek
+             Quaternion relativeLocalRotation)
+         {
+             return SanitizeQuaternion(
+-                PureMultiply(PureNormalize(anchorWorldRotation), relativeLocalRotation));
++                PureMultiply(relativeLocalRotation, PureNormalize(anchorWorldRotation)));
+         }
+ 
+         /// <summary>

@@ -32,23 +32,31 @@ namespace Parsek.Tests
         // CommitScienceSubjects edge case: equal value re-commit
         // ================================================================
 
+        // The equal value is the BOUNDARY of the strict max-wins guard: the stored value
+        // cannot tell `>` from `>=` or from an unconditional write (all leave 5.0), so the
+        // witness is the commit summary's `updated` counter, which only a strict `>` keeps
+        // at 0 for an equal re-commit. The lower/higher cases live in GameStateEventTests
+        // (CommitScienceSubjects_LowerValueIgnored / _MaxWins).
         [Fact]
-        public void CommitScienceSubjects_EqualValue_DictionaryRetainsValue()
+        public void CommitScienceSubjects_EqualValue_RetainsValueAndIsNotCountedAsAnUpdate()
         {
-            // Commit X=5.0, then commit X=5.0 again. The > guard means
-            // the second commit doesn't update, but the value should still be 5.0.
             var batch1 = new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f }
             };
             ScienceTestHelpers.CommitScienceSubjects(batch1);
+            Assert.Contains(logLines, l => l.Contains("[GameStateStore]")
+                && l.Contains("CommitScienceActions: 1 added, 0 updated, skipped=0 (total=1)"));
 
+            logLines.Clear();
             var batch2 = new List<PendingScienceSubject>
             {
                 new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 5.0f }
             };
             ScienceTestHelpers.CommitScienceSubjects(batch2);
 
+            Assert.Contains(logLines, l => l.Contains("[GameStateStore]")
+                && l.Contains("CommitScienceActions: 0 added, 0 updated, skipped=0 (total=1)"));
             float sci;
             bool found = GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLanded", out sci);
             Assert.True(found);

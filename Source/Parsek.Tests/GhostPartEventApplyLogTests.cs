@@ -154,18 +154,31 @@ namespace Parsek.Tests
             }
         }
 
+        /// <summary>
+        /// Every number in the line is an integer, and the default integer format uses
+        /// no decimal or group separator in ANY culture, so a comma-decimal culture alone
+        /// cannot tell an invariant format from a culture-sensitive one. The one integer
+        /// symbol a culture does own is the negative sign, and <c>recIdx = -1</c> is a
+        /// real input (the in-game signal tests apply part events with no committed
+        /// index). The current culture here is de-DE with its minus sign swapped for
+        /// U+2212, so only the <c>CultureInfo.InvariantCulture</c> argument in
+        /// <c>FormatLine</c> keeps the token ASCII and whitespace-split parseable.
+        /// </summary>
         [Fact]
-        public void TheNumbersAreInvariantFormatted_UnderACommaDecimalCulture()
+        public void TheNumbersAreInvariantFormatted_UnderACultureWithANonAsciiMinusSign()
         {
             CultureInfo saved = Thread.CurrentThread.CurrentCulture;
             try
             {
-                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                var culture = (CultureInfo)new CultureInfo("de-DE").Clone();
+                culture.NumberFormat.NegativeSign = "\u2212";
+                Thread.CurrentThread.CurrentCulture = culture;
                 string line = GhostPartEventApplyLog.FormatLine(
                     PartEventType.EngineThrottle, GhostPartEventSurface.EngineFx,
-                    recIdx: 1234, pid: 4294967295u, applied: 1000, skipped: 2000,
+                    recIdx: -1, pid: 4294967295u, applied: 1000, skipped: 2000,
                     reason: GhostPartEventOutcome.Applied);
-                Assert.Contains("rec=1234 pid=4294967295 applied=1000 skipped=2000", line);
+                Assert.Contains("rec=-1 pid=4294967295 applied=1000 skipped=2000", line);
+                Assert.DoesNotContain("\u2212", line);
                 Assert.DoesNotContain(".", line.Substring(line.IndexOf("rec=", StringComparison.Ordinal)));
                 Assert.DoesNotContain(",", line);
             }

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 4068c7e92..17246de55 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -11864,7 +11864,7 @@ namespace Parsek
+ 
+         internal static bool CrewContainsKerbalNamed(List<ProtoCrewMember> crew, string kerbalName)
+         {
+-            if (string.IsNullOrEmpty(kerbalName) || crew == null)
++            if (crew == null)
+                 return false;
+ 
+             for (int i = 0; i < crew.Count; i++)

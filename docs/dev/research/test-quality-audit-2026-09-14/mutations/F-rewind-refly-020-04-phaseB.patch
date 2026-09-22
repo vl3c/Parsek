@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..aabf7e9c3 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -4928,9 +4928,6 @@ namespace Parsek
+             PendingCleanupPids = null;
+             PendingCleanupNames = null;
+             PendingRevertPreExistingPids = null;
+-            ParsekLog.Info("Rewind",
+-                "OnLoad: cleared PendingCleanupPids/Names after strip - " +
+-                "prevents OnFlightReady from destroying freshly-spawned past vessels");
+         }
+ 
+         /// <summary>

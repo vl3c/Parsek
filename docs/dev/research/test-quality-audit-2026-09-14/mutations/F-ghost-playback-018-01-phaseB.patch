@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackState.cs b/Source/Parsek/GhostPlaybackState.cs
+index ab0c4615b..e56b4e8ba 100644
+--- a/Source/Parsek/GhostPlaybackState.cs
++++ b/Source/Parsek/GhostPlaybackState.cs
+@@ -234,7 +234,7 @@ namespace Parsek
+             horizonProxy = null;
+             pendingVisualBuild = null;
+             pendingSpawnLifecycle = PendingSpawnLifecycle.None;
+-            pendingSpawnFlags = default;
++
+             hadVisibleRenderersLastFrame = false;
+             initialRelativeActivationHiddenPrimed = false;
+             initialRelativeActivationHiddenFramesRemaining = 0;

@@ -110,16 +110,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TotalDuration_SkipsZeroDurationRecordings()
+        public void TotalDuration_SkipsNonPositiveDurations()
         {
-            // MakeRec(100, 50) produces a single-point recording (endUT <= startUT),
-            // so StartUT == EndUT == 100, giving duration 0 which is excluded.
+            // A recording with no trajectory data and only ExplicitStartUT set reads
+            // StartUT = 500 and EndUT = 0 (Recording's no-data fallback), a NEGATIVE
+            // duration; the dur > 0 guard must drop it rather than subtract 500 s.
+            // The single-point recording (duration exactly 0) rides along for the
+            // zero case, which sums the same either way.
+            var dataless = new Recording { VesselName = "Dataless", ExplicitStartUT = 500 };
+            Assert.Equal(-500, dataless.EndUT - dataless.StartUT);
             var committed = new List<Recording>
             {
-                MakeRec(100, 50),   // 0s (single point), skipped
+                MakeRec(100, 50),   // 0s (single point)
+                dataless,           // -500s, skipped
                 MakeRec(200, 300)   // 100s
             };
-            var descendants = new HashSet<int> { 0, 1 };
+            var descendants = new HashSet<int> { 0, 1, 2 };
             double result = ParsekUI.GetGroupTotalDuration(descendants, committed);
             Assert.Equal(100, result);
         }

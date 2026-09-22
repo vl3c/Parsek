@@ -466,28 +466,11 @@ namespace Parsek.Tests
         #endregion
 
         // ===================================================================
-        // TrajectoryPlaybackFlags — struct field defaults and assignment
+        // TrajectoryPlaybackFlags - struct field assignment (default-clear is pinned by
+        // GhostPlaybackEngineTests.ClearLoadedVisualReferences_ResetsPendingSplitBuildState)
         // ===================================================================
 
         #region TrajectoryPlaybackFlags
-
-        [Fact]
-        public void TrajectoryPlaybackFlags_DefaultValues()
-        {
-            var flags = new TrajectoryPlaybackFlags();
-            Assert.False(flags.skipGhost);
-            Assert.False(flags.isMidChain);
-            Assert.Equal(0.0, flags.chainEndUT);
-            Assert.False(flags.needsSpawn);
-            Assert.False(flags.isActiveChainMember);
-            Assert.False(flags.isChainLooping);
-            Assert.Null(flags.segmentLabel);
-            Assert.Null(flags.recordingId);
-            Assert.Equal(0u, flags.vesselPersistentId);
-            Assert.False(flags.sessionSuppressedRenderCarveOutEligible);
-            Assert.False(flags.sessionSuppressed);
-            Assert.False(flags.anchorReFlyUnstable);
-        }
 
         [Fact]
         public void TrajectoryPlaybackFlags_AllFieldsSettable()

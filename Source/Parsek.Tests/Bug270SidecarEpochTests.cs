@@ -129,35 +129,79 @@ namespace Parsek.Tests
             Assert.True(skipped);
         }
 
-        // --- Epoch increment in SaveRecordingFiles scenario ---
+        // --- Epoch increment in the real SaveRecordingFiles path ---
+        //
+        // These drive RecordingSidecarStore's save body (through
+        // RecordingStore.SaveRecordingFilesToPathsForTesting) and read the epoch the .prec
+        // actually carries, so the incrementEpoch contract decides the verdict rather than
+        // a SidecarEpoch++ written in the test.
+
+        private static Recording MakeEpochRecording(string id)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 0
+            };
+        }
+
+        private static string NewTempDir()
+        {
+            string dir = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "parsek-bug270-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private static void DeleteTempDir(string dir)
+        {
+            try { System.IO.Directory.Delete(dir, true); }
+            catch (System.IO.IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        private static int SaveAndProbeEpoch(Recording rec, string dir, bool incrementEpoch)
+        {
+            string prec = System.IO.Path.Combine(dir, rec.RecordingId + ".prec");
+            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                rec, prec,
+                System.IO.Path.Combine(dir, rec.RecordingId + "_vessel.craft"),
+                System.IO.Path.Combine(dir, rec.RecordingId + "_ghost.craft"),
+                incrementEpoch));
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(prec, out probe));
+            return probe.SidecarEpoch;
+        }
 
         [Fact]
         public void SidecarEpoch_IncrementedOnSave_MatchesSfsAfterSaveSequence()
         {
-            // Simulate the save sequence: SaveRecordingFiles increments epoch,
-            // then SaveRecordingInto writes the same epoch to .sfs
-            var rec = new Recording
+            // Two OnSave writes (incrementEpoch=true): each advances the epoch before the
+            // .prec is written, so the .sfs written afterwards carries the same number.
+            string dir = NewTempDir();
+            try
             {
-                RecordingId = "test-sequence",
-                SidecarEpoch = 0
-            };
+                var rec = MakeEpochRecording("test-sequence");
 
-            // Simulate SaveRecordingFiles incrementing the epoch
-            rec.SidecarEpoch++;
-            Assert.Equal(1, rec.SidecarEpoch);
+                Assert.Equal(1, SaveAndProbeEpoch(rec, dir, incrementEpoch: true));
+                Assert.Equal(1, rec.SidecarEpoch);
+                Assert.Equal(2, SaveAndProbeEpoch(rec, dir, incrementEpoch: true));
+                Assert.Equal(2, rec.SidecarEpoch);
 
-            // SaveRecordingInto would write this to .sfs
-            var sfsNode = new ConfigNode("RECORDING");
-            RecordingTree.SaveRecordingInto(sfsNode, rec);
+                var sfsNode = new ConfigNode("RECORDING");
+                RecordingTree.SaveRecordingInto(sfsNode, rec);
+                var restored = new Recording();
+                RecordingTree.LoadRecordingFrom(sfsNode, restored);
 
-            // On load, .sfs epoch should match what was written to .prec
-            var restored = new Recording();
-            RecordingTree.LoadRecordingFrom(sfsNode, restored);
-            Assert.Equal(1, restored.SidecarEpoch);
-
-            // And the validation should pass
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(restored, 1);
-            Assert.False(skipped);
+                Assert.Equal(2, restored.SidecarEpoch);
+                Assert.False(RecordingStore.ShouldSkipStaleSidecar(restored, 2));
+            }
+            finally
+            {
+                DeleteTempDir(dir);
+            }
         }
 
         // --- Bug #290: out-of-band writes must not drift epoch ---
@@ -165,98 +209,31 @@ namespace Parsek.Tests
         [Fact]
         public void OutOfBandWrite_PreservesEpoch_MatchesAfterQuickload()
         {
-            // Simulate: OnSave (epoch 0->1), BgRecorder write (no increment),
-            // quickload validates .sfs epoch 1 vs .prec epoch 1 → match
-            var rec = new Recording
+            // The .sfs of the last OnSave carries epoch 1; a later out-of-band write
+            // (BgRecorder, scene-exit force-write: incrementEpoch=false) must rewrite the
+            // .prec at the SAME epoch, or the quickload of that .sfs reads it as stale.
+            string dir = NewTempDir();
+            try
             {
-                RecordingId = "test-oob",
-                SidecarEpoch = 0
-            };
+                var rec = MakeEpochRecording("test-oob");
+                rec.SidecarEpoch = 1;
 
-            // OnSave: increment epoch (simulates SaveRecordingFiles default)
-            rec.SidecarEpoch++;
-            int onSaveEpoch = rec.SidecarEpoch; // 1
+                var sfsNode = new ConfigNode("RECORDING");
+                RecordingTree.SaveRecordingInto(sfsNode, rec);
 
-            // Write epoch to .sfs
-            var sfsNode = new ConfigNode("RECORDING");
-            RecordingTree.SaveRecordingInto(sfsNode, rec);
+                int precEpochAfterOob = SaveAndProbeEpoch(rec, dir, incrementEpoch: false);
+                Assert.Equal(1, precEpochAfterOob);
+                Assert.Equal(1, rec.SidecarEpoch);
 
-            // BgRecorder out-of-band write: no increment (simulates incrementEpoch: false)
-            // epoch stays at 1
-            int precEpochAfterOob = rec.SidecarEpoch; // still 1
-
-            // Quickload: restore from .sfs
-            var loaded = new Recording();
-            RecordingTree.LoadRecordingFrom(sfsNode, loaded);
-            Assert.Equal(1, loaded.SidecarEpoch);
-
-            // Validate: .prec epoch matches .sfs epoch
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(loaded, precEpochAfterOob);
-            Assert.False(skipped);
-        }
-
-        [Fact]
-        public void MultipleOnSaveIncrements_AllMatchAfterQuickload()
-        {
-            // Simulate: two OnSave cycles (epoch 0->1->2), then quickload
-            // from the second save. .sfs and .prec both at epoch 2.
-            var rec = new Recording
+                var loaded = new Recording();
+                RecordingTree.LoadRecordingFrom(sfsNode, loaded);
+                Assert.Equal(1, loaded.SidecarEpoch);
+                Assert.False(RecordingStore.ShouldSkipStaleSidecar(loaded, precEpochAfterOob));
+            }
+            finally
             {
-                RecordingId = "test-multi-save",
-                SidecarEpoch = 0
-            };
-
-            // First OnSave
-            rec.SidecarEpoch++;
-            Assert.Equal(1, rec.SidecarEpoch);
-
-            // Second OnSave
-            rec.SidecarEpoch++;
-            Assert.Equal(2, rec.SidecarEpoch);
-
-            // Write to .sfs at epoch 2
-            var sfsNode = new ConfigNode("RECORDING");
-            RecordingTree.SaveRecordingInto(sfsNode, rec);
-
-            // Quickload: restore from .sfs
-            var loaded = new Recording();
-            RecordingTree.LoadRecordingFrom(sfsNode, loaded);
-            Assert.Equal(2, loaded.SidecarEpoch);
-
-            // Validate: .prec epoch 2 matches .sfs epoch 2
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(loaded, 2);
-            Assert.False(skipped);
-        }
-
-        [Fact]
-        public void SceneExitForceWrite_AfterOnSave_DoesNotCauseMismatch()
-        {
-            // Simulate the scene-exit sequence:
-            // 1. OnSave increments epoch (1), writes .sfs with epoch 1
-            // 2. FinalizeTreeRecordings marks dirty
-            // 3. Force-write with incrementEpoch:false writes .prec with epoch 1
-            // 4. OnLoad reads .sfs epoch 1, validates against .prec epoch 1
-            var rec = new Recording
-            {
-                RecordingId = "test-scene-exit",
-                SidecarEpoch = 0
-            };
-
-            // Step 1: OnSave
-            rec.SidecarEpoch++;
-            var sfsNode = new ConfigNode("RECORDING");
-            RecordingTree.SaveRecordingInto(sfsNode, rec);
-
-            // Steps 2-3: force-write without epoch increment
-            // epoch stays at 1, .prec written with epoch 1
-            int forceWriteEpoch = rec.SidecarEpoch; // 1
-
-            // Step 4: OnLoad in next scene
-            var loaded = new Recording();
-            RecordingTree.LoadRecordingFrom(sfsNode, loaded);
-
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(loaded, forceWriteEpoch);
-            Assert.False(skipped);
+                DeleteTempDir(dir);
+            }
         }
 
         // --- Original #270 staleness detection (must still work) ---

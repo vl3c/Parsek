@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Analyzer/BaselineFilter.cs b/Source/Parsek/Analyzer/BaselineFilter.cs
+index 46374cf56..19397922a 100644
+--- a/Source/Parsek/Analyzer/BaselineFilter.cs
++++ b/Source/Parsek/Analyzer/BaselineFilter.cs
+@@ -65,7 +65,7 @@ namespace Parsek.Analyzer
+         /// <summary>The matching key for a live finding.</summary>
+         internal static BaselineKey KeyOf(Finding f)
+         {
+-            return new BaselineKey(f.RuleId, f.Target, f.SectionIndex, NormalizeMessageDigest(f.Message));
++            return new BaselineKey(f.RuleId, f.Target, f.SectionIndex, f.Message);
+         }
+ 
+         /// <summary>True when this finding is a filter-generated meta-finding (never

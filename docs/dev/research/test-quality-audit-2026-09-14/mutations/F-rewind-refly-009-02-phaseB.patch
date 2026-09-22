@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MergeJournalOrchestrator.cs b/Source/Parsek/MergeJournalOrchestrator.cs
+index 9cc360601..2b5b3b5ce 100644
+--- a/Source/Parsek/MergeJournalOrchestrator.cs
++++ b/Source/Parsek/MergeJournalOrchestrator.cs
+@@ -167,7 +167,7 @@ namespace Parsek
+         /// </summary>
+         internal static bool RunMerge(ReFlySessionMarker marker, Recording provisional)
+         {
+-            if (marker == null)
++            if (false)
+             {
+                 ParsekLog.Warn(Tag, "RunMerge: marker is null — nothing to commit");
+                 return false;

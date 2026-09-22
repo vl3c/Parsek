@@ -8536,6 +8536,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The name DestroyGhost logs: the state's stamped vessel name wins, then the
+        /// trajectory's, then "Unknown".
+        /// </summary>
+        internal static string ResolveDestroyedGhostName(GhostPlaybackState state, IPlaybackTrajectory traj)
+        {
+            return state?.vesselName ?? traj?.VesselName ?? "Unknown";
+        }
+
+        /// <summary>
         /// Despawns a single primary timeline ghost. Destroys its resources and
         /// removes it from ghostStates and loopPhaseOffsets.
         /// </summary>
@@ -8548,7 +8557,7 @@ namespace Parsek
             if (!ghostStates.TryGetValue(index, out state))
                 return;
 
-            string name = state?.vesselName ?? traj?.VesselName ?? "Unknown";
+            string name = ResolveDestroyedGhostName(state, traj);
             ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
                 $"Ghost #{index} \"{name}\" destroyed ({reason ?? "unknown"})", 1.0);
 

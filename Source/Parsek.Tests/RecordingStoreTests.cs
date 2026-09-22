@@ -218,17 +218,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Recording_DistanceFields_Roundtrip()
-        {
-            var rec = new Recording();
-            rec.DistanceFromLaunch = 12345.67;
-            rec.MaxDistanceFromLaunch = 99999.99;
-
-            Assert.Equal(12345.67, rec.DistanceFromLaunch);
-            Assert.Equal(99999.99, rec.MaxDistanceFromLaunch);
-        }
-
-        [Fact]
         public void Recording_SpawnFields_Roundtrip()
         {
             var rec = new Recording();
@@ -341,36 +330,41 @@ namespace Parsek.Tests
             var source = new Recording
             {
                 RecordingId = "meta123",
-                RecordingFormatVersion = 0,
+                RecordingFormatVersion = 0,  // the writer re-stamps the current contract
                 LoopPlayback = true,
                 LoopIntervalSeconds = 2.5,
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal("meta123", loaded.RecordingId);
-            Assert.Equal(0, loaded.RecordingFormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
             Assert.True(loaded.LoopPlayback);
             Assert.Equal(2.5, loaded.LoopIntervalSeconds);
 
         }
 
         [Fact]
-        public void RecordingMetadata_Load_MissingFields_UsesLegacyFormatVersionAndKeepsOtherDefaults()
+        public void RecordingMetadata_Load_MissingSchemaStamps_RejectedAndKeepsOtherDefaults()
         {
+            // A node without the format / generation stamps is a pre-reset recording:
+            // the production loader rejects it (format version -1) before reading any
+            // other key, so every other field keeps its default.
             var node = new ConfigNode("RECORDING");
+            node.AddValue("loopPlayback", "True");
+            node.AddValue("loopIntervalSeconds", "25");
             var loaded = new Recording();
 
             string defaultId = loaded.RecordingId;
 
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal(defaultId, loaded.RecordingId);
-            Assert.Equal(0, loaded.RecordingFormatVersion);
+            Assert.Equal(-1, loaded.RecordingFormatVersion);
             Assert.False(loaded.LoopPlayback);
             Assert.Equal(10.0, loaded.LoopIntervalSeconds);
         }
@@ -386,13 +380,13 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             // Verify the node contains the hidden value
             Assert.Equal("True", node.GetValue("hidden"));
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.True(loaded.Hidden);
         }
@@ -408,13 +402,13 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             // hidden=false should not be written (saves space, matches default)
             Assert.Null(node.GetValue("hidden"));
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.False(loaded.Hidden);
         }
@@ -423,12 +417,10 @@ namespace Parsek.Tests
         public void RecordingMetadata_Hidden_MissingField_DefaultsFalse()
         {
             // Bug: legacy recordings without hidden field crash or default to true
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "legacy-no-hidden");
-            // No "hidden" value — simulates a pre-hide-feature recording
+            var node = RecordingCodecTestNodes.BareCurrentContract("legacy-no-hidden");
+            Assert.Null(node.GetValue("hidden"));
 
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            var loaded = RecordingCodecTestNodes.LoadPastSchemaGate(node);
 
             Assert.False(loaded.Hidden);
         }
@@ -729,46 +721,17 @@ namespace Parsek.Tests
         [Fact]
         public void ResetReplacementsForTesting_ClearsDictionary()
         {
-            // We can't call ReserveCrewIn directly (needs KSP roster),
-            // but we can test the serialization round-trip which populates the dictionary.
-            var node = new ConfigNode("SCENARIO");
-            var replacementsNode = node.AddNode("CREW_REPLACEMENTS");
-            var entry = replacementsNode.AddNode("ENTRY");
-            entry.AddValue("original", "Jebediah Kerman");
-            entry.AddValue("replacement", "Bob Kerman Jr.");
+            // Seed both stores the reset owns, so the clearing is what the asserts see.
+            CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Bob Kerman Jr.");
+            CrewReservationManager.MarkRescuePlaced("Valentina Kerman", 4242UL);
+            Assert.Equal("Bob Kerman Jr.", CrewReservationManager.CrewReplacements["Jebediah Kerman"]);
+            Assert.True(CrewReservationManager.IsRescuePlaced("Valentina Kerman"));
 
-            // Use OnLoad to populate (need a scenario instance)
-            // Instead, test via the static accessor after reset
             CrewReservationManager.ResetReplacementsForTesting();
 
             Assert.Empty(CrewReservationManager.CrewReplacements);
-        }
-
-        [Fact]
-        public void CrewReplacements_SaveRoundTrip_PreservesMapping()
-        {
-            // Build a scenario ConfigNode with crew replacements
-            var saveNode = new ConfigNode("SCENARIO");
-            var replacementsNode = saveNode.AddNode("CREW_REPLACEMENTS");
-
-            var entry1 = replacementsNode.AddNode("ENTRY");
-            entry1.AddValue("original", "Jebediah Kerman");
-            entry1.AddValue("replacement", "Rodfrey Kerman");
-
-            var entry2 = replacementsNode.AddNode("ENTRY");
-            entry2.AddValue("original", "Bill Kerman");
-            entry2.AddValue("replacement", "Samantha Kerman");
-
-            // Verify the ConfigNode structure is correct
-            Assert.Equal(2, replacementsNode.GetNodes("ENTRY").Length);
-
-            var loaded1 = replacementsNode.GetNodes("ENTRY")[0];
-            Assert.Equal("Jebediah Kerman", loaded1.GetValue("original"));
-            Assert.Equal("Rodfrey Kerman", loaded1.GetValue("replacement"));
-
-            var loaded2 = replacementsNode.GetNodes("ENTRY")[1];
-            Assert.Equal("Bill Kerman", loaded2.GetValue("original"));
-            Assert.Equal("Samantha Kerman", loaded2.GetValue("replacement"));
+            Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
+            Assert.Empty(CrewReservationManager.RescuePlacedKerbals);
         }
 
         // --- Reservation decision logic (extracted for testability) ---

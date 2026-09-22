@@ -146,13 +146,13 @@ namespace Parsek.Tests
                 ["batteryPack"] = new InventoryItem { count = 2, slotsTaken = 2 }
             };
 
-            // Test via ParsekScenario path
+            // Test via the production record codec (RecordingTree.SaveRecordingInto / LoadRecordingFrom)
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, rec);
+            RecordingTree.SaveRecordingInto(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-inv-slots";
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal(8, loaded.StartInventorySlots);
             Assert.Equal(12, loaded.EndInventorySlots);

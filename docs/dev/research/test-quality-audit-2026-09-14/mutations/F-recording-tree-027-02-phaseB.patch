@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/CrewReservationManager.Serialization.cs b/Source/Parsek/CrewReservationManager.Serialization.cs
+index 14a7e96c7..d2989fefa 100644
+--- a/Source/Parsek/CrewReservationManager.Serialization.cs
++++ b/Source/Parsek/CrewReservationManager.Serialization.cs
+@@ -14,8 +14,7 @@ namespace Parsek
+         /// </summary>
+         internal static void ResetReplacementsForTesting()
+         {
+-            crewReplacements.Clear();
+-            rescuePlacedKerbals.Clear();
++            // no-op
+         }
+ 
+         /// <summary>

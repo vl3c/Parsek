@@ -8432,7 +8432,9 @@ class UnityExceptionScanTests(unittest.TestCase):
     # is a finding at ANY count (wave-0910 ruling A4-b), so the only value is 0, and a
     # lane arms it only when the 2026-09-22 offline sweep
     # (`hlib.scan_unity_exception_stacks` over every collected KSP.log of the lane, frames
-    # read under every exception class) read parsekFrames 0 on every log it has. Independent of `maxTotal`: W1
+    # read under every exception class) read parsekFrames 0 on every log it has, or - for a lane
+    # whose only earlier frames are a site a merged fix removed - on one post-fix reading (see
+    # the dict comment). Independent of `maxTotal`: W1
     # arms this key while its count stays report-only. The negative control is OFFLINE
     # (the BDOCK-1 / GS-4 precedent): each lane's committed block through
     # `hlib.evaluate_unity_exceptions` over its latest archived KSP.log PASSES, and over
@@ -8452,6 +8454,17 @@ class UnityExceptionScanTests(unittest.TestCase):
         # disk); control host `_1939` (total 2, both stock / MechJeb after the quit).
         # W1 arms no maxTotal.
         "W1-watch-distance-cutoff.toml": 0,
+        # The three GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE lanes, armed on their
+        # first post-latch flight (PR #1748) rather than on an all-zero archive: every
+        # pre-latch Parsek frame they logged is that one teardown site, and each pre-latch
+        # host (V15T `2026-09-10_1917` 1, V18T `2026-09-02_1315` 3, V26T `2026-09-15_1536`
+        # 2) reds under the armed block on exactly that site. Post-latch readings, each
+        # parsekFrames 0 / total 0 / afterQuit 0 and the control host: V15T
+        # `2026-09-22_1831` (PASS), V18T `2026-09-22_1834_a2` (driver-valid, PARSEK-FAIL
+        # on an unrelated token over-pin), V26T `2026-09-22_1835` (PASS). None arms maxTotal.
+        "V15T-gilly-ts-arrival.toml": 0,
+        "V18T-depot-route-ts-arrival.toml": 0,
+        "V26T-interbody-route-ts-arrival.toml": 0,
     }
 
     # `maxParsekThrowSite` arming (operator ruling 2026-09-22 on todo
