@@ -1009,8 +1009,12 @@ namespace Parsek
         /// holds the kerbal.</b> A Recovered flight's reservation ends when game time
         /// reaches the flight's recorded end (design 9.3; <c>KerbalReservationReleaseTests</c>
         /// drives the real walk before, at and after that UT), and the window only ever
-        /// sees reservations still in force, so <c>Reserved until &lt;date&gt;</c>
-        /// (<paramref name="releaseDateText"/>) is a promise the backend keeps. A flight
+        /// sees the reservations the LAST walk found in force, so <c>Reserved until
+        /// &lt;date&gt;</c> (<paramref name="releaseDateText"/>) is the date the next walk
+        /// after it will release him. The window does not re-walk on its own: the Space
+        /// Center, the Tracking Station and the crew dialog run a crossed-an-end check,
+        /// but in FLIGHT the release lands at the next warp exit, commit or scene change,
+        /// so until then the cell can show a date that has just passed. A flight
         /// that ends with the kerbal aboard (or with no recorded ending) holds him with no
         /// end date, so that cell reads <c>Reserved: aboard &lt;vessel&gt;</c> /
         /// <c>Reserved: &lt;mission&gt;</c> and the hover carries the rule.</para>

@@ -2691,6 +2691,11 @@ namespace Parsek
             var actions = BuildRecalculationActions();
             LogRecalculationInputSummary(actions, utCutoff);
 
+            // A cutoff engine walk sees only the rows up to the cutoff; the kerbals module's
+            // authoritative walk is RecomputeAfterCutoffWalk below, so this one records no
+            // release / re-reserve transitions.
+            if (utCutoff.HasValue && kerbalsModule != null)
+                kerbalsModule.MarkNextWalkProvisional();
             RecalculationEngine.Recalculate(actions, utCutoff);
 
             // FacilitiesModule is dispatched after contracts/strategies, so a

@@ -826,7 +826,10 @@ _(unreleased — entries accumulate here per commit)_
   retired stand-in. Loads judge the hold against the loaded save's own time. Time passing
   in the Space Center or the Tracking Station, and the crew dialog opening, trigger one
   recalculation when a recovery time is crossed. The Kerbals window again shows
-  `Reserved until <date>` for such a hold, and its hover says when he is free. Kerbals
+  `Reserved until <date>` for such a hold, and its hover says when he is free (in flight
+  the window catches up at the next time warp exit or scene change). A returned kerbal
+  still cannot be dismissed from the Astronaut Complex while a committed flight names
+  him, since a rewind may need him again. Kerbals
   whose flight ends with them still aboard a vessel stay reserved with no end date, as
   before. Known gap: a flight recovered with the in-flight Recover button is committed
   just before the recovery happens, so it still ends with the kerbal aboard and he stays

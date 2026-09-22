@@ -92,7 +92,10 @@ bdock-recorded captures; the owner approved these, and each is a row of this doc
     (`FormatReservationReleaseRule`). An open-ended hold (the flight ends with the kerbal
     aboard, or has no recorded ending) still reads `Reserved: aboard <vessel>` /
     `Reserved: <mission>` and its hover ends with `ReservationHoldRule`, which is still
-    true for it. A reserved stand-in reads `Reserved for <owner>` either way.
+    true for it. A reserved stand-in reads `Reserved for <owner>` either way. The date is
+    the LAST walk's view: the Space Center, the Tracking Station and the crew dialog run a
+    crossed-an-end check, but in flight the release lands at the next warp exit, commit or
+    scene change, so the cell can briefly show a date that has just passed.
 14. **The Roster is grouped by slot** (rec 7). Each owner row is followed directly by its
     chain members as rows of their own (tree glyph in the Name cell), so the per-owner chain
     fold - which repeated what the stand-in rows already said - is gone, and with it the

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek.Patches;
 using Xunit;
 
 namespace Parsek.Tests
@@ -265,6 +266,117 @@ namespace Parsek.Tests
 
             AssertHeld("MaxValue cutoff, live 200", expectedUntilUT: EndUT);
             Assert.Equal(200.0, LedgerOrchestrator.Kerbals.WalkClockUT);
+        }
+
+        // catches: the provisional cutoff engine walk (rows up to the cutoff only) and the
+        // authoritative whole-ledger recompute both recording transitions, which logs
+        // "released endUT=300" then "re-reserved endUT=600" on EVERY recalc between them.
+        [Fact]
+        public void CutoffRecalc_TwoFlights_NoFlipFlopBetweenTheProvisionalAndAuthoritativeWalks()
+        {
+            Ledger.AddAction(AddFlight("rec-a", Jeb, new[] { Jeb }, 100.0, 300.0, KerbalEndState.Recovered, 1));
+            Ledger.AddAction(AddFlight("rec-b", Jeb, new[] { Jeb }, 500.0, 600.0, KerbalEndState.Recovered, 2));
+
+            LedgerOrchestrator.RecalculateAndPatch(400.0); // a rewind to 400
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(410.0, "a");
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(420.0, "b");
+
+            AssertHeld("420", expectedUntilUT: 600.0);
+            Assert.DoesNotContain(logLines, l => l.Contains("Reservation released"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Reservation re-reserved"));
+            Assert.Contains(logLines, l => l.Contains("PostWalk summary:") && l.Contains("provisional=True"));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(700.0, "c");
+            int released = 0;
+            foreach (string l in logLines)
+                if (l.Contains("Reservation released: 'Jebediah Kerman' endUT=600.0 nowUT=700.0")) released++;
+            Assert.Equal(1, released);
+        }
+
+        // catches: the pending-rewind clock branch reading RewindContext.RewindAdjustedUT,
+        // which EndRewind zeroes in the same OnLoad, so the window between OnLoad and the
+        // deferred UT set judged every hold against an unknown clock.
+        [Fact]
+        public void PendingRewindAdjustment_JudgesAgainstTheCapturedTargetUT()
+        {
+            CommitFlight(KerbalEndState.Recovered);
+            KerbalsModule.LiveClockUTProviderForTesting = () => 10000.0; // pre-rewind future
+            RecordingStore.RewindUTAdjustmentPending = true;
+            RecordingStore.RewindUTAdjustmentTargetUT = 200.0;
+            try
+            {
+                LedgerOrchestrator.RecalculateAndPatch();
+            }
+            finally
+            {
+                RecordingStore.RewindUTAdjustmentPending = false;
+                RecordingStore.RewindUTAdjustmentTargetUT = double.NaN;
+            }
+
+            AssertHeld("pending rewind target 200", expectedUntilUT: EndUT);
+            Assert.Equal(200.0, LedgerOrchestrator.Kerbals.WalkClockUT);
+        }
+
+        // catches: a clockless walk re-holding a returned owner, so the roster pass
+        // recreates his deleted stand-in and the next clocked walk deletes it again.
+        [Fact]
+        public void UnknownClockWalk_KeepsTheLastDecision_NoStandInChurn()
+        {
+            var actions = new List<GameAction>
+            {
+                AddFlight(RecordingId, Jeb, new[] { Jeb }, StartUT, EndUT, KerbalEndState.Recovered, 1)
+            };
+            var module = new KerbalsModule();
+            var roster = new FakeRoster();
+            roster.Add(Jeb, ProtoCrewMember.RosterStatus.Available);
+            Walk(module, actions, 200.0);
+            module.ApplyToRoster(roster);
+            Walk(module, actions, 400.0);
+            module.ApplyToRoster(roster);
+            Assert.Equal(1, roster.CreatedCount);
+            Assert.Equal(1, roster.RemovedCount);
+
+            KerbalsModule.LiveClockUTProviderForTesting = () => 0.0; // no readable clock
+            module.Reset();
+            module.PrePass(actions, null);
+            for (int i = 0; i < actions.Count; i++) module.ProcessAction(actions[i]);
+            module.PostWalk();
+            module.ApplyToRoster(roster);
+
+            Assert.True(double.IsNaN(module.WalkClockUT));
+            Assert.False(module.IsReservedNow(Jeb));
+            Assert.Equal(0, roster.RecreatedCount);
+            Assert.Equal(1, roster.CreatedCount);
+            Assert.False(CrewReservationManager.CrewReplacements.ContainsKey(Jeb));
+        }
+
+        [Fact]
+        public void ResolveHoldWithUnknownClock_KeepsOnlyAnUnchangedDecision()
+        {
+            Assert.False(KerbalsModule.ResolveHoldWithUnknownClock(Res(300.0), true, false, 300.0));
+            Assert.True(KerbalsModule.ResolveHoldWithUnknownClock(Res(300.0), true, true, 300.0));
+            // The end moved (a later flight extended the hold): held until a clock says otherwise.
+            Assert.True(KerbalsModule.ResolveHoldWithUnknownClock(Res(600.0), true, false, 300.0));
+            Assert.True(KerbalsModule.ResolveHoldWithUnknownClock(Res(300.0), false, false, 0.0));
+            Assert.True(KerbalsModule.ResolveHoldWithUnknownClock(Res(300.0, permanent: true), true, false, 300.0));
+        }
+
+        // catches: a returned owner becoming dismissable while committed flights still name
+        // him (a sacked kerbal a rewind must re-reserve), and an unrelated kerbal blocked.
+        [Fact]
+        public void ReturnedOwner_StaysBlockedFromDismissal()
+        {
+            CommitFlight(KerbalEndState.Recovered);
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(10000.0, "release-test");
+            KerbalsModule kerbals = LedgerOrchestrator.Kerbals;
+
+            AssertReleased("10000");
+            Assert.True(kerbals.IsNamedByCommittedFlight(Jeb));
+            Assert.True(kerbals.ShouldBlockDismissal(Jeb));
+            Assert.False(kerbals.ShouldBlockDismissal("Valentina Kerman"));
+            Assert.Equal("This kerbal flew a committed flight on your timeline.",
+                KerbalDismissalPatch.DescribeDismissalBlock(
+                    kerbals.GetReservationKind(Jeb), kerbals.IsNamedByCommittedFlight(Jeb)));
         }
 
         // catches: a release line printed on every walk instead of once per transition.

@@ -817,15 +817,24 @@ must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-REST
 **Fix (2026-09-23).** One predicate, `KerbalsModule.IsReservedAt(name, nowUT)` = a reservation
 exists AND it is in force at `nowUT` (`IsReservationActiveAt`: permanent, or open-ended `+inf`,
 or `nowUT < ReservedUntilUT`; the kerbal is free AT exactly the recovery UT, because the
-common live case is a commit run at that very clock; an unknown clock HOLDS). The walk
+common live case is a commit run at that very clock). With NO readable clock the last
+authoritative decision stands for an unchanged hold, and a new or changed hold is held
+(`ResolveHoldWithUnknownClock`), so a clockless walk never re-holds a returned owner and makes
+the roster pass recreate his deleted stand-in (review follow-up, PR #1767). The walk
 captures its clock ONCE in `PrePass` (`ResolveWalkClockUT`: the loaded save's
 `flightState.universalTime` while `ParsekScenario.OnLoad` is on the stack, because Planetarium
 still reads the previous scene's clock there; else the walk's cutoff, unless it is a "walk
 everything" sentinel such as the Re-Fly post-invoke `double.MaxValue` (CL-4 run
 `2026-09-22_2143` measured `walkClockUT=1.8e308` before this rule); else the adjusted rewind
-UT while a rewind's clock adjustment is pending; else live Planetarium; tests drive it through
+UT while a rewind's clock adjustment is pending (`RecordingStore.RewindUTAdjustmentTargetUT`,
+captured when the adjustment is scheduled, because `RewindContext.EndRewind` zeroes
+`RewindAdjustedUT` in the same OnLoad); else live Planetarium; tests drive it through
 `KerbalsModule.LiveClockUTProviderForTesting` / `LoadedSaveUTProviderForTesting`), and
-`CrewReservationManager.RecomputeAfterCutoffWalk` now passes its cutoff through. EVERY consumer
+`CrewReservationManager.RecomputeAfterCutoffWalk` now passes its cutoff through. A cutoff
+recalculation walks the kerbals module twice (the engine walk over the cutoff-filtered rows, then
+the whole-ledger recompute); the first is marked PROVISIONAL (`MarkNextWalkProvisional`,
+`provisional=True` on its PostWalk summary) and records no transitions, so two flights either
+side of a rewind point no longer log "released" / "re-reserved" on every recalculation. EVERY consumer
 routes through `IsReservedNow` (= `IsReservedAt` at the walk clock): `IsKerbalAvailable`,
 `ShouldFilterFromCrewDialog`, `IsManaged`, `GetReservationKind`, `GetActiveChainIndex` /
 `ResolveActiveChainIndex`, `ComputeRetiredSet`, `EnsureChainDepth`, and every `ApplyToRoster`
@@ -849,8 +858,26 @@ the PostWalk summary. `KerbalReservationReleaseTests` inverted (held before the 
 it, re-reserved by a rewind before it, stand-in deleted / retired / recreated by name, the L3
 shape generating no stand-in, the due-check firing once). The window reads `Reserved until
 <date>` for a finite hold again, with the hover rule `Free again from <date>, when that flight
-ends.`; open-ended holds keep `ReservationHoldRule`. Aboard (`+inf`) holds are UNCHANGED; see
+ends.`; open-ended holds keep `ReservationHoldRule`. In FLIGHT there is no crossed-an-end check,
+so the cell can show a just-passed date until the next warp exit, commit or scene change.
+Dismissal stays BLOCKED for a returned owner (decided on review): `KerbalDismissalPatch` refuses
+`KerbalsModule.ShouldBlockDismissal` = managed OR named by any committed flight (the raw map),
+with the reason `This kerbal flew a committed flight on your timeline.`, because a sacked kerbal
+that committed flights still name (ghost crew, a rewind before his recovery that must re-reserve
+him) is a data hazard. Aboard (`+inf`) holds are UNCHANGED; see
 KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL below.
+
+**Residual (not fixed): a trigger walk under KSP-patch deferral.** When the crossed-an-end check
+fires while `GetKspPatchDeferralReason` defers the patch (a live or pending tree), the walk
+updates the reservations and moves `NextReservationReleaseUT`, but `ApplyToRoster` (inside the
+non-deferred branch of `LedgerOrchestrator.RecalculateAndPatchCore`) does not run, so the
+released owner's stand-in and the `crewReplacements` swap map stay as they were and the check
+does not fire again. The stale state lasts only as long as the deferral: the tree resolution
+that ends it (merge / discard / commit) runs its own recalculation, which applies the roster.
+Re-firing the check while deferred would recalculate every frame for the whole deferral, and
+refreshing the swap map alone under deferral changes every deferred recalculation's contract,
+so neither was taken; revisit if a live log shows a released owner swapped out during a
+deferral.
 
 **The original filing, kept for the record.**
 

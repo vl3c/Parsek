@@ -106,12 +106,42 @@ namespace Parsek
         private double nextReservationReleaseUT = double.PositiveInfinity;
 
         /// <summary>
-        /// Per-kerbal active/released state as of the last walk that could read a clock.
-        /// Survives <see cref="Reset"/> so the release / re-reserve lines print once per
-        /// actual transition rather than once per walk.
+        /// Per-kerbal hold decision (in force or released, and the end UT it was made
+        /// for) as of the last AUTHORITATIVE walk that could read a clock. Survives
+        /// <see cref="Reset"/> so the release / re-reserve lines print once per actual
+        /// transition, and so a walk with NO readable clock keeps the last decision for an
+        /// unchanged hold instead of re-holding everyone (which would make the roster pass
+        /// recreate a returned owner's deleted stand-in, and the next clocked walk delete it
+        /// again).
         /// </summary>
-        private readonly Dictionary<string, bool> lastReservationActiveState
-            = new Dictionary<string, bool>(StringComparer.Ordinal);
+        private readonly Dictionary<string, KnownHold> lastKnownHold
+            = new Dictionary<string, KnownHold>(StringComparer.Ordinal);
+
+        private struct KnownHold
+        {
+            public bool Active;
+            public double EndUT;
+        }
+
+        /// <summary>
+        /// True while the current walk is PROVISIONAL: the engine's cutoff walk over the
+        /// cutoff-filtered action list, which <c>CrewReservationManager.RecomputeAfterCutoffWalk</c>
+        /// immediately replaces with the whole-ledger walk. A provisional walk sees only the
+        /// flights launched before the cutoff, so it records no release / re-reserve
+        /// transition (it would log "released" for an earlier flight's end, and the
+        /// authoritative walk "re-reserved" for a later one, on every recalculation).
+        /// Set by <see cref="MarkNextWalkProvisional"/>, consumed by <see cref="PostWalk"/>.
+        /// </summary>
+        private bool nextWalkProvisional;
+
+        /// <summary>
+        /// Marks the NEXT walk as provisional (see <see cref="nextWalkProvisional"/>). Called
+        /// by <c>LedgerOrchestrator</c> right before a cutoff engine walk.
+        /// </summary>
+        internal void MarkNextWalkProvisional()
+        {
+            nextWalkProvisional = true;
+        }
 
         /// <summary>
         /// Test seam for the live game clock the walk reads when it has no cutoff. Null in
@@ -281,7 +311,9 @@ namespace Parsek
         /// <see cref="IsNoTimeFilterCutoff"/>) is NOT a clock and falls through.</item>
         /// <item>While a rewind's UT adjustment is still pending, the adjusted rewind
         /// UT (Planetarium still reads the pre-rewind future until the deferred
-        /// coroutine sets it).</item>
+        /// coroutine sets it). Read from <c>RecordingStore.RewindUTAdjustmentTargetUT</c>,
+        /// captured when the adjustment is scheduled, because <c>RewindContext.EndRewind</c>
+        /// zeroes <c>RewindAdjustedUT</c> in the same OnLoad.</item>
         /// <item>The live Planetarium clock.</item>
         /// </list>
         /// Any source that is not a finite positive UT resolves to NaN, which HOLDS
@@ -345,7 +377,7 @@ namespace Parsek
                     false, double.NaN, double.NaN);
             bool rewindPending = RecordingStore.RewindUTAdjustmentPending;
             return ResolveWalkClockUT(walkNowUT, false, double.NaN,
-                rewindPending, rewindPending ? RewindContext.RewindAdjustedUT : double.NaN,
+                rewindPending, rewindPending ? RecordingStore.RewindUTAdjustmentTargetUT : double.NaN,
                 rewindPending ? double.NaN : ReadLiveClockUT());
         }
 
@@ -416,7 +448,39 @@ namespace Parsek
             if (string.IsNullOrEmpty(kerbalName)) return false;
             KerbalReservation reservation;
             return reservations.TryGetValue(kerbalName, out reservation)
-                && IsReservationActiveAt(reservation, nowUT);
+                && IsHoldInForce(kerbalName, reservation, nowUT);
+        }
+
+        /// <summary>
+        /// The instance form of <see cref="IsReservationActiveAt"/>: identical with a known
+        /// clock; with an UNKNOWN clock it keeps the last authoritative decision for an
+        /// unchanged hold (<see cref="ResolveHoldWithUnknownClock"/>).
+        /// </summary>
+        private bool IsHoldInForce(string kerbalName, KerbalReservation reservation, double nowUT)
+        {
+            if (reservation == null) return false;
+            if (!double.IsNaN(nowUT) || reservation.IsPermanent)
+                return IsReservationActiveAt(reservation, nowUT);
+            KnownHold known;
+            bool hasKnown = lastKnownHold.TryGetValue(kerbalName, out known);
+            return ResolveHoldWithUnknownClock(
+                reservation, hasKnown, known.Active, known.EndUT);
+        }
+
+        /// <summary>
+        /// A walk with no readable clock (a scene transition's missing Planetarium, a
+        /// not-yet-initialised load): the last authoritative decision stands when it was made
+        /// for the SAME end UT; a hold that is new or whose end changed is held (a release
+        /// needs a clock that has verifiably passed the end). Pure.
+        /// </summary>
+        internal static bool ResolveHoldWithUnknownClock(
+            KerbalReservation reservation, bool hasKnown, bool knownActive, double knownEndUT)
+        {
+            if (reservation == null) return false;
+            if (reservation.IsPermanent) return true;
+            if (hasKnown && knownEndUT.Equals(reservation.ReservedUntilUT))
+                return knownActive;
+            return true;
         }
 
         /// <summary>Whether <paramref name="kerbalName"/> holds a reservation that is in
@@ -466,7 +530,7 @@ namespace Parsek
                 var active = new Dictionary<string, KerbalReservation>(StringComparer.Ordinal);
                 foreach (var kvp in reservations)
                 {
-                    if (IsReservationActiveAt(kvp.Value, walkClockUT))
+                    if (IsHoldInForce(kvp.Key, kvp.Value, walkClockUT))
                         active[kvp.Key] = kvp.Value;
                 }
                 return active;
@@ -739,7 +803,7 @@ namespace Parsek
                 // for him and no chain depth is demanded; an EXISTING slot keeps its chain
                 // names (a rewind before the end reuses them), and ApplyToRoster's
                 // displacement pass deletes the unused stand-in / retires a used one.
-                if (!IsReservationActiveAt(kvp.Value, walkClockUT))
+                if (!IsHoldInForce(kvp.Key, kvp.Value, walkClockUT))
                 {
                     releasedReservations++;
                     continue;
@@ -770,8 +834,11 @@ namespace Parsek
             // 3. Time-based release bookkeeping: the one-per-transition release /
             // re-reserve lines, and the earliest pending release the scene-level
             // crossed-an-end checks compare the live clock with.
-            RecordReservationTransitions();
-            nextReservationReleaseUT = ComputeNextReleaseUT(reservations.Values, walkClockUT);
+            bool provisional = nextWalkProvisional;
+            nextWalkProvisional = false;
+            if (!provisional)
+                RecordReservationTransitions();
+            nextReservationReleaseUT = ComputeNextReleaseUT(ActiveReservations.Values, walkClockUT);
             unchecked { postWalkCount++; }
 
             // 4. Log summary
@@ -784,14 +851,15 @@ namespace Parsek
                     retiredKerbals.Count,
                     slotsCreated,
                     releasedReservations)
+                + (provisional ? " provisional=True" : "")
                 + " walkClockUT=" + FormatClockUT(walkClockUT)
                 + " nextReleaseUT=" + FormatClockUT(nextReservationReleaseUT));
         }
 
         /// <summary>
         /// The earliest finite end among the reservations still in force at
-        /// <paramref name="nowUT"/> (all of them when the clock is unknown), or +inf when
-        /// none will lapse by time alone. Pure.
+        /// <paramref name="nowUT"/> (all of the given ones when the clock is unknown; the
+        /// walk passes its in-force view), or +inf when none will lapse by time alone. Pure.
         /// </summary>
         internal static double ComputeNextReleaseUT(
             IEnumerable<KerbalReservation> reservationSet, double nowUT)
@@ -825,9 +893,9 @@ namespace Parsek
                 var reservation = kvp.Value;
                 if (reservation == null) continue;
                 bool active = IsReservationActiveAt(reservation, walkClockUT);
-                bool wasActive;
-                bool known = lastReservationActiveState.TryGetValue(kvp.Key, out wasActive);
-                string transition = DescribeReservationTransition(known, wasActive, active);
+                KnownHold last;
+                bool known = lastKnownHold.TryGetValue(kvp.Key, out last);
+                string transition = DescribeReservationTransition(known, last.Active, active);
                 if (transition != null)
                 {
                     ParsekLog.Info(Tag,
@@ -838,7 +906,11 @@ namespace Parsek
                             ? "(held again at this clock: a rewind before the end, or a later row extended the hold)"
                             : "(the clock has reached the Recovered flight's end - the kerbal is free again)"));
                 }
-                lastReservationActiveState[kvp.Key] = active;
+                lastKnownHold[kvp.Key] = new KnownHold
+                {
+                    Active = active,
+                    EndUT = reservation.ReservedUntilUT
+                };
             }
         }
 
@@ -1566,6 +1638,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when any committed flight on the timeline names this kerbal (the RAW
+        /// reservation map, whether or not the hold is in force now).
+        /// </summary>
+        internal bool IsNamedByCommittedFlight(string kerbalName)
+        {
+            return !string.IsNullOrEmpty(kerbalName) && reservations.ContainsKey(kerbalName);
+        }
+
+        /// <summary>
+        /// Whether stock's Dismiss must be refused: a managed kerbal (reserved now, retired,
+        /// or a chain stand-in) OR any kerbal a committed flight names. A returned owner is
+        /// free to FLY again, but sacking him would leave committed flights (ghost crew, a
+        /// rewind before his recovery that must re-reserve him) naming a kerbal the roster
+        /// no longer has, so dismissal stays blocked for him the way it is for a retired
+        /// stand-in who flew a committed flight.
+        /// </summary>
+        internal bool ShouldBlockDismissal(string kerbalName)
+        {
+            return IsManaged(kerbalName) || IsNamedByCommittedFlight(kerbalName);
+        }
+
+        /// <summary>
         /// Classifies the subset of managed kerbals that should be visually marked
         /// as reserved/retired in stock roster surfaces.
         /// </summary>
@@ -2262,7 +2356,7 @@ namespace Parsek
                     // Bridge to SwapReservedCrewInFlight: map reserved -> active occupant.
                     // Only holds in force NOW: a returned owner must not be swapped out of
                     // the craft he boards.
-                    if (!IsReservationActiveAt(kvp.Value, walkClockUT))
+                    if (!IsHoldInForce(kvp.Key, kvp.Value, walkClockUT))
                         continue;
                     reservedNow++;
                     string kerbalName = kvp.Key;
@@ -2875,7 +2969,8 @@ namespace Parsek
             ReFlySessionActiveOverrideForTesting = null;
             walkClockUT = double.NaN;
             nextReservationReleaseUT = double.PositiveInfinity;
-            lastReservationActiveState.Clear();
+            lastKnownHold.Clear();
+            nextWalkProvisional = false;
         }
     }
 }

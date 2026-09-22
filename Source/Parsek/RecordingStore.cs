@@ -205,6 +205,14 @@ namespace Parsek
         // it still reflects the pre-rewind future UT until the coroutine fires.
         internal static bool RewindUTAdjustmentPending;
 
+        /// <summary>
+        /// The UT the pending rewind adjustment will set (captured with
+        /// <see cref="RewindUTAdjustmentPending"/>, because <c>RewindContext.EndRewind</c>
+        /// clears <c>RewindAdjustedUT</c> before the deferred coroutine runs). Read by the
+        /// kerbal-reservation walk clock only while the flag is set.
+        /// </summary>
+        internal static double RewindUTAdjustmentTargetUT = double.NaN;
+
         private const string LegacyPrefix = "[Parsek] ";
 
         internal static void Log(string message)
@@ -4641,6 +4649,7 @@ namespace Parsek
             ClearRewindReplayTargetScope();
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
+            RewindUTAdjustmentTargetUT = double.NaN;
             GameStateRecorder.PendingScienceSubjects.Clear();
             PendingCleanupPids = null;
             PendingCleanupNames = null;

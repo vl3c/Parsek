@@ -86,13 +86,27 @@ namespace Parsek.Tests
                 KerbalDismissalPatch.DescribeDismissalBlock((KerbalReservationKind)kind));
         }
 
+        // catches: a returned owner (hold ended, still named by a committed flight) getting
+        // the stand-in wording, and the other kinds changing wording through the overload.
+        [Fact]
+        public void DismissalBlock_AReturnedOwnerIsToldHeFlewACommittedFlight()
+        {
+            Assert.Equal("This kerbal flew a committed flight on your timeline.",
+                KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, true));
+            Assert.Equal("This kerbal is a stand-in in a reserved kerbal's replacement chain.",
+                KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, false));
+            Assert.Equal("This kerbal is reserved by a committed flight on your timeline.",
+                KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.ReservedActive, true));
+        }
+
         // catches: the refused dismissal going back to being the one silent refusal.
         [Fact]
         public void DismissalBlock_RaisesTheExistingActionBlockedDialog()
         {
             string src = TooltipEchoBudgetTests.ReadParsekSource("Patches/KerbalDismissalPatch.cs");
             Assert.Contains("CommittedActionDialog.ShowBlocked(", src);
-            Assert.Contains("DescribeDismissalBlock(kerbals.GetReservationKind(crew.name))", src);
+            Assert.Contains("DescribeDismissalBlock(kerbals.GetReservationKind(crew.name),", src);
+            Assert.Contains("kerbals?.ShouldBlockDismissal(crew.name)", src);
             // No new dialog type: the patch never spawns its own popup.
             Assert.DoesNotContain("PopupDialog", src);
             Assert.DoesNotContain("MultiOptionDialog", src);
