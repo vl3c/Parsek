@@ -1829,14 +1829,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CheckpointAllVessels_EmptyBackgroundMap_DoesNotThrow()
+        public void CheckpointAllVessels_EmptyBackgroundMap_LogsAllZeroSummary()
         {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
             var tree = MakeTree(); // no background vessels
             var bgRecorder = new BackgroundRecorder(tree);
             bgRecorder.SetVesselFinderForTesting(pid => null);
 
-            // Should not throw
             bgRecorder.CheckpointAllVessels(100.0);
+
+            // The pass ran to its summary with nothing to visit: every counter is zero.
+            Assert.Contains(logLines, l =>
+                l.Contains("[BgRecorder]")
+                && l.Contains("CheckpointAllVessels at UT=")
+                && l.Contains("checkpointed=0, skippedNotOrbital=0, skippedNoVessel=0, " +
+                              "skippedDuplicateBoundary=0"));
         }
 
         [Fact]

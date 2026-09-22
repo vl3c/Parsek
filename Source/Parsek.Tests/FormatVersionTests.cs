@@ -44,21 +44,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void HistoricalFeatureConstants_CollapseToCurrentV0()
-        {
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, RecordingStore.CurrentRecordingFormatVersion);
-        }
-
-        [Fact]
         public void NewRecording_DefaultsToCurrentSchema()
         {
             var rec = new Recording();

@@ -31,6 +31,32 @@ _(unreleased — entries accumulate here per commit)_
   rather than comparing a function call with itself. Rewind cleanup tests null and empty RP
   identifiers independently against matching orphans, so removing the early return fails both
   cases. No production behavior changed.
+- **Tests: sixteen vacuous cells from the audit's Low T1 register, the last Low T1 slice,
+  now either reach the production line their name claims or are gone.** Each one passed
+  under the mutant its register row names. Ten were strengthened (nine of them renamed to
+  what they prove), five rows were deleted in favour of named twins that go red under the
+  same mutant (seven cells), and one was a wrong premise. The Missions window's per-frame
+  suppress wrap moved, unchanged, into `MissionStructureBuilder.BuildForDisplay`, and the
+  cell drives it over mixed prior flag values, so a wrap that leaks `true` or forces `false`
+  now fails. It used to set and restore the flags itself. Two other steps also moved without
+  a behavior change and now have tests: the continuation-destroyed log line
+  (`ParsekFlight.FormatContinuationVesselDestroyedMessage`, whose handler call is read from
+  IL) and the spawn-block stamp (`VesselGhoster.MarkSpawnBlocked`, driven into the walkback
+  timeout). The checkpoint, debris-expiry and pending-split cells now reach the production
+  summary line, `SetDebrisExpiry` and the split-check drain, where before they only
+  exercised empty collections or test accessors. The TerminalState loop round-trips every
+  member through the record codec, so an enum-name write or a rejected `Disassembled` fails.
+  The tree-format-version cell keeps a current-generation recording and parses a sentinel
+  `7`, because no other cell loads a nonzero version. The rewind UT cell source-gates the
+  coroutine: capture before the first yield, `SetUniversalTime` after it. The pause-menu
+  false-probe cell counts the probe call. Deleted: the `PreLaunch` default, both inline
+  copies of the spawn-death guard (one of which asserted the opposite of production for pid
+  0), both `anchorVesselId` field echoes, the `TrajectoryPoint` resource echo and ten
+  self-comparisons of the format constant. The skipped OQ1 ideal-model cell was kept,
+  because the recovery-clock memo names it the acceptance assertion; only its stale memo
+  path was fixed. Per commit: five strengthened (all renamed); three strengthened (all
+  renamed) plus three cells deleted; two strengthened (one renamed) plus four cells deleted
+  and the kept skip.
 - **Tests: sixteen more cells from the audit's Low T1 (vacuous) register now either let the
   production term they name decide the verdict or are gone.** Twelve were strengthened - five
   of them renamed to what they prove - and four were deleted in favour of a named twin. The

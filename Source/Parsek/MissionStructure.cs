@@ -113,6 +113,30 @@ namespace Parsek
         internal static bool SuppressLogging;
 
         /// <summary>
+        /// Per-frame display rebuild used by the Missions window (GetMissionView): builds
+        /// the same structure as <see cref="Build"/> with the per-build summary line and the
+        /// periodicity lines silenced, then restores both flags to their PRIOR values so a
+        /// caller that already had a flag set keeps it, and one that did not is not left
+        /// silenced for later frames.
+        /// </summary>
+        internal static MissionStructure BuildForDisplay(RecordingTree tree)
+        {
+            bool prevStructSuppress = SuppressLogging;
+            bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
+            SuppressLogging = true;
+            MissionPeriodicity.SuppressLogging = true;
+            try
+            {
+                return Build(tree);
+            }
+            finally
+            {
+                SuppressLogging = prevStructSuppress;
+                MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
+            }
+        }
+
+        /// <summary>
         /// Derives the controlled-leg fork-tree from a recording tree. Pure.
         /// Nodes = controlled recordings (debris excluded). Within-run sequence
         /// edges group env-split legs by (ChainId, ChainBranch) ordered by

@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 07f311f04..e607a0259 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -6558,7 +6558,6 @@ namespace Parsek
+             // UT=0 is valid (recording near game start with lead time clamped to 0).
+             {
+                 double prePlanetariumUT = Planetarium.GetUniversalTime();
+-                Planetarium.SetUniversalTime(adjustedUT);
+                 RecordingStore.RewindUTAdjustmentPending = false;
+                 ParsekLog.Info("Rewind",
+                     $"UT adjustment: {prePlanetariumUT.ToString("F1", ic)} → {adjustedUT.ToString("F1", ic)} " +
