@@ -130,7 +130,7 @@ Overall quality is good — the majority of the ~2100 new tests call production 
 7. **Delete or rewrite 3 BugFixTests stash guard tests** (852, 877, 899) to call production revert-guard logic.
 
 ### P2 - Fix when convenient
-8. **Delete tautological tests**: `VesselName_FallbackChain_*` (2), `DelegateProperties_RecordingStore_MatchRewindContext`.
+8. **Delete tautological tests**: `VesselName_FallbackChain_*` (2), `DelegateProperties_RecordingStore_MatchRewindContext`. (2026-09-22: the two `VesselName_FallbackChain_*` cells were re-aimed rather than deleted, as `DestroyedGhostName_FallbackChain_*` over `GhostPlaybackEngine.ResolveDestroyedGhostName`.)
 9. **Rename misleading tests**: `OnRecordingCommitted_*` → `Ledger_AddAction_*`, etc.
 10. **Remove unused setup** from MilestonePatchingTests, KerbalEndStateTests, Bug122 tests.
 11. **Delete `KerbalReservationTests.IsManaged_*` duplicates** (407, 418) — covered in KerbalDismissalTests.

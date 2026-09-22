@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index bf1e687b9..ea27fba97 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -8012,8 +8012,6 @@ namespace Parsek
+                 return currentUT;
+             // If the recording's StartUT is at or after the current UT, treat the
+             // recording as fresh — the current frame IS its start moment.
+-            if (recStartUT >= currentUT)
+-                return currentUT;
+             return recStartUT;
+         }
+ 

@@ -102,11 +102,18 @@ namespace Parsek.Tests
                 anchorRotation,
                 storedLegacyRotation);
 
-            Quaternion expected = TrajectoryMath.ApplyRelativeLocalRotation(
-                anchorRotation,
-                storedLegacyRotation);
+            // Built independently of the resolver's callee (anchor * stored). The two
+            // inputs do not commute, so the order is pinned as well.
+            Quaternion expected = TrajectoryMath.PureMultiply(anchorRotation, storedLegacyRotation);
             Assert.True(
                 TrajectoryMath.ComputeQuaternionAngleDegrees(expected, result) < 0.001f);
+            Assert.True(
+                TrajectoryMath.ComputeQuaternionAngleDegrees(storedLegacyRotation, result) > 1f,
+                "result must not be the stored rotation alone");
+            Assert.True(
+                TrajectoryMath.ComputeQuaternionAngleDegrees(
+                    TrajectoryMath.PureMultiply(storedLegacyRotation, anchorRotation), result) > 1f,
+                "result must be anchor * stored, not stored * anchor");
         }
 
         #endregion

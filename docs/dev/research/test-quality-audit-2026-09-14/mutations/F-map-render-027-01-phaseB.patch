@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/TrajectorySidecarBinary.cs b/Source/Parsek/TrajectorySidecarBinary.cs
+index 61c19dd2c..f1184a37b 100644
+--- a/Source/Parsek/TrajectorySidecarBinary.cs
++++ b/Source/Parsek/TrajectorySidecarBinary.cs
+@@ -1083,7 +1083,7 @@ namespace Parsek
+                 }
+ 
+                 pt.recordedGroundClearance = reader.ReadDouble();
+-                pt.flags = reader.ReadByte();
++                pt.flags = (byte)(reader.ReadByte() & (byte)TrajectoryPointFlags.StructuralEventSnapshot);
+ 
+                 points.Add(pt);
+             }

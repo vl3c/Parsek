@@ -237,24 +237,6 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("Playback hybrid breakdown"));
         }
 
-        [Fact]
-        public void HybridSpike_ZeroTotalRendersFractionsAsNa()
-        {
-            // Degenerate: if a future caller ever drives the helper with
-            // total=0 (e.g. a stopwatch read that wrapped or returned 0 us)
-            // the percent renderer must not divide by zero.
-            var phases = HybridSpikePhases();
-
-            var ex = Record.Exception(() =>
-                DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
-                    0, 0, 1.0f, phases));
-            Assert.Null(ex);
-
-            // Below-budget short-circuit means no WARN at all — but the
-            // formatter must not throw if it ever IS reached with total=0.
-            // Verified by the absence of an exception above.
-        }
-
         // ----------------------------------------------------------------
         // PR #553 P2 review: positive-evidence gate. The original gate
         // ("below #450 spawn threshold AND below #460 mainLoop threshold")

@@ -4,6 +4,12 @@ tier = "operator"
 # THE GUI CENSUS, WAVE 2: THE MAIN WINDOW WHILE A RECORDER RUNS, AND THE TWO HOVER ECHOES.
 # It is the smallest lane in the wave and it buys two things nothing else can.
 #
+# ONE IS NOW HISTORY: THE FLIGHT STATUS BLOCK WAS REMOVED ON 2026-09-22 at the owner's
+# review (Parsek records everything, so a recorder-state readout told the player nothing).
+# The three state captures below still run and still prove the recorder verbs moved (the
+# `startrecording` / `stoprecording` / `discardtree` contracts), but they now photograph
+# the same launcher column; the paragraph below describes the lane as it was authored.
+#
 # ONE: THE FLIGHT STATUS BLOCK IN EVERY STATE IT HAS. `ParsekUI.DrawFlightStatus` draws
 # five labels, and `GetStatusText()` has FOUR values - `Idle`, `RECORDING`, `PREVIEWING`,
 # `Ready (has recording)` - plus an optional `Duration:` line that appears only once points
@@ -130,7 +136,7 @@ tier = "operator"
 # `CrewHatchController.OnDestroy` -> `DespawnUIs` -> `HideTooltip` ->
 # `DialogCanvasUtil.get_DialogCanvasRect`, thrown while the FLIGHT scene is being destroyed by
 # `FlushAndQuit`. Report-only, benign, and at shutdown.
-description = "GUI census wave 2, the flight main window through the recorder state machine: photograph the flight status block Idle, RECORDING with points and a duration, and Ready (has recording), plus two attempts at the hover echoes - a tooltip strip and the disabled Real Spawn Control reason - resolved by control text and hovered with the real cursor, which lands without painting a hover."
+description = "GUI census wave 2, the flight main window through the recorder state machine: Idle, RECORDING and Ready (has recording) captures (the flight status block they were built to photograph was removed 2026-09-22, so they now show the launcher column), plus two attempts at the hover echoes - a tooltip strip and the disabled Real Spawn Control reason - resolved by control text and hovered with the real cursor, which lands without painting a hover."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "recording", "GUI-7", "pending-operator"]
 

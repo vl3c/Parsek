@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/RecordingTreeRecordCodec.cs
+index d248a92b8..bf4bee8a6 100644
+--- a/Source/Parsek/RecordingTreeRecordCodec.cs
++++ b/Source/Parsek/RecordingTreeRecordCodec.cs
+@@ -676,8 +676,8 @@ namespace Parsek
+             rec.Hidden = ParseBoolOr(recNode, "hidden", rec.Hidden);
+ 
+             // EVA child linkage
+-            rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
+-            rec.EvaCrewName = recNode.GetValue("evaCrewName");
++            rec.ParentRecordingId = recNode.GetValue("parentRecordingId") ?? string.Empty;
++            rec.EvaCrewName = recNode.GetValue("evaCrewName") ?? string.Empty;
+ 
+             // Chain linkage
+             rec.ChainId = recNode.GetValue("chainId");

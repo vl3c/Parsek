@@ -736,6 +736,26 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The main window drops its flight status block and gets a bold title.** The four
+  flight-only lines at the top of the main window (`State:`, `Recorded Points:`,
+  `Duration:`, `Active Ghosts:`) are gone: Parsek records everything, so a recorder-state
+  readout had nothing left to tell the player. The flight window now opens straight onto the
+  launcher column, with the same top gap as at the Space Center and Real Spawn Control on
+  top. The `Parsek` title is drawn bold and 2 px larger than every other Parsek window's
+  title, from its own cached style over the shared opaque window style; padding is
+  unchanged, so nothing inside the window moves.
+- **Dev: the GUI tree dump records fonts, and the GUI mirror draws them.** A dump node now
+  carries additive `fontSize` / `fontStyle` keys when its style's font departs from the
+  skin's style of the same name (schema id unchanged, `parsek-gui-tree/1`); on a window
+  node they describe the title. The mirror (`harness/tools/gui_mirror.py`) applies them to
+  controls and window titles, which fixes the main window's version footer, a 10 px label
+  the mirror drew at 13 px and clipped to `v0.10.`; every Parsek window title (size 14 in
+  the shared window style) and every size-10 / size-11 label now draws at its recorded size too; the offline viewer shows them in its
+  detail column. The mirror also reads run.py's `_run<N>` / `_a<N>` run-id suffixes as part
+  of the run rather than the scenario id, so a same-minute re-flight keeps its dataset and
+  pairs in Compare. Dumps taken before this change carry no font keys and still draw the
+  old way.
+
 - **The Logistics refusal vocabulary is now a named, enumerable catalogue instead of
   seventy-six literals spread over four files.** Every sentence the window can show for a
   route that will not dispatch (the yellow blocked line, the `Held: ...` cell, its tooltip,
@@ -761,6 +781,81 @@ _(unreleased — entries accumulate here per commit)_
   proved to have changed nothing either.
 
 ### Changed
+
+- **Tests: sixteen cells from the audit's Low T1 (vacuous) register, slice 2, now fail for
+  the reason their names give, or are gone.** Eleven were strengthened - five of them
+  renamed to what they prove - three were deleted in favour of named twins that red under
+  the same mutant, and two were recorded as premise-wrong and kept. Two location and
+  terminal-orbit load cells went through a test-only ParsekScenario helper that no
+  production path calls, into an all-null target; they now load through the recording
+  codec into a pre-seeded target (missing keys must clear stale location fields) and with
+  orphan orbit keys (no tOrbBody means nothing is hydrated), with a present-key mirror. The
+  destroyed-ghost naming and the breakup-into-tree wiring were each re-typed inline in the
+  test; each is now a small behaviour-identical extraction
+  (`GhostPlaybackEngine.ResolveDestroyedGhostName`, `ParsekFlight.WireBreakupIntoTree`)
+  that the cell drives, plus a source gate on the call site. The sidecar-epoch cells did
+  `SidecarEpoch++` themselves; the two that remain save through the real sidecar writer and
+  probe the epoch the .prec carries, one per direction of the incrementEpoch flag, and the
+  two that only re-narrated the same sequences are deleted. Three point-flag cells were bit
+  identities no enum edit could red; one now round-trips 0x81 and 0x80 through the binary
+  codec and the other two are deleted. The group-duration guard was filed as unreachable,
+  but a data-less recording with only ExplicitStartUT reads a negative duration, and that
+  case is now pinned. The null-marker merge cell passed a null provisional too, so the
+  provisional guard answered; it now passes the fixture's real provisional. The
+  relative-rotation cell compared the resolver with its own callee; it now builds
+  anchor * stored independently and pins the order, which catches a convention flip
+  applied to both encode and decode that 1,511 relative / anchor / debris cells missed.
+  The background part-event subscribe cell never subscribed, on a stated premise
+  (GameEvents is null headless) that is false. The crew-replacement reset cell now seeds
+  both stores it clears. Deleted: two cells that read back their own writes (a field
+  assignment, a hand-built ConfigNode) and one seed-UT equality cell where both branches of
+  the guard return the same value. Premise-wrong: the before-start active-cycles return is
+  redundant with a clamp, so the cell pins the output (comment added), and the rewind-strip
+  log cell had already been re-aimed by 8d0c07363. Per commit (from
+  `git diff origin/main...HEAD -- Source/Parsek.Tests`): 8f27c01a8 4 renames + 2 new + 2
+  deletions, 943e05977 2 renames + 2 deletions, 9cba48eca 2 deletions, 23d453c2f 1
+  deletion, ee289af56 1 new; the other re-aims keep their names.
+- **Tests: fourteen Low T1 (vacuous) cells from the unit-test quality audit now fail for
+  the reason their names give, or are gone.** Each of them could not red on the thing it
+  named: it re-derived the rule from test-local numbers, compared a value the fixture had
+  just written, asserted what a field initializer or a test builder produced, or reached
+  no production code at all. Eleven were strengthened - five of them also renamed, one
+  split into two cells - and three were deleted in favour of a named twin; nothing was
+  premise-wrong. The table-gutter arithmetic now runs the shipped gutter rule, fed the
+  census-measured skin terms, so a rule that took the max of the scrollbar footprint and
+  the cell margin instead of their sum reds it. The on-rails contiguity cell passed the
+  same UT to its own close and open calls; it now hands ONE boundary UT to the SOI-seam
+  producer that chooses both. The apply-log invariance cell ran under de-DE, which formats
+  a non-negative int exactly like the invariant culture; it now uses a culture whose minus
+  sign is U+2212 and the real recIdx -1. The autorun Parse self-equality cell held for any
+  implementation, including a constant; it is now a source gate that every env read sits
+  in ParseAutorunConfigOnce and that Awake is its only caller. The two stand-in recreate
+  cells reflected into the private predicate and never ran ApplyToRoster; they now drive
+  it over a fake roster that records what it was asked to recreate. The growth-rate stop
+  line was a copy the test logged itself; it now asserts the production formatter's exact
+  line under de-DE. The two part-event and EVA-linkage back-compat cells read builder
+  output; they now load through the production codec and metadata loader (the EVA one
+  needed a current-schema node, because the loader rejects an unstamped node before it
+  reaches the linkage keys). The equal-value science re-commit could not tell a strict
+  max-wins guard from `>=` or an unconditional write by the stored value, and a `>=`
+  guard was green across every science class; the cell now reads the commit summary's
+  `updated` counter, which only the strict guard keeps at 0. The both-null fork-migration
+  call returned at the first guard and could never witness the second; it is two cells now,
+  each with only its own argument null against a committed tree the migration would
+  otherwise mutate. Deleted: the zero-total hybrid breakdown cell (the n/a fraction it
+  names is unreachable behind the 8 ms budget guard; its one reachable claim is
+  HybridSpike_TotalBelowBudget_DoesNotFireBreakdown, which reds where it did not), the
+  RoverRelayC ReportTheOracle dump (it asserted nothing on the analysis it printed), and
+  the DeployableExtended builder-only roundtrip (the codec is a plain enum cast, so a
+  production version would only repeat the LightOn roundtrip). Per commit, derived from
+  the diff: 4 rows, 4 rows (one deletion), 4 rows (two deletions), 2 rows.
+
+  Two behaviour-identical helpers were extracted so a test can reach the decision without
+  a live skin or recorder: ParsekUI.ComposeScrollbarGutterWidth (the sum
+  VerticalScrollbarGutterWidth returns) and FlightRecorder.FormatGrowthRateAtStop (the
+  line FinalizeRecordingState logs). No behaviour, log text or anything a player sees
+  changes. Each kept cell was re-checked by breaking the named production line on purpose
+  and confirming it goes red where it used to stay green.
 
 - **Tests: twenty ghost-playback, analyzer and flight-seam cells from the audit's T3
   (weak or misleading) register now let the production term they name decide the

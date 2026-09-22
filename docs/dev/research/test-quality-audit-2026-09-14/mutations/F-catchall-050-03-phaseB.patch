@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/RecordingTreeRecordCodec.cs
+index d248a92b8..17d35dc79 100644
+--- a/Source/Parsek/RecordingTreeRecordCodec.cs
++++ b/Source/Parsek/RecordingTreeRecordCodec.cs
+@@ -557,7 +557,7 @@ namespace Parsek
+ 
+             // Terminal orbit fields
+             string tOrbBody = recNode.GetValue("tOrbBody");
+-            if (!string.IsNullOrEmpty(tOrbBody))
++            if (true)
+             {
+                 rec.TerminalOrbitBody = tOrbBody;
+                 double.TryParse(recNode.GetValue("tOrbInc"), inv, ic, out rec.TerminalOrbitInclination);

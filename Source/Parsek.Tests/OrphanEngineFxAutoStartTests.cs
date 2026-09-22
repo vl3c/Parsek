@@ -401,20 +401,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SeedUT_RecordingStartUTAtCurrentUT_ReturnsCurrentUT()
-        {
-            // Edge case: brand-new recording whose first trajectory point landed
-            // exactly at the current UT (fresh fork on first physics frame). Both
-            // values are equivalent; the helper returns currentUT for stability.
-            var rec = new Recording { RecordingId = "rec_simultaneous" };
-            rec.Points.Add(new TrajectoryPoint { ut = 500.0 });
-
-            double seedUT = FlightRecorder.ResolveChainPromotionSeedUT(rec, currentUT: 500.0);
-
-            Assert.Equal(500.0, seedUT);
-        }
-
-        [Fact]
         public void SeedUT_RecordingStartUTInFuture_ReturnsCurrentUT()
         {
             // Defensive: a recording whose StartUT somehow lands ahead of currentUT

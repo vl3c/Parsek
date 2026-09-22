@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GhostPartEventApplyLog.cs b/Source/Parsek/GhostPartEventApplyLog.cs
+index 668c51747..f5854844f 100644
+--- a/Source/Parsek/GhostPartEventApplyLog.cs
++++ b/Source/Parsek/GhostPartEventApplyLog.cs
+@@ -210,7 +210,6 @@ namespace Parsek
+             GhostPartEventOutcome reason)
+         {
+             return string.Format(
+-                CultureInfo.InvariantCulture,
+                 "apply family={0} surface={1} rec={2} pid={3} applied={4} skipped={5} reason={6}",
+                 family,
+                 SurfaceToken(surface),

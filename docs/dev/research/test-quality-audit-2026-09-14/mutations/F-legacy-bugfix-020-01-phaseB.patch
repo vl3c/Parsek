@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Diagnostics/DiagnosticsComputation.cs b/Source/Parsek/Diagnostics/DiagnosticsComputation.cs
+index 6337e21be..d763a678f 100644
+--- a/Source/Parsek/Diagnostics/DiagnosticsComputation.cs
++++ b/Source/Parsek/Diagnostics/DiagnosticsComputation.cs
+@@ -839,8 +839,6 @@ namespace Parsek
+             long totalMicroseconds, int ghostsProcessed, float warpRate, PlaybackBudgetPhases phases)
+         {
+             double totalMs = totalMicroseconds / 1000.0;
+-            if (totalMs <= PlaybackBudgetThresholdMs)
+-                return;
+ 
+             ParsekLog.WarnRateLimited("Diagnostics", "playback-budget",
+                 string.Format(Inv,
