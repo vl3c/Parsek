@@ -1311,6 +1311,11 @@ namespace Parsek
                 // whole per-recording row sets and never passes through here.
                 case GameActionType.KerbalAssignment:
                     return (a.RecordingId ?? "") + "|" + (a.KerbalName ?? "");
+                // KerbalRecovered: per (owner recording, kerbal), like KerbalAssignment,
+                // so a two-crew recovery keeps both rows and the same recovery event
+                // delivered twice collapses to one.
+                case GameActionType.KerbalRecovered:
+                    return (a.RecordingId ?? "") + "|" + (a.KerbalName ?? "");
                 default: return "";
             }
         }
@@ -5004,6 +5009,106 @@ namespace Parsek
 
             RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-kerbal-xp");
             return beforeDedup;
+        }
+
+        /// <summary>
+        /// KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: KSP recovered a real vessel
+        /// with <paramref name="liveCrewNames"/> aboard. When the vessel continues a
+        /// committed recording (<see cref="CrewRecoveryReservationClose.SelectOwnerRecordings"/>:
+        /// the same launch by POSITIVE guid match, or the vessel Parsek spawned from it),
+        /// write one <see cref="GameActionType.KerbalRecovered"/> row per recovered kerbal
+        /// whose open-ended hold from that recording's tree the recovery ends, then
+        /// recalculate so the hold becomes UT 0 -> <paramref name="ut"/> and the kerbal is
+        /// free from now on (a rewind to before <paramref name="ut"/> holds him again,
+        /// because the row is part of the committed timeline the walk re-derives from).
+        ///
+        /// <para>Why a row and not a re-stamp: the ordinary in-flight Recover with auto-merge
+        /// on commits the flight at the scene change BEFORE stock recovers the vessel, and
+        /// committed recordings are never modified by a terminal event
+        /// (<c>ParsekScenario.UpdateRecordingsForTerminalEvent</c>). The ledger stays the
+        /// single source the reservation is derived from.</para>
+        ///
+        /// <para>Deduplicated per (owner recording, kerbal) inside the 0.1 s dedup window
+        /// (<see cref="GetActionKey"/>), so the same recovery delivered twice writes once.
+        /// The caller filters Parsek's own programmatic recoveries (crew-suppressed) and
+        /// rewind strips.</para>
+        /// </summary>
+        /// <returns>Rows written (0 when nothing was open-ended or all were duplicates).</returns>
+        internal static int OnRealVesselCrewRecovered(
+            double ut,
+            uint vesselPid,
+            string launchGuid,
+            string vesselName,
+            IList<string> liveCrewNames)
+        {
+            string utText = ut.ToString("F1", CultureInfo.InvariantCulture);
+            string vesselText = vesselName ?? "(null)";
+            if (liveCrewNames == null || liveCrewNames.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Recovery crew reservation close: vessel='{vesselText}' pid={vesselPid} " +
+                    $"ut={utText} - no crew aboard, nothing to close");
+                return 0;
+            }
+
+            Initialize();
+
+            var ers = EffectiveState.ComputeERS();
+            var owners = CrewRecoveryReservationClose.SelectOwnerRecordings(
+                ers, vesselPid, launchGuid, ut);
+            if (owners.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Recovery crew reservation close: vessel='{vesselText}' pid={vesselPid} " +
+                    $"guid={launchGuid ?? "(null)"} ut={utText} - no committed recording continues " +
+                    "this vessel, nothing to close");
+                return 0;
+            }
+
+            var ownerNames = new List<string>(liveCrewNames.Count);
+            for (int i = 0; i < liveCrewNames.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(liveCrewNames[i]))
+                    ownerNames.Add(liveCrewNames[i]);
+            }
+            KerbalsModule.ReverseMapCrewNames(ownerNames, CrewReservationManager.CrewReplacements, null);
+
+            var rows = CrewRecoveryReservationClose.BuildClosureRows(
+                owners, ownerNames, EffectiveState.ComputeELS(), ers, ut);
+            if (rows.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Recovery crew reservation close: vessel='{vesselText}' ut={utText} " +
+                    $"owners={owners.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"crew='{string.Join(",", ownerNames.ToArray())}' - no open-ended hold in scope");
+                return 0;
+            }
+
+            int written = 0;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                var single = DeduplicateAgainstLedger(new List<GameAction> { row.Action });
+                if (single.Count == 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"Recovery crew reservation close: '{row.Action.KerbalName}' " +
+                        $"recordingId={row.Action.RecordingId} ut={utText} already in the ledger");
+                    continue;
+                }
+
+                row.Action.Sequence = AllocateKscSequence();
+                Ledger.AddAction(row.Action);
+                written++;
+                ParsekLog.Info(Tag,
+                    $"Crew reservation closed by recovery: '{row.Action.KerbalName}' " +
+                    $"recoveryUT={utText} recordingId={row.Action.RecordingId} " +
+                    $"vessel='{vesselText}' openHolds={row.ClosedHolds.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            if (written > 0)
+                RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-crew-reservation-close");
+            return written;
         }
 
         private static string ResolveKscScienceRecordingId(

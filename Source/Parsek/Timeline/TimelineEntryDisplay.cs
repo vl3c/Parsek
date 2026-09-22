@@ -461,6 +461,9 @@ namespace Parsek
                 case GameActionType.KerbalHire:           return TimelineEntryType.KerbalHire;
                 case GameActionType.KerbalRescue:         return TimelineEntryType.KerbalRescue;
                 case GameActionType.KerbalStandIn:        return TimelineEntryType.KerbalStandIn;
+                // A crew member's recovery is a kerbal event on an existing flight; it
+                // reuses the assignment bucket rather than adding an entry type.
+                case GameActionType.KerbalRecovered:      return TimelineEntryType.KerbalAssignment;
                 case GameActionType.FacilityUpgrade:      return TimelineEntryType.FacilityUpgrade;
                 case GameActionType.FacilityDestruction:  return TimelineEntryType.FacilityDestruction;
                 case GameActionType.FacilityRepair:       return TimelineEntryType.FacilityRepair;

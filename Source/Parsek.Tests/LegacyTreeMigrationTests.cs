@@ -105,6 +105,9 @@ namespace Parsek.Tests
         // strategy. ScienceModule credits the pool by ScienceAwarded, so it moves a
         // resource exactly like a ScienceEarning - true.
         [InlineData(GameActionType.StrategyScienceCredit, true)]
+        // KerbalRecovered (KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL): bounds a
+        // crew reservation at a real-vessel recovery; moves no pool.
+        [InlineData(GameActionType.KerbalRecovered,      false)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

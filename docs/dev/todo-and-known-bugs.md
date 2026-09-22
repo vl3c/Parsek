@@ -929,8 +929,8 @@ Dismissal stays BLOCKED for a returned owner (decided on review): `KerbalDismiss
 `KerbalsModule.ShouldBlockDismissal` = managed OR named by any committed flight (the raw map),
 with the reason `This kerbal flew a committed flight on your timeline.`, because a sacked kerbal
 that committed flights still name (ghost crew, a rewind before his recovery that must re-reserve
-him) is a data hazard. Aboard (`+inf`) holds are UNCHANGED; see
-KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL below.
+him) is a data hazard. Aboard (`+inf`) holds were UNCHANGED by this fix; a real-vessel
+recovery bounds them since KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL below.
 
 **Residual (not fixed): a trigger walk under KSP-patch deferral.** When the crossed-an-end check
 fires while `GetKspPatchDeferralReason` defers the patch (a live or pending tree), the walk
@@ -986,7 +986,96 @@ and deciding what a rewind to before the flight's end does to a kerbal the playe
 crewed. (b) is a behaviour change with rewind, stand-in retirement and swap consequences; if it
 is chosen, `KerbalReservationReleaseTests` inverts and the window's hover rule changes with it.
 
-## KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: a kerbal whose committed flight ends Aboard stays reserved forever, even after the vessel is recovered - and an ordinary in-flight "Recover" with auto-merge on ends every crewed flight Aboard [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, then MEASURED the same night on `L3-career-science-recover` run `2026-09-22_2132` (and read back into the 2026-09-02 L3 log). PRODUCT GAP against design 9.3 ("RECOVERED ... available after recovery"; STRANDED "stays open until a future recording rescues the kerbal"). OPEN - not changed by that fix, which deliberately left `+inf` holds alone]
+## ~~KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL~~: a kerbal whose committed flight ends Aboard stays reserved forever, even after the vessel is recovered - and an ordinary in-flight "Recover" with auto-merge on ends every crewed flight Aboard [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, then MEASURED the same night on `L3-career-science-recover` run `2026-09-22_2132` (and read back into the 2026-09-02 L3 log). PRODUCT GAP against design 9.3 ("RECOVERED ... available after recovery"; STRANDED "stays open until a future recording rescues the kerbal"). FIXED 2026-09-23 on branch `kerbal-aboard-recovery` (the recovery half; see Residual)]
+
+**Fix (2026-09-23).** A real-vessel recovery now writes a ledger row, and the kerbals walk
+bounds the open-ended hold with it; the ledger stays the single source the reservation is
+derived from, so rewind and recompute stay derivable. New `GameActionType.KerbalRecovered = 34`
+(additive enum member, no schema bump; serialized as `kerbalName` / `kerbalRole` beside the
+common `ut` / `recordingId` / `seq` / `actionId`). Producer: `ParsekScenario.OnVesselRecovered`
+(after the existing terminal-state and funds legs; skipped for a ghost map vessel, during a
+rewind strip, and when `GameStateRecorder.SuppressCrewEvents` marks one of Parsek's own
+programmatic recoveries) reads the crew off the recovered `ProtoVessel` and calls
+`LedgerOrchestrator.OnRealVesselCrewRecovered`. That picks the owner recordings through the
+pure `CrewRecoveryReservationClose` (`GameActions/CrewRecoveryReservationClose.cs`): an ERS
+recording the vessel continues - a POSITIVE launch match
+(`VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch`: pid AND both guids known and
+equal, no pid-only fallback, because closing a hold RELEASES a kerbal and the pre-fix answer
+was to leave it alone) or a GENUINE Parsek spawn (`SpawnedVesselPersistentId` equal to the
+live pid and different from the craft pid) - that ended at or before the recovery, the
+latest-ending one per tree. The recovered names are reverse-mapped to reservation owners
+(`KerbalsModule.ReverseMapCrewNames`, as the assignment rows are), and one row per (owner,
+kerbal) is written only when that kerbal has an open-ended hold in scope (an ELS
+`KerbalAssignment` row, non-tourist, not a loop and not in a chain with a looping segment -
+the walk's own override, mirrored so the writer never logs a closure that changes nothing -
+end state Aboard or Unknown). Rows are deduped
+by `GetActionKey` = `recordingId|kerbalName` inside the 0.1 s window, logged once at Info as
+`Crew reservation closed by recovery: '<name>' recoveryUT=<ut> recordingId=<id> vessel='<v>'
+openHolds=<n>`, then `RecalculateAndPatchForLiveTimelineEvent(ut,
+"recovery-crew-reservation-close")` runs. Walk: `KerbalsModule.PrePass` collects the rows
+(`CollectRecoveryClosures`; they sort AFTER the assignment rows they close) and
+`ProcessAction` ends an Aboard / Unknown, non-permanent, non-looping-chain hold at the earliest
+row whose owner is committed and for which the pure `RecoveryClosesHold` answers true: the
+held flight is the owner itself or in the owner's tree, and ended at or before the recovery
+(1 s tolerance). So the L3 shape (Recovered HEAD + Aboard TIP of one launch) becomes UT 0 ->
+recovery UT and #1767's release frees him at once; a flight in ANOTHER tree keeps its hold
+(a kerbal stranded by another mission stays stranded, and a stand-in whose name reverse-maps
+to that owner cannot free him), a later flight keeps the max-end merge, a Dead row stays
+permanent, and a rewind to before the recovery holds him again because the row is a future
+row of the committed timeline (`CrewReservationManager.RecomputeFromEffectiveLedger` now
+feeds the type too). Supersede / tombstone: `TombstoneEligibility.IsSupersedeTombstoneEligible`
+retires the row with its owner recording (a re-fly that deletes the flight the recovered
+vessel continued also drops the closure), and `SupersedeCommit.IsWorldStateChangingRecordingAction`
+lists it as non-blocking. Not resource-impacting (`LedgerLoadMigration`,
+`KscActionExpectationClassifier`); the timeline shows it in the kerbal-assignment bucket as
+`Recovered: <name>`. Tests: `KerbalRecoveryReservationCloseTests` (the L3 shape end to end
+through the real ledger and walk, dedupe, rewind re-reserve, max-end with a later flight,
+another mission's stranding untouched, guid-mismatch and unknown-guid refusals, the spawned
+vessel, the stand-in reverse map, tombstoned-row reopening, and the pure scope / identity /
+row-building / collection decisions, serialization and dedup key), plus the enum-coverage
+tables in `LegacyTreeMigrationTests`, `SupersedeCommitTests`, `RecalculationFuzzer` and
+`LedgerStateFuzzerTests`. `KerbalReservationReleaseTests.AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold`
+still holds: a later Recovered flight in a different tree is not a recovery of the Aboard
+flight's vessel.
+
+**Live proof (2026-09-23, automation DLL verified to carry the new literals before each
+flight).** `L3-career-science-recover` run `2026-09-22_2325` PASS attempt 1: the commit walk
+still re-reserves Jeb (`Reservation re-reserved: 'Jebediah Kerman' endUT=INDEFINITE
+nowUT=347.2`, `Stand-in generated: 'Valdas Kerman'`), then the recovery writes `Crew
+reservation closed by recovery: 'Jebediah Kerman' recoveryUT=347.3
+recordingId=9dbe6297... vessel='Jumping Flea' openHolds=1`, the walk logs `Reservation
+bounded by recovery` and `Reservation released: 'Jebediah Kerman' endUT=347.3 nowUT=347.3`,
+and `Stand-in 'Valdas Kerman' displaced -> deleted (unused)`. No later walk re-reserves him;
+the produced save has Jeb `state = Available`, the stand-in only as a persisted chain name,
+and the `type = 34` row in `ledger.pgld`. `CL-4-refly-crew-standin` run `2026-09-22_2332`
+PASS attempt 1: the re-fly still generates its required stand-in (`Stand-in generated:
+'Caller Kerman' (Pilot) for slot 'Jebediah Kerman' depth 0`), and no recovery row is written.
+
+**Residual (not fixed).** (1) The spawned-vessel arm (a Parsek-spawned vessel recovered
+from the Tracking Station, or flown home through a switch continuation) is unit-proven
+only: it needs the Aboard flight's `SpawnedVesselPersistentId` to still name the live pid
+at recovery time, and no live lane flies that shape yet. (2) A legacy recording with no
+launch guid is never an owner (positive-match rule), so its crew keep the open-ended hold
+after a recovery; re-flying or deleting that flight still releases them. (3) A recovery
+never replays: after a rewind to before it, Parsek respawns the vessel at the recording's
+end, and the committed row still releases the crew at the ORIGINAL recovery UT whether or
+not the player recovers the respawned vessel again. The same holds for a quickload: the row
+carries a recording id, so `Ledger.Reconcile` keeps it past `maxUT` (the tagged "other"
+branch, `Ledger.cs` ~895-901), and an F9 to a save from before a Tracking Station recovery
+still frees the kerbal once the clock passes the old recovery UT. Impact is the stand-in
+deletion / retirement only; the contract is the one the #444 recovery-funds rows already
+have. (4) A cross-mission rescue is not closed: `RecoveryClosesHold` never reaches across
+trees, so if Jeb ended mission T aboard its vessel (`+inf`) and came home aboard mission U's
+vessel, U's recovery closes U's hold and T's stays open-ended (design 9.3's rescue case; not
+a regression; pinned as current behaviour by
+`CrossMissionRescue_ClosesOnlyTheRecoveredMissionsHold`). Fix idea: when the recovered name
+was NOT reverse-mapped from a stand-in (the kerbal himself is physically aboard), closing his
+held flights from ANY tree that ended by the recovery would be correct; the tree fence only
+exists for the stand-in case. (5) The tree scope is wider than the vessel's lineage: a
+surviving row closes any open-ended hold of the same kerbal in the same tree that ended by the
+recovery UT, including one from a branch the recovered vessel never carried him on. The risky
+shape needs a recovery during an uncommitted re-fly whose later commit adds such a hold to the
+tree; not proven live.
 
 **The common case (measured).** Stock's in-flight Recover requests the Space Center scene
 first and recovers the vessel there. Parsek finalizes the recording at the scene change
@@ -1025,7 +1114,7 @@ continuation's Recovered row merges with the parent's `+inf` row by max.
 `KerbalReservationReleaseTests.AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold`
 pins the merge half.
 
-**Fix direction (not taken).** For the common case: treat a recovery REQUESTED in flight
+**Fix direction (as filed; the ledger-row candidate was taken, see Fix above).** For the common case: treat a recovery REQUESTED in flight
 (stock `onVesselRecoveryRequested`, which fires before the scene change) as the recording's
 Recovered terminal, or let `onVesselRecovered` re-stamp the just-committed tree's leaf when the
 guid-matched recording ended at the scene change that recovery caused. More generally, a rescue /

@@ -7819,6 +7819,55 @@ namespace Parsek
                     fromTrackingStation,
                     pv.vesselType,
                     payoutContext);
+
+            // KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: the committed flight this
+            // vessel continues may hold its crew open-ended (with auto-merge on, an in-flight
+            // Recover commits the flight Landed BEFORE this event fires). Parsek's own
+            // housekeeping recoveries run crew-suppressed and are not a kerbal coming home.
+            if (GameStateRecorder.SuppressCrewEvents)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"Recovery crew reservation close skipped for '{identity.DisplayName}' " +
+                    $"pid={pv.persistentId}: crew events suppressed (programmatic recovery)");
+            }
+            else
+            {
+                CloseCrewReservationsForRecoveredVessel(pv, identity, now);
+            }
+        }
+
+        private static void CloseCrewReservationsForRecoveredVessel(
+            ProtoVessel pv,
+            RecoveredVesselIdentity identity,
+            double now)
+        {
+            var names = new List<string>();
+            try
+            {
+                var crew = pv.GetVesselCrew();
+                if (crew != null)
+                {
+                    for (int i = 0; i < crew.Count; i++)
+                    {
+                        if (crew[i] != null && !string.IsNullOrEmpty(crew[i].name))
+                            names.Add(crew[i].name);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"Recovery crew reservation close: GetVesselCrew threw for " +
+                    $"'{identity.DisplayName}': {ex.Message} - skipping");
+                return;
+            }
+
+            LedgerOrchestrator.OnRealVesselCrewRecovered(
+                now,
+                pv.persistentId,
+                VesselLaunchIdentity.ReadLaunchGuid(pv),
+                identity.DisplayName,
+                names);
         }
 
         private void OnVesselTerminated(ProtoVessel pv)

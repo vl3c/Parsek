@@ -1042,6 +1042,9 @@ namespace Parsek.Tests
                     break;
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
+                // KerbalRecovered: the recovered kerbal (owner name) is the row's payload;
+                // its RecordingId comes from the skeleton.
+                case GameActionType.KerbalRecovered:
                     action.KerbalName = KerbalNames[rng.Next(KerbalNames.Length)];
                     action.KerbalRole = KerbalRoles[rng.Next(KerbalRoles.Length)];
                     break;

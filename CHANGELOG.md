@@ -852,10 +852,21 @@ _(unreleased — entries accumulate here per commit)_
   the window catches up at the next time warp exit or scene change). A returned kerbal
   still cannot be dismissed from the Astronaut Complex while a committed flight names
   him, since a rewind may need him again. Kerbals
-  whose flight ends with them still aboard a vessel stay reserved with no end date, as
-  before. Known gap: a flight recovered with the in-flight Recover button is committed
-  just before the recovery happens, so it still ends with the kerbal aboard and he stays
-  reserved; that is filed separately.
+  whose flight ends with them still aboard a vessel stay reserved with no end date until
+  that vessel is recovered (next entry).
+- **Recovering a vessel frees the kerbals aboard it, including after the in-flight Recover
+  button.** With auto-merge on (the shipping setting), Recover in flight commits the flight
+  at the scene change, just before the game recovers the vessel, so the committed flight
+  ended with the crew still aboard and they stayed reserved forever, hidden from the crew
+  dialog and replaced by a stand-in. The same happened when a vessel Parsek had put back
+  at the end of a flight was recovered later from the Tracking Station. Now a recovery of
+  the real vessel that continues a committed flight (the same launch, or the vessel Parsek
+  spawned from that flight) records that its crew came home at that moment, and their
+  reservation ends there: they are free at once, an unused stand-in is deleted and a used
+  one retired, and rewinding to before the recovery reserves them again. A kerbal left
+  aboard a vessel that is never recovered stays reserved, a kerbal stranded by a different
+  mission is not freed by it, and a later flight that names the kerbal keeps him reserved
+  until it ends. A re-fly that replaces the recovered flight takes the record back with it.
 - **A re-fly that saves crew who boarded before the rewind point now brings them back.**
   When a flight's crew boarded at launch, the rewind point came later in the same flight,
   and the original flight then killed them, merging a re-fly kept them Dead. The death
