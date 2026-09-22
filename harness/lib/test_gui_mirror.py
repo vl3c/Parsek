@@ -324,6 +324,30 @@ class LogReplayTests(unittest.TestCase):
         self.assertEqual(gmi.parse_ksp_log(None)["captures"], {})
 
 
+class ShotsDirNameTests(unittest.TestCase):
+    """run.py's collision guard puts `_run<N>` / `_a<N>` AFTER the scenario id
+    (hlib.format_run_id). Read as part of the spec id they named no scenario, so a
+    re-flight in the same minute lost its dataset and never paired in Compare."""
+
+    def scan(self, dirname):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        shots = make_shots(root, name=dirname, with_png=False)
+        return gmi.scan_shots_dir(shots, make_scenarios(root), want_colors=False)
+
+    def test_a_plain_run_is_unchanged(self):
+        out = self.scan("2026-09-11_0548_SYN-1-census-widgets_shots")
+        self.assertEqual((out["runId"], out["specId"], out["fixture"]),
+                         ("2026-09-11_0548", "SYN-1-census-widgets", "syn-fixture"))
+
+    def test_the_ordinal_and_attempt_suffixes_belong_to_the_run(self):
+        for sfx in ("_run2", "_a2", "_run3_a2"):
+            out = self.scan("2026-09-22_1841_SYN-1-census-widgets%s_shots" % sfx)
+            self.assertEqual(out["specId"], "SYN-1-census-widgets", sfx)
+            self.assertEqual(out["fixture"], "syn-fixture", sfx)
+            self.assertEqual(out["runId"], "2026-09-22_1841" + sfx)
+
+
 class DatasetFallbackTests(unittest.TestCase):
     """The selected fixture's capture when it exists, else the nearest one in the
     declared order - and the caller is always told which happened, because a page
@@ -443,6 +467,67 @@ class TreeFlatteningTests(unittest.TestCase):
                     text_value="Roster")
         out = gmi.compact_tree(grid, [270, 8])
         self.assertEqual(out["tv"], "Roster")
+
+
+class FontDeltaTests(unittest.TestCase):
+    """The dump's additive `fontSize` / `fontStyle` keys reach the page. The main
+    window's version footer is a 10 px `new GUIStyle(label)` copy in a 35 px rect;
+    drawn at the page's 13 px label default it read `v0.10.` - the one bug the owner
+    reported against the mirror itself."""
+
+    def test_a_custom_label_size_becomes_fs(self):
+        n = node("label", [18, 273, 35, 17], "v0.10.5", style="label")
+        n["fontSize"] = 10
+        out = gmi.compact_tree(n, [8, 8])
+        self.assertEqual(out["fs"], 10)
+        self.assertNotIn("fw", out)
+
+    def test_a_window_title_font_becomes_fs_and_fw(self):
+        n = node("window", [8, 8, 250, 0], "Parsek", style="window")
+        n["fontSize"] = 16
+        n["fontStyle"] = "bold"
+        out = gmi.compact_tree(n, [8, 8])
+        self.assertEqual((out["fs"], out["fw"]), (16, "b"))
+
+    def test_every_wire_style_has_a_code(self):
+        # The C# side's pinned wire names (GuiTreeAssembler.FontStyleWireName).
+        for wire, code in (("normal", "n"), ("bold", "b"), ("italic", "i"),
+                           ("boldItalic", "bi")):
+            n = node("label", [0, 0, 10, 10], "x")
+            n["fontStyle"] = wire
+            self.assertEqual(gmi.compact_tree(n, [0, 0])["fw"], code)
+
+    def test_absent_or_unusable_keys_add_nothing(self):
+        for size, style in ((None, None), (0, None), (True, None), ("10", "9")):
+            n = node("label", [0, 0, 10, 10], "x")
+            if size is not None:
+                n["fontSize"] = size
+            if style is not None:
+                n["fontStyle"] = style
+            out = gmi.compact_tree(n, [0, 0])
+            self.assertNotIn("fs", out)
+            self.assertNotIn("fw", out)
+
+    def test_the_model_root_carries_the_title_font_and_the_page_applies_it(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        shots = make_shots(root, with_png=False)
+        path = os.path.join(shots, "syn-widgets-zynthia-advanced.gui.json")
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+        d["roots"][0]["fontSize"] = 16
+        d["roots"][0]["fontStyle"] = "bold"
+        d["roots"][0]["children"][-1]["fontSize"] = 10
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(d, fh)
+        model = gmi.build_model([shots], make_scenarios(root), with_photos=False)
+        cap = [c for c in model["captures"] if c["tab"] == "zynthia"][0]
+        self.assertEqual((cap["roots"][0]["fs"], cap["roots"][0]["fw"]), (16, "b"))
+        self.assertEqual(cap["roots"][0]["c"][-1]["fs"], 10)
+        html = gmi.render_html(model)
+        # Both surfaces call the one helper: the title div and every control div.
+        self.assertIn("applyFont(t, r);", html)
+        self.assertIn("applyFont(d, n);", html)
 
 
 class GridLabelMeasurementTests(unittest.TestCase):

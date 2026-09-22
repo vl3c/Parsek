@@ -1101,7 +1101,6 @@ namespace Parsek
 
         public bool IsRecording => recorder?.IsRecording ?? false;
         public bool IsPlaying => isPlaying;
-        public int TimelineGhostCount => engine.GhostCount;
         public GameObject PreviewGhost => ghostObject;
         public Dictionary<int, GameObject> TimelineGhosts
         {
@@ -2118,8 +2117,8 @@ namespace Parsek
             if (showUI)
             {
                 windowRect.height = 0f;
-                var opaqueWindowStyle = ui.GetOpaqueWindowStyle();
-                if (opaqueWindowStyle == null)
+                var mainWindowStyle = ui.GetMainWindowStyle();
+                if (mainWindowStyle == null)
                     return;
 
                 ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
@@ -2130,7 +2129,7 @@ namespace Parsek
                         windowRect,
                         ui.DrawWindow,
                         "Parsek",
-                        opaqueWindowStyle,
+                        mainWindowStyle,
                         GUILayout.Width(250)
                     );
                 }

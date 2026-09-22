@@ -359,9 +359,12 @@ in the opposite order). `showUI` is written only by the toolbar handlers
 gates the window itself. The flight host draws 10 sub-windows (`:2132-2141`), the KSC host 8
 (`ParsekKSC.cs:254-261`) - Spawn Control and Gloops are flight-only.
 
-Contents, top-down (`ParsekUI.cs:745-986`): flight status block (FLIGHT only, `:747`), the
-launcher column, the supply-route banner when armed, the tooltip echo strip (`:977`), a
-version label and `Close` (`:979-986`).
+Contents, top-down (`ParsekUI.cs:745-986`): the launcher column, the supply-route banner when
+armed, the tooltip echo strip (`:977`), a version label and `Close` (`:979-986`). The flight
+and KSC forms now start the same way (a 10 px gap, then the first launcher); the only flight
+difference is the Real Spawn Control launcher on top. The title `Parsek` is drawn with
+`ParsekUI.GetMainWindowStyle()` - the shared opaque window style, bold and 2 px larger - so it
+stands out from every sub-window title (2026-09-22, owner review round 1).
 
 | launcher | tooltip | line | gate | action |
 |---|---|---|---|---|
@@ -378,15 +381,14 @@ Basic vs Advanced: Basic drops Real Spawn Control, Kerbals and Career; the `Spac
 opens the Kerbals/Career group is gated with it (`:908-909`) so Basic shows one gap, not two.
 Census-verified sets: KSC Basic 4 buttons, KSC Advanced 6, FLIGHT Basic 4, FLIGHT Advanced 7.
 
-Flight status block (`ParsekUI.DrawFlightStatus` `:995`): five labels, `State:` from
-`GetStatusText()` (`:2699`) with four values `Idle` / `RECORDING` / `PREVIEWING` /
-`Ready (has recording)`, `Recorded Points:`, an optional `Duration:` line when points exist,
-and `Active Ghosts:`. Only the `Idle` / zero-points / zero-ghosts variant has a picture
-(both flight labels).
+The flight status block (`DrawFlightStatus`: `State:` / `Recorded Points:` / `Duration:` /
+`Active Ghosts:`) was REMOVED on 2026-09-22 at the owner's review: Parsek records everything,
+so a recorder-state readout has nothing left to tell the player. Its pictures in GUI-2 / GUI-6
+/ GUI-7 runs before that date are history, not the current window.
 
 State variants without a picture: the RouteRunPrompt banner (`:817-855`, `Open Logistics` /
-`Dismiss`), either Logistics tint, an enabled Real Spawn Control, any non-`Idle` status, and a
-populated tooltip strip.
+`Dismiss`), either Logistics tint, an enabled Real Spawn Control, and a populated tooltip
+strip.
 
 ### 3.2 Parsek - Missions (chrome, Missions tab, Recordings tab)
 
@@ -1613,7 +1615,7 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 | Timeline `FF` and the countdown time label | an `injectedRecordings` preset whose recording `StartUT` is ahead of the save UT | one capture buys both | UNCLAIMED. Wants a preset whose recording `StartUT` is ahead of the save clock; `part-showcase` starts at UT 50 and GUI-6 jumps PAST it to 55, so its Timeline is behind rather than ahead |
 | Timeline `Archived` ON and the `[archived]` row suffix | a staged save with one archived recording and `HideActive=false` | none | UNCLAIMED. Wants a staged save with an archived recording and `HideActive=false`, which no committed fixture carries |
 | Real Spawn Control (a GUI-3 flight lane) | `bdock-recorded` / `bdock-station-craft` / `bdock-station-pad` - anything with a recorded craft inside 250 m at under 2 m/s | `op=open window=spawncontrol` now returns OK; then `op=rect` + capture + dump. Closes `GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` | PAID. GUI-6 `play-spawncontrol-advanced`, on LT-5's proven active-ghost host rather than a `bdock-*` one. The step was declared `expect = "OK"` and MET: `open=true already=false`, describe `w8open=true w8rect=268,8,750,200`, `op=rect` answering `270,8,750,300 clamped=false minW=350 minH=150`, and a 69-node dump whose `Parsek - Real Spawn Control` window holds ONE candidate row (`Surface Rover Drive / 435m / 7.9 m/s / Y1, D01, 00:01 / T-11s / Warp to Spawn`) under the launcher's `Real Spawn Control (1)`. No `reason=zero-candidates` line was written, and GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST is closed |
-| In-world ghost labels, flight status non-`Idle`, `Active Ghosts > 0` | `mun-landing-recorded` / `b2-lko-craft` / `b1-pad-craft` | PNG only for the labels; the status block needs `StartRecording` before the dump | TWO OF THREE PAID, the third refuted. GUI-6 `play-main-ghosts-advanced` shows `Active Ghosts: 156` (and 243 in the later captures of the same run), and GUI-7 `b1-main-recording-advanced` / `b1-main-ready-advanced` show `State: RECORDING` + `Recorded Points: 1` + `Duration: 0.0s` and `State: Ready (has recording)` (`PREVIEWING` needs the still-RESERVED `StopPlayback`). THE IN-WORLD LABELS DID NOT DRAW: no `SpawnWarningUI` producer fired on either flight lane (zero `spawn abandoned` / `spawn blocked` / `chain terminated` lines), and no root-level label other than the watch overlay's two appears in any of the 20 flight dumps. That surface still has no picture and needs a host where a ghost's spawn is actually abandoned or blocked |
+| In-world ghost labels, flight status non-`Idle`, `Active Ghosts > 0` | `mun-landing-recorded` / `b2-lko-craft` / `b1-pad-craft` | PNG only for the labels; the status block needs `StartRecording` before the dump | TWO OF THREE PAID, the third refuted. GUI-6 `play-main-ghosts-advanced` shows `Active Ghosts: 156` (and 243 in the later captures of the same run), and GUI-7 `b1-main-recording-advanced` / `b1-main-ready-advanced` show `State: RECORDING` + `Recorded Points: 1` + `Duration: 0.0s` and `State: Ready (has recording)` (`PREVIEWING` needs the still-RESERVED `StopPlayback`). The status block itself was removed on 2026-09-22 (section 3.1), so these are historical captures. THE IN-WORLD LABELS DID NOT DRAW: no `SpawnWarningUI` producer fired on either flight lane (zero `spawn abandoned` / `spawn blocked` / `chain terminated` lines), and no root-level label other than the watch overlay's two appears in any of the 20 flight dumps. That surface still has no picture and needs a host where a ghost's spawn is actually abandoned or blocked |
 | Tracking Station scene (markers, the ghost popup) | any `*-recorded` fixture | `LoadGame` with `scene=TRACKSTATION` then capture; no `UiAction` is possible there, so the driver needs a branch that skips the `op=rect` it currently sequences before every label | UNCLAIMED AND BLOCKED. `ParsekTrackingStation.OnGUI` draws MARKERS ONLY and hosts no Parsek window, so every `UiAction` there answers `REJECTED ui-host-unavailable` - a TS lane could take a full-screen PNG and could not even open `main` to make the surface visible. The driver branch this row asks for is necessary and not sufficient |
 
 Fixtures named by the research note but not present in the tree, so a NEW FIXTURE is required:
