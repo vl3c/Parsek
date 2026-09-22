@@ -411,6 +411,245 @@ class LivePhaseExceptionTests(unittest.TestCase):
             self.assertFalse(os.path.isfile(lock_path), "owned lock must be released")
 
 
+
+class ArtifactCachePureTests(unittest.TestCase):
+    """The shared umbrella artifact cache's pure half: content-addressed keys, the
+    consult-before-download decision (never trusting an entry that does not re-hash
+    to the pin), and the seed plan."""
+
+    SHA_A = "a" * 64
+    SHA_B = "b" * 64
+
+    def _pins(self, krpc=None, kmj=None, mj=None):
+        return {"krpc": {"releaseZipUrl": "https://x/krpc.zip", "releaseZipSha256": krpc},
+                "krpc_mechjeb": {"downloadUrl": "https://x/kmj.zip", "releaseZipSha256": kmj},
+                "mechjeb2": {"downloadUrl": "https://x/mj.zip", "sha256": mj}}
+
+    def test_cache_key_is_the_lowercase_digest_or_nothing(self):
+        self.assertEqual(self.SHA_A, provlib.artifact_cache_key(self.SHA_A))
+        self.assertEqual(self.SHA_A, provlib.artifact_cache_key(" " + "A" * 64 + " "))
+        for bad in (None, "", "OPEN", "OPEN-fill-at-first-download", "a" * 63, "a" * 65,
+                    "g" * 64, "../" + "a" * 61, "a" * 60 + "/..."):
+            with self.subTest(bad=bad):
+                self.assertIsNone(provlib.artifact_cache_key(bad))
+
+    def test_cache_dir_is_under_the_umbrella_automation_dir(self):
+        self.assertEqual("C:/um/automation/.artifact-cache",
+                         provlib.artifact_cache_dir("C:\\um\\"))
+        self.assertEqual("/um/automation/.artifact-cache", provlib.artifact_cache_dir("/um"))
+
+    def test_decision_hit_miss_corrupt_and_no_key(self):
+        d = provlib.decide_artifact_fetch
+        self.assertEqual(provlib.ArtifactFetchDecision("use-cache", "cache-hit", False),
+                         d(self.SHA_A, True, self.SHA_A))
+        self.assertEqual(provlib.ArtifactFetchDecision("use-cache", "cache-hit", False),
+                         d("A" * 64, True, self.SHA_A.upper()))
+        self.assertEqual(provlib.ArtifactFetchDecision("download", "cache-miss", True),
+                         d(self.SHA_A, False, None))
+        # Present but unreadable (hash None) or hashing to anything else: never used.
+        for got in (self.SHA_B, None, ""):
+            with self.subTest(got=got):
+                self.assertEqual(provlib.ArtifactFetchDecision("download", "cache-corrupt", True),
+                                 d(self.SHA_A, True, got))
+        self.assertEqual(provlib.ArtifactFetchDecision("download", "no-cache-key", False),
+                         d("OPEN", True, "OPEN"))
+
+    def test_pinned_artifacts_follow_download_order_and_the_real_pins(self):
+        arts = provlib.pinned_release_artifacts(self._pins(self.SHA_A, self.SHA_B, "OPEN"))
+        self.assertEqual(["krpc", "krpc_mechjeb", "mechjeb2"], [a.comp for a in arts])
+        self.assertEqual([self.SHA_A, self.SHA_B, "OPEN"], [a.sha256 for a in arts])
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pins.toml"), "rb") as fh:
+            real = tomllib.load(fh)
+        # Every committed pin carries a URL and a usable cache key, so every pinned
+        # artifact is cacheable (an OPEN pin would silently bypass the cache).
+        for art in provlib.pinned_release_artifacts(real):
+            with self.subTest(comp=art.comp):
+                self.assertTrue(art.url and not provlib.is_open_pin(art.url))
+                self.assertIsNotNone(provlib.artifact_cache_key(art.sha256))
+
+    def test_seed_plan_takes_only_pinned_hashes_once_each(self):
+        pins = self._pins(self.SHA_A, self.SHA_B, "OPEN")
+        candidates = {"/w1/.cache/krpc-0.5.4.zip": self.SHA_A,
+                      "/w0/.cache/renamed.bin": self.SHA_A,        # same hash, sorts first
+                      "/w1/.cache/TestingTools.dll": "c" * 64,     # not pinned
+                      "/w1/.cache/kmj.zip": self.SHA_B.upper()}
+        plan = provlib.plan_cache_seed(pins, candidates, cached_keys=[self.SHA_B])
+        self.assertEqual(
+            [("/w0/.cache/renamed.bin", self.SHA_A, "krpc", "copy"),
+             ("/w1/.cache/kmj.zip", self.SHA_B, "krpc_mechjeb", "already-cached")],
+            [(e.source, e.sha256, e.comp, e.action) for e in plan])
+        self.assertEqual([], provlib.plan_cache_seed({}, candidates, []))
+
+    def test_action_plan_names_the_shared_cache(self):
+        plan = provlib.build_action_plan({}, {})
+        self.assertTrue(any(provlib.ARTIFACT_CACHE_RELDIR in a.detail for a in plan))
+
+
+class ArtifactCacheShellTests(unittest.TestCase):
+    """phase_download and seed_artifact_cache over temp dirs: the real code path,
+    with only the network (``provision._download``) and the per-worktree CACHE_DIR
+    redirected. No instance, no umbrella outside the temp dir."""
+
+    def setUp(self):
+        import io
+        import provision
+        import zipfile
+        self.provision = provision
+        self.tmp = tempfile.TemporaryDirectory()
+        self.um = os.path.join(self.tmp.name, "umbrella")
+        os.makedirs(self.um)
+        self.saved_cache_dir = provision.CACHE_DIR
+        self.saved_download = provision._download
+        provision.CACHE_DIR = os.path.join(self.tmp.name, "wt-cache")
+        self.zips = {}
+        for comp in ("krpc", "krpc_mechjeb", "mechjeb2"):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as zf:
+                zf.writestr("GameData/%s/x.dll" % comp, comp.encode())
+            self.zips[comp] = buf.getvalue()
+        self.sha = {c: provision.sha256_bytes(b) for c, b in self.zips.items()}
+        self.url = {c: "https://host.invalid/%s-1.0.zip" % c for c in self.zips}
+        self.pins = {
+            "krpc": {"releaseZipUrl": self.url["krpc"], "releaseZipSha256": self.sha["krpc"],
+                     "releaseCompileDlls": [], "mustNotContain": []},
+            "krpc_mechjeb": {"downloadUrl": self.url["krpc_mechjeb"],
+                             "releaseZipSha256": self.sha["krpc_mechjeb"]},
+            "mechjeb2": {"downloadUrl": self.url["mechjeb2"], "sha256": self.sha["mechjeb2"]},
+        }
+        self.calls = []
+        by_url = {self.url[c]: c for c in self.zips}
+
+        def fake_download(ctx, url):
+            self.calls.append(url)
+            return self.served.get(by_url[url])
+
+        self.served = dict(self.zips)
+        provision._download = fake_download
+
+    def tearDown(self):
+        self.provision.CACHE_DIR = self.saved_cache_dir
+        self.provision._download = self.saved_download
+        self.tmp.cleanup()
+
+    def _ctx(self, dry_run=False):
+        return self.provision.ProvisionContext(
+            profile_name="t", pins=self.pins, profile={}, umbrella_root=self.um,
+            dry_run=dry_run, repair=False, parsek_dll_override=None)
+
+    def _entry(self, comp):
+        return os.path.join(self.um, "automation", ".artifact-cache", self.sha[comp])
+
+    def _read(self, path):
+        with open(path, "rb") as fh:
+            return fh.read()
+
+    def test_miss_downloads_and_populates_then_hit_skips_the_download(self):
+        ctx = self._ctx()
+        self.provision.phase_download(ctx)
+        self.assertFalse(ctx.aborted, ctx.abort_reason)
+        self.assertEqual(3, len(self.calls))
+        for comp in self.zips:
+            self.assertEqual(self.zips[comp], self._read(self._entry(comp)))
+            # The per-worktree copy INSTALL reads is still written, by URL basename.
+            self.assertEqual(self.zips[comp], self._read(os.path.join(
+                self.provision.CACHE_DIR, os.path.basename(self.url[comp]))))
+        self.assertTrue(any("cache-miss" in l for l in ctx.log_lines))
+        # Second run (a fresh worktree): nothing is downloaded at all.
+        self.calls.clear()
+        self.served = {}
+        ctx2 = self._ctx()
+        self.provision.phase_download(ctx2)
+        self.assertFalse(ctx2.aborted, ctx2.abort_reason)
+        self.assertEqual([], self.calls)
+        self.assertEqual(3, sum("cache-hit" in l for l in ctx2.log_lines))
+
+    def test_corrupt_entry_is_never_used_and_is_replaced(self):
+        os.makedirs(os.path.dirname(self._entry("mechjeb2")))
+        for comp in self.zips:
+            with open(self._entry(comp), "wb") as fh:
+                fh.write(self.zips[comp] if comp != "mechjeb2" else b"torn")
+        ctx = self._ctx()
+        self.provision.phase_download(ctx)
+        self.assertFalse(ctx.aborted, ctx.abort_reason)
+        self.assertEqual([self.url["mechjeb2"]], self.calls)
+        self.assertEqual(self.zips["mechjeb2"], self._read(self._entry("mechjeb2")))
+        self.assertTrue(any("cache-corrupt" in l for l in ctx.log_lines))
+
+    def test_a_bad_download_aborts_and_populates_nothing(self):
+        self.served["krpc"] = b"not the pinned bytes"
+        ctx = self._ctx()
+        self.provision.phase_download(ctx)
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-3", ctx.abort_reason)
+        self.assertFalse(os.path.exists(self._entry("krpc")))
+
+    def test_a_wrong_layout_krpc_zip_is_never_cached(self):
+        self.pins["krpc"]["releaseCompileDlls"] = ["KRPC.Core.dll"]
+        ctx = self._ctx()
+        self.provision.phase_download(ctx)
+        self.assertTrue(ctx.aborted)
+        self.assertFalse(os.path.exists(self._entry("krpc")))
+
+    def test_dry_run_reports_the_cache_and_touches_nothing(self):
+        os.makedirs(os.path.dirname(self._entry("krpc")))
+        with open(self._entry("krpc"), "wb") as fh:
+            fh.write(self.zips["krpc"])
+        ctx = self._ctx(dry_run=True)
+        self.provision.phase_download(ctx)
+        self.assertEqual([], self.calls)
+        self.assertFalse(os.path.exists(self.provision.CACHE_DIR))
+        self.assertEqual(["cache-hit", "cache-miss", "cache-miss"],
+                         [l.split("artifact-cache=")[1].split()[0]
+                          for l in ctx.log_lines if "artifact-cache=" in l])
+
+    def _seed_src(self):
+        src = os.path.join(self.tmp.name, "other-worktree-cache")
+        os.makedirs(os.path.join(src, "krpc-src"))           # a clone dir: skipped
+        with open(os.path.join(src, "renamed-krpc.zip"), "wb") as fh:
+            fh.write(self.zips["krpc"])
+        with open(os.path.join(src, "krpc-mechjeb-1.0.zip"), "wb") as fh:
+            fh.write(self.zips["krpc_mechjeb"])
+        with open(os.path.join(src, "TestingTools.dll"), "wb") as fh:
+            fh.write(b"not pinned")
+        return src
+
+    def test_seed_copies_only_pinned_hashes_and_reports_completeness(self):
+        src = self._seed_src()
+        code = self.provision.seed_artifact_cache(self.pins, self.um, [src])
+        self.assertEqual(1, code, "mechjeb2 is still missing from the cache")
+        self.assertEqual(sorted([self.sha["krpc"], self.sha["krpc_mechjeb"]]),
+                         sorted(os.listdir(os.path.dirname(self._entry("krpc")))))
+        with open(os.path.join(src, "mj.zip"), "wb") as fh:
+            fh.write(self.zips["mechjeb2"])
+        self.assertEqual(0, self.provision.seed_artifact_cache(self.pins, self.um, [src]))
+        self.assertEqual(self.zips["mechjeb2"], self._read(self._entry("mechjeb2")))
+        self.assertEqual([], self.calls, "seeding never downloads")
+
+    def test_seed_replaces_a_corrupt_entry_and_dry_run_writes_nothing(self):
+        src = self._seed_src()
+        self.assertEqual(1, self.provision.seed_artifact_cache(self.pins, self.um, [src],
+                                                               dry_run=True))
+        self.assertFalse(os.path.exists(os.path.dirname(self._entry("krpc"))))
+        os.makedirs(os.path.dirname(self._entry("krpc")))
+        with open(self._entry("krpc"), "wb") as fh:
+            fh.write(b"torn")
+        self.provision.seed_artifact_cache(self.pins, self.um, [src])
+        self.assertEqual(self.zips["krpc"], self._read(self._entry("krpc")))
+
+    def test_cli_seed_needs_no_profile_and_a_bare_call_still_needs_one(self):
+        src = os.path.join(self.tmp.name, "empty")
+        os.makedirs(src)
+        # Real pins.toml, empty source: nothing matches, so exit 1 and no cache dir.
+        self.assertEqual(1, self.provision.main(["--seed-cache-from", src,
+                                                 "--umbrella-root", self.um]))
+        self.assertFalse(os.path.exists(os.path.join(self.um, "automation")))
+        import contextlib
+        import io
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                self.provision.main([])
+
+
 class KrpcZipLayoutTests(unittest.TestCase):
     """SF4: a kRPC release zip missing a compile DLL or shipping TestingTools.dll
     ABORTS DOWNLOAD (EC-3/GT-5) instead of logging and proceeding to cache it."""

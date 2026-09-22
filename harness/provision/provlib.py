@@ -1090,6 +1090,136 @@ def is_open_pin(value: Optional[str]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Shared artifact cache (DOWNLOAD). Pure: which release artifacts are pinned,
+# where the umbrella-level cache keeps them, and whether DOWNLOAD may use a cached
+# copy. The orchestrator hashes the cached file and does every read and write.
+# ---------------------------------------------------------------------------
+
+# The cache lives at the umbrella root beside the provisioned instances, so every
+# worktree shares it: a fresh worktree used to re-download each zip, and a rotted
+# upstream URL (the MechJeb2 jenkins artifact now answers 404) failed provisioning
+# outright unless someone copied a zip over by hand and pointed the pin at it.
+ARTIFACT_CACHE_RELDIR = "automation/.artifact-cache"
+
+FETCH_USE_CACHE = "use-cache"
+FETCH_DOWNLOAD = "download"
+FETCH_REASON_HIT = "cache-hit"
+FETCH_REASON_MISS = "cache-miss"
+FETCH_REASON_CORRUPT = "cache-corrupt"
+FETCH_REASON_NO_KEY = "no-cache-key"
+
+_HEX = frozenset("0123456789abcdef")
+
+
+@dataclass(frozen=True)
+class PinnedArtifact:
+    comp: str
+    url: Optional[str]
+    sha256: Optional[str]
+    name: str
+
+
+def pinned_release_artifacts(pins: Dict) -> List[PinnedArtifact]:
+    """The release zips DOWNLOAD fetches, in DOWNLOAD order. krpc_mechjeb is
+    ordered before mechjeb2 so its (resolved) download succeeds even while a
+    mechjeb2 pin is OPEN, which then aborts DOWNLOAD by design (EC-13)."""
+    krpc = pins.get("krpc", {}) or {}
+    kmj = pins.get("krpc_mechjeb", {}) or {}
+    mj = pins.get("mechjeb2", {}) or {}
+    return [
+        PinnedArtifact("krpc", krpc.get("releaseZipUrl"), krpc.get("releaseZipSha256"),
+                       "krpc release zip"),
+        PinnedArtifact("krpc_mechjeb", kmj.get("downloadUrl"), kmj.get("releaseZipSha256"),
+                       "krpc_mechjeb release zip"),
+        PinnedArtifact("mechjeb2", mj.get("downloadUrl"), mj.get("sha256"), "mechjeb2 build"),
+    ]
+
+
+def artifact_cache_key(sha256: Optional[str]) -> Optional[str]:
+    """The cache entry name for a pinned sha256: the lowercase 64-hex digest itself,
+    or None when the pin carries no usable digest (OPEN, empty, malformed). Content
+    addressing is the whole safety story: the name IS the expected hash, so an entry
+    can only ever be used for the artifact whose committed sha256 it carries, and a
+    name that is not a hash (``../x``, ``OPEN``) never becomes a path."""
+    if sha256 is None or is_open_pin(sha256):
+        return None
+    v = sha256.strip().lower()
+    if len(v) != 64 or any(c not in _HEX for c in v):
+        return None
+    return v
+
+
+def artifact_cache_dir(umbrella_root: str) -> str:
+    """``<umbrella>/automation/.artifact-cache`` (forward slashes, like every other
+    path this module returns)."""
+    return posixpath.join(_slash(umbrella_root).rstrip("/"), ARTIFACT_CACHE_RELDIR)
+
+
+@dataclass(frozen=True)
+class ArtifactFetchDecision:
+    action: str      # FETCH_USE_CACHE | FETCH_DOWNLOAD
+    reason: str      # FETCH_REASON_*
+    populate: bool   # write the verified download into the shared cache
+
+
+def decide_artifact_fetch(expected_sha256: Optional[str], entry_present: bool,
+                          entry_sha256: Optional[str]) -> ArtifactFetchDecision:
+    """Consult the shared cache BEFORE any download, and never trust it blindly.
+
+    ``entry_sha256`` is the orchestrator's fresh hash of the cached file (never a
+    stored or remembered value). A present entry whose bytes hash to the committed
+    sha256 is used and nothing is downloaded. A present entry that hashes to anything
+    else (a torn copy, bit rot, a hand-placed wrong file) is CORRUPT: it is never
+    used, the artifact is downloaded and the verified bytes replace the entry. An
+    absent entry downloads and populates. A pin with no usable digest has no cache
+    key, so it downloads and never populates (the OPEN path aborts EC-13 anyway)."""
+    key = artifact_cache_key(expected_sha256)
+    if key is None:
+        return ArtifactFetchDecision(FETCH_DOWNLOAD, FETCH_REASON_NO_KEY, False)
+    if not entry_present:
+        return ArtifactFetchDecision(FETCH_DOWNLOAD, FETCH_REASON_MISS, True)
+    if (entry_sha256 or "").strip().lower() == key:
+        return ArtifactFetchDecision(FETCH_USE_CACHE, FETCH_REASON_HIT, False)
+    return ArtifactFetchDecision(FETCH_DOWNLOAD, FETCH_REASON_CORRUPT, True)
+
+
+@dataclass(frozen=True)
+class SeedPlanEntry:
+    source: str
+    sha256: str
+    comp: str
+    action: str      # "copy" | "already-cached"
+
+
+def plan_cache_seed(pins: Dict, candidates: Dict[str, str],
+                    cached_keys: Sequence[str]) -> List[SeedPlanEntry]:
+    """Which candidate files (path -> freshly computed sha256) seed the cache.
+
+    Only a file whose hash equals a PINNED artifact's committed sha256 is taken, so
+    seeding from a directory full of other files (a worktree ``.cache`` also holds
+    clones and build output) copies nothing it should not, and the file's name is
+    irrelevant: identity is the hash. One entry per pinned artifact (the first
+    matching path in sorted order); ``already-cached`` when that key is present in
+    ``cached_keys`` (the orchestrator re-verifies those bytes before trusting them)."""
+    wanted: Dict[str, str] = {}
+    for art in pinned_release_artifacts(pins):
+        key = artifact_cache_key(art.sha256)
+        if key is not None:
+            wanted.setdefault(key, art.comp)
+    have = {k.strip().lower() for k in cached_keys}
+    plan: List[SeedPlanEntry] = []
+    taken = set()
+    for path in sorted(candidates):
+        key = artifact_cache_key(candidates[path])
+        if key is None or key not in wanted or key in taken:
+            continue
+        taken.add(key)
+        plan.append(SeedPlanEntry(path, key, wanted[key],
+                                  "already-cached" if key in have else "copy"))
+    return plan
+
+
+# ---------------------------------------------------------------------------
 # Live CLONE planning (design CLONE / EC-6 / EC-7). Pure over path strings and
 # directory-entry name lists; the orchestrator does the actual copy / junction.
 # ---------------------------------------------------------------------------
@@ -1576,6 +1706,9 @@ def build_action_plan(pins: Dict, profile: Dict) -> List[PlannedAction]:
         "krpc release zip %s (sha256 %s)" % (krpc.get("releaseZipUrl"), krpc.get("releaseZipSha256"))))
     plan.append(PlannedAction("FETCH", "FETCH",
         "mechjeb2 build %s (%s, sha256 %s)" % (mj.get("buildNumber"), mj.get("downloadUrl"), mj.get("sha256"))))
+    plan.append(PlannedAction("FETCH", "VERIFY",
+        "shared artifact cache <umbrella>/%s/<sha256> consulted first (re-hashed; a hit "
+        "skips the download, a verified download populates it)" % ARTIFACT_CACHE_RELDIR))
 
     sel = select_testingtools_sources(
         list(TESTINGTOOLS_SHIM_SOURCES) + list(TESTINGTOOLS_DROPPED_SOURCES))
