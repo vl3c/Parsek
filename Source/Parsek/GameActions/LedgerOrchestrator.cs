@@ -1132,6 +1132,8 @@ namespace Parsek
         /// moment in UT == StartUT == EndUT, so science dedup compares the capture moment.
         /// This prevents double-adding KSC events that were written to the ledger in real-time
         /// via OnKscSpending but also fall within a recording's time range.
+        /// KerbalAssignment rows match on their (RecordingId, KerbalName) key alone, with
+        /// no UT window (see the comment in the loop).
         /// </summary>
         internal static List<GameAction> DeduplicateAgainstLedger(List<GameAction> candidates)
         {
@@ -1148,7 +1150,16 @@ namespace Parsek
                 {
                     var e = existing[j];
                     if (e.Type != c.Type) continue;
-                    if (System.Math.Abs(GetDedupOccurrenceUt(e) - GetDedupOccurrenceUt(c)) > 0.1)
+                    // A KerbalAssignment row's identity is (RecordingId, KerbalName) alone,
+                    // the same identity MigrateKerbalAssignments preserves ActionIds by. Its
+                    // UT is NOT part of it: RecordingTreeSplitter's step 2.9 retags a death
+                    // row to TIP with the ORIGIN's UT, so a later re-commit of TIP (every
+                    // tree commit re-commits every recording of the tree) would otherwise
+                    // file a second, fresh-id, untombstoned death row next to the retired
+                    // one (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, the
+                    // commit-side mirror of cause (a)).
+                    if (c.Type != GameActionType.KerbalAssignment
+                        && System.Math.Abs(GetDedupOccurrenceUt(e) - GetDedupOccurrenceUt(c)) > 0.1)
                         continue;
 
                     // Match on the type-specific key field
@@ -3588,6 +3599,8 @@ namespace Parsek
             int repairedRecordings = 0;
             int oldRows = 0;
             int newRows = 0;
+            int inheritedRows = 0;
+            int freshIdRows = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
@@ -3600,6 +3613,17 @@ namespace Parsek
                     continue;
 
                 var repairStats = ClassifyKerbalAssignmentRepair(existing, kerbalActions);
+
+                int freshIds;
+                int inheritedIds = InheritKerbalAssignmentActionIds(
+                    existing, kerbalActions, out freshIds);
+                inheritedRows += inheritedIds;
+                freshIdRows += freshIds;
+                ParsekLog.Verbose(Tag,
+                    $"MigrateKerbalAssignments: re-derived recording '{rec.RecordingId}' " +
+                    $"rows={kerbalActions.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"inheritedActionIds={inheritedIds.ToString(CultureInfo.InvariantCulture)} " +
+                    $"freshActionIds={freshIds.ToString(CultureInfo.InvariantCulture)}");
 
                 Ledger.ReplaceActionsForRecording(
                     GameActionType.KerbalAssignment, rec.RecordingId, kerbalActions);
@@ -3631,7 +3655,75 @@ namespace Parsek
             if (repairedRecordings > 0)
                 ParsekLog.Info(Tag,
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
-                    $"(oldRows={oldRows}, newRows={newRows})");
+                    $"(oldRows={oldRows}, newRows={newRows}, " +
+                    $"inheritedActionIds={inheritedRows}, freshActionIds={freshIdRows})");
+        }
+
+        /// <summary>
+        /// TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, cause (a), ruling a1
+        /// (2026-09-23): a re-derived KerbalAssignment row that replaces a stored row for
+        /// the SAME (RecordingId, KerbalName) inherits that row's
+        /// <see cref="GameAction.ActionId"/>. ActionIds are immutable and
+        /// <see cref="LedgerTombstone"/>s key on them (rewind design 5.6), so a fresh id
+        /// on re-derivation would silently un-retire a tombstoned row and leave the
+        /// tombstone orphaned. The row's CONTENT (timing, end state) still follows the
+        /// derivation; only its identity is preserved.
+        ///
+        /// <para>
+        /// Pairing is deterministic: both lists are walked in order and the k-th desired
+        /// row for a kerbal inherits the k-th stored row for that kerbal (ordinal name
+        /// match), each stored row consumed at most once, so two desired rows can never
+        /// share an id. A stored row with no same-name partner (a remap, a removed crew
+        /// member) is dropped as before; a desired row with no partner keeps its fresh
+        /// id. Callers pass rows already grouped by one recording.
+        /// </para>
+        /// Returns the number of inherited ids; <paramref name="freshCount"/> counts the
+        /// desired rows that kept a fresh id.
+        /// </summary>
+        internal static int InheritKerbalAssignmentActionIds(
+            List<GameAction> existing, List<GameAction> desired, out int freshCount)
+        {
+            freshCount = 0;
+            if (desired == null || desired.Count == 0)
+                return 0;
+
+            int existingCount = existing != null ? existing.Count : 0;
+            var consumed = new bool[existingCount];
+            int inherited = 0;
+            for (int d = 0; d < desired.Count; d++)
+            {
+                var want = desired[d];
+                if (want == null)
+                    continue;
+
+                int match = -1;
+                for (int e = 0; e < existingCount; e++)
+                {
+                    if (consumed[e])
+                        continue;
+                    var have = existing[e];
+                    if (have == null
+                        || have.Type != GameActionType.KerbalAssignment
+                        || string.IsNullOrEmpty(have.ActionId)
+                        || !string.Equals(have.RecordingId, want.RecordingId, StringComparison.Ordinal)
+                        || !string.Equals(have.KerbalName, want.KerbalName, StringComparison.Ordinal))
+                        continue;
+                    match = e;
+                    break;
+                }
+
+                if (match < 0)
+                {
+                    freshCount++;
+                    continue;
+                }
+
+                consumed[match] = true;
+                want.ActionId = existing[match].ActionId;
+                inherited++;
+            }
+
+            return inherited;
         }
 
         internal static bool IsResourceImpactingAction(GameActionType t)
