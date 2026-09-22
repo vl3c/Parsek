@@ -570,7 +570,12 @@ waited on a decision: eight of the ten above (B1-B5, B7, B9, B10), part by part.
 were ruled 2026-09-15, and the registry PR (item 3) then shipped every part but B4's Gloops
 verb pair, which is its own PR on branch `gloops-seam-verbs`.
 
-1. **Unity-scanner stack frames** (harness instrument).
+1. **Unity-scanner stack frames** (harness instrument). SHIPPED 2026-09-22 on branch
+   `c1-unity-scanner-frames`: `hlib.scan_unity_exception_stacks` reports `parsekFrames` /
+   `afterQuit`, the block accepts `maxParsekFrames`, and GS-4 and W1 arm it at 0 with the
+   negative control discharged offline. Sweep table and control: `autotest-status.md`
+   known-gate 11; the sweep's caller-shape readings (V23M, RF-11) are todo
+   UNITY-PARSEK-FRAME-CALLER-SHAPE.
    - Scope: `hlib.scan_unity_exceptions` learns to read the stack under each exception line
      and report `parsekFrames` / `afterQuit`, and the evaluator gains `maxParsekFrames`. After
      an offline sweep of every armed `unityExceptions` lane plus the V family, arm

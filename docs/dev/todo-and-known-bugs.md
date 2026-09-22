@@ -899,7 +899,7 @@ Update `modules.toml` in the same commits so the placement report stays true.
 3. Then the mechanical namespace rename to match `modules.toml`, and arm the three forbidden
    edges as failing tests.
 
-## UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES: the unity-exception scan counts exception LINES and never reads the stack under them, so a Parsek-frame NRE passes under any `maxTotal` ceiling [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` section 7). A HARNESS INSTRUMENT gap, not a product defect. OPEN; needs no decision]
+## ~~UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES: the unity-exception scan counts exception LINES and never reads the stack under them, so a Parsek-frame NRE passes under any `maxTotal` ceiling~~ [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` section 7). A HARNESS INSTRUMENT gap, not a product defect. DONE 2026-09-22 on branch `c1-unity-scanner-frames` (priority register item C1)]
 
 **What is true.**
 - `hlib.scan_unity_exceptions` (`harness/lib/hlib.py:5783`) walks the log line by line,
@@ -930,6 +930,66 @@ Update `modules.toml` in the same commits so the placement report stays true.
 V15T and V18T will red on the teardown NRE: land that entry's guard first, or carry
 expectedFail. About 80 lines of Python plus tests, and 0 flights by the memo's estimate.
 Roadmap "Priority register (2026-09-11)" item C1.
+
+**Done 2026-09-22 (branch `c1-unity-scanner-frames`), 0 flights.**
+- `hlib.scan_unity_exception_stacks` reads the stack block under each counted exception
+  line: every following line up to the next Unity record header (`[LOG|WRN|ERR|EXC|AST
+  hh:mm:ss.mmm]`), the next counted exception line or a `[Parsek]` line. A Parsek frame
+  is a stack line whose method, after the optional `at ` / `(wrapper ...)` prefixes,
+  begins with `Parsek.` (a Parsek generic argument or a Harmony `_PatchN` stock body is
+  not one). It reports `parsekFrames` (occurrences with at least one Parsek frame),
+  `parsekFrameSites` (innermost Parsek frame -> count), `afterQuit` (occurrences after the
+  first `[Parsek]` `flushandquit: Application.Quit` or `autorun exit: teardown+export
+  complete` line) and `quitMarkerSeen`. The per-pattern counts are unchanged:
+  `scan_unity_exceptions` is now its per-pattern view, and a sweep of 776 collected runs
+  found 0 count differences against the old line scan.
+- `[expectations.unityExceptions]` accepts `maxParsekFrames` beside `maxTotal`, validated
+  the same way (non-negative int, unknown keys rejected). Either key arms the row; both
+  mismatches are reported when both are over. `maxParsekFrames` with no stack scan fails
+  closed. run.py records the four new fields in every result JSON, including KILLED
+  attempts, and the dry-run plan names both armed keys.
+- Offline sweep over every collected KSP.log (776 unique runs, 241 lanes; table in the
+  status doc's known-gate 11): parsekFrames is 0 on every armed `maxTotal` lane with a
+  log, on GS-4 (7 logs) and on W1 (4 logs). Nonzero only on V15T / V18T / V26T
+  (`GhostMapPresence.EnsureGhostOrbitRenderers`, the teardown NRE),
+  V23M (`TimeJumpManager.PutLoadedVesselsOnRails`, 6 per run, every run), RF-11
+  (`ParsekTestCommandAddon.LoadGameImpl`), and three historical readings
+  (`WatchModeController.GetActiveVesselSafe` in V15M / V7Mc before its 2026-08-29 fix,
+  `ParsekTestCommandAddon.EvaBoardImpl` in one 2026-07-30 S0.7 log). The two non-teardown
+  shapes are filed as UNITY-PARSEK-FRAME-CALLER-SHAPE.
+- ARMED `maxParsekFrames = 0` on GS-4 (beside its `maxTotal = 6`) and on W1 (alone; W1's
+  count stays report-only). Negative control discharged OFFLINE: each committed block
+  PASSES its lane's archived logs, and over the highest-count host (`2026-09-11_0049`,
+  `2026-09-10_1939`) with V15T `2026-09-10_1917`'s real Parsek-frame exception appended it
+  reds on exactly one mismatch, `unityExceptions.parsekFrames 1 > maxParsekFrames 0
+  (Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)`; at `maxParsekFrames = 1` the same
+  bytes pass. No other lane is armed, so V15T / V18T / V26T / V23M stay report-only and
+  nothing reds before the C2 guard lands.
+
+## UNITY-PARSEK-FRAME-CALLER-SHAPE: two lanes read a Parsek frame on a STOCK throw that Parsek code merely called into, every run [FILED 2026-09-22 by the unity-scanner sweep (UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES). A FINDING TO TRIAGE (wave ruling A4-b: a `Parsek.` frame in any NRE stack is a finding). REPORT-ONLY; neither lane arms `maxParsekFrames`]
+
+**What is true.** The new `parsekFrames` count reads any `Parsek.` frame on the stack, so it
+also counts an exception thrown deep in stock code that a Parsek method called. The
+2026-09-22 sweep found two such shapes besides the teardown NRE
+(GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE):
+- V23M, 6 in every one of its 6 collected logs (`2026-08-24_1924` through `2026-09-11_0004`),
+  all before the quit: a stock `VehiclePhysics.VPWheelCollider.OnDisableVehicle` NRE under
+  `Part:Pack <- Vessel.GoOnRails_Patch1 <- Parsek.TimeJumpManager:PutLoadedVesselsOnRails <-
+  ExecuteForwardJump <- ParsekFlight:FastForwardToEventUT <- StartLoopPlaybackImpl`. The
+  other 10,677 to 10,794 NREs of each V23M run are the same stock wheel class with no Parsek frame. The
+  V23M spec header's "zero Parsek frames" was a line count read by eye and is corrected to
+  say so.
+- RF-11, 1 in each of its 3 collected logs (`2026-09-09_1922`, `_1929`, `_2001`): a stock
+  `SpaceCenterCamera2.OnSceneSwitch` NRE under `HighLogic.LoadScene_Patch1 <-
+  FlightDriver:StartAndFocusVessel <- Parsek.TestCommands.ParsekTestCommandAddon:LoadGameImpl`,
+  i.e. the harness seam's own scene load. Only the `[EXC]` twin carries the Parsek frame: a
+  GameEvents `[ERR]` stack stops at the event dispatch.
+
+**Open question.** Whether "Parsek on the stack as the caller of a stock throw" is a Parsek
+defect (V23M: does the forward jump pack a landed wheeled vessel in a state stock never
+packs it in?) or a class the instrument should split out (for example by reporting the
+innermost frame's depth, or a seam-caller allowlist for `ParsekTestCommandAddon`). Until
+then neither lane arms `maxParsekFrames`; each would red on every run.
 
 ## REGISTRY-GROWTH-DECISIONS-2026-09-11: two registry values the 2026-09-10 wave measured but was not allowed to register, D4 `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 1 and 2). An OPERATOR DECISION, not a defect. RULED YES and APPLIED 2026-09-15 (register B1 / B2); only D9's LIVE control stays owed]
 
@@ -9646,6 +9706,11 @@ A second shape of the same path is in `../logs/2026-09-02_1315_V18T-depot-route-
 FREQUENCY: those two flights, from a grep of every archived `../logs/*/KSP.log` (532 folders) plus this
 wave's run archive; 0 in the other TS-lane logs of this wave. unityExceptions is report-only on both lanes,
 so nothing red.
+2026-09-22 SWEEP (the new `parsekFrames` count, UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES): the same
+innermost frame, `Parsek.GhostMapPresence.EnsureGhostOrbitRenderers`, in V15T `2026-09-10_1917` and
+`_2218` (1 each), V18T `2026-09-02_1315` (3) and V26T `2026-09-15_1536` and `_1837` (2 each), every one
+after the quit marker. 0 in V15T / V18T / V26T's other 15 collected logs. None of the three lanes arms
+`maxParsekFrames`.
 ADJACENT, same teardown moment, WARN-logged and swallowed: `[GhostMap] RemoveAllGhostVessels: Die() threw
 for 'Ghost: Kerbal X'` - 15 in V8F `2026-09-10_2041`, 4 in V17M `_2042`, 1 each in V6M `_1901` and V15T
 `_1917`, 0 in V8 / V8T of the same batch and in V8F's only archived log (`2026-08-11_1150`).

@@ -2500,14 +2500,22 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         # whose count an operator most wants. Never gating here regardless of a
         # declared block (KILLED precedes every verifier flag in classify_verdict, and
         # a torn attempt must not be judged on a ceiling).
-        killed_ue = hlib.evaluate_unity_exceptions(hlib.scan_unity_exceptions(log_text), None)
+        killed_stacks = hlib.scan_unity_exception_stacks(log_text)
+        killed_ue = hlib.evaluate_unity_exceptions(killed_stacks.counts, None, killed_stacks)
         detail["unityExceptions"] = {"status": hlib.UNITY_EXCEPTIONS_STATUS_REPORT,
                                      "gating": False, "total": killed_ue.total,
                                      "counts": dict(killed_ue.counts),
                                      "maxTotal": None, "mismatches": [],
+                                     "parsekFrames": killed_ue.parsek_frames,
+                                     "afterQuit": killed_ue.after_quit,
+                                     "quitMarkerSeen": killed_stacks.quit_marker_seen,
+                                     "parsekFrameSites": dict(killed_ue.parsek_frame_sites),
+                                     "maxParsekFrames": None,
                                      "reason": "killed-triage-only"}
         logger.info("Verify", "verify unityExceptions status=REPORT (killed-triage-only) "
-                              "total=%d counts=%s" % (killed_ue.total, dict(killed_ue.counts)))
+                              "total=%d counts=%s parsekFrames=%d afterQuit=%d"
+                    % (killed_ue.total, dict(killed_ue.counts), killed_ue.parsek_frames,
+                       killed_ue.after_quit))
         # The ghost-lifecycle row DOES run on a killed attempt, triage-only, and it
         # follows the unityExceptions precedent rather than the saveParse /
         # renderCompose one BECAUSE OF ITS SOURCE: those two read the produced SAVE
@@ -2701,23 +2709,39 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # the forbidden tokens are all `[Parsek]`-shaped and validate-ksp-log parses only
     # `[Parsek]` lines, so a NullReferenceException storm has always passed silently.
     if driver_valid and not short_circuited:
+        # One walk of the log yields both the per-pattern counts and the stack figures
+        # (parsekFrames / afterQuit); the two ceilings are independent keys.
+        ue_stacks = hlib.scan_unity_exception_stacks(log_text)
         ue = hlib.evaluate_unity_exceptions(
-            hlib.scan_unity_exceptions(log_text),
-            expectations.get(hlib.UNITY_EXCEPTIONS_BLOCK))
+            ue_stacks.counts,
+            expectations.get(hlib.UNITY_EXCEPTIONS_BLOCK),
+            ue_stacks)
         verifiers["unity_exceptions_over_budget"] = (ue.status == "FAIL")
         detail["unityExceptions"] = {"status": ue.status, "gating": ue.gating,
                                      "total": ue.total, "counts": dict(ue.counts),
                                      "maxTotal": ue.max_total,
-                                     "mismatches": list(ue.mismatches)}
+                                     "mismatches": list(ue.mismatches),
+                                     "parsekFrames": ue.parsek_frames,
+                                     "afterQuit": ue.after_quit,
+                                     "quitMarkerSeen": ue_stacks.quit_marker_seen,
+                                     "parsekFrameSites": dict(ue.parsek_frame_sites),
+                                     "maxParsekFrames": ue.max_parsek_frames}
         if ue.status == "FAIL":
             short_circuited = True
-        logger.info("Verify", "verify unityExceptions status=%s gating=%s total=%d counts=%s"
-                    % (ue.status, ue.gating, ue.total, dict(ue.counts)))
-        if ue.total and not ue.gating:
+        logger.info("Verify", "verify unityExceptions status=%s gating=%s total=%d counts=%s "
+                              "parsekFrames=%d afterQuit=%d"
+                    % (ue.status, ue.gating, ue.total, dict(ue.counts), ue.parsek_frames,
+                       ue.after_quit))
+        if ue.total and ue.max_total is None:
             logger.warn("Verify", "unityExceptions saw %d raw Unity exception line(s) "
                                   "(REPORT-ONLY, not gating; arm with "
                                   "[expectations.unityExceptions] maxTotal = N): %s"
                         % (ue.total, dict(ue.counts)))
+        if ue.parsek_frames and ue.max_parsek_frames is None:
+            logger.warn("Verify", "unityExceptions saw %d exception(s) with a Parsek frame on "
+                                  "the stack (REPORT-ONLY, not gating; arm with "
+                                  "[expectations.unityExceptions] maxParsekFrames = 0): %s"
+                        % (ue.parsek_frames, dict(ue.parsek_frame_sites)))
     else:
         detail.setdefault("unityExceptions",
                           {"status": "SKIPPED", "reason": "short-circuit"})
@@ -4439,11 +4463,14 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
         # 2026-08-04, and a hand-maintained "report-only" literal advertised
         # every one of them as unarmed.
         ue_block = exp.get(hlib.UNITY_EXCEPTIONS_BLOCK)
-        ue_max = (ue_block or {}).get(hlib.UNITY_EXCEPTIONS_MAX_TOTAL_KEY) \
-            if isinstance(ue_block, dict) else None
-        if isinstance(ue_max, int) and not isinstance(ue_max, bool):
-            ue_part = ("unityExceptions(armed: maxTotal=%d -> "
-                       "PARSEK-FAIL(unity-exception) over budget)" % ue_max)
+        ue_armed = []
+        for ue_key in hlib.UNITY_EXCEPTIONS_KEYS:
+            ue_val = ue_block.get(ue_key) if isinstance(ue_block, dict) else None
+            if isinstance(ue_val, int) and not isinstance(ue_val, bool):
+                ue_armed.append("%s=%d" % (ue_key, ue_val))
+        if ue_armed:
+            ue_part = ("unityExceptions(armed: %s -> "
+                       "PARSEK-FAIL(unity-exception) over budget)" % ", ".join(ue_armed))
         else:
             ue_part = "unityExceptions(report-only)"
         verify_line = ("  [VERIFY ] driverValidity, batchComplete, analyzer(-FreshSaveGate), "

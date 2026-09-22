@@ -441,6 +441,16 @@ terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
 # not a lower maxTotal.
 [expectations.unityExceptions]
 maxTotal = 6
+# maxParsekFrames ARMED 2026-09-22 (priority register item C1, todo
+# UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES): the Parsek-frame ceiling, independent of
+# maxTotal. hlib.scan_unity_exception_stacks read parsekFrames 0 on all 7 archived GS-4
+# logs (`2026-08-28_0051`, `_1855`, `2026-09-10_1924`, `_1930`, `2026-09-11_0049`,
+# `_0056`, `_0102`). CONTROLLED OFFLINE, no flight: this block PASSES `_0049`'s archived
+# KSP.log, and over the same bytes with V15T `2026-09-10_1917`'s real Parsek-frame
+# exception appended it reds on exactly one mismatch, `unityExceptions.parsekFrames 1 >
+# maxParsekFrames 0 (Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)`; the run is in
+# the status doc's known-gate 11. Kept BELOW maxTotal so that key keeps line 443.
+maxParsekFrames = 0
 
 [runtime]
 # WALL clock for the WHOLE drive phase including KSP boot: 300 LoadGame + 1600

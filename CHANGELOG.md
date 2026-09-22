@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the raw-Unity-exception scan reads the stack under each exception.**
+  The scan counted exception lines only, so a stock NRE and one thrown with Parsek on the
+  stack looked the same, and a Parsek-frame NRE inside an armed `maxTotal` budget passed
+  unnoticed. Every result now also records `parsekFrames` (exceptions with a `Parsek.`
+  frame on their stack, plus the innermost such frame), `afterQuit` (exceptions after
+  the harness's `Application.Quit`) and whether the quit line was seen; the existing
+  counts are unchanged. A spec can arm `[expectations.unityExceptions] maxParsekFrames`
+  independently of `maxTotal`. GS-4 and W1 arm it at 0 (W1's count stays report-only),
+  after a sweep of every collected KSP.log read 0 on both lanes; the red direction was
+  proven offline on their archived logs. The sweep also found Parsek frames on a stock
+  throw in V23M (`TimeJumpManager`, every run) and RF-11 (the seam's `LoadGame`), filed
+  for triage. Harness-only; no game code changed.
+
 - **Dev: the GUI mirror sizes an auto-fitted window by its content, not by the rect the seam applied.** The main window reports height 0 in every dump because its host re-fits it every frame; the mirror had been drawing it at the height the seam applied at open time (300 px, measured in Advanced), which went stale after the mode switch and drew a 74 px empty panel under Close in Basic mode. The owner read it as a product bug; the game frame shows the window ending under Close. `root_height` now takes the child extent plus the measured 14 px bottom chrome and keeps the applied rect only for a window that drew no children (`harness/tools/gui_mirror.py`).
 - **Automated testing: the GUI census photographs the Missions window's fold states.** The
   operator lane `GUI-1-census-ksc` took exactly one picture of each of the window's two
