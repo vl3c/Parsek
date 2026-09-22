@@ -62,17 +62,23 @@ def node(kind, rect, text=None, style=None, tooltip=None, children=None,
     return n
 
 
-def dump(label, window_title, kids, grid_value=None):
+def dump(label, window_title, kids, grid_value=None,
+         utc="2026-09-11T05:49:25Z", mock=None):
     roots = [node("window", [270, 8, 700, 400], window_title, style="window",
                   children=([node("buttongrid", [280, 43, 680, 21], None,
                                   style="button", text_value=grid_value)]
                             if grid_value else []) + kids)]
-    return {"schema": gmi.TREE_SCHEMA, "label": label,
-            "capturedUtc": "2026-09-11T05:49:25Z",
-            "frame": 1, "screen": {"width": 1280, "height": 720},
-            "screenshotHint": label + ".png",
-            "guiMatrix": {"identity": True}, "counts": {}, "funnels": [],
-            "roots": roots}
+    out = {"schema": gmi.TREE_SCHEMA, "label": label,
+           "capturedUtc": utc,
+           "frame": 1, "screen": {"width": 1280, "height": 720},
+           "screenshotHint": label + ".png",
+           "guiMatrix": {"identity": True}, "counts": {}, "funnels": [],
+           "roots": roots}
+    if mock is not None:
+        # ADDITIVE, and ABSENT on every real capture - which is the reader's
+        # rule, and what every other cell in this file exercises.
+        out["mock"] = mock
+    return out
 
 
 def tiny_png(path, w=1280, h=720, rgb=(68, 68, 68), bands=()):
@@ -170,7 +176,8 @@ LOG_WITH_DIALOG = (LOG_TWO_STATES
 
 
 def make_shots(root, name="2026-09-11_0548_SYN-1-census-widgets_shots",
-               log=LOG_TWO_STATES, with_png=True):
+               log=LOG_TWO_STATES, with_png=True,
+               utc="2026-09-11T05:49:25Z", extra_row=None):
     path = os.path.join(root, name)
     os.makedirs(path)
     with open(os.path.join(path, "KSP.log"), "w", encoding="utf-8") as fh:
@@ -179,11 +186,12 @@ def make_shots(root, name="2026-09-11_0548_SYN-1-census-widgets_shots",
         node("label", [284, 76, 190, 23], "Column", style="box"),
         node("button", [284, 115, 190, 21], "Qorvex", tooltip="Go to the Qorvex tab"),
         node("label", [478, 115, 220, 21], "zynthia row"),
-    ], grid_value="Zynthia")
+    ] + ([node("label", [478, 140, 220, 21], extra_row)] if extra_row else []),
+        grid_value="Zynthia", utc=utc)
     qorvex = dump("syn-widgets-qorvex-advanced", "Parsek - Widgets", [
         node("label", [284, 76, 190, 23], "Column", style="box"),
         node("label", [284, 115, 190, 21], "qorvex row"),
-    ], grid_value="Qorvex")
+    ], grid_value="Qorvex", utc=utc)
     for d in (zynthia, qorvex):
         with open(os.path.join(path, d["label"] + ".gui.json"), "w",
                   encoding="utf-8") as fh:
@@ -2014,6 +2022,776 @@ class ForeignRootTests(unittest.TestCase):
         roots = [node("window", [0, 8, 280, 300], "Manage Groups", style="window")]
         caps = [self.cap("missions", roots, {})]
         self.assertEqual(gmi.classify_foreign(caps), set())
+
+
+# --------------------------------------------------------------------------
+# the gallery half: a capture taken under a mocked view model
+# --------------------------------------------------------------------------
+
+MOCK_BLOCK = {"stateId": "widgets.zynthia.lost", "window": "widgets",
+              "catalogue": "gui-mock/1", "states": 312,
+              "covers": ["RosterStatus.Lost", "KerbalEndState.Dead"]}
+
+LOG_MOCK = """
+[LOG 00:00:01] [Parsek][INFO][TestCommands] uiaction complexity mode=advanced already=true
+[LOG 00:00:02] [Parsek][INFO][TestCommands] uiaction open window=widgets open=true already=false frames=1
+[LOG 00:00:03] [Parsek][INFO][TestCommands] uiaction rect window=widgets rect=270,8,700,400 frames=1
+[LOG 00:00:04] [Parsek][INFO][TestCommands] uiaction describe scene=SPACECENTER complexity=advanced windows=2 open=1 openWindows=widgets
+[LOG 00:00:05] [Parsek][INFO][TestCommands] uiaction tab window=widgets tab=zynthia index=0 already=true
+[LOG 00:00:06] [Parsek][INFO][TestCommands] capturescreenshot ok label=mock-widgets-zynthia-lost-advanced
+[LOG 00:00:07] [Parsek][INFO][TestCommands] capturescreenshot ok label=mock-widgets-hold-empty-advanced
+""".strip()
+
+
+def make_mock_shots(root, name="2026-09-21_2200_SYN-2-gallery-mock_shots",
+                    utc="2026-09-21T22:00:00Z", with_png=True):
+    """A gallery shots dir: two mocked captures of one window, one whose state id
+    pins a tab and one whose does not."""
+    path = os.path.join(root, name)
+    os.makedirs(path)
+    with open(os.path.join(path, "KSP.log"), "w", encoding="utf-8") as fh:
+        fh.write(LOG_MOCK + "\n")
+    lost = dump("mock-widgets-zynthia-lost-advanced", "Parsek - Widgets", [
+        node("label", [284, 76, 190, 23], "Column", style="box"),
+        node("label", [478, 115, 220, 21], "zynthia row"),
+    ], grid_value="Zynthia", utc=utc, mock=dict(MOCK_BLOCK))
+    hold = dump("mock-widgets-hold-empty-advanced", "Parsek - Widgets", [
+        node("label", [284, 76, 190, 23], "Column", style="box"),
+    ], grid_value="Zynthia", utc=utc,
+        mock=dict(MOCK_BLOCK, stateId="widgets.hold.empty", covers=[]))
+    for d in (lost, hold):
+        with open(os.path.join(path, d["label"] + ".gui.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(d, fh)
+        if with_png:
+            tiny_png(os.path.join(path, d["label"] + ".png"))
+    return path
+
+
+class MockProvenanceTests(unittest.TestCase):
+    """The dump's `mock` block, and the facets a mocked capture is filed under.
+
+    ABSENT means real, so the whole committed corpus has to read exactly as it
+    did; and a block with nothing usable in it must not turn a real capture into
+    a synthetic one.
+    """
+
+    def test_an_ordinary_dump_carries_no_provenance(self):
+        self.assertIsNone(gmi.mock_provenance(dump("x", "Parsek", [])))
+        self.assertIsNone(gmi.mock_provenance({}))
+        self.assertIsNone(gmi.mock_provenance(None))
+
+    def test_a_block_with_no_state_id_is_not_provenance(self):
+        for bad in ({}, {"stateId": ""}, {"stateId": "   "}, {"window": "widgets"},
+                    "widgets.zynthia.lost", []):
+            self.assertIsNone(gmi.mock_provenance({"mock": bad}), repr(bad))
+
+    def test_the_block_is_read_by_the_key_names_the_writer_emits(self):
+        prov = gmi.mock_provenance({"mock": MOCK_BLOCK})
+        self.assertEqual(prov["stateId"], "widgets.zynthia.lost")
+        self.assertEqual(prov["window"], "widgets")
+        self.assertEqual(prov["catalogue"], "gui-mock/1")
+        self.assertEqual(prov["states"], 312)
+        self.assertEqual(prov["covers"],
+                         ["RosterStatus.Lost", "KerbalEndState.Dead"])
+
+    def test_a_non_numeric_state_count_does_not_throw(self):
+        prov = gmi.mock_provenance({"mock": dict(MOCK_BLOCK, states="lots",
+                                                 covers="not a list")})
+        self.assertEqual(prov["states"], 0)
+        self.assertEqual(prov["covers"], [])
+
+    def test_the_tab_comes_out_of_the_state_id_when_it_is_a_tab_token(self):
+        self.assertEqual(gmi.mock_facets(MOCK_BLOCK, {"zynthia", "qorvex"}),
+                         ("widgets", "zynthia", "lost"))
+
+    def test_a_family_that_is_no_tab_stays_in_the_state(self):
+        prov = dict(MOCK_BLOCK, stateId="widgets.hold.escrow-short")
+        self.assertEqual(gmi.mock_facets(prov, {"zynthia"}),
+                         ("widgets", None, "hold-escrow-short"))
+
+    def test_the_blocks_window_field_is_the_authority(self):
+        # The id's first segment and the field agree in the catalogue; where they
+        # do not, the field wins and the whole id becomes the state, because the
+        # field is what the applier actually drove.
+        prov = {"stateId": "kerbals.roster.lost", "window": "widgets"}
+        self.assertEqual(gmi.mock_facets(prov, ()),
+                         ("widgets", None, "kerbals-roster-lost"))
+
+    def test_an_id_with_no_window_field_falls_back_to_its_first_segment(self):
+        self.assertEqual(gmi.mock_facets({"stateId": "career.banner.divergent"}, ()),
+                         ("career", None, "banner-divergent"))
+
+
+class MockedCaptureTests(unittest.TestCase):
+    """A mocked capture in the page beside real ones: its own dataset, its own
+    badge, never paired with a real capture, and never the default view."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        real = make_shots(self.root)
+        mocked = make_mock_shots(self.root)
+        self.scen = make_scenarios(self.root)
+        # The gallery lane HAS a saveTemplate - it needs a loaded game - and it
+        # is deliberately the SAME one the real lane flew, which is the case the
+        # dump block exists for.
+        make_scenarios(self.root, "SYN-2-gallery-mock",
+                       "fixtures/saves/syn-fixture")
+        self.model = gmi.build_model([real, mocked], self.scen, with_photos=False)
+        self.html = gmi.render_html(self.model)
+        self.mock = [c for c in self.model["captures"] if c.get("mocked")]
+        self.real = [c for c in self.model["captures"] if not c.get("mocked")]
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_a_mocked_capture_is_filed_under_its_own_dataset(self):
+        self.assertEqual(len(self.mock), 2)
+        self.assertEqual({c["fixture"] for c in self.mock}, {gmi.MOCK_FIXTURE})
+        # ...although the SPEC named a real fixture, which is the whole point.
+        self.assertEqual({c["fixture"] for c in self.real}, {"syn-fixture"})
+
+    def test_the_facets_come_from_the_state_id_not_from_the_label(self):
+        lost = [c for c in self.mock if c["state"] == "lost"][0]
+        self.assertEqual((lost["window"], lost["tab"], lost["mode"]),
+                         ("widgets", "zynthia", "advanced"))
+        hold = [c for c in self.mock if c["state"] == "hold-empty"][0]
+        self.assertIsNone(hold["tab"])
+
+    def test_a_mocked_capture_can_never_pair_with_a_real_one(self):
+        # Structural, not cosmetic: `fixture` is part of the pair key.
+        for k, info in self.model["keys"].items():
+            ids = set(info["all"])
+            mocked = {c["id"] for c in self.mock} & ids
+            self.assertTrue(not mocked or mocked == ids,
+                            "key %s mixes mocked and real captures" % k)
+
+    def test_two_mocked_states_of_one_tab_do_not_pair_with_each_other(self):
+        # `widgets.zynthia.lost` and a second state of the same tab would agree
+        # on every other facet if the state tail were all the key carried.
+        keys = {c["key"] for c in self.mock}
+        self.assertEqual(len(keys), 2)
+        for cap in self.mock:
+            self.assertIn(cap["mocked"]["stateId"], cap["key"])
+
+    def test_the_default_dataset_is_never_the_mocked_one(self):
+        self.assertEqual(self.model["defaultFixture"], "syn-fixture")
+        self.assertNotEqual(self.model["defaultFixture"], gmi.MOCK_FIXTURE)
+
+    def test_the_default_is_pinned_in_the_model_rather_than_derived_on_the_page(self):
+        self.assertIn("S.fixture = (FIX_ORDER.indexOf(M.defaultFixture) >= 0)",
+                      self.html)
+        # and the derivation that used to live in the page is gone
+        self.assertNotIn("Object.keys(breadth[b]", self.html)
+
+    def test_a_pinned_default_wins_and_a_bogus_one_refuses(self):
+        model = gmi.build_model([make_shots(self.root, "2026-09-11_0549_SYN-1-census-widgets_shots")],
+                                self.scen, with_photos=False,
+                                pin_fixture="syn-fixture")
+        self.assertEqual(model["defaultFixture"], "syn-fixture")
+        with self.assertRaises(SystemExit):
+            gmi.build_model([make_shots(self.root, "2026-09-11_0550_SYN-1-census-widgets_shots")],
+                            self.scen, with_photos=False, pin_fixture="no-such")
+
+    def test_the_badge_is_emitted_for_a_mocked_capture_only(self):
+        self.assertIn("MOCKED DATA", self.html)
+        self.assertIn("if (cap.mocked){", self.html)
+        # the rail's per-window count, the stage header, the status line and the
+        # Compare rows all go through the one flag function
+        self.assertIn("appendFlags(head, cap)", self.html)
+        self.assertIn("appendFlags(kline, after)", self.html)
+        self.assertIn("mocked'", self.html)
+        self.assertIn("w.mockedCount", self.html)
+
+    def test_the_window_record_counts_the_mocked_captures_separately(self):
+        w = [w for w in self.model["windows"] if w["token"] == "widgets"][0]
+        self.assertEqual(w["captureCount"], 4)
+        self.assertEqual(w["mockedCount"], 2)
+
+    def test_the_index_answers_how_much_of_this_is_real(self):
+        idx = gmi.build_index(self.model)
+        self.assertEqual(idx["captureCount"], 4)
+        self.assertEqual(idx["mockedCaptureCount"], 2)
+        self.assertEqual(idx["defaultFixture"], "syn-fixture")
+        rows = idx["windows"]["widgets"]["states"]
+        self.assertTrue(any(r["mocked"] for r in rows.values()))
+        self.assertTrue(any(not r["mocked"] for r in rows.values()))
+        self.assertEqual(idx["windows"]["widgets"]["capturesMocked"], 2)
+
+    def test_an_old_dump_with_no_block_behaves_exactly_as_before(self):
+        plain = gmi.build_model([make_shots(self.root, "2026-09-11_0551_SYN-1-census-widgets_shots")],
+                               self.scen, with_photos=False)
+        for cap in plain["captures"]:
+            self.assertIsNone(cap["mocked"])
+            self.assertEqual(cap["fixture"], "syn-fixture")
+            # the key gained no segment
+            self.assertEqual(cap["key"].count("|"), 5)
+
+
+# --------------------------------------------------------------------------
+# retiring false coverage, mechanically
+# --------------------------------------------------------------------------
+
+class SupersededByKeyTests(unittest.TestCase):
+    """A later capture of the same key retires the earlier one.
+
+    Which is what makes the audit's four stale labels stop reading as coverage
+    with no label named anywhere: wave 5 re-flew their lanes, so the old
+    captures are superseded by construction.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        first = make_shots(self.root, "2026-09-11_0548_SYN-1-census-widgets_shots",
+                           utc="2026-09-11T05:49:25Z")
+        second = make_shots(self.root, "2026-09-21_2106_SYN-1-census-widgets_shots",
+                            utc="2026-09-21T21:06:00Z", extra_row="a new row")
+        self.model = gmi.build_model([first, second], make_scenarios(self.root),
+                                     with_photos=False)
+        self.html = gmi.render_html(self.model)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_the_older_capture_of_a_key_is_marked_superseded_by_the_newer(self):
+        old = [c for c in self.model["captures"] if c["runId"] == "2026-09-11_0548"]
+        new = [c for c in self.model["captures"] if c["runId"] == "2026-09-21_2106"]
+        self.assertEqual(len(old), 2)
+        for cap in old:
+            self.assertTrue(cap["supersededBy"].startswith("2026-09-21_2106/"))
+        for cap in new:
+            self.assertIsNone(cap.get("supersededBy"))
+
+    def test_the_superseded_side_is_still_the_pairs_before(self):
+        for info in self.model["keys"].values():
+            self.assertTrue(info["before"].startswith("2026-09-11_0548/"))
+            self.assertTrue(info["after"].startswith("2026-09-21_2106/"))
+            self.assertEqual(info["superseded"], [info["before"]])
+
+    def test_coverage_counts_distinct_keys_not_files(self):
+        idx = gmi.build_index(self.model)
+        self.assertEqual(idx["captureCount"], 4)
+        self.assertEqual(idx["distinctKeyCount"], 2)
+        self.assertEqual(idx["supersededCaptureCount"], 2)
+        s = self.model["windowSummaries"]["widgets"]
+        self.assertEqual((s["captures"], s["superseded"]), (4, 2))
+        self.assertEqual(s["statesReal"], 2)
+
+    def test_the_page_never_lands_a_click_on_a_superseded_capture(self):
+        body = self.html[self.html.index("function pick(win, tab, state, mode, fixture){"):]
+        body = body[:body.index("\n/* ---- rendering")]
+        self.assertIn("var live = pool.filter(function(c){ return !c.supersededBy; });",
+                      body)
+        self.assertIn("if (live.length) pool = live;", body)
+
+    def test_the_rail_lists_the_current_capture_of_each_state(self):
+        self.assertIn("return (a.supersededBy ? 1 : 0) - (b.supersededBy ? 1 : 0);",
+                      self.html)
+        self.assertIn("? ' stale' : ''", self.html)
+
+    def test_the_page_does_not_open_on_a_superseded_capture(self):
+        # Found by photographing the page: the first capture in MODEL order is
+        # the OLDEST of the main window, so the page opened badged `superseded`,
+        # which is the one picture the mirror must not lead with. The opening
+        # capture now goes through the same ranking a click does.
+        self.assertIn("var r0 = pick(firstWin, null, null, S.mode, S.fixture)",
+                      self.html)
+        self.assertIn("var first = (r0 && r0.cap) || capsFor('main')[0]", self.html)
+        body = self.html[self.html.index("var firstWin = capsFor('main').length"):]
+        body = body[:body.index("select(first,")]
+        self.assertIn("pick(", body)
+
+    def test_a_state_photographed_once_is_not_superseded(self):
+        model = gmi.build_model(
+            [make_shots(self.root, "2026-09-11_0549_SYN-1-census-widgets_shots")],
+            make_scenarios(self.root), with_photos=False)
+        for cap in model["captures"]:
+            self.assertIsNone(cap.get("supersededBy"))
+        self.assertEqual(gmi.build_index(model)["supersededCaptureCount"], 0)
+
+
+POINTER_EMPTY = ("[LOG 00:00:05] [Parsek][INFO][TestCommands] uiaction pointer "
+                 "at=133,197 park=false via=active frames=1 focus=true nudge=true "
+                 "fgOutcome=attached fg=true tooltip=- tooltipFrame=0")
+POINTER_FULL = POINTER_EMPTY.replace(
+    "tooltip=- tooltipFrame=0",
+    "tooltip=Go to the Qorvex tab tooltipFrame=42")
+POINTER_PARKED = POINTER_EMPTY.replace("park=false", "park=true")
+POINTER_OLD = ("[LOG 00:00:05] [Parsek][INFO][TestCommands] uiaction pointer "
+               "at=133,197 park=false via=active frames=1")
+
+
+class HoverFromTheLogTests(unittest.TestCase):
+    """A hover capture that photographed no hover, read off the artifacts.
+
+    The pointer op's own result line is the authority where it carries a
+    `tooltip=` key. The older census runs predate that key, and an absent
+    statement is not an empty tooltip - so there the fallback is the capture's
+    own tree being byte-identical to a sibling of the same run, which is what
+    "the hover changed nothing" means in a dump.
+    """
+
+    def _model(self, pointer_line, twin=False):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        log = LOG_TWO_STATES.replace(
+            "[LOG 00:00:05] [Parsek][INFO][TestCommands] uiaction tab "
+            "window=widgets tab=zynthia index=0 already=true",
+            pointer_line)
+        path = make_shots(root, log=log)
+        if twin:
+            # A second capture with the SAME tree as the hover one, which is
+            # what an unpainted hover leaves behind. It needs its own frame too:
+            # the measured offsets are part of the tree, so a capture with no
+            # PNG is not byte-identical to one with a PNG.
+            with open(os.path.join(path, "syn-widgets-zynthia-advanced.gui.json"),
+                      encoding="utf-8") as fh:
+                src = json.load(fh)
+            src["label"] = "syn-widgets-idle-advanced"
+            with open(os.path.join(path, "syn-widgets-idle-advanced.gui.json"),
+                      "w", encoding="utf-8") as fh:
+                json.dump(src, fh)
+            shutil.copyfile(
+                os.path.join(path, "syn-widgets-zynthia-advanced.png"),
+                os.path.join(path, "syn-widgets-idle-advanced.png"))
+        return gmi.build_model([path], make_scenarios(root), with_photos=False)
+
+    def test_the_pointer_lines_own_tooltip_is_read_out_of_the_log(self):
+        rep = gmi.parse_ksp_log(LOG_TWO_STATES.replace(
+            "[LOG 00:00:05] [Parsek][INFO][TestCommands] uiaction tab "
+            "window=widgets tab=zynthia index=0 already=true", POINTER_EMPTY))
+        ptr = rep["captures"]["syn-widgets-zynthia-advanced"]["pointer"]
+        self.assertEqual(ptr["tooltip"], gmi.POINTER_TOOLTIP_EMPTY)
+        self.assertEqual(ptr["at"], "133,197")
+        self.assertFalse(ptr["park"])
+
+    def test_a_populated_tooltip_carries_its_spaces(self):
+        rep = gmi.parse_ksp_log(LOG_TWO_STATES.replace(
+            "[LOG 00:00:05] [Parsek][INFO][TestCommands] uiaction tab "
+            "window=widgets tab=zynthia index=0 already=true", POINTER_FULL))
+        ptr = rep["captures"]["syn-widgets-zynthia-advanced"]["pointer"]
+        self.assertEqual(ptr["tooltip"], "Go to the Qorvex tab")
+
+    def test_an_older_line_with_no_key_says_nothing_rather_than_empty(self):
+        rep = gmi.parse_ksp_log(LOG_TWO_STATES.replace(
+            "[LOG 00:00:05] [Parsek][INFO][TestCommands] uiaction tab "
+            "window=widgets tab=zynthia index=0 already=true", POINTER_OLD))
+        ptr = rep["captures"]["syn-widgets-zynthia-advanced"]["pointer"]
+        self.assertIsNone(ptr["tooltip"])
+
+    def test_an_empty_tooltip_flags_the_capture_from_the_log(self):
+        model = self._model(POINTER_EMPTY)
+        cap = [c for c in model["captures"] if c["label"].endswith("zynthia-advanced")][0]
+        self.assertEqual(cap["hoverEmpty"]["why"], "log")
+        self.assertEqual(cap["hoverEmpty"]["at"], "133,197")
+
+    def test_a_populated_tooltip_is_not_flagged(self):
+        model = self._model(POINTER_FULL, twin=True)
+        for cap in model["captures"]:
+            self.assertIsNone(cap.get("hoverEmpty"), cap["label"])
+
+    def test_a_parked_pointer_is_not_a_hover_at_all(self):
+        model = self._model(POINTER_PARKED, twin=True)
+        for cap in model["captures"]:
+            self.assertIsNone(cap.get("hoverEmpty"), cap["label"])
+
+    def test_an_identical_sibling_flags_it_where_the_log_cannot_say(self):
+        model = self._model(POINTER_OLD, twin=True)
+        flagged = [c for c in model["captures"] if c.get("hoverEmpty")]
+        self.assertTrue(flagged)
+        self.assertEqual(flagged[0]["hoverEmpty"]["why"], "twin")
+        self.assertTrue(flagged[0]["hoverEmpty"]["twin"])
+
+    def test_with_no_sibling_and_no_key_nothing_is_claimed(self):
+        model = self._model(POINTER_OLD)
+        for cap in model["captures"]:
+            self.assertIsNone(cap.get("hoverEmpty"), cap["label"])
+
+    def test_a_flagged_capture_is_out_of_coverage_and_greyed(self):
+        model = self._model(POINTER_EMPTY)
+        idx = gmi.build_index(model)
+        self.assertEqual(idx["hoverNotCapturedCount"], 1)
+        s = model["windowSummaries"]["widgets"]
+        self.assertEqual(s["hoverNotCaptured"], 1)
+        html = gmi.render_html(model)
+        self.assertIn("hover not captured", html)
+        self.assertIn("if (cap.hoverEmpty) return;", html)
+        self.assertIn("(c.hoverEmpty || c.supersededBy) ? ' stale' : ''", html)
+
+
+class LabelVersusLogTests(unittest.TestCase):
+    """Where the label and the seam log disagree about what was on screen.
+
+    The log wins, as it always has; this only SAYS so. The quiet form is the one
+    worth catching: a label that names NO tab reads as the window's default, so a
+    log that selected a later tab contradicts it as plainly as a different token
+    would - which is exactly the case `ksc-timeline-basic` (really the Re-Fly
+    tab) and `ksc-missions-basic` are in.
+    """
+
+    TABS = {"zynthia": 0, "qorvex": 1}
+
+    def test_a_label_naming_another_window_disagrees(self):
+        out = gmi.label_log_disagreements(
+            {"window": "gloops", "tab": None, "state": ""},
+            {"window": "widgets", "tab": None}, {})
+        self.assertEqual(out, [{"field": "window", "label": "gloops",
+                                "log": "widgets"}])
+
+    def test_a_label_naming_another_tab_disagrees(self):
+        out = gmi.label_log_disagreements(
+            {"window": "widgets", "tab": "zynthia", "state": ""},
+            {"window": "widgets", "tab": "qorvex"}, self.TABS)
+        self.assertEqual(out, [{"field": "tab", "label": "zynthia",
+                                "log": "qorvex"}])
+
+    def test_a_silent_label_over_a_non_default_tab_disagrees(self):
+        out = gmi.label_log_disagreements(
+            {"window": "widgets", "tab": None, "state": ""},
+            {"window": "widgets", "tab": "qorvex"}, self.TABS)
+        self.assertEqual(out, [{"field": "tab", "label": "", "log": "qorvex"}])
+
+    def test_a_silent_label_over_the_default_tab_agrees(self):
+        self.assertEqual(gmi.label_log_disagreements(
+            {"window": "widgets", "tab": None, "state": ""},
+            {"window": "widgets", "tab": "zynthia"}, self.TABS), [])
+
+    def test_a_window_with_no_tabs_is_never_a_tab_disagreement(self):
+        self.assertEqual(gmi.label_log_disagreements(
+            {"window": "main", "tab": None, "state": "tooltip-timeline"},
+            {"window": "main", "tab": None}, {}), [])
+
+    def test_a_state_token_that_is_a_tab_of_that_window_disagrees(self):
+        out = gmi.label_log_disagreements(
+            {"window": "widgets", "tab": None, "state": "qorvex-live"},
+            {"window": "widgets", "tab": "zynthia"}, self.TABS)
+        self.assertIn({"field": "state", "label": "qorvex", "log": "zynthia"}, out)
+
+    def test_a_resolved_display_name_is_not_a_disagreement(self):
+        # The Kerbals rebuild: the heading was renamed and the seam token was
+        # not, so the label's leading token IS the tab, under its display name.
+        self.assertEqual(gmi.label_log_disagreements(
+            {"window": "widgets", "tab": None, "state": "folded"},
+            {"window": "widgets", "tab": "qorvex"}, self.TABS,
+            tab_alias="flights"), [])
+
+    def test_the_capture_is_still_filed_under_the_log(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        # Both tabs are in the vocabulary and the qorvex tab was the one
+        # SELECTED when the zynthia-labelled frame was taken.
+        shot = ("[LOG 00:00:06] [Parsek][INFO][TestCommands] capturescreenshot ok "
+                "label=syn-widgets-zynthia-advanced")
+        pick = ("[LOG 00:00:07] [Parsek][INFO][TestCommands] uiaction tab "
+                "window=widgets tab=qorvex index=1 already=false")
+        log = LOG_TWO_STATES.replace(shot + chr(10) + pick,
+                                     pick + chr(10) + shot)
+        model = gmi.build_model([make_shots(root, log=log)],
+                                make_scenarios(root), with_photos=False)
+        cap = [c for c in model["captures"]
+               if c["label"] == "syn-widgets-zynthia-advanced"][0]
+        self.assertEqual(cap["tab"], "qorvex")
+        self.assertEqual([d["field"] for d in cap["disagrees"]], ["tab"])
+        idx = gmi.build_index(model)
+        self.assertEqual(idx["labelDisagreementCount"], 1)
+        html = gmi.render_html(model)
+        self.assertIn("label disagrees with the log", html)
+
+    def test_a_mocked_capture_has_nothing_to_disagree_with(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        make_scenarios(root, "SYN-2-gallery-mock", "fixtures/saves/syn-fixture")
+        model = gmi.build_model([make_mock_shots(root)], make_scenarios(root),
+                                with_photos=False)
+        for cap in model["captures"]:
+            self.assertEqual(cap["disagrees"], [])
+
+
+class WindowSummaryTests(unittest.TestCase):
+    """The per-window Compare header: distinct states, and NEW / GONE read off
+    spec re-flights rather than off a file count."""
+
+    def _model(self, second_extra="a new row"):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        first = make_shots(root, "2026-09-11_0548_SYN-1-census-widgets_shots",
+                           utc="2026-09-11T05:49:25Z")
+        second = make_shots(root, "2026-09-21_2106_SYN-1-census-widgets_shots",
+                            utc="2026-09-21T21:06:00Z", extra_row=second_extra)
+        # The newest run drops one state and adds another, which is what a
+        # re-flown lane that changed its steps does.
+        os.remove(os.path.join(second, "syn-widgets-qorvex-advanced.gui.json"))
+        os.remove(os.path.join(second, "syn-widgets-qorvex-advanced.png"))
+        extra = dump("syn-widgets-zynthia-folded-advanced", "Parsek - Widgets",
+                     [node("label", [284, 76, 190, 23], "Column", style="box")],
+                     grid_value="Zynthia", utc="2026-09-21T21:06:10Z")
+        with open(os.path.join(second, extra["label"] + ".gui.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(extra, fh)
+        with open(os.path.join(second, "KSP.log"), encoding="utf-8") as fh:
+            log = fh.read()
+        log += ("[LOG 00:00:09] [Parsek][INFO][TestCommands] capturescreenshot "
+                "ok label=syn-widgets-zynthia-folded-advanced\n")
+        with open(os.path.join(second, "KSP.log"), "w", encoding="utf-8") as fh:
+            fh.write(log)
+        return gmi.build_model([first, second], make_scenarios(root),
+                              with_photos=False)
+
+    def test_new_and_gone_come_from_the_specs_own_re_flight(self):
+        model = self._model()
+        s = model["windowSummaries"]["widgets"]
+        self.assertEqual(s["reflownSpecs"], 1)
+        self.assertEqual(s["new"], 1)    # the folded state the newest run added
+        self.assertEqual(s["gone"], 1)   # the qorvex tab it stopped taking
+        self.assertEqual(s["changed"], 1)
+
+    def test_a_spec_that_flew_once_reports_neither(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        model = gmi.build_model([make_shots(root)], make_scenarios(root),
+                                with_photos=False)
+        s = model["windowSummaries"]["widgets"]
+        self.assertEqual((s["reflownSpecs"], s["new"], s["gone"]), (0, 0, 0))
+        self.assertEqual((s["statesReal"], s["statesMocked"]), (2, 0))
+
+    def test_the_header_is_rendered_from_the_measured_summary(self):
+        html = gmi.render_html(self._model())
+        self.assertIn("function summaryHead(win){", html)
+        self.assertIn("sec.appendChild(summaryHead(win));", html)
+        self.assertIn("M.windowSummaries", html)
+        self.assertIn("states ", html)
+        self.assertIn("known to the seam, never photographed: ", html)
+
+    def test_the_uncaptured_list_is_the_windows_own(self):
+        model = self._model()
+        s = model["windowSummaries"]["widgets"]
+        for m in s["uncaptured"]:
+            self.assertEqual(m["window"], "widgets")
+
+
+# --------------------------------------------------------------------------
+# the owner's notes, and the blob that carries them out and back
+# --------------------------------------------------------------------------
+
+class NotesBlobTests(unittest.TestCase):
+    """The export payload is a SCHEMA, because it leaves the page and is read
+    back by an agent that has nothing else to key on."""
+
+    ROW = {"key": "r1 -> r2|widgets|zynthia|lost|advanced|mock",
+           "window": "widgets", "tab": "zynthia", "state": "lost",
+           "mode": "advanced", "fixture": "mock", "mocked": True,
+           "mockState": "widgets.zynthia.lost",
+           "beforeId": "r1/a", "afterId": "r2/b",
+           "verdict": "change", "note": "the column is under the wrong heading"}
+
+    def test_the_key_is_the_six_facets_the_design_names(self):
+        self.assertEqual(
+            gmi.note_key("widgets", "zynthia", "lost", "advanced", "mock",
+                         "r1 -> r2"),
+            "r1 -> r2|widgets|zynthia|lost|advanced|mock")
+        # a missing facet is empty rather than absent, so the key stays aligned
+        self.assertEqual(gmi.note_key("widgets", None, "", None, "syn-fixture"),
+                         "|widgets||||syn-fixture")
+
+    def test_the_blob_carries_its_schema_and_the_pages_stamp(self):
+        blob = gmi.notes_blob([self.ROW], stamp="2026-09-22T10:00:00Z",
+                              scope="widgets")
+        self.assertEqual(blob["schema"], gmi.NOTES_SCHEMA)
+        self.assertEqual(blob["generatedUtc"], "2026-09-22T10:00:00Z")
+        self.assertEqual(blob["scope"], "widgets")
+        self.assertEqual(blob["count"], 1)
+        self.assertEqual(sorted(blob["notes"][0]), sorted(gmi.NOTES_FIELDS))
+
+    def test_every_field_an_agent_needs_to_act_without_the_page_is_in_it(self):
+        row = gmi.notes_blob([self.ROW])["notes"][0]
+        for field in ("beforeId", "afterId", "window", "tab", "state", "mode",
+                      "fixture", "mocked", "verdict", "note"):
+            self.assertIn(field, row)
+        self.assertIs(row["mocked"], True)
+        self.assertEqual(row["afterId"], "r2/b")
+
+    def test_the_round_trip_through_export_and_import_is_lossless(self):
+        blob = gmi.notes_blob([self.ROW], stamp="2026-09-22T10:00:00Z")
+        back, dropped, schema = gmi.parse_notes_blob(json.dumps(blob))
+        self.assertEqual(dropped, 0)
+        self.assertEqual(schema, gmi.NOTES_SCHEMA)
+        self.assertEqual(list(back), [self.ROW["key"]])
+        for field in gmi.NOTES_FIELDS:
+            self.assertEqual(back[self.ROW["key"]][field], self.ROW[field], field)
+
+    def test_a_bare_list_and_a_single_row_are_both_accepted(self):
+        rows = gmi.notes_blob([self.ROW])["notes"]
+        back, dropped, _ = gmi.parse_notes_blob(json.dumps(rows))
+        self.assertEqual((len(back), dropped), (1, 0))
+        back, dropped, _ = gmi.parse_notes_blob(json.dumps(rows[0]))
+        self.assertEqual((len(back), dropped), (1, 0))
+
+    def test_a_row_with_no_key_is_rebuilt_from_its_facets_or_dropped(self):
+        row = dict(self.ROW)
+        del row["key"]
+        back, dropped, _ = gmi.parse_notes_blob(json.dumps([row]))
+        self.assertEqual(dropped, 0)
+        self.assertEqual(list(back), ["|widgets|zynthia|lost|advanced|mock"])
+        back, dropped, _ = gmi.parse_notes_blob(json.dumps([{"note": "hi"}, 7]))
+        self.assertEqual((len(back), dropped), (0, 2))
+
+    def test_something_that_is_not_a_blob_says_so(self):
+        self.assertEqual(gmi.parse_notes_blob("not json")[2], "not JSON")
+        self.assertEqual(gmi.parse_notes_blob('{"x":1}')[2], "no notes in it")
+
+    def test_the_markdown_table_carries_the_same_rows(self):
+        md = gmi.notes_markdown(gmi.notes_blob([self.ROW]))
+        lines = md.splitlines()
+        self.assertTrue(lines[0].startswith("| window | tab | state |"))
+        self.assertIn("| --- |", lines[1])
+        self.assertIn("the column is under the wrong heading", lines[2])
+        self.assertIn("| yes |", lines[2])
+
+    def test_a_pipe_in_a_note_cannot_break_the_table(self):
+        md = gmi.notes_markdown(gmi.notes_blob([dict(self.ROW, note="a | b")]))
+        self.assertIn("a / b", md)
+        self.assertEqual(md.splitlines()[2].count("|"), 9)
+
+
+class NotesInThePageTests(unittest.TestCase):
+    """The page's own half of the notes: one field per row, storage guarded
+    everywhere, two formats out, one textarea back, and no download link."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.model = gmi.build_model([make_shots(self.root)],
+                                     make_scenarios(self.root),
+                                     with_photos=False,
+                                     stamp="2026-09-22T10:00:00Z")
+        self.html = gmi.render_html(self.model)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_the_row_shape_is_the_generators_field_set_not_a_second_list(self):
+        # The one thing that keeps the blob the page writes and the blob the
+        # Python side parses the same shape.
+        self.assertIn("M.notesFields.forEach(function(f){ row[f] = ''; });",
+                      self.html)
+        self.assertIn("M.notesFields.forEach(function(f){ row[f] = (f in r) ? r[f] : ''; });",
+                      self.html)
+        self.assertEqual(self.model["notesFields"], list(gmi.NOTES_FIELDS))
+        self.assertEqual(self.model["notesSchema"], gmi.NOTES_SCHEMA)
+        self.assertEqual(self.model["noteVerdicts"], list(gmi.NOTE_VERDICTS))
+
+    def test_both_a_state_view_and_a_compare_row_get_a_field(self):
+        self.assertIn("note.appendChild(notesBox(stateCtx(cap)));", self.html)
+        self.assertIn("sec.appendChild(notesBox(pairCtx(r.info)));", self.html)
+
+    def test_the_key_is_the_run_pair_and_the_five_facets(self):
+        self.assertIn("function noteKey(runPair, win, tab, state, mode, fixture){",
+                      self.html)
+        self.assertIn("key: noteKey((b ? b.runId : '') + ' -> ' + a.runId",
+                      self.html)
+
+    def test_every_notes_storage_access_is_guarded(self):
+        for fn in ("function loadNotes(){", "function saveNotes(){"):
+            self.assertIn(fn, self.html)
+            body = self.html[self.html.index(fn):]
+            body = body[:body.index("\n}")]
+            self.assertIn("try {", body, "%s has no try block" % fn)
+            self.assertIn("catch (e)", body, "%s has no catch" % fn)
+        # every localStorage mention in the page is inside one of the four
+        # accessors, which are the only places it appears
+        self.assertEqual(self.html.count("window.localStorage"), 4)
+
+    def test_a_refused_store_is_said_out_loud_rather_than_swallowed(self):
+        # A fold that does not persist is a nuisance; a VERDICT that does not is
+        # lost work, so the page says so beside the field and in the panel.
+        self.assertIn("STORE_OK = false", self.html)
+        self.assertIn("this browser refused storage - export before you close the tab",
+                      self.html)
+        self.assertIn("Copy the blob out before you close the tab.", self.html)
+
+    def test_the_export_offers_both_formats_and_both_scopes(self):
+        self.assertIn("function notesBlob(scope){", self.html)
+        self.assertIn("function notesMarkdown(blob){", self.html)
+        self.assertIn("'this window only'", self.html)
+        self.assertIn("'all windows'", self.html)
+        self.assertIn("'JSON blob'", self.html)
+        self.assertIn("'markdown table'", self.html)
+
+    def test_the_clipboard_has_a_visible_fallback(self):
+        self.assertIn("navigator.clipboard.writeText", self.html)
+        self.assertIn("selectAllIn(pre)", self.html)
+        self.assertIn("user-select:all", self.html)
+        self.assertIn("the clipboard was refused", self.html)
+
+    def test_there_is_no_download_link_and_no_server(self):
+        for needle in ("createObjectURL", "download=", "'download'", "<a download",
+                       "fetch(", "XMLHttpRequest"):
+            self.assertNotIn(needle, self.html, needle)
+
+    def test_a_pasted_blob_merges_back(self):
+        self.assertIn("function mergeNotes(text){", self.html)
+        self.assertIn("aria-label', 'paste a notes blob'", self.html)
+        self.assertIn("dropped ' + dropped + ' row(s) with nothing to key on",
+                      self.html)
+
+    def test_the_pages_stamp_travels_with_the_blob(self):
+        self.assertEqual(self.model["generatedUtc"], "2026-09-22T10:00:00Z")
+        self.assertIn("2026-09-22T10:00:00Z", self.html)
+        self.assertIn("generatedUtc: M.generatedUtc || ''", self.html)
+
+
+class FocusDeepLinkTests(unittest.TestCase):
+    """One window at a time: `#win=<token>`, optionally `&view=compare`.
+
+    And the older deep link is untouched, because the fidelity instrument
+    photographs it: `bootBare()` is still the first statement of `boot()`, so
+    nothing here is reachable from a bare page.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.model = gmi.build_model([make_shots(self.root)],
+                                     make_scenarios(self.root), with_photos=False)
+        self.html = gmi.render_html(self.model)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_the_hash_is_read_with_the_same_parser_bare_mode_uses(self):
+        self.assertIn("var q = parseHash(window.location.hash);", self.html)
+        self.assertIn("if (q.win){", self.html)
+        self.assertIn("if (q.view === 'compare') S.view = 'compare';", self.html)
+
+    def test_the_focus_scopes_the_rail_and_offers_a_way_out(self):
+        self.assertIn("shown = shown.filter(function(w){ return w.token === S.focus; });",
+                      self.html)
+        self.assertIn("'show every window'", self.html)
+
+    def test_the_link_is_printed_so_it_can_be_pasted(self):
+        self.assertIn("function focusLink(){", self.html)
+        self.assertIn("'#win=' + encodeURIComponent(S.window || '')", self.html)
+        self.assertIn("&view=compare", self.html)
+
+    def test_a_token_no_capture_is_of_is_said_rather_than_ignored(self):
+        self.assertIn("which no capture in this page is of.", self.html)
+        self.assertIn("if (missed) status(missed, true);", self.html)
+
+    def test_bare_mode_still_short_circuits_boot_before_any_of_it(self):
+        body = gmi.JS.split("function boot(){", 1)[1]
+        first = [ln.strip() for ln in body.splitlines() if ln.strip()][0]
+        self.assertEqual(first, "if (bootBare()) return;")
+        # the focus link is read AFTER that, so a bare page never reaches it
+        self.assertLess(gmi.JS.index("if (bootBare()) return;"),
+                        gmi.JS.index("if (q.win){"))
+
+    def test_the_bare_deep_link_grammar_is_unchanged(self):
+        bare = gmi.JS.split("function bootBare()", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn("if (q.bare !== '1') return false;", bare)
+        self.assertIn("var cap = byId[q.cap];", bare)
+        self.assertIn("var sc = parseInt(q.scroll, 10);", bare)
+
+    def test_everything_new_on_the_page_is_hidden_in_bare_mode(self):
+        for sel in ("#stagehead", "#statenote", "#notesPanel", "#focusbar"):
+            self.assertIn("body.bare " + sel, gmi.BARE_CSS)
 
 
 if __name__ == "__main__":

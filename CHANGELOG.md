@@ -10,6 +10,88 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI mirror can now run the owner's review loop - mocked captures
+  badged and isolated, his verdicts exported as a schema, one window at a time, and false
+  coverage retired mechanically.** The mirror half of the state gallery's phase P2
+  (`docs/dev/design-gui-state-gallery.md`), all of it in `harness/tools/gui_mirror.py` and
+  all of it still GENERATED from the census artifacts - no window text, no per-window
+  geometry and no per-window special case entered the generator, which its corpus-driven AST
+  guard keeps mechanical. Four parts.
+
+  **Mocked captures.** A gallery lane hands a window a synthetic view model and photographs
+  the real draw code drawing a state no save can reach. Such a capture declares itself in its
+  own DUMP - the additive `mock` block at the unchanged `parsek-gui-tree/1` schema id, absent
+  meaning real, which is every committed capture - and the mirror files it under the dataset
+  `mock` with its window / tab / state read off the catalogue state id rather than off its
+  label. It has to be the dump and not the name because a gallery lane HAS a
+  `fixture.saveTemplate` (it needs a loaded game), so without the block its captures would
+  file under a real fixture and pair against real ones in Compare. Because `fixture` is
+  already part of the before/after key, a mocked BEFORE can now only pair with a mocked
+  AFTER: the isolation is structural rather than a filter somebody has to remember, and the
+  catalogue state id is appended to the key so two states of one tab cannot pair with each
+  other either. Real keys gain no segment and stay byte-identical. `MOCKED DATA` is badged in
+  the rail (with a per-window mocked count), the stage header, the status line and both sides
+  of a Compare pair, all from one flag function; `gui-mirror-index.json` gains
+  `mockedCaptureCount`, a per-window `capturesMocked` and `mocked` on each state row. And the
+  default dataset stopped being DERIVED in the page: the same breadth measurement now runs in
+  the generator over the REAL fixtures only and is PINNED into the model, because a ~300-state
+  mocked gallery wins a breadth contest outright and would silently become the page the owner
+  opens. `--default-fixture` pins it by hand and refuses a name that is not a dataset of the
+  corpus.
+
+  **The notes the round comes back through.** Every state view and every Compare pair carries
+  a one-line note and a `keep` / `change` / `unsure` verdict, held in `localStorage` under
+  `(run pair, window, tab, state, mode, fixture)` - the run pair is what keeps a verdict from
+  following a picture the owner has not seen after a re-flight. Every storage access is in
+  try/catch and the page renders with none of it, but a refused write is SAID beside the field
+  and in the export panel, because a fold that does not persist is a nuisance while a verdict
+  that does not is lost work. `Export notes` serialises the selected window's notes, or all of
+  them, as a `parsek-gui-mirror-notes/1` JSON blob AND a markdown table in a `<pre>`, with a
+  copy button and a visible select-all fallback for a viewer that refuses the clipboard API;
+  the blob carries both capture ids, the five facets, the dataset, the mocked flag, the state
+  id, the verdict, the note and the PAGE's generation stamp, which is what makes a verdict
+  actionable in a session that never saw the page. An `Import notes` textarea merges a pasted
+  blob back by key, accepting the whole blob, a bare list or a single row, and dropping - out
+  loud - a row with nothing to key on. No server and no download link: a viewer sandbox
+  blocks one, and a blocked link is worse than a box you can select. The row FIELD SET is one
+  constant in the generator, forwarded into the page and iterated by the JS, so the blob the
+  page writes and the blob the Python side round-trips cannot drift.
+
+  **One window at a time** (the owner's ruling for the analysis): `#win=<token>`, optionally
+  `&view=compare`, opens the page already scoped to one window - rail filtered, with a way
+  out, and the link printed in a read-only field so it can be pasted into a message - and a
+  token no capture is of is said in the status line rather than silently ignored. Each
+  window's Compare section opens with its own counts: states real and mocked, changed,
+  unchanged, new, gone, captures with how many superseded, the flag counts, and the window's
+  known-uncaptured list. The older `#cap=...&bare=1` deep link the fidelity instrument
+  photographs is untouched, `bootBare()` is still the first statement of `boot()`, and every
+  new element is in the `body.bare` hide list.
+
+  **False coverage retires mechanically** (owner ruling 7), with no label named anywhere,
+  because a label typed into the generator is a label that rots. A capture is SUPERSEDED when
+  a later run photographed the same key: the mirror shows the latest, the page no longer even
+  OPENS on a superseded capture (found by photographing the page, and the one picture the
+  mirror must not lead with), the rail greys it, and coverage counts DISTINCT KEYS. On the
+  wave-5 corpus that is 182 keys behind 314 captures with 132 superseded - a file count reads
+  as 1.7x the coverage there is, which is exactly how the state audit found 230 captures over
+  134 distinct labels - and it retires all four stale labels by construction, since wave 5
+  re-flew their lanes. A hover capture whose pointer op reported `tooltip=-`, or whose frame is
+  byte-identical to a sibling of the same run where the log predates that key, flags
+  `hover not captured`, is left out of the state counts and of Compare, and greys in the rail:
+  8 captures, which is all four hover labels the audit measured as photographing nothing. And
+  a capture whose label names a window or tab the seam log contradicts - including the quiet
+  form, a label that names NO tab while the log selected one past the default - flags
+  `label disagrees with the log`, stays filed under the log as it always was, and catches the
+  audit's mislabelled `ksc-timeline-basic` (really the Re-Fly tab) and the two
+  `*-missions-basic` captures: 12 in all.
+
+  Contracts: `docs/dev/design-gui-mirror.md` sections 14-17 (plus a refreshed coverage
+  section 10 at DISTINCT-key counts). 74 new unit cells in `harness/lib/test_gui_mirror.py`
+  over synthetic mocked dumps, re-flown runs and pointer logs, since no gallery lane has flown
+  yet. Re-measured with the fidelity instrument over the whole 32-directory corpus: text ink
+  dx p50 / p95 held at 2 / 5 px, fill delta p95 at 0, every slider thumb still resolving on
+  both sides - three new worst-case tails from the eleven new lanes are filed in T42b.
+
 - **Automated testing: the GUI census can now photograph the product FAILING, refusing and
   being authored, not only resting.** Eleven new operator-tier census lanes
   (GUI-13..GUI-23) plus three amendments to existing ones, all authored off a read-only

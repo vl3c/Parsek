@@ -265,7 +265,7 @@ ones exist only in the pixels); tabs, launchers, folds and pickers are clickable
 and switch to the capture of that state.
 
 ```
-python tools/gui_mirror.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out gui-mirror.html --index gui-mirror-index.json
+python tools/gui_mirror.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out gui-mirror.html --index gui-mirror-index.json   [--no-photos] [--budget-mb 16] [--default-fixture NAME] [--stamp UTC]
 ```
 
 Nothing about a window is written into the generator - not a label, not a tooltip,
@@ -290,13 +290,35 @@ BEFORE is the earliest capture of a
 `(fixture, window, tab, state, mode, scene)` key, AFTER the latest, drawn side by
 side by the same renderer, with the CHANGELOG entries and struck `GUI-*` todo
 entries that name that window printed beside them and the node / row / header-to-cell
-numbers measured off the two dumps.
+numbers measured off the two dumps. Each window's section opens with its own
+counts - states real and mocked, changed / unchanged / new / gone, captures with
+how many superseded, and its known-uncaptured list.
 
-The page is NOT committed (it is 15 MB of inlined PNG); the generator, its tests
-(`lib/test_gui_mirror.py`) and `docs/dev/design-gui-mirror.md` are. Regenerate
-after a census. It writes wherever `--out` says and claims no path inside a shots
-directory, so it collides with neither `index.html`, `<runId>_contact.html` nor
-`gui-tree-index.html`.
+**Coverage is DISTINCT KEYS, not files.** The 2026-09-22 corpus is 314 captures
+behind 182 keys: 132 of them are SUPERSEDED, a later run of the same lane having
+photographed the same key, and the mirror shows the latest while keeping the older
+as its pair's BEFORE. Two more mechanical flags keep a capture from reading as
+coverage it is not: `hover not captured` (the pointer op's own `tooltip=-`, or a
+frame byte-identical to a sibling of the same run) and
+`label disagrees with the log` (filed under the log, as always; the badge is what
+is new). `gui-mirror-index.json` carries all of it.
+
+**The review loop.** Every state view and Compare pair carries a one-line note
+plus a `keep` / `change` / `unsure` verdict, held in `localStorage` (every access
+guarded) and exported as a `parsek-gui-mirror-notes/1` JSON blob and a markdown
+table with a copy button and a select-all fallback; pasting a blob back merges it.
+`#win=<token>[&view=compare]` opens the page scoped to ONE window, which is the
+unit a review round covers. A capture a gallery lane took under a synthetic view
+model declares itself in its own dump, files under the dataset `mock` so Compare
+can never pair it with a real capture, and badges `MOCKED DATA`; the default
+dataset is pinned and is never the mocked one. Contracts:
+`docs/dev/design-gui-mirror.md` 14-17, `docs/dev/design-gui-state-gallery.md`.
+
+The page is NOT committed (it is 27 MB of inlined PNG on the present corpus); the
+generator, its tests (`lib/test_gui_mirror.py`) and
+`docs/dev/design-gui-mirror.md` are. Regenerate after a census. It writes wherever
+`--out` says and claims no path inside a shots directory, so it collides with
+neither `index.html`, `<runId>_contact.html` nor `gui-tree-index.html`.
 
 ### Measuring the mirror against the frame (`tools/gui_mirror_fidelity.py`)
 
