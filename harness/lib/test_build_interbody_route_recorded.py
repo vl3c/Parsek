@@ -215,6 +215,10 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
         "GUI-3-census-logistics-routes.toml":
             "KSC-only capture lane: photographs the Logistics window, never opens "
             "the map, so RouteTrajectoryLineRenderer never runs",
+        "GUI-25-census-missions-state-sort-edit.toml":
+            "KSC-only capture lane (wave 6): photographs the Missions and Logistics "
+            "windows' driveable state, never opens the map, so "
+            "RouteTrajectoryLineRenderer never runs",
     }
 
     # The two verbs that reach a scene where `RouteTrajectoryLineRenderer` draws.
