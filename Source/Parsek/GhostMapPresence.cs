@@ -512,6 +512,20 @@ namespace Parsek
             get { return ghostTeardownDepth > 0; }
         }
 
+        /// <summary>
+        /// How many <see cref="RemoveAllGhostVessels"/> Die loops are on the stack. Narrower
+        /// than <see cref="ghostTeardownDepth"/>: the single-ghost removers raise that one
+        /// while the OTHER ghosts stay alive and may still need an orbit-renderer repair,
+        /// whereas inside a remove-all every tracked ghost is about to be destroyed.
+        /// </summary>
+        private static int removeAllGhostVesselsDepth;
+
+        /// <summary>True while <see cref="RemoveAllGhostVessels"/> is destroying every ghost.</summary>
+        internal static bool IsRemoveAllGhostVesselsInProgress
+        {
+            get { return removeAllGhostVesselsDepth > 0; }
+        }
+
         /// <summary>Live count of registered ghost map ProtoVessels. Read by the
         /// buildVesselsList finalizer as evidence that survives a failed context scan.</summary>
         internal static int RegisteredGhostMapVesselCount
@@ -3485,6 +3499,7 @@ namespace Parsek
             vessels.AddRange(overlapInstanceVessels.Values);
 
             BeginGhostTeardown();
+            removeAllGhostVesselsDepth++;
             try
             {
                 foreach (var vessel in vessels)
@@ -3504,6 +3519,8 @@ namespace Parsek
             }
             finally
             {
+                if (removeAllGhostVesselsDepth > 0)
+                    removeAllGhostVesselsDepth--;
                 EndGhostTeardown();
             }
 
@@ -9628,8 +9645,42 @@ namespace Parsek
         /// to silently skip creation. This method calls AddOrbitRenderer via Traverse
         /// on ghosts missing their renderer. Must be called after all Awake methods
         /// complete (e.g., from a buildVesselsList Prefix or from Start). (#195)
+        ///
+        /// <para>The repair is skipped while the application is quitting or while
+        /// <see cref="RemoveAllGhostVessels"/> is killing every ghost: each ghost's
+        /// <c>Die()</c> / <c>OnDestroy</c> fires stock <c>onVesselDestroy</c>, SpaceTracking
+        /// rebuilds its list, and the buildVesselsList Prefix lands here for ghosts that are
+        /// themselves about to be destroyed in the same teardown. Rebuilding their
+        /// MapObject then throws inside stock (<c>MapObject.Awake</c> /
+        /// <c>FlightGlobals.ActiveVessel</c>) with Parsek frames on the stack, and the
+        /// repaired renderer would not outlive the teardown anyway.</para>
         /// </summary>
         internal static int EnsureGhostOrbitRenderers()
+        {
+            string skipReason = ResolveEnsureOrbitRenderersSkipReason(
+                ParsekProcess.IsApplicationQuitting,
+                IsRemoveAllGhostVesselsInProgress);
+            if (skipReason != null)
+            {
+                int tracked = vesselsByChainPid.Count + vesselsByRecordingIndex.Count;
+                ParsekLog.VerboseRateLimited(Tag,
+                    "ensure-orbit-renderers-skip|" + skipReason,
+                    string.Format(ic,
+                        "EnsureGhostOrbitRenderers: skipped repair reason={0} trackedGhosts={1} " +
+                        "(a ghost repaired now is destroyed by the same teardown)",
+                        skipReason, tracked),
+                    5.0);
+                return 0;
+            }
+
+            return RepairGhostOrbitRenderersCore();
+        }
+
+        // Every live-Unity read of the repair lives here, behind NoInlining, so the skip guard
+        // above stays callable headless (the runtime resolves Unity ECalls when it compiles the
+        // method that names them).
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RepairGhostOrbitRenderersCore()
         {
             if (MapView.fetch == null)
             {
@@ -9691,6 +9742,25 @@ namespace Parsek
                     "EnsureGhostOrbitRenderers: all {0} ghost vessel(s) already have orbit renderers", ghosts.Count));
 
             return fixedCount;
+        }
+
+        internal const string EnsureOrbitRenderersSkipApplicationQuitting = "application-quitting";
+        internal const string EnsureOrbitRenderersSkipRemoveAllInProgress = "remove-all-ghosts-in-progress";
+
+        /// <summary>
+        /// PURE. Why <see cref="EnsureGhostOrbitRenderers"/> must not repair right now, or
+        /// null when the repair may run. Quitting wins over a remove-all in progress because
+        /// it is the broader condition (a remove-all can run inside the quit teardown).
+        /// </summary>
+        internal static string ResolveEnsureOrbitRenderersSkipReason(
+            bool applicationQuitting,
+            bool removeAllGhostVesselsInProgress)
+        {
+            if (applicationQuitting)
+                return EnsureOrbitRenderersSkipApplicationQuitting;
+            if (removeAllGhostVesselsInProgress)
+                return EnsureOrbitRenderersSkipRemoveAllInProgress;
+            return null;
         }
 
         /// <summary>
@@ -10342,6 +10412,7 @@ namespace Parsek
             FindBodyByNameForTesting = null;
             OrbitSeedResolver.ResetForTesting();
             ghostTeardownDepth = 0;
+            removeAllGhostVesselsDepth = 0;
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostNoBoundsSuppressLastFrame.Clear();

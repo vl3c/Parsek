@@ -60,7 +60,11 @@ namespace Parsek.InGameTests
             Description = "Persistence predicate produces per-phase chain segments for an ascent + reentry recording (plan §9.4)")]
         public void RealAscentReentry_ProducesPerPhaseChain_InGame()
         {
-            RecordingStore.SuppressLogging = true;
+            RunWithRecordingStoreLoggingSuppressed(RealAscentReentryBody);
+        }
+
+        private static void RealAscentReentryBody()
+        {
             // Capture pre-test ID set BEFORE snapshot.Capture so we can compute the
             // delta after RunOptimizationPass and clean up the orphan sidecars the
             // optimizer's flush leaves behind for both the explicit synthetic id and
@@ -165,7 +169,11 @@ namespace Parsek.InGameTests
             Description = "Persistence predicate suppresses every boundary in an eccentric grazing recording (plan §9.4)")]
         public void EccentricGrazing_StaysOneSegment_InGame()
         {
-            RecordingStore.SuppressLogging = true;
+            RunWithRecordingStoreLoggingSuppressed(EccentricGrazingBody);
+        }
+
+        private static void EccentricGrazingBody()
+        {
             // Capture pre-test ID set BEFORE snapshot.Capture so we can compute the
             // delta after RunOptimizationPass and clean up the orphan sidecars the
             // optimizer's flush leaves behind. (Even when this shape produces no chain
@@ -246,6 +254,193 @@ namespace Parsek.InGameTests
                         sidecarsToCleanup, "PersistenceSplitOptimizerTest");
                 }
             }
+        }
+
+        [InGameTest(Category = "Optimizer", Scene = GameScenes.SPACECENTER,
+            Description = "A production loaded->on-rails boundary seam survives RunOptimizationPass unsplit (optimizer step 1)")]
+        public void OnRailsBoundarySeam_SuppressesSplit_InGame()
+        {
+            RunWithRecordingStoreLoggingSuppressed(OnRailsBoundarySeamBody);
+        }
+
+        /// <summary>
+        /// D3 `boundary-seam`. Drives the PRODUCTION seam producer
+        /// (<c>BackgroundRecorder.FlushLoadedStateForOnRailsTransition</c>, through its
+        /// testing wrapper, which also runs the rest of the on-rails transition tail) for a
+        /// loaded background vessel that goes on rails mid-descent with no playable on-rails
+        /// payload. The flush persists a one-frame SurfaceStationary boundary section flagged
+        /// <c>isBoundarySeam</c> and logs `Persisted no-payload on-rails boundary section:
+        /// ... (seam=1)`. The recording is then committed and the production
+        /// <c>RecordingStore.RunOptimizationPass</c> runs over it: the Atmospheric -> Surface
+        /// boundary would split at step 5 (Surface short-circuit), but step 1 skips it, so
+        /// the pass logs `Split summary: ... seamSkipped=1` and adds no segment.
+        /// The witness line prints only after every assertion held. The loaded state and
+        /// its frames are injected (<c>OnVesselGoOnRails</c> and live sampling do not run);
+        /// the flush, the seam flag, the optimizer pass and both production log lines are
+        /// the shipped code.
+        /// </summary>
+        private static void OnRailsBoundarySeamBody()
+        {
+            var preIds = new HashSet<string>(
+                RecordingStore.CommittedRecordings.Select(r => r.RecordingId));
+            var snapshot = RecordingStoreTestSnapshot.Capture();
+            int baselineCount = RecordingStore.CommittedRecordings.Count;
+            // Same live-data guard as the two cells above: RunOptimizationPass walks the
+            // whole committed list and snapshot/restore cannot undo its in-place mutation.
+            if (baselineCount > 0)
+            {
+                InGameAssert.Skip(
+                    $"Skipped: {baselineCount} live committed recording(s) present. " +
+                    "RunOptimizationPass would mutate them in place and snapshot/restore " +
+                    "cannot undo per-instance field mutations or sidecar disk I/O. Run " +
+                    "from a fresh save, or rely on RecordingOptimizerTests xUnit coverage.");
+            }
+
+            HashSet<string> sidecarsToCleanup = null;
+            try
+            {
+                const uint pid = 7700003u;
+                const string recId = "rec_boundary_seam_smoke";
+                const string treeId = "tree_boundary_seam_smoke";
+                const double t0 = 17000.0;
+                const double railsUT = t0 + 10.0;
+
+                var tree = new RecordingTree
+                {
+                    Id = treeId,
+                    TreeName = "Boundary seam smoke tree",
+                    RootRecordingId = recId
+                };
+                var rec = new Recording
+                {
+                    RecordingId = recId,
+                    TreeId = treeId,
+                    VesselName = "Boundary Seam Smoke Probe",
+                    VesselPersistentId = pid,
+                    ChainId = "chain_boundary_seam_smoke",
+                    ChainIndex = 0,
+                    ChainBranch = 0,
+                    MergeState = MergeState.Immutable
+                };
+                tree.Recordings[recId] = rec;
+
+                // A background vessel on its last seconds of descent, loaded and sampled
+                // every 2 s (inside the recorder's sparse-sampling threshold, so the cell
+                // raises no sampling WARN), that goes on rails at railsUT.
+                var bgRecorder = new BackgroundRecorder(tree);
+                bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                    pid, recId, SegmentEnvironment.Atmospheric, t0);
+                for (int i = 0; i < 5; i++)
+                {
+                    bgRecorder.InjectCurrentTrackSectionFrameForTesting(
+                        pid, SeamPoint(t0 + 2.0 * i, 100.0 - 20.0 * i, -10f));
+                }
+
+                bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                    pid,
+                    SegmentEnvironment.SurfaceStationary,
+                    willHavePlayableOnRailsPayload: false,
+                    boundaryPoint: SeamPoint(railsUT, 0.0, 0f),
+                    ut: railsUT);
+
+                InGameAssert.AreEqual(2, rec.TrackSections.Count,
+                    "The on-rails flush should leave the Atmospheric section plus one boundary section.");
+                InGameAssert.IsTrue(rec.TrackSections[1].isBoundarySeam,
+                    "FlushLoadedStateForOnRailsTransition should flag the no-payload boundary section " +
+                    "isBoundarySeam=true (producer C).");
+                InGameAssert.AreEqual(SegmentEnvironment.SurfaceStationary, rec.TrackSections[1].environment,
+                    "The boundary section should carry the next (on-rails) environment.");
+
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+                int initialCount = RecordingStore.CommittedRecordings.Count;
+                RecordingStore.RunOptimizationPass();
+                int finalCount = RecordingStore.CommittedRecordings.Count;
+
+                // Computed IMMEDIATELY after the pass so a failed assertion below still
+                // cleans up sidecars in finally.
+                sidecarsToCleanup = new HashSet<string>(
+                    RecordingStore.CommittedRecordings.Select(r => r.RecordingId));
+                sidecarsToCleanup.ExceptWith(preIds);
+
+                InGameAssert.AreEqual(initialCount, finalCount,
+                    $"The seam-flanked Atmospheric->Surface boundary must not split " +
+                    $"(initial={initialCount}, final={finalCount}); optimizer step 1 should skip it.");
+                InGameAssert.AreEqual(2, rec.TrackSections.Count,
+                    "RunOptimizationPass should leave both sections on the recording.");
+                InGameAssert.IsTrue(rec.TrackSections[1].isBoundarySeam,
+                    "The seam flag should survive the optimizer pass.");
+
+                RecordingOptimizer.SplitBoundaryReason seamReason;
+                bool seamSplittable = RecordingOptimizer.IsSplittableEnvOrBodyBoundary(rec, 1, out seamReason);
+                InGameAssert.IsTrue(!seamSplittable,
+                    "The boundary next to the seam section must not be splittable.");
+                InGameAssert.AreEqual(RecordingOptimizer.SplitBoundaryReason.SuppressedBoundarySeam, seamReason,
+                    "The boundary should be suppressed by the seam short-circuit (step 1), which is what " +
+                    "the optimizer's seamSkipped counter tallies.");
+
+                // Counterfactual on a copy: without the flag the same boundary is a Surface
+                // short-circuit split, so step 1 (not some other predicate) is what held it.
+                var counterfactual = new Recording { RecordingId = recId + "_counterfactual" };
+                counterfactual.TrackSections.Add(rec.TrackSections[0]);
+                TrackSection unflagged = rec.TrackSections[1];
+                unflagged.isBoundarySeam = false;
+                counterfactual.TrackSections.Add(unflagged);
+                RecordingOptimizer.SplitBoundaryReason counterfactualReason;
+                bool counterfactualSplittable = RecordingOptimizer.IsSplittableEnvOrBodyBoundary(
+                    counterfactual, 1, out counterfactualReason);
+                InGameAssert.IsTrue(counterfactualSplittable,
+                    $"Without isBoundarySeam the Atmospheric->Surface boundary should be splittable " +
+                    $"(reason={counterfactualReason}); otherwise this cell does not prove step 1.");
+
+                // Harness witness token: must stay after the last assertion so it prints only when every assert held.
+                ParsekLog.Info("TestRunner", string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "BoundarySeamOptimizerWitness: seam section survived RunOptimizationPass unsplit rec={0} sections={1} splitsAdded={2} seamReason={3} counterfactualReason={4}",
+                    recId, rec.TrackSections.Count, finalCount - initialCount, seamReason, counterfactualReason));
+            }
+            finally
+            {
+                snapshot.Restore();
+                InGameAssert.AreEqual(baselineCount, RecordingStore.CommittedRecordings.Count,
+                    "Snapshot/restore should reinstate the player's live committed-recording count " +
+                    "after the synthetic test recording is removed.");
+                if (sidecarsToCleanup != null && sidecarsToCleanup.Count > 0)
+                {
+                    InGameTestSidecarReaper.DeleteSidecarsForIds(
+                        sidecarsToCleanup, "PersistenceSplitOptimizerTest");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Each Optimizer cell silences RecordingStore.Log for its own body and restores the
+        /// value it found, so later cells and categories in the same process keep their lines.
+        /// </summary>
+        private static void RunWithRecordingStoreLoggingSuppressed(System.Action body)
+        {
+            bool previousSuppressLogging = RecordingStore.SuppressLogging;
+            RecordingStore.SuppressLogging = true;
+            try
+            {
+                body();
+            }
+            finally
+            {
+                RecordingStore.SuppressLogging = previousSuppressLogging;
+            }
+        }
+
+        private static TrajectoryPoint SeamPoint(double ut, double altitude, float verticalSpeed)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = -0.1,
+                longitude = -74.6,
+                altitude = altitude,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0f, verticalSpeed, 0f)
+            };
         }
 
         private static void AddSection(Recording rec, SegmentEnvironment env, double startUT, double endUT)

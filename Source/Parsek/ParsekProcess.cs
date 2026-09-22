@@ -45,5 +45,36 @@ namespace Parsek
         {
             s_processSessionId = Guid.NewGuid();
         }
+
+        private static bool s_applicationQuitting;
+
+        /// <summary>
+        /// True once Unity has started quitting the process (set from
+        /// <c>ParsekHarmony.OnApplicationQuit</c>, which Unity calls on every live
+        /// MonoBehaviour BEFORE it destroys the scene's objects). Never cleared in
+        /// production: a quit is not cancellable in KSP, and every object destroyed after
+        /// this point dies with the process. Teardown-time repair paths read it to stand
+        /// down instead of rebuilding stock objects that are already being destroyed.
+        /// </summary>
+        internal static bool IsApplicationQuitting => s_applicationQuitting;
+
+        /// <summary>
+        /// Latch <see cref="IsApplicationQuitting"/>. Idempotent; logs the first latch only.
+        /// </summary>
+        internal static void MarkApplicationQuitting(string source)
+        {
+            if (s_applicationQuitting)
+                return;
+            s_applicationQuitting = true;
+            ParsekLog.Info("Init",
+                "Application quitting latched source=" + (source ?? "(none)") +
+                " - teardown-time repair paths stand down from here");
+        }
+
+        /// <summary>Clear the quitting latch. Tests only.</summary>
+        internal static void ResetApplicationQuittingForTesting()
+        {
+            s_applicationQuitting = false;
+        }
     }
 }

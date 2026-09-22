@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the optimizer's boundary-seam rule now has a deterministic live
+  witness.** When a loaded background vessel goes on rails with nothing left to play, the
+  recorder writes a one-frame boundary section flagged as a seam, and the optimizer must
+  never split a recording there. That rule had a production log line that fired on only
+  about 30 of 508 archived flights, so no lane could gate it. A new `Optimizer` in-game
+  cell drives the real producer and the real optimizer pass over a synthetic descent and
+  asserts the seam survives unsplit (and that the same boundary WOULD split without the
+  flag). `LT-2-long-tail-spacecenter` runs it and now gates the registry cell D3
+  `boundary-seam` off the two production lines: reading `2026-09-22_1736`, armed re-flight
+  `_1738`, negative control `_1739`. The same change makes every `Optimizer` cell restore
+  `RecordingStore.SuppressLogging`, which the two older cells left set for the rest of the
+  process, silencing every later cell's store lines.
+
 - **Dev: the GUI mirror sizes an auto-fitted window by its content, not by the rect the seam applied.** The main window reports height 0 in every dump because its host re-fits it every frame; the mirror had been drawing it at the height the seam applied at open time (300 px, measured in Advanced), which went stale after the mode switch and drew a 74 px empty panel under Close in Basic mode. The owner read it as a product bug; the game frame shows the window ending under Close. `root_height` now takes the child extent plus the measured 14 px bottom chrome and keeps the applied rect only for a window that drew no children (`harness/tools/gui_mirror.py`).
 - **Automated testing: the GUI census photographs the Missions window's fold states.** The
   operator lane `GUI-1-census-ksc` took exactly one picture of each of the window's two
@@ -655,6 +668,14 @@ _(unreleased — entries accumulate here per commit)_
   new atlas section. No player-visible behavior changes.
 
 ### Fixed
+
+- **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
+  Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's
+  hook on that rebuild repaired any ghost missing its orbit line. During shutdown (or while
+  Parsek itself was removing every ghost) that repair rebuilt objects that were already
+  being destroyed, and stock code threw with Parsek on the stack. The repair now stands
+  down once the game is quitting or while all ghosts are being removed; nothing changes
+  during play.
 
 - **A supply route's overview line no longer disappears wholesale while a ghost flies one
   part of it.** The route line and the ghost trajectory line share the map, and they take
