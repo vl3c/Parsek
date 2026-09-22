@@ -10,7 +10,8 @@ $ErrorActionPreference = "Stop"
 # original AbsoluteShadow name and under the BodyFixedPrimary vocabulary the
 # rest of the code was renamed to.
 # The managed fallback in Source/Parsek.Tests/GrepAuditNonLoopLivePidTests.cs
-# must carry byte-identical Path / Pattern / Label rows;
+# must carry byte-identical Path / Pattern / Label rows and match them
+# case-insensitively, as Select-String does here;
 # NonLoopLivePidAudit_ManagedArmMatchesPwshArm parses this file and reds on drift.
 $checks = @(
     @{

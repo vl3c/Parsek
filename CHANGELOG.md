@@ -3134,7 +3134,9 @@ _(unreleased — entries accumulate here per commit)_
   existed (a 2026-05 `AbsoluteShadow` -> `BodyFixedPrimary` rename swept one arm only). Both
   now forbid `TryResolveActiveReFly\w*Point`; `NonLoopLivePidAudit_ManagedArmMatchesPwshArm`
   parses the script's check rows and fails on any difference from the managed table, and the
-  managed arm now also runs on hosts that have pwsh.
+  managed arm now also runs on hosts that have pwsh. The managed scan also matches
+  case-insensitively now, as `Select-String` does, so the CI arm no longer passes a
+  differently-cased forbidden read that the pwsh arm catches.
 
 - **Dev tooling: a code and test counting script.** `python scripts/count-code.py` prints
   the line count per area of the repository (mod source, the xUnit project, the harness,

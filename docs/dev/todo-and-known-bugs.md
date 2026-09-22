@@ -40,7 +40,11 @@ vocabulary. The managed rows moved to static tables, a new
 `NonLoopLivePidAudit_ManagedArmMatchesPwshArm` parses the `.ps1`'s `$checks` /
 `$requiredChecks` rows and reds on any Path / Pattern / Label difference, and
 `NonLoopLivePidAudit_ManagedArmPasses` runs the managed arm on every host rather than only
-where pwsh is missing. Mutation-proven locally: a forbidden call inserted into
+where pwsh is missing. The clean review found a second divergence: the pwsh arm's
+`Select-String` matches case-insensitively while the managed arm's `Regex` did not, so CI
+(managed) would pass a forbidden read spelled in a different case that Windows (pwsh) reds;
+the managed scan now uses `RegexOptions.IgnoreCase`, as the ERS/ELS fallback already did, and
+a `Section.AnchorVesselId` insert reds both arms. Mutation-proven locally: a forbidden call inserted into
 `GhostMapPresence.cs` (under each of the two names) reds the pwsh arm, the pwsh-driven Fact
 and the managed Fact, while the origin/main `.ps1` passed the same insert; restoring the old
 pwsh alternative reds the sync test naming both rows.

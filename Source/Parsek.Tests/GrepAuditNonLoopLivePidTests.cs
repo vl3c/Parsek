@@ -75,7 +75,10 @@ namespace Parsek.Tests
         // Must stay row-for-row identical to $checks / $requiredChecks in
         // scripts/grep-audit-non-loop-live-pid.ps1; only one arm runs per machine
         // in NonLoopLivePidAudit_AllForbiddenReadsStayDeleted, so
-        // NonLoopLivePidAudit_ManagedArmMatchesPwshArm pins the two together.
+        // NonLoopLivePidAudit_ManagedArmMatchesPwshArm pins the rows together.
+        // The scans below use IgnoreCase because Select-String without
+        // -CaseSensitive matches case-insensitively; identical rows alone do not
+        // make identical gates.
         private static readonly AuditCheck[] ForbiddenChecks =
         {
             new AuditCheck("Source/Parsek/IGhostPositioner.cs", "TryGetLiveAnchorWorldPosition", "IGhostPositioner live anchor API"),
@@ -188,7 +191,7 @@ namespace Parsek.Tests
                     continue;
                 }
 
-                Regex regex = new Regex(check.Pattern);
+                Regex regex = new Regex(check.Pattern, RegexOptions.IgnoreCase);
                 int lineNumber = 0;
                 foreach (string line in File.ReadLines(path))
                 {
@@ -214,7 +217,7 @@ namespace Parsek.Tests
                     continue;
                 }
 
-                Regex regex = new Regex(check.Pattern);
+                Regex regex = new Regex(check.Pattern, RegexOptions.IgnoreCase);
                 bool found = false;
                 foreach (string line in File.ReadLines(path))
                 {
