@@ -343,6 +343,52 @@ namespace Parsek.Tests
                 && l.Contains("reason=t"));
         }
 
+        // catches: the "already fired" guard swallowing the SAME release after a rewind put
+        // it back, so KSC warp past the recovery a second time never frees the kerbal.
+        [Fact]
+        public void ReleaseDueCheck_ReArmsAfterARewindPutsTheReleaseBack()
+        {
+            CommitFlight(KerbalEndState.Recovered);
+            double clock = 200.0;
+            KerbalsModule.LiveClockUTProviderForTesting = () => clock;
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            clock = 350.0;
+            Assert.True(LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(350.0, "t"));
+            AssertReleased("350");
+
+            LedgerOrchestrator.RecalculateAndPatch(200.0); // the rewind's cutoff walk
+            AssertHeld("rewind 200", expectedUntilUT: EndUT);
+            Assert.Equal(EndUT, LedgerOrchestrator.Kerbals.NextReservationReleaseUT);
+
+            clock = 360.0;
+            Assert.True(LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(360.0, "t"));
+            AssertReleased("360 after rewind");
+        }
+
+        // catches: a triggered walk that could not move the release (no readable clock)
+        // re-triggering a full recalculation on every frame.
+        [Fact]
+        public void ReleaseDueCheck_DoesNotLoopWhenTheWalkCannotMoveTheRelease()
+        {
+            CommitFlight(KerbalEndState.Recovered);
+            KerbalsModule.LiveClockUTProviderForTesting = () => 0.0; // unreadable
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.Equal(EndUT, LedgerOrchestrator.Kerbals.NextReservationReleaseUT);
+
+            Assert.True(LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(400.0, "t"));
+            AssertHeld("unreadable walk clock", expectedUntilUT: EndUT);
+            Assert.False(LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(401.0, "t"));
+            Assert.False(LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(402.0, "t"));
+        }
+
+        [Fact]
+        public void ResolveLastTriggeredReleaseUT_ForgetsTheTriggerOnceAnotherWalkRan()
+        {
+            Assert.Equal(300.0, KerbalsModule.ResolveLastTriggeredReleaseUT(300.0, 7, 7));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveLastTriggeredReleaseUT(300.0, 9, 7)));
+        }
+
         // catches: the due-check acting on a load's or a rewind's untrustworthy clock.
         [Fact]
         public void ReleaseDueCheck_StandsDownDuringLoadAndRewindAdjustment()

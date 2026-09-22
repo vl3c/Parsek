@@ -839,8 +839,9 @@ judge against the clock; the KSC and Tracking Station `Update` and the crew-assi
 (`CrewAutoAssignPatch` prefix on `RefreshCrewLists`) call
 `LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue`, two double comparisons against
 `KerbalsModule.NextReservationReleaseUT` that run the ordinary current-timeline recalculation
-once per crossed release (never per frame; stands down during OnLoad and a pending rewind
-adjustment). Logging: `Reservation released: '<name>' endUT=.. nowUT=..` and `Reservation
+once per crossed release (never per frame: a triggered walk that cannot move the release
+stands down until another walk runs, while a later walk that puts the same release back - a
+rewind - re-arms it; it also stands down during OnLoad and a pending rewind adjustment). Logging: `Reservation released: '<name>' endUT=.. nowUT=..` and `Reservation
 re-reserved: ...` once per actual transition, `released=` / `walkClockUT=` / `nextReleaseUT=` on
 the PostWalk summary. `KerbalReservationReleaseTests` inverted (held before the end, free from
 it, re-reserved by a rewind before it, stand-in deleted / retired / recreated by name, the L3

@@ -1945,6 +1945,10 @@ namespace Parsek
         /// </summary>
         private static double lastTriggeredReservationReleaseUT = double.NaN;
 
+        /// <summary><see cref="KerbalsModule.PostWalkCount"/> right after the recalculation
+        /// the last trigger ran.</summary>
+        private static int postWalkCountAfterReservationReleaseTrigger = -1;
+
         /// <summary>
         /// The cheap crossed-an-end check for time passing OUTSIDE the paths that already
         /// recalculate (scene load, commit, rewind, flight warp exit): the KSC and
@@ -1961,7 +1965,11 @@ namespace Parsek
             var kerbals = kerbalsModule;
             if (kerbals == null) return false;
             double next = kerbals.NextReservationReleaseUT;
-            if (!KerbalsModule.IsReservationReleaseDue(nowUT, next, lastTriggeredReservationReleaseUT))
+            double lastTriggered = KerbalsModule.ResolveLastTriggeredReleaseUT(
+                lastTriggeredReservationReleaseUT,
+                kerbals.PostWalkCount,
+                postWalkCountAfterReservationReleaseTrigger);
+            if (!KerbalsModule.IsReservationReleaseDue(nowUT, next, lastTriggered))
                 return false;
             // A load or a rewind's UT adjustment in progress is not a clock to act on; the
             // load / post-rewind recalculation that follows judges the right instant.
@@ -1976,6 +1984,8 @@ namespace Parsek
                 + " nowUT=" + nowUT.ToString("R", CultureInfo.InvariantCulture)
                 + " reason=" + safeReason + " - recalculating");
             RecalculateAndPatchForCurrentTimelineIfFutureActions(nowUT, safeReason);
+            var after = kerbalsModule;
+            postWalkCountAfterReservationReleaseTrigger = after != null ? after.PostWalkCount : -1;
             return true;
         }
 
@@ -6921,6 +6931,7 @@ namespace Parsek
             KerbalsModule.LiveClockUTProviderForTesting = null;
             KerbalsModule.LoadedSaveUTProviderForTesting = null;
             lastTriggeredReservationReleaseUT = double.NaN;
+            postWalkCountAfterReservationReleaseTrigger = -1;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 

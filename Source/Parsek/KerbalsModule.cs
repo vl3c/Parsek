@@ -235,6 +235,9 @@ namespace Parsek
         /// walk left pending (<paramref name="nextReleaseUT"/>) and that release has not
         /// already triggered a recalculation (<paramref name="lastTriggeredReleaseUT"/>), so
         /// a walk that for any reason did not move the release cannot loop per frame.
+        /// The caller passes NaN as <paramref name="lastTriggeredReleaseUT"/> once any walk
+        /// other than the one it triggered has run (see
+        /// <see cref="ResolveLastTriggeredReleaseUT"/>).
         /// </summary>
         internal static bool IsReservationReleaseDue(
             double nowUT, double nextReleaseUT, double lastTriggeredReleaseUT)
@@ -246,6 +249,20 @@ namespace Parsek
             if (nowUT < nextReleaseUT)
                 return false;
             return !(nextReleaseUT == lastTriggeredReleaseUT);
+        }
+
+        /// <summary>
+        /// The "already triggered" value <see cref="IsReservationReleaseDue"/> should see:
+        /// the release the check last acted on while no walk has run since the one it
+        /// triggered, else NaN. A rewind's recalculation that puts the same release back
+        /// (same end UT, re-reserved) must be acted on again when time passes it again.
+        /// </summary>
+        internal static double ResolveLastTriggeredReleaseUT(
+            double lastTriggeredReleaseUT, int postWalkCountNow, int postWalkCountAfterTrigger)
+        {
+            return postWalkCountNow == postWalkCountAfterTrigger
+                ? lastTriggeredReleaseUT
+                : double.NaN;
         }
 
         /// <summary>
@@ -399,6 +416,14 @@ namespace Parsek
 
         /// <summary>The earliest pending time-based release after the last walk, or +inf.</summary>
         internal double NextReservationReleaseUT => nextReservationReleaseUT;
+
+        /// <summary>How many walks (<see cref="PostWalk"/>) this module has completed. The
+        /// crossed-an-end check uses it to tell "the walk I triggered did not move the
+        /// release" (stand down) from "a later walk put the same release back" (a rewind:
+        /// act on it again).</summary>
+        internal int PostWalkCount => postWalkCount;
+
+        private int postWalkCount;
 
         // Read-only access for tests
         /// <summary>
@@ -727,6 +752,7 @@ namespace Parsek
             // crossed-an-end checks compare the live clock with.
             RecordReservationTransitions();
             nextReservationReleaseUT = ComputeNextReleaseUT(reservations.Values, walkClockUT);
+            unchecked { postWalkCount++; }
 
             // 4. Log summary
             ParsekLog.Info(Tag,
