@@ -120,6 +120,9 @@ namespace Parsek.Tests
             };
             var node = new ConfigNode("RECORDING");
             RecordingTree.SaveRecordingInto(node, source);
+            // Pins the on-disk key: a rename on both sides would still round-trip
+            // but would drop the loop anchor from every existing save.
+            Assert.Equal("67890", node.GetValue("loopAnchorPid"));
 
             var loaded = new Recording();
             RecordingTree.LoadRecordingFrom(node, loaded);

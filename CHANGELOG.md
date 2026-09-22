@@ -16,10 +16,11 @@ _(unreleased — entries accumulate here per commit)_
   copy with no production caller. 28 now use `RecordingTree.SaveRecordingInto` /
   `LoadRecordingFrom`, the pair `RecordingTree.Save` / `Load` call. The other 12 are deleted
   because they duplicated an existing record-codec cell. The copy and its twelve helpers
-  are deleted too. Missing-key cells, including three existing tree-codec cells, now load a
+  are deleted too. Missing-key cells, including two existing tree-codec cells, now load a
   node from the production writer. The loader's schema gate had rejected their hand-built
   nodes before reading any key, so their default-value checks passed without testing
-  anything. The two format-version-0 checks now pin the current stamp and the gate's
+  anything. A third tree-codec cell had the same flaw and duplicated another cell, so it is
+  deleted and its log checks moved into its twin. The two format-version-0 checks now pin the current stamp and the gate's
   rejection. Checked by mutation: dropping `dockTargetPid`, `hidden` or
   `preLaunchFunds` from the production writer fails the retargeted cells, while the old
   cells still pass. The retarget found one gap in the production codec, filed as
