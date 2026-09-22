@@ -2372,13 +2372,17 @@ class SupersededByKeyTests(unittest.TestCase):
     def test_the_page_never_lands_a_click_on_a_superseded_capture(self):
         body = self.html[self.html.index("function pick(win, tab, state, mode, fixture){"):]
         body = body[:body.index("\n/* ---- rendering")]
-        self.assertIn("var live = pool.filter(function(c){ return !c.supersededBy; });",
-                      body)
+        self.assertIn("var live = pool.filter(function(c){ return !c.supersededBy "
+                      "&& !c.retired; });", body)
         self.assertIn("if (live.length) pool = live;", body)
 
     def test_the_rail_lists_the_current_capture_of_each_state(self):
-        self.assertIn("return (a.supersededBy ? 1 : 0) - (b.supersededBy ? 1 : 0);",
-                      self.html)
+        # One row per state, and it is the CURRENT capture of that state.
+        rows = self.model["railRows"]["widgets"]
+        self.assertEqual(len(rows), 2)
+        for r in rows:
+            self.assertTrue(r["id"].startswith("2026-09-21_2106/"), r["id"])
+        self.assertIn("var ordered = (M.railRows || {})[w.token];", self.html)
         self.assertIn("? ' stale' : ''", self.html)
 
     def test_the_page_does_not_open_on_a_superseded_capture(self):
@@ -2400,6 +2404,344 @@ class SupersededByKeyTests(unittest.TestCase):
         for cap in model["captures"]:
             self.assertIsNone(cap.get("supersededBy"))
         self.assertEqual(gmi.build_index(model)["supersededCaptureCount"], 0)
+
+
+class RetiredStateTests(unittest.TestCase):
+    """A state its own lane no longer produces is retired.
+
+    Superseding needs a later capture of the SAME key, so a state a re-flown lane
+    simply stopped photographing (the Kerbals "owner chain" after the round-2
+    rebuild: in GUI-11's 2026-09-15_1744 run, absent from its 2026-09-22_2004
+    run) stayed the current picture forever. Only a run that can speak for the
+    lane retires anything: a PASS result, or - where no result says - a run that
+    photographed the same window. A failed run never does.
+    """
+
+    @staticmethod
+    def cap(run, label, window="widgets", key=None, spec="SYN-1", **kw):
+        c = {"id": run + "/" + label, "runId": run, "specId": spec,
+             "label": label, "window": window, "key": key or label}
+        c.update(kw)
+        return c
+
+    def test_a_complete_newer_run_without_the_state_retires_it(self):
+        old = self.cap("2026-09-15_1744", "owner-chain")
+        keep = self.cap("2026-09-15_1744", "roster")
+        new = self.cap("2026-09-22_2004", "roster")
+        out = gmi.mark_retired([old, keep, new], [
+            {"specId": "SYN-1", "runId": "2026-09-15_1744", "complete": True},
+            {"specId": "SYN-1", "runId": "2026-09-22_2004", "complete": True}])
+        self.assertEqual(out, [old])
+        self.assertEqual(old["retired"], {"spec": "SYN-1", "since": "2026-09-22_2004"})
+        self.assertNotIn("retired", keep)
+        self.assertNotIn("retired", new)
+
+    def test_a_failed_newer_run_retires_nothing(self):
+        old = self.cap("2026-09-15_1744", "owner-chain")
+        new = self.cap("2026-09-22_2004", "roster")
+        out = gmi.mark_retired([old, new], [
+            {"specId": "SYN-1", "runId": "2026-09-22_2004", "complete": False}])
+        self.assertEqual(out, [])
+        self.assertNotIn("retired", old)
+
+    def test_a_complete_run_with_no_captures_at_all_retires_nothing(self):
+        old = self.cap("2026-09-15_1744", "owner-chain")
+        out = gmi.mark_retired([old], [
+            {"specId": "SYN-1", "runId": "2026-09-22_2004", "complete": True}])
+        self.assertEqual(out, [])
+
+    def test_without_a_result_the_newer_run_must_have_photographed_the_window(self):
+        old = self.cap("2026-09-15_1744", "owner-chain")
+        other = self.cap("2026-09-22_2004", "settings", window="settings")
+        out = gmi.mark_retired([old, other], [
+            {"specId": "SYN-1", "runId": "2026-09-22_2004", "complete": None}])
+        self.assertEqual(out, [], "a run that never opened the window retired it")
+        same = self.cap("2026-09-22_2004", "roster")
+        out = gmi.mark_retired([old, other, same], [
+            {"specId": "SYN-1", "runId": "2026-09-22_2004", "complete": None}])
+        self.assertEqual(out, [old])
+
+    def test_a_newer_run_carrying_the_label_or_the_key_keeps_it(self):
+        old = self.cap("2026-09-15_1744", "owner-chain", key="k1")
+        by_label = self.cap("2026-09-22_2004", "owner-chain", key="k2")
+        self.assertEqual(gmi.mark_retired([old, by_label], [
+            {"specId": "SYN-1", "runId": "2026-09-22_2004", "complete": True}]), [])
+        old = self.cap("2026-09-15_1744", "owner-chain", key="k1")
+        by_key = self.cap("2026-09-22_2004", "renamed", key="k1")
+        self.assertEqual(gmi.mark_retired([old, by_key], [
+            {"specId": "SYN-1", "runId": "2026-09-22_2004", "complete": True}]), [])
+
+    def test_a_state_a_later_run_photographed_again_is_not_retired(self):
+        # Dropped at one run, back at the next: the newest word is "produced".
+        old = self.cap("2026-09-15_1744", "owner-chain")
+        gap = self.cap("2026-09-20_1000", "roster")
+        back = self.cap("2026-09-22_2004", "owner-chain", key="other")
+        out = gmi.mark_retired([old, gap, back], [
+            {"specId": "SYN-1", "runId": r, "complete": True}
+            for r in ("2026-09-20_1000", "2026-09-22_2004")])
+        self.assertNotIn(old, out)
+        # ...while the gap run's own state, which the newest run dropped, is.
+        self.assertEqual(out, [gap])
+
+    def test_only_the_same_scenario_and_only_newer_runs_count(self):
+        old = self.cap("2026-09-15_1744", "owner-chain")
+        foreign = self.cap("2026-09-22_2004", "roster", spec="SYN-2")
+        older = self.cap("2026-09-10_0900", "roster")
+        out = gmi.mark_retired([old, foreign, older], [
+            {"specId": "SYN-2", "runId": "2026-09-22_2004", "complete": True},
+            {"specId": "SYN-1", "runId": "2026-09-10_0900", "complete": True}])
+        # SYN-2's run says nothing about SYN-1, and an OLDER SYN-1 run lacking
+        # the state says nothing either (the reverse, the newer 1744 run lacking
+        # the older run's `roster`, is a retirement).
+        self.assertNotIn(old, out)
+        self.assertEqual(out, [older])
+
+    def test_a_superseded_capture_is_not_also_retired(self):
+        old = self.cap("2026-09-15_1744", "owner-chain", supersededBy="x/y")
+        new = self.cap("2026-09-22_2004", "roster")
+        self.assertEqual(gmi.mark_retired([old, new], [
+            {"specId": "SYN-1", "runId": "2026-09-22_2004", "complete": True}]), [])
+
+    def test_the_retirement_is_dated_from_the_first_witness(self):
+        old = self.cap("2026-09-15_1744", "owner-chain")
+        a = self.cap("2026-09-22_2004", "roster")
+        b = self.cap("2026-09-22_2004_run2", "roster")
+        gmi.mark_retired([old, b, a], [
+            {"specId": "SYN-1", "runId": r, "complete": True}
+            for r in ("2026-09-22_2004_run2", "2026-09-22_2004")])
+        self.assertEqual(old["retired"]["since"], "2026-09-22_2004")
+
+    def test_run_ids_order_by_minute_then_collision_then_attempt(self):
+        ids = ["2026-09-22_1841_run2", "2026-09-22_1841_a2", "2026-09-22_1841",
+               "2026-09-21_2359", "2026-09-22_1841_run2_a2"]
+        self.assertEqual(sorted(ids, key=gmi.run_sort_key), [
+            "2026-09-21_2359", "2026-09-22_1841", "2026-09-22_1841_a2",
+            "2026-09-22_1841_run2", "2026-09-22_1841_run2_a2"])
+
+    def test_the_result_json_beside_the_shots_dir_says_whether_it_completed(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        shots = os.path.join(root, "2026-09-22_2004_SYN-1-census-widgets_shots")
+        os.makedirs(shots)
+        self.assertIsNone(gmi.run_complete(shots))
+        res = shots[:-len("_shots")] + ".json"
+        for verdict, want in (("PASS", True), ("PARSEK-FAIL", False),
+                              ("INVALID", False)):
+            with open(res, "w", encoding="utf-8") as fh:
+                json.dump({"verdict": verdict}, fh)
+            self.assertIs(gmi.run_complete(shots), want, verdict)
+        with open(res, "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        self.assertIsNone(gmi.run_complete(shots))
+
+
+class RetiredEndToEndTests(unittest.TestCase):
+    """The same rule through `build_model` and the page."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.old = make_shots(self.root, "2026-09-15_1744_SYN-1-census-widgets_shots",
+                              utc="2026-09-15T17:44:00Z")
+        self.new = make_shots(self.root, "2026-09-22_2004_SYN-1-census-widgets_shots",
+                              utc="2026-09-22T20:04:00Z")
+        # The newer run no longer photographs the qorvex state at all.
+        for ext in (".gui.json", ".png"):
+            os.remove(os.path.join(self.new, "syn-widgets-qorvex-advanced" + ext))
+
+    def build(self, verdict):
+        if verdict is not None:
+            with open(self.new[:-len("_shots")] + ".json", "w",
+                      encoding="utf-8") as fh:
+                json.dump({"verdict": verdict}, fh)
+        return gmi.build_model([self.old, self.new], make_scenarios(self.root),
+                               with_photos=False)
+
+    def qorvex(self, model):
+        return [c for c in model["captures"] if c["tab"] == "qorvex"]
+
+    def test_a_pass_run_retires_the_state_it_no_longer_captures(self):
+        model = self.build("PASS")
+        (cap,) = self.qorvex(model)
+        self.assertEqual(cap["retired"], {"spec": "SYN-1-census-widgets",
+                                          "since": "2026-09-22_2004"})
+        self.assertEqual(model["keys"][cap["key"]]["retired"]["since"],
+                         "2026-09-22_2004")
+        idx = gmi.build_index(model)
+        self.assertEqual(idx["retiredCaptureCount"], 1)
+        self.assertEqual(idx["retiredKeyCount"], 1)
+        s = model["windowSummaries"]["widgets"]
+        self.assertEqual(s["retired"], 1)
+        self.assertEqual(s["statesReal"], 1, "a retired state still counts")
+
+    def test_a_failed_run_retires_nothing(self):
+        model = self.build("PARSEK-FAIL")
+        (cap,) = self.qorvex(model)
+        self.assertNotIn("retired", cap)
+        self.assertEqual(gmi.build_index(model)["retiredCaptureCount"], 0)
+
+    def test_without_a_result_a_run_that_photographed_the_window_retires(self):
+        model = self.build(None)
+        (cap,) = self.qorvex(model)
+        self.assertEqual(cap["retired"]["since"], "2026-09-22_2004")
+
+    def test_the_page_treats_a_retired_capture_as_stale(self):
+        html = gmi.render_html(self.build("PASS"))
+        body = html[html.index("function pick(win, tab, state, mode, fixture){"):]
+        body = body[:body.index("\n/* ---- rendering")]
+        self.assertIn("return !c.supersededBy && !c.retired;", body)
+        self.assertIn("function isStale(c){ return !!(c.hoverEmpty || c.supersededBy "
+                      "|| c.retired); }", html)
+        self.assertIn("text: 'no longer captured by ' + cap.retired.spec", html)
+        self.assertIn("+ ' since ' + cap.retired.since, short: 'retired',", html)
+        rail = html[html.index("function buildRail(){"):]
+        rail = rail[:rail.index("\nfunction showView(){")]
+        self.assertIn("if (isStale(c)) fold(sr, c.id === S.capture);", rail)
+
+
+class RailOrderTests(unittest.TestCase):
+    """The rail reads top to bottom as the window evolves: grouped by tab in the
+    tab bar's own order, and within a tab from the least drawn state to the most.
+    Mechanical (a node count off the capture), total (Basic before Advanced, then
+    the label) and therefore deterministic."""
+
+    @staticmethod
+    def cap(label, tab, state, mode, cx, **kw):
+        c = {"id": "r/" + label, "label": label, "window": "kerbals", "tab": tab,
+             "state": state, "mode": mode, "complexity": cx}
+        c.update(kw)
+        return c
+
+    def corpus(self):
+        return [
+            self.cap("flights-unfolded", "outcomes", "unfolded", "advanced", 90),
+            self.cap("roster-expanded", "roster", "expanded", "advanced", 70),
+            self.cap("flights-folded", "outcomes", "folded", "advanced", 40),
+            self.cap("roster-adv", "roster", "", "advanced", 30),
+            self.cap("roster-basic", "roster", "", "basic", 30),
+            self.cap("roster-collapsed", "roster", "collapsed", "advanced", 30),
+            self.cap("dialog", None, "confirm", "advanced", 12),
+        ]
+
+    ORDER = {"kerbals": {"roster": 0, "outcomes": 1}}
+
+    def ids(self, caps, order=None):
+        return [r["id"][2:] for r in
+                gmi.rail_rows(caps, order or self.ORDER)["kerbals"]]
+
+    def test_grouped_by_tab_in_tab_bar_order_then_simple_to_complex(self):
+        self.assertEqual(self.ids(self.corpus()), [
+            "dialog",
+            "roster-basic", "roster-adv", "roster-collapsed", "roster-expanded",
+            "flights-folded", "flights-unfolded"])
+
+    def test_the_groups_are_named_by_their_tab_token(self):
+        rows = gmi.rail_rows(self.corpus(), self.ORDER)["kerbals"]
+        self.assertEqual([r["g"] for r in rows],
+                         ["", "roster", "roster", "roster", "roster",
+                          "outcomes", "outcomes"])
+
+    def test_the_order_does_not_depend_on_the_input_order(self):
+        caps = self.corpus()
+        want = self.ids(caps)
+        for i in range(len(caps)):
+            rotated = caps[i:] + caps[:i]
+            self.assertEqual(self.ids(rotated), want)
+            self.assertEqual(self.ids(list(reversed(rotated))), want)
+
+    def test_the_tab_order_is_the_tab_bars_not_the_alphabet(self):
+        flipped = {"kerbals": {"roster": 1, "outcomes": 0}}
+        got = self.ids(self.corpus(), flipped)
+        self.assertEqual(got[1:3], ["flights-folded", "flights-unfolded"])
+
+    def test_an_unknown_tab_follows_the_known_ones(self):
+        caps = self.corpus() + [self.cap("zz", "archive", "", "advanced", 1)]
+        self.assertEqual(self.ids(caps)[-1], "zz")
+
+    def test_a_tabless_capture_is_grouped_by_the_cell_its_grid_shows(self):
+        caps = self.corpus() + [self.cap("hover", None, "hover", "advanced", 35,
+                                         gridIndex=1)]
+        rows = gmi.rail_rows(caps, self.ORDER)["kerbals"]
+        self.assertEqual([r["g"] for r in rows if r["id"] == "r/hover"], ["outcomes"])
+
+    def test_one_row_per_state_and_it_is_the_current_capture(self):
+        stale = self.cap("roster-expanded-old", "roster", "expanded", "advanced", 5,
+                         supersededBy="r/roster-expanded")
+        caps = [stale] + self.corpus()
+        got = self.ids(caps)
+        self.assertIn("roster-expanded", got)
+        self.assertNotIn("roster-expanded-old", got)
+        retired = self.cap("owner-chain", "roster", "owner-chain", "advanced", 50,
+                           retired={"spec": "S", "since": "x"})
+        self.assertIn("owner-chain", self.ids(self.corpus() + [retired]),
+                      "a state with no current capture must still be listed")
+
+    def test_tab_order_merges_the_seam_index_with_the_grid(self):
+        caps = [self.cap("a", "roster", "", "basic", 1, gridIndex=0),
+                self.cap("b", "archive", "", "basic", 1, gridIndex=2),
+                self.cap("c", "outcomes", "", "basic", 1, gridIndex=7)]
+        got = gmi.tab_order({"kerbals": {"roster": 0, "outcomes": 1}}, caps)
+        self.assertEqual(dict(got["kerbals"]),
+                         {"roster": 0, "outcomes": 1, "archive": 2})
+
+    def test_build_model_records_complexity_and_orders_the_rail(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        model = gmi.build_model([make_shots(root)], make_scenarios(root),
+                                with_photos=False)
+        by_label = {c["label"]: c for c in model["captures"]}
+        z = by_label["syn-widgets-zynthia-advanced"]
+        q = by_label["syn-widgets-qorvex-advanced"]
+        # window + grid + three rows vs window + grid + two rows
+        self.assertEqual((z["complexity"], q["complexity"]), (5, 4))
+        self.assertEqual([r["g"] for r in model["railRows"]["widgets"]],
+                         ["zynthia", "qorvex"])
+        html = gmi.render_html(model)
+        self.assertIn('"railRows":', html)
+        rail = html[html.index("function buildRail(){"):]
+        rail = rail[:rail.index("\nfunction showView(){")]
+        self.assertIn("ghead = el('div', 'tg', r.g ? tabName(w.token, r.g) : '(no tab)');",
+                      rail)
+        self.assertIn("if (ghead && !gshown) ghead.classList.add('hidden');", rail)
+
+
+class NewestTabNameTests(unittest.TestCase):
+    """A tab is named, everywhere the page names it, by the NEWEST capture of it.
+
+    The Kerbals tabs were renamed ("Roster State" -> "Roster", "Mission Outcomes"
+    -> "Flights") under unchanged seam tokens, and first-seen kept the old names
+    in the rail, the header and Compare for every new capture.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def build(self, name, utc, newtv):
+        base = make_shots(self.root, utc="2026-09-11T05:49:25Z")
+        other = make_shots(self.root, name=name, utc=utc)
+        f = os.path.join(other, "syn-widgets-zynthia-advanced.gui.json")
+        with open(f, encoding="utf-8") as fh:
+            d = json.load(fh)
+        d["roots"][0]["children"][0]["textValue"] = newtv
+        with open(f, "w", encoding="utf-8") as fh:
+            json.dump(d, fh)
+        # the older directory is listed FIRST either way: order must not matter
+        dirs = sorted([base, other])
+        model = gmi.build_model(dirs, make_scenarios(self.root), with_photos=False)
+        w = [w for w in model["windows"] if w["token"] == "widgets"][0]
+        return {t["token"]: t["name"] for t in w["tabs"]}
+
+    def test_a_newer_run_renames_the_tab(self):
+        names = self.build("2026-09-22_2004_SYN-1-census-widgets_shots",
+                           "2026-09-22T20:04:00Z", "Zynthia Prime")
+        self.assertEqual(names["zynthia"], "Zynthia Prime")
+        self.assertEqual(names["qorvex"], "Qorvex")
+
+    def test_an_older_run_does_not(self):
+        names = self.build("2026-09-01_0100_SYN-1-census-widgets_shots",
+                           "2026-09-01T01:00:00Z", "Zynthia Classic")
+        self.assertEqual(names["zynthia"], "Zynthia")
 
 
 POINTER_EMPTY = ("[LOG 00:00:05] [Parsek][INFO][TestCommands] uiaction pointer "
@@ -2508,7 +2850,9 @@ class HoverFromTheLogTests(unittest.TestCase):
         html = gmi.render_html(model)
         self.assertIn("hover not captured", html)
         self.assertIn("if (cap.hoverEmpty) return;", html)
-        self.assertIn("(c.hoverEmpty || c.supersededBy) ? ' stale' : ''", html)
+        self.assertIn("(isStale(c) ? ' stale' : '')", html)
+        self.assertIn("function isStale(c){ return !!(c.hoverEmpty || c.supersededBy "
+                      "|| c.retired); }", html)
 
 
 class LabelVersusLogTests(unittest.TestCase):
@@ -3002,15 +3346,14 @@ class SimplifiedChromeTests(unittest.TestCase):
         self.assertIn("(state || '').replace(/-/g, ' ')", self.html)
         self.assertIn("function modeWord(m){", self.html)
         rail = self._fn("function buildRail(){")
-        self.assertIn("stateLabel(w.token, c.tab, c.state, c.mode)", rail)
+        self.assertIn("stateLabel(w.token, headed ? null : c.tab, c.state, c.mode)", rail)
         self.assertNotIn("c.tab || '-'", rail)
         # the dataset moved into the row's tooltip
         self.assertIn("sr.title = 'dataset ' + c.fixture", rail)
 
     def test_stale_rows_fold_behind_one_link_per_window(self):
         rail = self._fn("function buildRail(){")
-        self.assertIn("if (c.hoverEmpty || c.supersededBy) fold(sr, c.id === S.capture);",
-                      rail)
+        self.assertIn("if (isStale(c)) fold(sr, c.id === S.capture);", rail)
         self.assertIn("fold(sr, false);", rail)
         self.assertIn("'show ' + folded + ' hidden'", rail)
         self.assertIn("if (!showAll && !isSel){ sr.classList.add('hidden'); folded++; }",
