@@ -73,6 +73,11 @@ tier = "operator"
 # `ghostChainNodes = { min = 1 }` - PARSEK-FAIL(expectation) on exactly the two seeded log
 # tokens plus saveParse's `recordings.structure.ghostChainNodes 0 < min 1`, analyzer green.
 # LIVE-PROVEN. PR-B DLL, deployed sha256 `096ff6c8...`.
+# SCOPE, STATED: the re-derivation is proven WITHIN ONE KSP PROCESS (the F9 reload rebuilds
+# the flight scene from the file, but the process, and every static store, survives), not
+# from a cold load. The digest covers only the chains the scene KEEPS (future spawn, not
+# terminated) and hashes each chain's links as a count (todo
+# LISTHANDLES-CHAINS-DIGEST-SCOPE).
 # SECOND UNKNOWN: whether the F9 reload (`LoadGame ... allowLiveRecorder=refly`, S4.4's
 # shape) takes an `OnFlightReady` path that runs the evaluation. `evaluated=false` on the
 # second capture would be the finding that it does not.

@@ -2119,6 +2119,11 @@ LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active
 # digits (`expect-digest-invalid`), both after a whole boot.
 LISTHANDLES_EXPECT_DIGEST_KEY = "expectDigest"
 LISTHANDLES_EXPECT_DIGEST_RE = re.compile(r"^[0-9a-f]{8}$")
+# The seam's two refusal reasons for the arg, byte-equal to
+# `TestCommandListHandles.ExpectDigestKindMismatchReason` / `ExpectDigestInvalidReason`
+# (pinned by ListHandlesSourceSyncTests).
+LISTHANDLES_EXPECT_DIGEST_KIND_MISMATCH_REASON = "expect-digest-kind-mismatch"
+LISTHANDLES_EXPECT_DIGEST_INVALID_REASON = "expect-digest-invalid"
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
 # validate_spec, so a fifth such arg is one row rather than a fifth copied block.
@@ -3396,15 +3401,17 @@ def validate_list_handles_expect_digest(index: int, cmd: str,
     if step_args.get(LISTHANDLES_KIND_KEY) != "chains":
         errors.append(
             "driver.steps[%d].args.%s: only kind=chains computes a digest; the seam "
-            "answers REJECTED expect-digest-kind-mismatch on any other family"
-            % (index, LISTHANDLES_EXPECT_DIGEST_KEY))
+            "answers REJECTED %s on any other family"
+            % (index, LISTHANDLES_EXPECT_DIGEST_KEY,
+               LISTHANDLES_EXPECT_DIGEST_KIND_MISMATCH_REASON))
     raw = step_args.get(LISTHANDLES_EXPECT_DIGEST_KEY)
     if not (isinstance(raw, str) and (value_is_handle_templated(raw)
                                       or LISTHANDLES_EXPECT_DIGEST_RE.match(raw))):
         errors.append(
             "driver.steps[%d].args.%s: %r must be ${<label>.digest} or eight lowercase "
-            "hex digits; the seam answers REJECTED expect-digest-invalid otherwise"
-            % (index, LISTHANDLES_EXPECT_DIGEST_KEY, raw))
+            "hex digits; the seam answers REJECTED %s otherwise"
+            % (index, LISTHANDLES_EXPECT_DIGEST_KEY, raw,
+               LISTHANDLES_EXPECT_DIGEST_INVALID_REASON))
     return errors
 
 

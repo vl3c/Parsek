@@ -1415,7 +1415,8 @@ signal that `count` exceeds what was enumerated - never a silent cut.
 
 **Observability.** One Info line per call, `listhandles kind=<k> count=<n>
 truncated=<b>`, with the chains family appending ` evaluated=<b> digest=<hex8>` and, when
-compared, ` expected=<hex8> match=<b>` (a refusal logs `listhandles rejected reason=<r> kind=<raw>` at Warn, the
+compared, ` expected=<hex8> match=<b>` (a refusal logs `listhandles rejected reason=<r> kind=<raw>` at Warn,
+with ` expectDigest=<raw>` appended when the refusal is of that arg, the
 way every other verb's refusal does). The enumerated ids themselves are NOT in
 KSP.log (the pump's `exec id=<id> verdict=OK` line carries no payload): they live in
 the response channel `parsek-test-responses.txt`, which the harness collects with the

@@ -15,6 +15,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LISTHANDLES-CHAINS-DIGEST-SCOPE: the chains digest hashes each chain's links only as a COUNT, and covers only the kept (future, non-terminated) chains [FILED 2026-09-22 from the #1761 review. OPEN; a follow-up, deliberately not fixed in that PR]
+
+`TestCommandListHandles.ChainsDigest` hashes `pid|links|tip|spawnUT(R)|terminated;` per
+chain, where `links` is `chain.Links.Count`. Two chains with the same pid, tip and spawn UT
+but a DIFFERENT link set of the same length (another claiming recording, another branch
+point, another interaction type) digest identically, so CI-3's readback equality is
+blind to a link-level change. And the family reads `ParsekFlight.ActiveGhostChains`, which
+`FilterAndGhostChains` has already reduced to chains whose spawn UT is still in the future
+and which are not terminated: a terminated or past-spawn chain is outside both captures, so
+the readback says nothing about how those are re-derived (on bdock-recorded at rp1, 12 of
+the 13 evaluated chains are outside it).
+
+Fix direction: add each link's `recordingId` (and branch point id) to the canonical line,
+and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or a
+`scope=all` arg) so terminated chains are read back too. Either change moves CI-3's pinned
+`digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
+re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
+(`bbd83d3b`, `8952919c`) recomputed.
+
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
 **What was wrong.** `phase_download` fetched every pinned release zip from its URL on
