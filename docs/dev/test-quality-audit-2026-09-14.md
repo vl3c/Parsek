@@ -5,11 +5,13 @@ Dates: Phase 0-1 opened 2026-09-14; Phases 1, 2, 3 and 4 closed 2026-09-15.
 Scope: `Source/Parsek.Tests` xUnit unit tests only. `InGameTests` and the harness Python suites are
 cross-referenced only where they change a verdict on a unit test.
 
-Status: Phase A complete; Phase B go-ahead given by the operator on 2026-09-15 (first wave: the 7 High in `testfix-t1t2`, the six mechanical gate repairs in `testfix-t4-flaky`).
-Phase B progress: the 7 High are FIXED on `testfix-t1t2` (2026-09-15) - see the "Phase B" column of the High table; every fix carries a re-run mutation proof under `research/.../mutations/` (`<id>-phaseB.patch`, `mutations.csv`).
+Status: CLOSED 2026-09-23 (historical). Phase B landed 36 PRs (#1681 through #1765). Of the 768 findings, 585 are closed: all 7 High and 272 Medium (3 Medium of them adjudicated as deferred), and Low T1 (64), T2 (231), T4 (6) and T6 (5). Each closed row carries a `mutations/mutations.csv` proof row (454 rows covering 444 findings), a Phase B status adjudication, or a line in `work/phase-b-low-t2-dedupe.tsv`. Coverage priorities 1 and 2 are closed (80 done, 20 already covered, 2 deferred). CUT by operator decision on 2026-09-23 under this plan's opportunistic clause: all 183 Low T3 rows (weak asserts, severity Low) and the 144 priority-3-to-5 coverage `keep` rows (including C-io-serialization-005-01). Both stay listed in `issue-register.csv` and `coverage-opportunities.csv` for anyone who takes them up. Follow-ups filed outside the audit: TQ-1, TQ-2 and LOOP-TIME-UNIT-NOT-PERSISTED in `docs/dev/todo-and-known-bugs.md`.
 
-Plan: `docs/dev/plans/test-quality-audit.md`. Raw and derived evidence:
-`docs/dev/research/test-quality-audit-2026-09-14/`.
+Earlier status: Phase A complete; Phase B go-ahead given by the operator on 2026-09-15 (first wave: the 7 High in `testfix-t1t2`, the six mechanical gate repairs in `testfix-t4-flaky`).
+Phase B progress: the 7 High are FIXED on `testfix-t1t2` (2026-09-15) - see the "Phase B" column of the High table; every fix carries a re-run mutation proof under `done/research/.../mutations/` (`<id>-phaseB.patch`, `mutations.csv`).
+
+Plan: `docs/dev/done/plans/test-quality-audit.md`. Raw and derived evidence:
+`docs/dev/done/research/test-quality-audit-2026-09-14/`.
 
 ## What this supersedes, and what it does not
 
@@ -24,7 +26,7 @@ existing ~23.4k executed cases sound, and where is added coverage worth it".
 - It does not change `design-testing-unified.md`'s contracts; that doc's derivation line names both
   audits.
 - Where a finding here re-finds a July register item, the JULY ID stays primary and this audit adds
-  new evidence; the mapping lives in `research/test-quality-audit-2026-09-14/july-crosswalk.csv` and
+  new evidence; the mapping lives in `done/research/test-quality-audit-2026-09-14/july-crosswalk.csv` and
   in the "July crosswalk" section below.
 - No production code and no test code was edited in Phase A. Nothing in this document had been
   fixed when it was written; Phase B fixes are recorded per row, not by rewriting the findings.
@@ -33,7 +35,7 @@ existing ~23.4k executed cases sound, and where is added coverage worth it".
 
 ### Rubric
 
-The review rubric was frozen before Phase 1 (`research/test-quality-audit-2026-09-14/rubric.md`) and
+The review rubric was frozen before Phase 1 (`done/research/test-quality-audit-2026-09-14/rubric.md`) and
 embedded verbatim in every agent prompt.
 
 Verdict vocabulary, one per test method: `ok`, `weak`, `vacuous`, `duplicate`, `brittle`,
@@ -202,7 +204,7 @@ worst clusters by actionable non-ok rate are `recording-tree` (8.6%), `recorder-
 
 ## D2 - issue register
 
-Full register: `research/test-quality-audit-2026-09-14/issue-register.csv` (768 rows; columns
+Full register: `done/research/test-quality-audit-2026-09-14/issue-register.csv` (768 rows; columns
 `id, file, line, method, category, severity, confidence, falsifiability, what_it_asserts, why_weak,
 proposed_action, effort, july_ref`). Confidence is `high` on 744 rows and `medium` on 24; none is
 `low`. Effort is `S` on 691 rows and `M` on 77; none is `L`.
@@ -468,7 +470,7 @@ commit, headed
 
 ## D3 - coverage-opportunity backlog
 
-Full table: `research/test-quality-audit-2026-09-14/coverage-opportunities.csv` (249 rows);
+Full table: `done/research/test-quality-audit-2026-09-14/coverage-opportunities.csv` (249 rows);
 reviewed narrative with per-cluster tables: `coverage-opportunities.md`.
 
 252 Phase 1 candidates entered Phase 3 triage (SUT guard confirmed at the pinned SHA, headless
@@ -517,7 +519,7 @@ cheap.
 
 **Phase B status (2026-09-15).** The five priority-1 data-loss rows have landed as xUnit cells
 on `testfix-t5-coverage`, each mutation-proved in that worktree with the mutant the CSV names (C-legacy-bugfix-024-01 in the shared save body both entry points route through, not the public wrapper; the wrapper stays guarded by the source-text pin)
-(patches under `research/test-quality-audit-2026-09-14/mutations/<cand_id>-phaseB.patch`):
+(patches under `done/research/test-quality-audit-2026-09-14/mutations/<cand_id>-phaseB.patch`):
 C-legacy-bugfix-023-01, C-legacy-bugfix-024-01, C-recording-tree-034-01, C-rewind-refly-011-01,
 C-rewind-refly-020-01. Their `status` in the CSV is now `done`.
 
@@ -803,7 +805,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 
 - `testfix-t4-flaky`, first PR (2026-09-15): all six rows of the suggested first PR are FIXED on
   branch `testfix-t4-flaky`, each with a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
   - F-logistics-route-034-03 fixed: the tick gate scans `SourceScanText.StripCommentsAndMaskLiterals`
     output, so the catch-block log twin no longer stands in for the deleted hook.
   - F-logistics-route-040-01 fixed: `ExtractDriveMissionLoopUnitsBody` slices the SANITIZED,
@@ -826,7 +828,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 - `testfix-t4-flaky`, second PR (2026-09-15): the remaining 19 T4 rows
   (`work/phase-b-slice-t4-02.txt`). 18 FIXED, 1 DELETED in favour of a named twin, 0
   deferred. Each fixed row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
   that `git apply --check`s against a clean tree.
   - Comment-stripping (the raw-scan half): F-catchall-026-01 (Update ordering, via
     `StripCommentsAndMaskLiterals`), F-catchall-036-02 (hide policy gate, via
@@ -874,7 +876,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 - `testfix-t1t2`, second PR (2026-09-15): the first slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-01.txt`, 20 ids, rewind / Re-Fly + recording-tree).
   Each fixed row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
   - Fixed: F-rewind-refly-001-01 / -001-03 / -001-04 / -001-05 (branch-point fixtures given
     `ParentRecordingIds` in the Re-Fly target's lineage, plus a real `tree_b` for the tree-id
     guard, so the baseline / cutoff / type / tree-id term each becomes the sole discriminator);
@@ -920,7 +922,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 
 - `testfix-t1t2`, third PR (2026-09-15): the second slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-02.txt`, 20 ids, all recording-tree). Each fixed row has
-  a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  a proof row in `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
   `*-phaseB.patch`.
   - Fixed: F-recording-tree-050-01 / -050-02 / -050-03 (the three `BackwardCompat_*`
     nodes are stamped with `RecordingStore.CurrentRecordingFormatVersion` /
@@ -986,7 +988,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   (`work/phase-b-slice-medium-t1-05.txt`, 20 ids: 5 trajectory-orbit, 4 map-render,
   3 harness-seam, 2 mission-groups, 2 wiring-gates, 2 legacy-bugfix, 1 analyzer,
   1 logging). 19 fixed, 1 deferred, 0 deleted. Each fixed row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
   that `git apply --check`s against a clean tree.
   - Fixed, assertion re-pointed at the branch the name claims: F-map-render-009-02 (the
     reason must carry `exceeds cap 10000` and NOT `would need`, the only wording the
@@ -1074,7 +1076,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   (`work/phase-b-slice-medium-t1-04.txt`, 20 ids: 6 recorder-events, 6 ghost-playback,
   5 spawn-vessel, 2 logistics-route, 1 map-render). 16 fixed, 3 deleted in favour of a
   named twin, 1 deferred. Each fixed row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
   `*-phaseB.patch`.
   - Production replay replaced by a call (five files touched, all behaviour-identical):
     F-recorder-events-020-01 (`GhostVisualBuilder.ParseVariantTextureRules` extracted;
@@ -1131,7 +1133,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 - `testfix-t1t2`, fourth PR (2026-09-15): the third slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-03.txt`, 20 ids: 16 ledger-career, 4 recorder-events).
   18 fixed, 2 deleted (twin named), 0 deferred. Every fixed row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
   No production file changed in this slice.
   - Fixed: F-ledger-career-001-07 (the duplicate milestone moved onto the live event's own
     UT with a divergent award, and it is now the ONLY action in the list - a second,
@@ -1190,7 +1192,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   T3 (weak / misleading) wave (`work/phase-b-slice-medium-t3-01.txt`, 20 ids: 12
   `rewind-refly`, 8 `recording-tree`). Every T3 row already runs the production line;
   the work is making the named term the DECIDING one. Each fixed row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
   `*-phaseB.patch` that `git apply --check`s against a clean tree.
   - The twelve `rewind-refly` ids, all strengthened, no production change:
     F-rewind-refly-001-02 (the legacy marker's BP now carries `ParentRecordingIds` in
@@ -1292,7 +1294,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   `git diff origin/main...HEAD -- Source/Parsek.Tests`: e29d96489 3 renames + 1 new + the
   deletion, e2ee3d67b 1 + 1, 41e91527e 0 + 0, 6338adcfd 1 + 2, 30419f2b6 1 + 0,
   1a0d21bf9 0 + 0, eae1f2f75 0 + 2, 69d9af157 2 + 1, 8f2e4eef5 1 + 2. Each row has a proof
-  row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  row in `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
   `*-phaseB.patch` that `git apply --check`s against a clean tree. The three source gates
   this slice adds share `SourceScanText.BraceMatchedBlock` (moved there from the first
   copy rather than pasted three times); every class that reads `SourceScanText` was re-run
@@ -1400,7 +1402,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 
 - `testfix-t1t2`, eighth PR (2026-09-16): the THIRD slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-03.txt`, 20 ids, all `ledger-career`). Each fixed row
-  has a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv`
+  has a proof row in `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv`
   and a `*-phaseB.patch` that `git apply --check`s against a clean tree.
   - Strengthened (15): F-ledger-career-001-06
     (`ReconcileKsc_PartPurchase_EntryCostMatched_NoWarn`, with the inert bypass provider
@@ -1493,7 +1495,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 - `testfix-t1t2`, sixth PR (2026-09-15): the final slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-06.txt`, 14 ids: 10 catchall, 4 legacy-bugfix), first
   commit. Every fixed row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
   that `git apply --check`s against a clean tree.
   - Fixed: F-catchall-006-02 (the `onGameStateSave` watch is unfalsifiable headlessly, so
     the cell now watches the two observable counters instead: `RecordingStore.StateVersion`
@@ -1534,7 +1536,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   `work/phase-b-slice-medium-t1-06.txt`. Slice total 14 ids: 11 fixed, 3 deleted (twins
   named), 0 deferred. This CLOSES the Medium T1 register - no Medium T1 row is left
   unhandled. Every fixed row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
   - Fixed: F-catchall-059-01 (renamed `FreshRecorder_AltitudeFlagsDefaultFalse` - the
     confirm log it claimed needs a live Vessel, so the cell states the field-default claim
     it can make, notes that ParsekFlight's altitude-phase split early-returns on
@@ -1587,7 +1589,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   a rename is a SUBSET of that, never a separate bucket. Slice total: 19 strengthened,
   6 of those also renamed, 1 deleted, 0 premise-wrong, 2 behaviour-identical production
   edits. Each row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
   `*-phaseB.patch` that `git apply --check`s against a clean tree.
   - Vocabulary asserted against itself (3): F-harness-seam-001-01 re-split
     `ValidCtrlNames`, which is the comma-join of `CtrlValues`, so a kind rename on either
@@ -1693,7 +1695,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   `ShouldTriggerExplosion_AllGuardsPass_WarpGateDecidesFxSuppression`,
   `ResolveMapPresenceGhostSource_CrossBodyLoopMember_PredicateComputedFlag_StillRejects`).
   Each has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
   `*-phaseB.patch` that `git apply --check`s against a clean tree.
   - F-recorder-events-012-01 and -012-02, both renamed `..._AllInputPairs`: the two
     warp / watch-protection predicates take the same two booleans, so one asserted
@@ -1823,7 +1825,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 - `testfix-t3-b` (2026-09-16): the second slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-02.txt`, 20 ids, all `recording-tree`). 17 strengthened,
   3 renamed, 0 deleted, 0 deferred. Every strengthened row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
   that `git apply --check`s against a clean tree. No production file changed.
   - Strengthened by making the guard the DECIDING term (the fixture was previously
     rejected by an earlier gate, or was a lone record that every implementation answers
@@ -1921,7 +1923,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   change. Per-commit split, derived from the diff: 3 rows (`2cef68a22`), 6 rows
   (`be908585b`), 4 rows (`8de257ffa`, one of them the deletion), 4 rows (`f4b2dc0e1`).
   Each row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
   that `git apply --check`s against a clean tree. The EIGHTEENTH row of the slice,
   F-spawn-vessel-021-01 (`SpawnCleanupGuardTests`), was deliberately HELD BACK: another
   open PR rewrites that file, so the fix would conflict; it stays untouched in the
@@ -2119,7 +2121,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   premise-wrong. Per-commit split, derived from the diff: 4 rows (`429e2e205`), 4 rows
   (`6de00c759`, one deletion), 4 rows (`bcadedb4d`, two deletions), 2 rows (`b1f13d313`).
   Each row has a proof row in
-  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
   that `git apply --check`s against this branch. Two behaviour-identical extractions:
   `ParsekUI.ComposeScrollbarGutterWidth` and `FlightRecorder.FormatGrowthRateAtStop`; the
   two patches that mutate them apply on top of those extractions.
@@ -2261,7 +2263,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   Per commit, derived from `git diff origin/main...HEAD -- Source/Parsek.Tests`:
   d01a4c7d1 six Facts folded into two Theories + 1 new cell, adae178a2 1 rename + 1
   deletion, c560ecb80 1 rename + 1 deletion, 4a08cc759 2 renames + 1 deletion. Each row
-  has a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and
+  has a proof row in `done/research/test-quality-audit-2026-09-14/mutations/mutations.csv` and
   a `*-phaseB.patch` that `git apply --check`s against a clean tree.
   - Given the production term the name claims (7): F-catchall-022-01 (the three Patch*
     call sites now select their session toast latch through the behaviour-identical
@@ -2375,7 +2377,7 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 
 ## July crosswalk
 
-`research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
+`done/research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
 
 Still open at the baseline (grep-verified, zero or self-only test references): E5 `ReFlyCanonicalization`, E11 career-spend-blocking patches (`TechResearchPatch` / `FacilityUpgradePatch`), E12 `RouteDispatchDecision` factory, E13 `ReaimOrbitSegmentConverter`, D3/E16 `MergeCrashRecoveryMatrixTests` (Facts only, no Theory matrix), C5 `WithSpawnedPid`. A2 (crew-death chain) is closed on the unit leg only; D5 (mutation adequacy) is superseded by this audit's Phase 2 protocol.
 
@@ -2428,7 +2430,7 @@ Still open at the baseline (grep-verified, zero or self-only test references): E
 
 ### File map of the research directory
 
-`docs/dev/research/test-quality-audit-2026-09-14/`:
+`docs/dev/done/research/test-quality-audit-2026-09-14/`:
 
 | Path | Contents |
 |---|---|
@@ -2449,23 +2451,23 @@ Still open at the baseline (grep-verified, zero or self-only test references): E
 | `mutations/` | 7 committed patches plus `mutations.csv` (the Phase 2 run log) |
 | `july-crosswalk.csv` | July register ID -> SUT/file mapping, built in Phase 4 |
 | `tools/` | `inventory_scan.py`, `parse_results.py`, `lint_fragments.py`, `build_batches.py`, `merge_fragments.py`, `make_workorders.py`, `agent-protocol.md`. The plan's `smell_sweep.py` / `redundancy.py` (P0.5 hash-tier redundancy) were NOT built: redundancy was agent-confirmed per method under the rubric's twin rule instead, so no hash-only T2 exists and `work/redundancy-calibration.csv` does not exist |
-| `work/` | committed except the large generated inputs (see `research/test-quality-audit-2026-09-14/README.md`): `baseline.trx`, `coverage.cobertura.xml`, `durations.csv`, `metrics.md`, `supervisor-notes.md`, `inventory-completeness.txt`, the Phase 2/3/4 scratch |
+| `work/` | committed except the large generated inputs (see `done/research/test-quality-audit-2026-09-14/README.md`): `baseline.trx`, `coverage.cobertura.xml`, `durations.csv`, `metrics.md`, `supervisor-notes.md`, `inventory-completeness.txt`, the Phase 2/3/4 scratch |
 
 ### How to regenerate
 
 From the audit worktree root, after editing or re-emitting a fragment under `findings/`:
 
 ```bash
-python docs/dev/research/test-quality-audit-2026-09-14/tools/lint_fragments.py \
-  --manifests docs/dev/research/test-quality-audit-2026-09-14/work/manifests \
-  --fragments docs/dev/research/test-quality-audit-2026-09-14/findings \
-  --all --report docs/dev/research/test-quality-audit-2026-09-14/work/lint-report.txt
+python docs/dev/done/research/test-quality-audit-2026-09-14/tools/lint_fragments.py \
+  --manifests docs/dev/done/research/test-quality-audit-2026-09-14/work/manifests \
+  --fragments docs/dev/done/research/test-quality-audit-2026-09-14/findings \
+  --all --report docs/dev/done/research/test-quality-audit-2026-09-14/work/lint-report.txt
 
-python docs/dev/research/test-quality-audit-2026-09-14/tools/merge_fragments.py \
-  --inventory docs/dev/research/test-quality-audit-2026-09-14/test-inventory.csv \
-  --july-refs docs/dev/research/test-quality-audit-2026-09-14/work/phase4/july-refs.jsonl \
-  --fragments docs/dev/research/test-quality-audit-2026-09-14/findings \
-  --out docs/dev/research/test-quality-audit-2026-09-14
+python docs/dev/done/research/test-quality-audit-2026-09-14/tools/merge_fragments.py \
+  --inventory docs/dev/done/research/test-quality-audit-2026-09-14/test-inventory.csv \
+  --july-refs docs/dev/done/research/test-quality-audit-2026-09-14/work/phase4/july-refs.jsonl \
+  --fragments docs/dev/done/research/test-quality-audit-2026-09-14/findings \
+  --out docs/dev/done/research/test-quality-audit-2026-09-14
 ```
 
 `lint_fragments.py` also takes `--batch <id>` (repeatable) to lint one batch and `--suffix` for
