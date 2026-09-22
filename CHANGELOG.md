@@ -10,6 +10,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Tests: two Low T1 cells from the unit-test quality audit now observe production decisions.**
+  Baseline keys compare separate findings with numeric drift and distinguish different rules,
+  rather than comparing a function call with itself. Rewind cleanup tests null and empty RP
+  identifiers independently against matching orphans, so removing the early return fails both
+  cases. No production behavior changed.
 - **Automated testing: the raw-Unity-exception scan reads the stack under each exception.**
   The scan counted exception lines only, so a stock NRE and one thrown with Parsek on the
   stack looked the same, and a Parsek-frame NRE inside an armed `maxTotal` budget passed

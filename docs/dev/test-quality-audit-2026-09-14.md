@@ -2065,6 +2065,27 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `DisassembledTerminalStateTests`, `SessionSuppressionWiringTests`): 149 passed / 0
     failed before, 148 passed / 0 failed after - exactly the one removed cell.
 
+- `testfix-low-01` (2026-09-16, OPEN, do not merge until reviewed): the Low T1 sweep's
+  first slice is PARTIAL - 2 of 16 rows proven and landed; the remaining 14 wait on
+  dedicated implementer dispatches (`work/phase-b-slice-low-t1-01.txt`).
+  - F-analyzer-002-02, strengthened + renamed
+    `Key_SameFindingTwice_IsStable` -> `Key_SeparateInstancesSameShape_EqualKeys_RuleStillDistinguishes`:
+    the cell compared `KeyOf(f)` with itself. It now keys two separate findings with
+    numerically drifted messages (equal keys) and a different RuleId (different key).
+    RED under both mutants (17 passed / 3 failed each: the named cell plus two pre-existing
+    Gate / Apply / MultiMatch cells that also key findings): the register's default-key stub
+    (`mutations/F-analyzer-002-02-default-phaseB.patch`) and a digest-mask drop
+    (`mutations/F-analyzer-002-02-phaseB.patch`). The old cell stays GREEN under the
+    default-key stub.
+  - F-rewind-refly-019-02, strengthened: `EmptyRpId_ReturnsZero` became a Theory over
+    null and empty rpId, each with an orphan whose own `ProvisionalForRpId` matches the
+    call, plus a no-reap log assertion. RED 0 passed / 2 failed under the register's
+    deleted-early-return mutant (`mutations/F-rewind-refly-019-02-phaseB.patch`);
+    restored class 8 passed / 0 failed. Earlier GREEN mutant runs came from a stale
+    testhost and are superseded; the trace-confirmed RED run is recorded.
+  - No production change; both patches revert to the base tree. Serialized full suite:
+    23,820 passed / 0 failed / 1 skipped.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
