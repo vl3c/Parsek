@@ -820,7 +820,9 @@ or `nowUT < ReservedUntilUT`; the kerbal is free AT exactly the recovery UT, bec
 common live case is a commit run at that very clock; an unknown clock HOLDS). The walk
 captures its clock ONCE in `PrePass` (`ResolveWalkClockUT`: the loaded save's
 `flightState.universalTime` while `ParsekScenario.OnLoad` is on the stack, because Planetarium
-still reads the previous scene's clock there; else the walk's cutoff; else the adjusted rewind
+still reads the previous scene's clock there; else the walk's cutoff, unless it is a "walk
+everything" sentinel such as the Re-Fly post-invoke `double.MaxValue` (CL-4 run
+`2026-09-22_2143` measured `walkClockUT=1.8e308` before this rule); else the adjusted rewind
 UT while a rewind's clock adjustment is pending; else live Planetarium; tests drive it through
 `KerbalsModule.LiveClockUTProviderForTesting` / `LoadedSaveUTProviderForTesting`), and
 `CrewReservationManager.RecomputeAfterCutoffWalk` now passes its cutoff through. EVERY consumer

@@ -276,7 +276,9 @@ namespace Parsek
         /// timeline still holds. The walk's cutoff inside OnLoad is that same
         /// Planetarium value, so it is not trusted either.</item>
         /// <item>The walk's own cutoff: a rewind / time-jump / current-UT walk IS the
-        /// new "now".</item>
+        /// new "now". A "no time filter" sentinel cutoff (the Re-Fly post-invoke walk
+        /// passes <c>double.MaxValue</c> to walk the whole ledger authoritatively; see
+        /// <see cref="IsNoTimeFilterCutoff"/>) is NOT a clock and falls through.</item>
         /// <item>While a rewind's UT adjustment is still pending, the adjusted rewind
         /// UT (Planetarium still reads the pre-rewind future until the deferred
         /// coroutine sets it).</item>
@@ -298,11 +300,26 @@ namespace Parsek
                 return IsUsableClockUT(loadedSaveUT) ? loadedSaveUT : double.NaN;
             if (walkNowUT.HasValue
                 && !double.IsNaN(walkNowUT.Value)
-                && !double.IsInfinity(walkNowUT.Value))
+                && !double.IsInfinity(walkNowUT.Value)
+                && !IsNoTimeFilterCutoff(walkNowUT.Value))
                 return walkNowUT.Value;
             if (rewindClockPending)
                 return IsUsableClockUT(rewindAdjustedUT) ? rewindAdjustedUT : double.NaN;
             return IsUsableClockUT(liveUT) ? liveUT : double.NaN;
+        }
+
+        /// <summary>
+        /// Cutoffs at or above this are "walk everything" sentinels, never a game time
+        /// (1e15 s is about 31 million Kerbin years). <c>RewindInvoker</c> passes
+        /// <c>double.MaxValue</c> so the post-invoke recalc walks the whole ledger with the
+        /// rewind-only patch side effects; judging reservations against it would release
+        /// every Recovered hold for one walk (and delete their stand-ins) mid-rewind.
+        /// </summary>
+        internal const double NoTimeFilterCutoffThresholdUT = 1e15;
+
+        internal static bool IsNoTimeFilterCutoff(double cutoffUT)
+        {
+            return cutoffUT >= NoTimeFilterCutoffThresholdUT;
         }
 
         private static bool IsUsableClockUT(double ut)
@@ -320,11 +337,14 @@ namespace Parsek
             if (onLoad)
                 return ResolveWalkClockUT(walkNowUT, true, ReadLoadedSaveUT(),
                     false, double.NaN, double.NaN);
-            if (walkNowUT.HasValue)
+            if (walkNowUT.HasValue
+                && !double.IsNaN(walkNowUT.Value)
+                && !double.IsInfinity(walkNowUT.Value)
+                && !IsNoTimeFilterCutoff(walkNowUT.Value))
                 return ResolveWalkClockUT(walkNowUT, false, double.NaN,
                     false, double.NaN, double.NaN);
             bool rewindPending = RecordingStore.RewindUTAdjustmentPending;
-            return ResolveWalkClockUT(null, false, double.NaN,
+            return ResolveWalkClockUT(walkNowUT, false, double.NaN,
                 rewindPending, rewindPending ? RewindContext.RewindAdjustedUT : double.NaN,
                 rewindPending ? double.NaN : ReadLiveClockUT());
         }

@@ -252,6 +252,21 @@ namespace Parsek.Tests
                 && l.Contains("Reservation re-reserved: 'Jebediah Kerman' endUT=300.0 nowUT=200.0"));
         }
 
+        // catches: the Re-Fly post-invoke recalc (cutoff double.MaxValue, "no time filter")
+        // judging reservations at the end of time and releasing every Recovered hold -
+        // measured on CL-4 run 2026-09-22_2143 as walkClockUT=1.8e308.
+        [Fact]
+        public void NoTimeFilterCutoff_JudgesAgainstTheLiveClockNotTheEndOfTime()
+        {
+            CommitFlight(KerbalEndState.Recovered);
+            KerbalsModule.LiveClockUTProviderForTesting = () => 200.0;
+
+            LedgerOrchestrator.RecalculateAndPatch(double.MaxValue);
+
+            AssertHeld("MaxValue cutoff, live 200", expectedUntilUT: EndUT);
+            Assert.Equal(200.0, LedgerOrchestrator.Kerbals.WalkClockUT);
+        }
+
         // catches: a release line printed on every walk instead of once per transition.
         [Fact]
         public void ReleaseLine_PrintsOncePerTransition()
@@ -576,6 +591,9 @@ namespace Parsek.Tests
             // The walk's cutoff wins over everything else outside OnLoad (0 is a real cutoff).
             Assert.Equal(150.0, KerbalsModule.ResolveWalkClockUT(150.0, false, double.NaN, true, 50.0, 900.0));
             Assert.Equal(0.0, KerbalsModule.ResolveWalkClockUT(0.0, false, double.NaN, false, double.NaN, 900.0));
+            // The Re-Fly post-invoke "walk everything" sentinel is not a clock.
+            Assert.Equal(13.9, KerbalsModule.ResolveWalkClockUT(double.MaxValue, false, double.NaN, false, double.NaN, 13.9));
+            Assert.Equal(50.0, KerbalsModule.ResolveWalkClockUT(double.MaxValue, false, double.NaN, true, 50.0, 900.0));
             // A pending rewind UT adjustment: the adjusted UT, not the pre-rewind live clock.
             Assert.Equal(50.0, KerbalsModule.ResolveWalkClockUT(null, false, double.NaN, true, 50.0, 900.0));
             Assert.True(double.IsNaN(KerbalsModule.ResolveWalkClockUT(null, false, double.NaN, true, 0.0, 900.0)));
