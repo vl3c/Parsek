@@ -253,6 +253,13 @@ namespace Parsek
             public double NextRelevantActionUT;
             public bool HasDivergence;
             public bool IsTransientFallback;
+            // Display text, formatted ONCE per rebuild (FillDisplayText) so OnGUI's
+            // several events per frame never re-run the KSP date formatter.
+            public string BannerText;
+            // How often (game seconds) the rebuild predicate re-formats: 60 while every
+            // drawn date and relative tail has minute resolution, 1 while a deadline sits
+            // within a minute of live UT and its tail reads in seconds.
+            public double RefreshSeconds;
         }
 
         /// <summary>
@@ -286,6 +293,7 @@ namespace Parsek
             // group. A superset of ProjectedRows' pending entries: a contract accepted and
             // closed in the future is in neither CurrentRows nor ProjectedRows.
             public List<ContractRow> PendingRows;
+            public string HeaderText;
         }
 
         internal struct ContractRow
@@ -300,6 +308,10 @@ namespace Parsek
             public bool IsClosingByTimelineEnd;
             public TimelineEndKind EndKind;
             public double EndUT;        // meaningful only when EndKind != None
+            public string AcceptText;
+            public string DeadlineText;
+            public bool DeadlineOverdue;
+            public string TimelineEndText;
         }
 
         internal struct StrategiesTabVM
@@ -315,6 +327,7 @@ namespace Parsek
             // Every strategy the recorded timeline activates after live UT (see
             // ContractsTabVM.PendingRows).
             public List<StrategyRow> PendingRows;
+            public string HeaderText;
         }
 
         internal struct StrategyRow
@@ -330,6 +343,9 @@ namespace Parsek
             public bool IsClosingByTimelineEnd;
             public TimelineEndKind EndKind;
             public double EndUT;
+            public string ActivateText;
+            public string FlowText;
+            public string TimelineEndText;
         }
 
         internal struct FacilitiesTabVM
@@ -346,10 +362,16 @@ namespace Parsek
             public int ProjectedLevel;
             public bool ProjectedDestroyed;
             public bool HasUpcomingChange;
-            // UT of the last future action that set the terminal level / destroyed state.
-            // Meaningful only when that half differs between now and the timeline end.
+            // UT of the last future action that set the terminal level, and of the last
+            // intact <-> destroyed TRANSITION of the facility as a whole (a facility is
+            // several buildings; one more building falling in an already-destroyed
+            // facility is not a transition). Meaningful only when that half differs
+            // between now and the timeline end.
             public double LevelChangeUT;
             public double DestroyedChangeUT;
+            // Career: "L2" / "L2 (destroyed)"; Science: "destroyed" / "intact".
+            public string LevelText;
+            public string TimelineEndText;
         }
 
         internal struct MilestonesTabVM
@@ -357,6 +379,7 @@ namespace Parsek
             public int CurrentCreditedCount;
             public int ProjectedCreditedCount;
             public List<MilestoneRow> Rows;
+            public string HeaderText;
         }
 
         internal struct MilestoneRow
@@ -368,6 +391,8 @@ namespace Parsek
             public float RepAwarded;
             public float ScienceAwarded;
             public bool IsPendingCredit;
+            public string CreditedText;
+            public string RewardsText;
         }
 
         // Internal per-walk accumulator for contracts. Keyed by ContractId; stores the
@@ -399,6 +424,8 @@ namespace Parsek
             public readonly HashSet<string> DestroyedBuildings =
                 new HashSet<string>(StringComparer.Ordinal);
             public double LevelUT = double.NaN;
+            // UT of the facility's last intact <-> destroyed transition (see
+            // ApplyBuildingDestroyedState), not of the last building action.
             public double DestroyedUT = double.NaN;
             public bool Destroyed => DestroyedBuildings.Count > 0;
         }
@@ -420,6 +447,18 @@ namespace Parsek
         ///
         /// Only <see cref="GameAction.Effective"/> actions mutate contract/milestone
         /// state (mirrors ContractsModule/MilestonesModule.ProcessAction).
+        ///
+        /// <para>A building's destroyed state NOW comes from
+        /// <paramref name="liveDestroyedBuildingIds"/> (stock's ScenarioDestructibles,
+        /// read by the caller), never from the ledger: a building repaired at the KSC
+        /// reaches no ledger action, so a past FacilityDestruction would read as destroyed
+        /// forever. The ledger only supplies what the recorded future does after
+        /// <paramref name="liveUT"/> (a destruction in a committed flight, or a repair
+        /// action the ledger itself carries). Null means no live data: nothing is
+        /// destroyed now.</para>
+        ///
+        /// <para><paramref name="formatDate"/> formats every date cell once here
+        /// (<see cref="FillDisplayText"/>); null falls back to raw UT.</para>
         /// </summary>
         internal static CareerStateViewModel Build(
             IReadOnlyList<GameAction> actions,
@@ -428,14 +467,18 @@ namespace Parsek
             ContractsModule contracts,
             StrategiesModule strategies,
             FacilitiesModule facilities,
-            MilestonesModule milestones)
+            MilestonesModule milestones,
+            Func<double, string> formatDate = null,
+            ICollection<string> liveDestroyedBuildingIds = null)
         {
             if (contracts == null || strategies == null || facilities == null
                 || milestones == null || actions == null)
             {
                 ParsekLog.Warn("UI",
                     "CareerStateWindow: Build called with null module or actions; returning empty VM");
-                return EmptyVM(liveUT, mode, isTransientFallback: true);
+                var empty = EmptyVM(liveUT, mode, isTransientFallback: true);
+                FillDisplayText(ref empty, formatDate);
+                return empty;
             }
 
             // Terminal-state accumulators, walked forward through the action list.
@@ -453,6 +496,16 @@ namespace Parsek
             var pendingStrategies = new Dictionary<string, StrategyAcc>(StringComparer.Ordinal);
             var contractEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
             var strategyEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
+            // How the instance active NOW ends: the first removal after live UT of an
+            // entry accepted / activated at or before it. Kept apart from the per-id
+            // endings above because a later re-accept / re-activation clears those, and
+            // the row that is true now still ends at that first removal.
+            var currentContractEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
+            var currentStrategyEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
+            // Destructions / repairs after live UT, in walk order; applied on top of the
+            // live destroyed set after the walk. Ones at or before live UT are ignored.
+            var futureBuildingChanges = new List<GameAction>();
+            int pastBuildingActionsIgnored = 0;
 
             // Mode gating (design doc E1/E2). These flags drive both row visibility
             // and which future actions can visibly change the cached window.
@@ -535,12 +588,27 @@ namespace Parsek
                             LogSkip(a.Type.ToString(), "Ineffective", a);
                             break;
                         }
-                        activeContractsTerm.Remove(a.ContractId ?? "");
-                        contractEnds[a.ContractId ?? ""] = new EndAcc
                         {
-                            Kind = ContractEndKindFor(a.Type),
-                            UT = a.UT
-                        };
+                            string rid = a.ContractId ?? "";
+                            ContractAcc removed;
+                            if (a.UT > liveUT
+                                && activeContractsTerm.TryGetValue(rid, out removed)
+                                && removed.AcceptUT <= liveUT
+                                && !currentContractEnds.ContainsKey(rid))
+                            {
+                                currentContractEnds[rid] = new EndAcc
+                                {
+                                    Kind = ContractEndKindFor(a.Type),
+                                    UT = a.UT
+                                };
+                            }
+                            activeContractsTerm.Remove(rid);
+                            contractEnds[rid] = new EndAcc
+                            {
+                                Kind = ContractEndKindFor(a.Type),
+                                UT = a.UT
+                            };
+                        }
                         break;
 
                     case GameActionType.StrategyActivate:
@@ -571,12 +639,27 @@ namespace Parsek
                             LogSkip("StrategyDeactivate", "Ineffective", a);
                             break;
                         }
-                        activeStrategiesTerm.Remove(a.StrategyId ?? "");
-                        strategyEnds[a.StrategyId ?? ""] = new EndAcc
                         {
-                            Kind = TimelineEndKind.Deactivated,
-                            UT = a.UT
-                        };
+                            string rsid = a.StrategyId ?? "";
+                            StrategyAcc removedStrategy;
+                            if (a.UT > liveUT
+                                && activeStrategiesTerm.TryGetValue(rsid, out removedStrategy)
+                                && removedStrategy.ActivateUT <= liveUT
+                                && !currentStrategyEnds.ContainsKey(rsid))
+                            {
+                                currentStrategyEnds[rsid] = new EndAcc
+                                {
+                                    Kind = TimelineEndKind.Deactivated,
+                                    UT = a.UT
+                                };
+                            }
+                            activeStrategiesTerm.Remove(rsid);
+                            strategyEnds[rsid] = new EndAcc
+                            {
+                                Kind = TimelineEndKind.Deactivated,
+                                UT = a.UT
+                            };
+                        }
                         break;
 
                     case GameActionType.FacilityUpgrade:
@@ -594,31 +677,19 @@ namespace Parsek
                         break;
 
                     case GameActionType.FacilityDestruction:
-                        {
-                            if (!a.Effective)
-                            {
-                                LogSkip("FacilityDestruction", "Ineffective", a);
-                                break;
-                            }
-                            FacilityAcc f = GetOrAddFacility(
-                                facilityStateTerm, FacilityIdForBuilding(a.FacilityId));
-                            f.DestroyedBuildings.Add(a.FacilityId ?? "");
-                            f.DestroyedUT = a.UT;
-                        }
-                        break;
-
                     case GameActionType.FacilityRepair:
+                        if (!a.Effective)
                         {
-                            if (!a.Effective)
-                            {
-                                LogSkip("FacilityRepair", "Ineffective", a);
-                                break;
-                            }
-                            FacilityAcc f = GetOrAddFacility(
-                                facilityStateTerm, FacilityIdForBuilding(a.FacilityId));
-                            f.DestroyedBuildings.Remove(a.FacilityId ?? "");
-                            f.DestroyedUT = a.UT;
+                            LogSkip(a.Type.ToString(), "Ineffective", a);
+                            break;
                         }
+                        // The destroyed state NOW is stock's (liveDestroyedBuildingIds): a
+                        // KSC repair never reaches the ledger, so a past destruction here
+                        // says nothing about today.
+                        if (a.UT <= liveUT)
+                            pastBuildingActionsIgnored++;
+                        else
+                            futureBuildingChanges.Add(a);
                         break;
 
                     case GameActionType.MilestoneAchievement:
@@ -667,6 +738,10 @@ namespace Parsek
                 creditedMilestonesCurSnap = new HashSet<string>(creditedMilestonesTerm, StringComparer.Ordinal);
             }
 
+            ApplyBuildingDestroyedState(
+                facilityStateCurSnap, facilityStateTerm,
+                liveDestroyedBuildingIds, futureBuildingChanges);
+
             // --- Facility levels for slot math (matches LedgerOrchestrator.UpdateSlotLimitsFromFacilities) ---
             // Contracts draw slots from MissionControl level; Strategies draw from Administration level.
             int missionControlLevelCur = 1;
@@ -692,6 +767,7 @@ namespace Parsek
                 activeContractsTerm,
                 pendingContracts,
                 contractEnds,
+                currentContractEnds,
                 missionControlLevelCur,
                 missionControlLevelTerm,
                 liveUT,
@@ -701,6 +777,7 @@ namespace Parsek
                 activeStrategiesTerm,
                 pendingStrategies,
                 strategyEnds,
+                currentStrategyEnds,
                 adminLevelCur,
                 adminLevelTerm,
                 liveUT,
@@ -741,6 +818,7 @@ namespace Parsek
                 HasDivergence = divergence,
                 IsTransientFallback = false
             };
+            FillDisplayText(ref vm, formatDate);
 
             ParsekLog.Verbose("UI",
                 "CareerStateWindow: rebuilt VM "
@@ -753,6 +831,12 @@ namespace Parsek
                 + $"strategies={strategiesVM.CurrentActive}/{strategiesVM.ProjectedActive} "
                 + $"strategiesPending={strategiesVM.PendingRows.Count} "
                 + $"facilities={facilitiesVM.Rows.Count} "
+                + "liveDestroyedBuildings=" + (liveDestroyedBuildingIds == null
+                    ? "unknown"
+                    : liveDestroyedBuildingIds.Count.ToString(CultureInfo.InvariantCulture)) + " "
+                + $"futureBuildingChanges={futureBuildingChanges.Count} "
+                + $"pastBuildingActionsIgnored={pastBuildingActionsIgnored} "
+                + "refresh=" + vm.RefreshSeconds.ToString("F0", CultureInfo.InvariantCulture) + "s "
                 + $"milestones={milestonesVM.CurrentCreditedCount}/{milestonesVM.ProjectedCreditedCount}");
 
             return vm;
@@ -803,11 +887,51 @@ namespace Parsek
             return f;
         }
 
+        /// <summary>
+        /// Fills the destroyed half of both facility snapshots: NOW is the live set,
+        /// the timeline end is the live set with every future destruction / repair
+        /// applied in order. A facility's change time is the moment it as a whole goes
+        /// from intact to destroyed (or back), so a second building falling in an
+        /// already-destroyed facility does not move it.
+        /// </summary>
+        private static void ApplyBuildingDestroyedState(
+            Dictionary<string, FacilityAcc> current,
+            Dictionary<string, FacilityAcc> terminal,
+            ICollection<string> liveDestroyedBuildingIds,
+            List<GameAction> futureBuildingChanges)
+        {
+            if (liveDestroyedBuildingIds != null)
+            {
+                foreach (string building in liveDestroyedBuildingIds)
+                {
+                    if (string.IsNullOrEmpty(building)) continue;
+                    string fid = FacilityIdForBuilding(building);
+                    GetOrAddFacility(current, fid).DestroyedBuildings.Add(building);
+                    GetOrAddFacility(terminal, fid).DestroyedBuildings.Add(building);
+                }
+            }
+            if (futureBuildingChanges == null) return;
+            for (int i = 0; i < futureBuildingChanges.Count; i++)
+            {
+                GameAction a = futureBuildingChanges[i];
+                string building = a.FacilityId ?? "";
+                FacilityAcc f = GetOrAddFacility(terminal, FacilityIdForBuilding(building));
+                bool wasDestroyed = f.Destroyed;
+                if (a.Type == GameActionType.FacilityDestruction)
+                    f.DestroyedBuildings.Add(building);
+                else
+                    f.DestroyedBuildings.Remove(building);
+                if (f.Destroyed != wasDestroyed)
+                    f.DestroyedUT = a.UT;
+            }
+        }
+
         private static ContractsTabVM CreateContractsTabVM(
             Dictionary<string, ContractAcc> activeContractsCurSnap,
             Dictionary<string, ContractAcc> activeContractsTerm,
             Dictionary<string, ContractAcc> pendingContracts,
             Dictionary<string, EndAcc> contractEnds,
+            Dictionary<string, EndAcc> currentContractEnds,
             int missionControlLevelCur,
             int missionControlLevelTerm,
             double liveUT,
@@ -827,7 +951,7 @@ namespace Parsek
             {
                 foreach (var kvp in activeContractsCurSnap)
                     contractsVM.CurrentRows.Add(
-                        ContractRowFor(kvp.Value, false, activeContractsTerm, contractEnds));
+                        CurrentContractRowFor(kvp.Value, currentContractEnds));
                 foreach (var kvp in activeContractsTerm)
                 {
                     var c = kvp.Value;
@@ -844,6 +968,26 @@ namespace Parsek
             contractsVM.CurrentActive = contractsVM.CurrentRows.Count;
             contractsVM.ProjectedActive = contractsVM.ProjectedRows.Count;
             return contractsVM;
+        }
+
+        // A row active now: it ends at the first removal after live UT, even when the
+        // recorded future accepts the same id again later (that instance is a pending row).
+        private static ContractRow CurrentContractRowFor(
+            ContractAcc c, Dictionary<string, EndAcc> currentContractEnds)
+        {
+            EndAcc end;
+            bool ends = currentContractEnds.TryGetValue(c.ContractId, out end);
+            return new ContractRow
+            {
+                ContractId = c.ContractId,
+                DisplayTitle = c.Title,
+                AcceptUT = c.AcceptUT,
+                DeadlineUT = c.DeadlineUT,
+                IsPendingAccept = false,
+                IsClosingByTimelineEnd = ends,
+                EndKind = ends ? end.Kind : TimelineEndKind.None,
+                EndUT = ends ? end.UT : double.NaN
+            };
         }
 
         private static ContractRow ContractRowFor(
@@ -880,6 +1024,7 @@ namespace Parsek
             Dictionary<string, StrategyAcc> activeStrategiesTerm,
             Dictionary<string, StrategyAcc> pendingStrategies,
             Dictionary<string, EndAcc> strategyEnds,
+            Dictionary<string, EndAcc> currentStrategyEnds,
             int adminLevelCur,
             int adminLevelTerm,
             double liveUT,
@@ -899,7 +1044,7 @@ namespace Parsek
             {
                 foreach (var kvp in activeStrategiesCurSnap)
                     strategiesVM.CurrentRows.Add(
-                        StrategyRowFor(kvp.Value, false, activeStrategiesTerm, strategyEnds));
+                        CurrentStrategyRowFor(kvp.Value, currentStrategyEnds));
                 foreach (var kvp in activeStrategiesTerm)
                 {
                     var s = kvp.Value;
@@ -916,6 +1061,28 @@ namespace Parsek
             strategiesVM.CurrentActive = strategiesVM.CurrentRows.Count;
             strategiesVM.ProjectedActive = strategiesVM.ProjectedRows.Count;
             return strategiesVM;
+        }
+
+        // See CurrentContractRowFor: a strategy active now, deactivated later and
+        // activated again after that is two rows, and this one says when it deactivates.
+        private static StrategyRow CurrentStrategyRowFor(
+            StrategyAcc s, Dictionary<string, EndAcc> currentStrategyEnds)
+        {
+            EndAcc end;
+            bool ends = currentStrategyEnds.TryGetValue(s.StrategyId, out end);
+            return new StrategyRow
+            {
+                StrategyId = s.StrategyId,
+                DisplayTitle = s.Title,
+                ActivateUT = s.ActivateUT,
+                SourceResource = s.SourceResource,
+                TargetResource = s.TargetResource,
+                Commitment = s.Commitment,
+                IsPendingActivate = false,
+                IsClosingByTimelineEnd = ends,
+                EndKind = ends ? end.Kind : TimelineEndKind.None,
+                EndUT = ends ? end.UT : double.NaN
+            };
         }
 
         private static StrategyRow StrategyRowFor(
@@ -1091,7 +1258,6 @@ namespace Parsek
             if (vm.IsTransientFallback)
                 return true;
 
-            bool displaysLiveUT = ModeDisplaysLiveUT(currentMode);
             bool hasVisibleTimelineState = ModeHasVisibleTimelineState(currentMode);
 
             // Science Sandbox still has time-sensitive facility/milestone rows even
@@ -1100,7 +1266,14 @@ namespace Parsek
             if (hasVisibleTimelineState && liveUT < vm.LiveUT)
                 return true;
 
-            if (displaysLiveUT && GetDisplayedUtText(vm.LiveUT) != GetDisplayedUtText(liveUT))
+            // The banner's date and the deadline tails are minute-resolution text, so a
+            // rebuild per game second only re-formatted identical strings. A deadline
+            // within a couple of minutes of now drops the cadence to one second
+            // (RefreshSeconds), where its tail reads in seconds. Science mode has no live
+            // date to show but still re-reads stock's destroyed buildings on the same
+            // minute cadence, so a building destroyed while the window is open appears.
+            if (hasVisibleTimelineState
+                && RefreshBucket(vm.LiveUT, vm.RefreshSeconds) != RefreshBucket(liveUT, vm.RefreshSeconds))
                 return true;
 
             return hasVisibleTimelineState
@@ -1156,11 +1329,6 @@ namespace Parsek
                 default:
                     return false;
             }
-        }
-
-        private static bool ModeDisplaysLiveUT(Game.Modes mode)
-        {
-            return mode == Game.Modes.CAREER;
         }
 
         private static bool ModeShowsContracts(Game.Modes mode)
@@ -1411,6 +1579,75 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(milestoneId)) return milestoneId;
             return TimelineEntryDisplay.HumanizeMilestoneId(milestoneId);
+        }
+
+        /// <summary>
+        /// Test seam for the live destroyed-building read. When non-null,
+        /// <see cref="ReadLiveDestroyedBuildingIds"/> returns its answer instead of stock's.
+        /// </summary>
+        internal static Func<ICollection<string>> LiveDestroyedBuildingsForTesting;
+
+        /// <summary>
+        /// The KSC buildings destroyed right now, by DestructibleBuilding id
+        /// (<c>SpaceCenter/LaunchPad/Facility/...</c>), from stock's own record:
+        /// <c>ScenarioDestructibles.protoDestructibles</c>. That table is filled from the
+        /// save in every scene the scenario runs in (Space Center, Flight, Editor,
+        /// Tracking Station), so it answers even where the buildings are not loaded; an
+        /// entry with a live building reads the building, the others read the persisted
+        /// <c>intact</c> value. Read once per view-model rebuild, never per frame.
+        /// Null when stock cannot answer (headless, or the scenario absent).
+        /// </summary>
+        internal static ICollection<string> ReadLiveDestroyedBuildingIds()
+        {
+            var seam = LiveDestroyedBuildingsForTesting;
+            if (seam != null) return seam();
+            try
+            {
+                return ReadLiveDestroyedBuildingIdsCore();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("UI",
+                    "CareerStateWindow.liveDestroyedThrew",
+                    $"CareerStateWindow: live destroyed-building read threw ex={ex.GetType().Name}; treating every building as intact");
+                return null;
+            }
+        }
+
+        // NoInlining for the same reason as LookupStockFacilityNameCore: mono resolves a
+        // KSP type's failing initializer when it JITs the calling method.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static ICollection<string> ReadLiveDestroyedBuildingIdsCore()
+        {
+            var table = ScenarioDestructibles.protoDestructibles;
+            if (table == null) return null;
+            var destroyed = new List<string>();
+            int live = 0, persisted = 0;
+            foreach (var kvp in table)
+            {
+                ScenarioDestructibles.ProtoDestructible proto = kvp.Value;
+                if (proto == null) continue;
+                bool? intact = null;
+                if (proto.dBuildingRefs != null && proto.dBuildingRefs.Count > 0
+                    && proto.dBuildingRefs[0] != null)
+                {
+                    intact = proto.dBuildingRefs[0].IsIntact;
+                    live++;
+                }
+                else if (proto.configNode != null && proto.configNode.HasValue("intact"))
+                {
+                    bool parsed;
+                    if (bool.TryParse(proto.configNode.GetValue("intact"), out parsed))
+                        intact = parsed;
+                    persisted++;
+                }
+                if (intact == false)
+                    destroyed.Add(kvp.Key);
+            }
+            ParsekLog.Verbose("UI",
+                $"CareerStateWindow: live destroyed-building read buildings={table.Count} live={live} persisted={persisted} destroyed={destroyed.Count}");
+            return destroyed;
         }
 
         /// <summary>
@@ -1770,13 +2007,15 @@ namespace Parsek
                     LedgerOrchestrator.Contracts,
                     LedgerOrchestrator.Strategies,
                     LedgerOrchestrator.Facilities,
-                    LedgerOrchestrator.Milestones);
+                    LedgerOrchestrator.Milestones,
+                    FormatDate,
+                    ReadLiveDestroyedBuildingIds());
             }
 
             var vm = cachedVM.Value;
 
             // Mode banner (design doc §5.4).
-            GUILayout.Label(FormatModeBanner(vm, FormatDate), bannerStyle);
+            GUILayout.Label(vm.BannerText ?? FormatModeBanner(vm, FormatDate), bannerStyle);
             LogModeRender(vm.Mode, ref lastRenderedMode);
 
             // Tab bar, over the tabs this mode draws. Use the pressed-style button (see
@@ -1839,6 +2078,130 @@ namespace Parsek
             GUI.DragWindow();
         }
 
+        /// <summary>Refresh cadence while every drawn date has minute resolution.</summary>
+        internal const double MinuteRefreshSeconds = 60.0;
+
+        /// <summary>
+        /// Refresh cadence while a deadline is close enough to live UT that its relative
+        /// tail reads in seconds (<c>(in 45s)</c> / <c>(overdue 12s)</c>).
+        /// </summary>
+        internal const double SecondRefreshSeconds = 1.0;
+
+        // A deadline within this many seconds of live UT (either side) switches the
+        // window to per-second refresh. Two minutes, not one: the rebuild that first sees
+        // it may run up to a minute late.
+        private const double SecondResolutionWindowSeconds = 120.0;
+
+        /// <summary>
+        /// Formats every string the draw needs, once. OnGUI runs several events per
+        /// frame, so formatting inside the draw re-ran the KSP date formatter and the
+        /// reward builders on every one of them. Also sets
+        /// <see cref="CareerStateViewModel.RefreshSeconds"/>.
+        /// </summary>
+        internal static void FillDisplayText(ref CareerStateViewModel vm,
+                                             Func<double, string> formatDate)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            bool secondResolution = false;
+
+            var c = vm.Contracts;
+            c.HeaderText = "Mission Control L" + c.MissionControlLevel.ToString(ic)
+                + " - slots " + c.CurrentActive.ToString(ic) + "/" + c.CurrentMaxSlots.ToString(ic)
+                + " now, " + c.ProjectedActive.ToString(ic) + "/" + c.ProjectedMaxSlots.ToString(ic)
+                + " at timeline end";
+            secondResolution |= FillContractText(c.CurrentRows, vm.LiveUT, formatDate);
+            secondResolution |= FillContractText(c.ProjectedRows, vm.LiveUT, formatDate);
+            secondResolution |= FillContractText(c.PendingRows, vm.LiveUT, formatDate);
+            vm.Contracts = c;
+
+            var st = vm.Strategies;
+            st.HeaderText = "Administration L" + st.AdminLevel.ToString(ic)
+                + " - slots " + st.CurrentActive.ToString(ic) + "/" + st.CurrentMaxSlots.ToString(ic)
+                + " now, " + st.ProjectedActive.ToString(ic) + "/" + st.ProjectedMaxSlots.ToString(ic)
+                + " at timeline end";
+            FillStrategyText(st.CurrentRows, formatDate);
+            FillStrategyText(st.ProjectedRows, formatDate);
+            FillStrategyText(st.PendingRows, formatDate);
+            vm.Strategies = st;
+
+            bool showLevels = vm.Mode == Game.Modes.CAREER;
+            List<FacilityRow> facilityRows = vm.Facilities.Rows;
+            if (facilityRows != null)
+            {
+                for (int i = 0; i < facilityRows.Count; i++)
+                {
+                    FacilityRow r = facilityRows[i];
+                    r.LevelText = showLevels ? FormatFacilityRow_Level(r) : FormatFacilityRow_State(r);
+                    r.TimelineEndText = FormatFacilityRow_TimelineEnd(r, showLevels, formatDate);
+                    facilityRows[i] = r;
+                }
+            }
+
+            var m = vm.Milestones;
+            m.HeaderText = "Milestones (" + m.CurrentCreditedCount.ToString(ic) + " credited / "
+                + m.ProjectedCreditedCount.ToString(ic) + " at timeline end)";
+            if (m.Rows != null)
+            {
+                for (int i = 0; i < m.Rows.Count; i++)
+                {
+                    MilestoneRow r = m.Rows[i];
+                    r.CreditedText = FormatMilestoneRow_UT(r, formatDate);
+                    r.RewardsText = FormatMilestoneRow_Rewards(r);
+                    m.Rows[i] = r;
+                }
+            }
+            vm.Milestones = m;
+
+            vm.BannerText = FormatModeBanner(vm, formatDate);
+            vm.RefreshSeconds = secondResolution ? SecondRefreshSeconds : MinuteRefreshSeconds;
+        }
+
+        // Returns whether any row's deadline tail is near enough to read in seconds.
+        private static bool FillContractText(List<ContractRow> rows, double liveUT,
+                                             Func<double, string> formatDate)
+        {
+            if (rows == null) return false;
+            bool near = false;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                ContractRow r = rows[i];
+                r.AcceptText = FormatContractRow_Accept(r, formatDate);
+                r.DeadlineText = FormatContractRow_Deadline(r, liveUT, formatDate);
+                r.DeadlineOverdue = IsDeadlineOverdue(r, liveUT);
+                r.TimelineEndText = FormatContractRow_TimelineEnd(r, formatDate);
+                rows[i] = r;
+                if (!double.IsNaN(r.DeadlineUT)
+                    && Math.Abs(r.DeadlineUT - liveUT) < SecondResolutionWindowSeconds)
+                    near = true;
+            }
+            return near;
+        }
+
+        private static void FillStrategyText(List<StrategyRow> rows,
+                                             Func<double, string> formatDate)
+        {
+            if (rows == null) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                StrategyRow r = rows[i];
+                r.ActivateText = FormatStrategyRow_Activate(r, formatDate);
+                r.FlowText = FormatStrategyRow_Flow(r);
+                r.TimelineEndText = FormatStrategyRow_TimelineEnd(r, formatDate);
+                rows[i] = r;
+            }
+        }
+
+        /// <summary>
+        /// The refresh bucket a live UT falls in: the rebuild predicate re-formats when
+        /// it changes. Minute buckets line up with the KSP clock's minute boundaries
+        /// (the compact date's finest unit), so the banner turns over on time.
+        /// </summary>
+        internal static long RefreshBucket(double ut, double refreshSeconds)
+        {
+            double period = refreshSeconds > 0.0 ? refreshSeconds : MinuteRefreshSeconds;
+            return (long)Math.Floor(ut / period);
+        }
+
         /// <summary>
         /// The italic line above the tabs. Career shows the live date and, when the
         /// recorded timeline still changes something, the date it ends on; Science and
@@ -1870,9 +2233,7 @@ namespace Parsek
         private void DrawContractsTab(ContractsTabVM tab, double liveUT)
         {
             var ic = CultureInfo.InvariantCulture;
-            GUILayout.Label(
-                $"Mission Control L{tab.MissionControlLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} at timeline end",
-                sectionHeaderStyle);
+            GUILayout.Label(tab.HeaderText ?? "", sectionHeaderStyle);
 
             bool split = tab.PendingRows.Count > 0;
             bool showEnd = AnyRowEnds(tab.CurrentRows) || AnyRowEnds(tab.PendingRows);
@@ -1956,13 +2317,13 @@ namespace Parsek
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(FormatContractRow_Title(r), nameCellStyle,
                 GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
-            GUILayout.Label(FormatContractRow_Accept(r, FormatDate), GUI.skin.label,
+            GUILayout.Label(r.AcceptText ?? "", GUI.skin.label,
                 GUILayout.Width(ColW_Date));
-            GUILayout.Label(FormatContractRow_Deadline(r, liveUT, FormatDate),
-                IsDeadlineOverdue(r, liveUT) ? alertStyle : GUI.skin.label,
+            GUILayout.Label(r.DeadlineText ?? "",
+                r.DeadlineOverdue ? alertStyle : GUI.skin.label,
                 GUILayout.Width(ColW_Deadline));
             if (showEnd)
-                GUILayout.Label(FormatContractRow_TimelineEnd(r, FormatDate),
+                GUILayout.Label(r.TimelineEndText ?? "",
                     IsTimelineEndAlert(r.EndKind) ? alertStyle : GUI.skin.label,
                     GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
@@ -1971,9 +2332,7 @@ namespace Parsek
         private void DrawStrategiesTab(StrategiesTabVM tab, double liveUT)
         {
             var ic = CultureInfo.InvariantCulture;
-            GUILayout.Label(
-                $"Administration L{tab.AdminLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} at timeline end",
-                sectionHeaderStyle);
+            GUILayout.Label(tab.HeaderText ?? "", sectionHeaderStyle);
 
             bool split = tab.PendingRows.Count > 0;
             bool showEnd = AnyRowEnds(tab.CurrentRows) || AnyRowEnds(tab.PendingRows);
@@ -2024,11 +2383,11 @@ namespace Parsek
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(FormatStrategyRow_Title(r), nameCellStyle,
                 GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
-            GUILayout.Label(FormatStrategyRow_Activate(r, FormatDate), GUI.skin.label,
+            GUILayout.Label(r.ActivateText ?? "", GUI.skin.label,
                 GUILayout.Width(ColW_Date));
-            GUILayout.Label(FormatStrategyRow_Flow(r), GUI.skin.label, GUILayout.Width(ColW_Flow));
+            GUILayout.Label(r.FlowText ?? "", GUI.skin.label, GUILayout.Width(ColW_Flow));
             if (showEnd)
-                GUILayout.Label(FormatStrategyRow_TimelineEnd(r, FormatDate), GUI.skin.label,
+                GUILayout.Label(r.TimelineEndText ?? "", GUI.skin.label,
                     GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }
@@ -2086,12 +2445,11 @@ namespace Parsek
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(FormatFacilityRow_Title(r), nameCellStyle,
                 GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
-            GUILayout.Label(
-                showLevels ? FormatFacilityRow_Level(r) : FormatFacilityRow_State(r),
+            GUILayout.Label(r.LevelText ?? "",
                 r.CurrentDestroyed ? alertStyle : GUI.skin.label,
                 GUILayout.Width(ColW_Level));
             if (showEnd)
-                GUILayout.Label(FormatFacilityRow_TimelineEnd(r, showLevels, FormatDate),
+                GUILayout.Label(r.TimelineEndText ?? "",
                     r.ProjectedDestroyed && !r.CurrentDestroyed ? alertStyle : GUI.skin.label,
                     GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
@@ -2100,9 +2458,7 @@ namespace Parsek
         private void DrawMilestonesTab(MilestonesTabVM tab)
         {
             var ic = CultureInfo.InvariantCulture;
-            GUILayout.Label(
-                $"Milestones ({tab.CurrentCreditedCount.ToString(ic)} credited / {tab.ProjectedCreditedCount.ToString(ic)} at timeline end)",
-                sectionHeaderStyle);
+            GUILayout.Label(tab.HeaderText ?? "", sectionHeaderStyle);
 
             int pending = CountPendingMilestones(tab.Rows);
             bool split = pending > 0;
@@ -2153,9 +2509,9 @@ namespace Parsek
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(FormatMilestoneRow_Title(r), nameCellStyle,
                 GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
-            GUILayout.Label(FormatMilestoneRow_UT(r, FormatDate), GUI.skin.label,
+            GUILayout.Label(r.CreditedText ?? "", GUI.skin.label,
                 GUILayout.Width(ColW_Date));
-            GUILayout.Label(FormatMilestoneRow_Rewards(r), GUI.skin.label,
+            GUILayout.Label(r.RewardsText ?? "", GUI.skin.label,
                 GUILayout.Width(ColW_Rewards));
             GUILayout.EndHorizontal();
         }

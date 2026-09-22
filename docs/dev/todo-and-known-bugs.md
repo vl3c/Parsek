@@ -26,9 +26,13 @@ section bar are gone, the Contracts-tab and Facilities-Status tooltips are corre
 height 320; a `Timeline end` column plus a now-vs-pending split on every tab except
 Facilities (whose Timeline-end column is its split). Found on the way and fixed in the same
 branch: a FacilityDestruction / FacilityRepair is keyed by the DestructibleBuilding id
-(`SpaceCenter/LaunchPad/Facility/...`), which the walk never mapped to its facility row, so a
-destroyed building could not show; divergence ignored a closing-plus-pending pair whose
-counts cancel.
+(`SpaceCenter/LaunchPad/Facility/...`), which the walk never mapped to its facility row;
+divergence ignored a closing-plus-pending pair whose counts cancel. After review (PR #1764):
+the destroyed state NOW comes from stock's `ScenarioDestructibles` (see
+KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER for why the ledger cannot answer it), the
+ledger only projects destructions after live UT, a facility's change date is its own
+intact-to-destroyed transition, every cell is formatted once per rebuild on a per-minute
+cadence, and a row active now that ends and restarts later keeps its own end date.
 
 Science-mode destruction, answered from decompiled KSP 1.12.5 (the owner's question):
 `ScenarioDestructibles` is registered with `ScenarioCreationOptions` 3198 (every mode, new
@@ -116,6 +120,26 @@ off the walker's `ResolveTermination: ... terminalState=Destroyed` and
 A subject for either needs a chain whose tip is still in the future when the scene loads
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
 RealSpawn / Recover verb pair.
+
+## KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action [FILED 2026-09-23 from the PR #1764 review; OPEN]
+
+`GameStateFacilityRecorder` forwards only `FacilityUpgraded` to the ledger
+(`LedgerOrchestrator.OnKscSpending`, both the event-driven path and the poll). Its poll
+emits `BuildingDestroyed` / `BuildingRepaired` game-state events but forwards neither, and it
+runs only on scene load (`GameStateRecorder`), so a repair at the KSC is seen at the next
+scene change, carries no recording id, and is never converted: commit-time conversion
+(`GameStateEventConverter`, `LedgerOrchestrator` commit path) only takes events tagged with
+the committing recording. A destruction reaches the ledger only when its event happens to be
+tagged with a recording that later commits. Whether the repair's funds cost reaches the
+funds walk by another path (a `FundsChanged` event with reason `StructureRepair`) was not
+checked here.
+
+Nothing reads the ledger's destroyed state except the Career window, which since PR #1764
+takes the state NOW from `ScenarioDestructibles` and uses the ledger only for destructions
+after live UT; `KspStatePatcher` has no destroyed / repair handling. So nothing visible
+depends on it today. Fix direction, when wanted:
+forward `BuildingRepaired` like a KSC spending (untagged, with its cost), and decide whether
+a destruction outside a recording belongs in the ledger at all.
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 

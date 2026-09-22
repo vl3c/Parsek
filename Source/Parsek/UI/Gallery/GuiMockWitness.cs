@@ -491,9 +491,9 @@ namespace Parsek.UI.Gallery
                                         r => r.CurrentDestroyed && r.ProjectedDestroyed,
                                         into);
                     return;
-                case "FacilityRow.RepairPending":
+                case "FacilityRow.DestroyedInTimeline":
                     AppendFirstFacility(vm.Facilities.Rows,
-                                        r => r.CurrentDestroyed && !r.ProjectedDestroyed,
+                                        r => !r.CurrentDestroyed && r.ProjectedDestroyed,
                                         into);
                     return;
                 case "MilestoneRow.IsPendingCredit":

@@ -867,7 +867,8 @@ _(unreleased — entries accumulate here per commit)_
   `(overdue 3d)` in amber. The empty `Status` columns are replaced by a `Timeline end` column
   that appears only when the recorded future changes a row: `completes Y1, D40`,
   `FAILS Y1, D40` (amber, since a failure costs funds and reputation), `cancelled`,
-  `deactivates`, `upgrades to L2`, `destroyed`, `repaired`. Contracts, Strategies and now
+  `deactivates`, `upgrades to L2`, `destroyed`. A contract or strategy that is active now,
+  ends later and starts again after that says when the current one ends. Contracts, Strategies and now
   Milestones all split into "now" and a foldable `Pending in timeline` group, which also
   lists contracts and strategies the recorded future both starts and ends (those were on no
   row before). Pending rows are no longer triple-marked (amber + `(pending)` + group
@@ -877,10 +878,12 @@ _(unreleased — entries accumulate here per commit)_
   come from stock (`Research and Development`, `Launchpad`). In Science mode the window
   drops the Contracts and Strategies tabs and the building levels (stock treats every
   building as fully upgraded there; the window showed `L1`), keeping Milestones plus a
-  Facilities tab only while a building is destroyed. In Sandbox the `Career` launcher is
-  hidden. A destroyed building now actually shows as destroyed: the walk keyed a
-  destruction by the building's own id (`SpaceCenter/LaunchPad/Facility/...`) and never
-  matched it to the facility row. The Facilities section bar that repeated the tab name is
+  Facilities tab only while a building is destroyed or a committed flight destroys one. In
+  Sandbox the `Career` launcher is hidden. Whether a building is destroyed now is read from
+  the game's own building state, not the ledger: the ledger never hears of a repair at the
+  KSC, so reading it would have shown a repaired building as destroyed forever. The ledger
+  only adds a destruction a committed flight makes later, dated when the facility as a
+  whole goes down. The Facilities section bar that repeated the tab name is
   gone, two tooltips that described the wrong thing are corrected, and the minimum window
   height is 320 px (at 200 px no row was visible).
 

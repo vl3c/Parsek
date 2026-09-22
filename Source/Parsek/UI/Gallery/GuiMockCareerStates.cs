@@ -130,17 +130,22 @@ namespace Parsek.UI.Gallery
                         "FacilityRow.HasUpcomingChange" },
                 () => Build(FacilitiesUpcoming())));
 
+            // Destroyed NOW is stock's state (ScenarioDestructibles), never the ledger's:
+            // a KSC repair reaches no ledger action. So the synthetic building is handed
+            // in as the live destroyed set, the way the window reads it.
             into.Add(New("career.facilities.destroyed", FacilitiesTab,
-                "A destroyed facility that the recorded timeline never repairs.",
-                new[] { "GameActionType.FacilityDestruction",
-                        "FacilityRow.CurrentDestroyed" },
-                () => Build(FacilitiesDestroyed(repairInTimeline: false))));
+                "A facility destroyed now (stock's live building state).",
+                new[] { "FacilityRow.CurrentDestroyed" },
+                () => Build(FacilitiesUpgraded(), LaunchPadBuilding)));
 
-            into.Add(New("career.facilities.destroyed-repair-pending", FacilitiesTab,
-                "Destroyed now, repaired later in the recorded timeline.",
-                new[] { "GameActionType.FacilityRepair",
-                        "FacilityRow.RepairPending" },
-                () => Build(FacilitiesDestroyed(repairInTimeline: true))));
+            // What the ledger CAN say: a committed flight that destroys a building after
+            // live UT. A repair in the recorded future has no mock state: KSC repairs
+            // never reach the ledger, so no career holds one.
+            into.Add(New("career.facilities.destroyed-in-timeline", FacilitiesTab,
+                "Intact now; a committed flight destroys it later: 'destroyed <date>'.",
+                new[] { "GameActionType.FacilityDestruction",
+                        "FacilityRow.DestroyedInTimeline" },
+                () => Build(FacilitiesDestroyedInTimeline())));
 
             // ---------- Milestones ----------
 
@@ -198,14 +203,22 @@ namespace Parsek.UI.Gallery
         /// about the input. The effective ledger the window walks is UT-ordered, so this
         /// makes the synthetic one the same shape.</para>
         /// </summary>
-        private static CareerStateWindowUI.CareerStateViewModel Build(List<GameAction> actions)
+        private static CareerStateWindowUI.CareerStateViewModel Build(
+            List<GameAction> actions, params string[] liveDestroyedBuildings)
         {
             actions.Sort((a, b) => a.UT.CompareTo(b.UT));
             return CareerStateWindowUI.Build(
                 actions, LiveUT, Game.Modes.CAREER,
                 new ContractsModule(), new StrategiesModule(),
-                new FacilitiesModule(), new MilestonesModule());
+                new FacilitiesModule(), new MilestonesModule(),
+                CareerStateWindowUI.FormatDate,
+                liveDestroyedBuildings);
         }
+
+        // One of the Launchpad's DestructibleBuilding ids, the shape the ledger and
+        // ScenarioDestructibles both key a building by.
+        private const string LaunchPadBuilding =
+            "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank";
 
         // ----- synthetic ledgers -----
 
@@ -254,13 +267,6 @@ namespace Parsek.UI.Gallery
             => new GameAction
             {
                 Type = GameActionType.FacilityDestruction, UT = ut,
-                FacilityId = facilityId, Effective = true,
-            };
-
-        private static GameAction Repair(string facilityId, double ut)
-            => new GameAction
-            {
-                Type = GameActionType.FacilityRepair, UT = ut,
                 FacilityId = facilityId, Effective = true,
             };
 
@@ -431,12 +437,11 @@ namespace Parsek.UI.Gallery
             return actions;
         }
 
-        private static List<GameAction> FacilitiesDestroyed(bool repairInTimeline)
+        private static List<GameAction> FacilitiesDestroyedInTimeline()
         {
             var actions = FacilitiesUpgraded();
-            actions.Add(Destroy("LaunchPad", 400_000.0));
-            if (repairInTimeline)
-                actions.Add(Repair("LaunchPad", 1_600_000.0));
+            // After live UT: a committed flight that takes the Launchpad down.
+            actions.Add(Destroy(LaunchPadBuilding, 1_600_000.0));
             return actions;
         }
 

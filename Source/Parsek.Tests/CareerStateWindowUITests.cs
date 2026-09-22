@@ -84,6 +84,13 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction AcceptWithDeadline(string contractId, double ut, double deadlineUT)
+        {
+            GameAction a = Accept(contractId, ut);
+            a.DeadlineUT = deadlineUT;
+            return a;
+        }
+
         private static GameAction Complete(string contractId, double ut, bool effective = true)
         {
             return new GameAction
@@ -369,22 +376,164 @@ namespace Parsek.Tests
         [Fact]
         public void Build_Facilities_DestructionThenRepair()
         {
-            // Regression: this fails if repair doesn't clear Destroyed — the projected
-            // state should be not-destroyed even though the current is still destroyed.
+            // Regression: this fails if a repair the ledger carries after live UT does not
+            // clear Destroyed - the projected state should be intact even though stock
+            // says the building is down now.
             var (c, s, f, m) = Modules();
             var actions = new List<GameAction>
             {
-                Destroy("Runway", ut: 100.0),
-                Repair("Runway", ut: 200.0)
+                Repair("SpaceCenter/Runway/Facility/runway", ut: 200.0)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s, f, m, FakeDate,
+                new[] { "SpaceCenter/Runway/Facility/runway" });
 
             var runway = vm.Facilities.Rows.First(r => r.FacilityId == "Runway");
             Assert.True(runway.CurrentDestroyed);
             Assert.False(runway.ProjectedDestroyed);
             Assert.True(runway.HasUpcomingChange);
+            Assert.Equal("repaired D200", runway.TimelineEndText);
+        }
+
+        [Fact]
+        public void Build_Facilities_RepairedAtKscReadsIntactNow()
+        {
+            // catches: the destroyed state NOW read from the ledger. A building repaired at
+            // the KSC reaches no ledger action, so the past FacilityDestruction stays the
+            // last word there; stock's live state (intact) must win, or the building reads
+            // destroyed forever.
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Destroy("SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank", ut: 100.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate, new string[0]);
+
+            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
+            Assert.False(pad.CurrentDestroyed);
+            Assert.False(pad.ProjectedDestroyed);
+            Assert.False(pad.HasUpcomingChange);
+            Assert.Equal("L1", pad.LevelText);
+            Assert.Equal("", pad.TimelineEndText);
+            Assert.False(vm.HasDivergence);
+            Assert.Contains(logLines, l => l.Contains("[UI]")
+                && l.Contains("pastBuildingActionsIgnored=1"));
+
+            // Science mode: the same career draws no Facilities tab at all.
+            var sci = CareerStateWindowUI.Build(actions, liveUT: 500.0,
+                Game.Modes.SCIENCE_SANDBOX, c, s, f, m, FakeDate, new string[0]);
+            Assert.Equal(new[] { CareerStateWindowUI.TabMilestones },
+                CareerStateWindowUI.VisibleTabsFor(sci.Mode, sci.Facilities));
+        }
+
+        [Fact]
+        public void Build_Facilities_LiveDestroyedWithNoLedgerActionReadsDestroyed()
+        {
+            // catches: a destruction stock knows about but the ledger never saw (a crash
+            // into the pad with no recording committed) staying invisible.
+            var (c, s, f, m) = Modules();
+            var live = new[] { "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank" };
+
+            var vm = CareerStateWindowUI.Build(new List<GameAction>(), liveUT: 500.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate, live);
+
+            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
+            Assert.True(pad.CurrentDestroyed);
+            Assert.True(pad.ProjectedDestroyed);
+            Assert.False(pad.HasUpcomingChange);
+            Assert.Equal("L1 (destroyed)", pad.LevelText);
+
+            var sci = CareerStateWindowUI.Build(new List<GameAction>(), liveUT: 500.0,
+                Game.Modes.SCIENCE_SANDBOX, c, s, f, m, FakeDate, live);
+            Assert.Equal(
+                new[] { CareerStateWindowUI.TabFacilities, CareerStateWindowUI.TabMilestones },
+                CareerStateWindowUI.VisibleTabsFor(sci.Mode, sci.Facilities));
+            var sciPad = sci.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
+            Assert.Equal("destroyed", sciPad.LevelText);
+        }
+
+        [Fact]
+        public void Build_Facilities_NoLiveDataMeansNothingDestroyedNow()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Destroy("SpaceCenter/Runway/Facility/runway", ut: 100.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.DoesNotContain(vm.Facilities.Rows, r => r.CurrentDestroyed || r.ProjectedDestroyed);
+            Assert.Contains(logLines, l => l.Contains("liveDestroyedBuildings=unknown"));
+        }
+
+        [Fact]
+        public void Build_Facilities_FutureDestructionInScienceModeShowsTheTab()
+        {
+            // A committed flight that destroys a building after live UT: intact now, the
+            // Timeline-end cell says when, and Science mode draws the Facilities tab.
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Destroy("SpaceCenter/Runway/Facility/runway", ut: 900.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
+                Game.Modes.SCIENCE_SANDBOX, c, s, f, m, FakeDate, new string[0]);
+
+            var runway = vm.Facilities.Rows.Single(r => r.FacilityId == "Runway");
+            Assert.False(runway.CurrentDestroyed);
+            Assert.True(runway.ProjectedDestroyed);
+            Assert.Equal("intact", runway.LevelText);
+            Assert.Equal("destroyed D900", runway.TimelineEndText);
+            Assert.Contains(CareerStateWindowUI.TabFacilities,
+                CareerStateWindowUI.VisibleTabsFor(vm.Mode, vm.Facilities));
+        }
+
+        [Fact]
+        public void Build_Facilities_ChangeTimeIsTheFacilityTransitionNotTheLastBuilding()
+        {
+            // catches: DestroyedChangeUT overwritten by every destroy / repair of ANY of
+            // the facility's buildings, so "destroyed <date>" named the second building's
+            // fall instead of the moment the facility went down.
+            var (c, s, f, m) = Modules();
+            const string tank = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank";
+            const string tower = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tower";
+            var down = new List<GameAction>
+            {
+                Destroy(tank, ut: 300.0),
+                Destroy(tower, ut: 400.0),
+            };
+            var vm = CareerStateWindowUI.Build(down, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate, new string[0]);
+            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
+            Assert.Equal(300.0, pad.DestroyedChangeUT);
+            Assert.Equal("destroyed D300", pad.TimelineEndText);
+
+            // Repair: the facility is intact again only when its LAST building is.
+            var up = new List<GameAction>
+            {
+                Repair(tank, ut: 300.0),
+                Repair(tower, ut: 400.0),
+            };
+            vm = CareerStateWindowUI.Build(up, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate, new[] { tank, tower });
+            pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
+            Assert.True(pad.CurrentDestroyed);
+            Assert.False(pad.ProjectedDestroyed);
+            Assert.Equal("repaired D400", pad.TimelineEndText);
+
+            // Already down now: another building falling later is no change.
+            vm = CareerStateWindowUI.Build(
+                new List<GameAction> { Destroy(tower, ut: 400.0) }, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate, new[] { tank });
+            pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
+            Assert.False(pad.HasUpcomingChange);
+            Assert.Equal("", pad.TimelineEndText);
         }
 
         [Fact]
@@ -955,23 +1104,22 @@ namespace Parsek.Tests
         [Fact]
         public void Build_Facilities_ProductionDestructibleIdsReachTheFacilityRow()
         {
-            // catches: destruction keyed by the raw DestructibleBuilding id
+            // catches: a destruction keyed by the raw DestructibleBuilding id
             // ("SpaceCenter/LaunchPad/Facility/..."), which never matched a facility row, so
-            // a destroyed building never showed as destroyed.
+            // a destroyed building never showed as destroyed. Both sources speak that id:
+            // stock's live set and the ledger's future actions.
             var (c, s, f, m) = Modules();
             const string tank = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank";
             const string tower = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tower";
             var actions = new List<GameAction>
             {
-                Destroy(tank, ut: 100.0),
-                Destroy(tower, ut: 110.0),
                 // Only one of the two buildings is repaired in the recorded future: the
                 // facility stays destroyed at the timeline end.
                 Repair(tank, ut: 300.0),
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s, f, m, FakeDate, new[] { tank, tower });
 
             var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
             Assert.True(pad.CurrentDestroyed);
@@ -1441,12 +1589,122 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRebuildCachedVM_DisplayedUtChangesWithinSameActionGap_ReturnsTrue()
+        public void ShouldRebuildCachedVM_SameMinuteWithinSameActionGap_ReturnsFalse()
+        {
+            // The banner and deadline tails have minute resolution: a new game second
+            // re-formatted identical text.
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(123.4, nextRelevantActionUT: 500.0),
+                currentMode: Game.Modes.CAREER,
+                liveUT: 178.6));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_MinuteBoundaryWithinSameActionGap_ReturnsTrue()
         {
             Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
-                CachedVm(123.4, nextRelevantActionUT: 200.0),
+                CachedVm(179.9, nextRelevantActionUT: 500.0),
                 currentMode: Game.Modes.CAREER,
-                liveUT: 123.6));
+                liveUT: 180.1));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_SecondCadenceNearADeadline_ReturnsTrueEachSecond()
+        {
+            var vm = CachedVm(123.4, nextRelevantActionUT: 500.0);
+            vm.RefreshSeconds = CareerStateWindowUI.SecondRefreshSeconds;
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                vm, currentMode: Game.Modes.CAREER, liveUT: 124.1));
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
+                vm, currentMode: Game.Modes.CAREER, liveUT: 123.9));
+        }
+
+        [Fact]
+        public void ShouldRebuildCachedVM_ScienceSandbox_MinuteBoundary_ReturnsTrue()
+        {
+            // Science has no live date, but stock's destroyed buildings are re-read on
+            // the same minute cadence.
+            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+                CachedVm(179.9, nextRelevantActionUT: 500.0, mode: Game.Modes.SCIENCE_SANDBOX),
+                currentMode: Game.Modes.SCIENCE_SANDBOX,
+                liveUT: 180.1));
+        }
+
+        [Fact]
+        public void FillDisplayText_FormatsOnceAndPicksTheCadence()
+        {
+            var (c, s, f, m) = Modules();
+            var far = new List<GameAction>
+            {
+                AcceptWithDeadline("far", ut: 100.0, deadlineUT: 10_000.0),
+                Milestone("FirstLaunch", ut: 150.0, funds: 800f),
+            };
+            var vm = CareerStateWindowUI.Build(far, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate);
+            Assert.Equal(CareerStateWindowUI.MinuteRefreshSeconds, vm.RefreshSeconds);
+            Assert.Equal("Career mode - D200", vm.BannerText);
+            var row = vm.Contracts.CurrentRows.Single();
+            Assert.Equal("D100", row.AcceptText);
+            Assert.StartsWith("D10000 (in ", row.DeadlineText, StringComparison.Ordinal);
+            Assert.False(row.DeadlineOverdue);
+            Assert.Equal("D150", vm.Milestones.Rows.Single().CreditedText);
+            Assert.Equal(CareerStateWindowUI.FormatMilestoneRow_Rewards(vm.Milestones.Rows.Single()),
+                vm.Milestones.Rows.Single().RewardsText);
+            Assert.StartsWith("Mission Control L1 - slots 1/", vm.Contracts.HeaderText,
+                StringComparison.Ordinal);
+
+            var near = new List<GameAction>
+            {
+                AcceptWithDeadline("near", ut: 100.0, deadlineUT: 230.0),
+            };
+            vm = CareerStateWindowUI.Build(near, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate);
+            Assert.Equal(CareerStateWindowUI.SecondRefreshSeconds, vm.RefreshSeconds);
+        }
+
+        [Fact]
+        public void Build_Strategies_ActiveNowDeactivatedThenReactivated_BothRowsSayWhen()
+        {
+            // catches: the row active now losing its deactivation date because the later
+            // re-activation cleared the id's ending; it then read as running to the end.
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Activate("Subsidy", ut: 100.0),
+                Deactivate("Subsidy", ut: 300.0),
+                Activate("Subsidy", ut: 400.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate);
+
+            var now = vm.Strategies.CurrentRows.Single();
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Deactivated, now.EndKind);
+            Assert.Equal("deactivates D300", now.TimelineEndText);
+            var pending = vm.Strategies.PendingRows.Single();
+            Assert.Equal(400.0, pending.ActivateUT);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.None, pending.EndKind);
+            Assert.True(vm.HasDivergence);
+        }
+
+        [Fact]
+        public void Build_Contracts_ActiveNowCompletedThenReaccepted_CurrentRowSaysWhen()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("c1", ut: 100.0),
+                Complete("c1", ut: 300.0),
+                Accept("c1", ut: 400.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m, FakeDate);
+
+            var now = vm.Contracts.CurrentRows.Single();
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Completed, now.EndKind);
+            Assert.Equal("completes D300", now.TimelineEndText);
+            Assert.Single(vm.Contracts.PendingRows);
         }
 
         [Fact]

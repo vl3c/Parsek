@@ -715,9 +715,18 @@ cells that need attention (overdue deadline, recorded failure, destroyed buildin
 Titles: milestones use the Timeline's humanizer (`Kerbin - Science`, not `Kerbin/ Science`);
 facilities use stock's localized name (`ScenarioUpgradeableFacilities.GetFacilityName`:
 `Research and Development`, `Launchpad`, `Administration Building`), falling back to the
-humanized id. A destruction is keyed by the DestructibleBuilding id
-(`SpaceCenter/LaunchPad/Facility/...`); the walk now maps it to its facility
-(`FacilityIdForBuilding`), which it previously did not, so no destroyed building ever showed.
+humanized id. Whether a building is destroyed NOW comes from stock, not the ledger:
+`ScenarioDestructibles.protoDestructibles` (a live building's `IsIntact`, else the persisted
+`intact` value; filled in every scene the scenario runs in), read once per view-model
+rebuild. The ledger never learns of a KSC repair (and of no destruction without a
+committing recording), so a past `FacilityDestruction` would read as destroyed forever. The
+ledger supplies only what the recorded future does after live UT: a destruction in a
+committed flight reads `destroyed <date>`, dated when the facility as a whole goes down. Both
+sources key a building by its DestructibleBuilding id (`SpaceCenter/LaunchPad/Facility/...`),
+mapped to its facility row by `FacilityIdForBuilding`. Every cell's text (dates, rewards,
+banner, section bars) is formatted once per rebuild, and the rebuild runs once per game
+minute (the compact date's finest unit), or once per second while a deadline is within two
+minutes of now and its tail reads in seconds.
 
 Pictures before round 3: `ksc-career-contracts-advanced` (17 nodes, zero rows),
 `ksc-career-strategies-advanced` (17, zero rows), `ksc-career-facilities-advanced` (50, all

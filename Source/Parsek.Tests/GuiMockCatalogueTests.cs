@@ -502,13 +502,13 @@ namespace Parsek.Tests
                          "(destroyed)", StringComparison.Ordinal)
                      && r.ProjectedDestroyed);
 
-            CareerStateWindowUI.FacilitiesTabVM repairPending =
-                GuiMockCatalogue.ById("career.facilities.destroyed-repair-pending")
+            CareerStateWindowUI.FacilitiesTabVM inTimeline =
+                GuiMockCatalogue.ById("career.facilities.destroyed-in-timeline")
                     .Build().Career.Value.Facilities;
-            Assert.Contains(repairPending.Rows,
-                r => r.CurrentDestroyed
+            Assert.Contains(inTimeline.Rows,
+                r => !r.CurrentDestroyed
                      && CareerStateWindowUI.FormatFacilityRow_TimelineEnd(r, true, ut => "D")
-                        .StartsWith("repaired", StringComparison.Ordinal));
+                        .StartsWith("destroyed", StringComparison.Ordinal));
         }
 
         [Fact]
