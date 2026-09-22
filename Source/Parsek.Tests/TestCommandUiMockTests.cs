@@ -331,5 +331,53 @@ namespace Parsek.Tests
         {
             Assert.Equal("gui-mock/1", GuiMockSession.CatalogueId);
         }
+
+        // The D4 baseline half of the settle: a witness the window already drew BEFORE the
+        // mock was installed says nothing about the mock. These pin the pure predicate the
+        // addon calls, because the in-game cells never reach it and a "return true" body
+        // passed every other cell.
+        [Fact]
+        public void WitnessesAbsentFromBaseline_RefusesAWitnessTheBaselineAlreadyDrew()
+        {
+            string shared;
+            bool ok = TestCommandUiMock.WitnessesAbsentFromBaseline(
+                new[] { "Jebediah Kerman", "Lost" },
+                new[] { "Kerbal", "Status now", "  Jebediah Kerman [Pilot]" },
+                out shared);
+            Assert.False(ok);
+            Assert.Equal("Jebediah Kerman", shared);
+        }
+
+        [Fact]
+        public void WitnessesAbsentFromBaseline_PassesWhenNothingIsShared()
+        {
+            string shared;
+            bool ok = TestCommandUiMock.WitnessesAbsentFromBaseline(
+                new[] { "Lost", "Retired" },
+                new[] { "Kerbal", "Status now", "(no kerbals)" },
+                out shared);
+            Assert.True(ok);
+            Assert.Null(shared);
+        }
+
+        [Fact]
+        public void WitnessesAbsentFromBaseline_MatchesBySubstringAndSkipsEmptyWitnesses()
+        {
+            string shared;
+            Assert.True(TestCommandUiMock.WitnessesAbsentFromBaseline(
+                new[] { "", null, "L3" }, new[] { "L1", "L2" }, out shared));
+            Assert.False(TestCommandUiMock.WitnessesAbsentFromBaseline(
+                new[] { "L3" }, new[] { "Tracking Station L3" }, out shared));
+            Assert.Equal("L3", shared);
+        }
+
+        [Fact]
+        public void WitnessesAbsentFromBaseline_AnEmptyBaselinePasses()
+        {
+            string shared;
+            Assert.True(TestCommandUiMock.WitnessesAbsentFromBaseline(
+                new[] { "Lost" }, new string[0], out shared));
+            Assert.Null(shared);
+        }
     }
 }

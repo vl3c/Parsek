@@ -217,7 +217,7 @@ namespace Parsek.Tests
             // this scoping got written.
             var violations = new List<string>();
             var assign = new Regex(
-                @"\b(Label|Status|Location|VesselName)\s*=\s*""",
+                @"\b(Label|Status|Location|VesselName)\s*=\s*[$@]*""",
                 RegexOptions.CultureInvariant);
 
             foreach (string path in GalleryFiles())
@@ -241,7 +241,7 @@ namespace Parsek.Tests
             // \"Dock\" / \"Undock\""), so a scan that read comments would fire on the
             // prose that documents the rule.
             var assign = new Regex(
-                @"\b(Label|Status|Location|VesselName)\s*=\s*""",
+                @"\b(Label|Status|Location|VesselName)\s*=\s*[$@]*""",
                 RegexOptions.CultureInvariant);
 
             string commentOnly = SourceScanText.StripCSharpComments(string.Join("\n", new[]
