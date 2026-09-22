@@ -85,6 +85,40 @@ namespace Parsek
             = new Dictionary<string, RecordingMeta>();
         private HashSet<string> loopingChainIds = new HashSet<string>();
 
+        // ── Walk clock (captured once per walk in PrePass) ──
+
+        /// <summary>
+        /// The game time this walk judges reservations against: the walk's cutoff when it
+        /// has one (a rewind / time jump / current-UT walk IS the new "now"), else the live
+        /// clock read once at <see cref="PrePass"/>. NaN means the clock was not readable
+        /// (early load, unit tests without the seam) and every reservation then counts as
+        /// ACTIVE - the pre-release behaviour, never a spurious release. See
+        /// <see cref="IsReservationActiveAt"/>.
+        /// </summary>
+        private double walkClockUT = double.NaN;
+
+        /// <summary>
+        /// The earliest finite end among reservations still active at
+        /// <see cref="walkClockUT"/>, or +inf when none will lapse by time alone. The cheap
+        /// "has the clock crossed a release since the last walk" check
+        /// (<see cref="IsReservationReleaseDue"/>) compares the live clock with this.
+        /// </summary>
+        private double nextReservationReleaseUT = double.PositiveInfinity;
+
+        /// <summary>
+        /// Per-kerbal active/released state as of the last walk that could read a clock.
+        /// Survives <see cref="Reset"/> so the release / re-reserve lines print once per
+        /// actual transition rather than once per walk.
+        /// </summary>
+        private readonly Dictionary<string, bool> lastReservationActiveState
+            = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Test seam for the live game clock the walk reads when it has no cutoff. Null in
+        /// production (reads <c>Planetarium.GetUniversalTime</c>).
+        /// </summary>
+        internal static Func<double> LiveClockUTProviderForTesting;
+
         // ── Persisted state (stand-in names survive recalculation) ──
         private Dictionary<string, KerbalSlot> slots
             = new Dictionary<string, KerbalSlot>();
@@ -149,20 +183,152 @@ namespace Parsek
             int temporaryReservations,
             int slotCount,
             int retiredCount,
-            int slotsCreated)
+            int slotsCreated,
+            int releasedReservations = 0)
         {
             return string.Format(CultureInfo.InvariantCulture,
-                "PostWalk summary: reservations={0} permanent={1} temporary={2} slots={3} retired={4} slotsCreated={5}",
+                "PostWalk summary: reservations={0} permanent={1} temporary={2} slots={3} retired={4} slotsCreated={5} released={6}",
                 reservationCount,
                 permanentReservations,
                 temporaryReservations,
                 slotCount,
                 retiredCount,
-                slotsCreated);
+                slotsCreated,
+                releasedReservations);
         }
 
+        /// <summary>
+        /// THE reservation predicate: does this reservation hold its kerbal at game time
+        /// <paramref name="nowUT"/>?
+        ///
+        /// <para>Design 9.2 / 9.3: a reservation is one continuous block from UT 0 to its
+        /// end. A permanent one (Dead) never ends; an open-ended one (Aboard / Unknown, and
+        /// any flight in a chain with a looping segment) carries +inf and so never ends by
+        /// time alone; a Recovered one ends at the flight's recovery UT.</para>
+        ///
+        /// <para>BOUNDARY: the kerbal is free AT exactly <c>ReservedUntilUT</c>
+        /// (<c>nowUT &lt; ReservedUntilUT</c> holds, equality releases). The end UT of a
+        /// Recovered flight is the recovery instant itself, and the common live case is a
+        /// commit run at that very clock right after the recovery; that walk must already
+        /// see the kerbal home.</para>
+        ///
+        /// <para>An unreadable clock (NaN) holds: releasing needs a clock that has
+        /// verifiably passed the end.</para>
+        /// </summary>
+        internal static bool IsReservationActiveAt(KerbalReservation reservation, double nowUT)
+        {
+            if (reservation == null) return false;
+            if (reservation.IsPermanent) return true;
+            if (double.IsNaN(nowUT)) return true;
+            return nowUT < reservation.ReservedUntilUT;
+        }
+
+        /// <summary>
+        /// Cheap clock-crossing decision behind the scene-level release checks: true when
+        /// the live clock <paramref name="nowUT"/> has reached the earliest release the last
+        /// walk left pending (<paramref name="nextReleaseUT"/>) and that release has not
+        /// already triggered a recalculation (<paramref name="lastTriggeredReleaseUT"/>), so
+        /// a walk that for any reason did not move the release cannot loop per frame.
+        /// </summary>
+        internal static bool IsReservationReleaseDue(
+            double nowUT, double nextReleaseUT, double lastTriggeredReleaseUT)
+        {
+            if (double.IsNaN(nowUT) || double.IsInfinity(nowUT) || nowUT <= 0.0)
+                return false;
+            if (double.IsNaN(nextReleaseUT) || double.IsInfinity(nextReleaseUT))
+                return false;
+            if (nowUT < nextReleaseUT)
+                return false;
+            return !(nextReleaseUT == lastTriggeredReleaseUT);
+        }
+
+        /// <summary>
+        /// The clock a walk judges reservations against: the walk's own cutoff when it has
+        /// one, else the live clock. Returns NaN when neither is usable.
+        /// </summary>
+        internal static double ResolveWalkClockUT(double? walkNowUT)
+        {
+            if (walkNowUT.HasValue && !double.IsNaN(walkNowUT.Value))
+                return walkNowUT.Value;
+            return ReadLiveClockUT();
+        }
+
+        /// <summary>
+        /// The live game clock, or NaN when it is not readable or not yet initialised
+        /// (UT 0 on a cold load reads as not-ready, the same rule as
+        /// <c>LedgerOrchestrator.IsCurrentUtReadyForCutoff</c>).
+        /// </summary>
+        internal static double ReadLiveClockUT()
+        {
+            double ut;
+            if (LiveClockUTProviderForTesting != null)
+                ut = LiveClockUTProviderForTesting();
+            else
+                ut = ReadPlanetariumUTCore();
+            if (double.IsNaN(ut) || double.IsInfinity(ut) || ut <= 0.0)
+                return double.NaN;
+            return ut;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadPlanetariumUTCore()
+        {
+            try
+            {
+                if (Planetarium.fetch == null)
+                    return double.NaN;
+                return Planetarium.GetUniversalTime();
+            }
+            catch
+            {
+                return double.NaN;
+            }
+        }
+
+        /// <summary>Whether <paramref name="kerbalName"/> holds a reservation that is in
+        /// force at this walk's clock. Every "is he reserved" decision routes here.</summary>
+        internal bool IsReservedNow(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return false;
+            KerbalReservation reservation;
+            return reservations.TryGetValue(kerbalName, out reservation)
+                && IsReservationActiveAt(reservation, walkClockUT);
+        }
+
+        /// <summary>The clock the last walk judged reservations against (NaN = unknown).</summary>
+        internal double WalkClockUT => walkClockUT;
+
+        /// <summary>The earliest pending time-based release after the last walk, or +inf.</summary>
+        internal double NextReservationReleaseUT => nextReservationReleaseUT;
+
         // Read-only access for tests
+        /// <summary>
+        /// EVERY reservation the committed timeline derives, including a Recovered flight's
+        /// reservation whose end the clock has already passed. Use
+        /// <see cref="IsReservedNow"/> / <see cref="ActiveReservations"/> to ask whether a
+        /// kerbal is held; this raw map is for naming the flight behind a hold and for
+        /// diagnostics.
+        /// </summary>
         internal IReadOnlyDictionary<string, KerbalReservation> Reservations => reservations;
+
+        /// <summary>
+        /// Snapshot of the reservations in force at this walk's clock - the subset of
+        /// <see cref="Reservations"/> that <see cref="IsReservedNow"/> answers true for.
+        /// </summary>
+        internal IReadOnlyDictionary<string, KerbalReservation> ActiveReservations
+        {
+            get
+            {
+                var active = new Dictionary<string, KerbalReservation>(StringComparer.Ordinal);
+                foreach (var kvp in reservations)
+                {
+                    if (IsReservationActiveAt(kvp.Value, walkClockUT))
+                        active[kvp.Key] = kvp.Value;
+                }
+                return active;
+            }
+        }
         internal IReadOnlyDictionary<string, KerbalSlot> Slots => slots;
         internal IReadOnlyCollection<string> RetiredKerbals => retiredKerbals;
         internal IReadOnlyCollection<string> LedgerCreatedKerbals => ledgerCreatedKerbals;
