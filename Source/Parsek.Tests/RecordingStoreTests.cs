@@ -218,17 +218,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Recording_DistanceFields_Roundtrip()
-        {
-            var rec = new Recording();
-            rec.DistanceFromLaunch = 12345.67;
-            rec.MaxDistanceFromLaunch = 99999.99;
-
-            Assert.Equal(12345.67, rec.DistanceFromLaunch);
-            Assert.Equal(99999.99, rec.MaxDistanceFromLaunch);
-        }
-
-        [Fact]
         public void Recording_SpawnFields_Roundtrip()
         {
             var rec = new Recording();
@@ -729,46 +718,17 @@ namespace Parsek.Tests
         [Fact]
         public void ResetReplacementsForTesting_ClearsDictionary()
         {
-            // We can't call ReserveCrewIn directly (needs KSP roster),
-            // but we can test the serialization round-trip which populates the dictionary.
-            var node = new ConfigNode("SCENARIO");
-            var replacementsNode = node.AddNode("CREW_REPLACEMENTS");
-            var entry = replacementsNode.AddNode("ENTRY");
-            entry.AddValue("original", "Jebediah Kerman");
-            entry.AddValue("replacement", "Bob Kerman Jr.");
+            // Seed both stores the reset owns, so the clearing is what the asserts see.
+            CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Bob Kerman Jr.");
+            CrewReservationManager.MarkRescuePlaced("Valentina Kerman", 4242UL);
+            Assert.Equal("Bob Kerman Jr.", CrewReservationManager.CrewReplacements["Jebediah Kerman"]);
+            Assert.True(CrewReservationManager.IsRescuePlaced("Valentina Kerman"));
 
-            // Use OnLoad to populate (need a scenario instance)
-            // Instead, test via the static accessor after reset
             CrewReservationManager.ResetReplacementsForTesting();
 
             Assert.Empty(CrewReservationManager.CrewReplacements);
-        }
-
-        [Fact]
-        public void CrewReplacements_SaveRoundTrip_PreservesMapping()
-        {
-            // Build a scenario ConfigNode with crew replacements
-            var saveNode = new ConfigNode("SCENARIO");
-            var replacementsNode = saveNode.AddNode("CREW_REPLACEMENTS");
-
-            var entry1 = replacementsNode.AddNode("ENTRY");
-            entry1.AddValue("original", "Jebediah Kerman");
-            entry1.AddValue("replacement", "Rodfrey Kerman");
-
-            var entry2 = replacementsNode.AddNode("ENTRY");
-            entry2.AddValue("original", "Bill Kerman");
-            entry2.AddValue("replacement", "Samantha Kerman");
-
-            // Verify the ConfigNode structure is correct
-            Assert.Equal(2, replacementsNode.GetNodes("ENTRY").Length);
-
-            var loaded1 = replacementsNode.GetNodes("ENTRY")[0];
-            Assert.Equal("Jebediah Kerman", loaded1.GetValue("original"));
-            Assert.Equal("Rodfrey Kerman", loaded1.GetValue("replacement"));
-
-            var loaded2 = replacementsNode.GetNodes("ENTRY")[1];
-            Assert.Equal("Bill Kerman", loaded2.GetValue("original"));
-            Assert.Equal("Samantha Kerman", loaded2.GetValue("replacement"));
+            Assert.False(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
+            Assert.Empty(CrewReservationManager.RescuePlacedKerbals);
         }
 
         // --- Reservation decision logic (extracted for testability) ---

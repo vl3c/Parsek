@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/RecordingTreeRecordCodec.cs
+index d248a92b8..5ae3bbdf8 100644
+--- a/Source/Parsek/RecordingTreeRecordCodec.cs
++++ b/Source/Parsek/RecordingTreeRecordCodec.cs
+@@ -395,7 +395,7 @@ namespace Parsek
+             // after scene reload (without this, deserialized recordings default to 0.0
+             // and IsTreeIdleOnPad falsely discards the whole tree).
+             if (rec.MaxDistanceFromLaunch > 0)
+-                recNode.AddValue("maxDist", rec.MaxDistanceFromLaunch.ToString("R", ic));
++                { }
+         }
+ 
+         private static void SaveCascadeDepth(ConfigNode recNode, Recording rec)

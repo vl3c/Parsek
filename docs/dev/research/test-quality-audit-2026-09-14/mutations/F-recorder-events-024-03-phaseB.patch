@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..7f2f45900 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -315,7 +315,7 @@ namespace Parsek
+             if (partEventsSubscribed) return;
+             GameEvents.onPartDie.Add(OnBackgroundPartDie);
+             GameEvents.onPartJointBreak.Add(OnBackgroundPartJointBreak);
+-            partEventsSubscribed = true;
++            // flag not set
+             ParsekLog.Verbose("BgRecorder", "Subscribed to onPartDie and onPartJointBreak for background vessels");
+         }
+ 
