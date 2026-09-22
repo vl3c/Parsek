@@ -1,6 +1,46 @@
 # Automated Testing System - Status
 
-Last updated: 2026-09-22 (**THE GUI STATE GALLERY, PHASE 1: `op=mock` ADDED to the M-A2
+Last updated: 2026-09-22 (**GUI-1 GAINS SIX FOLD CAPTURES: the Missions window's two tabs
+are now photographed collapsed, fully expanded and with ONE deep fold open apiece - 23 ->
+29 labels, 118 -> 137 driver steps, 60 harvested files**, branch `gui-c1-folds`. What it
+closes: both tabs had exactly ONE picture each, so every fold arrow in the GUI mirror
+pointed at nothing and a reader could see that a row collapses but never what collapsing
+hides. Six new labels, all Advanced, all inside the lane's existing missions open/close
+pair (no window is opened, so every pinned `describe` echo is untouched), driven by five
+`UiAction op=expand` steps: `key=none` -> `group:` + `chain:` -> `key=all` -> `key=none`
+-> `digest:`. Spec-only: no C# changed.
+
+**THE READING RUN IS `2026-09-22_1631` (PASS, attempt 1, 87 s wall, 60 harvested files =
+29 PNG + 29 `<label>.gui.json` + the `GuiTree` probe's own dump + `KSP.log`), on a DLL
+deployed from this branch (`sha256 9d20f79f...`, provisioned 2026-09-22).** Node counts
+under the `Parsek - Missions` window root: Missions tab 922 restored = 922 collapsed ->
+1769 expanded, 999 with one digest open; Recordings tab 415 restored = 415 collapsed ->
+1915 expanded, 453 with one group folder plus its chain block. The four expand echoes are
+pinned (`expanded=0` on both collapse ops, `expanded=[1-9][0-9]*` on the bulk one,
+`changed=1` on all three named keys), and every one of the 29 dumps still reads
+`patched=17/17`.
+
+**TWO THINGS THE FLIGHT MEASURED that no headless cell could.** (1) A chain block is drawn
+INSIDE its group folder: the first attempt (`2026-09-22_1627`, also PASS) expanded the
+chain alone, the seam answered `changed=1 expanded=1` - the flag really flipped - and the
+dump read 415 nodes, identical to the collapsed one, because `key=none` had just shut all
+sixteen folders. The step now opens `group:R3-B2-U1-S7` first and the picture reads 453.
+A flag that flips without drawing anything is exactly what `op=expand`'s OK answer cannot
+distinguish, and only a node count beside the picture separates them. (2) On this host the
+Missions window RESTORES fully collapsed in both tabs, so the two `-collapsed-` captures
+measure identical to the two originals; they are kept as the named half of each pair,
+because a mirror jump needs both ends to exist.
+
+**OPERATOR NOTE, filed rather than fixed:** provisioning from a fresh worktree aborts
+`EC-6 download failed ... MechJeb2-2.15.1.0.zip: HTTP Error 404`. The pinned Jenkins
+artifact URL (`ksp.sarbian.com/jenkins/job/MechJeb2-Release/45/`) is gone; the zip is
+cached in every previously-provisioned sibling worktree's `harness/provision/.cache/` and
+its sha256 still matches the pin, so the route is to copy that zip in and point
+`pins.toml`'s `downloadUrl` at a `file:///` URL for the one run (reverted before commit).
+A permanent fix is a re-pin to a live mirror (`pins.toml` already names
+`archive.org/download/MechJeb2-2.15.1.0/`).
+
+Previously: 2026-09-22 (**THE GUI STATE GALLERY, PHASE 1: `op=mock` ADDED to the M-A2
 `UiAction` verb - 20 -> 21 ops, implemented seam verbs unchanged at 36 - plus a compiled
 catalogue of 43 synthetic states across three windows, five in-game `GuiMock` cells, and
 the P1b harvest-cap raise**,

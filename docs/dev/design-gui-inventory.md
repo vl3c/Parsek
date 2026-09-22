@@ -146,8 +146,10 @@ structure:
 ## 2. How the picture was taken
 
 **The tooling.** Two operator-tier harness lanes drove one career save through the M-A2
-command seam: `GUI-1-census-ksc` (SPACECENTER, 23 labels) and `GUI-2-census-flight` (FLIGHT,
-4 labels), whose results are `harness/results/2026-09-11_0548_GUI-1-census-ksc_shots/` and
+command seam: `GUI-1-census-ksc` (SPACECENTER, 29 labels since the 2026-09-22 fold re-fly,
+23 when this inventory was taken) and `GUI-2-census-flight` (FLIGHT,
+4 labels), whose results are `harness/results/2026-09-11_0548_GUI-1-census-ksc_shots/`,
+`harness/results/2026-09-22_1631_GUI-1-census-ksc_shots/` and
 `harness/results/2026-09-11_0551_GUI-2-census-flight_shots/` (PNG plus `.gui.json` per label,
 plus `gui-tree-index.html`). Three verbs did the work, and their vocabulary is the ceiling on
 what a census can reach: `UiAction` with `op=complexity|open|close|rect|tab|describe`
@@ -444,10 +446,15 @@ header rows whose tri-state toggle is the one interval-writing control Basic doe
 
 Pictures: `ksc-missions-missions-advanced` (922 nodes, 18 missions, every Loop off, every
 period `10` / `sec`), `ksc-missions-basic` (813 - no tab bar, no Clone, no Loop, no period, no
-row checkboxes), `flight-missions-missions-advanced` (922, structurally identical). No picture:
+row checkboxes), `flight-missions-missions-advanced` (922, structurally identical), and since
+the 2026-09-22 fold re-fly `ksc-missions-missions-collapsed-advanced` (922 - MEASURED identical
+to the restored picture, i.e. this window opens fully collapsed),
+`ksc-missions-missions-expanded-advanced` (1769, every vessel row, interval and digest open at
+once) and `ksc-missions-missions-events-advanced` (999 - ONE mission's `Events (N)` digest open
+with everything else shut). No picture:
 loop ON with a phase-locked read-only period, `Looped by route`, `Forward` instead of `Rewind`,
 `W*`, inline rename, `(partial)` / dimmed rows, `Docked with <partner>` in the Start event
-cell, Fly/Seal, expanded intervals, chapter headers, partner rows, an expanded digest.
+cell, Fly/Seal, chapter headers, partner rows.
 
 **Recordings tab.** A fixed 21-cell header (`:1196`) outside the scroll view, then a body of
 four row kinds. Columns, left to right, with the shared header/body width constants: merged
@@ -488,7 +495,12 @@ Notable control semantics in the body:
 
 Pictures: `ksc-missions-recordings-advanced` (415 nodes, 16 collapsed group rows, `Status`
 values `past` / `Destroyed` / `Splashed` / `Landed` / `Orbiting`, all 16 folder `R` buttons
-enabled with resolved targets). No picture: every leaf row, every chain block, STASH, the
+enabled with resolved targets), and since the 2026-09-22 fold re-fly
+`ksc-missions-recordings-collapsed-advanced` (415 - MEASURED identical to the restored
+picture), `ksc-missions-recordings-chain-advanced` (453 - ONE group folder open with ONE chain
+block expanded inside it, the other fifteen folders shut) and
+`ksc-missions-recordings-expanded-advanced` (1915 - every folder, chain block and leaf row at
+once). No picture: STASH, the
 Info-expanded columns, the Watch column, route-bound greyed Loop toggles, any inline rename,
 the time-range filter strip.
 
