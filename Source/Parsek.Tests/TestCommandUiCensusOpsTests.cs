@@ -646,19 +646,22 @@ namespace Parsek.Tests
         // ================================================================ op=expand
 
         [Fact]
-        public void Expand_OnlyTheFiveWindowsWithFoldsKeepDriveableExpansionState()
+        public void Expand_OnlyTheSixWindowsWithFoldsKeepDriveableExpansionState()
         {
             // Kerbals joined the set with the 2026-09-15 column-table rebuild: its Roster
             // tab keeps a per-row replacement-chain expansion plus one fold row over the
             // plain-kerbal bucket, and its Flights tab a per-kerbal fold. The two RUNNER
             // windows joined with GUI-12: each draws one fold per in-game test category,
             // and both OPEN with every one of them expanded, so `key=none` is the state a
-            // census could not otherwise photograph.
+            // census could not otherwise photograph. CAREER joined in wave 6, with the two
+            // `Pending in timeline` folds under one `pending:` prefix - the window keeps ONE
+            // fold collection, and its other two tabs have no folds at all.
             var expandable = new[]
             {
                 TestCommandUiAction.MissionsWindow,
                 TestCommandUiAction.LogisticsWindow,
                 TestCommandUiAction.KerbalsWindow,
+                TestCommandUiAction.CareerWindow,
                 TestCommandUiAction.TestRunnerWindow,
                 TestCommandUiAction.TestRunnerGlobalWindow,
             };
@@ -1189,6 +1192,341 @@ namespace Parsek.Tests
             Assert.Equal("2", map["passed"]);
             Assert.Equal("0", map["failed"]);
             Assert.Equal("1", map["skipped"]);
+        }
+
+        // ====================================================== op=run await= (GUI wave 6)
+
+        [Fact]
+        public void RunAwait_AbsentMeansTrueSoEveryPreExistingStepIsByteIdentical()
+        {
+            Assert.True(TestCommandUiState.TryParseAwait(
+                null, out bool awaitBatch, out string reject));
+            Assert.True(awaitBatch);
+            Assert.Null(reject);
+        }
+
+        [Theory]
+        [InlineData("true", true)]
+        [InlineData("false", false)]
+        public void RunAwait_BothTokensParse(string raw, bool expected)
+        {
+            Assert.True(TestCommandUiState.TryParseAwait(
+                raw, out bool awaitBatch, out string reject));
+            Assert.Equal(expected, awaitBatch);
+            Assert.Null(reject);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("True")]
+        [InlineData("FALSE")]
+        [InlineData("0")]
+        [InlineData("1")]
+        [InlineData("no")]
+        [InlineData(" false")]
+        public void RunAwait_AnythingElseIsRejectedRatherThanTreatedAsAbsent(string raw)
+        {
+            // Case-sensitive and exact, the house arg rule. Treating a typo as absent
+            // would silently pick the waiting branch, which differs from the other by
+            // whether the op blocks for minutes.
+            Assert.False(TestCommandUiState.TryParseAwait(
+                raw, out bool awaitBatch, out string reject));
+            Assert.True(awaitBatch); // the out value stays at the safe default
+            Assert.Equal(TestCommandUiState.RunAwaitArgInvalidReason, reject);
+        }
+
+        [Fact]
+        public void RunAwait_TheArgKeyAndRejectTokenAreTheSpelledOnes()
+        {
+            Assert.Equal("await", TestCommandUiState.AwaitArg);
+            Assert.Equal("run-await-arg-invalid",
+                TestCommandUiState.RunAwaitArgInvalidReason);
+            // It shares state='s boolean vocabulary rather than inventing a second one.
+            Assert.Equal("true", TestCommandUiState.StateTrueToken);
+            Assert.Equal("false", TestCommandUiState.StateFalseToken);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void RunStartedPayload_CarriesNoTallyAndBothPolarities(bool running)
+        {
+            var payload = TestCommandUiState.BuildRunStartedPayload(
+                TestCommandUiAction.TestRunnerWindow, "GuiTree", 7, running);
+            var map = payload.ToDictionary(kv => kv.Key, kv => kv.Value);
+            Assert.Equal("run", payload[0].Value);
+            Assert.Equal(TestCommandUiAction.TestRunnerWindow, map["window"]);
+            Assert.Equal("GuiTree", map["category"]);
+            Assert.Equal("true", map["started"]);
+            Assert.Equal("7", map["discovered"]);
+            Assert.Equal(running ? "true" : "false", map["running"]);
+            Assert.Equal(running ? "false" : "true", map["finished"]);
+
+            // THE POINT OF THE SEPARATE SHAPE: none of BuildRunPayload's tally keys is
+            // here, because mid-batch a Running row increments TallyCategory's Total
+            // without landing in passed / failed / skipped - so total would not equal its
+            // parts under the very keys a finished lane gates on.
+            Assert.DoesNotContain("total", map.Keys);
+            Assert.DoesNotContain("passed", map.Keys);
+            Assert.DoesNotContain("failed", map.Keys);
+            Assert.DoesNotContain("skipped", map.Keys);
+
+            // The payload shape the harness mirrors, in order.
+            Assert.Equal(
+                new[] { "op", "window", "category", "started", "finished", "discovered",
+                        "running" },
+                payload.Select(kv => kv.Key).ToArray());
+        }
+
+        [Fact]
+        public void RunStartedPayload_AndBuildRunPayloadShareNoNumericKey()
+        {
+            // Mechanical version of the claim above: the two shapes overlap only on the
+            // three identifying keys, so no reader can mistake a started payload for a
+            // finished one by reading a number that happens to exist in both.
+            var started = TestCommandUiState.BuildRunStartedPayload(
+                TestCommandUiAction.TestRunnerWindow, "GuiTree", 7, true)
+                .Select(kv => kv.Key).ToList();
+            var finished = TestCommandUiState.BuildRunPayload(
+                TestCommandUiAction.TestRunnerWindow, "GuiTree", 3, 2, 0, 1)
+                .Select(kv => kv.Key).ToList();
+            Assert.Equal(new[] { "op", "window", "category" },
+                started.Intersect(finished).ToArray());
+        }
+
+        [Fact]
+        public void TheMidBatchTallyReallyWouldNotAddUp_WhichIsWhyThereIsNoTally()
+        {
+            // Anti-vacuity for the started payload's whole reason: a Running row is
+            // counted into Total and into none of the three buckets. Asserted against the
+            // production tally rather than argued in a comment.
+            var tests = new List<InGameTestInfo>
+            {
+                new InGameTestInfo { Category = "Alpha", Status = TestStatus.Passed },
+                new InGameTestInfo { Category = "Alpha", Status = TestStatus.Running },
+                new InGameTestInfo { Category = "Alpha", Status = TestStatus.NotRun },
+            };
+            UiRunTally tally = TestCommandUiState.TallyCategory(tests, "Alpha");
+            Assert.Equal(2, tally.Total);
+            Assert.Equal(1, tally.Passed + tally.Failed + tally.Skipped);
+        }
+
+        // ---- the batch-gate relaxation allowlist ----
+
+        [Fact]
+        public void BatchGateRelaxation_IsTheNonMutatingSetMinusFlushAndQuitExactly()
+        {
+            // DERIVED, not a copied literal list: the expectation is built from
+            // TestCommandVerbs' own NonMutatingVerbNames, so adding or removing a verb
+            // there moves BOTH sides and the two can never drift apart silently. A
+            // hand-written expected list here would defeat the point of the cell.
+            var expected = TestCommandVerbs.NonMutatingVerbNames
+                .Where(v => v != TestCommandUiState.FlushAndQuitVerb)
+                .OrderBy(v => v, System.StringComparer.Ordinal)
+                .ToArray();
+            var actual = TestCommandVerbs.ImplementedVerbNames
+                .Concat(TestCommandVerbs.ReservedVerbNames)
+                .Where(TestCommandUiState.IsBatchGateRelaxableVerb)
+                .OrderBy(v => v, System.StringComparer.Ordinal)
+                .ToArray();
+            Assert.Equal(expected, actual);
+            Assert.NotEmpty(actual);
+        }
+
+        [Fact]
+        public void BatchGateRelaxation_HoldsFlushAndQuitAlthoughTheSharedSetListsIt()
+        {
+            // Non-mutating only in the sense that it does not change the world: it ENDS
+            // THE PROCESS, which mid-batch skips the runner's baseline revert. Held, which
+            // costs a lane nothing - the batch stops, the flag clears, the quit runs next
+            // frame.
+            Assert.Contains(TestCommandUiState.FlushAndQuitVerb,
+                TestCommandVerbs.NonMutatingVerbNames);
+            Assert.False(TestCommandUiState.IsBatchGateRelaxableVerb(
+                TestCommandUiState.FlushAndQuitVerb));
+            Assert.Equal("FlushAndQuit", TestCommandUiState.FlushAndQuitVerb);
+        }
+
+        [Theory]
+        [InlineData("CaptureScreenshot", true)]
+        [InlineData("DumpGuiTree", true)]
+        [InlineData("RecordingState", true)]
+        [InlineData("ListHandles", true)]
+        [InlineData("UiAction", false)]
+        [InlineData("RouteCommand", false)]
+        [InlineData("StartRecording", false)]
+        [InlineData("LoadGame", false)]
+        [InlineData("ExitToSpaceCenter", false)]
+        [InlineData("FlushAndQuit", false)]
+        public void BatchGateRelaxation_AdmitsTheCensusPairAndHoldsTheMutators(
+            string verb, bool relaxable)
+        {
+            // The two verbs the await=false arm exists to unblock are the census pair;
+            // UiAction itself is deliberately NOT admitted (op=complexity persists a
+            // setting), so a second op=run cannot slip in mid-batch either.
+            Assert.Equal(relaxable, TestCommandUiState.IsBatchGateRelaxableVerb(verb));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("NotAVerbAtAll")]
+        public void BatchGateRelaxation_FailsClosedOnAnUnknownOrAbsentVerb(string verb)
+        {
+            // The fail-safe direction is "assume it mutates" -> hold, which is the
+            // pre-relaxation behaviour, so a verb nobody thought about waits.
+            Assert.False(TestCommandUiState.IsBatchGateRelaxableVerb(verb));
+        }
+
+        [Fact]
+        public void BatchGateRelaxation_IsInertWhileTheFlagIsUnset()
+        {
+            // The predicate answers only "may this verb run during a DETACHED batch"; the
+            // gate itself is Update's one-line early return, so with the flag unset every
+            // verb - relaxable or not - is held exactly as before. That branch lives in a
+            // MonoBehaviour, so it is pinned by source rather than executed.
+            string src = ReadParsekSourceForCensus(
+                "TestCommands/ParsekTestCommandAddon.cs").Replace("\r\n", "\n");
+            Assert.Contains("if (IsBatchRunning() && !detachedBatchArmed) return;", src);
+        }
+
+        [Fact]
+        public void BatchGateRelaxation_HasOneArmSiteAndOneClearSiteAcrossEverySeamFile()
+        {
+            // SCANS EVERY TestCommands/*.cs, not the two files the flag happens to live in
+            // today: a second writer anywhere in the seam would relax the gate over a batch
+            // the await=false arm never started, and a two-file scan cannot see it. The
+            // review found exactly that hole, so the scan is now the whole directory.
+            //
+            // Comment lines are stripped first, the OpNeedsWindow-mirror rule: the field's
+            // own doc comment and this file's rationale both contain the assignment text,
+            // and a scan that read comments would pass GREEN against a source that says the
+            // opposite.
+            int setSites = 0;
+            int clearSites = 0;
+            foreach (string file in EnumerateSeamSourceFiles())
+            {
+                string body = StripCommentLinesForCensus(
+                    System.IO.File.ReadAllText(file).Replace("\r\n", "\n"));
+                setSites += CountOccurrencesForCensus(body, "detachedBatchArmed = true");
+                clearSites += CountOccurrencesForCensus(body, "detachedBatchArmed = false");
+            }
+            Assert.Equal(1, setSites);
+            // ONE clear site, inside ClearDetachedBatchRelaxation: the batch ending, a scene
+            // load, an executor throw and FlushAndQuit all route through it, so every
+            // teardown path lowers the flag the same way and logs why.
+            Assert.Equal(1, clearSites);
+
+            string src = StripCommentLinesForCensus(ReadParsekSourceForCensus(
+                "TestCommands/ParsekTestCommandAddon.cs").Replace("\r\n", "\n"));
+            foreach (string reason in new[] { "batch-stopped", "scene-change",
+                                              "executor-threw", "flush-and-quit" })
+                Assert.Contains(
+                    "ClearDetachedBatchRelaxation(" + Quoted(reason), src);
+            // And the relaxation is keyed on the ARMED RUNNER rather than on "any batch is
+            // running", so it cannot survive onto a batch this seam did not start.
+            Assert.Contains("detachedBatchRunner != null && detachedBatchRunner.IsRunning",
+                            src);
+        }
+
+        [Fact]
+        public void BatchGateRelaxation_PinsTheDeferralClockForAHeldVerb()
+        {
+            // D1. Before the relaxation existed this pair could not occur: Update returned
+            // before the pump while any batch ran, so no deferral clock ever started for
+            // `batch-running`. Armed, a HELD head reaches the dispatcher, defers on that
+            // reason, and would run out the 60 s default budget - which for the closing
+            // FlushAndQuit means a TIMEOUT and a process that never quits. HandleDefer pins
+            // the clock for exactly that pair.
+            string src = StripCommentLinesForCensus(ReadParsekSourceForCensus(
+                "TestCommands/ParsekTestCommandAddon.cs").Replace("\r\n", "\n"));
+            Assert.Contains("if (detachedBatchArmed && string.Equals(", src);
+            Assert.Contains("TestCommandDispatcher.BatchRunningDeferReason", src);
+            // Pinned by MOVING the start, not by skipping the timeout check: the moment the
+            // relaxation clears, the ordinary budget resumes from now rather than from a
+            // start that is already minutes old.
+            Assert.Contains("deferStartedAtSeconds = now;", src);
+            // The two sides name ONE literal, so the pair cannot drift apart.
+            Assert.Equal("batch-running", TestCommandDispatcher.BatchRunningDeferReason);
+            string dispatcher = StripCommentLinesForCensus(ReadParsekSourceForCensus(
+                "TestCommands/TestCommandDispatcher.cs").Replace("\r\n", "\n"));
+            Assert.Contains("DispatchResult.Defer(BatchRunningDeferReason)", dispatcher);
+            Assert.Equal(0, CountOccurrencesForCensus(
+                dispatcher, "DispatchResult.Defer(" + Quoted("batch-running")));
+        }
+
+        /// <summary>A C# string literal, so a cell can name one without escaping it into
+        /// unreadability.</summary>
+        private static string Quoted(string value) => "\"" + value + "\"";
+
+        /// <summary>Every seam source file, so a scan cannot miss a writer by living in a
+        /// file the cell did not think of.</summary>
+        private static System.Collections.Generic.IEnumerable<string>
+            EnumerateSeamSourceFiles()
+        {
+            string dir = System.IO.Path.Combine(
+                System.AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "TestCommands");
+            Assert.True(System.IO.Directory.Exists(dir), "missing seam dir: " + dir);
+            return System.IO.Directory.GetFiles(dir, "*.cs");
+        }
+
+        /// <summary>Drops whole-line <c>//</c> and <c>///</c> comments. A rationale comment
+        /// that quotes an assignment must not read as that assignment.</summary>
+        private static string StripCommentLinesForCensus(string text)
+        {
+            var kept = new System.Collections.Generic.List<string>();
+            foreach (string line in text.Split('\n'))
+            {
+                if (line.TrimStart().StartsWith("//")) continue;
+                kept.Add(line);
+            }
+            return string.Join("\n", kept.ToArray());
+        }
+
+        [Fact]
+        public void BatchGateRelaxation_ResolverIsTheOnlySourceOfTheDispatchStateBit()
+        {
+            // BuildDispatchState must read the resolver, not IsBatchRunning() directly:
+            // the dispatcher's own `state.BatchRunning -> Defer("batch-running")` row is a
+            // SECOND gate, and a raw read there would defer every verb during the detached
+            // batch however open the Update gate was.
+            string src = ReadParsekSourceForCensus(
+                "TestCommands/ParsekTestCommandAddon.cs");
+            Assert.Contains("BatchRunning = ResolveBatchGateForHead(head.Verb)", src);
+            Assert.DoesNotContain("BatchRunning = IsBatchRunning()", src);
+        }
+
+        [Fact]
+        public void TheCensusSourceGateIsNotVacuous()
+        {
+            Assert.Contains("class ParsekTestCommandAddon", ReadParsekSourceForCensus(
+                "TestCommands/ParsekTestCommandAddon.cs"));
+        }
+
+        private static int CountOccurrencesForCensus(string haystack, string needle)
+        {
+            int n = 0;
+            for (int i = haystack.IndexOf(needle, System.StringComparison.Ordinal); i >= 0;
+                 i = haystack.IndexOf(needle, i + needle.Length,
+                                      System.StringComparison.Ordinal))
+            {
+                n++;
+            }
+            return n;
+        }
+
+        /// <summary>Reads one file under <c>Source/Parsek</c>. Five <c>..</c> segments from
+        /// the xUnit bin dir, the house rule. Line endings are normalized by the callers
+        /// that match multi-line needles, so a CRLF checkout and an LF one read the
+        /// same.</summary>
+        private static string ReadParsekSourceForCensus(string relPath)
+        {
+            string path = System.IO.Path.Combine(
+                System.AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", relPath);
+            Assert.True(System.IO.File.Exists(path), "missing source file: " + path);
+            return System.IO.File.ReadAllText(path);
         }
 
         // =============================================== the global runner as a window row

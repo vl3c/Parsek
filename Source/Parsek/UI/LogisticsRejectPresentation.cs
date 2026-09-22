@@ -59,7 +59,7 @@ namespace Parsek
             {
                 string noun = reflyableCount == 1 ? "recording" : "recordings";
                 return string.Format(CultureInfo.InvariantCulture,
-                    "not fully sealed ({0} {1} still re-flyable)", reflyableCount, noun);
+                    LogisticsRejectClauses.NotFullySealed, reflyableCount, noun);
             }
 
             return RouteCreationFormatters.FormatRejectMessage(status, rejectDetail);

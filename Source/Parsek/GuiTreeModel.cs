@@ -108,6 +108,15 @@ namespace Parsek
         internal int? ControlId;
         internal int? WindowId;
 
+        /// <summary>
+        /// ButtonGrid only: the zero-based index <c>GUI.DoButtonGrid</c> was handed as
+        /// its <c>selected</c> argument, i.e. which cell of a Toolbar / SelectionGrid is
+        /// pushed in. Kept SEPARATE from <see cref="ControlId"/> on purpose:
+        /// <c>DoButtonGrid</c> takes no control id at all, so carrying the index there
+        /// made it indistinguishable from a genuine IMGUI control id on every other kind.
+        /// </summary>
+        internal int? SelectedIndex;
+
         /// <summary>Layout-group orientation: true horizontal, false vertical.</summary>
         internal bool? Horizontal;
 
@@ -140,6 +149,9 @@ namespace Parsek
         internal string TextValue;
         internal int? ControlId;
         internal int? WindowId;
+
+        /// <summary>ButtonGrid only: see <see cref="GuiTreeEvent.SelectedIndex"/>.</summary>
+        internal int? SelectedIndex;
         internal bool? Horizontal;
         internal float? ContentOriginX;
         internal float? ContentOriginY;
@@ -452,6 +464,7 @@ namespace Parsek
                 TextValue = e.TextValue,
                 ControlId = e.ControlId,
                 WindowId = e.WindowId,
+                SelectedIndex = e.SelectedIndex,
                 Horizontal = e.Horizontal,
                 ContentOriginX = e.ContentOriginX,
                 ContentOriginY = e.ContentOriginY,

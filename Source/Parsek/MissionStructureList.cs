@@ -389,11 +389,23 @@ namespace Parsek
                     j++;
                 }
                 if (count > 1)
-                    head.Label = (head.Label ?? "") + " x" + count.ToString(CultureInfo.InvariantCulture);
+                    head.Label = FormatCollapsedLabel(head.Label, count);
                 result.Add(head);
                 i = j;
             }
             return result;
+        }
+
+        /// <summary>
+        /// The label a run of simultaneous identical events collapses to:
+        /// <c>"Shroud jettisoned x8"</c>. Extracted from the collapse walk with no
+        /// behaviour change so a caller that needs the SPELLING without running the walk
+        /// reaches this rather than a copy - the GUI state gallery's dense-launch state
+        /// being the one such caller.
+        /// </summary>
+        internal static string FormatCollapsedLabel(string label, int count)
+        {
+            return (label ?? "") + " x" + count.ToString(CultureInfo.InvariantCulture);
         }
 
         private static bool IsSameBatch(StructureStep a, StructureStep b)

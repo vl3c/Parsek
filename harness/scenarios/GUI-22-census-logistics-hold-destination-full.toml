@@ -1,0 +1,338 @@
+schema = 1
+id = "GUI-22-census-logistics-hold-destination-full"
+tier = "operator"
+# THE GUI CENSUS: THE OTHER END OF THE ROUTE IS THE PROBLEM.
+#
+# WHY THIS LANE EXISTS ALONGSIDE GUI-21. GUI-21 photographs an ORIGIN-side hold; this one
+# photographs a DESTINATION-side hold, and they are two different arms of
+# `LogisticsHoldPresentation.DescribeHold`'s switch rather than two readings of one arm.
+# GUI-21's text comes from `DescribeOriginLacksCargo` -> `DescribePickupSourceShort`
+# (`LogisticsHoldPresentation.cs:175-286`), a three-way token split that names a SOURCE
+# VESSEL and a measured amount; this one comes from the
+# `EligibilityFailureKind.DestinationFull` case (`:56-74`), which strips a
+# `destination-full-` wrapper, checks for a `stored-part:` tail and otherwise renders the
+# bare resource:
+#
+#     LogisticsHoldClauses.DestinationNoRoomForResource =
+#         "destination has no room for {0} - delivers when it has room for the full manifest"
+#     (since 2026-09-22 a named constant; the rendered text is unchanged)
+#
+# i.e. `destination has no room for LiquidFuel - delivers when it has room for the full
+# manifest`. NO NUMBER, which is the visible difference a reader should take from the pair:
+# the origin arm threads the gate's measured shortfall into the text
+# (`FormatShortfallAmount`, F1 InvariantCulture, `:500-503`) while the destination arm does
+# not, because the capacity gate's own answer is a token rather than a magnitude
+# (`FirstShortToken` names the first short line and stops). Two arms, two shapes, and
+# neither has ever been in an image.
+#
+# Everything else about the picture is GUI-21's and is inherited deliberately, because the
+# point of the pair is that ONLY the hold clause moves: the cyan `New (not yet run)` cell
+# with its `New - use Send Once to test` guidance line (`CompletedCycles` is 0 here too),
+# the ABSENCE of the `Recent cycles:` section and of the `Last cycle:` / `Total delivered:`
+# pair (a blocked cycle writes no `RouteCargo*` ledger rows, so `leg.FlowLines` is null and
+# `leg.HasDeliveries` is false - `LogisticsWindowUI.cs:1739` and `:1724` draw no empty
+# header and no placeholder), `Cyc = 0 / 1 skipped`, and the grey `Paused` badge.
+#
+# ------------------------------------------------------------------------------------
+# RVR-14 HAS NO CLONE, AND THAT IS A MEASUREMENT RATHER THAN A BUDGET DECISION.
+# RVR-14 stages the SAME destination at 300 / 400 instead of 400 / 400 - 100 units of
+# headroom against a 200 manifest instead of zero - and it is a genuinely valuable BEHAVIOUR
+# lane: it is the only place the planner-versus-gate "partial" ambiguity is settled by a
+# driven run (`PrepareDelivery` really does compute a `Math.Min(200, 100) = 100` partial, and
+# `HasCapacityForAllStops` treats a partial plan as the FAILURE condition), and its forbidden
+# `partial=1` / `Delivery write:` pair is a real all-or-nothing claim that RVR-13's zero
+# headroom cannot make. NONE OF THAT REACHES THE WINDOW. Its `required` token set is
+# BYTE-IDENTICAL to RVR-13's (both thirteen lines, same regexes, same order), and the state
+# it leaves behind is identical in every field the Logistics window reads:
+# `LastHoldKind=DestinationFull`, `LastHoldDetail=LiquidFuel`, `Status=Paused`,
+# `CompletedCycles=0`, `SkippedCycles=1`. `DescribeHold`'s DestinationFull arm consumes only
+# the kind and the detail token - `shortfall` is not even referenced on that arm
+# (`LogisticsHoldPresentation.cs:56-74`) - so the rendered line is the same
+# `destination has no room for LiquidFuel - delivers when it has room for the full manifest`
+# down to the character, with the same cell, the same badge and the same `Cyc` reading. A
+# GUI-23-shaped clone of RVR-14 would produce a second image of one picture. So RVR-14 keeps
+# its behavioural lane and gets no census one; the headroom axis lives in the LOG, not on
+# the screen.
+#
+# ------------------------------------------------------------------------------------
+# THE ONE CHAIN EDIT: AN EXTRA TIMEJUMP, FOR THE AGE SUFFIX.
+# `FormatHoldDetailLine` appends `" (checked " + age + " ago)"` only when
+# `FormatDuration(currentUT - LastHoldUT)` is not `"-"`
+# (`LogisticsHoldPresentation.cs:113-123`), and `FormatDuration` returns `"-"` for
+# `seconds <= 0` (`LogisticsWindowUI.cs:3828`). RVR-13 captures at the same UT the hold was
+# recorded at, so a capture appended to it would render the BARE form. The suffix is
+# mandatory display context by design (the doc comment at `:106-111`), so it is worth a step.
+#
+# THE JUMP IS SAFE, and the measurement is the one all four of these census lanes rest on:
+# once the blocked cycle-0 consumed the armed pause the route is Paused, and
+# `ProcessLoopRoute` early-returns at `RouteOrchestrator.cs:694-701` on
+# `!GhostDriving(route.Status)` with `GhostDriving(Paused) == false`
+# (`RouteStatusPolicy.cs:79`). No further crossing runs, so `LastHoldUT` is FROZEN while the
+# clock advances. That freeze is load-bearing rather than incidental: `RecordHold` writes
+# `LastHoldUT = ut` UNCONDITIONALLY (`Route.cs:661`, outside the `changed` guard), so on a
+# still-crossing route the age would be re-zeroed every crossing and no appended jump could
+# ever produce a suffix.
+#
+# HOW ut=1700 WAS CHOSEN, AND WHAT IS NOT CERTAIN. +600 s over RVR-13's 1100, which is 3.7 of
+# the relay tree's own 162.74 s loop span (RVR-7's header records that number after PR #1623
+# removed the orbital phase lock's 551.62 s re-anchor). A round number rather than a tuned
+# one, because with the route Paused the landing point inside the span is irrelevant. NOT
+# CERTAIN: the exact rendered age. `LastHoldUT` is the cycle-0 CROSSING UT, somewhere in
+# (1100 - 162.74, 1100] rather than 1100 exactly, so the age is 600 s plus up to one span and
+# `FormatDuration` renders somewhere in "10.0m" to "12.7m" (`:3832-3833`: under 3600 s is
+# `{0:F1}m`). The lane asserts nothing about the value - the dump is the evidence - and the
+# band is recorded so a reader is not surprised. What IS certain is that it is
+# non-degenerate, because 600 s is the floor.
+#
+# ------------------------------------------------------------------------------------
+# NO `[expectations.routes]` BLOCK. RVR-13 carries that block ARMED (`gating = true`, armed
+# 2026-09-10 off `_1724`), and dropping it here is what frees the extra TimeJump: a census
+# lane that copied `skippedCycles = { min = 1, max = 1 }` would red on its own age-generating
+# step if that step ever produced a further crossing. The ORIGINAL keeps the gating, and it
+# keeps the D10 claim with it (see `[dimensionsCovered]`); the census is DREW-only.
+# `SaveGame` is dropped alongside, since nothing reads a produced save.
+#
+# ------------------------------------------------------------------------------------
+# WHAT THIS LANE CANNOT PHOTOGRAPH BY APPENDING, FILED RATHER THAN FAKED. Measured, with the
+# gate named. The first entry is the sharp one here, because it is the surface a reader would
+# most expect this lane of all four to carry:
+#
+#   * `<dest> tanks full: 0.0 of 200.0 LiquidFuel free` - THE M4 CAPACITY CONTEXT LINE,
+#     WHICH THIS LANE CANNOT REACH DESPITE BEING THE DESTINATION-FULL LANE. The formatter is
+#     `FormatCapacityContext` (`LogisticsDeliveryPresentation.cs:578-605`) and the string it
+#     builds is exactly the explanation a full destination wants, but both its compute site
+#     (`LogisticsWindowUI.cs:3192`) and its draw site (`:1702`) gate on
+#     `route.Status == RouteStatus.DestinationFull` - the STATUS, not `LastHoldKind`. This
+#     route's status is `Paused` and its hold kind is `DestinationFull`, which the window
+#     treats as unrelated facts. The loop dispatch path can never close that gap: its blocked
+#     branch calls only `RecordHold` (`RouteOrchestrator.cs:1394`) and its sole transition is
+#     to `Paused` (`:3832`), so no route that blocks through the loop clock ever wears the
+#     status its own hold names. Filed as
+#     GUI-CENSUS-CAPACITY-CONTEXT-IS-STATUS-GATED-OFF-THE-LOOP-PATH; it is a product
+#     observation as much as a census gap, and faking it would need a route status nothing
+#     assigns.
+#   * `Held: no room for LiquidFuel` in the Status cell (`CompactHold`'s DestinationFull arm,
+#     `LogisticsHoldPresentation.cs:379-392`, via `StatusCellText` at `:337-346`). Drawn ONLY
+#     in the non-Paused branch of the row (`LogisticsWindowUI.cs:1177`), so on this Paused
+#     route the compact clause reaches the TOOLTIP (`StatusCellTooltip`, `:1164`) and nothing
+#     else. GUI-20 is where that override is photographed, and it needs an `activate` this
+#     lane's host has no reason to drive.
+#   * `Pausing after this cycle...` (`LogisticsWindowUI.cs:1549-1550`). Needs
+#     `ArmedSendKind.PauseAfterCycle`, i.e. a Pause-while-InTransit arm; a `send-once` arm
+#     resolves to `"Sending one cycle..."` (`:1551-1553`), and no seam verb drives Pause on
+#     an InTransit route.
+#   * The partial-delivery report (`FormatPartialDeliveryLine`,
+#     `LogisticsHoldPresentation.cs:594-604`). Needs `Route.LastPartialDeliverySummary`,
+#     written only by a mid-transit capacity shrink - and RVR-14's whole finding is that the
+#     capacity GATE refuses a partial plan rather than shipping one, so the driven suite has
+#     no producer for that field at all.
+#   * `Delivering` and `Flying, not delivering` (`LogisticsDeliveryPresentation.cs:329-332`).
+#     `ClassifyDeliveryBadge` short-circuits `!ghostDriving -> Paused` (`:309-310`) and
+#     `GhostDriving(Paused)` is false, so this row's badge is grey `Paused`.
+#   * EVERY `RouteStatus` BEYOND Active AND Paused, and with them the whole `StatusReason`
+#     table (`LogisticsWindowUI.cs:3882-3897`) - including its own
+#     `"Destination full - ghost flies but delivers nothing this cycle"` row at `:3890`,
+#     unreachable for the same status reason - and the red `statusStyleRed` treatment
+#     (`:3929-3932`). Filed as GUI-CENSUS-SEVEN-ROUTESTATUS-VALUES-HAVE-NO-DRIVEN-HOST.
+#
+# TWO CORRECTIONS TO THE AUTHORING BRIEF, measured before the preamble was placed; recorded
+# in each of the four specs so they stand alone.
+#   1. `op=complexity mode=advanced` IS NEVER REFUSED. `ParsekUI.ShouldRefuseModeChange`
+#      (`ParsekUI.cs:690-693`) is `next == UiComplexityMode.Basic && gloopsRecording` - Basic
+#      only, and GLOOPS recording (`WouldRefuseModeChange` -> `IsGloopsRecordingNow()`,
+#      `:705-708`), not a flight recording. The preamble still sits after `StopRecording` /
+#      `DiscardTree` because that reads best, but the placement is not load-bearing.
+#   2. `windows=12` IS SCENE-INDEPENDENT: the echo prints `windows={Int(rows.Count)}` over the
+#      whole window TABLE (`ParsekTestCommandAddon.UiAction.cs:835`, rows built at `:796-821`),
+#      not the scene-available subset. GUI-2 and GUI-6 already pin `scene=FLIGHT ... windows=12`.
+#
+# THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 / GUI-13 residue: `MinWindowWidth` is
+# 1410 px against the profile's 1280x720 screen and `op=rect` clamps to that floor, so the
+# picture is honestly CLIPPED at the client edge
+# (GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH). The detail panel, which is where this
+# lane's hold clause lives, is full-width and photographs cleanly.
+#
+# Basic is NOT photographed, for GUI-13's measured reason: zero `UiSurface` /
+# `UiComplexityMode` references in `LogisticsWindowUI` or its presentation helpers, the only
+# gate is the launcher, and GUI-3's basic and advanced dumps yield an identical text set.
+description = "GUI census: a DESTINATION-side hold, the other arm of DescribeHold's switch from GUI-21's origin-side one, on RVR-13's chain plus a capture tail. The rendered clause is 'destination has no room for LiquidFuel - delivers when it has room for the full manifest' (LogisticsHoldPresentation.cs:56-74) and carries NO NUMBER, which is the visible difference the pair exists to show: the origin arm threads the gate's measured shortfall into the text through FormatShortfallAmount while the capacity gate's own answer is a token rather than a magnitude, so the destination arm does not reference shortfall at all. Everything else is inherited from GUI-21 deliberately, so only the clause moves: the cyan New (not yet run) cell with its guidance line, the ABSENCE of Recent cycles: and of the Last cycle: / Total delivered: pair, Cyc = 0 / 1 skipped, the grey Paused badge. RVR-14 HAS NO CLONE, and that is measured rather than budgeted: its required token set is byte-identical to RVR-13's, and DescribeHold's DestinationFull arm consumes only the kind and the detail token - not shortfall - so 100 units of headroom and zero units of headroom render the SAME line, cell, badge and Cyc reading. RVR-14 keeps its behavioural lane (it is the only place the planner-versus-gate partial ambiguity is settled by a driven run); the headroom axis lives in the log, not on the screen. ONE CHAIN EDIT: an extra TimeJump to ut=1700 (+600 s, 3.7 of the relay tree's 162.74 s span) so the hold has an age and the line carries its '(checked N ago)' suffix; the jump is safe because a Paused route runs no crossings (RouteOrchestrator.cs:694-701) so LastHoldUT is frozen, and that freeze is load-bearing since RecordHold writes LastHoldUT unconditionally (Route.cs:661). NO [expectations.routes] block: the ORIGINAL keeps that gating armed along with its D10 destination-full-gate claim, and dropping it frees the extra jump. THE SHARP FILED GAP: the <dest> tanks full: capacity line is unreachable EVEN HERE, the destination-full lane, because both its compute site (LogisticsWindowUI.cs:3192) and its draw site (:1702) gate on route.Status == RouteStatus.DestinationFull while this route's status is Paused and only its LastHoldKind is DestinationFull - and the loop path can never close that gap, since its blocked branch only calls RecordHold and only ever transitions to Paused. Also filed: the Held: status-cell override (non-Paused branch only), Pausing after this cycle..., the partial-delivery report (the gate refuses partials rather than shipping them, so the suite has no producer), both non-grey badges, and all seven RouteStatus values beyond Active/Paused."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "logistics", "GUI-22", "pending-operator"]
+
+[fixture]
+# RVR-13's host and its one live-state edit, verbatim. The block patches the STAGED COPY
+# only (FLIGHTSTATE, one `amount =` line, on the vessel named by pid); the committed Parsek
+# payload is untouched, and a declaration these bytes cannot satisfy aborts pre-boot as
+# INVALID(staging) with KSP never launched. That fail-closed shape is what makes the staged
+# state safe to photograph: a patch that quietly did nothing would leave this lane over the
+# UNPATCHED fixture, where A has 200 units of headroom and the cycle DELIVERS, and the image
+# would show a delivering route under a label claiming a full destination.
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# Rover A, the DELIVERY DESTINATION, topped to its own `maxAmount`. 400 is not a chosen
+# number: it is the capacity the fixture's own bytes carry, and the applier REFUSES anything
+# above it rather than clamping, so this declaration is exactly "full" and cannot silently
+# become "nearly full" if the craft ever changes. Inventory defaults to `keep` - A's three
+# free slots stay free, which is what makes the rendered clause name the RESOURCE
+# (`no room for LiquidFuel`) rather than taking `DescribeHold`'s `stored-part:` branch
+# (`LogisticsHoldPresentation.cs:62-69`).
+pid       = 4280917262
+resources = { LiquidFuel = 400 }
+
+[driver]
+kind = "seam"
+steps = [
+  # --- RVR-13's steps 0-4 verbatim. `activeVessel = 5` is focusable and no `scene=` arg is
+  # passed, so this boots FLIGHT, where the Logistics window is drawn from the flight-scene
+  # launcher (`logistics` is `InFlight = true`, `TestCommandUiAction.cs:535`).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+
+  # --- the host surface. `open window=main` FIRST is the real precondition: the settle for a
+  # non-`main` open / rect REFUSES while the host's `showUI` is false
+  # (`ERROR window-host-hidden`).
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- RVR-13's steps 5-8 verbatim: seal, create, send-once, and the ONE cycle, which passes
+  # gate 6 (B is stocked exactly as the fixture left it) and fails gate 8 on zero headroom,
+  # consuming the arm into Paused.
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+
+  # --- THE ONE ADDED STEP: age the hold. +600 s; the route is Paused so no crossing runs and
+  # `LastHoldUT` stays at the cycle-0 crossing UT (see the header for the resulting
+  # 10.0m-to-12.7m band and why a band rather than a value).
+  { cmd = "TimeJump",     args = { ut = "1700" },                             expect = "OK", budget = 300 },
+
+  # --- THE CAPTURE. `expand key=all` opens the route detail panel: the route's own `Id` IS
+  # the panel's `expandedRows` key (`LogisticsWindowUI.cs:1075` draws from
+  # `route.Id ?? "<no-id>"` and `EnumerateRowKeysForTesting` at `:98-114` emits exactly that
+  # id), so the bulk form is the right one - the id is minted per run and no committed spec
+  # could name it.
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rvr13-logistics-hold-destination-full-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "rvr13-logistics-hold-destination-full-advanced" }, expect = "OK" },
+
+  # RVR-13's `SaveGame` is DROPPED with its `[expectations.routes]` block: nothing here reads
+  # a produced save, and the step would only be a clobber risk against a sibling run sharing
+  # the template.
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 ONLY, AND THE ABSENCE OF D10 MATTERS MORE HERE THAN ON THE OTHER THREE. RVR-13 is the
+# FIRST AND ONLY DECLARER of `D10 = ["destination-full-gate"]`, claimed off its green census
+# `2026-09-03_1812`, and its own header records that RVR-14 measures the same branch at a
+# second headroom value and deliberately does NOT re-declare so the value has exactly one
+# owner. A census clone re-declaring it would break that on both counts: it would be a second
+# declarer, and it would be claiming a BEHAVIOUR gate off a lane whose expectations assert
+# only that a window DREW.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RVR-13's exact window, inherited as a MEASURED number (RVR-7's two flights read 10 and
+# saveParse agreed, so the load-time optimizer split does not happen on this corpus). It is
+# the anti-vacuity floor for the whole lane as much as an anti-data-loss one: the route holds
+# three `SOURCE` references into this corpus, so a destroyed sidecar would flip it to
+# `SourceChanged`, `ShouldDisplayHold` would then SUPPRESS the hold text
+# (`LogisticsHoldPresentation.cs:143-145`), and the capture would photograph an empty detail
+# panel under a label claiming a held route.
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# RVR-13's THIRTEEN required tokens are carried forward UNCHANGED. The chain edits are one
+# appended TimeJump and a dropped `SaveGame`, and no token reads either: every one is a boot /
+# seal / create / cycle-0 line emitted at or before RVR-13's own step 8. Nothing was dropped
+# as invalidated. They are here as the PRECONDITION of the capture, and two of them carry more
+# than setup: `decision=cover` plus `all 1 pickup source(s) cover - eligible` say the walk
+# reached gate 8 with gate 6 SATISFIED, which is what makes the photographed clause
+# attributable to the destination rather than to some other gate wearing this label.
+#
+# THE SEAM RECORDS ARE THIS LANE'S OWN, in the GUI-13 style and DREW-ONLY. Nothing is pinned
+# about WHAT the window drew - the dump is the evidence a human or an agent reads. The two
+# describe echoes are the in-run mapping check and are EXACT claims (a third open window would
+# move `open=`).
+#
+# THE EXPAND LINE is the only seam token that is not bookkeeping: `changed=[1-9][0-9]*` says at
+# least one addressable row went from collapsed to expanded. `key=all` finds the three fixed
+# section keys plus the one route id here, and two of those sections (Dormant, Dismissed)
+# render nothing, so a floor of 1 is not vacuous - a zero would mean the window drew no route
+# and the label photographs an empty table.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} source pid=90564594 name=B resources=1 inventory=3 decision=cover",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all 1 pickup source\\(s\\) cover - eligible",
+  "DestinationHasCapacity: route [0-9a-f]{8} destination FULL stop=[0-9]+ short=LiquidFuel",
+  "Route [0-9a-f]{8} hold recorded kind=DestinationFull detail=LiquidFuel",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ BLOCKED kind=DestinationFull reason=LiquidFuel",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=all state=true changed=[1-9][0-9]* expanded=[1-9][0-9]* total=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rvr13-logistics-hold-destination-full-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rvr13-logistics-hold-destination-full-advanced .*patched=17/17",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "dispatch fired",
+  # RVR-13's no-debit claim, and here it is also the CAPTURE's precondition: each of these
+  # three is a ledger `RouteCargo*` row, and one of them appearing would populate
+  # `leg.FlowLines` and draw the `Recent cycles:` section this lane photographs the ABSENCE
+  # of.
+  "Origin debit:",
+  "Inventory remove",
+  "Delivery write:",
+  # And it must NOT be the origin gate that failed - B is stocked exactly as the fixture left
+  # it, so an `OriginLacksCargo` reading would mean the live-state patch reached the wrong
+  # vessel, and the rendered clause under this label would be GUI-21's
+  # `B is short ... LiquidFuel` instead of this lane's.
+  "BLOCKED kind=OriginLacksCargo",
+]
+
+[runtime]
+# RVR-13's 2400 unchanged. The capture tail adds ~6 UI ops and one capture/dump pair, and
+# those are single-phase or two-phase settles measured at seconds each (GUI-12 measured seven
+# captures plus seven dumps at 89 s wall), not another deferred verb. The added TimeJump does
+# add deferred budget - `run.py` gives every deferred seam verb
+# `max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600)` = 660 s regardless of the declared
+# budget, so this lane has THREE deferred steps (LoadGame + two TimeJumps) = 1980 s worst case
+# against RVR-13's two at 1320. The 2400 still covers it, and every RVR-13 flight came in at
+# ~49 s wall.
+# 900 s, the figure every other census lane uses, and it is a REDUCTION from the 3000 /
+# 2400 this lane inherited from its RVR original. The original's budget is sized for a
+# behaviour lane that may retry a long chain; this clone's MEASURED wall is 53 s
+# (run `2026-09-21_2117`), and its longest single step is the mid-chain `TimeJump`, whose own
+# step budget is declared inline and unchanged. 900 s is therefore still 15x the
+# measurement and stays generous because the PRODUCT is the images and the trees, and a
+# KILLED run leaves neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

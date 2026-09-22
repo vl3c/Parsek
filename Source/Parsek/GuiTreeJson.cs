@@ -47,7 +47,47 @@ namespace Parsek
         internal float MatrixM03;
         internal float MatrixM13;
 
+        /// <summary>
+        /// The GUI-state-gallery provenance, or null for an ordinary real-save capture.
+        ///
+        /// <para>It lives in the DUMP rather than in the filename because the owner must
+        /// never have to remember which half of the mirror is real, and a filename
+        /// convention is something a person can copy by hand. The mirror derives a
+        /// capture's dataset from the lane's <c>fixture.saveTemplate</c>; a gallery lane
+        /// HAS one (it needs a loaded game), so without this block its mocked captures
+        /// would file under a real fixture's name and pair against real captures in
+        /// Compare - the one lie that page must not tell.</para>
+        /// </summary>
+        internal GuiTreeMockProvenance Mock;
+
         internal readonly List<GuiTreeFunnelReport> Funnels = new List<GuiTreeFunnelReport>();
+    }
+
+    /// <summary>
+    /// The <c>mock</c> block of a capture taken inside a GUI-state-gallery scope.
+    ///
+    /// <para>ADDITIVE: the schema id stays <c>parsek-gui-tree/1</c>. No key is renamed, no
+    /// layout changes, and an older reader ignores an unknown object - the same
+    /// additive-is-not-a-bump reasoning the recording schema uses for a new enum member.
+    /// ABSENT means a real-save capture, which is the default and the common case.</para>
+    /// </summary>
+    internal sealed class GuiTreeMockProvenance
+    {
+        /// <summary>The catalogue state id, e.g. <c>kerbals.roster.lost</c>.</summary>
+        internal string StateId;
+
+        /// <summary>The window token the state drives.</summary>
+        internal string Window;
+
+        /// <summary>The catalogue contract token (<c>gui-mock/1</c>).</summary>
+        internal string Catalogue;
+
+        /// <summary>How many states the catalogue carried when this was captured, so a
+        /// reader can tell a partial gallery from a whole one.</summary>
+        internal int States;
+
+        /// <summary>The branch keys the state claims, in declaration order.</summary>
+        internal readonly List<string> Covers = new List<string>();
     }
 
     /// <summary>
@@ -121,6 +161,25 @@ namespace Parsek
             }
             sb.Append("],\n");
 
+            // ADDITIVE and OMITTED when absent: an ordinary real-save capture writes no
+            // `mock` key at all, so every existing dump byte-for-byte keeps its shape and
+            // "absent means real" stays the reader's rule.
+            if (header != null && header.Mock != null)
+            {
+                GuiTreeMockProvenance mock = header.Mock;
+                sb.Append("  \"mock\": {\"stateId\": ").Append(Str(mock.StateId));
+                sb.Append(", \"window\": ").Append(Str(mock.Window));
+                sb.Append(", \"catalogue\": ").Append(Str(mock.Catalogue));
+                sb.Append(", \"states\": ").Append(Num(mock.States));
+                sb.Append(", \"covers\": [");
+                for (int i = 0; i < mock.Covers.Count; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(Str(mock.Covers[i]));
+                }
+                sb.Append("]},\n");
+            }
+
             sb.Append("  \"roots\": ");
             WriteNodes(sb, t.Roots, 1);
             sb.Append('\n');
@@ -170,6 +229,8 @@ namespace Parsek
                 sb.Append(", \"controlId\": ").Append(Num(node.ControlId.Value));
             if (node.WindowId.HasValue)
                 sb.Append(", \"windowId\": ").Append(Num(node.WindowId.Value));
+            if (node.SelectedIndex.HasValue)
+                sb.Append(", \"selectedIndex\": ").Append(Num(node.SelectedIndex.Value));
             if (node.Horizontal.HasValue)
                 sb.Append(", \"horizontal\": ").Append(node.Horizontal.Value ? "true" : "false");
             if (node.ContentOriginX.HasValue && node.ContentOriginY.HasValue)

@@ -367,6 +367,9 @@ namespace Parsek.Tests
         [InlineData("rewind", "UI/RecordingsTableUI.cs")]
         [InlineData("fastforward", "UI/RecordingsTableUI.cs")]
         [InlineData("seal", "UnfinishedFlightSealHandler.cs")]
+        [InlineData("deleteroute", "UI/LogisticsWindowUI.cs")]
+        [InlineData("deletedormantroute", "UI/LogisticsWindowUI.cs")]
+        [InlineData("createroute", "UI/LogisticsWindowUI.cs")]
         public void EveryRowsNameAndButtons_AppearInTheFileThatSpawnsIt(
             string token, string relPath)
         {
@@ -400,6 +403,162 @@ namespace Parsek.Tests
             string src = ReadParsekSource("CommittedActionDialog.cs");
             Assert.Contains("SpawnPopupDialog", src);
             Assert.DoesNotContain("\"ParsekThisNameDoesNotExist\"", src);
+        }
+
+        // ===================================== the three Logistics confirms (GUI wave 6)
+
+        [Theory]
+        [InlineData("deleteroute", "ParsekLogisticsDeleteRouteConfirm",
+                    "Confirm: Delete Route")]
+        [InlineData("deletedormantroute", "ParsekLogisticsDeleteDormantRouteConfirm",
+                    "Confirm: Delete Dormant Route")]
+        [InlineData("createroute", "ParsekLogisticsCreateRouteConfirm",
+                    "Create Supply Route?")]
+        public void TheThreeLogisticsRows_CarryTheirOwnPopupNameAndTitle(
+            string token, string popupName, string title)
+        {
+            Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
+                token, out UiRaisableDialog spec, out string reject));
+            Assert.Null(reject);
+            Assert.Equal(popupName, spec.PopupName);
+            Assert.Equal(title, spec.Title);
+            Assert.Contains(token, TestCommandUiDialogRaise.ValidPopupNames.Split(','));
+        }
+
+        [Theory]
+        [InlineData("deleteroute")]
+        [InlineData("deletedormantroute")]
+        [InlineData("createroute")]
+        public void TheThreeLogisticsRows_OnlyCancelIsPressableAndTheMutatorsAreRefused(
+            string token)
+        {
+            Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
+                token, out UiRaisableDialog spec, out _));
+            Assert.Equal(UiDialogPressPolicy.SafeButtonOnly, spec.Press);
+            Assert.Equal("Cancel", spec.SafeButton);
+            Assert.Equal("Cancel", TestCommandUiDialogRaise.PressableButtonsOf(spec));
+
+            // Cancel is admitted; EVERY other button on the row is press-not-allowed,
+            // which for createroute means both of its build buttons.
+            Assert.True(TestCommandUiDialogRaise.TryResolvePress(
+                spec, "Cancel", out string pressed, out string ok));
+            Assert.Equal("Cancel", pressed);
+            Assert.Null(ok);
+            foreach (string label in spec.Buttons)
+            {
+                if (label == "Cancel") continue;
+                Assert.False(TestCommandUiDialogRaise.TryResolvePress(
+                    spec, label, out _, out string reject));
+                Assert.Equal(TestCommandUiDialogRaise.PressNotAllowedReason, reject);
+            }
+            // And none of them leaks into the closed press vocabulary the harness mirrors.
+            string[] valid = TestCommandUiDialogRaise.ValidPressButtons.Split(',');
+            Assert.DoesNotContain("Delete", valid);
+            Assert.DoesNotContain("Create Paused", valid);
+            Assert.DoesNotContain("Create and Activate", valid);
+            Assert.Contains("Cancel", valid);
+        }
+
+        [Fact]
+        public void CreateRoute_IsTheOnlyThreeButtonRowAndItsButtonsAreInLayoutOrder()
+        {
+            Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
+                "createroute", out UiRaisableDialog spec, out _));
+            Assert.Equal(new[] { "Create Paused", "Create and Activate", "Cancel" },
+                spec.Buttons);
+            Assert.Equal("Create Paused|Create and Activate|Cancel",
+                TestCommandUiDialogRaise.FormatButtons(spec));
+        }
+
+        [Fact]
+        public void TheThreeLogisticsRows_DeclareExactlyOneCapabilityEach()
+        {
+            // One capability per row, and DISJOINT: the committed and dormant lists are
+            // different populations, so a host carrying one and not the other must answer
+            // unavailable for exactly one of the two rows.
+            Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
+                "deleteroute", out UiRaisableDialog del, out _));
+            Assert.True(del.NeedsCommittedRoute);
+            Assert.False(del.NeedsDormantRoute);
+            Assert.False(del.NeedsRouteCandidate);
+            Assert.False(del.NeedsRecording);
+
+            Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
+                "deletedormantroute", out UiRaisableDialog dor, out _));
+            Assert.False(dor.NeedsCommittedRoute);
+            Assert.True(dor.NeedsDormantRoute);
+            Assert.False(dor.NeedsRouteCandidate);
+            Assert.False(dor.NeedsRecording);
+
+            Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
+                "createroute", out UiRaisableDialog cre, out _));
+            Assert.False(cre.NeedsCommittedRoute);
+            Assert.False(cre.NeedsDormantRoute);
+            Assert.True(cre.NeedsRouteCandidate);
+            Assert.False(cre.NeedsRecording);
+        }
+
+        [Fact]
+        public void NoneOfTheThreeOwnsAnInputLock()
+        {
+            // Only UnfinishedFlightSealHandler takes a ControlTypes.All lock its own
+            // callbacks release. A wrongly-set flag here would have the dismiss clear a
+            // lock these spawn sites never took.
+            foreach (string token in new[] { "deleteroute", "deletedormantroute",
+                                             "createroute" })
+            {
+                Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
+                    token, out UiRaisableDialog spec, out _));
+                Assert.False(spec.OwnsInputLock, token + " must not claim an input lock");
+            }
+        }
+
+        [Fact]
+        public void TheExcludedSetNoLongerFilesTheThreeLogisticsConfirmsAsUnreachable()
+        {
+            // The "WHAT IS NOT HERE" comment is what a reviewer reads to learn why a modal
+            // has no picture, so a stale clause is worse than no clause: it sends the next
+            // wave looking for a door that now exists. Disband Group's half stays.
+            string src = ReadParsekSource("TestCommands/TestCommandUiDialogRaise.cs");
+            Assert.DoesNotContain("the three Logistics confirms", src);
+            Assert.Contains("Disband Group", src);
+        }
+
+        [Fact]
+        public void EachRowIsSpawnedThroughAnInternalWrapperOverThePrivateMethod()
+        {
+            // The three spawn sites are private instance methods, so the applier reaches
+            // each through a wrapper over the SAME method the row button reaches - not a
+            // second spawn site, which would have to satisfy the dialog-name prefix gate
+            // for a name no production path writes.
+            string window = ReadParsekSource("UI/LogisticsWindowUI.cs");
+            foreach (string name in new[] { "SpawnDeleteRouteConfirmationForTesting",
+                                            "SpawnDeleteDormantRouteConfirmationForTesting",
+                                            "SpawnCreateRouteConfirmationForTesting" })
+            {
+                Assert.Contains("internal bool " + name, window);
+            }
+            // The candidate accessor reads the window's DRAWN cache, never a fresh
+            // derivation off the ~1 Hz throttle.
+            Assert.Contains("CachedCandidatesForTesting => cachedCandidates", window);
+
+            string applier = ReadParsekSource(
+                "TestCommands/ParsekTestCommandAddon.UiRaiseDismiss.cs");
+            Assert.Contains("SpawnDeleteRouteConfirmationForTesting(host.Route)", applier);
+            Assert.Contains("SpawnDeleteDormantRouteConfirmationForTesting(host.Route)",
+                applier);
+            Assert.Contains("SpawnCreateRouteConfirmationForTesting(host.Candidate)",
+                applier);
+            // ONE live resolver per capability, each with its own detail token for the
+            // PRE-CALL dialog-target-unavailable reject.
+            Assert.Contains("no-committed-routes", applier);
+            Assert.Contains("no-dormant-routes", applier);
+            Assert.Contains("no-drawn-route-candidates", applier);
+            // The candidate source is asserted POSITIVELY (the accessor call above) rather
+            // than by a "does not contain DeriveCandidates" scan: the applier's own comment
+            // names that method to explain the choice, and a text scan reads a comment as
+            // code.
+            Assert.Contains("window.CachedCandidatesForTesting", applier);
         }
 
         private static string ReadParsekSource(string relPath)

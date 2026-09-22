@@ -74,5 +74,13 @@ namespace Parsek
                 FormatSessionStartMessage(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
             ParsekLog.Info("Harmony", $"Harmony patches applied: {applied} succeeded, {failed} failed");
         }
+
+        // This addon is DontDestroyOnLoad and lives for the whole process, so it is the one
+        // Parsek object guaranteed to receive OnApplicationQuit, which Unity delivers before it
+        // starts destroying scene objects.
+        void OnApplicationQuit()
+        {
+            ParsekProcess.MarkApplicationQuitting("OnApplicationQuit");
+        }
     }
 }

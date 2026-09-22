@@ -649,8 +649,10 @@ namespace Parsek.Patches
             {
                 label = contents[selected].text;
             }
+            // controlId stays null: GUI.DoButtonGrid takes no control id, so the selected
+            // index goes in its own field rather than masquerading as one.
             GuiTreeRecorder.RecordLeaf(GuiFunnel.DoButtonGrid, GuiNodeKind.ButtonGrid,
-                position, null, style, selected, null, label);
+                position, null, style, null, null, label, selected);
         }
     }
 

@@ -1,0 +1,153 @@
+schema = 1
+id = "GUI-27-census-missions-include"
+tier = "operator"
+# THE GUI CENSUS, WAVE 6: THE MISSIONS TAB'S INCLUDE AFFORDANCE.
+#
+# WHAT IT BUYS. Every Missions-tab capture the census holds shows every vessel row
+# INCLUDED, because inclusion is only ever written by a checkbox click and the census
+# synthesises no input. `UiAction op=select` (PR #1734) writes the same two fields the
+# checkbox writes, through the same production path
+# (`MissionVesselRowBuilder.ApplyVesselInclusion` plus the selection stamp), so the
+# EXCLUDED forms - a greyed row, and a whole tab of greyed rows - get their first
+# picture. The bulk form additionally drives every derived PARTNER JOURNEY
+# (`Mission.IncludedForeignDockLinkIds`), which is the only affordance in the window
+# whose recursive foreign-subtree renderer has never drawn in a capture.
+#
+# HOST: `fixtures/saves/bdock-recorded`, the docked corpus GUI-4 and GUI-10 already use.
+# Two sealed recording trees with a recorded DOCK between them, which is what makes a
+# cross-tree `ForeignDockLink` derivable at all; its first tree's
+# `rootRecordingId = a32f62f52dc84d6a94daf93460ec6548` is a committed literal, which is
+# what lets the single-key step below name a vessel row in a COMMITTED spec (a Mission id
+# could not be named - this fixture carries no `MISSION` nodes, so the store SEEDS them
+# from the trees with fresh Guids on every load, which is also why `op=select` takes no
+# `mission=` here and drives the first mission over a committed tree).
+#
+# `op=select` EDITS THE SAVE, and it is the only op in this lane that does.
+# `Mission.ExcludedIntervalKeys` and `Mission.IncludedForeignDockLinkIds` are serialized
+# by the Mission codec, so this lane runs on the THROWAWAY staged copy the harness makes
+# and NO FIXTURE IS EVER HARVESTED FROM IT. The op reports the standing counts
+# (`excluded=` / `links=`) so the edit is visible in the answer and not only on disk.
+#
+# THE BULK TOKENS CARRY THEIR DIRECTION, so no `include=` sits beside `key=all` /
+# `key=none` - that pair is `REJECTED select-include-with-bulk-key` rather than a silent
+# override, because letting the token win would make a step that reads "exclude
+# everything" include everything.
+#
+# WHAT THIS LANE DOES NOT PHOTOGRAPH, and it is a CORRECTION to the wave-6 lane plan
+# rather than an omission. That plan asked for the `" (partial)"` row suffix by driving
+# ONE of a vessel's own interval keys with `include=false`. It is not reachable through
+# this op: `op=select key=vessel:<anything>` RESOLVES A ROW - by `OwnerHeadId` first, then
+# by any one of that row's interval keys - and then calls `ApplyVesselInclusion` over ALL
+# of that row's own keys, so the classified outcome is `All` or `None` and never
+# `Partial`. Filed as GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT.
+# What IS reachable, and is the third capture here, is ONE vessel excluded among included
+# siblings - the mixed tab, which is the shape a player actually produces.
+#
+# `scene = "spacecenter"` IS REQUIRED for the reason GUI-4 states on the same host.
+description = "GUI census wave 6: the Missions tab's per-vessel include affordance driven through the seam - every vessel and partner journey excluded, every one included again, and one vessel excluded among included siblings."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "missions", "GUI-27", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- the Missions tab with every row expanded: the per-vessel rows have to be DRAWN for
+  # the include state to be visible at all.
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "all" }, expect = "OK" },
+
+  # --- STATE 1: everything EXCLUDED. The greyed-row form of the whole tab, and the first
+  # capture in which the include checkboxes are not all ticked.
+  { cmd = "UiAction", args = { op = "select", window = "missions", key = "none" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bd-missions-missions-includenone-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bd-missions-missions-includenone-advanced" }, expect = "OK" },
+
+  # --- STATE 2: everything INCLUDED AGAIN, which additionally adds every derived partner
+  # journey to the mission's link set - the foreign-subtree renderer's first picture. The
+  # payload's `links=` is the honest count of what the step left behind.
+  { cmd = "UiAction", args = { op = "select", window = "missions", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bd-missions-missions-includeall-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bd-missions-missions-includeall-advanced" }, expect = "OK" },
+
+  # --- STATE 3: ONE vessel excluded among included siblings - the mixed tab. Keyed by the
+  # first tree's root recording id, a committed literal; the seam resolves it against the
+  # live rows' `OwnerHeadId`. LAST on purpose: if the key ever stops resolving, the
+  # refusal lists the live head ids and the two bulk captures above are already on disk.
+  { cmd = "UiAction", args = { op = "select", window = "missions", key = "vessel:a32f62f52dc84d6a94daf93460ec6548", include = "false" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bd-missions-missions-vesselexcluded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bd-missions-missions-vesselexcluded-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The anti-vacuity floor: a vessel row is DERIVED from a committed tree's composition, so
+# a run that staged nothing would answer `select-no-mission` on the first select step.
+# GUI-4 and GUI-10 fly this same host; bounded rather than pinned, because this lane
+# neither records nor deletes and the number is the fixture's.
+count = { min = 1 }
+
+[expectations.logContracts]
+# Only this lane's OWN seam records.
+#
+# THE SELECT LINES ARE THE LANE'S CENTRAL CLAIM. `mission=` is the RESOLVED id echoed
+# back (a Mission id is save-specific, so the op drives the first mission over a committed
+# tree and reports which), `changed=` is how many keys plus links this step moved, and
+# `excluded=` / `links=` are the mission's standing counts AFTER the write - the only
+# in-answer record of a save edit.
+#
+# `changed=[1-9][0-9]*` on the two bulk steps is the anti-vacuity floor at the OP level: a
+# zero would mean the mission had no vessel rows and both captures photograph an unchanged
+# window under labels claiming a filter. `excluded=0` after `key=all` is EXACT and is the
+# proof the restore really restored.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
+
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select bulk mission=[0-9a-f-]+ include=false keysChanged=[1-9][0-9]* linksChanged=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select window=missions mission=[0-9a-f-]+ key=none include=false changed=[1-9][0-9]* excluded=[1-9][0-9]* links=[0-9]+ frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select window=missions mission=[0-9a-f-]+ key=all include=true changed=[1-9][0-9]* excluded=0 links=[0-9]+ frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select vessel mission=[0-9a-f-]+ head=a32f62f52dc84d6a94daf93460ec6548 vessel=.* include=false keysChanged=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select window=missions mission=[0-9a-f-]+ key=vessel:a32f62f52dc84d6a94daf93460ec6548 include=false changed=[1-9][0-9]* excluded=[1-9][0-9]* links=[0-9]+ frames=[0-9]+",
+
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=bd-missions-missions-includenone-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-missions-missions-includenone-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-missions-missions-includeall-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-missions-missions-vesselexcluded-advanced .*patched=17/17",
+]
+forbidden = []
+
+[runtime]
+# Three captures, three dumps, a 300 s cold-load allowance and ~15 single-phase UI ops
+# over a two-tree sandbox save. GUI-4 walks the same host. 900 s is the budget every
+# census lane uses.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

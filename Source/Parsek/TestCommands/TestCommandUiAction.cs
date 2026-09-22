@@ -83,6 +83,30 @@ namespace Parsek.TestCommands
         /// button.</summary>
         Dismiss = 15,
 
+        /// <summary><c>op=state window=&lt;name&gt; key=&lt;name&gt; state=|value=</c>: drive one
+        /// of a window's SCALAR view states - a filter toggle, an archive filter, the
+        /// Recordings tab's expanded-stats columns, the Timeline's time-range preset or its
+        /// scroll offset. The sibling of <c>expand</c> for the states that are single fields
+        /// rather than sets of keys; the key table lives in
+        /// <see cref="TestCommandUiWindowState"/>.</summary>
+        State = 17,
+
+        /// <summary><c>op=sort window=&lt;name&gt; column=&lt;name&gt; dir=asc|desc</c>: select a
+        /// sortable table's column and direction through the same two fields its own header
+        /// click writes, plus that window's own cache invalidation.</summary>
+        Sort = 18,
+
+        /// <summary><c>op=select window=missions key=vessel:|link: include=</c>: drive the
+        /// Missions tab's per-vessel include affordance and its cross-tree partner-journey
+        /// include. The one op in the family that writes MISSION state rather than view
+        /// state.</summary>
+        Select = 19,
+
+        /// <summary><c>op=edit window= field= [key=] [draft=] [commit=]</c>: put one of the
+        /// in-place text editors into edit mode with a given draft, and commit only when
+        /// asked.</summary>
+        Edit = 20,
+
         /// <summary><c>op=run window=testrunner|testrunnerglobal category=&lt;name&gt;</c>:
         /// run one in-game test category through THAT RUNNER WINDOW'S OWN runner, the
         /// category header's "Run" button body verbatim, so a capture can show the window's
@@ -91,6 +115,15 @@ namespace Parsek.TestCommands
         /// ones either window draws, so a batch through it leaves both tables reading "not
         /// run".</summary>
         Run = 16,
+
+        /// <summary><c>op=mock window=&lt;name&gt; mockState=&lt;id|none&gt;</c> or
+        /// <c>op=mock describe=true</c>: the GUI state gallery's primitive. Hands ONE
+        /// window a synthetic view model from the compiled catalogue while the real IMGUI
+        /// draw code computes every rect and string, so a census can photograph states no
+        /// save reaches. A PAIRED op - <c>mockState=none</c> is the clear - and its
+        /// read-back is DRAW-PRODUCED (see
+        /// <see cref="TestCommandUiMock.NotAppliedReason"/>).</summary>
+        Mock = 21,
     }
 
     /// <summary>What one settle poll of a TWO-PHASE <c>UiAction</c> op concludes.</summary>
@@ -238,6 +271,11 @@ namespace Parsek.TestCommands
         internal const string RaiseOpToken = "raise";
         internal const string DismissOpToken = "dismiss";
         internal const string RunOpToken = "run";
+        internal const string StateOpToken = "state";
+        internal const string SortOpToken = "sort";
+        internal const string SelectOpToken = "select";
+        internal const string EditOpToken = "edit";
+        internal const string MockOpToken = "mock";
 
         /// <summary>The <c>recording=</c>-less spelling the payload and the log line echo
         /// for an ALL-recordings flip. A sentinel token rather than an empty value, the
@@ -406,6 +444,24 @@ namespace Parsek.TestCommands
 
         /// <summary>POST-CALL terminal: the tab index was written and reads back wrong.</summary>
         internal const string TabNotAppliedReason = "tab-not-applied";
+
+        /// <summary>
+        /// PRE-CALL gate for the three wave-6 write ops (<c>state</c>, <c>sort</c>,
+        /// <c>edit</c>): the named window's own open flag is DOWN.
+        ///
+        /// <para>REFUSED rather than written, because every one of those ops exists to
+        /// produce a PICTURE and none of them can produce one over a closed window: the
+        /// write would succeed, the read-back would agree with itself, and the capture
+        /// beside it would show no window at all. That is the
+        /// <see cref="WindowSelfClosedReason"/> failure with the roles reversed - there the
+        /// window closed itself after the write, here it was never open - and the remedy is
+        /// the same one step: an <c>op=open</c> before it.</para>
+        ///
+        /// <para>It does NOT apply to <c>op=expand</c> or <c>op=playback</c>, which
+        /// deliberately arrange model state for a LATER capture, nor to <c>op=close</c>,
+        /// whose whole point is a window that ends up shut.</para>
+        /// </summary>
+        internal const string WindowNotOpenReason = "window-not-open";
 
         /// <summary>POST-CALL terminal: the rect was written and reads back different. Note
         /// the read-back treats BOTH commanded SIZE axes as floors, because GUILayout sizes
@@ -600,7 +656,8 @@ namespace Parsek.TestCommands
             OpenOpToken, CloseOpToken, TabOpToken, ComplexityOpToken, RectOpToken,
             DescribeOpToken, PointerOpToken, FindOpToken, ExpandOpToken, TargetOpToken,
             PickerOpToken, DialogOpToken, PlaybackOpToken, RaiseOpToken,
-            DismissOpToken, RunOpToken,
+            DismissOpToken, RunOpToken, StateOpToken, SortOpToken, SelectOpToken,
+            EditOpToken, MockOpToken,
         });
 
         /// <summary>A window's tab tokens, comma-joined, or the empty string when it has
@@ -639,6 +696,11 @@ namespace Parsek.TestCommands
                 case RaiseOpToken: op = UiActionOp.Raise; break;
                 case DismissOpToken: op = UiActionOp.Dismiss; break;
                 case RunOpToken: op = UiActionOp.Run; break;
+                case StateOpToken: op = UiActionOp.State; break;
+                case SortOpToken: op = UiActionOp.Sort; break;
+                case SelectOpToken: op = UiActionOp.Select; break;
+                case EditOpToken: op = UiActionOp.Edit; break;
+                case MockOpToken: op = UiActionOp.Mock; break;
                 default:
                     rejectReason = OpArgInvalidReason;
                     return false;
@@ -668,6 +730,11 @@ namespace Parsek.TestCommands
                 case UiActionOp.Raise: return RaiseOpToken;
                 case UiActionOp.Dismiss: return DismissOpToken;
                 case UiActionOp.Run: return RunOpToken;
+                case UiActionOp.State: return StateOpToken;
+                case UiActionOp.Sort: return SortOpToken;
+                case UiActionOp.Select: return SelectOpToken;
+                case UiActionOp.Edit: return EditOpToken;
+                case UiActionOp.Mock: return MockOpToken;
                 default: return string.Empty;
             }
         }
@@ -686,13 +753,22 @@ namespace Parsek.TestCommands
         /// grammar at all, and the other three are about uGUI <c>PopupDialog</c>s, which no
         /// window table row can name - they take <c>popup=</c> instead
         /// (<c>TestCommandUiDialogRaise.PopupArg</c>).</para>
+        ///
+        /// <para><c>mock</c> is the fifth deliberate absence, and for a DIFFERENT reason
+        /// from those four: it needs a window for its apply and clear forms and must NOT
+        /// need one for <c>describe=true</c>, which reports the whole catalogue. An
+        /// unconditional row here would refuse that form outright, so the requirement is
+        /// per-INTENT and lives in the applier (mirrored by the harness's own
+        /// <c>op=mock</c> branch, which reads the same rule).</para>
         /// </summary>
         internal static bool OpNeedsWindow(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Close
                || op == UiActionOp.Tab || op == UiActionOp.Rect
                || op == UiActionOp.Find || op == UiActionOp.Expand
                || op == UiActionOp.Target || op == UiActionOp.Picker
-               || op == UiActionOp.Run;
+               || op == UiActionOp.Run || op == UiActionOp.State
+               || op == UiActionOp.Sort || op == UiActionOp.Select
+               || op == UiActionOp.Edit;
 
         // ----- the two-phase ops -----
 
@@ -752,12 +828,38 @@ namespace Parsek.TestCommands
         /// <c>Recording</c> rather than on a window host, so a hidden Parsek surface
         /// cannot fake it, and driving the box with that surface closed is a legitimate
         /// thing for a lane to do.</para>
+        /// <para><c>state</c>, <c>sort</c>, <c>select</c> and <c>edit</c> are here for the
+        /// <c>expand</c> reason: each changes DRAWN state, so the read-back is only a
+        /// statement about the game once a frame has run - and for <c>state</c> one key needs
+        /// the frame to be meaningful at all, since a scroll offset is CLAMPED by the scroll
+        /// view during the draw, exactly as <c>rect</c> is resolved by <c>GUILayout</c>.</para>
+        ///
+        /// <para>THREE OF THE FOUR ARE IN <see cref="SettleChecksHostShowUi"/> AND IN
+        /// <see cref="OpRequiresWindowOpen"/>, which an earlier version of this paragraph
+        /// got backwards. <c>state</c>, <c>sort</c> and <c>edit</c> exist to produce a
+        /// PICTURE, and none of them can produce one over a window the frame did not draw:
+        /// with the host's <c>showUI</c> down or the window's own flag shut, the write
+        /// succeeds and the read-back agrees with the value just written, so the op would
+        /// report <c>armed=true</c> over a plain label. <c>select</c> stays exempt because
+        /// it writes MISSION state rather than view state - a selection arranged now and
+        /// photographed after a later tab switch is a legitimate lane - and its read-back is
+        /// a classification of the mission, which no window owns.</para>
         /// <para><c>run</c> is two-phase for a reason none of the others has: its
         /// completion signal is a BATCH ENDING, which takes as many frames as the tests
         /// take, so it owns its own poll (<c>!runner.IsRunning</c>) exactly as
         /// <c>find</c> and <c>pointer</c> own theirs rather than counting drawn frames.
         /// Reporting a result before the batch stopped would photograph a half-run table
         /// under a label claiming results.</para>
+        /// <para><c>mock</c> is here for the <c>find</c> reason, and it owns its own poll
+        /// for the same reason <c>find</c> does: its completion signal is a CAPTURE
+        /// arriving, not a frame having been drawn. The recorder flushes from
+        /// <c>LateUpdate</c> when the frame NUMBER has changed, so a tree armed in frame
+        /// N's Update is assembled during frame N+1's LateUpdate - one frame after a
+        /// shared settle would have declared victory over a null tree. The capture IS the
+        /// read-back here (see <see cref="TestCommandUiMock.NotAppliedReason"/>), so it
+        /// is deliberately NOT in <see cref="SettleChecksHostShowUi"/> either: an undrawn
+        /// window is simply absent from the tree, which the witness check already
+        /// answers.</para>
         /// </summary>
         internal static bool OpIsTwoPhase(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Rect
@@ -765,7 +867,9 @@ namespace Parsek.TestCommands
                || op == UiActionOp.Expand || op == UiActionOp.Target
                || op == UiActionOp.Picker || op == UiActionOp.Playback
                || op == UiActionOp.Raise || op == UiActionOp.Dismiss
-               || op == UiActionOp.Run;
+               || op == UiActionOp.Run || op == UiActionOp.State
+               || op == UiActionOp.Sort || op == UiActionOp.Select
+               || op == UiActionOp.Edit || op == UiActionOp.Mock;
 
         /// <summary>
         /// Whether a SETTLED two-phase op's read-back must additionally be refused when the
@@ -798,7 +902,24 @@ namespace Parsek.TestCommands
         /// mode switch. No behaviour change; this paragraph is the whole treatment.</para>
         /// </summary>
         internal static bool SettleChecksHostShowUi(UiActionOp op)
-            => op == UiActionOp.Open || op == UiActionOp.Rect;
+            => op == UiActionOp.Open || op == UiActionOp.Rect
+               || op == UiActionOp.State || op == UiActionOp.Sort
+               || op == UiActionOp.Edit;
+
+        /// <summary>
+        /// Whether an op must additionally refuse when its named window's own open flag is
+        /// down (<see cref="WindowNotOpenReason"/>), checked PRE-CALL so a refused step
+        /// leaves no state written.
+        ///
+        /// <para>The same three as the host check above and for the same reason: each
+        /// exists to produce a picture of a DRAWN surface, so a closed window makes the
+        /// read-back a comparison of the written value with itself. The set is deliberately
+        /// narrower than "every write op" - <c>expand</c> and <c>playback</c> arrange model
+        /// state a later step photographs, which is a legitimate thing for a lane to do
+        /// with the window shut.</para>
+        /// </summary>
+        internal static bool OpRequiresWindowOpen(UiActionOp op)
+            => op == UiActionOp.State || op == UiActionOp.Sort || op == UiActionOp.Edit;
 
         /// <summary>
         /// One settle poll of a two-phase op.

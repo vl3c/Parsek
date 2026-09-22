@@ -281,7 +281,8 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #   RouteCommand is the Logistics window's Create Route button (through the shared
     #     RouteCreationService funnel) plus the three row operations, dispatched by an
     #     `action=` arg the way KscAction dispatches its sub-actions:
-    #     create / send-once / pause / activate.
+    #     create / send-once / pause / activate / link / unlink / set-cadence
+    #     (ROUTECOMMAND_ACTIONS is the mirrored tuple, pinned against the C# KnownActions).
     # Both SINGLE-PHASE (synchronous state mutation, read-back is a final answer), so
     # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
     # bounds only their game-not-loaded dispatch defer.
@@ -2146,8 +2147,26 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # `RunTests` verb drives a third runner instance whose InGameTestInfo objects neither
     # window holds, so a batch through it photographs a table of dots under a label
     # claiming results. Takes `window=` (one of the two runner windows) and a REQUIRED
-    # `category=`.
-    "run")
+    # `category=`, plus an OPTIONAL `await=` (absent means true).
+    "run",
+    # Wave 6: the four ops that reach the states no op could. `state` drives a window's
+    # SCALAR view state (the Timeline's source toggles, both archive filters, the
+    # Recordings tab's expanded-stats columns, the time-range preset, the scroll offset);
+    # `sort` selects a sortable table's column and direction through the same two fields
+    # the header click writes; `select` drives the Missions tab's per-vessel include and
+    # its cross-tree partner-journey include (the one op here that writes state which
+    # PERSISTS with the save, so a lane using it runs on a throwaway staged fixture);
+    # `edit` puts one of the in-place text editors into edit mode with a given draft.
+    "state", "sort", "select", "edit",
+    # GUI state gallery (P1): `mock` hands ONE window a synthetic VIEW MODEL from a
+    # catalogue compiled into Parsek.dll while the real IMGUI draw code computes every
+    # rect and string, so a census can photograph states no save reaches. A PAIRED op -
+    # `mockState=none` is the clear - plus a read-only `describe=true` form that reports
+    # the catalogue. It is ABSENT from UIACTION_OPS_NEEDING_WINDOW because that describe
+    # form names no window; the apply and clear forms DO require one, which is checked by
+    # the per-op branch in validate_uiaction_step below (mirroring the seam, which checks
+    # it in the applier for the same reason).
+    "mock")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
@@ -2180,6 +2199,63 @@ UIACTION_CTRL_VALUES: Tuple[str, ...] = (
 # `state-arg-invalid` reason rather than spelling a per-op sibling.
 UIACTION_STATE_KEY = "state"
 UIACTION_STATE_VALUES: Tuple[str, ...] = ("true", "false")
+
+# `op=mock`'s state selector: a catalogue id (`<window>.<family>.<variant>`) or the
+# paired-clear sentinel `none`. OPEN valued, so deliberately NOT a
+# VERB_SCOPED_CLOSED_ARGS row - that table models CLOSED vocabularies, and a catalogue
+# grows every phase.
+#
+# SPELLED `mockState` AND NOT `state`, which the design sketched: `state=` is ONE arg
+# key with ONE closed vocabulary across op=expand / op=playback / op=state (true|false,
+# UIACTION_STATE_VALUES above), enforced pre-launch by VERB_SCOPED_CLOSED_ARGS - so a
+# catalogue id in it is a validation error before any boot. Exactly the rule that made
+# op=find's control filter `ctrl=` rather than `kind=`: one key, one vocabulary, and an
+# open-valued selector gets its own key.
+UIACTION_MOCK_STATE_KEY = "mockState"
+
+# The paired-clear sentinel. A token rather than an empty value (the describe payload's
+# `-` rule): a trailing `mockState=` on the wire reads as a truncated line.
+UIACTION_MOCK_CLEAR_TOKEN = "none"
+
+# `op=mock`'s read-only catalogue report. Closed boolean, the await= / commit= shape.
+UIACTION_DESCRIBE_KEY = "describe"
+UIACTION_DESCRIBE_VALUES: Tuple[str, ...] = ("true", "false")
+
+# Every `op=mock` refusal token, mirrored from TestCommandUiMock's own consts (they are
+# `internal const string ...Reason` there, each doc-commented PRE-CALL / POST-CALL /
+# POST-SETTLE). Mirrored rather than derived for the reason every closed-arg row is
+# mirrored: a token renamed on one side alone is a typed REJECTED a lane learns about
+# after a whole KSP boot. GuiCensusSeamVerbTests reads the C# to keep the two equal.
+UIACTION_MOCK_REFUSALS: Tuple[str, ...] = (
+    "mock-arg-missing",
+    "mock-state-unknown",
+    "mock-window-unsupported",
+    "mock-state-window-mismatch",
+    "mock-refused-scene",
+    "mock-refused-recording",
+    "mock-refused-session-live",
+    # The CURRENT complexity mode hides the window's launcher, so no player can have it on
+    # screen: Basic hides the Kerbals and Career State launchers and the mode switch
+    # force-closes both. Refused rather than drawn - the one thing this feature may not do
+    # is put an impossible picture on the mirror.
+    "mock-refused-mode",
+    "mock-not-applied",
+    "mock-restore-failed",
+    # The scope is live and the window has been OBSERVED to have lost its mocked model -
+    # something outside the declared suppression set wrote the injected member. Distinct
+    # from mock-not-applied: that means the frame never drew the model, this means it was
+    # there and went away, which sends an author to a MISSING SUPPRESSION SITE.
+    "mock-scope-broken")
+
+# The `SaveGame` / `LoadGame` / `RunTests` refusal while a mock scope is live. LANE
+# HYGIENE rather than a data guard - nothing injected is read by a save path - so a lane
+# clears its scope (`mockState=none`) before any verb that saves or loads.
+SAVEGAME_REFUSED_GUI_MOCK_REASON = "save-refused-gui-mock"
+
+# The windows the P1 applier has an injection seam and a builder family for, mirroring
+# GuiMockCatalogue.SupportedWindows. `op=mock` on any other window answers
+# mock-window-unsupported after a boot, so the validator refuses it here instead.
+UIACTION_MOCKABLE_WINDOWS: Tuple[str, ...] = ("kerbals", "career", "structure")
 
 # `op=playback`'s OPTIONAL recording selector, and `op=picker window=missions`'s. OPEN
 # valued (a RecordingId is a save-specific generated token, plus the picker's own `first`
@@ -2232,14 +2308,143 @@ UIACTION_EXPAND_PREFIXES: Dict[str, Tuple[str, ...]] = {
     "missions": ("group", "chain", "vessel", "leg", "digest"),
     "logistics": ("row",),
     "kerbals": ("roster", "flights"),
+    # The Career window's two `Pending in timeline` folds, under ONE prefix because the
+    # window keeps ONE fold collection. The wire VALUES are the TAB the fold belongs to
+    # (`pending:contracts` / `pending:strategies`), not the dotted production key
+    # (`Contracts.Pending`) the collection is keyed by: a spec author already knows the
+    # tab, and the dotted form is an implementation detail of that window. INVERTED on the
+    # production side (membership means FOLDED), and the window's own setter does the flip -
+    # the wire speaks "expanded" on every row of this map. Both folds only DRAW under the
+    # divergence layout, which needs a career whose timeline ends later than now, so on any
+    # other save the op answers OK over a fold nothing is drawing (the residue recorded for
+    # op=expand generally).
+    "career": ("pending",),
     "testrunner": ("category",),
     "testrunnerglobal": ("category",),
 }
 
 # The two bulk key tokens. `all` is the affordance a census actually needs ("open every
 # group folder"), because the ids it would otherwise have to name are save-specific and
-# a committed spec cannot carry them.
+# a committed spec cannot carry them. SHARED with `op=select`, whose key grammar is the
+# same `<prefix>:<value>` shape and whose bulk tokens carry their direction the same way.
 UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
+
+# `op=state key=` per window, mirroring TestCommandUiWindowState's key table. A window
+# absent from this map keeps no scalar state the seam drives, and `op=state` against it
+# is the `state-unsupported-window` REJECTED - so the absence is meaningful here too.
+#
+# `archived` IS ONE FLAG NAMED ONCE, valid on BOTH windows and always in the Timeline's
+# POSITIVE sense (`state=true` means archived rows contribute). The Timeline's Archived
+# toggle and the Recordings tab's Archive header checkbox write the same persisted bool
+# (GroupHierarchyStore.HideActive) in opposite label senses; two keys with opposite
+# polarities for one flag would have made every lane read the source to learn which it
+# had. The Missions tab's OWN archive filter (MissionStore.HideArchived) is a different
+# flag over a different list, so it is `archivedMissions` and keeps the store's HIDE
+# sense.
+UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
+    "timeline": ("srcRecordings", "srcActions", "srcEvents", "archived", "customRange",
+                 "preset", "scrollY"),
+    "missions": ("archived", "archivedMissions", "expandedStats"),
+}
+
+# Which half of `op=state`'s two-shaped grammar each key takes. A BOOL key takes
+# `state=true|false` and refuses `value=`; a VALUE key the mirror. Refused rather than
+# resolved by precedence (the `expand-state-with-bulk-key` rule): a step carrying the
+# wrong half has misunderstood the key, and applying the other half would report OK over
+# a state nobody asked for. Reasons: `state-value-arg-not-for-key` /
+# `state-bool-arg-not-for-key`.
+UIACTION_STATE_VALUE_KEYS: Tuple[str, ...] = ("preset", "scrollY")
+
+# `op=state`'s open-valued half. Deliberately NOT a VERB_SCOPED_CLOSED_ARGS row: the two
+# value keys take different shapes (a preset NAME, a scroll OFFSET in pixels), so the
+# check is per key and lives in validate_ui_action_step.
+UIACTION_VALUE_KEY = "value"
+
+# `key=preset value=`: the five buttons the Timeline's preset row draws, in its own
+# left-to-right order. They are the LABELS on purpose - the window stores
+# TimeRangeFilterState.ActivePresetName from the button's own content.text, so the wire
+# token, the label and the stored name are one string and cannot drift. `All` is the
+# row's CLEAR button rather than a range.
+UIACTION_PRESET_VALUES: Tuple[str, ...] = (
+    "Last Day", "Last 7d", "Last 30d", "This Year", "All")
+
+# `op=sort column=` per window, mirroring TestCommandUiSelectSort's tables, and
+# `op=sort dir=`.
+#
+# THE `missions` ROW IS A UNION AND THE SEAM NARROWS IT. That one window hosts two tabs
+# whose column sets COLLIDE (both have an index and a name column), so the seam applies
+# the sort to the CURRENTLY SELECTED tab and REJECTS a column belonging to the other one,
+# naming the live tab. This table cannot know the live tab pre-launch, so it validates
+# the union - the `op=expand` division of labour exactly: shape here, state at the seam.
+UIACTION_SORT_COLUMNS: Dict[str, Tuple[str, ...]] = {
+    "missions": ("index", "name", "start", "phase", "site", "launch", "duration",
+                 "status"),
+    "logistics": ("name", "origin", "destination", "interval", "cycles", "next",
+                  "status", "delivery"),
+    # ONE token for the two header cells "Spawns at" and "In T-": both map to the same
+    # SpawnControlSortColumn.SpawnTime, so there is nothing for a second token to select.
+    "spawncontrol": ("craft", "dist", "relspeed", "spawntime"),
+}
+UIACTION_SORT_COLUMN_KEY = "column"
+UIACTION_SORT_DIR_KEY = "dir"
+UIACTION_SORT_DIR_VALUES: Tuple[str, ...] = ("asc", "desc")
+
+# `op=select key=` prefixes (plus the shared bulk tokens above) and its REQUIRED
+# direction. `vessel:` names a composition-interval key, `link:` a cross-tree foreign
+# dock link id. Both value halves may carry further colons, so the seam splits at the
+# FIRST one - the `op=expand` key rule.
+UIACTION_SELECT_PREFIXES: Tuple[str, ...] = ("vessel", "link")
+UIACTION_INCLUDE_KEY = "include"
+UIACTION_INCLUDE_VALUES: Tuple[str, ...] = ("true", "false")
+
+# `op=run await=`. OPTIONAL and ABSENT MEANS TRUE, so every lane written before it is
+# byte-identical. `await=false` returns as soon as the batch is confirmed dispatched,
+# which is the only way a capture can show the runner's RUNNING control bar (the default
+# form polls to completion, so the table it photographs is always a finished one).
+UIACTION_AWAIT_KEY = "await"
+UIACTION_AWAIT_VALUES: Tuple[str, ...] = ("true", "false")
+
+# `op=edit field=` per window, mirroring TestCommandUiEdit's field table: WHICH in-place
+# text editor to put into edit mode. All three live on the one Missions window, whose
+# chrome RecordingsTableUI owns - the first two are drawn by its Recordings tab and group
+# tree, the third by its Missions tab, so a lane selects the tab before it photographs
+# one.
+#
+# THE OTHER SIX EDITORS ARE ABSENT ON PURPOSE. The GUI has nine, across three idioms.
+# These three share the one idiom a seam can arm completely (a row key, a draft, and a
+# focus sentinel the next draw pass consumes with a single GUI.FocusControl). The two
+# Logistics editors need their route's detail panel expanded first and are mutually
+# exclusive with each other; the four period / auto-loop / warp editors enter edit mode
+# only when Unity's focused control name ALREADY matches, so writing their two fields
+# would draw an unfocused text box - a picture no click can produce. Filed in
+# docs/dev/todo-and-known-bugs.md rather than faked.
+# `RouteCommand action=`: the seven the C# KnownActions carries, in its order. NOT a
+# VERB_SCOPED_CLOSED_ARGS row - that table admits one owner verb per arg key and `action`
+# is also KscAction's - so nothing else would catch a spec naming an action the seam does
+# not know. Mirrored here so a cell can compare the two mechanically.
+ROUTECOMMAND_ACTIONS: Tuple[str, ...] = (
+    "create", "send-once", "pause", "activate", "link", "unlink", "set-cadence")
+
+UIACTION_EDIT_FIELD_KEY = "field"
+UIACTION_EDIT_FIELDS: Dict[str, Tuple[str, ...]] = {
+    "missions": ("recordingname", "groupname", "missiontitle"),
+}
+
+# The draft text. SPELLED `draft` and not `text`, because `text=` is already op=find's and
+# this table admits one owner op per arg key - a `text=` here would be flagged pre-launch
+# as an arg only op=find reads. The name also says what it is: a draft is not a committed
+# value. OPEN valued (it is arbitrary typed text), so no closed row.
+UIACTION_DRAFT_KEY = "draft"
+
+# Whether to run the editor's own commit body after arming. ABSENT MEANS FALSE, which is
+# the opposite of how the seam's other write ops default, and the asymmetry is the point:
+# none of these commits is "write a name". A group or mission-title commit renames a root
+# group plus its auto `/ Debris` and `/ Crew` subgroups plus Mission.Name atomically and
+# rejects BOTH halves on a collision; a recording commit silently DROPS a row that has
+# left the committed list. A lane that only wanted the mid-edit picture must not be able
+# to rename the fixture's history by omission.
+UIACTION_COMMIT_KEY = "commit"
+UIACTION_COMMIT_VALUES: Tuple[str, ...] = ("true", "false")
 
 # The windows each row-armed popup belongs to, mirroring
 # TestCommandUiState.TryParsePicker: `missions` takes group= (Set Parent Group) or
@@ -2275,9 +2480,11 @@ ANSWERMERGE_DIALOG_VALUES: Tuple[str, ...] = ("merge",)
 # write invented history; the pre-switch dialog needs a live Vessel and RE-SPAWNS ITSELF
 # on non-button teardown; the ghost icon menu is spawned inside a Harmony Prefix over a
 # live ghost in map view; the Tracking Station popup's host scene runs no ParsekUI at
-# all; Re-Fly invoke / revert need a RewindPoint and a live session marker; the three
-# Logistics confirms and Disband Group need a live Route / RouteCandidate / group
-# closure. All of those stay FILED with their reason.
+# all; Re-Fly invoke / revert need a RewindPoint and a live session marker; Disband Group
+# needs a live group closure. All of those stay FILED with their reason. The three
+# Logistics confirms LEFT that list in wave 6: each needs a live Route / RouteCandidate,
+# and each of those is resolvable from the store the window already draws, which is the
+# same standard the recording-backed rows meet.
 UIACTION_POPUP_KEY = "popup"
 UIACTION_POPUP_VALUES: Tuple[str, ...] = (
     # The two that need nothing at all from the host, and the only two with no mutating
@@ -2288,7 +2495,13 @@ UIACTION_POPUP_VALUES: Tuple[str, ...] = (
     # The three that need a committed recording from the effective set. `rewind`
     # additionally needs one whose rewind OWNER resolves, which its spawn site silently
     # returns on - the seam answers REJECTED dialog-target-unavailable instead.
-    "rewind", "fastforward", "seal")
+    "rewind", "fastforward", "seal",
+    # Wave 6: the three Logistics confirms, each needing a live Route / Route /
+    # RouteCandidate the seam resolves as "the first one" from the store the window
+    # itself draws. `deletedormantroute` is the one most likely to answer
+    # dialog-target-unavailable on a committed fixture - a save with routes but none
+    # dormant is the normal shape, and only a rewound one grows that bubble.
+    "deleteroute", "deletedormantroute", "createroute")
 
 # `op=dismiss press=`: press one button instead of dismissing the popup outright.
 #
@@ -2330,7 +2543,8 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # other three are about uGUI PopupDialogs, which no window-table row can name - those
 # three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
-    "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run")
+    "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
+    "state", "sort", "select", "edit")
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
@@ -2539,7 +2753,12 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "REJECTED window-arg-missing"
             % (index, UIACTION_WINDOW_KEY, op,
                ",".join(UIACTION_WINDOW_VALUES)))
-    if op not in UIACTION_OPS_NEEDING_WINDOW and window is not None:
+    # `mock` is exempt from the stray-window check and from the requirement alike: it
+    # reads `window=` for its apply and clear forms and NOT for `describe=true`, which is
+    # the whole reason it is absent from UIACTION_OPS_NEEDING_WINDOW. Its own branch
+    # below owns both halves of that rule.
+    if (op not in UIACTION_OPS_NEEDING_WINDOW and op != "mock"
+            and window is not None):
         errors.append(
             "driver.steps[%d].args.%s: op=%s does not read it, so the arg would be "
             "silently ignored" % (index, UIACTION_WINDOW_KEY, op))
@@ -2644,10 +2863,16 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                         % (index, UIACTION_EXPAND_KEY, text,
                            " or ".join(repr(v) for v in UIACTION_EXPAND_BULK_KEYS),
                            window_name, ",".join(prefixes)))
-    elif UIACTION_EXPAND_KEY in step_args:
+    elif op not in ("state", "select", "edit") and UIACTION_EXPAND_KEY in step_args:
+        # FOUR ops read `key=` now, and the grammars differ: a `<prefix>:<value>` pair
+        # (expand, select), a bare field name (state), a row key whose meaning depends on
+        # `field=` (edit), plus the bulk tokens on the two set-driving ones. One arg key,
+        # four per-op parses - which is why each op checks its own below rather than
+        # sharing a branch.
         errors.append(
-            "driver.steps[%d].args.%s: only op=expand reads it, but this step is op=%s "
-            "-- the arg would be silently ignored" % (index, UIACTION_EXPAND_KEY, op))
+            "driver.steps[%d].args.%s: only op=expand, op=state, op=select and "
+            "op=edit read it, but this step is op=%s -- the arg would be silently ignored"
+            % (index, UIACTION_EXPAND_KEY, op))
     if op == "run":
         window_name = str(window) if window is not None else None
         category = step_args.get(UIACTION_RUN_CATEGORY_KEY)
@@ -2672,11 +2897,74 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "the same key, which is what makes this easy to misplace)"
             % (index, UIACTION_RUN_CATEGORY_KEY, op))
 
-    if op not in ("expand", "playback") and UIACTION_STATE_KEY in step_args:
+    if op not in ("expand", "playback", "state") and UIACTION_STATE_KEY in step_args:
         errors.append(
-            "driver.steps[%d].args.%s: only op=expand and op=playback read it, but this "
-            "step is op=%s -- the arg would be silently ignored"
+            "driver.steps[%d].args.%s: only op=expand, op=playback and op=state read it, "
+            "but this step is op=%s -- the arg would be silently ignored"
             % (index, UIACTION_STATE_KEY, op))
+
+    # ---- op=mock: the GUI state gallery primitive (P1) ----
+    #
+    # Three forms, and the per-op branch is here rather than in the tables because the
+    # WINDOW requirement is per-INTENT: `describe=true` reports the whole catalogue and
+    # names no window, so `mock` cannot sit in UIACTION_OPS_NEEDING_WINDOW. Everything a
+    # table could not express is checked below, each fault costing a whole KSP boot
+    # otherwise.
+    if op == "mock":
+        mock_state = step_args.get(UIACTION_MOCK_STATE_KEY)
+        describe = step_args.get(UIACTION_DESCRIBE_KEY)
+        describing = str(describe) == "true"
+        if mock_state is None and not describing:
+            errors.append(
+                "driver.steps[%d].args: op=mock REQUIRES either %s=<catalogue id|%s> or "
+                "%s=true; there is no default (applying a guessed state would photograph "
+                "something the lane never asked for), so the seam answers REJECTED "
+                "mock-arg-missing"
+                % (index, UIACTION_MOCK_STATE_KEY, UIACTION_MOCK_CLEAR_TOKEN,
+                   UIACTION_DESCRIBE_KEY))
+        if mock_state is not None and describing:
+            errors.append(
+                "driver.steps[%d].args: op=mock names BOTH %s and %s=true, which do "
+                "opposite things. The seam refuses rather than preferring one, so this is "
+                "REJECTED mock-arg-missing"
+                % (index, UIACTION_MOCK_STATE_KEY, UIACTION_DESCRIBE_KEY))
+        if mock_state is not None:
+            state_text = handle_shape_probe(mock_state)
+            window_name = str(window) if window is not None else None
+            if window is None:
+                errors.append(
+                    "driver.steps[%d].args.%s: op=mock with %s REQUIRES it (one of %s). "
+                    "Only the %s=true form names no window; the seam answers REJECTED "
+                    "window-arg-missing"
+                    % (index, UIACTION_WINDOW_KEY, UIACTION_MOCK_STATE_KEY,
+                       ",".join(UIACTION_MOCKABLE_WINDOWS), UIACTION_DESCRIBE_KEY))
+            elif (window_name in UIACTION_WINDOW_VALUES
+                    and window_name not in UIACTION_MOCKABLE_WINDOWS):
+                errors.append(
+                    "driver.steps[%d].args.%s: window %r has no injection seam in this "
+                    "build, so op=mock answers REJECTED mock-window-unsupported. The "
+                    "mockable windows are %s"
+                    % (index, UIACTION_WINDOW_KEY, window_name,
+                       ", ".join(UIACTION_MOCKABLE_WINDOWS)))
+            if (state_text is not None
+                    and state_text != UIACTION_MOCK_CLEAR_TOKEN
+                    and window_name in UIACTION_MOCKABLE_WINDOWS
+                    and not state_text.startswith(window_name + ".")):
+                # A catalogue id is <window>.<family>.<variant>, so the window prefix is
+                # checkable here. The seam answers mock-state-window-mismatch for it,
+                # which is a whole boot to learn.
+                errors.append(
+                    "driver.steps[%d].args.%s: %r does not start with %r, so it names "
+                    "another window's state and the seam answers REJECTED "
+                    "mock-state-window-mismatch"
+                    % (index, UIACTION_MOCK_STATE_KEY, state_text, window_name + "."))
+    else:
+        for stray in (UIACTION_MOCK_STATE_KEY, UIACTION_DESCRIBE_KEY):
+            if stray in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: only op=mock reads it, but this step is "
+                    "op=%s -- the arg would be silently ignored"
+                    % (index, stray, op))
 
     if op == "playback":
         # REQUIRED, unlike on op=expand where absent means `true`. This op is driven BOTH
@@ -2700,6 +2988,237 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: only op=picker and op=playback read it, but this "
             "step is op=%s -- the arg would be silently ignored"
             % (index, UIACTION_RECORDING_KEY, op))
+
+    if op == "state":
+        window_name = str(window) if window is not None else None
+        key = step_args.get(UIACTION_EXPAND_KEY)
+        keys = (UIACTION_STATE_KEYS.get(window_name)
+                if window_name in UIACTION_WINDOW_VALUES else None)
+        if key is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=state REQUIRES it (window %r keeps %s); "
+                "there is no \"the\" state of a window, so the seam answers REJECTED "
+                "state-key-arg-missing"
+                % (index, UIACTION_EXPAND_KEY, window_name,
+                   ",".join(keys) if keys else "none"))
+        elif window_name in UIACTION_WINDOW_VALUES and not keys:
+            errors.append(
+                "driver.steps[%d].args.%s: window %r keeps no scalar state the seam can "
+                "drive, so op=state answers REJECTED state-unsupported-window. The ones "
+                "that do are %s"
+                % (index, UIACTION_EXPAND_KEY, window_name,
+                   ", ".join(sorted(UIACTION_STATE_KEYS))))
+        elif keys:
+            text = handle_shape_probe(key)
+            if text is not None and text not in keys:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r is not a state key of window %r (its "
+                    "keys are %s). The seam's parse is fail-closed and CASE-SENSITIVE"
+                    % (index, UIACTION_EXPAND_KEY, text, window_name, ",".join(keys)))
+            elif text is not None:
+                # The two-shaped grammar: a BOOL key takes state=, a VALUE key takes
+                # value=, and each REFUSES the other half rather than ignoring it.
+                is_value_key = text in UIACTION_STATE_VALUE_KEYS
+                has_state = UIACTION_STATE_KEY in step_args
+                has_value = UIACTION_VALUE_KEY in step_args
+                if is_value_key and has_state:
+                    errors.append(
+                        "driver.steps[%d].args: key=%s takes %s=, not %s=; the seam "
+                        "answers REJECTED state-bool-arg-not-for-key"
+                        % (index, text, UIACTION_VALUE_KEY, UIACTION_STATE_KEY))
+                if is_value_key and not has_value:
+                    errors.append(
+                        "driver.steps[%d].args.%s: op=state key=%s REQUIRES it; the seam "
+                        "answers REJECTED state-value-arg-missing"
+                        % (index, UIACTION_VALUE_KEY, text))
+                if not is_value_key and has_value:
+                    errors.append(
+                        "driver.steps[%d].args: key=%s takes %s=, not %s=; the seam "
+                        "answers REJECTED state-value-arg-not-for-key"
+                        % (index, text, UIACTION_STATE_KEY, UIACTION_VALUE_KEY))
+                if not is_value_key and not has_state:
+                    errors.append(
+                        "driver.steps[%d].args.%s: op=state key=%s REQUIRES it (one of "
+                        "%s). Every key here is driven BOTH ways by a census, so there "
+                        "is no default direction and the seam answers REJECTED "
+                        "state-arg-missing"
+                        % (index, UIACTION_STATE_KEY, text,
+                           " or ".join(repr(v) for v in UIACTION_STATE_VALUES)))
+                raw_value = step_args.get(UIACTION_VALUE_KEY)
+                probe = handle_shape_probe(raw_value) if raw_value is not None else None
+                if probe is not None and text == "preset" \
+                        and probe not in UIACTION_PRESET_VALUES:
+                    errors.append(
+                        "driver.steps[%d].args.%s: %r is not one of the preset row's "
+                        "buttons (%s); the seam answers REJECTED "
+                        "state-value-arg-invalid"
+                        % (index, UIACTION_VALUE_KEY, probe,
+                           ",".join(UIACTION_PRESET_VALUES)))
+                if probe is not None and text == "scrollY":
+                    bad = False
+                    try:
+                        bad = float(probe) < 0
+                    except ValueError:
+                        bad = True
+                    if bad:
+                        errors.append(
+                            "driver.steps[%d].args.%s: %r must be a non-negative "
+                            "dot-decimal number of pixels; the seam parses it with "
+                            "InvariantCulture and answers REJECTED "
+                            "state-value-arg-invalid" % (index, UIACTION_VALUE_KEY, probe))
+    elif UIACTION_VALUE_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: on a UiAction step only op=state reads it, but "
+            "this step is op=%s -- the arg would be silently ignored (the SetSetting VERB "
+            "reads the same key, which is what makes this easy to misplace)"
+            % (index, UIACTION_VALUE_KEY, op))
+
+    if op == "sort":
+        window_name = str(window) if window is not None else None
+        columns = (UIACTION_SORT_COLUMNS.get(window_name)
+                   if window_name in UIACTION_WINDOW_VALUES else None)
+        column = step_args.get(UIACTION_SORT_COLUMN_KEY)
+        if window_name in UIACTION_WINDOW_VALUES and not columns:
+            errors.append(
+                "driver.steps[%d].args.%s: window %r has no sortable table, so op=sort "
+                "answers REJECTED sort-unsupported-window. The ones that do are %s"
+                % (index, UIACTION_WINDOW_KEY, window_name,
+                   ", ".join(sorted(UIACTION_SORT_COLUMNS))))
+        if column is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=sort REQUIRES it; there is no default "
+                "column, so the seam answers REJECTED sort-column-arg-missing"
+                % (index, UIACTION_SORT_COLUMN_KEY))
+        elif columns:
+            text = handle_shape_probe(column)
+            if text is not None and text not in columns:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r is not a sortable column of window %r "
+                    "(its columns are %s). On the missions window this table is the UNION "
+                    "of both tabs' columns and the seam NARROWS it to the live tab, so a "
+                    "column of the other tab passes here and is REJECTED "
+                    "sort-column-invalid at the seam"
+                    % (index, UIACTION_SORT_COLUMN_KEY, text, window_name,
+                       ",".join(columns)))
+        if step_args.get(UIACTION_SORT_DIR_KEY) is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=sort REQUIRES it (one of %s). A defaulted "
+                "direction would silently photograph the other half of the state a lane "
+                "asked for, so the seam answers REJECTED sort-dir-arg-missing"
+                % (index, UIACTION_SORT_DIR_KEY,
+                   " or ".join(repr(v) for v in UIACTION_SORT_DIR_VALUES)))
+    else:
+        for stray_key in (UIACTION_SORT_COLUMN_KEY, UIACTION_SORT_DIR_KEY):
+            if stray_key in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: only op=sort reads it, but this step is "
+                    "op=%s -- the arg would be silently ignored"
+                    % (index, stray_key, op))
+
+    if op == "select":
+        window_name = str(window) if window is not None else None
+        if window_name in UIACTION_WINDOW_VALUES and window_name != "missions":
+            errors.append(
+                "driver.steps[%d].args.%s: only the 'missions' window has an include "
+                "affordance, so op=select against %r answers REJECTED "
+                "select-unsupported-window"
+                % (index, UIACTION_WINDOW_KEY, window_name))
+        key = step_args.get(UIACTION_EXPAND_KEY)
+        if key is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=select REQUIRES it (one of %s, or a "
+                "<prefix>:<value> key with a prefix of %s); the seam answers REJECTED "
+                "select-key-arg-missing"
+                % (index, UIACTION_EXPAND_KEY,
+                   " or ".join(repr(v) for v in UIACTION_EXPAND_BULK_KEYS),
+                   ",".join(UIACTION_SELECT_PREFIXES)))
+        elif str(key) in UIACTION_EXPAND_BULK_KEYS:
+            if UIACTION_INCLUDE_KEY in step_args:
+                errors.append(
+                    "driver.steps[%d].args: key=%s already CARRIES its direction, so %s "
+                    "beside it either agrees redundantly or contradicts it; the seam "
+                    "answers REJECTED select-include-with-bulk-key rather than letting "
+                    "the token win silently"
+                    % (index, str(key), UIACTION_INCLUDE_KEY))
+        else:
+            text = handle_shape_probe(key)
+            head = None if text is None else (
+                text.split(":", 1)[0] if ":" in text else None)
+            if text is not None and (head is None
+                                     or head not in UIACTION_SELECT_PREFIXES
+                                     or text.endswith(":")):
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be %s or <prefix>:<value> with a "
+                    "prefix of %s. The seam's parse is fail-closed and CASE-SENSITIVE"
+                    % (index, UIACTION_EXPAND_KEY, text,
+                       " or ".join(repr(v) for v in UIACTION_EXPAND_BULK_KEYS),
+                       ",".join(UIACTION_SELECT_PREFIXES)))
+            elif text is not None and UIACTION_INCLUDE_KEY not in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: op=select REQUIRES it on a single key (one "
+                    "of %s); the seam answers REJECTED select-include-arg-missing"
+                    % (index, UIACTION_INCLUDE_KEY,
+                       " or ".join(repr(v) for v in UIACTION_INCLUDE_VALUES)))
+    elif UIACTION_INCLUDE_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: only op=select reads it, but this step is op=%s "
+            "-- the arg would be silently ignored" % (index, UIACTION_INCLUDE_KEY, op))
+
+    # `mission=` has TWO owner ops - op=target's structure-window selector and, since wave
+    # 6, op=select's OPTIONAL one - so this is its own rule rather than an arm of the
+    # include chain above. It was an arm of it once, which made an op=select step carrying
+    # no mission= fall through to "only op=select reads it, but this step is op=select".
+    if op not in ("target", "select") and "mission" in step_args:
+        errors.append(
+            "driver.steps[%d].args.mission: only op=target and op=select read it, but "
+            "this step is op=%s -- the arg would be silently ignored" % (index, op))
+
+    if op == "edit":
+        window_name = str(window) if window is not None else None
+        fields = (UIACTION_EDIT_FIELDS.get(window_name)
+                  if window_name in UIACTION_WINDOW_VALUES else None)
+        if window_name in UIACTION_WINDOW_VALUES and not fields:
+            errors.append(
+                "driver.steps[%d].args.%s: window %r owns no driveable in-place editor, "
+                "so op=edit answers REJECTED edit-unsupported-window. The ones that do "
+                "are %s"
+                % (index, UIACTION_WINDOW_KEY, window_name,
+                   ", ".join(sorted(UIACTION_EDIT_FIELDS))))
+        field = step_args.get(UIACTION_EDIT_FIELD_KEY)
+        if field is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=edit REQUIRES it (window %r owns %s); a "
+                "window has several editors and there is no \"the\" one, so the seam "
+                "answers REJECTED edit-field-arg-missing"
+                % (index, UIACTION_EDIT_FIELD_KEY, window_name,
+                   ",".join(fields) if fields else "none"))
+        elif fields:
+            text = handle_shape_probe(field)
+            if text is not None and text not in fields:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r is not an editor of window %r (its "
+                    "editors are %s). The seam's parse is fail-closed and CASE-SENSITIVE"
+                    % (index, UIACTION_EDIT_FIELD_KEY, text, window_name,
+                       ",".join(fields)))
+        if step_args.get(UIACTION_EXPAND_KEY) is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=edit REQUIRES it - every one of these "
+                "editors is keyed by a ROW (a RecordingId, a group name, a Mission id), "
+                "so an unkeyed arm would have to pick a row for the lane; the seam "
+                "answers REJECTED edit-key-arg-missing" % (index, UIACTION_EXPAND_KEY))
+    else:
+        for stray_key in (UIACTION_EDIT_FIELD_KEY, UIACTION_DRAFT_KEY,
+                          UIACTION_COMMIT_KEY):
+            if stray_key in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: only op=edit reads it, but this step is "
+                    "op=%s -- the arg would be silently ignored"
+                    % (index, stray_key, op))
+
+    if op != "run" and UIACTION_AWAIT_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: only op=run reads it, but this step is op=%s -- "
+            "the arg would be silently ignored" % (index, UIACTION_AWAIT_KEY, op))
 
     if op == "target":
         window_name = str(window) if window is not None else None
@@ -2859,6 +3378,11 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_NUDGE_KEY: ("UiAction", UIACTION_NUDGE_VALUES),
     UIACTION_POPUP_KEY: ("UiAction", UIACTION_POPUP_VALUES),
     UIACTION_PRESS_KEY: ("UiAction", UIACTION_PRESS_VALUES),
+    UIACTION_SORT_DIR_KEY: ("UiAction", UIACTION_SORT_DIR_VALUES),
+    UIACTION_INCLUDE_KEY: ("UiAction", UIACTION_INCLUDE_VALUES),
+    UIACTION_AWAIT_KEY: ("UiAction", UIACTION_AWAIT_VALUES),
+    UIACTION_COMMIT_KEY: ("UiAction", UIACTION_COMMIT_VALUES),
+    UIACTION_DESCRIBE_KEY: ("UiAction", UIACTION_DESCRIBE_VALUES),
     ANSWERMERGE_DIALOG_KEY: ("AnswerMergeDialog", ANSWERMERGE_DIALOG_VALUES),
 }
 
@@ -7962,6 +8486,31 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "candidate-dismissed": "driver-gate",
     "candidate-already-promoted": "driver-gate",
     "route-build-rejected": "driver-gate",
+    # Wave 6 added three actions (link / unlink / set-cadence) and nine tokens with them.
+    # They split the same two ways, and without these rows every one collapses to the
+    # coarse driver-verdict-mismatch.
+    #   Arg half - the SPEC named or spelled something wrong. `unknown-partner` and
+    #     `partner-ambiguous` are the `unknown-route` / `route-ambiguous` pair for the
+    #     second selector, so they take the same class for the same reason: the fix is a
+    #     longer selector in the spec. `cadence-arg-missing` / `cadence-arg-invalid` are
+    #     the `interval-arg-invalid` shape.
+    "unknown-partner": "driver-arg",
+    "partner-ambiguous": "driver-arg",
+    "cadence-arg-missing": "driver-arg",
+    "cadence-arg-invalid": "driver-arg",
+    #   Gate half - nothing is misspelled; the run reached a state the action does not
+    #     drive and the fix is an EARLIER STEP or a different fixture. `link-self` is the
+    #     one borderline call: the spec did name one route twice, but the remedy is a
+    #     different PARTNER rather than a better spelling of the same one, and a lane that
+    #     resolved both selectors to one route has a fixture with fewer routes than it
+    #     thought. `link-already-linked` wants an `action=unlink` first; `route-not-linked`
+    #     wants a link first; `link-no-candidate` means no eligible partner exists at all;
+    #     `cadence-unchanged` means the route already carries that multiplier.
+    "link-self": "driver-gate",
+    "link-already-linked": "driver-gate",
+    "link-no-candidate": "driver-gate",
+    "route-not-linked": "driver-gate",
+    "cadence-unchanged": "driver-gate",
     # NOT mapped, deliberately, and for the SAME reason as switch-refused-by-stock:
     # `route-action-refused`, `seal-incomplete` and `seal-refused` are all POST-ACT
     # terminals (ERROR, not REJECTED). The verb reached the production call and the
@@ -9493,8 +10042,29 @@ ARTIFACT_LOG_TAIL_BYTES = 56 * 1024 * 1024
 # that directory is somebody else's file and is NOT collected - a distinction a
 # last-dot extension test cannot express.
 ARTIFACT_SHOTS_SUFFIXES: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".gui.json")
-ARTIFACT_MAX_SCREENSHOTS = 64
-ARTIFACT_MAX_SCREENSHOT_BYTES = 256 * 1024 * 1024
+# P1b (GUI state gallery). RAISED FROM 64, which was the single highest-leverage
+# number in the design: a capture PAIR is TWO files (both `.png` and `.gui.json` are in
+# ARTIFACT_SHOTS_SUFFIXES above), so a 64-file cap harvested at most 32 STATES and
+# dropped the rest into `skipped_over_cap` - reported as artifacts.screenshotsSkipped
+# and easy to miss. Every current lane reads 0 skipped because GUI-1's 45 files sit just
+# under the old cap, which is precisely why nothing ever noticed the ceiling.
+#
+# 1024 files = 512 states, against a design target of ~400 with headroom for the
+# BOTH-modes form of a gallery run. The cap is not a budget, it is a capture-storm
+# guard: the BYTE cap below is what actually bounds a run's size.
+ARTIFACT_MAX_SCREENSHOTS = 1024
+
+# RAISED FROM 256 MB for the same phase, and it was the closer of the two at scale.
+# Measured across 30 PASS GUI-census runs: PNG median 194 KB / mean 353 KB / p90 660 KB,
+# `.gui.json` median 14.8 KB / mean 74.3 KB / max 2.44 MB. 400 states is 63 MB at the
+# median, 128 MB at the mean and 257 MB at p90 - i.e. exactly AT the old cap in the
+# worst case. 768 MB clears p90 for 400 states with room, and keeps a runaway capture
+# loop from filling a disk.
+#
+# The thing to watch next is ARTIFACT_SHOTS_MAX_TOTAL_BYTES (2 GB) across RETAINED runs,
+# which is a different cap over a different scope and is deliberately NOT raised here:
+# it bounds the results tree, not one run.
+ARTIFACT_MAX_SCREENSHOT_BYTES = 768 * 1024 * 1024
 ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS = 2.0
 
 

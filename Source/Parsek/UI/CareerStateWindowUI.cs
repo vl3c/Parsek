@@ -214,6 +214,17 @@ namespace Parsek
 
         public void InvalidateCache()
         {
+            // GUI state gallery: this is the OTHER writer of cachedVM, reached from
+            // LedgerOrchestrator.OnTimelineDataChanged through
+            // ParsekUI.OnTimelineDataChanged - so suppressing only the rebuild PREDICATE
+            // left a hole: any ledger write nulled the mocked VM, the predicate then
+            // answered "do not rebuild", and the draw dereferenced a null Nullable every
+            // frame. Suppressed here, and the predicate additionally always rebuilds a
+            // NULL cache (see ShouldRebuildCachedVM) so the hole cannot reopen even if a
+            // third writer appears.
+            if (Parsek.UI.Gallery.GuiMockSession.Suppressed(
+                    Parsek.UI.Gallery.GuiMockSession.CareerInvalidate))
+                return;
             cachedVM = null;
             ParsekLog.Verbose("UI", "CareerStateWindow: cache invalidated");
         }
@@ -895,8 +906,31 @@ namespace Parsek
             Game.Modes currentMode,
             double liveUT)
         {
+            // GUI state gallery: while an ARMED seam session owns this window, the cached
+            // VM is a mocked one. This is the site that MUST be suppressed rather than one
+            // that merely benefits - the UT-text compare below rebuilds within one game
+            // second, so without it a mocked career would not survive to the frame a
+            // capture needs. The predicate is false in every player build (only
+            // ParsekTestCommandAddon.UiMock can create a session) and it logs one Verbose
+            // line per site per session, never per poll.
+            //
+            // A NULL CACHE IS ALWAYS REBUILT, session or not, and that ORDER is the fix
+            // for a real defect: suppressing ahead of the null check meant a nulled mocked
+            // VM was never rebuilt and the draw dereferenced a null Nullable every frame,
+            // so a capture photographed a half-drawn window under the mocked state's
+            // label. The scope is marked BROKEN so the applier answers
+            // `mock-scope-broken` instead of reporting a state it is no longer showing.
             if (cachedVM == null)
+            {
+                Parsek.UI.Gallery.GuiMockSession.NoteScopeBroken(
+                    Parsek.UI.Gallery.GuiMockSession.CareerVmRebuild,
+                    "cached-vm-nulled");
                 return true;
+            }
+
+            if (Parsek.UI.Gallery.GuiMockSession.Suppressed(
+                    Parsek.UI.Gallery.GuiMockSession.CareerVmRebuild))
+                return false;
 
             var vm = cachedVM.Value;
             if (vm.Mode != currentMode)
@@ -2036,15 +2070,43 @@ namespace Parsek
         /// IMGUI. Returns true when the section is now folded.
         /// </summary>
         internal static bool ToggleSection(HashSet<string> foldedGroups, string name)
+            => SetSectionFolded(foldedGroups, !foldedGroups.Contains(name), name);
+
+        /// <summary>
+        /// Folds or unfolds one section, and returns whether it is now folded.
+        ///
+        /// <para>The absolute form behind <see cref="ToggleSection"/>, which a CLICK wants
+        /// (it has no direction of its own) and a commanded write does NOT: the
+        /// automation-only <c>UiAction op=expand window=career</c> seam op is told which
+        /// state to reach, and a toggle would have flipped an already-correct fold into the
+        /// wrong one. One writer for both, so the log line is the same either way.</para>
+        /// </summary>
+        internal static bool SetSectionFolded(HashSet<string> foldedGroups, bool folded,
+                                              string name)
         {
+            if (foldedGroups == null) return false;
             bool wasFolded = foldedGroups.Contains(name);
-            if (wasFolded) foldedGroups.Remove(name);
-            else foldedGroups.Add(name);
-            bool nowFolded = !wasFolded;
-            ParsekLog.Verbose("UI",
-                $"CareerStateWindow: section toggled name={name} folded={nowFolded}");
-            return nowFolded;
+            if (folded) foldedGroups.Add(name);
+            else foldedGroups.Remove(name);
+            if (wasFolded != folded)
+                ParsekLog.Verbose("UI",
+                    $"CareerStateWindow: section toggled name={name} folded={folded}");
+            return folded;
         }
+
+        /// <summary>
+        /// Every fold key this window keeps, in tab order.
+        ///
+        /// <para>Two, and the window has no others: the Facilities and Milestones tabs have
+        /// no folds, and the only other UI state here is the tab index. Named as a list so
+        /// the seam's <c>key=all</c> / <c>key=none</c> form has something to enumerate
+        /// instead of a copy of the two constants; the list is BUILT from those constants,
+        /// so it cannot drift from them.</para>
+        /// </summary>
+        internal static readonly string[] FoldGroupKeys = new[]
+        {
+            GroupKey_ContractsPending, GroupKey_StrategiesPending,
+        };
 
         /// <summary>
         /// Emits a one-shot-per-mode-change Verbose log for Sandbox / Science

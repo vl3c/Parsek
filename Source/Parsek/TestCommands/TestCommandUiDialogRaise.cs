@@ -56,6 +56,24 @@ namespace Parsek.TestCommands
         /// returns on.</summary>
         internal bool NeedsRewindOwner;
 
+        /// <summary>True when the raise needs a stored route from
+        /// <c>RouteStore.CommittedRoutes</c>. Its spawn site silently returns on a null
+        /// route, so a host with none answers
+        /// <see cref="TestCommandUiDialogRaise.TargetUnavailableReason"/>.</summary>
+        internal bool NeedsCommittedRoute;
+
+        /// <summary>True when the raise needs a route from
+        /// <c>RouteStore.DormantRoutes</c>. A SEPARATE capability from
+        /// <see cref="NeedsCommittedRoute"/> rather than one "needs a route" flag: the two
+        /// lists are disjoint populations with their own spawn sites and their own popup
+        /// names, and a host may carry one and not the other.</summary>
+        internal bool NeedsDormantRoute;
+
+        /// <summary>True when the raise needs a <c>RouteCandidate</c> the Logistics window
+        /// is currently DRAWING, with both <c>Tree</c> and <c>Analysis</c> non-null - the
+        /// pair its spawn site's own guard requires.</summary>
+        internal bool NeedsRouteCandidate;
+
         internal UiDialogPressPolicy Press;
 
         /// <summary>The one button <c>press=</c> may name under
@@ -172,6 +190,9 @@ namespace Parsek.TestCommands
         internal const string RewindDialog = "rewind";
         internal const string FastForwardDialog = "fastforward";
         internal const string SealDialog = "seal";
+        internal const string DeleteRouteDialog = "deleteroute";
+        internal const string DeleteDormantRouteDialog = "deletedormantroute";
+        internal const string CreateRouteDialog = "createroute";
 
         // ----- reject / error reasons -----
 
@@ -237,8 +258,7 @@ namespace Parsek.TestCommands
         //     hosts no ParsekUI and therefore no UiAction at all.
         //   - Re-Fly invoke / Re-Fly revert: a RewindPoint with a child slot, and a live
         //     ReFlySessionMarker, respectively.
-        //   - the three Logistics confirms and Disband Group: a live Route / RouteCandidate
-        //     / group closure.
+        //   - Disband Group: a live group closure.
 
         private static readonly UiRaisableDialog[] DialogTable = new[]
         {
@@ -327,6 +347,50 @@ namespace Parsek.TestCommands
                 Press = UiDialogPressPolicy.SafeButtonOnly,
                 SafeButton = "Cancel",
                 OwnsInputLock = true,
+            },
+
+            // LogisticsWindowUI.SpawnDeleteRouteConfirmation(route), reached through an
+            // internal wrapper over the SAME private method (the OpenLinkPickerForTesting
+            // precedent). Silently returns on a null route, so the applier resolves a
+            // committed route first. `Delete` removes the route from the store.
+            new UiRaisableDialog
+            {
+                Name = DeleteRouteDialog,
+                PopupName = "ParsekLogisticsDeleteRouteConfirm",
+                Title = "Confirm: Delete Route",
+                Buttons = new[] { "Delete", "Cancel" },
+                NeedsCommittedRoute = true,
+                Press = UiDialogPressPolicy.SafeButtonOnly,
+                SafeButton = "Cancel",
+            },
+
+            // LogisticsWindowUI.SpawnDeleteDormantRouteConfirmation(route). Same shape over
+            // the DISJOINT dormant list: a host with committed routes and no dormant ones
+            // cannot raise this, which is why the capability is its own flag.
+            new UiRaisableDialog
+            {
+                Name = DeleteDormantRouteDialog,
+                PopupName = "ParsekLogisticsDeleteDormantRouteConfirm",
+                Title = "Confirm: Delete Dormant Route",
+                Buttons = new[] { "Delete", "Cancel" },
+                NeedsDormantRoute = true,
+                Press = UiDialogPressPolicy.SafeButtonOnly,
+                SafeButton = "Cancel",
+            },
+
+            // LogisticsWindowUI.SpawnCreateRouteConfirmation(candidate). THREE buttons, two
+            // of which build a route - so the policy admits only `Cancel`, exactly as it
+            // does for the one-confirm rows. Its guard needs a candidate with BOTH Tree and
+            // Analysis, which the applier's resolver checks before calling.
+            new UiRaisableDialog
+            {
+                Name = CreateRouteDialog,
+                PopupName = "ParsekLogisticsCreateRouteConfirm",
+                Title = "Create Supply Route?",
+                Buttons = new[] { "Create Paused", "Create and Activate", "Cancel" },
+                NeedsRouteCandidate = true,
+                Press = UiDialogPressPolicy.SafeButtonOnly,
+                SafeButton = "Cancel",
             },
         };
 

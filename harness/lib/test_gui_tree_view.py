@@ -606,7 +606,16 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
             ("value", "extras_of"),
             ("textValue", "node_label and extras_of"),
             ("controlId", "extras_of"),
+            ("selectedIndex", "extras_of, and the mirror's selected-grid-cell marker"),
             ("windowId", "extras_of"),
+            # GUI state gallery: the provenance block that tells a reader (and the
+            # mirror) which captures were taken over a MOCKED view model. ADDITIVE -
+            # absent means a real-save capture - so the schema id below does not move.
+            ("mock", "render_page's MOCKED meta strip, and the mirror's dataset split"),
+            ("stateId", "the MOCKED meta strip names the catalogue state"),
+            ("catalogue", "the MOCKED meta strip names the catalogue contract"),
+            ("states", "how many states the catalogue carried at capture time"),
+            ("covers", "the branch keys the state claims"),
             ("horizontal", "extras_of"),
             ("children", "flatten's recursion"),
         ]
@@ -624,6 +633,18 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
                       "%s declares a different schema id from the viewer's %r, so "
                       "every dump would render with a 'schema is ...' warning"
                       % (os.path.basename(path), gtv.SCHEMA_ID))
+
+    def test_the_mock_block_is_only_written_when_a_scope_is_live(self):
+        """The `mock` key is emitted from ONE guarded site, and "absent means real" is
+        what keeps every existing dump shaped as it was and keeps a mocked capture from
+        pairing with a real one in the mirror's Compare. Read off the writer's source so
+        an unconditional write - which would stamp every census dump as mocked - reds
+        here instead of on the next run."""
+        path, src = self._writer_source()
+        self.assertIn("header.Mock != null", src,
+                      "%s writes the mock block unconditionally; 'absent means real' is "
+                      "the reader's rule and the mirror's isolation"
+                      % os.path.basename(path))
 
     def test_the_dump_suffix_matches_the_one_the_viewer_globs(self):
         repo_root = os.path.dirname(

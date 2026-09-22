@@ -153,6 +153,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AButtonGridWritesItsSelectedIndexAndNoControlId()
+        {
+            // GUI.DoButtonGrid takes no control id at all, so the selected cell has its
+            // own key: under "controlId" a reader could not tell it apart from a genuine
+            // IMGUI control id on any other kind.
+            var events = new List<GuiTreeEvent>
+            {
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Leaf, Kind = GuiNodeKind.ButtonGrid,
+                    Rect = new GuiRect(0f, 0f, 300f, 21f),
+                    TextValue = "Flights", SelectedIndex = 1,
+                },
+            };
+            string json = GuiTreeJson.Write(Header(), GuiTreeAssembler.Assemble(events));
+
+            Assert.Contains("\"selectedIndex\": 1", json);
+            Assert.DoesNotContain("\"controlId\"", json);
+        }
+
+        [Fact]
+        public void SelectedIndexIsOmittedWhenNoFunnelSuppliedOne()
+        {
+            var events = new List<GuiTreeEvent>
+            {
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Leaf, Kind = GuiNodeKind.Label,
+                    Rect = new GuiRect(0f, 0f, 100f, 20f), Text = "Kerbal",
+                },
+            };
+            string json = GuiTreeJson.Write(Header(), GuiTreeAssembler.Assemble(events));
+
+            Assert.DoesNotContain("selectedIndex", json);
+        }
+
+        [Fact]
         public void FunnelReportIsWrittenWithPatchedAndHitCounts()
         {
             GuiTreeCaptureHeader header = Header();
@@ -332,6 +369,90 @@ namespace Parsek.Tests
             string scaled = GuiTreeJson.Write(header, TreeWithOneWindow());
             Assert.Contains("\"guiMatrix\": {\"identity\": false, \"m00\": 1.5, \"m11\": 1.5, "
                 + "\"m03\": 12.25, \"m13\": -4}", scaled);
+        }
+
+        [Fact]
+        public void TheMockBlockIsAbsentForAnOrdinaryCapture()
+        {
+            // "Absent means real" is the reader's rule AND the mirror's isolation, so
+            // this cell is what keeps every existing dump shaped exactly as it was.
+            string json = GuiTreeJson.Write(Header(), TreeWithOneWindow());
+            Assert.DoesNotContain("\"mock\"", json);
+        }
+
+        [Fact]
+        public void TheMockBlockCarriesTheProvenanceAMirrorNeedsToBadgeACapture()
+        {
+            // The block exists because the mirror derives a capture's dataset from the
+            // lane's fixture.saveTemplate, and a gallery lane HAS one (it needs a loaded
+            // game). Without provenance INSIDE the artifact a mocked capture would file
+            // under a real fixture's name and pair against real captures in Compare.
+            GuiTreeCaptureHeader header = Header();
+            header.Mock = new GuiTreeMockProvenance
+            {
+                StateId = "kerbals.roster.lost",
+                Window = "kerbals",
+                Catalogue = "gui-mock/1",
+                States = 46,
+            };
+            header.Mock.Covers.Add("RosterStatus.Lost");
+            header.Mock.Covers.Add("KerbalEndState.Dead");
+
+            string json = GuiTreeJson.Write(header, TreeWithOneWindow());
+            Assert.Contains(
+                "\"mock\": {\"stateId\": \"kerbals.roster.lost\", \"window\": \"kerbals\", "
+                + "\"catalogue\": \"gui-mock/1\", \"states\": 46, "
+                + "\"covers\": [\"RosterStatus.Lost\", \"KerbalEndState.Dead\"]}", json);
+            // ADDITIVE: the schema id does not move for a new key - the same
+            // additive-is-not-a-bump reasoning the recording schema uses.
+            Assert.Contains("\"schema\": \"parsek-gui-tree/1\"", json);
+            Assert.Equal("parsek-gui-tree/1", GuiTreeJson.SchemaId);
+        }
+
+        [Fact]
+        public void AMockedDocumentStillParsesAndItsNumberIsInvariant()
+        {
+            // A hand-rolled writer's available failure modes are a missing comma and an
+            // unclosed brace, which substring matching cannot see - and `states` is a
+            // NUMBER, so a culture-dependent write would emit no valid JSON at all.
+            var saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+                GuiTreeCaptureHeader header = Header();
+                header.Mock = new GuiTreeMockProvenance
+                {
+                    StateId = "career.banner.divergent",
+                    Window = "career",
+                    Catalogue = "gui-mock/1",
+                    States = 1234,
+                };
+                string json = GuiTreeJson.Write(header, TreeWithOneWindow());
+                Assert.Contains("\"states\": 1234", json);
+                Assert.DoesNotContain("1.234", json);
+                var doc = (Dictionary<string, object>)MiniJson.ParseValue(json);
+                var mock = (Dictionary<string, object>)doc["mock"];
+                Assert.Equal("career.banner.divergent", mock["stateId"]);
+                Assert.Equal("career", mock["window"]);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
+        public void AMockBlockWithNoCoversWritesAnEmptyArray()
+        {
+            GuiTreeCaptureHeader header = Header();
+            header.Mock = new GuiTreeMockProvenance
+            {
+                StateId = "structure.route.pickup",
+                Window = "structure",
+                Catalogue = "gui-mock/1",
+                States = 46,
+            };
+            Assert.Contains("\"covers\": []", GuiTreeJson.Write(header, TreeWithOneWindow()));
         }
 
         [Fact]
