@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: two more ghost-chain coverage cells are claimed on an existing lane.**
+  `V26T-interbody-route-ts-arrival` already printed both on every run from its fixture's
+  committed chains: a recording refused a spawn because it is an intermediate link of a
+  claimed vessel's chain, and chains marked terminated because their tip vessel was
+  destroyed. Those three lines are now required fixture literals, and the lane claims
+  D18 `intermediate-spawn-suppression` plus the destroyed half of
+  `chain-terminated-destruction-recovery`. Proven by an armed re-flight and a negative control. The recovery half, and a seam verb pair to
+  spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
+  Harness-only; no game code changed.
 - **Automated testing: RF-12S proves the re-fly crew-recovery fix end to end.** The lane
   rewinds a recorded crewed flight to the moment after launch where its upper stack
   separated. It flies the restored stack to orbit with a new small mission, so the crew
