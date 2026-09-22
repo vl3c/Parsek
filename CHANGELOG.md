@@ -31,6 +31,32 @@ _(unreleased — entries accumulate here per commit)_
   rather than comparing a function call with itself. Rewind cleanup tests null and empty RP
   identifiers independently against matching orphans, so removing the early return fails both
   cases. No production behavior changed.
+- **Tests: sixteen more cells from the audit's Low T1 (vacuous) register now either let the
+  production term they name decide the verdict or are gone.** Twelve were strengthened - five
+  of them renamed to what they prove - and four were deleted in favour of a named twin. The
+  drawdown-toast reset cell re-armed its own local latch, so an empty reset stayed green; the
+  three Patch* call sites now pick their session latch through
+  KspStatePatcher.DrawdownGuardSessionToastLatch, and the cell emits through those six
+  statics and requires every one to re-arm. The vessel-exists reset probed pid 0, which the
+  guard answers before the override is read; it now probes a real pid and the guid resolver.
+  The full-wipe cell drives ClearAllSceneHistory on a real test runner, with ResetResults as
+  the keep-history control. A plaque cell's Contains accepted the " - date" a missing null
+  guard would produce, and now asserts equality. The anchor-sort cell's two candidates sat at
+  the same UT; they now arrive at distinct UTs in reverse emission order. Crew-entry defaults
+  are read from a bare CREW node rather than one the serializer had filled. A breadcrumb cell
+  compared three strings it built itself and is now a source gate over the three real
+  PersistFinalizedRecording context literals. Renamed to what they pin: a facility-history
+  cell whose "most recent" lookup was test-local (the store's arrival order), a zero-reward
+  milestone cell (unparsable details convert to zero rewards without throwing), a culture
+  cell that could not fail for a positive integer (no thousands separator), and an anchor
+  enum range check the compiler already enforced (the byte backing type). Flag-event cells
+  only ever reached the null-vessel half of their guard, which no headless vessel can pass;
+  they fold into one theory named for it, with a new cell on the crew-name guard that makes
+  the placedBy half redundant. Deleted: three default-value echoes (playback flags, a health
+  counter, an anchor correction), each with a twin that reds where the default matters, and
+  two wheel-damage cells that are the null-transform cell with different unused inputs; no
+  headless test reaches that guard's names half at all. No behavior, log text or anything a
+  player sees changes.
 - **Automated testing: the raw-Unity-exception scan reads the stack under each exception.**
   The scan counted exception lines only, so a stock NRE and one thrown with Parsek on the
   stack looked the same, and a Parsek-frame NRE inside an armed `maxTotal` budget passed

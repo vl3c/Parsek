@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/InGameTests/InGameTestRunner.cs b/Source/Parsek/InGameTests/InGameTestRunner.cs
+index 234e66d24..129e217e1 100644
+--- a/Source/Parsek/InGameTests/InGameTestRunner.cs
++++ b/Source/Parsek/InGameTests/InGameTestRunner.cs
+@@ -1133,7 +1133,7 @@ namespace Parsek.InGameTests
+         {
+             foreach (var t in allTests)
+             {
+-                ResetLiveStatus(t, clearSceneHistory: true);
++                ResetLiveStatus(t, clearSceneHistory: false);
+             }
+             Passed = 0;
+             Failed = 0;

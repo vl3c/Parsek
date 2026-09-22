@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/GameStateBaseline.cs b/Source/Parsek/GameStateBaseline.cs
+index 0745be774..924362439 100644
+--- a/Source/Parsek/GameStateBaseline.cs
++++ b/Source/Parsek/GameStateBaseline.cs
+@@ -34,9 +34,9 @@ namespace Parsek
+             {
+                 return new CrewEntry
+                 {
+-                    name = node.GetValue("name") ?? "",
+-                    status = node.GetValue("status") ?? "",
+-                    trait = node.GetValue("trait") ?? ""
++                    name = node.GetValue("name"),
++                    status = node.GetValue("status"),
++                    trait = node.GetValue("trait")
+                 };
+             }
+         }

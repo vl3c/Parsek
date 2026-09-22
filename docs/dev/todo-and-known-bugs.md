@@ -862,6 +862,26 @@ mismatches against the ERROR the seam emits.
 say ERROR with the per-direction reason (and, optionally, point at `RefusalVerdict` for the
 REJECTED/ERROR rule). Do not touch `RefusalVerdict` - the behavior is the contract.
 
+## TQ-2-wheel-damage-guard-needs-live-transform: `GhostVisualBuilder.IsRendererOnDamagedTransform`'s names guard and ancestor walk have no test that can fail [FILED 2026-09-22 off test-quality-audit Phase B, row F-catchall-060-02. A COVERAGE gap, not a defect. OPEN]
+
+**What is untested.** `IsRendererOnDamagedTransform(Transform, HashSet<string>)` in
+`Source/Parsek/GhostVisualBuilder.Parsing.cs` (called from the two damaged-wheel mesh filters in
+`GhostVisualBuilder.cs`) returns false for a null or empty name set and otherwise walks the
+renderer's transform and its parents for a damaged-wheel name. Neither the names half of the guard
+nor the parent walk is exercised: the only xUnit cell,
+`WheelDamageFilterTests.IsRendererOnDamagedTransform_NullTransform_ReturnsFalseForAnyNames`, passes
+a null Transform, and deleting the names clause, the transform check or the whole guard all stay
+green because the walk's own `cur != null` test answers false for a null start.
+
+**Why headless cannot.** The xUnit host cannot build a `Transform` (no Unity runtime), and an
+uninitialized one compares equal to null under Unity's operator.
+
+**Fix.** An `[InGameTest]` that builds a small GameObject chain (parent named like a damaged-wheel
+transform, child carrying the renderer) and asserts: a match on the parent is true, an unrelated
+name set is false, and a null or empty set is false with a live transform. Adding the cell to a
+category a committed harness spec pins moves that spec's `BATCH_COMPLETE total=` tally
+(`CommittedBatchTallySourceSyncTests`), so pick the category with that in mind.
+
 ## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
 
 **What is true.**

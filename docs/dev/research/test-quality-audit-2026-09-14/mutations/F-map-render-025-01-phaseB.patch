@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Rendering/AnchorCorrection.cs b/Source/Parsek/Rendering/AnchorCorrection.cs
+index 631920eb8..81261eb08 100644
+--- a/Source/Parsek/Rendering/AnchorCorrection.cs
++++ b/Source/Parsek/Rendering/AnchorCorrection.cs
+@@ -17,7 +17,7 @@ namespace Parsek.Rendering
+     /// later rename would force a <c>.pann</c> algorithm-stamp bump and cache
+     /// invalidation across every install.
+     /// </remarks>
+-    internal enum AnchorSource : byte
++    internal enum AnchorSource
+     {
+         LiveSeparation     = 0,
+         DockOrMerge        = 1,
