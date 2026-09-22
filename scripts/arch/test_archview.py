@@ -3139,7 +3139,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         # [391, 4, 2] before the 2026-09-14 arch PRs shrank the kernel).
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [285, 4, 2, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [286, 4, 2, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3247,8 +3247,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # canary contract as the knot sizes above.
         first = self.model["knots"][0]["cuts"][0]
         self.assertEqual(first["sink"], "RecordingStore")
-        self.assertEqual(first["sizeBefore"], 285)
-        self.assertEqual(first["sizeAfter"], 258)
+        self.assertEqual(first["sizeBefore"], 286)
+        self.assertEqual(first["sizeAfter"], 259)
         self.assertIn("EffectiveState", first["droppedReferences"])
         self.assertEqual(len(first["droppedReferences"]), 25)
 

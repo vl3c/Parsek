@@ -3181,7 +3181,7 @@ _(unreleased — entries accumulate here per commit)_
   and seventh hotspots.
   The generator's six real-tree pins were also refreshed from a fresh run: they had gone
   stale on `main` when the 2026-09-14 architecture PRs shrank the kernel cycle (391 types
-  to 285), made `RecordingStore` the first greedy cut in `ParsekLog`'s place, added
+  to 286 at merge time), made `RecordingStore` the first greedy cut in `ParsekLog`'s place, added
   `VesselSnapshotOps` to the nine-file kernel and removed the `Missions -> Logistics` edge
   whose atlas note is now deleted. Those tests are not run by CI, which is how they drifted;
   the knot-size floor now states its intent (one large cross-module cycle) instead of a
