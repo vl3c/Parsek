@@ -3346,7 +3346,7 @@ class SimplifiedChromeTests(unittest.TestCase):
         self.assertIn("(state || '').replace(/-/g, ' ')", self.html)
         self.assertIn("function modeWord(m){", self.html)
         rail = self._fn("function buildRail(){")
-        self.assertIn("stateLabel(w.token, c.tab, c.state, c.mode)", rail)
+        self.assertIn("stateLabel(w.token, headed ? null : c.tab, c.state, c.mode)", rail)
         self.assertNotIn("c.tab || '-'", rail)
         # the dataset moved into the row's tooltip
         self.assertIn("sr.title = 'dataset ' + c.fixture", rail)
