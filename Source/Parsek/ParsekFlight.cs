@@ -8008,6 +8008,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Wires a coalescer-emitted BREAKUP branch point into the tree: the active
+        /// recording becomes its parent, the tree gains the branch point, and the
+        /// recording's ChildBranchPointId links to it.
+        /// </summary>
+        internal static void WireBreakupIntoTree(
+            RecordingTree tree, string activeRecId, Recording activeRec, BranchPoint breakupBp)
+        {
+            breakupBp.ParentRecordingIds.Add(activeRecId);
+            tree.BranchPoints.Add(breakupBp);
+            activeRec.ChildBranchPointId = breakupBp.Id;
+        }
+
+        /// <summary>
         /// Processes a BREAKUP branch point emitted by the crash coalescer.
         /// Adds the BREAKUP event as a branch point on the active tree recording and
         /// creates child recordings for debris and controlled vessels.
@@ -8039,12 +8052,7 @@ namespace Parsek
                 return;
             }
 
-            // Wire the breakup BP into the tree: parent is the active recording
-            breakupBp.ParentRecordingIds.Add(activeRecId);
-            activeTree.BranchPoints.Add(breakupBp);
-
-            // Set ChildBranchPointId on the active recording to link to this breakup
-            activeRec.ChildBranchPointId = breakupBp.Id;
+            WireBreakupIntoTree(activeTree, activeRecId, activeRec, breakupBp);
 
             // Refresh the vessel snapshot to reflect post-breakup state.
             // The recording continues past breakup (breakup-continuous design), so the

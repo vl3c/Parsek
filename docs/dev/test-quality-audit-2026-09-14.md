@@ -2065,6 +2065,49 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `DisassembledTerminalStateTests`, `SessionSuppressionWiringTests`): 149 passed / 0
     failed before, 148 passed / 0 failed after - exactly the one removed cell.
 
+- `testfix-low-02` (2026-09-22): Low T1 slice 2 (`work/phase-b-slice-low-t1-02.txt`, 16
+  ids: 3 `recording-tree`, 2 each `catchall`, `legacy-bugfix`, `recorder-events`,
+  `rewind-refly`, 1 each `map-render`, `mission-groups`, `spawn-vessel`,
+  `trajectory-orbit`, `wiring-gates`). Counted the slice-4 way: 11 strengthened, of which 5
+  renamed; 3 deleted; 0 deferred; 2 premise-wrong. Three cells were added (one mirror, two
+  call-site source gates, both "source-gated, fixture-limited"), two siblings were re-aimed
+  alongside their row, and four siblings were deleted as subsumed (each green under every
+  mutant tried, its claim carried by the re-aimed row). Two behaviour-identical extractions:
+  `GhostPlaybackEngine.ResolveDestroyedGhostName` and `ParsekFlight.WireBreakupIntoTree`;
+  every class that reads either production file re-ran green (427 and 857 cells). Per
+  commit, derived from `git diff origin/main...HEAD -- Source/Parsek.Tests`: 8f27c01a8 4
+  renames + 2 new + 2 deletions, 943e05977 2 renames + 2 deletions, 9cba48eca 2 deletions,
+  23d453c2f 1 deletion, ee289af56 1 new. Each row has a proof row in `mutations.csv` and a
+  `*-phaseB.patch` that `git apply --check`s against the branch tip.
+  - Strengthened: F-catchall-050-02 / -03 (renamed `CodecLoad_*`: the cells loaded through
+    `ParsekScenario.LoadRecordingMetadataForTests`, whose Save/Load pair has NO production
+    caller; they now load through `RecordingTreeRecordCodec.LoadRecordingFrom` into a
+    pre-seeded target and with orphan orbit keys, plus the mirror
+    `CodecRoundTrip_LocationFields_Survive`), F-legacy-bugfix-001-01 (renamed; the
+    `FallsToDefault` sibling re-aimed with it), F-legacy-bugfix-025-03 (save through
+    `SaveRecordingFilesToPathsForTesting`; the out-of-band sibling re-aimed as the
+    incrementEpoch=false mirror), F-map-render-027-01 (renamed; raw 0x81 / 0x80 through the
+    binary codec - 73 flag / sidecar cells were green under a reserved-bit-masking reader),
+    F-mission-groups-013-03 (renamed; the register's "no negative duration is
+    constructible" is wrong: ExplicitStartUT alone reads StartUT=500, EndUT=0),
+    F-recorder-events-024-03 (GameEvents Add/Remove run headless, contrary to the cell's own
+    comment), F-recording-tree-027-02, F-rewind-refly-009-02, F-trajectory-orbit-016-01 (a
+    consistent order flip on both encode and decode was green across 1,511 relative /
+    anchor / debris cells) and F-wiring-gates-003-03.
+  - Deleted, twin reds under the row's mutant across every class reaching the method:
+    F-recording-tree-027-01 (`RecordingFieldExtensionTests.MaxDistanceFromLaunch_RoundTrip_PreservedAcrossReload`),
+    F-recording-tree-028-01 (`CrewReplacementTests.SaveCrewReplacements_WithData_RoundTrips`),
+    F-spawn-vessel-013-03 (`SeedUT_RecordingStartUTInFuture_ReturnsCurrentUT`; at equality
+    both branches return the same value, and the `>=` -> `>` mutant is green class-wide).
+  - Premise-wrong, kept: F-recorder-events-007-02 (the before-start return in
+    `GetActiveCycles` is an equivalent mutant next to the `lastActiveCycle` clamp; the cell
+    pins the output and reds only when both go; the proposed TryCompute pin already exists
+    as the currentUT=99 theory row; a comment now says so) and F-rewind-refly-020-04
+    (already re-aimed by 8d0c07363, after the audit snapshot; reds under the row's mutant
+    with no edit).
+  - Follow-up, not done here: `ParsekScenario.SaveRecordingMetadata` /
+    `LoadRecordingMetadataForTests` are test-only (11 test files use them), so every other
+    cell built on that pair pins a copy of the codec rather than the codec.
 - `testfix-low-03` (2026-09-22): Low T1 slice 3, the remainder of slice 1
   (`work/phase-b-slice-low-t1-03.txt`, 14 ids; slice 1's other two rows,
   F-analyzer-002-02 and F-rewind-refly-019-02, are on `testfix-low-01`). Counting rule:

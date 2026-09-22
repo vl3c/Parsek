@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/UI/RecordingsTableUI.cs b/Source/Parsek/UI/RecordingsTableUI.cs
+index 984bc5bf8..e894ba49b 100644
+--- a/Source/Parsek/UI/RecordingsTableUI.cs
++++ b/Source/Parsek/UI/RecordingsTableUI.cs
+@@ -5439,7 +5439,7 @@ namespace Parsek
+             foreach (int idx in descendants)
+             {
+                 double dur = committed[idx].EndUT - committed[idx].StartUT;
+-                if (dur > 0) total += dur;
++                total += dur;
+             }
+             return total;
+         }
