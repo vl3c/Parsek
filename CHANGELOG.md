@@ -26,12 +26,15 @@ _(unreleased — entries accumulate here per commit)_
 - **Automated testing: the Parsek-frame count is split into throw site and caller.** A
   `Parsek.` frame on a stack could be the code that threw or a Parsek method that called
   into stock code that threw, and the one count could not tell them apart. Every result
-  now also records `parsekThrowSite` (the first non-library frame is a Parsek frame) and
+  now also records `parsekThrowSite` (the first frame outside the .NET and Unity engine
+  layers is a Parsek frame) and
   `parsekCaller` (the rest), which sum to `parsekFrames`, and a spec can arm
   `[expectations.unityExceptions] maxParsekThrowSite`. V23M and RF-11, whose Parsek frames
   are all callers of a stock throw on every run, arm it at 0 after a sweep of every
   collected KSP.log read no throw site on either lane; the red direction was proven
-  offline on their archived logs. Harness-only; no game code changed.
+  offline on their archived logs. The new ceiling is strictly weaker than
+  `maxParsekFrames` and is used only where that one cannot be armed. Harness-only; no game
+  code changed.
 
 - **Dev: the GUI mirror is simplified to explore, choose, note, export.** The page statistics live only in the rail header; the top bar keeps Mirror / Compare, the photo toggle and a "Notes (N)" button, with the dataset, mode and other-mods preferences folded under "options". The main column shows one header line per state (window, tab, state and Basic / Advanced in words, dataset and run in small print, help behind a "?"), a status line that stays empty unless a click or fallback has something to say, and the notes box (verdict plus a textarea that saves as you type) directly under the hover strip, which keeps a fixed height so the notes row no longer jumps. The focus bar is gone: the address bar is kept in step as `#win=...&cap=...` (`&focus=1` scopes the rail; `#cap=...&bare=1` is unchanged). The Notes panel lists every saved note (click to jump, x to delete), copies all of them as JSON or markdown, clears all after a confirm, and folds import away. Rail rows read as words ("tooltip logistics - Advanced"), carry the dataset in their tooltip, mark a noted state with a dot, and fold no-hover, superseded and never-captured rows behind one "show N hidden" link per window; the per-window "cmp" button is gone since Compare follows the selected window. Storage keys and the `parsek-gui-mirror-notes/1` export schema are unchanged (`harness/tools/gui_mirror.py`).
 - **Automated testing: the optimizer's boundary-seam rule now has a deterministic live

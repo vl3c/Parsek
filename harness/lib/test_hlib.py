@@ -8753,8 +8753,9 @@ class UnityStackScanTests(unittest.TestCase):
         self.assertIn("maxTotal", warn[0])
 
     # THROW SITE vs CALLER (operator ruling 2026-09-22, todo
-    # UNITY-PARSEK-FRAME-CALLER-SHAPE). The throw site is the block's first non-BCL frame
-    # line; each excerpt below pins one shape.
+    # UNITY-PARSEK-FRAME-CALLER-SHAPE). The throw site is the block's first frame line
+    # outside the transparent runtime / engine layers, walked no further than the
+    # DebugLogHandler log site; each excerpt below pins one shape.
     THROW_SITE_EXC = (
         "[EXC 12:00:04.000] NullReferenceException: Object reference not set to an instance of an object\n"
         "\tParsek.GhostMapPresence.EnsureGhostOrbitRenderers () (at <0a1b2c3d>:0)\n"
@@ -8830,24 +8831,92 @@ class UnityStackScanTests(unittest.TestCase):
                 self.assertEqual((1, 1, 0), self.split(st))
                 self.assertEqual({site: 1}, st.parsek_throw_site_sites)
 
-    def test_only_the_bcl_is_transparent(self):
-        # A Unity, KSP or other-mod frame first is a real stock throw site, so the
-        # Parsek frame under it is a caller; `SystemHeat.` is not the `System.` namespace.
+    def test_only_the_runtime_and_engine_layers_are_transparent(self):
+        # A KSP or other-mod frame first is a real stock throw site, so the Parsek frame
+        # under it is a caller; `SystemHeat.` / `MonoBehaviourExt` / `UnityEngineExt.`
+        # are not the `System.` / `Mono.` / `UnityEngine.` namespaces.
         header = "[EXC 12:00:05.000] NullReferenceException: x\n"
-        for first in ("\tUnityEngine.Object:get_name()\n",
-                      "  at (wrapper managed-to-native) UnityEngine.Object.GetName(UnityEngine.Object)\n",
-                      "\tFlightGlobals.get_ActiveVessel () (at <4b44>:0)\n",
+        parsek = "\tParsek.WatchModeController:GetActiveVesselSafe()\n"
+        for first in ("\tFlightGlobals.get_ActiveVessel () (at <4b44>:0)\n",
                       "\tSystemHeat.Modules.Foo:Bar()\n",
-                      "\tMonoBehaviourExt:Run()\n"):
+                      "\tMonoBehaviourExt:Run()\n",
+                      "\tUnityEngineExt.Helper:Run()\n",
+                      "\tVehiclePhysics.VPWheelCollider.OnDisableVehicle () (at <4b44>:0)\n"):
             with self.subTest(first=first.strip()):
-                st = self.scan(header + first + "\tParsek.WatchModeController:GetActiveVesselSafe()\n")
-                self.assertEqual((1, 0, 1), self.split(st))
+                self.assertEqual((1, 0, 1), self.split(self.scan(header + first + parsek)))
         for first in ("  at System.Collections.Generic.Dictionary`2[TKey,TValue].get_Item (TKey key) [0x0] in <x>:0\n",
                       "  at (wrapper managed-to-native) System.Math.Sign(double)\n",
-                      "\tMono.Something:Throw()\n"):
+                      "\tMono.Something:Throw()\n",
+                      "\tUnityEngine.Object:get_name()\n",
+                      "  at (wrapper managed-to-native) UnityEngine.Object.GetName(UnityEngine.Object)\n"):
             with self.subTest(first=first.strip()):
-                st = self.scan(header + first + "\tParsek.WatchModeController:GetActiveVesselSafe()\n")
+                self.assertEqual((1, 1, 0), self.split(self.scan(header + first + parsek)))
+
+    def test_engine_throws_under_a_parsek_frame_are_throw_sites(self):
+        # A dead object touched by Parsek, and a Parsek window's unbalanced layout
+        # group: the engine throws for its Parsek caller, so the throw site is Parsek.
+        shapes = (
+            ("[EXC 12:00:07.000] MissingReferenceException: The object of type 'Transform' has been destroyed but you are still trying to access it.\n"
+             "  at (wrapper managed-to-native) UnityEngine.Transform.get_position_Injected(UnityEngine.Transform,UnityEngine.Vector3&)\n"
+             "\tUnityEngine.Transform.get_position () (at <x>:0)\n"
+             "\tParsek.GhostPlaybackEngine.PositionGhost (Parsek.GhostState s) (at <y>:0)\n"
+             "\tUnityEngine.DebugLogHandler:LogException(Exception, Object)\n",
+             "Parsek.GhostPlaybackEngine.PositionGhost"),
+            ("[EXC 12:00:08.000] MissingReferenceException: x\n"
+             "\tUnityEngine.GameObject.GetComponent[T] () (at <x>:0)\n"
+             "\tParsek.GhostVisualBuilder:Build()\n",
+             "Parsek.GhostVisualBuilder.Build"),
+            ("[EXC 12:00:09.000] ArgumentException: GUILayout: Mismatched LayoutGroup.repaint\n"
+             "\tUnityEngine.GUILayoutUtility.EndLayoutGroup () (at <x>:0)\n"
+             "\tUnityEngine.GUILayout.EndVertical () (at <x>:0)\n"
+             "\tParsek.ParsekUI.DrawWindow (System.Int32 id) (at <y>:0)\n"
+             "\tUnityEngine.GUI.CallWindowDelegate (UnityEngine.GUI+WindowFunction func) (at <x>:0)\n",
+             "Parsek.ParsekUI.DrawWindow"),
+        )
+        for text, site in shapes:
+            with self.subTest(site=site):
+                st = self.scan(text)
                 self.assertEqual((1, 1, 0), self.split(st))
+                self.assertEqual({site: 1}, st.parsek_throw_site_sites)
+
+    def test_the_transparent_walk_stops_at_the_log_site(self):
+        # Every frame of the exception's own stack is engine; past DebugLogHandler is
+        # the stack that logged it (here Unity invoking OnDisable from a Parsek call).
+        # The Parsek frame there is a caller, never the throw site.
+        text = ("[EXC 12:00:10.000] NullReferenceException\n"
+                "\tUnityEngine.Behaviour.OnDisable () (at <x>:0)\n"
+                "\tUnityEngine.DebugLogHandler:LogException(Exception, Object)\n"
+                "\tModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)\n"
+                "\tUnityEngine.Behaviour:set_enabled(Boolean)\n"
+                "\tParsek.TimeJumpManager:PutLoadedVesselsOnRails()\n")
+        st = self.scan(text)
+        self.assertEqual((1, 0, 1), self.split(st))
+        self.assertEqual({}, st.parsek_throw_site_sites)
+        # Mutation-style: with no ModuleManager interceptor the log site is engine
+        # frames then Parsek, so without the stop the transparent walk would reach the
+        # Parsek frame and misread it as the throw site.
+        bare = text.replace("\tModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)\n", "")
+        self.assertEqual((1, 0, 1), self.split(self.scan(bare)))
+        saved = hlib.UNITY_LOG_SITE_STOP_FRAME
+        try:
+            hlib.UNITY_LOG_SITE_STOP_FRAME = re.compile(r"(?!)")
+            self.assertEqual((1, 1, 0), self.split(self.scan(bare)))
+        finally:
+            hlib.UNITY_LOG_SITE_STOP_FRAME = saved
+
+    def test_a_message_line_with_parentheses_is_not_a_frame(self):
+        # `Details(see log)` has an argument-list shape but no qualified method name.
+        for msg in ("Details(see log)\n", "Retry(3) failed\n"):
+            with self.subTest(msg=msg.strip()):
+                self.assertIsNone(hlib.UNITY_STACK_FRAME.match(msg))
+                text = ("[EXC 12:00:11.000] InvalidOperationException: first\n" + msg
+                        + "\tParsek.RecordingStore:Foo()\n")
+                self.assertEqual((1, 1, 0), self.split(self.scan(text)))
+        for frame in ("\tMapObject.Awake () (at <x>:0)", "\tVessel:AddOrbitRenderer()",
+                      "  at EventData`1[T].Fire (T data) [0x0] in <x>:0",
+                      "  at (wrapper managed-to-native) System.Math.Sign(double)"):
+            with self.subTest(frame=frame):
+                self.assertIsNotNone(hlib.UNITY_STACK_FRAME.match(frame))
 
     def test_message_continuation_lines_are_not_the_throw_site(self):
         # A multi-line exception message and a blank line precede the first frame.

@@ -5494,13 +5494,22 @@ six publish or compare numbers the runner already measured.
     `parsekThrowSite` (the THROW SITE is a Parsek frame) and `parsekCaller` (a Parsek frame
     is present but a stock frame threw), with `parsekThrowSiteSites` naming the throw-site
     frames. The throw site is the block's first FRAME line (`hlib.UNITY_STACK_FRAME`: a
-    method name followed by its argument list, so a multi-line message or a blank line is
-    skipped), except that a base-class-library frame (`System.` / `Mono.`) is transparent:
-    `System.Math.Sign(NaN)`, `Dictionary.get_Item`, `Enumerable.First` throw for their
-    caller's arguments, so the first non-BCL frame is the throw site. That refinement is a
-    deliberate reading of the ruling, not its letter; without it S0.7's `SolveHyperbolicKepler`
-    NaN defect reads as a caller. Unity, KSP, VehiclePhysics and other-mod frames are never
-    transparent. The two Unity shapes: an `[EXC]` stack lists the innermost frame first, so
+    qualified method name - it carries a `.` or `:` - followed by its argument list, so a
+    multi-line message such as `Details(see log)` or a blank line is skipped), except that
+    the runtime and engine layers are TRANSPARENT: `System.` / `Mono.` (the BCL:
+    `Math.Sign(NaN)`, `Dictionary.get_Item`, `Enumerable.First`) and `UnityEngine.`,
+    including `(wrapper managed-to-native) UnityEngine.` ECalls (`Transform.get_position`
+    on a destroyed object, `GetComponent[T]`, a `GUILayoutUtility.EndLayoutGroup`
+    mismatch under `Parsek.ParsekUI.DrawWindow`) throw on behalf of their caller's
+    arguments or state, so the first frame outside them is the throw site. The walk
+    STOPS at `UnityEngine.DebugLogHandler:LogException` (`hlib.UNITY_LOG_SITE_STOP_FRAME`):
+    in an `[EXC]` record every frame past it is the stack that caught and logged the
+    exception, so a block whose own frames were all engine has an engine throw site and a
+    Parsek frame found only past the stop is a caller. Transparency is a deliberate
+    reading of the ruling, not its letter (review of PR #1753 widened it from the BCL to
+    `UnityEngine.`); without it S0.7's `SolveHyperbolicKepler` NaN defect reads as a
+    caller. KSP, VehiclePhysics and other-mod frames are never transparent. The two Unity
+    shapes: an `[EXC]` stack lists the innermost frame first, so
     the rule applies directly; a GameEvents `[ERR]` stack stops at the event dispatch, so
     its throw site is the handler's own innermost frame - a Parsek handler that threw reads
     as a throw site on both twins, and a stock handler under a Parsek caller reads as NEITHER
@@ -5510,7 +5519,8 @@ six publish or compare numbers the runner already measured.
     the throw-site subset alone, validated exactly like `maxParsekFrames` (non-negative
     integer, unknown keys rejected, FAIL-closed "unmeasured" with no stack scan), and is
     independent of both other keys.
-    THE SWEEP, re-run over every collected KSP.log (880 files, 724 unique by content; the
+    THE SWEEP, re-run over every collected KSP.log after the `UnityEngine.` widening (885
+    files, 728 unique by content, no count moved by the widening; the
     earlier 781 counted run ids, and a `../logs` folder named in local time duplicates a
     `results/` run id in UTC), corpus parsekFrames 543 = throwSite 501 + caller 42:
 
@@ -5519,7 +5529,7 @@ six publish or compare numbers the runner already measured.
     | S0.7-exit-auto-commit | `2026-07-30_1833` | 502 / 501 / 1 | throw site `BallisticExtrapolator+TwoBodyOrbit.SolveHyperbolicKepler` (via `System.Math.Sign`, fixed 2026-08-01); caller `ParsekTestCommandAddon.EvaBoardImpl` |
     | V23M-mun-landing-player-loop | `2026-08-24_1924`, `_1926`, `_2000`, `2026-08-25_0016`, `2026-09-10_2102` | 6 / 0 / 6 | caller `TimeJumpManager.PutLoadedVesselsOnRails` |
     | RF-11-both-slots-in-sequence | `2026-09-09_1922`, `_1929`, `_2001` | 1 / 0 / 1 | caller `ParsekTestCommandAddon.LoadGameImpl` |
-    | V15T-gilly-ts-arrival | `2026-09-10_1917` | 1 / 0 / 1 | caller `GhostMapPresence.EnsureGhostOrbitRenderers` (throw in `MapObject.Awake`) |
+    | V15T-gilly-ts-arrival | `2026-09-10_1917` | 1 / 0 / 1 | caller `GhostMapPresence.EnsureGhostOrbitRenderers` (throw in `MapObject.Awake`, a KSP frame and so not transparent, directly followed by `DebugLogHandler:LogException`; checked after the widening, still a caller) |
     | V18T-depot-route-ts-arrival | `2026-09-02_1315` | 3 / 0 / 3 | caller, same |
     | V26T-interbody-route-ts-arrival | `2026-09-15_1536` | 2 / 0 / 2 | caller, same |
     | V15M-gilly-player-loop | `2026-08-28_2004` | 1 / 0 / 1 | caller `WatchModeController.GetActiveVesselSafe` (throw in `FlightGlobals.get_ActiveVessel`, fixed 2026-08-29) |
@@ -5529,9 +5539,10 @@ six publish or compare numbers the runner already measured.
     two real Parsek defects the scanner found in the V family (the teardown
     `EnsureGhostOrbitRenderers` NRE and the pre-fix `GetActiveVesselSafe` NRE) are CALLER
     shapes - Parsek touched a dying stock object and stock threw - so `maxParsekThrowSite`
-    alone would not have caught either. It is the ceiling for a lane whose standing caller
-    frames are already triaged, never a replacement for `maxParsekFrames` where that can
-    arm. ARMED `maxParsekThrowSite = 0` on V23M and RF-11 (neither can arm
+    alone would not have caught either. The throw-site gate is STRICTLY WEAKER than
+    `maxParsekFrames` (every throw site is also a Parsek frame, never the reverse), so it
+    is armed only on a lane where `maxParsekFrames` cannot be, because that lane's standing
+    caller frames are already triaged, and it never replaces `maxParsekFrames`. ARMED `maxParsekThrowSite = 0` on V23M and RF-11 (neither can arm
     `maxParsekFrames`; their `maxTotal` stays report-only), pinned in
     `UnityExceptionScanTests.ARMED_MAX_PARSEK_THROW_SITE`. NEGATIVE CONTROL DISCHARGED
     OFFLINE (the GS-4 R3-2 precedent), no flight: each committed block, loaded through

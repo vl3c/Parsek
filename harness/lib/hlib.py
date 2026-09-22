@@ -6938,23 +6938,37 @@ UNITY_LOG_RECORD_HEADER = re.compile(r"^\[(?:LOG|WRN|ERR|EXC|AST)\s+\d{1,2}:\d{2
 # prefix or postfix that threw would appear as its own `Parsek.Patches...` frame.
 UNITY_PARSEK_FRAME = re.compile(r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?(Parsek\.[^\s(]+)")
 # THE THROW SITE. A stack frame line is a continuation line whose text, after the same
-# optional `at ` / `(wrapper ...)` prefixes, is a method name followed by its argument
-# list: `<TAB>MapObject.Awake () (at <...>:0)`, `<TAB>Vessel:AddOrbitRenderer()`,
+# optional `at ` / `(wrapper ...)` prefixes, is a qualified method name (it carries a
+# `.` or `:`) followed by its argument list: `<TAB>MapObject.Awake () (at <...>:0)`,
+# `<TAB>Vessel:AddOrbitRenderer()`,
 # `  at SpaceCenterCamera2.OnSceneSwitch (GameScenes scene) [0x0] in <...>:0`. Both
 # Unity shapes list the INNERMOST frame first, so the throw site is the first frame
-# line of the block. Message continuation lines (a multi-line exception message, a
-# blank line) are not frames and are skipped. One refinement: a base-class-library
-# frame (`System.` / `Mono.`, e.g. `System.Math.Sign`, `Dictionary.get_Item`,
-# `Enumerable.First`) is TRANSPARENT - the BCL throws there on behalf of its caller's
-# arguments (NaN, a missing key, an empty sequence), so the throw site is the first
-# NON-BCL frame. Without it S0.7's `ArithmeticException` from
-# `Parsek.BallisticExtrapolator+TwoBodyOrbit.SolveHyperbolicKepler` passing NaN to
-# `System.Math.Sign` - a Parsek defect by any reading - would read as a caller shape.
-# KSP, Unity, VehiclePhysics and other-mod frames are NOT transparent: a throw inside
-# them under a Parsek caller is exactly the caller shape the split exists to separate.
-UNITY_STACK_FRAME = re.compile(r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?[^\s(]+\s?\(")
+# line of the block. Message continuation lines (a multi-line exception message such
+# as `Details(see log)`, a blank line) are not frames and are skipped.
+# TRANSPARENT FRAMES. The runtime and engine layers - the BCL (`System.` / `Mono.`,
+# e.g. `System.Math.Sign`, `Dictionary.get_Item`, `Enumerable.First`) and the Unity
+# engine (`UnityEngine.`, including `(wrapper managed-to-native) UnityEngine.` ECalls,
+# e.g. `Transform.get_position` on a destroyed object, `GetComponent[T]`,
+# `GUILayoutUtility.EndLayoutGroup`) - throw there on behalf of their CALLER's
+# arguments or state (NaN, a missing key, a dead object, an unbalanced layout group),
+# so the throw site is the first frame outside them. Without that, S0.7's
+# `ArithmeticException` from `Parsek.BallisticExtrapolator+TwoBodyOrbit.
+# SolveHyperbolicKepler` passing NaN to `System.Math.Sign`, or a Parsek window's
+# mismatched `GUILayout` group, would read as caller shapes. KSP, VehiclePhysics and
+# other-mod frames are NOT transparent: a throw inside them under a Parsek caller is
+# exactly the caller shape the split exists to separate.
+# THE LOG-SITE STOP. In an `[EXC]` record the exception's own frames end where Unity's
+# logger begins (`UnityEngine.DebugLogHandler:LogException`); every frame after it is
+# the stack that CAUGHT and logged the exception (for a Unity message such as
+# `OnDisable`, the engine call that invoked it), never the throw. So the transparent
+# walk stops there: a block whose own frames were all transparent has an engine throw
+# site, and a Parsek frame found only past the stop is a caller.
+UNITY_STACK_FRAME = re.compile(
+    r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?[^\s(]*[.:][^\s(]+\s?\(")
 UNITY_THROW_SITE_TRANSPARENT_FRAME = re.compile(
-    r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?(?:System|Mono)\.")
+    r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?(?:System|Mono|UnityEngine)\.")
+UNITY_LOG_SITE_STOP_FRAME = re.compile(
+    r"^\s*(?:at\s+)?UnityEngine\.DebugLogHandler[:.]LogException\b")
 # The application-quit marker. Every collected harness log that reached a clean exit
 # carries exactly one `flushandquit: Application.Quit` line (762 of the 781 unique
 # collected runs swept 2026-09-22; the other 19 did not quit through the seam), written by
@@ -6994,7 +7008,7 @@ class UnityStackScan:
     FIRST (innermost) Parsek frame of each such occurrence, normalized to
     ``Namespace.Type.Method``, to its count - the evidence a mismatch names.
     ``parsek_throw_site`` is the subset of ``parsek_frames`` whose THROW SITE (first
-    non-BCL frame line, ``UNITY_STACK_FRAME``) is itself a Parsek frame, and
+    non-transparent frame line, ``UNITY_STACK_FRAME``) is itself a Parsek frame, and
     ``parsek_caller`` the rest (a Parsek frame present but not the throw site), so the
     two always sum to ``parsek_frames``. ``parsek_throw_site_sites`` keys the
     throw-site subset by that frame.
@@ -7055,8 +7069,9 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
     toward ``parsek_frames`` when its block holds a ``UNITY_PARSEK_FRAME``, and once
     toward ``after_quit`` when it follows the first ``UNITY_QUIT_MARKERS`` line. A line
     that matches two counted patterns counts once per pattern in ``counts`` and
-    likewise in the stack figures. The first non-BCL frame line of a block is its
-    throw site: when that frame is a Parsek frame the occurrence also counts toward
+    likewise in the stack figures. The first non-transparent frame line of a block
+    (``UNITY_THROW_SITE_TRANSPARENT_FRAME``, walked no further than
+    ``UNITY_LOG_SITE_STOP_FRAME``) is its throw site: when that frame is a Parsek frame the occurrence also counts toward
     ``parsek_throw_site``, otherwise a Parsek frame anywhere in the block counts it
     toward ``parsek_caller``. For a GameEvents ``[ERR]`` record the stack stops at the
     event dispatch, so its throw site is the handler's own innermost frame: a Parsek
@@ -7120,11 +7135,13 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
         m = UNITY_PARSEK_FRAME.match(line)
         if open_site is None and m is not None:
             open_site = _normalize_parsek_frame(m.group(1))
-        if (not open_throw_seen and UNITY_STACK_FRAME.match(line) is not None
-                and UNITY_THROW_SITE_TRANSPARENT_FRAME.match(line) is None):
-            open_throw_seen = True
-            if m is not None:
-                open_throw_site = _normalize_parsek_frame(m.group(1))
+        if not open_throw_seen and UNITY_STACK_FRAME.match(line) is not None:
+            if UNITY_LOG_SITE_STOP_FRAME.match(line) is not None:
+                open_throw_seen = True       # engine throw site; the rest is the log site
+            elif UNITY_THROW_SITE_TRANSPARENT_FRAME.match(line) is None:
+                open_throw_seen = True
+                if m is not None:
+                    open_throw_site = _normalize_parsek_frame(m.group(1))
     close_block()
     return UnityStackScan(counts, parsek_frames, after_quit, quit_seen, sites, uncounted,
                           parsek_throw_site, parsek_frames - parsek_throw_site, throw_sites)

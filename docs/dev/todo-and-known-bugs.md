@@ -1003,17 +1003,21 @@ Roadmap "Priority register (2026-09-11)" item C1.
 
 **Ruling and what was done (2026-09-22).** The operator ruled "split the metric" rather than
 a seam-caller allowlist. The scanner now keys each Parsek-frame occurrence by its throw site:
-the first frame line of the block, skipping message continuation lines and treating
-base-class-library frames (`System.` / `Mono.`) as transparent, because the BCL throws for
-its caller's arguments (S0.7's `System.Math.Sign(NaN)` under
-`SolveHyperbolicKepler` would otherwise read as a caller). Both lanes' frames are callers:
+the first frame line of the block, skipping message continuation lines and treating the
+runtime and engine layers (`System.` / `Mono.` / `UnityEngine.`) as transparent up to
+`UnityEngine.DebugLogHandler:LogException`, because they throw for their caller's arguments
+or state (S0.7's `System.Math.Sign(NaN)` under `SolveHyperbolicKepler` would otherwise read
+as a caller, as would a dead-`Transform` access or a `GUILayout` mismatch under a Parsek
+frame). Both lanes' frames are callers:
 V23M 6 / 0 / 6 (parsekFrames / throwSite / caller) in every log, RF-11 1 / 0 / 1 (the `[EXC]`
 twin only; the `[ERR]` twin has no Parsek frame). Both arm `maxParsekThrowSite = 0`; the
 offline control appends S0.7 `2026-07-30_1833`'s real throw-site record and reds on exactly
 one mismatch, and V15T `2026-09-10_1917`'s caller record appended still passes. Stated cost:
 the split does not make callers harmless. The two real V-family Parsek defects the scanner
 found (the teardown `EnsureGhostOrbitRenderers` NRE, the pre-fix `GetActiveVesselSafe` NRE)
-are caller shapes, so `maxParsekFrames` stays the stronger gate wherever it can arm, and the
+are caller shapes (still, after the `UnityEngine.` widening: their throw sites are the KSP
+frames `MapObject.Awake` and `FlightGlobals.get_ActiveVessel`). The throw-site gate is
+strictly weaker than `maxParsekFrames` and is armed only where that one cannot be, and the
 RF-11 seam shape still counts as a Parsek frame (GS-4 reds on it, by the earlier ruling).
 
 The original filing, kept as the record:
