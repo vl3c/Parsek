@@ -4,6 +4,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Each forbidden pattern names a deleted non-loop live-PID reader so a
+# reintroduction reds. The GhostMapPresence arm's TryResolveActiveReFly\w*Point
+# covers the deleted active-Re-Fly anchor-PID shadow resolver under its
+# original AbsoluteShadow name and under the BodyFixedPrimary vocabulary the
+# rest of the code was renamed to.
+# The managed fallback in Source/Parsek.Tests/GrepAuditNonLoopLivePidTests.cs
+# must carry byte-identical Path / Pattern / Label rows;
+# NonLoopLivePidAudit_ManagedArmMatchesPwshArm parses this file and reds on drift.
 $checks = @(
     @{
         Path = "Source/Parsek/IGhostPositioner.cs"
@@ -32,7 +40,7 @@ $checks = @(
     },
     @{
         Path = "Source/Parsek/GhostMapPresence.cs"
-        Pattern = "ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFlyAbsoluteShadowPoint|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId"
+        Pattern = "ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId"
         Label = "map Relative live PID playback"
     }
 )

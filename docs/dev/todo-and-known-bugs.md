@@ -15,6 +15,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~NON-LOOP-LIVE-PID-GATE-ARMS-DRIFTED: the two arms of the non-loop live-PID grep gate forbade different GhostMapPresence symbols, and neither symbol existed~~ [FILED + FIXED 2026-09-22]
+
+**Finding.** `scripts/grep-audit-non-loop-live-pid.ps1` (the pwsh arm) and the managed
+fallback in `Source/Parsek.Tests/GrepAuditNonLoopLivePidTests.cs` (the arm the Linux CI
+runner uses, since it has no pwsh) disagreed on one alternative of the
+`GhostMapPresence.cs` pattern: the pwsh arm forbade `TryResolveActiveReFlyAbsoluteShadowPoint`,
+the managed arm `TryResolveActiveReFlyBodyFixedPrimaryPoint`. Only one arm runs per machine,
+so both passed. Neither name exists anywhere in `Source/Parsek`.
+
+**History (`git log -S`).** The resolver was added to `GhostMapPresence` in `a420f3c08`
+(2026-04-27): during an in-place Re-Fly it compared a Relative section's live anchor PID with
+the active Re-Fly target's PID and substituted the section's absolute-shadow frame. `9c2d78bcc`
+(2026-05-06, Phase D D.7) deleted it along with the rest of the map live-PID Relative
+fallback and created this gate to keep it deleted. `ed15897db` (2026-05-12) then renamed the
+whole `AbsoluteShadow*` API to `BodyFixedPrimary*` by sweep; the sweep rewrote the managed
+arm's tombstone to a name the resolver never carried and missed the `.ps1`. No successor
+resolver exists: map Relative playback goes through `RecordedRelativeAnchorPoseResolver`.
+Every other row of the two arms was already identical.
+
+**Fix.** Both arms now forbid `TryResolveActiveReFly\w*Point` in `GhostMapPresence.cs`, which
+covers the deleted resolver under its original name and under the current body-fixed-primary
+vocabulary. The managed rows moved to static tables, a new
+`NonLoopLivePidAudit_ManagedArmMatchesPwshArm` parses the `.ps1`'s `$checks` /
+`$requiredChecks` rows and reds on any Path / Pattern / Label difference, and
+`NonLoopLivePidAudit_ManagedArmPasses` runs the managed arm on every host rather than only
+where pwsh is missing. Mutation-proven locally: a forbidden call inserted into
+`GhostMapPresence.cs` (under each of the two names) reds the pwsh arm, the pwsh-driven Fact
+and the managed Fact, while the origin/main `.ps1` passed the same insert; restoring the old
+pwsh alternative reds the sync test naming both rows.
+
+---
+
 ## GUI-MOCK-P1-RESIDUE-2026-09-22: three product findings and three deferrals from the GUI state gallery's first phase [FILED 2026-09-22 with the P1 + P1b build, EXTENDED the same day after the clean review. SIX items. Items 1 to 3 are PRODUCT findings, each verified at its source site and pinned by a cell; items 4 to 6 are deferrals with a named owning phase. OPEN]
 
 **Where this came from.** Building the catalogue of synthetic GUI states

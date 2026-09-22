@@ -72,22 +72,111 @@ namespace Parsek.Tests
 #endif
         }
 
+        // Must stay row-for-row identical to $checks / $requiredChecks in
+        // scripts/grep-audit-non-loop-live-pid.ps1; only one arm runs per machine
+        // in NonLoopLivePidAudit_AllForbiddenReadsStayDeleted, so
+        // NonLoopLivePidAudit_ManagedArmMatchesPwshArm pins the two together.
+        private static readonly AuditCheck[] ForbiddenChecks =
+        {
+            new AuditCheck("Source/Parsek/IGhostPositioner.cs", "TryGetLiveAnchorWorldPosition", "IGhostPositioner live anchor API"),
+            new AuditCheck("Source/Parsek/GhostPlaybackEngine.cs", "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid", "engine live-anchor appearance diagnostics"),
+            new AuditCheck("Source/Parsek/ParsekFlight.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
+            new AuditCheck("Source/Parsek/GhostRenderTrace.cs", @"context\.AnchorVesselId\s*=|section\.AnchorVesselId", "recorded-relative trace section PID propagation"),
+            new AuditCheck("Source/Parsek/ParsekKSC.cs", @"KscAnchorLookup|TryLookupKscAnchorFrame|FindVesselByPid\(anchorVesselId|anchorPid=|section\.anchorVesselId", "KSC Relative live PID playback"),
+            new AuditCheck("Source/Parsek/GhostMapPresence.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
+        };
+
+        private static readonly AuditCheck[] RequiredChecks =
+        {
+            new AuditCheck("Source/Parsek/ParsekFlight.cs", @"relativeLoopLiveAnchor\s*=\s*true", "loop-only LateUpdate live-anchor flag"),
+            new AuditCheck("Source/Parsek/ParsekFlight.cs", @"NonLoopLivePidGuard\.NonLoopRelativeLivePidLookupAttempted", "non-loop LateUpdate live-PID DEBUG guard"),
+        };
+
+        [Fact]
+        public void NonLoopLivePidAudit_ManagedArmPasses()
+        {
+            // Runs the managed arm on every host (not only when pwsh is absent),
+            // so a Windows run exercises the same code path the Linux CI runner uses.
+            RunManagedNonLoopLivePidAudit(ResolveRepoRoot());
+        }
+
+        [Fact]
+        public void NonLoopLivePidAudit_ManagedArmMatchesPwshArm()
+        {
+            string scriptPath = Path.Combine(ResolveRepoRoot(), "scripts", "grep-audit-non-loop-live-pid.ps1");
+            string script = File.ReadAllText(scriptPath).Replace("\r\n", "\n");
+
+            const string requiredHeader = "$requiredChecks = @(";
+            int forbiddenStart = script.IndexOf("$checks = @(", StringComparison.Ordinal);
+            int requiredStart = script.IndexOf(requiredHeader, StringComparison.Ordinal);
+            int loopStart = script.IndexOf("$violations = ", StringComparison.Ordinal);
+            Assert.True(forbiddenStart >= 0 && requiredStart > forbiddenStart && loopStart > requiredStart,
+                "could not locate $checks / $requiredChecks / $violations in " + scriptPath);
+
+            AssertSameChecks("forbidden", ForbiddenChecks,
+                ParsePwshChecks(script.Substring(forbiddenStart, requiredStart - forbiddenStart)));
+            AssertSameChecks("required", RequiredChecks,
+                ParsePwshChecks(script.Substring(requiredStart, loopStart - requiredStart)));
+        }
+
+        private static System.Collections.Generic.List<AuditCheck> ParsePwshChecks(string arrayText)
+        {
+            // Rows are @{ Path = "..."  Pattern = "..."  Label = "..." } hashtables.
+            // Comment lines are dropped first so a quoted row in a comment cannot count.
+            var code = new StringBuilder();
+            foreach (string line in arrayText.Split('\n'))
+            {
+                if (!line.TrimStart().StartsWith("#", StringComparison.Ordinal))
+                    code.Append(line).Append('\n');
+            }
+
+            var rows = new System.Collections.Generic.List<AuditCheck>();
+            var rowRegex = new Regex(
+                @"@\{\s*Path\s*=\s*""(?<path>[^""]*)""\s*Pattern\s*=\s*""(?<pattern>[^""]*)""\s*Label\s*=\s*""(?<label>[^""]*)""\s*\}");
+            foreach (Match m in rowRegex.Matches(code.ToString()))
+            {
+                string pattern = m.Groups["pattern"].Value;
+                // PowerShell expands $ and ` inside double quotes; a pattern using
+                // either would not be the literal the regex here reads.
+                Assert.True(pattern.IndexOf('$') < 0 && pattern.IndexOf('`') < 0,
+                    "pwsh pattern uses an expandable character; parse it by hand: " + pattern);
+                rows.Add(new AuditCheck(m.Groups["path"].Value, pattern, m.Groups["label"].Value));
+            }
+
+            int declared = Regex.Matches(code.ToString(), @"@\{").Count;
+            Assert.True(declared == rows.Count,
+                string.Format("parsed {0} of {1} pwsh check rows; the row shape changed", rows.Count, declared));
+            return rows;
+        }
+
+        private static void AssertSameChecks(
+            string kind,
+            AuditCheck[] managed,
+            System.Collections.Generic.List<AuditCheck> pwsh)
+        {
+            Assert.True(pwsh.Count > 0, "no pwsh " + kind + " checks parsed");
+            var diffs = new System.Collections.Generic.List<string>();
+            int n = Math.Max(managed.Length, pwsh.Count);
+            for (int i = 0; i < n; i++)
+            {
+                string m = i < managed.Length ? Describe(managed[i]) : "<absent>";
+                string p = i < pwsh.Count ? Describe(pwsh[i]) : "<absent>";
+                if (!string.Equals(m, p, StringComparison.Ordinal))
+                    diffs.Add(string.Format("{0} row {1}:\n  managed: {2}\n  pwsh:    {3}", kind, i, m, p));
+            }
+            Assert.True(diffs.Count == 0,
+                "managed and pwsh non-loop live-PID audit arms drifted:\n" + string.Join("\n", diffs));
+        }
+
+        private static string Describe(AuditCheck check)
+        {
+            return check.RelativePath + " | " + check.Pattern + " | " + check.Label;
+        }
+
         private static void RunManagedNonLoopLivePidAudit(string repoRoot)
         {
-            var forbiddenChecks = new[]
-            {
-                new AuditCheck("Source/Parsek/IGhostPositioner.cs", "TryGetLiveAnchorWorldPosition", "IGhostPositioner live anchor API"),
-                new AuditCheck("Source/Parsek/GhostPlaybackEngine.cs", "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid", "engine live-anchor appearance diagnostics"),
-                new AuditCheck("Source/Parsek/ParsekFlight.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
-                new AuditCheck("Source/Parsek/GhostRenderTrace.cs", @"context\.AnchorVesselId\s*=|section\.AnchorVesselId", "recorded-relative trace section PID propagation"),
-                new AuditCheck("Source/Parsek/ParsekKSC.cs", @"KscAnchorLookup|TryLookupKscAnchorFrame|FindVesselByPid\(anchorVesselId|anchorPid=|section\.anchorVesselId", "KSC Relative live PID playback"),
-                new AuditCheck("Source/Parsek/GhostMapPresence.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFlyBodyFixedPrimaryPoint|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
-            };
-            var requiredChecks = new[]
-            {
-                new AuditCheck("Source/Parsek/ParsekFlight.cs", @"relativeLoopLiveAnchor\s*=\s*true", "loop-only LateUpdate live-anchor flag"),
-                new AuditCheck("Source/Parsek/ParsekFlight.cs", @"NonLoopLivePidGuard\.NonLoopRelativeLivePidLookupAttempted", "non-loop LateUpdate live-PID DEBUG guard"),
-            };
+            var forbiddenChecks = ForbiddenChecks;
+            var requiredChecks = RequiredChecks;
 
             var violations = new System.Collections.Generic.List<string>();
             foreach (AuditCheck check in forbiddenChecks)
