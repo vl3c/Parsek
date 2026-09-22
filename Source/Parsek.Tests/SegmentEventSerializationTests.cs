@@ -200,7 +200,7 @@ namespace Parsek.Tests
 
                 Assert.Empty(deserialized);
                 Assert.Contains(logLines, l =>
-                    l.Contains("unknown type=99"));
+                    l.Contains("WARN") && l.Contains("unknown type=99"));
             }
             finally
             {
@@ -301,39 +301,6 @@ namespace Parsek.Tests
             Assert.Equal(300.0, deserialized[0].ut);
             Assert.Equal(100.0, deserialized[1].ut);
             Assert.Equal(200.0, deserialized[2].ut);
-        }
-
-        #endregion
-
-        #region Log assertions
-
-        [Fact]
-        public void UnknownType_LogsWarningWithBadValue()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            RecordingStore.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-
-            try
-            {
-                var node = new ConfigNode("ROOT");
-                var se = node.AddNode("SEGMENT_EVENT");
-                se.AddValue("ut", "500.0");
-                se.AddValue("type", "42");
-
-                var deserialized = new List<SegmentEvent>();
-                RecordingStore.DeserializeSegmentEvents(node, deserialized);
-
-                Assert.Contains(logLines, l =>
-                    l.Contains("WARN") && l.Contains("unknown type=42"));
-            }
-            finally
-            {
-                ParsekLog.SuppressLogging = true;
-                RecordingStore.SuppressLogging = true;
-                ParsekLog.ResetTestOverrides();
-            }
         }
 
         #endregion

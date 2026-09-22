@@ -700,28 +700,6 @@ namespace Parsek.Tests
         #region Log assertion tests
 
         /// <summary>
-        /// ChooseStrategy logs the chosen strategy.
-        /// Guards: decision logging.
-        /// </summary>
-        [Fact]
-        public void ChooseStrategy_LogsDecision()
-        {
-            logLines.Clear();
-
-            var rec = new Recording
-            {
-                TerminalOrbitBody = "Mun",
-                TerminalOrbitSemiMajorAxis = 300000.0
-            };
-
-            GhostExtender.ChooseStrategy(rec);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[GhostExtend]") && l.Contains("Orbital") &&
-                l.Contains("Mun"));
-        }
-
-        /// <summary>
         /// LastRecordedPosition logs the returned position.
         /// Guards: fallback logging.
         /// </summary>

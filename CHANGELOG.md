@@ -52,6 +52,27 @@ _(unreleased — entries accumulate here per commit)_
   download to the cache. `provision.py --seed-cache-from <dir>` fills the cache from zips
   another worktree already has, with no network. Harness-only; no game code changed.
 
+- **Tests: the audit's Low T2 (duplicate) and T6 (organization) registers are closed.**
+  175 duplicate cells are removed: 35 proven mechanically (every statement is also in the
+  twin) and 140 approved by a side-by-side review that checked each production claim in
+  source. 21 rows are kept because the review found unique coverage, 2 data-driven theory
+  duplicates are kept, 1 row is held, and 24 cosmetic Theory folds are declined because a
+  fold gains no failure mode. Eight rows whose cell asserted something its twin did not
+  were finished one at a time. In six, the unique assertion moved into the twin and the
+  cell is gone: the rollback keeps the origin instance itself, the background part-die
+  line names its handler, the self-rewind path fires no defensive Warn, every RCS showcase
+  entry starts at the recording start, the orbit-data line carries `result=True`, and the
+  unknown segment-event type logs a warning. One cell was a strict subset of its twin and
+  is simply removed. One is kept and renamed, because only its arrange reaches the
+  `rsr_legacyrestore_` relation id, which it now asserts. Each new assertion is proven by
+  a mutant that turns its cell red, where the old twin or cell passed. For the five T6 rows, the
+  section-dump triage tool and the seven synthetic-recording injectors now report as
+  skipped when their save is absent, where before they passed without asserting anything.
+  xUnit 2.4 has no runtime skip, so a thrown `SkipException` reports as a failure. The
+  check therefore sits on the test attribute. A dead fixture helper and a dead ternary
+  are deleted (the codec theory is renamed to the one path its two rows cover), and a
+  misnamed test region is renamed. No production behavior changed.
+
 - **Tests: recording-metadata round-trips now run through the codec that saved games use.**
   40 cells in ten test classes saved and loaded recordings through
   `ParsekScenario.SaveRecordingMetadata` / `LoadRecordingMetadataForTests`, a test-only

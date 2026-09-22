@@ -191,7 +191,9 @@ namespace Parsek.Tests
             bgRecorder.OnBackgroundPartDie(null);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[BgRecorder]") && l.Contains("part or vessel is null"));
+                l.Contains("[BgRecorder]")
+                && l.Contains("OnBackgroundPartDie")
+                && l.Contains("part or vessel is null"));
         }
 
         #endregion
@@ -339,22 +341,6 @@ namespace Parsek.Tests
         #endregion
 
         #region Log Assertions
-
-        [Fact]
-        public void OnBackgroundPartDie_NullPart_LogsWithBgRecorderTag()
-        {
-            var tree = MakeTree((100, "rec_bg1"));
-            var bgRecorder = new BackgroundRecorder(tree);
-            bgRecorder.InjectLoadedStateForTesting(100, "rec_bg1");
-
-            bgRecorder.OnBackgroundPartDie(null);
-
-            // Verify the log line uses [BgRecorder] subsystem tag
-            Assert.Contains(logLines, l =>
-                l.Contains("[BgRecorder]") &&
-                l.Contains("OnBackgroundPartDie") &&
-                l.Contains("part or vessel is null"));
-        }
 
         [Fact]
         public void OnBackgroundPartJointBreak_NullJoint_LogsWithBgRecorderTag()

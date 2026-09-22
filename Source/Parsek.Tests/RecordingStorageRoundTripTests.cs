@@ -2520,23 +2520,20 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------------
-        // Codec round-trip matrix (1 theory)
+        // Codec round trip of the boundary fixture (1 theory)
         // -----------------------------------------------------------------------
 
         [Theory]
         [InlineData("currentSparse")]
         [InlineData("aliasSnapshot")]
-        public void CodecRoundTripMatrix_EveryFormatPreservesSemanticsAndBoundaryPairs(string caseName)
+        public void CodecRoundTrip_BoundaryFixture_SectionAuthoritativeBinaryPreservesSemantics(string caseName)
         {
-            // The section-authoritative case needs a fixture whose flat payload exactly matches
-            // both the rebuilt points AND the rebuilt orbit segments. BuildBoundaryCodecFixture
-            // has 2 flat OrbitSegments but only Absolute track sections (which contribute nothing
-            // to RebuildOrbitSegmentsFromTrackSections), so its OrbitSegment exact-match fails
-            // and the writer falls through to flat-fallback — good for the duplicated case,
-            // wrong for the section-authoritative case.
-            Recording fixture = caseName == "v1SectionAuthoritative"
-                ? BuildSectionAuthoritativeCodecFixture()
-                : BuildBoundaryCodecFixture();
+            // Both rows run BuildBoundaryCodecFixture through the same current-format binary
+            // write path (EnsureCheckpointSectionsForTopLevelOrbitSegments makes it
+            // section-authoritative). The aliasSnapshot row adds alias snapshots, which the
+            // trajectory sidecar does not carry, so it pins that the snapshot mode leaves the
+            // trajectory write-path choice unchanged. The pre-collapse format variants are gone.
+            Recording fixture = BuildBoundaryCodecFixture();
 
             TrajectorySidecarEncoding expectedEncoding;
             bool expectSectionAuthoritative;

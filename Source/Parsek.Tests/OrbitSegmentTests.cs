@@ -736,7 +736,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region OrbitSegment Serialization
+        #region FindOrbitSegment boundaries, Recording UT derivation and ToString
 
         [Fact]
         public void FindOrbitSegment_AdjacentSegments_NoOverlap()
