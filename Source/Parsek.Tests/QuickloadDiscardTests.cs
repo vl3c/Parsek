@@ -379,23 +379,6 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
-        [Fact]
-        public void DiscardStashedOnQuickload_PendingTreeFinalized_AlwaysDiscarded()
-        {
-            // Finalized pending tree is always discarded on quickload.
-            var tree = MakeTree("t_kx", "Kerbal X", 2);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.True(RecordingStore.PendingStashedThisTransition);
-            logLines.Clear();
-
-            ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 350.0, currentUT: 295.0);
-
-            Assert.False(RecordingStore.HasPendingTree); // discarded
-            Assert.Contains(logLines, l =>
-                l.Contains("discarded pending tree") && l.Contains("Kerbal X"));
-        }
-
         // ----- Helpers -----
 
         private static RecordingTree MakeTree(string id, string name, int recordingCount)

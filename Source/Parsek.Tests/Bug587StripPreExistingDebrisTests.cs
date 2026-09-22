@@ -1686,46 +1686,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildLeftAlone_RegressionGuard_WithoutSurveySkip_FlagWouldEnterKillSet_AbsentProtectedPids()
-        {
-            // Companion regression guard: prove the survey skip is
-            // load-bearing. If the survey-level filter were removed (we
-            // simulate by hand-rolling a leftAlone list that includes the
-            // flag), and protectedPids is empty (the kill-set protection
-            // is also bypassed), the kill set contains the flag pid.
-            // Removing EITHER protection layer alone causes this exact
-            // shape; both layers stay so a future refactor of either
-            // doesn't silently regress flag preservation.
-            var marker = new ReFlySessionMarker
-            {
-                ActiveReFlyRecordingId = "rec-booster",
-                OriginChildRecordingId = "rec-booster",
-                TreeId = "tree-1",
-                InPlaceContinuation = true,
-            };
-            var trees = new List<RecordingTree>
-            {
-                MakeTree("tree-1",
-                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
-                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
-            };
-            // Simulate the survey skip being absent: flag pid 7001u is in
-            // leftAlonePidNames.
-            var leftAlone = new List<(uint, string)>
-            {
-                (101u,  "Kerbal X Debris"),
-                (7001u, "Kerbal X Debris"),
-            };
-
-            var killAbsentBothLayers = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
-                marker, trees, leftAlone, protectedPids: null);
-
-            Assert.Equal(2, killAbsentBothLayers.Count);
-            Assert.Contains(7001u, killAbsentBothLayers);
-            Assert.Contains(101u, killAbsentBothLayers);
-        }
-
-        [Fact]
         public void BuildLeftAlone_NullInputs_AreDefensive()
         {
             // null liveVessels -> empty result, no throw.

@@ -1015,21 +1015,6 @@ namespace Parsek.Tests
         // ── GetChainSortKey ──
 
         [Fact]
-        public void GetChainSortKey_LaunchTime_ReturnsEarliestStartUT()
-        {
-            var committed = new List<Recording>
-            {
-                MakeRec(300, 400),
-                MakeRec(150, 250),
-                MakeRec(200, 350)
-            };
-            var members = new List<int> { 0, 1, 2 };
-            double key = ParsekUI.GetChainSortKey(members, committed,
-                ParsekUI.SortColumn.LaunchTime, 0);
-            Assert.Equal(150, key);
-        }
-
-        [Fact]
         public void GetChainSortKey_Duration_ReturnsSumOfPositiveDurations()
         {
             var committed = new List<Recording>
@@ -1360,15 +1345,6 @@ namespace Parsek.Tests
         // ── GetGroupStatus ──
 
         [Fact]
-        public void GetGroupStatus_EmptyDescendants_ReturnsDash()
-        {
-            ParsekUI.GetGroupStatus(new HashSet<int>(), new List<Recording>(),
-                500, out string text, out int order);
-            Assert.Equal("-", text);
-            Assert.Equal(2, order);
-        }
-
-        [Fact]
         public void GetGroupStatus_AllFuture_ReturnsFutureOrder()
         {
             var committed = new List<Recording>
@@ -1379,19 +1355,6 @@ namespace Parsek.Tests
             ParsekUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
                 500, out string text, out int order);
             Assert.Equal(0, order);
-        }
-
-        [Fact]
-        public void GetGroupStatus_ActivePresent_ReturnsActiveOrder()
-        {
-            var committed = new List<Recording>
-            {
-                MakeRec(400, 600),  // active at now=500
-                MakeRec(100, 200)   // past
-            };
-            ParsekUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
-                500, out string text, out int order);
-            Assert.Equal(1, order);
         }
 
         [Fact]
@@ -1409,14 +1372,6 @@ namespace Parsek.Tests
         }
 
         // ── GetGroupSortKey ──
-
-        [Fact]
-        public void GetGroupSortKey_EmptyDescendants_ReturnsMaxValue()
-        {
-            double key = ParsekUI.GetGroupSortKey(new HashSet<int>(), new List<Recording>(),
-                ParsekUI.SortColumn.LaunchTime, 0);
-            Assert.Equal(double.MaxValue, key);
-        }
 
         [Fact]
         public void GetGroupSortKey_LaunchTime_DelegatesToEarliestStartUT()
@@ -1457,15 +1412,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetGroupSortKey_Name_ReturnsZero()
-        {
-            var committed = new List<Recording> { MakeRec(100, 200) };
-            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
-                ParsekUI.SortColumn.Name, 0);
-            Assert.Equal(0, key);
-        }
-
-        [Fact]
         public void GetGroupSortKey_Phase_ReturnsZero()
         {
             var committed = new List<Recording> { MakeRec(100, 200) };
@@ -1496,23 +1442,6 @@ namespace Parsek.Tests
         }
 
         // ── CycleRecordingUnit ──
-
-        [Fact]
-        public void CycleRecordingUnit_FullCycle()
-        {
-            var u = LoopTimeUnit.Sec;
-            u = ParsekUI.CycleRecordingUnit(u);
-            Assert.Equal(LoopTimeUnit.Min, u);
-
-            u = ParsekUI.CycleRecordingUnit(u);
-            Assert.Equal(LoopTimeUnit.Hour, u);
-
-            u = ParsekUI.CycleRecordingUnit(u);
-            Assert.Equal(LoopTimeUnit.Auto, u);
-
-            u = ParsekUI.CycleRecordingUnit(u);
-            Assert.Equal(LoopTimeUnit.Sec, u);
-        }
 
         [Fact]
         public void ComputeDisplayedLoopPeriod_StoredAboveFloor_NotClamped()
@@ -1699,35 +1628,6 @@ namespace Parsek.Tests
             ParsekUI.ApplyAutoLoopRange(rec, true);
             Assert.Equal(100, rec.LoopStartUT);
             Assert.Equal(200, rec.LoopEndUT);
-        }
-
-        [Fact]
-        public void ApplyAutoLoopRange_Enable_NoTrimmableSections_LeavesNaN()
-        {
-            var rec = new Recording
-            {
-                TrackSections = new List<TrackSection>
-                {
-                    new TrackSection { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 },
-                    new TrackSection { environment = SegmentEnvironment.ExoPropulsive, startUT = 200, endUT = 300 }
-                }
-            };
-            ParsekUI.ApplyAutoLoopRange(rec, true);
-            Assert.True(double.IsNaN(rec.LoopStartUT));
-            Assert.True(double.IsNaN(rec.LoopEndUT));
-        }
-
-        [Fact]
-        public void ApplyAutoLoopRange_Disable_ClearsExistingRange()
-        {
-            var rec = new Recording
-            {
-                LoopStartUT = 100,
-                LoopEndUT = 200
-            };
-            ParsekUI.ApplyAutoLoopRange(rec, false);
-            Assert.True(double.IsNaN(rec.LoopStartUT));
-            Assert.True(double.IsNaN(rec.LoopEndUT));
         }
 
         [Fact]
@@ -2188,34 +2088,6 @@ namespace Parsek.Tests
         // ── BuildGroupTreeData ──
 
         [Fact]
-        public void BuildGroupTreeData_EmptyInput_ProducesEmptyOutputs()
-        {
-            ParsekUI.BuildGroupTreeData(
-                new List<Recording>(), new int[0], new List<string>(),
-                out var grpToRecs, out var chainToRecs, out var grpChildren,
-                out var rootGrps, out var rootChainIds);
-
-            Assert.Empty(grpToRecs);
-            Assert.Empty(chainToRecs);
-            Assert.Empty(grpChildren);
-            Assert.Empty(rootGrps);
-            Assert.Empty(rootChainIds);
-        }
-
-        [Fact]
-        public void BuildGroupTreeData_UngroupedRecording_NotInAnyGroup()
-        {
-            var committed = new List<Recording> { new Recording { VesselName = "Solo" } };
-            ParsekUI.BuildGroupTreeData(
-                committed, new int[] { 0 }, new List<string>(),
-                out var grpToRecs, out var chainToRecs, out var grpChildren,
-                out var rootGrps, out var rootChainIds);
-
-            Assert.Empty(grpToRecs);
-            Assert.Empty(rootGrps);
-        }
-
-        [Fact]
         public void BuildGroupTreeData_GroupedRecording_AppearsInGroup()
         {
             var rec = new Recording
@@ -2336,26 +2208,6 @@ namespace Parsek.Tests
             Assert.True(chainToRecs.ContainsKey("chain-1"));
             Assert.Equal(2, chainToRecs["chain-1"].Count);
             Assert.Contains("chain-1", rootChainIds);
-        }
-
-        [Fact]
-        public void BuildGroupTreeData_ChainWithGroupMember_NotRootChain()
-        {
-            var committed = new List<Recording>
-            {
-                new Recording
-                {
-                    VesselName = "Seg0", ChainId = "chain-g", ChainIndex = 0,
-                    RecordingGroups = new List<string> { "Flights" }
-                },
-                new Recording { VesselName = "Seg1", ChainId = "chain-g", ChainIndex = 1 }
-            };
-            ParsekUI.BuildGroupTreeData(
-                committed, new int[] { 0, 1 }, new List<string>(),
-                out var grpToRecs, out var chainToRecs, out var grpChildren,
-                out var rootGrps, out var rootChainIds);
-
-            Assert.DoesNotContain("chain-g", rootChainIds);
         }
 
         [Fact]

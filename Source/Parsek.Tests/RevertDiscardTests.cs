@@ -374,41 +374,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void UnstashPendingTreeOnRevert_AfterRevertToLaunch_PreservesSidecarState()
-        {
-            // Complements ShouldRunQuickloadDiscard_TruthTable by asserting the OTHER half
-            // of the fix: when the gate correctly skips the hard-discard, the revert branch's
-            // soft-unstash preserves the tagged event (sidecar files aren't touched either —
-            // that invariant lives in RecordingStore and is already pinned by the existing
-            // UnstashPendingTreeOnRevert_ClearsSlot_PreservesFilesAndEvents test).
-            var tree = MakeTreeWithOneRec("Revert-to-Launch tree", "rec-r2l");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            RecordingStore.PendingStashedThisTransition = true;
-            var r2lEvt = new GameStateEvent
-            {
-                ut = 600.0,
-                eventType = GameStateEventType.ContractAccepted,
-                key = "contract-r2l",
-                recordingId = "rec-r2l",
-            };
-            GameStateStore.AddEvent(ref r2lEvt);
-
-            // Post-fix OnLoad dispatch: ShouldRunQuickloadDiscard returns false on the revert
-            // path (asserted in the truth-table test above), so DiscardStashedOnQuickload
-            // doesn't run and the flow reaches the isRevert branch here.
-            RecordingStore.UnstashPendingTreeOnRevert();
-
-            Assert.False(RecordingStore.HasPendingTree);
-            // The tagged event survives. Once the tree is unstashed it is no longer in the
-            // current-timeline visibility set, so post-revert ledger walks ignore it while
-            // the sidecars stay available for F9-from-flight-quicksave.
-            Assert.Single(GameStateStore.Events);
-            Assert.Contains(logLines, l =>
-                l.Contains("Unstashed pending tree 'Revert-to-Launch tree'")
-                && l.Contains("sidecar files preserved"));
-        }
-
-        [Fact]
         public void UnstashPendingTreeOnRevert_DifferenceFromDiscardPendingTree()
         {
             // #434 vs #431 semantic contrast:

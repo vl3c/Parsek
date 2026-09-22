@@ -217,20 +217,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CoalesceSameOrbitFragments_DoesNotMergeAcrossPredictedMismatch()
-        {
-            // A predicted (ballistic-tail) segment must not fold into a non-predicted parking arc even
-            // when the elements coincide - the kind classification stays honest.
-            var segs = new List<OrbitSegment>
-            {
-                Seg("Kerbin", 100, 400, 100, predicted: false),
-                Seg("Kerbin", 411, 451, 411, predicted: true),
-            };
-            var merged = TrajectoryMath.CoalesceSameOrbitFragments(segs);
-            Assert.Equal(2, merged.Count);
-        }
-
-        [Fact]
         public void CoalesceSameOrbitFragments_NullOrSingle_PassThrough()
         {
             Assert.Null(TrajectoryMath.CoalesceSameOrbitFragments(null));

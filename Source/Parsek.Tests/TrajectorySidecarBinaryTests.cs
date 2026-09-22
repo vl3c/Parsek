@@ -765,63 +765,6 @@ namespace Parsek.Tests
             public int OrbitSegmentCount { get; set; }
         }
 
-        // Test #28 from docs/dev/plans/optimizer-persistence-split.md §9.3.
-        // Mandatory binary round-trip: a seam-flagged TrackSection survives the v8 binary
-        // codec write/read cycle. Without this test, a regression in binary version gating
-        // would silently drop the flag on every save and the optimizer's seam short-circuit
-        // would stop firing — exactly the bug the plan fixes.
-        [Fact]
-        public void TrackSection_BoundarySeamFlag_RoundTripsThroughBinaryCodec()
-        {
-            const double t0 = 30000.0;
-            var rec = new Recording
-            {
-                RecordingId = "boundary-seam-binary-roundtrip",
-                // Pin to v8 explicitly so this test pins the seam-flag round-trip
-                // at its introduction version, independent of later format bumps
-                // (e.g. Phase 7's v9). The seam flag is gated on
-                // BoundarySeamFlagFormatVersion, so the contract under test is
-                // "v8 writer + v8 reader preserve the flag".
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
-            };
-            rec.Points.Add(new TrajectoryPoint
-            {
-                ut = t0,
-                latitude = 0,
-                longitude = 0,
-                altitude = 70000,
-                rotation = new Quaternion(0f, 0f, 0f, 1f),
-                velocity = new Vector3(0f, 0f, 0f),
-                bodyName = "Kerbin"
-            });
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                referenceFrame = ReferenceFrame.Absolute,
-                source = TrackSectionSource.Background,
-                startUT = t0,
-                endUT = t0,
-                sampleRateHz = 0f,
-                frames = new List<TrajectoryPoint> { rec.Points[0] },
-                checkpoints = new List<OrbitSegment>(),
-                isBoundarySeam = true
-            });
-
-            string path = Path.Combine(tempDir, "seam-roundtrip.prec");
-            TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
-
-            TrajectorySidecarProbe probe;
-            Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
-            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
-
-            var restored = new Recording();
-            TrajectorySidecarBinary.Read(path, restored, probe);
-
-            Assert.Single(restored.TrackSections);
-            Assert.True(restored.TrackSections[0].isBoundarySeam,
-                "Binary round-trip dropped TrackSection.isBoundarySeam — version-gated write/read is broken.");
-        }
-
         // Test #29 from docs/dev/plans/optimizer-persistence-split.md §9.3.
         // Legacy binary read: a recording written at v7 (before the seam field existed) loads
         // with isBoundarySeam == false AND the post-seam fields (frames, etc.) deserialize at

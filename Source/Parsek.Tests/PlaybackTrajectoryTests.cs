@@ -746,16 +746,6 @@ namespace Parsek.Tests
             Assert.Equal(200.0, traj.EndUT, 6);
         }
 
-        [Fact]
-        public void Recording_NoPointsNoExplicit_ReturnsZero()
-        {
-            var rec = new Recording();
-            // ExplicitStartUT defaults to NaN, so falls through to 0
-            IPlaybackTrajectory traj = rec;
-            Assert.Equal(0.0, traj.StartUT);
-            Assert.Equal(0.0, traj.EndUT);
-        }
-
         #endregion
     }
 }

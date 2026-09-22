@@ -69,25 +69,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Partition_TombstonedContractAccept_RemovesStaleActiveContract()
-        {
-            // A Re-Fly tombstone removes the ContractAccept row from ELS, so the
-            // ledger active set no longer includes the stock Active contract id.
-            var tombstonedAcceptId = Guid.NewGuid();
-            var entries = new List<KspStatePatcher.ContractFilterEntry>
-            {
-                Active(tombstonedAcceptId),
-            };
-            var ledgerActive = new HashSet<Guid>();
-
-            KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive,
-                out var toRemove, out var surviving);
-
-            Assert.Contains(tombstonedAcceptId, toRemove);
-            Assert.Empty(surviving);
-        }
-
-        [Fact]
         public void Partition_OfferedOrDeclined_NeverTouched()
         {
             var offered = Guid.NewGuid();

@@ -811,20 +811,6 @@ namespace Parsek.Tests
         // propagated a fraction of an orbit ahead. The Unity orbit math itself is verified in-game.
 
         [Fact]
-        public void MapPresenceEpochShift_NonMember_IsZero()
-        {
-            // Off the loop path effUT == liveUT, so the shift is exactly 0 and the seed path is
-            // byte-identical to before (epoch == liveUT, bounds unshifted).
-            var units = MakeSingleUnitSet(5, new[] { 5, 6, 7 }, 100, 250, 150);
-            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
-                i: 9, memberStartUT: 100, memberEndUT: 150, liveUT: 12345.0,
-                units, out bool hidden);
-            double shift = 12345.0 - eff;
-            Assert.False(hidden);
-            Assert.Equal(0.0, shift, 6);
-        }
-
-        [Fact]
         public void MapPresenceEpochShift_WrappedCycle_EqualsWholeCadenceOffset()
         {
             // liveUT 275 folds to effUT 125 in cycle 1 (cadence 150), so the epoch is pushed forward

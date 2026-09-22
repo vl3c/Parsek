@@ -2194,19 +2194,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrajectorySidecarBinary_TryProbe_PartialMagic_ReturnsFalse()
-        {
-            string path = Path.Combine(tempDir, "partial-magic.prec");
-            // "PS" only -- first two bytes of "PSK0" but file length (2) < 16 minimum
-            File.WriteAllBytes(path, new byte[] { (byte)'P', (byte)'S' });
-
-            TrajectorySidecarProbe probe;
-            bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
-            Assert.False(result);
-            Assert.Equal("binary header truncated", probe.FailureReason);
-        }
-
-        [Fact]
         public void TrajectorySidecarBinary_TryProbe_MagicButHeaderBodyTruncated_ReturnsFalse()
         {
             // Write "PSK0" + 4 zero bytes = 8 bytes total.

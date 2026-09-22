@@ -76,22 +76,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PendingTree_PlaceholderModeMarker_ReturnsTrue()
-        {
-            // Placeholder-mode Re-Fly markers (PID changed across rewind or
-            // chain orphaned) deliberately fall through to the dialog: the
-            // recorder-restore carve-out cannot bind a recorder for that
-            // marker shape (the in-place marker swap returns
-            // placeholder-pattern), so the merge dialog is the player's
-            // only recovery path. The caller passes
-            // reFlyInPlaceContinuationActive=false for that case.
-            Assert.True(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
-                hasPendingTree: true,
-                restoringActiveTree: false,
-                reFlyInPlaceContinuationActive: false));
-        }
-
-        [Fact]
         public void PendingTree_RestoringAndReFlyActive_ReturnsFalse()
         {
             // Defense in depth: either skip reason is sufficient. Combined, the

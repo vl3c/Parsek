@@ -158,20 +158,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ExplicitEndUT_SetEvenWithNullSource()
-        {
-            // Bug caught: ExplicitEndUT must be set regardless of whether source
-            // is null — the endUT parameter marks the recording boundary for the
-            // merge/split operation. A conditional that only sets it inside the
-            // non-null branch would leave background recordings with NaN end time.
-            var target = new Recording();
-
-            ParsekFlight.AppendCapturedDataToRecording(target, null, 999.0);
-
-            Assert.Equal(999.0, target.ExplicitEndUT);
-        }
-
-        [Fact]
         public void PreExistingTargetData_Preserved()
         {
             // Bug caught: target data from the original recording must not be

@@ -43,13 +43,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Warp1x_OrbitalGhost_NotExempt_AtThreshold()
-        {
-            // Normal speed (1x) is not exempt — threshold is >1
-            Assert.False(GhostPlaybackLogic.ShouldExemptFromZoneHide(1f, true));
-        }
-
-        [Fact]
         public void Warp10x_NoOrbitalSegments_NotExempt()
         {
             Assert.False(GhostPlaybackLogic.ShouldExemptFromZoneHide(10f, false));

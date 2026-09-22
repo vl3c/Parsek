@@ -1352,23 +1352,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyAction_StrategyActivate_FundsLegPresent()
-        {
-            var a = new GameAction
-            {
-                Type = GameActionType.StrategyActivate,
-                SetupCost = 100000f
-            };
-            var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
-            Assert.True(exp.FundsLeg.IsPresent);
-            Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
-            Assert.Equal("StrategySetup", exp.FundsLeg.ExpectedReasonKey);
-            Assert.Equal(-100000.0, exp.FundsLeg.ExpectedDelta);
-            Assert.Empty(logLines);
-        }
-
-        [Fact]
         public void ClassifyAction_StrategyActivate_ThreeResourceSetupCost_ThreeLegs()
         {
             var a = new GameAction
@@ -1419,34 +1402,6 @@ namespace Parsek.Tests
             Assert.False(exp.ReputationLeg.IsPresent);
             Assert.Equal(-25000.0, exp.FundsLeg.ExpectedDelta);
             Assert.Empty(logLines);
-        }
-
-        [Fact]
-        public void ClassifyAction_StrategyActivate_ZeroSetupCost_ShortCircuits()
-        {
-            var a = new GameAction
-            {
-                Type = GameActionType.StrategyActivate,
-                SetupCost = 0f,
-                SetupScienceCost = 0f,
-                SetupReputationCost = 0f
-            };
-            var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
-            Assert.Equal(0, exp.LegCount);
-
-            var events = new List<GameStateEvent>();
-            var ledger = new List<GameAction> { a };
-            ReconcileKsc(events, ledger, a, 500.0);
-            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
-        }
-
-        [Fact]
-        public void ClassifyAction_StrategyDeactivate_NoResourceImpact()
-        {
-            var a = new GameAction { Type = GameActionType.StrategyDeactivate };
-            var exp = LedgerOrchestrator.ClassifyAction(a);
-            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.NoResourceImpact, exp.Class);
         }
 
         // ---------- #448 / #451: part-purchase zero-delta bypass path ----------

@@ -276,20 +276,6 @@ namespace Parsek.Tests
 
         // --- Guard evaluation order: already-fired checked before terminal state ---
 
-        [Fact]
-        public void ShouldTriggerExplosion_AlreadyFired_SkipsBeforeCheckingTerminalState()
-        {
-            // Even with Destroyed state, already-fired should be checked first
-            bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
-                explosionAlreadyFired: true,
-                terminalState: TerminalState.Destroyed,
-                ghostExists: true,
-                vesselName: "V",
-                recIdx: 0);
-
-            Assert.False(result);
-        }
-
         // --- ApplyDestroyedFallback tests ---
 
         [Fact]

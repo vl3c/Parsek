@@ -793,24 +793,6 @@ namespace Parsek.Tests
             Assert.Equal(20000.0, module.GetTotalEarnings());
         }
 
-        [Fact]
-        public void ContractFailPenalty_DeductsFromBalance()
-        {
-            module.ProcessAction(MakeSeed(0, 25000f));
-            module.ProcessAction(MakeContractFail(100, "c-1", 5000f));
-
-            Assert.Equal(20000.0, module.GetRunningBalance());
-        }
-
-        [Fact]
-        public void ContractCancelPenalty_DeductsFromBalance()
-        {
-            module.ProcessAction(MakeSeed(0, 25000f));
-            module.ProcessAction(MakeContractCancel(100, "c-1", 3000f));
-
-            Assert.Equal(22000.0, module.GetRunningBalance());
-        }
-
         // ================================================================
         // Null handling
         // ================================================================

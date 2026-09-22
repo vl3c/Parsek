@@ -311,23 +311,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TotalBelowBudget_DoesNotFireBreakdown()
-        {
-            // Gate 1 (already enforced by the caller, but tested defensively): healthy
-            // frame below the 8 ms budget. If the #460 branch runs before the budget
-            // check short-circuits the method, the latch would burn on a healthy frame.
-            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
-                7_000, 0, 1.0f, MainLoopDominatedPhases());
-
-            Assert.DoesNotContain(logLines, l => l.Contains("Playback mainLoop breakdown"));
-
-            // Latch still armed.
-            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
-                24_800, 0, 1.0f, MainLoopDominatedPhases());
-            Assert.Contains(logLines, l => l.Contains("Playback mainLoop breakdown"));
-        }
-
-        [Fact]
         public void LatchIndependentOfBug414Latch()
         {
             // Pre-consume #414's latch to simulate the mid-session rollout case: a

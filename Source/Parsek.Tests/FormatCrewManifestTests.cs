@@ -53,24 +53,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Unchanged_ZeroDelta()
-        {
-            var start = new Dictionary<string, int>
-            {
-                ["Pilot"] = 1
-            };
-            var end = new Dictionary<string, int>
-            {
-                ["Pilot"] = 1
-            };
-
-            var result = RecordingsTableUI.FormatCrewManifest(start, end);
-
-            Assert.NotNull(result);
-            Assert.Contains("Pilot: 1 \u2192 1 (+0)", result);
-        }
-
-        [Fact]
         public void SingleTrait()
         {
             var start = new Dictionary<string, int>

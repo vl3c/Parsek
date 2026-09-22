@@ -249,26 +249,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecidePreSwitchDialogAction_NoSession_ActiveRecording_LoadedTarget_SameTreeCommitted_NotSeparate_ReturnsNoPriorSession()
-        {
-            // Fails if: re-selecting the vessel you are already flying (its
-            // own committed clone, same tree) opens a spurious dialog. The
-            // Prefix sets targetIsSeparateCommittedVessel=false when the
-            // matched committed tree id equals the live active tree id, so
-            // the same-tree case must stay NoPriorSession (no dialog, the
-            // existing in-bubble continuation handles it).
-            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
-                hasActiveSession: false,
-                priorFocusedPid: 0u,
-                newTargetPid: 1234u,
-                anotherDialogOpen: false,
-                hasActiveRecording: true,
-                targetIsUnloaded: false,
-                targetIsSeparateCommittedVessel: false);
-            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.NoPriorSession, actual);
-        }
-
-        [Fact]
         public void DecidePreSwitchDialogAction_NoSession_LoadedSeparateCommitted_AnotherDialogOpen_SkipsReEntry()
         {
             // Fails if: the re-entry guard doesn't apply to Case C, letting

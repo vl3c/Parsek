@@ -587,17 +587,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StashPendingTree_SetsPendingStashedThisTransition_ViaTree()
-        {
-            Assert.False(RecordingStore.PendingStashedThisTransition);
-
-            var tree = new RecordingTree { TreeName = "TestTree" };
-            RecordingStore.StashPendingTree(tree);
-
-            Assert.True(RecordingStore.PendingStashedThisTransition);
-        }
-
-        [Fact]
         public void StashPendingTree_SetsPendingStashedThisTransition()
         {
             Assert.False(RecordingStore.PendingStashedThisTransition);

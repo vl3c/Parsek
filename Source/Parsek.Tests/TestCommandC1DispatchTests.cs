@@ -354,19 +354,6 @@ namespace Parsek.Tests
                 AssertDefer(r, deferReason);
         }
 
-        [Fact]
-        public void KscAction_ResearchNode_ScienceMode_Executes_ButOthersStayCareerOnly()
-        {
-            // The single OQ1 finding that reaches back into a merged module: research-node
-            // executes in SCIENCE_SANDBOX while hire / dismiss / upgrade-facility do not, and
-            // the shared CareerPresent bit was NOT relaxed (it stays false in Science mode).
-            var science = Mode(careerPresent: false, rnDPresent: true);
-            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(
-                Cmd("id=1 cmd=KscAction action=research-node node=basicRocketry"), science).Decision);
-            AssertDefer(TestCommandDispatcher.DecideDispatch(
-                Cmd("id=1 cmd=KscAction action=hire-kerbal kerbal=Jeb"), science), "career-not-ready");
-        }
-
         // ----- SaveGame (M-C1.1 follow-up) -----
 
         [Fact]

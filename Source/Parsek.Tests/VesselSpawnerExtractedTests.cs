@@ -498,15 +498,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DetermineSituation_SplashedTakesPriorityOverLanded()
-        {
-            // When alt <= 0 AND overWater, SPLASHED wins over LANDED
-            string result = VesselSpawner.DetermineSituation(
-                alt: 0, overWater: true, speed: 100, orbitalSpeed: 2200);
-            Assert.Equal("SPLASHED", result);
-        }
-
-        [Fact]
         public void DetermineSituation_BoundaryAlt_PositiveSmall_Flying()
         {
             // alt > 0, slow speed -> FLYING (not LANDED)

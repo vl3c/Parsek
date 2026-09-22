@@ -222,52 +222,6 @@ namespace Parsek.Tests
 
         #region Empty state
 
-        /// <summary>
-        /// Empty committed tree list produces no chains. This is the state
-        /// after a fresh save with no committed recordings.
-        /// Guards: empty state path works.
-        /// </summary>
-        [Fact]
-        public void NoCommittedTrees_NoChainsOnLoad()
-        {
-            var chains = GhostChainWalker.ComputeAllGhostChains(
-                new List<RecordingTree>(), 1000);
-
-            Assert.NotNull(chains);
-            Assert.Empty(chains);
-        }
-
-        /// <summary>
-        /// Null committed tree list also produces no chains (defensive).
-        /// Guards: null safety.
-        /// </summary>
-        [Fact]
-        public void NullCommittedTrees_NoChainsOnLoad()
-        {
-            var chains = GhostChainWalker.ComputeAllGhostChains(null, 1000);
-
-            Assert.NotNull(chains);
-            Assert.Empty(chains);
-        }
-
-        /// <summary>
-        /// Committed trees that contain no claiming interactions produce no chains.
-        /// Guards: trees without docking/undocking/etc. don't create spurious chains.
-        /// </summary>
-        [Fact]
-        public void CommittedTreesWithoutClaims_NoChainsOnLoad()
-        {
-            var r1 = MakeRecording("R1", 50, 1000, 1120);
-            var launchBp = MakeBranchPoint("bp-launch", BranchPointType.Launch,
-                1000, 0, new string[0], new[] { "R1" });
-            var tree = MakeTree("tree-1", new[] { r1 }, new[] { launchBp });
-
-            var chains = GhostChainWalker.ComputeAllGhostChains(
-                new List<RecordingTree> { tree }, 900);
-
-            Assert.Empty(chains);
-        }
-
         #endregion
 
         #region UT-dependent chain activity

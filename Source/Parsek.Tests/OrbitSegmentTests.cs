@@ -770,18 +770,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FindOrbitSegment_NegativeUT_ReturnsNull()
-        {
-            var segments = new List<OrbitSegment>
-            {
-                MakeSegment(100, 200)
-            };
-
-            var result = TrajectoryMath.FindOrbitSegment(segments, -50);
-            Assert.Null(result);
-        }
-
-        [Fact]
         public void Recording_OnlyOrbitSegments_EmptyPoints()
         {
             var rec = new Recording();

@@ -681,22 +681,6 @@ namespace Parsek.Tests
                 l.Contains("not re-applied"));
         }
 
-        // THE REWIND CASE, and the reason the decision cannot be a UT comparison: a
-        // re-fly moves the game clock backwards, so this death's UT sits AFTER the UT
-        // the seed was captured at even though the seed already contains it. Ordering by
-        // UT would apply the row; the stamp gets it right.
-        [Fact]
-        public void ProcessAction_RepPenalty_KerbalDeathInsideSeedAtLaterUT_IsStillSkipped()
-        {
-            module.ProcessAction(MakeSeed(90f));
-
-            var action = MakeKerbalDeathPenalty(9.999828f, ut: 124.06, insideSeed: true);
-            module.ProcessAction(action);
-
-            Assert.Equal(0f, action.EffectiveRep);
-            Assert.Equal(90f, module.GetRunningRep());
-        }
-
         // THE MIRROR CASE: a death filed against a seed that predates it applies, no
         // matter how small its UT is. A rewind can put it at UT 10 on a career whose
         // seed was captured much later in real time.

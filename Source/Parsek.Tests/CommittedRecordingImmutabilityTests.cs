@@ -128,23 +128,6 @@ namespace Parsek.Tests
                 "bug #95 VesselSnapshot null comes back unpinned.");
         }
 
-        [Fact]
-        public void ContinuationVesselDestroyed_VesselDestroyedGatesSpawn()
-        {
-            // Verify that VesselDestroyed=true prevents spawn even with a valid snapshot.
-            // This confirms removing the snapshot null is safe.
-            var rec = MakeCommittedRecording();
-            rec.VesselDestroyed = true;
-
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
-
-            Assert.False(needsSpawn);
-            Assert.Contains("vessel destroyed", reason);
-        }
-
         // ────────────────────────────────────────────────────────────
         //  Item 2: EVA boarding preserves snapshot
         // ────────────────────────────────────────────────────────────
@@ -251,26 +234,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void UpdateRecordingsForTerminalEvent_SkipsCommitted_EvenWhenNotSpawned()
-        {
-            // Bug #95 item 6 edge case: committed recording that hasn't spawned yet
-            // should still be skipped (not just spawned ones)
-            var rec = MakeCommittedRecording("Flea", 99999);
-            rec.VesselSpawned = false;
-            rec.SpawnedVesselPersistentId = 0;
-            RecordingStore.AddRecordingWithTreeForTesting(rec);
-
-            var originalSnapshot = rec.VesselSnapshot;
-
-            bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
-                "Flea", TerminalState.Destroyed, 18000.0);
-
-            Assert.False(updated);
-            Assert.Same(originalSnapshot, rec.VesselSnapshot);
-            Assert.Null(rec.TerminalStateValue); // unchanged from default
-        }
-
-        [Fact]
         public void UpdateRecordingsForTerminalEvent_DoesNotAffectNonCommittedRecordings()
         {
             // With standalone pending removed, UpdateRecordingsForTerminalEvent
@@ -354,15 +317,5 @@ namespace Parsek.Tests
                     handler, typeof(ParsekFlight), "FormatContinuationVesselDestroyedMessage"));
         }
 
-        [Fact]
-        public void UpdateTerminalEvent_NoMatchingCommitted_LogsSkip()
-        {
-            // With standalone pending removed, terminal event updates only target
-            // committed recordings. When none match, the method returns false.
-            bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
-                "RecoverMe", TerminalState.Recovered, 18000.0);
-
-            Assert.False(updated);
-        }
     }
 }

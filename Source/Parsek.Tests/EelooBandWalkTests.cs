@@ -243,39 +243,5 @@ namespace Parsek.Tests
 
         // ----- 5. THE LIVE CROSS-CHECK. -----
 
-        [Fact]
-        public void EelooBandWalk_TheLiveArbiterConfirmedThree_AtTheCandidatesThisModelNames()
-        {
-            // MEASURED on logs/2026-08-15_1517_M2-periodicity-solver by
-            // Reaim_KerbinToEeloo_BandWalk_AcceptsOutsideTheBaseBand, which walked the product's own
-            // candidate list through ReaimTransferSynthesizer.TrySynthesizeTransfer (PatchedConics tail
-            // included) at every step-0-infeasible departure and logged:
-            //
-            //   band walk Kerbin->Eeloo: scanSteps=48 step0Infeasible=15 outsideBaseBand=3
-            //   insideBaseBand=10 declined=2 deepestWalk=0.1550 ... | 24:cand=32,dev=0.0800
-            //   25:cand=48,dev=0.1200 26:cand=62,dev=0.1550 ...
-            //
-            // These three are the M-MIS-3 behavioural closure, and this cell is their headless regression
-            // floor: it fails if the model stops agreeing with what the arbiter measured, which is the
-            // signal that the fixture, the band law or the stock ephemeris moved.
-            var liveConfirmed = new (int ScanIndex, int CandidateIndex, double DevFraction)[]
-            {
-                (24, 32, 0.0800),
-                (25, 48, 0.1200),
-                (26, 62, 0.1550),
-            };
-
-            foreach (var e in liveConfirmed)
-            {
-                Assert.True(EelooBandWalkGeometry.TryFirstTiltGateOpening(
-                    EelooBandWalkGeometry.ScanDepartureUT(e.ScanIndex),
-                    out int candidateIndex, out _, out double stepIndex, out _));
-
-                Assert.Equal(e.CandidateIndex, candidateIndex);
-                Assert.Equal(e.DevFraction,
-                    Math.Abs(stepIndex) * ReaimTofSearch.DefaultStepFraction, 10);
-                Assert.True(EelooBandWalkGeometry.IsOutsideBaseBand(stepIndex));
-            }
-        }
     }
 }

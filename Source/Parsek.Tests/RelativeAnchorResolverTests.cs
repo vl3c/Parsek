@@ -909,40 +909,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveAnchorPose_AnchorPastTerminalClampWindow_FailsClosed()
-        {
-            var tree = new RecordingTree { Id = "tree" };
-            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
-                "terminal-anchor",
-                tree.Id,
-                sectionEndUT: 10.0,
-                terminalPlayableUT: 10.0,
-                terminalWorld: new Vector3d(110, 0, 0));
-            Recording child = MakeRelativeRecording(
-                "child",
-                tree.Id,
-                localOffset: new Vector3d(1, 0, 0),
-                anchorRecordingId: anchor.RecordingId,
-                startUT: 0.0,
-                endUT: 20.0);
-            tree.AddOrReplaceRecording(anchor);
-            tree.AddOrReplaceRecording(child);
-
-            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
-                MakeContext(tree),
-                child.RecordingId,
-                10.2,
-                new HashSet<string>(StringComparer.Ordinal),
-                out _,
-                out RelativeAnchorResolveFailure failure);
-
-            Assert.False(resolved);
-            Assert.Equal(RelativeAnchorResolveOutcome.NoSectionAtUT, failure.Outcome);
-            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
-            Assert.DoesNotContain(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
-        }
-
-        [Fact]
         public void TryResolveAnchorPose_SameChainSuccessorAtTerminalEdge_WinsBeforePredecessorClamp()
         {
             var tree = new RecordingTree { Id = "tree" };

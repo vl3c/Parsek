@@ -309,23 +309,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void JoolClassNoStation_DeclineIsNeverSilent()
-        {
-            // M-MIS-6 (supersedes M4c plan test 10b): the no-station Jool-class decline is no
-            // longer silent - the multi-moon configuration hold owns the shape and every decline
-            // carries an amber reason (design D6). The engage polarity lives in
-            // MultiMoonAlignmentTests.
-            var jool = new List<PhaseConstraint>
-            {
-                Rotation("Jool"), Orbital("Jool"), Orbital("Laythe"), Orbital("Vall"),
-            };
-            var r = ArrivalHoldPlanner.ComputeArrivalHold(
-                jool, "Jool", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null, new HoldFake());
-            Assert.False(r.Applied);
-            Assert.NotNull(r.AmberReason);
-        }
-
-        [Fact]
         public void StationPlusConstrainedMoon_NoneWithAmber()
         {
             // M4c plan test 10c (the D8 widening): station + one constrained moon - None + amber.

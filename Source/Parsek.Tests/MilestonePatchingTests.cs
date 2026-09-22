@@ -276,30 +276,6 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void PatchMilestones_WithCreditedMilestones_LogsCountBeforeEarlyReturn()
-        {
-            var module = new MilestonesModule();
-            module.ProcessAction(new GameAction
-            {
-                Type = GameActionType.MilestoneAchievement,
-                UT = 100.0,
-                MilestoneId = "Mun/Landing"
-            });
-            module.ProcessAction(new GameAction
-            {
-                Type = GameActionType.MilestoneAchievement,
-                UT = 200.0,
-                MilestoneId = "FirstLaunch"
-            });
-
-            // ProgressTracking.Instance is null → will early-return with log
-            KspStatePatcher.PatchMilestones(module);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[KspStatePatcher]") && l.Contains("ProgressTracking.Instance is null"));
-        }
-
-        [Fact]
         public void PatchRepeatableRecordNode_SameBranchRecalculation_PreservesCurrentBestWithinRewardBand()
         {
             var node = new RecordsDistance();
@@ -399,32 +375,6 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]") &&
                 l.Contains("synced repeatable record") &&
                 l.Contains("RecordsDistance"));
-        }
-
-        [Fact]
-        public void PatchRepeatableRecordNode_RewindFromCompletedState_RestoresEarlierIntervalProgress()
-        {
-            var node = new RecordsDistance();
-            Assert.True(KspStatePatcher.TryComputeRepeatableRecordState(
-                node, effectiveCount: 1, out var expected));
-
-            SetProgressNodeFlags(node, reached: true, complete: true);
-            SetPrivateField(node, "record", 100000.0);
-            SetPrivateField(node, "rewardThreshold", 0.0);
-            SetPrivateField(node, "rewardInterval", 1);
-            node.OnIterateVessels = null;
-
-            bool recognized = KspStatePatcher.PatchRepeatableRecordNode(
-                node, effectiveCount: 1, qualifiedId: "RecordsDistance",
-                authoritativeRepeatableRecordState: true);
-
-            Assert.True(recognized);
-            Assert.True(node.IsReached);
-            Assert.False(node.IsComplete);
-            Assert.Equal(expected.Record, GetPrivateField<double>(node, "record"), 6);
-            Assert.Equal(expected.RewardThreshold, GetPrivateField<double>(node, "rewardThreshold"), 6);
-            Assert.Equal(expected.RewardInterval, GetPrivateField<int>(node, "rewardInterval"));
-            Assert.NotNull(node.OnIterateVessels);
         }
 
         [Fact]

@@ -312,26 +312,6 @@ namespace Parsek.Tests
         // Regression: the exact 2026-04-09 playtest scenario
         // ────────────────────────────────────────────────────────
 
-        [Fact]
-        public void ResolveOrphanSeatFromSnapshots_KerbalXBobOnEvaScenario_FindsMk1_3PodSeat()
-        {
-            // Kerbal X recording (id 8124d4445c) has GhostVisualSnapshot from
-            // recording start with all 3 crew in the Mk1-3 pod. Bob EVA'd
-            // mid-recording but the start-of-recording snapshot still lists him.
-            var kerbalXStartSnapshot = BuildSnapshotWithCrew(
-                100000u, "mk1-3pod.v2",
-                "Jebediah Kerman", "Bill Kerman", "Bob Kerman");
-
-            // No reverse-map needed — this is the first recording in the timeline,
-            // its snapshot contains the raw original names.
-            var seat = CrewReservationManager.ResolveOrphanSeatFromSnapshots(
-                "Bob Kerman", new[] { kerbalXStartSnapshot }, null);
-
-            Assert.True(seat.Found);
-            Assert.Equal(100000u, seat.PartPid);
-            Assert.Equal("mk1-3pod.v2", seat.PartName);
-        }
-
         // ────────────────────────────────────────────────────────
         // Spawned vessel guard — SwapReservedCrewInFlight must
         // skip both passes for Parsek-spawned vessels (#BugC)

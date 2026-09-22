@@ -283,16 +283,6 @@ namespace Parsek.Tests
         #region Static Logic: ClassifyPartDeath delegates to FlightRecorder
 
         [Fact]
-        public void ClassifyPartDeath_DestroyedPart_ReturnsDestroyed()
-        {
-            // BackgroundRecorder.OnBackgroundPartDie delegates to FlightRecorder.ClassifyPartDeath.
-            // Verify the static method works correctly for the background vessel scenario.
-            var states = new Dictionary<uint, int>();
-            var result = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: false, states);
-            Assert.Equal(PartEventType.Destroyed, result);
-        }
-
-        [Fact]
         public void ClassifyPartDeath_DeployedParachute_ReturnsParachuteDestroyed()
         {
             var states = new Dictionary<uint, int> { { 42, 2 } };

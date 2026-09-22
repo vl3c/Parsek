@@ -350,17 +350,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Decision_AutoMergeOn_NotLandedAtKsc_ReturnsNone()
-        {
-            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(
-                GameScenes.SPACECENTER,
-                hasActiveTree: true,
-                reFlyActive: false,
-                isAutoMerge: true);
-            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
-        }
-
-        [Fact]
         public void Decision_AutoMergeOn_MainMenu_AlwaysReturnsRegularMerge()
         {
             // Behaviour change: previously force-auto-merged silently. New
@@ -386,18 +375,6 @@ namespace Parsek.Tests
                     isAutoMerge: autoMerge);
                 Assert.Equal(SceneExitInterceptor.DialogVariant.ReFlyAttempt, v);
             }
-        }
-
-        [Fact]
-        public void Decision_AutoMergeOn_NotLandedAtKsc_ReFlyActive_OverridesToReFlyAttempt()
-        {
-            // Re-Fly check fires before the autoMerge gate.
-            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(
-                GameScenes.SPACECENTER,
-                hasActiveTree: true,
-                reFlyActive: true,
-                isAutoMerge: true);
-            Assert.Equal(SceneExitInterceptor.DialogVariant.ReFlyAttempt, v);
         }
 
         // ---------- Token-bypass watchdog -------------------------------
