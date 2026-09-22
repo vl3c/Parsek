@@ -705,6 +705,25 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The main window drops its flight status block and gets a bold title.** The four
+  flight-only lines at the top of the main window (`State:`, `Recorded Points:`,
+  `Duration:`, `Active Ghosts:`) are gone: Parsek records everything, so a recorder-state
+  readout had nothing left to tell the player. The flight window now opens straight onto the
+  launcher column, with the same top gap as at the Space Center and Real Spawn Control on
+  top. The `Parsek` title is drawn bold and 2 px larger than every other Parsek window's
+  title, from its own cached style over the shared opaque window style; padding is
+  unchanged, so nothing inside the window moves.
+- **Dev: the GUI tree dump records fonts, and the GUI mirror draws them.** A dump node now
+  carries additive `fontSize` / `fontStyle` keys when its style's font departs from the
+  skin's style of the same name (schema id unchanged, `parsek-gui-tree/1`); on a window
+  node they describe the title. The mirror (`harness/tools/gui_mirror.py`) applies them to
+  controls and window titles, which fixes the main window's version footer, a 10 px label
+  the mirror drew at 13 px and clipped to `v0.10.`; the offline viewer shows them in its
+  detail column. The mirror also reads run.py's `_run<N>` / `_a<N>` run-id suffixes as part
+  of the run rather than the scenario id, so a same-minute re-flight keeps its dataset and
+  pairs in Compare. Dumps taken before this change carry no font keys and still draw the
+  old way.
+
 - **The Logistics refusal vocabulary is now a named, enumerable catalogue instead of
   seventy-six literals spread over four files.** Every sentence the window can show for a
   route that will not dispatch (the yellow blocked line, the `Held: ...` cell, its tooltip,

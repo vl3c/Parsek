@@ -954,6 +954,9 @@ namespace Parsek
                     Tooltip = title != null && !string.IsNullOrEmpty(title.tooltip) ? title.tooltip : null,
                     StyleName = style != null ? style.name : null,
                 };
+                // On a window the style's font is the TITLE's, which is exactly what a
+                // mirror needs to draw a bold or enlarged title bar.
+                StampFontDelta(e, style);
                 pendingWindows[id] = e;
             }
             catch (Exception ex)
@@ -999,6 +1002,7 @@ namespace Parsek
                         WindowId = id,
                         StyleName = style != null ? style.name : null,
                     };
+                    StampFontDelta(e, style);
                 }
                 pendingWindows.Remove(id);
 
@@ -1111,7 +1115,7 @@ namespace Parsek
         private static GuiTreeEvent NewEvent(GuiTreeOp op, GuiNodeKind kind, Rect rect,
             GUIContent content, GUIStyle style)
         {
-            return new GuiTreeEvent
+            var e = new GuiTreeEvent
             {
                 Op = op,
                 Kind = kind,
@@ -1123,6 +1127,40 @@ namespace Parsek
                 StyleName = style != null ? style.name : null,
                 Enabled = GUI.enabled,
             };
+            // A layout group draws no text, so its style's font is never what a reader
+            // needs; skipping it keeps every carrier group's node the shape it was.
+            if (kind != GuiNodeKind.LayoutGroup)
+                StampFontDelta(e, style);
+            return e;
+        }
+
+        /// <summary>
+        /// Records the drawing style's font on <paramref name="e"/> when it departs from
+        /// the current skin's style of the same name (<see
+        /// cref="GuiTreeAssembler.ResolveFontDelta"/> holds the rule). Runs only inside a
+        /// capture frame, so the per-event <c>FindStyle</c> lookup costs nothing in play.
+        /// <c>FindStyle</c> rather than <c>GetStyle</c>: the latter logs an error for a
+        /// name the skin does not carry, and a custom style name is the common case here.
+        /// </summary>
+        private static void StampFontDelta(GuiTreeEvent e, GUIStyle style)
+        {
+            if (e == null || style == null)
+                return;
+            GUIStyle baseline = null;
+            GUISkin skin = GUI.skin;
+            if (skin != null && !string.IsNullOrEmpty(style.name))
+                baseline = skin.FindStyle(style.name);
+            if (ReferenceEquals(baseline, style))
+                return;
+            int? fontSize;
+            string fontStyleName;
+            GuiTreeAssembler.ResolveFontDelta(style.fontSize, (int)style.fontStyle,
+                baseline != null,
+                baseline != null ? baseline.fontSize : 0,
+                baseline != null ? (int)baseline.fontStyle : 0,
+                out fontSize, out fontStyleName);
+            e.FontSize = fontSize;
+            e.FontStyleName = fontStyleName;
         }
 
         private static GuiRect ToGuiRect(Rect r)

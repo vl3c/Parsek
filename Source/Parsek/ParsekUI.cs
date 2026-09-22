@@ -30,6 +30,12 @@ namespace Parsek
         private GameScenes opaqueWindowStyleScene;
         private bool hasOpaqueWindowStyleScene;
 
+        // The MAIN window's title style: the shared opaque style with a larger, bold
+        // title. Derived from (and rebuilt with) opaqueWindowStyle, whose backgrounds it
+        // shares by reference, so it owns no texture of its own and needs no destroy.
+        private GUIStyle mainWindowTitleStyle;
+        private GUIStyle mainWindowTitleStyleSource;
+
         // Shared header styles (promoted from CareerStateWindowUI so every window
         // renders section bars and column headers the same way). Lazy-initialized
         // via EnsureSharedHeaderStyles because GUIStyle construction requires a
@@ -785,9 +791,6 @@ namespace Parsek
         {
             GUILayout.BeginVertical();
 
-            if (InFlight)
-                DrawFlightStatus();
-
             GUILayout.Space(SpacingLarge);
 
             // Button order (separator groups requested by the player):
@@ -1045,21 +1048,6 @@ namespace Parsek
             // Make window draggable
             GUI.DragWindow();
         }
-
-        private void DrawFlightStatus()
-        {
-            GUILayout.Label("Status", GUI.skin.box);
-            GUILayout.Label($"State: {GetStatusText()}");
-            GUILayout.Label($"Recorded Points: {flight.recording.Count}");
-            if (flight.recording.Count > 0)
-            {
-                double duration = flight.recording[flight.recording.Count - 1].ut - flight.recording[0].ut;
-                GUILayout.Label($"Duration: {duration:F1}s");
-            }
-            GUILayout.Label($"Active Ghosts: {flight.TimelineGhostCount}");
-        }
-
-        // Recording controls moved to GloopsRecorderUI (Gloops Flight Recorder window)
 
         /// <summary>
         /// Call after each window's GUILayoutWindow to log position/size changes (rate-limited).
@@ -1330,6 +1318,8 @@ namespace Parsek
         private void ResetCachedWindowStylesForSceneChange()
         {
             ClearOpaqueWindowStyle();
+            mainWindowTitleStyle = null;
+            mainWindowTitleStyleSource = null;
             sharedSectionHeaderStyle = null;
             sharedColumnHeaderStyle = null;
             versionStyle = null;
@@ -1406,6 +1396,53 @@ namespace Parsek
             if (!EnsureOpaqueWindowStyle(GUI.skin))
                 return null;
             return opaqueWindowStyle;
+        }
+
+        /// <summary>
+        /// How many pixels the MAIN window's title is drawn larger than the shared
+        /// opaque window title (which is itself the skin's window size + 2).
+        /// </summary>
+        internal const int MainWindowTitleExtraFontSize = 2;
+
+        /// <summary>
+        /// The main window's title font size given the shared opaque style's size. A
+        /// non-positive source size means "the font's default", which the opaque builder
+        /// never leaves behind, but a defensive floor keeps the title from shrinking.
+        /// </summary>
+        internal static int ResolveMainWindowTitleFontSize(int opaqueTitleFontSize)
+        {
+            int baseSize = opaqueTitleFontSize > 0 ? opaqueTitleFontSize : 14;
+            return baseSize + MainWindowTitleExtraFontSize;
+        }
+
+        /// <summary>
+        /// The style the MAIN "Parsek" window (flight and KSC) is drawn with: the shared
+        /// opaque window style with a bold title a little larger than every other
+        /// Parsek window's. Only the title changes - padding and content offset are
+        /// copied untouched, and the opaque style's 10 px of extra top padding already
+        /// leaves room for the larger glyphs, so the window body does not move. Cached
+        /// and rebuilt only when the opaque style itself is rebuilt.
+        /// </summary>
+        public GUIStyle GetMainWindowStyle()
+        {
+            GUIStyle opaque = GetOpaqueWindowStyle();
+            if (opaque == null)
+                return null;
+            if (mainWindowTitleStyle == null
+                || !ReferenceEquals(mainWindowTitleStyleSource, opaque))
+            {
+                mainWindowTitleStyle = new GUIStyle(opaque)
+                {
+                    fontSize = ResolveMainWindowTitleFontSize(opaque.fontSize),
+                    fontStyle = FontStyle.Bold,
+                };
+                mainWindowTitleStyleSource = opaque;
+                ParsekLog.Verbose("UI", string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "ParsekUI: main window title style built (fontSize={0} bold=true)",
+                    mainWindowTitleStyle.fontSize));
+            }
+            return mainWindowTitleStyle;
         }
 
         internal static void ResetWindowGuiColors(
@@ -2973,14 +3010,6 @@ namespace Parsek
         {
             mapMarkerCachedIndices.Clear();
             bodyCache.Clear();
-        }
-
-        public string GetStatusText()
-        {
-            if (flight.IsRecording) return "RECORDING";
-            if (flight.IsPlaying) return "PREVIEWING";
-            if (flight.recording.Count > 0) return "Ready (has recording)";
-            return "Idle";
         }
 
         public void Cleanup()

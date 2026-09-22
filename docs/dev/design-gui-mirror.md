@@ -722,7 +722,11 @@ fixed. What is left:
    corpus runs at 136.6 / 144.5 / 86.8 px against a measured 136 / 144 / 87, and
    the corpus width ratio is 1.000 at the median and 1.111 at p95 - but the tails
    are real, and a long single line still ends a character or two early or late.
-   A real fix means shipping KSP's font metrics.
+   A real fix means shipping KSP's font metrics. A control whose style departs
+   from the skin's font (the dump's `fontSize` / `fontStyle` keys, see
+   `design-gui-tree-dump.md`) is drawn at that size and weight, pixels 1:1 -
+   the page's `fs` / `fw` keys via `compact_font` and `applyFont`, window titles
+   included; everything else keeps the calibrated 13 px default.
 3. **A toggle's tick is a CSS checkmark, not KSP's skin texture.** Right state,
    right box, drawn shape. The texture is in no census artifact, so there is
    nothing to derive it from.
