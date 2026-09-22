@@ -815,7 +815,7 @@ namespace Parsek
                         $"endUT={FormatClockUT(reservation.ReservedUntilUT)} " +
                         $"nowUT={FormatClockUT(walkClockUT)} " +
                         (active
-                            ? "(the clock is before the flight's recorded end again - held, stand-in chain restored)"
+                            ? "(held again at this clock: a rewind before the end, or a later row extended the hold)"
                             : "(the clock has reached the Recovered flight's end - the kerbal is free again)"));
                 }
                 lastReservationActiveState[kvp.Key] = active;

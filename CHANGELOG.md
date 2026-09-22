@@ -828,7 +828,9 @@ _(unreleased — entries accumulate here per commit)_
   recalculation when a recovery time is crossed. The Kerbals window again shows
   `Reserved until <date>` for such a hold, and its hover says when he is free. Kerbals
   whose flight ends with them still aboard a vessel stay reserved with no end date, as
-  before.
+  before. Known gap: a flight recovered with the in-flight Recover button is committed
+  just before the recovery happens, so it still ends with the kerbal aboard and he stays
+  reserved; that is filed separately.
 - **A re-fly that saves crew who boarded before the rewind point now brings them back.**
   When a flight's crew boarded at launch, the rewind point came later in the same flight,
   and the original flight then killed them, merging a re-fly kept them Dead. The death

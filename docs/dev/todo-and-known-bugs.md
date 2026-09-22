@@ -892,7 +892,24 @@ and deciding what a rewind to before the flight's end does to a kerbal the playe
 crewed. (b) is a behaviour change with rewind, stand-in retirement and swap consequences; if it
 is chosen, `KerbalReservationReleaseTests` inverts and the window's hover rule changes with it.
 
-## KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: a kerbal whose committed flight ends Aboard stays reserved forever, even after the real vessel spawned from that flight is recovered [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME. PRODUCT GAP against design 9.3 (STRANDED "stays open until a future recording rescues the kerbal"). OPEN - not changed by that fix, which deliberately left `+inf` holds alone]
+## KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: a kerbal whose committed flight ends Aboard stays reserved forever, even after the vessel is recovered - and an ordinary in-flight "Recover" with auto-merge on ends every crewed flight Aboard [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, then MEASURED the same night on `L3-career-science-recover` run `2026-09-22_2132` (and read back into the 2026-09-02 L3 log). PRODUCT GAP against design 9.3 ("RECOVERED ... available after recovery"; STRANDED "stays open until a future recording rescues the kerbal"). OPEN - not changed by that fix, which deliberately left `+inf` holds alone]
+
+**The common case (measured).** Stock's in-flight Recover requests the Space Center scene
+first and recovers the vessel there. Parsek finalizes the recording at the scene change
+(`FinalizeIndividualRecording ... with stable terminal state Landed (vessel.situation=LANDED,
+isSceneExit=True)`), stashes the pending tree, and with auto-merge on (the shipping value)
+commits it on the Space Center load. Stock's recovery then fires AFTER the commit
+(`[Research & Development]: +1 data on Recovery of a vessel` at 00:39:05.657 against the merge at
+00:39:05.2 on run `2026-09-22_2132`), so `UpdateRecordingsForTerminalEvent` finds no pending
+recording and the committed one keeps `Landed`. The optimizer's surface split then yields a HEAD
+[10..341.8] whose ghost-only chain hand-off reads Recovered and a TIP [341.8..347.7] ending Landed
+with Jebediah in its snapshot, i.e. Aboard. On the fixed DLL the first commit walk logs
+`Reservation released: 'Jebediah Kerman' endUT=341.8 nowUT=347.7`; the TIP's row lands one walk
+later, `Reservation extended: ... endUT->Infinity`, `Reservation re-reserved: 'Jebediah Kerman'
+endUT=INDEFINITE nowUT=347.7`, and `Stand-in generated: 'Rosted Kerman' (Pilot) for slot 'Jebediah
+Kerman' depth 0`. The 2026-09-02 L3 log shows the identical pair (`21eb7811...` Recovered at 342.3,
+then `8d487dc7...` aboard=1, `Reservation extended ... Infinity`). So the time-based release
+cannot help the everyday recovered flight until this ordering gap is closed.
 
 **What is true (read, and pinned by one xUnit cell).** An Aboard (or Unknown) end state maps to
 `ReservedUntilUT = +inf` (`Source/Parsek/KerbalsModule.cs:626`, `:637`), and reservations for one
@@ -911,8 +928,12 @@ continuation's Recovered row merges with the parent's `+inf` row by max.
 `KerbalReservationReleaseTests.AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold`
 pins the merge half.
 
-**Fix direction (not taken).** A rescue / recovery of the vessel a committed Aboard flight ended
-on is the design's "rescue recording provides endUT". Candidates: let a later Recovered row for
+**Fix direction (not taken).** For the common case: treat a recovery REQUESTED in flight
+(stock `onVesselRecoveryRequested`, which fires before the scene change) as the recording's
+Recovered terminal, or let `onVesselRecovered` re-stamp the just-committed tree's leaf when the
+guid-matched recording ended at the scene change that recovery caused. More generally, a rescue /
+recovery of the vessel a committed Aboard flight ended on is the design's "rescue recording
+provides endUT". Candidates: let a later Recovered row for
 the same kerbal and the same physical vessel (launch guid, `VesselLaunchIdentity`) close an
 earlier Aboard row instead of merging by max; or write a ledger row at a real-vessel recovery of
 a Parsek-spawned vessel (`SpawnedVesselPersistentId`, guid-gated) that bounds its crew's hold.
