@@ -2303,9 +2303,19 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 #rail .s.sel{background:#33506b;color:#fff}
 #rail .s.gap{color:#8a6a4a;cursor:not-allowed;font-style:italic}
 #main{flex:1;min-width:0;padding:10px 14px 60px}
-#status{font-size:12px;color:var(--dim);min-height:20px;margin:0 0 8px;
-  border-left:3px solid #333;padding-left:8px}
-#status.warn{color:var(--warn);border-color:var(--warn)}
+/* The transient line: empty unless a click or a fallback has something to say.
+   Fixed height, so a message appearing never moves the stage. */
+#status{font-size:11px;color:var(--dim);height:16px;line-height:16px;margin:0 0 4px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#status.warn{color:var(--warn)}
+#opts{position:relative;font-size:12px}
+#opts>summary{cursor:pointer;color:var(--dim);list-style:none;padding:3px 6px;
+  border:1px solid #444;border-radius:3px}
+#opts>summary::-webkit-details-marker{display:none}
+#opts[open]>summary{color:var(--ink);border-color:#666}
+#opts .optpanel{position:absolute;right:0;top:28px;background:#232323;
+  border:1px solid #444;border-radius:4px;padding:8px;display:flex;
+  flex-direction:column;gap:6px;z-index:60;white-space:nowrap}
 .stagewrap{position:relative;overflow:auto;border:1px solid #000;background:#0c0c0c;
   max-width:100%}
 .stage{position:relative;width:1280px;height:720px;background:#1a2430;
@@ -2329,6 +2339,8 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 .sidebyside{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
 .sidebyside>div{flex:0 1 auto;min-width:0}
 .sidebyside h5{margin:0 0 3px;font-size:11px;color:var(--dim);font-weight:600}
+/* The two captions only mean something when there are two panes. */
+.sidebyside:not(.two) h5{display:none}
 .kwin{position:absolute;background:var(--win);border:1px solid var(--winedge);
   border-radius:5px;z-index:5;font:var(--gfont)/1 Arial,Helvetica,sans-serif;overflow:hidden}
 .kwin.foreign{opacity:.45}
@@ -2486,9 +2498,6 @@ table.sum .wlink{color:var(--accent);cursor:pointer}
 table.sum .wlink:hover{text-decoration:underline}
 #compareView>details{margin-top:24px}
 #compareView>details>summary{cursor:pointer;color:var(--accent);font-size:12px}
-#rail .w .cmpbtn{font-size:10px;color:var(--dim);border:1px solid #3a3a3a;
-  border-radius:3px;padding:0 3px;margin-left:4px}
-#rail .w .cmpbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* The window's own tooltip echo strip: `TooltipEchoBox` draws one box-styled
    label, wrapped, one or two text lines tall, and scrolls (never ellipsises)
    text that will not fit. */
@@ -2522,20 +2531,26 @@ table.sum .wlink:hover{text-decoration:underline}
 .badge.disagree{border-color:#a05a5a;background:#2e2020;color:#e0a0a0}
 #rail .s.stale{opacity:.5;font-style:italic}
 #rail .s .badge{margin-left:2px;flex:0 0 auto}
-#stagehead{font-size:12px;color:#cfcfcf;margin:0 0 6px;display:flex;gap:8px;
-  align-items:center;flex-wrap:wrap}
-#stagehead .lab{font:11px Consolas,monospace;color:#c8d8a8}
-#focusbar{font-size:11px;color:var(--dim);margin:0 0 8px;display:flex;gap:8px;
-  align-items:center;flex-wrap:wrap}
-#focusbar input{background:#1b1b1b;color:#c8d8a8;border:1px solid #333;border-radius:3px;
-  font:11px Consolas,monospace;padding:2px 4px;width:280px}
-.notebox{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0;
-  font-size:11px;color:var(--dim)}
-.notebox input.nt{flex:1 1 320px;min-width:200px;background:#1b1b1b;color:var(--ink);
-  border:1px solid #333;border-radius:3px;font:12px inherit;font-family:inherit;
-  padding:3px 5px}
-.notebox .saved{color:var(--ok)}
-.notebox .nostore{color:var(--warn)}
+#stagehead{font-size:14px;color:#e6e6e6;margin:0 0 2px;display:flex;gap:8px;
+  align-items:baseline;flex-wrap:wrap}
+#stagehead .lab{font-size:11px;color:var(--dim)}
+#stagehead .help{font-size:11px;color:var(--dim);border:1px solid #444;
+  border-radius:50%;width:16px;height:16px;line-height:14px;text-align:center;
+  cursor:help;display:inline-block}
+.notebox{display:flex;gap:6px;align-items:flex-start;margin:8px 0;
+  font-size:11px;color:var(--dim);max-width:900px}
+.notebox textarea.nt{flex:1 1 auto;min-width:200px;height:52px;resize:vertical;
+  background:#1b1b1b;color:var(--ink);border:1px solid #333;border-radius:3px;
+  font:12px/1.4 inherit;font-family:inherit;padding:4px 6px}
+.notebox .saved{color:var(--ok);min-width:40px;padding-top:4px}
+.notebox .nostore{color:var(--warn);padding-top:4px}
+#rail .s .dot{flex:0 0 6px;width:6px;height:6px;border-radius:50%;
+  margin-left:auto;align-self:center}
+#rail .noted .dot{background:var(--ok)}
+#rail .w .dot{flex:0 0 6px;width:6px;height:6px;border-radius:50%;align-self:center;
+  margin-left:auto}
+#rail .w .dot+.n{margin-left:6px}
+#rail .s.more{color:var(--accent);font-size:11px;font-style:normal}
 #notesPanel{background:#1b1b1b;border:1px solid #2c2c2c;border-radius:4px;
   padding:8px 10px;margin:0 0 10px;font-size:12px}
 #notesPanel .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0}
@@ -2548,6 +2563,15 @@ table.sum .wlink:hover{text-decoration:underline}
   border:1px solid #2a2a2a;border-radius:3px;font:11px Consolas,monospace}
 #notesPanel .saved{color:var(--ok)}
 #notesPanel .nostore{color:var(--warn)}
+#notesPanel .nrow{display:flex;gap:8px;align-items:baseline;padding:3px 4px;
+  cursor:pointer;border-radius:3px}
+#notesPanel .nrow:hover{background:#262626}
+#notesPanel .nrow .nt1{color:var(--dim);flex:1;min-width:0;overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis}
+#notesPanel .nrow .vd{font-size:10px;text-transform:uppercase;color:#cfe0b8}
+#notesPanel .nrow button{padding:0 6px}
+#notesPanel details{margin-top:6px}
+#notesPanel summary{cursor:pointer;color:var(--accent);font-size:11px}
 .cmp .sumhead{background:#1b1b1b;border:1px solid #2c2c2c;border-radius:4px;
   padding:6px 10px;font-size:12px;margin:6px 0 12px}
 .cmp .sumhead .num{font-family:Consolas,monospace;color:#c8d8a8}
@@ -2566,8 +2590,7 @@ BARE_CSS = """
 body.bare{background:#000;overflow:hidden}
 body.bare #top,body.bare #rail,body.bare #status,body.bare #echo,
 body.bare #sidewrap,body.bare #compareView,body.bare #mirrorView>p,
-body.bare #stagehead,body.bare #statenote,body.bare #notesPanel,
-body.bare #focusbar{display:none}
+body.bare #stagehead,body.bare #statenote,body.bare #notesPanel{display:none}
 body.bare #wrap{display:block}
 body.bare #main{padding:0}
 body.bare .sidebyside{display:block;gap:0}
@@ -2600,7 +2623,9 @@ var S = {
      the rail and Compare can be scoped to one, and a `#win=` link opens the page
      already scoped. Null means the whole page, which is the default. */
   focus: null,
-  collapsed: {}
+  collapsed: {},
+  /* Per window: whether the rail also lists the rows it folds by default. */
+  showHidden: {}
 };
 /* Which windows are folded shut in the rail. A per-viewer convenience, so it
    lives in localStorage and every access is guarded: a private window, cleared
@@ -2644,8 +2669,9 @@ function saveNotes(){
   try {
     window.localStorage.setItem(NOTES_KEY, JSON.stringify(NOTES));
     STORE_OK = true;
-    return true;
-  } catch (e) { STORE_OK = false; return false; }
+  } catch (e) { STORE_OK = false; }
+  paintNotesCount();
+  return STORE_OK;
 }
 var NOTES = loadNotes();
 /* off -> the rendering alone (the default: it is the thing being checked)
@@ -2775,26 +2801,68 @@ function pairCtx(info){
     beforeId: b ? b.id : '', afterId: a.id
   };
 }
+/* ---- how a state reads to a person ---- */
+/* Tokens as words: `tooltip-logistics` reads "tooltip logistics", a tab reads
+   by the name its own grid drew (the token where no capture named it), and the
+   mode token is capitalised rather than retyped. */
+function modeWord(m){ return m ? m.charAt(0).toUpperCase() + m.slice(1) : ''; }
+function tabName(win, tab){
+  if (!tab) return '';
+  var w = M.windows.filter(function(x){ return x.token === win; })[0] || {};
+  var t = (w.tabs || []).filter(function(x){ return x.token === tab; })[0];
+  return (t && t.name) ? t.name.replace(/<[^>]*>/g, '') : tab;
+}
+function stateLabel(win, tab, state, mode){
+  var parts = [tabName(win, tab), (state || '').replace(/-/g, ' '), modeWord(mode)];
+  return parts.filter(Boolean).join(' - ') || win || '';
+}
+function railNoteKey(win, tab, state, mode){
+  return [win || '', tab || '', state || '', mode || ''].join('|');
+}
+function notedSet(){
+  var out = {};
+  Object.keys(NOTES).forEach(function(k){
+    var r = NOTES[k] || {};
+    out[railNoteKey(r.window, r.tab, r.state, r.mode)] = 1;
+    out['w|' + (r.window || '')] = 1;
+  });
+  return out;
+}
+/* The rail's dots and the button's count, repainted in place: rebuilding the
+   rail from a blur handler would detach the row a reader is in the middle of
+   clicking, and the click would be lost. */
+function paintNoteDots(){
+  var noted = notedSet();
+  Array.prototype.forEach.call(document.querySelectorAll('#rail [data-nk]'),
+    function(n){ n.classList.toggle('noted', !!noted[n.dataset.nk]); });
+}
+function paintNotesCount(){
+  var b = document.getElementById('btnNotes');
+  if (b) b.textContent = 'Notes (' + Object.keys(NOTES).length + ')';
+}
 function notesBox(ctx){
   var d = el('div', 'notebox');
   if (!ctx) return d;
   var rec = NOTES[ctx.key] || {};
-  d.appendChild(el('span', null, 'verdict'));
   var sel = document.createElement('select');
+  sel.setAttribute('aria-label', 'verdict');
   [''].concat(M.noteVerdicts).forEach(function(v){
     var o = document.createElement('option');
     o.value = v;
-    o.textContent = v || '(none)';
+    o.textContent = v || 'verdict';
     sel.appendChild(o);
   });
   sel.value = rec.verdict || '';
-  var inp = document.createElement('input');
+  var inp = document.createElement('textarea');
   inp.className = 'nt';
-  inp.type = 'text';
   inp.value = rec.note || '';
-  inp.setAttribute('aria-label', 'one line about this state');
+  inp.placeholder = 'notes on this state';
+  inp.setAttribute('aria-label', 'notes on this state');
   var st = el('span', 'saved', '');
+  var timer = null, dirty = false;
   function commit(){
+    if (timer){ clearTimeout(timer); timer = null; }
+    dirty = false;
     var row = noteRow(ctx, sel.value, inp.value);
     if (!row.verdict && !String(row.note).replace(/\s+/g, '')){
       delete NOTES[ctx.key];
@@ -2804,13 +2872,21 @@ function notesBox(ctx){
     var ok = saveNotes();
     st.className = ok ? 'saved' : 'nostore';
     st.textContent = ok
-      ? 'saved in this browser'
+      ? 'saved'
       : 'this browser refused storage - export before you close the tab';
+    paintNoteDots();
     paintNotesPanel();
   }
   sel.onchange = commit;
-  inp.onchange = commit;
-  inp.onblur = commit;
+  /* Saved as it is typed, half a second after the last key, and on the way out
+     of the field if a save is still pending. */
+  inp.oninput = function(){
+    dirty = true;
+    st.textContent = '';
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(commit, 500);
+  };
+  inp.onblur = function(){ if (dirty) commit(); };
   d.appendChild(sel);
   d.appendChild(inp);
   d.appendChild(st);
@@ -2819,6 +2895,21 @@ function notesBox(ctx){
     st.textContent = 'this browser refused storage - export before you close the tab';
   }
   return d;
+}
+function refreshStateNote(){
+  var host = document.getElementById('statenote');
+  var cap = byId[S.capture];
+  if (!host || !cap) return;
+  host.innerHTML = '';
+  host.appendChild(notesBox(stateCtx(cap)));
+}
+/* After a delete, a clear or an import: every surface that shows a note. */
+function afterNotesChange(){
+  paintNotesCount();
+  paintNoteDots();
+  paintNotesPanel();
+  if (S.view === 'compare') buildCompare();
+  else refreshStateNote();
 }
 
 /* ---- export / import: the blob, and the two ways out of the page ---- */
@@ -2882,25 +2973,56 @@ function mergeNotes(text){
     + (dropped ? ', dropped ' + dropped + ' row(s) with nothing to key on' : '')
     + (ok ? '' : ' (not stored: this browser refused localStorage)') };
 }
+function deleteNote(key){
+  delete NOTES[key];
+  saveNotes();
+  afterNotesChange();
+}
+/* Clearing is the one irreversible thing on the page, so it asks first. A
+   viewer that refuses confirm() refuses the clear with it. */
+function clearAllNotes(){
+  var n = Object.keys(NOTES).length;
+  if (!n) return false;
+  var yes = false;
+  try {
+    yes = window.confirm('Delete all ' + n + ' note(s)? Copy them out first if '
+                         + 'you want to keep them.');
+  } catch (e) { yes = false; }
+  if (!yes) return false;
+  Object.keys(NOTES).forEach(function(k){ delete NOTES[k]; });
+  saveNotes();
+  afterNotesChange();
+  return true;
+}
+/* A note names the capture it was written on. Where that capture is not in
+   this page (a later generation dropped it), the note's own facets pick the
+   nearest one, and a window the page has no capture of is said out loud. */
+function jumpToNote(r){
+  var cap = byId[r.afterId] || byId[r.beforeId];
+  if (S.focus && S.focus !== r.window) S.focus = null;
+  if (cap){ select(cap, true); }
+  else if (capsFor(r.window).length){
+    go(r.window, r.tab || null, r.state || null, r.mode || null);
+  } else {
+    status('that note is about window "' + r.window
+           + '", which this page has no capture of.', true);
+    return;
+  }
+  if (S.view === 'compare') buildCompare();
+}
 function paintNotesPanel(){
   var host = document.getElementById('notesPanel');
   if (!host || host.classList.contains('hidden')) return;
   host.innerHTML = '';
-  var scope = (S.notesScope === 'all') ? '' : (S.window || '');
-  var blob = notesBlob(scope);
+  var rows = notesRowsFor('');
+  var blob = notesBlob('');
 
   var bar = el('div', 'row');
-  bar.appendChild(el('b', null, 'Export notes'));
-  var sel = document.createElement('select');
-  [['window', 'this window only'], ['all', 'all windows']].forEach(function(p){
-    var o = document.createElement('option');
-    o.value = p[0]; o.textContent = p[1];
-    sel.appendChild(o);
-  });
-  sel.value = S.notesScope || 'window';
-  sel.onchange = function(){ S.notesScope = sel.value; paintNotesPanel(); };
-  bar.appendChild(sel);
+  bar.appendChild(el('b', null, 'Notes (' + rows.length + ')'));
+  var cp = el('button', 'ui', 'Copy all');
+  bar.appendChild(cp);
   var fmt = document.createElement('select');
+  fmt.setAttribute('aria-label', 'copy format');
   [['json', 'JSON blob'], ['md', 'markdown table']].forEach(function(p){
     var o = document.createElement('option');
     o.value = p[0]; o.textContent = p[1];
@@ -2909,18 +3031,51 @@ function paintNotesPanel(){
   fmt.value = S.notesFormat || 'json';
   fmt.onchange = function(){ S.notesFormat = fmt.value; paintNotesPanel(); };
   bar.appendChild(fmt);
-  var cp = el('button', 'ui', 'copy');
-  bar.appendChild(cp);
-  var msg = el('span', 'small', blob.count + ' note(s) in scope, page generated '
-    + (M.generatedUtc || '?'));
+  var clr = el('button', 'ui', 'Clear all');
+  clr.disabled = !rows.length;
+  clr.onclick = function(){ clearAllNotes(); };
+  bar.appendChild(clr);
+  var msg = el('span', S.notesMsg ? S.notesMsg.cls : 'small',
+               S.notesMsg ? S.notesMsg.text : '');
+  S.notesMsg = null;
   bar.appendChild(msg);
   host.appendChild(bar);
 
+  var list = el('div', 'nlist');
+  if (!rows.length){
+    list.appendChild(el('div', 'small',
+      'No notes yet. Pick a state in the rail and type in the box under it.'));
+  }
+  rows.forEach(function(r){
+    var li = el('div', 'nrow');
+    li.title = 'show this state';
+    li.appendChild(el('b', null, r.window || '-'));
+    li.appendChild(el('span', null, stateLabel(r.window, r.tab, r.state, r.mode)));
+    if (r.mocked) li.appendChild(el('span', 'badge mock', 'mock'));
+    if (r.verdict) li.appendChild(el('span', 'vd', r.verdict));
+    li.appendChild(el('span', 'nt1', String(r.note || '').split('\n')[0]));
+    var x = el('button', 'ui', 'x');
+    x.title = 'delete this note';
+    x.setAttribute('aria-label', 'delete this note');
+    x.onclick = function(ev){ ev.stopPropagation(); deleteNote(r.key); };
+    li.appendChild(x);
+    li.onclick = function(){ jumpToNote(r); };
+    list.appendChild(li);
+  });
+  host.appendChild(list);
+
+  /* The text Copy all puts on the clipboard, folded: it is the fallback when
+     the clipboard is refused, not something to read. */
+  var det = document.createElement('details');
+  var ds = document.createElement('summary');
+  ds.textContent = 'show the text';
+  det.appendChild(ds);
   var pre = document.createElement('pre');
   pre.textContent = (S.notesFormat === 'md')
     ? notesMarkdown(blob)
     : JSON.stringify(blob, null, 1);
-  host.appendChild(pre);
+  det.appendChild(pre);
+  host.appendChild(det);
   /* There is no download link on purpose: a viewer sandbox blocks one, and a
      blocked link is worse than a box you can select. */
   cp.onclick = function(){
@@ -2929,7 +3084,7 @@ function paintNotesPanel(){
       msg.textContent = ok
         ? 'copied ' + blob.count + ' note(s)'
         : 'the clipboard was refused - the text below is selected, copy it by hand';
-      if (!ok) selectAllIn(pre);
+      if (!ok){ det.open = true; selectAllIn(pre); }
     };
     try {
       if (window.navigator && navigator.clipboard && navigator.clipboard.writeText){
@@ -2944,57 +3099,41 @@ function paintNotesPanel(){
       + 'reload. Copy the blob out before you close the tab.'));
   }
 
-  var imp = el('div', 'row');
-  imp.appendChild(el('b', null, 'Import notes'));
-  imp.appendChild(el('span', 'small',
+  var imp = document.createElement('details');
+  var is = document.createElement('summary');
+  is.textContent = 'import...';
+  imp.appendChild(is);
+  imp.appendChild(el('div', 'small',
     'paste a blob back to merge it; a row already here is replaced by key'));
-  host.appendChild(imp);
   var ta = document.createElement('textarea');
   ta.setAttribute('aria-label', 'paste a notes blob');
-  host.appendChild(ta);
-  var irow = el('div', 'row');
+  imp.appendChild(ta);
   var ib = el('button', 'ui', 'merge');
-  var imsg = el('span', 'small', '');
   ib.onclick = function(){
     var res = mergeNotes(ta.value);
-    imsg.className = res.ok ? 'saved' : 'nostore';
-    imsg.textContent = res.msg;
-    paintNotesPanel();
-    if (S.view === 'compare') buildCompare();
-    else if (byId[S.capture]) select(byId[S.capture], true);
+    S.notesMsg = { text: res.msg, cls: res.ok ? 'saved' : 'nostore' };
+    afterNotesChange();
   };
-  irow.appendChild(ib);
-  irow.appendChild(imsg);
-  host.appendChild(irow);
+  imp.appendChild(ib);
+  host.appendChild(imp);
 }
 
-/* ---- focus: one window at a time ---- */
+/* ---- the address bar is the link ---- */
+/* `#win=<token>&cap=<capture id>`, plus `&view=compare` and `&focus=1`. Kept in
+   step with the page on every selection, so copying the address bar is how a
+   view is shared; `focus=1` additionally scopes the rail to that one window.
+   Written with replaceState, which some viewer sandboxes refuse - the page
+   works the same without it. */
 function focusLink(){
   return '#win=' + encodeURIComponent(S.window || '')
-         + (S.view === 'compare' ? '&view=compare' : '');
+         + (S.capture ? '&cap=' + encodeURIComponent(S.capture) : '')
+         + (S.view === 'compare' ? '&view=compare' : '')
+         + (S.focus ? '&focus=1' : '');
 }
-function paintFocus(){
-  var bar = document.getElementById('focusbar');
-  if (!bar) return;
-  bar.innerHTML = '';
-  var b = el('button', 'ui' + (S.focus ? ' on' : ''),
-             S.focus ? 'focused on ' + S.focus : 'focus this window');
-  b.title = 'Scope the rail and Compare to one window, which is the unit a '
-            + 'review round covers.';
-  b.onclick = function(){
-    S.focus = S.focus ? null : S.window;
-    buildRail();
-    paintFocus();
-    if (S.view === 'compare') buildCompare();
-  };
-  bar.appendChild(b);
-  bar.appendChild(el('span', null, 'link to this view'));
-  var inp = document.createElement('input');
-  inp.readOnly = true;
-  inp.setAttribute('aria-label', 'deep link to this window');
-  inp.value = focusLink();
-  inp.onclick = function(){ try { inp.select(); } catch (e) { /* no selection API */ } };
-  bar.appendChild(inp);
+function syncHash(){
+  if (!S.capture) return;
+  try { window.history.replaceState(null, '', focusLink()); }
+  catch (e) { /* a sandboxed viewer; the page does not depend on it */ }
 }
 
 /* ---- dataset choice: exact fixture, else nearest in declared order ---- */
@@ -3403,7 +3542,7 @@ function routeClick(ev, cap){
       if (sc > bestScore){ bestScore = sc; best = c; }
     });
   });
-  if (best){ select(best); return; }
+  if (best){ select(best, true); return; }
   flash(node, 'no capture for this state yet - "' +
         (node.querySelector('.tx').textContent || '').slice(0,48) +
         '" was never photographed in another state.');
@@ -3423,7 +3562,10 @@ function go(win, tab, state, mode){
           pick(win, null, null, mode, S.fixture) ||
           pick(win, null, null, null, S.fixture);
   if (!r){ status('no capture for window ' + win + ' yet.', true); return; }
-  select(r.cap, r.exact);
+  /* Not a direct pick: select() compares what was asked with what was found
+     and says which axes fell back. A caller that names one exact capture (a rail
+     row, a note, a deep link) passes true and gets no such line. */
+  select(r.cap, false);
 }
 
 /* Assigned in boot(); called from select() so the button can never disagree with
@@ -3447,38 +3589,45 @@ function select(cap, exact){
   } else {
     side.innerHTML = '';
   }
-  var bits = [cap.window, cap.tab, cap.state, cap.mode].filter(Boolean).join(' / ');
-  /* The stage's own header: what this capture IS, and every flag it declares.
-     The status line repeats the flag words because a reader who scrolled the
-     stage still has the status line in view. */
+  document.getElementById('sidebyside').classList.toggle('two', !!wantSide);
+  /* The stage's one header line: what this capture IS in words, every flag it
+     declares, and where it came from in small print. */
   var head = document.getElementById('stagehead');
   head.innerHTML = '';
-  head.appendChild(el('b', null, bits));
-  head.appendChild(el('span', 'lab', cap.label + '  -  run ' + cap.runId
-                                    + '  -  dataset ' + cap.fixture));
+  head.appendChild(el('b', null, cap.window));
+  head.appendChild(el('span', null, stateLabel(cap.window, cap.tab, cap.state, cap.mode)));
   appendFlags(head, cap);
-  var note = document.getElementById('statenote');
-  note.innerHTML = '';
-  note.appendChild(notesBox(stateCtx(cap)));
-  var flags = flagWords(cap);
-  var msg = bits + '   [' + cap.fixture + ' | ' + cap.label + ' | run ' + cap.runId + ']'
-            + (flags.length ? '   -- ' + flags.join('; ') : '');
+  var src = el('span', 'lab', cap.fixture + ', run ' + cap.runId);
+  src.title = cap.label;
+  head.appendChild(src);
+  var help = el('span', 'help', '?');
+  help.title = HELP_TEXT;
+  head.appendChild(help);
+  refreshStateNote();
   /* Every axis the request fell back on, not just the dataset: asking for a Basic
-     capture and silently getting an Advanced one is the same kind of lie. */
+     capture and silently getting an Advanced one is the same kind of lie. The
+     line is otherwise empty; the header above already says what is shown. */
   var fell = [];
   if (cap.fixture !== want.fixture) fell.push('dataset "' + want.fixture + '"');
   if (want.mode && cap.mode !== want.mode) fell.push('mode "' + want.mode + '"');
   if (want.tab && cap.tab !== want.tab) fell.push('tab "' + want.tab + '"');
   if (want.state && cap.state !== want.state) fell.push('state "' + want.state + '"');
-  if (fell.length){
-    status(msg + '   -- nothing photographed for ' + fell.join(', ')
+  if (fell.length && !exact){
+    status('nothing photographed for ' + fell.join(', ')
            + '; showing the nearest capture there is.', true);
-  } else { status(msg); }
+  } else { status(''); }
   paintMode();
   buildRail();
-  paintFocus();
   paintNotesPanel();
+  syncHash();
 }
+var HELP_TEXT = 'Hovering a control puts its real tooltip in the strip under the '
+  + 'picture and on the element itself. A click switches to the capture of that '
+  + 'state where the census produced one; where it did not, the control flashes '
+  + 'and the line above the picture says so. Nothing on this page is drawn from '
+  + 'anything but a capture. Notes save in this browser as you type; the Notes '
+  + 'button lists, copies and clears them. The address bar always links to the '
+  + 'state on screen.';
 
 /* ---- left rail: every window and state with a capture, and the gaps ---- */
 /* Each window header is a disclosure toggle, not a shortcut: clicking it folds
@@ -3489,15 +3638,20 @@ function buildRail(){
   var rail = document.getElementById('rail');
   rail.innerHTML = '';
   var mocked = M.captures.filter(function(c){ return c.mocked; }).length;
-  rail.appendChild(el('h2', null, 'Windows (' + M.captures.length + ' captures'
+  /* The page's statistics, in this one place. */
+  var h = el('h2', null, 'Windows (' + M.captures.length + ' captures'
     + (mocked ? ', ' + mocked + ' mocked' : '')
-    + ', ' + Object.keys(M.keys).length + ' distinct states)'));
+    + ', ' + Object.keys(M.keys).length + ' distinct states)');
+  h.title = M.fixtures.length + ' datasets: '
+    + M.fixtures.map(function(f){ return f.key; }).join(', ');
+  rail.appendChild(h);
+  var noted = notedSet();
   var shown = M.windows.filter(function(w){ return w.captureCount > 0; });
   if (S.focus){
     shown = shown.filter(function(w){ return w.token === S.focus; });
     var all = el('div', 's', 'show every window');
     all.title = 'Leave the one-window focus this page was opened with.';
-    all.onclick = function(){ S.focus = null; buildRail(); paintFocus();
+    all.onclick = function(){ S.focus = null; buildRail(); syncHash();
       if (S.view === 'compare') buildCompare(); };
     rail.appendChild(all);
   }
@@ -3524,16 +3678,10 @@ function buildRail(){
                  + ' captures were driven by a synthetic view model';
       row.appendChild(mb);
     }
-    var cmpBtn = el('span', 'cmpbtn', 'cmp');
-    cmpBtn.title = 'Compare the ' + w.token + ' window';
-    cmpBtn.onclick = function(ev){
-      ev.stopPropagation();
-      S.window = w.token;
-      var r = pick(w.token, null, null, null, S.fixture);
-      if (r) select(r.cap, r.exact);
-      S.view = 'compare'; showView();
-    };
-    row.appendChild(cmpBtn);
+    var wdot = el('span', 'dot');
+    row.dataset.nk = 'w|' + w.token;
+    if (noted[row.dataset.nk]) row.classList.add('noted');
+    row.appendChild(wdot);
     row.appendChild(el('span', 'n', String(w.captureCount)));
     /* A title click on a window that is NOT the one on screen shows it - that is
        what a reader means by clicking a window's name - and select() unfolds its
@@ -3561,6 +3709,16 @@ function buildRail(){
     list.id = listId;
     list.dataset.collapsible = '1';
     list.hidden = !open;
+    /* Rows that are not the current picture of a state - a hover the log says
+       captured nothing, a capture a later run replaced, a state the seam knows
+       and no lane photographed - fold behind one link per window. The row on
+       screen is never folded away. */
+    var showAll = !!S.showHidden[w.token];
+    var hideable = 0, folded = 0;
+    function fold(sr, isSel){
+      hideable++;
+      if (!showAll && !isSel){ sr.classList.add('hidden'); folded++; }
+    }
     var seen = {};
     /* The CURRENT capture of each state first: a superseded one is shown only
        where nothing newer exists, so the rail lists what the mirror would
@@ -3568,28 +3726,41 @@ function buildRail(){
     capsFor(w.token).slice().sort(function(a, b){
       return (a.supersededBy ? 1 : 0) - (b.supersededBy ? 1 : 0);
     }).forEach(function(c){
-      var k = [c.tab || '-', c.state || '-', c.mode || '-'].join(' / ');
+      var k = [c.tab || '', c.state || '', c.mode || ''].join('|');
       if (seen[k]) return;
       seen[k] = 1;
       var sr = el('div', 's' + (c.id === S.capture ? ' sel' : '')
                        + ((c.hoverEmpty || c.supersededBy) ? ' stale' : ''));
-      sr.appendChild(el('span', null, k));
+      sr.appendChild(el('span', null, stateLabel(w.token, c.tab, c.state, c.mode)));
       appendFlags(sr, c, true);
-      sr.appendChild(el('span', 'n', c.fixture));
+      sr.title = 'dataset ' + c.fixture + ', run ' + c.runId + ' (' + c.label + ')';
+      sr.dataset.nk = railNoteKey(w.token, c.tab, c.state, c.mode);
+      if (noted[sr.dataset.nk]) sr.classList.add('noted');
+      sr.appendChild(el('span', 'dot'));
       sr.onclick = function(){
-        select(c, c.fixture === S.fixture);
+        select(c, true);
         if (S.view === 'compare') buildCompare();
       };
+      if (c.hoverEmpty || c.supersededBy) fold(sr, c.id === S.capture);
       list.appendChild(sr);
     });
     M.missing.filter(function(m){ return m.window === w.token; }).forEach(function(m){
       var sr = el('div', 's gap');
-      sr.textContent = (m.tab || '-') + ' / ' + (m.mode || '-') + '  (no capture)';
+      sr.textContent = stateLabel(w.token, m.tab, null, m.mode) + '  (no capture)';
       sr.title = m.why;
       sr.onclick = function(){ status('no capture for this state yet: ' + m.window +
         ' / tab ' + m.tab + ' / ' + m.mode + ' -- ' + m.why, true); };
+      fold(sr, false);
       list.appendChild(sr);
     });
+    if (hideable){
+      var more = el('div', 's more', showAll ? 'hide ' + hideable
+                                            : 'show ' + folded + ' hidden');
+      more.title = 'States with no hover captured, captures a later run '
+        + 'replaced, and states the seam knows but no lane photographed.';
+      more.onclick = function(){ S.showHidden[w.token] = !showAll; buildRail(); };
+      if (showAll || folded) list.appendChild(more);
+    }
     rail.appendChild(list);
   });
   var zero = M.windows.filter(function(w){ return !w.captureCount; });
@@ -3609,7 +3780,7 @@ function showView(){
   document.getElementById('compareView').classList.toggle('hidden', S.view !== 'compare');
   document.getElementById('btnMirror').classList.toggle('on', S.view === 'mirror');
   document.getElementById('btnCompare').classList.toggle('on', S.view === 'compare');
-  paintFocus();
+  syncHash();
   if (S.view === 'compare') buildCompare();
 }
 
@@ -3725,7 +3896,7 @@ function buildCompare(){
          rail is filtered to the focused window, and leaving it behind would
          empty the rail. */
       if (S.focus) S.focus = w2;
-      buildCompare(); buildRail(); paintFocus(); };
+      buildCompare(); buildRail(); syncHash(); };
     wc.appendChild(link);
     tr.appendChild(wc);
     var td = el('td', changed ? 'y' : 'n', changed ? 'yes' : 'no');
@@ -4005,7 +4176,7 @@ function boot(){
   S.mode = M.modes.indexOf('advanced') >= 0 ? 'advanced' : (M.modes[0]||null);
 
   var mb = document.getElementById('btnMode');
-  paintMode = function(){ mb.textContent = 'mode: ' + (S.mode || '-'); };
+  paintMode = function(){ mb.textContent = 'mode: ' + (modeWord(S.mode) || '-'); };
   mb.onclick = function(){
     var i = M.modes.indexOf(S.mode);
     S.mode = M.modes[(i+1) % M.modes.length];
@@ -4044,6 +4215,7 @@ function boot(){
     nb.classList.toggle('on', open);
     paintNotesPanel();
   };
+  paintNotesCount();
 
   /* The capture the page OPENS on goes through the same ranking a click does,
      so it cannot be one a later run superseded. Taking the first in model order
@@ -4060,21 +4232,27 @@ function boot(){
   } else {
     M.windows.forEach(function(w){ S.collapsed[w.token] = true; });
   }
-  /* The FOCUS deep link: `#win=<token>`, plus `&view=compare`. It opens the page
-     already scoped to one window, which is the unit a review round covers, and
-     it is what a chat message can carry. A token no capture is of is SAID rather
-     than silently ignored - the whole page would otherwise look like the answer
-     to a link that missed. `bare=1` never reaches here: bootBare() returned
-     before this. */
+  /* The deep link: `#win=<token>`, optionally `&cap=<capture id>` (the exact
+     state), `&view=compare` and `&focus=1` (scope the rail to that one window).
+     The address bar carries it for whatever is on screen (syncHash), so it is
+     what a chat message can carry. A token no capture is of is SAID rather than
+     silently ignored - the whole page would otherwise look like the answer to a
+     link that missed. `bare=1` never reaches here: bootBare() returned before
+     this. */
   var q = parseHash(window.location.hash);
   var missed = null;
+  var direct = false;
   if (q.win){
     if (M.captures.some(function(c){ return c.window === q.win; })){
-      S.focus = q.win;
+      if (q.focus === '1') S.focus = q.win;
       S.window = q.win;
       var r = pick(q.win, null, null, S.mode, S.fixture)
               || pick(q.win, null, null, null, S.fixture);
       if (r) first = r.cap;
+      if (byId[q.cap] && byId[q.cap].window === q.win){
+        first = byId[q.cap];
+        direct = true;
+      }
       if (q.view === 'compare') S.view = 'compare';
     } else {
       missed = 'the link names window "' + q.win
@@ -4082,8 +4260,7 @@ function boot(){
     }
   }
   showView();
-  select(first, first.fixture === S.fixture);
-  paintFocus();
+  select(first, direct || first.fixture === S.fixture);
   if (missed) status(missed, true);
 }
 document.addEventListener('DOMContentLoaded', boot);
@@ -4099,7 +4276,6 @@ def click_kind_css():
 
 
 def render_html(model):
-    fixtures = ", ".join(f["key"] for f in model["fixtures"])
     head = [
         "<!doctype html>",
         '<html lang="en"><head><meta charset="utf-8">',
@@ -4108,28 +4284,34 @@ def render_html(model):
         "<style>%s</style>" % (CSS.replace("%CLICK_CSS%", click_kind_css())
                                + BARE_CSS),
         "</head><body>",
+        # The top bar carries the explore -> note -> export flow only. The page
+        # statistics live in ONE place, the rail header; the dataset, mode and
+        # other-mods preferences sit behind the options fold because the rail
+        # already picks a concrete capture per row.
         '<div id="top">',
         "<h1>Parsek GUI mirror</h1>",
-        '<button class="ui on" id="btnMirror">mirror</button>',
-        '<button class="ui" id="btnCompare">compare</button>',
-        '<span class="small">dataset</span><select id="fixture"></select>',
-        '<button class="ui" id="btnMode">mode</button>',
+        '<button class="ui on" id="btnMirror">Mirror</button>',
+        '<button class="ui" id="btnCompare">Compare</button>',
         '<button class="ui" id="btnPhoto">photo: off</button>',
         '<button class="ui hidden" id="btnBoxes">outlines on</button>',
-        '<button class="ui" id="btnForeign">other mods</button>',
-        '<button class="ui" id="btnNotes">notes</button>',
         '<span class="sp"></span>',
-        '<span class="small">%d captures, %d windows, %d fixtures (%s)</span>'
-        % (len(model["captures"]), len([w for w in model["windows"] if w["captureCount"]]),
-           len(model["fixtures"]), esc(fixtures)),
+        '<button class="ui" id="btnNotes">Notes (0)</button>',
+        '<details id="opts"><summary>options</summary><div class="optpanel">',
+        '<label title="The dataset a window name or a click prefers when it has to '
+        'pick a capture. A rail row always opens its own.">dataset '
+        '<select id="fixture"></select></label>',
+        '<button class="ui" id="btnMode" title="The mode a window name or a click '
+        'prefers when it has to pick a capture.">mode</button>',
+        '<button class="ui" id="btnForeign" title="Also draw the windows of other mods '
+        'that were on screen when the capture was taken.">other mods</button>',
+        "</div></details>",
         "</div>",
         '<div id="wrap"><div id="rail"></div><div id="main">',
-        '<div id="status"></div>',
-        '<div id="focusbar"></div>',
         '<div id="notesPanel" class="hidden"></div>',
         '<div id="mirrorView">',
         '<div id="stagehead"></div>',
-        '<div class="sidebyside">',
+        '<div id="status"></div>',
+        '<div class="sidebyside" id="sidebyside">',
         '<div><h5>rendered from the control tree</h5>'
         '<div class="stagewrap"><div class="stage" id="stage"></div></div></div>',
         '<div id="sidewrap" class="hidden"><h5>the frame the tree was dumped on</h5>'
@@ -4137,10 +4319,6 @@ def render_html(model):
         '</div>',
         '<div class="echo" id="echo"></div>',
         '<div id="statenote"></div>',
-        '<p class="small">Hovering a control puts its real tooltip in the strip above '
-        "and on the element itself. A click switches to the capture of that state where "
-        "the census produced one; where it did not, the control flashes and the status "
-        "line says so. Nothing on this page is drawn from anything but a capture.</p>",
         "</div>",
         '<div id="compareView" class="hidden"></div>',
         "</div></div>",
