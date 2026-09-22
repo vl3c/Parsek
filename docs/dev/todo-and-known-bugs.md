@@ -909,7 +909,10 @@ with Jebediah in its snapshot, i.e. Aboard. On the fixed DLL the first commit wa
 `Reservation released: 'Jebediah Kerman' endUT=341.8 nowUT=347.7`; the TIP's row lands one walk
 later, `Reservation extended: ... endUT->Infinity`, `Reservation re-reserved: 'Jebediah Kerman'
 endUT=INDEFINITE nowUT=347.7`, and `Stand-in generated: 'Rosted Kerman' (Pilot) for slot 'Jebediah
-Kerman' depth 0`. The 2026-09-02 L3 log shows the identical pair (`21eb7811...` Recovered at 342.3,
+Kerman' depth 0`. The re-flight on the branch's final DLL, `2026-09-22_2226` (PASS; the spec
+pins none of this), reads the same: `Reservation released: 'Jebediah Kerman' endUT=341.7
+nowUT=347.5`, then `Reservation re-reserved: ... endUT=INDEFINITE` and `Stand-in generated:
+'Kimmin Kerman'`. The 2026-09-02 L3 log shows the identical pair (`21eb7811...` Recovered at 342.3,
 then `8d487dc7...` aboard=1, `Reservation extended ... Infinity`). So the time-based release
 cannot help the everyday recovered flight until this ordering gap is closed.
 
