@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..f882a4e9e 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -3622,7 +3622,7 @@ namespace Parsek
+         /// </summary>
+         internal void CheckpointAllVessels(double ut, System.Func<uint, Vessel> vesselFinder)
+         {
+-            if (tree == null) return;
++            if (tree == null || onRailsStates.Count == 0) return;
+ 
+             int checkpointed = 0;
+             int skippedNoVessel = 0;
