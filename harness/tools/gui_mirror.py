@@ -2994,9 +2994,10 @@ function capFlags(cap){
              + '. Kept as the BEFORE of that pair; not counted as coverage.' });
   }
   if (cap.retired){
-    out.push({ cls: 'sup', text: 'retired', short: 'retired',
-      title: 'no longer captured by ' + cap.retired.spec + ' since '
-             + cap.retired.since + '. Kept for reference; not counted as '
+    out.push({ cls: 'sup', text: 'no longer captured by ' + cap.retired.spec
+               + ' since ' + cap.retired.since, short: 'retired',
+      title: 'a newer complete run of ' + cap.retired.spec + ' did not '
+             + 'photograph this state. Kept for reference; not counted as '
              + 'coverage.' });
   }
   if (cap.hoverEmpty){
@@ -3753,7 +3754,7 @@ function routeClick(ev, cap){
       go(cap.window, node.dataset.tab, null, cap.mode); return;
     }
     flash(node, 'no capture for this state yet: ' + cap.window + ' / tab ' +
-          node.dataset.tab + ' / ' + cap.mode + '.');
+          tabName(cap.window, node.dataset.tab) + ' / ' + cap.mode + '.');
     return;
   }
   var txt = norm(node.querySelector('.tx') ? node.querySelector('.tx').textContent : '');
@@ -3897,7 +3898,7 @@ function select(cap, exact){
   var fell = [];
   if (cap.fixture !== want.fixture) fell.push('dataset "' + want.fixture + '"');
   if (want.mode && cap.mode !== want.mode) fell.push('mode "' + want.mode + '"');
-  if (want.tab && cap.tab !== want.tab) fell.push('tab "' + want.tab + '"');
+  if (want.tab && cap.tab !== want.tab) fell.push('tab "' + tabName(cap.window, want.tab) + '"');
   if (want.state && cap.state !== want.state) fell.push('state "' + want.state + '"');
   if (fell.length && !exact){
     status('nothing photographed for ' + fell.join(', ')
@@ -4061,7 +4062,8 @@ function buildRail(){
       sr.textContent = stateLabel(w.token, m.tab, null, m.mode) + '  (no capture)';
       sr.title = m.why;
       sr.onclick = function(){ status('no capture for this state yet: ' + m.window +
-        ' / tab ' + m.tab + ' / ' + m.mode + ' -- ' + m.why, true); };
+        ' / tab ' + tabName(m.window, m.tab) + ' / ' + m.mode + ' -- ' + m.why,
+        true); };
       fold(sr, false);
       list.appendChild(sr);
     });
@@ -4151,7 +4153,8 @@ function summaryHead(win){
   if ((s.uncaptured || []).length){
     d.appendChild(el('div', 'small', 'known to the seam, never photographed: '
       + s.uncaptured.map(function(m){
-          return (m.tab || '-') + ' / ' + (m.mode || '-'); }).join(', ')));
+          return (m.tab ? tabName(win, m.tab) : '-') + ' / ' + (m.mode || '-');
+        }).join(', ')));
   }
   return d;
 }

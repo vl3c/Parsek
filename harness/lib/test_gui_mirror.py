@@ -2592,7 +2592,8 @@ class RetiredEndToEndTests(unittest.TestCase):
         self.assertIn("return !c.supersededBy && !c.retired;", body)
         self.assertIn("function isStale(c){ return !!(c.hoverEmpty || c.supersededBy "
                       "|| c.retired); }", html)
-        self.assertIn("'no longer captured by ' + cap.retired.spec + ' since '", html)
+        self.assertIn("text: 'no longer captured by ' + cap.retired.spec", html)
+        self.assertIn("+ ' since ' + cap.retired.since, short: 'retired',", html)
         rail = html[html.index("function buildRail(){"):]
         rail = rail[:rail.index("\nfunction showView(){")]
         self.assertIn("if (isStale(c)) fold(sr, c.id === S.capture);", rail)
