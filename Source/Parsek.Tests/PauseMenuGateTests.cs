@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -21,6 +22,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             PauseMenuGate.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
         }
 
         [Fact]
@@ -43,9 +45,21 @@ namespace Parsek.Tests
         [Fact]
         public void IsPauseMenuOpen_ProbeReturnsFalse_PassesThrough()
         {
-            PauseMenuGate.ProbeForTesting = () => false;
+            // false is also the no-probe fallback, so the verdict alone cannot tell a
+            // pass-through from a gate that ignored the probe: count the probe call, and
+            // prove the live PauseMenu lookup (which logs its failure under xUnit) never ran.
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            int probeCalls = 0;
+            PauseMenuGate.ProbeForTesting = () => { probeCalls++; return false; };
 
             Assert.False(PauseMenuGate.IsPauseMenuOpen());
+
+            Assert.Equal(1, probeCalls);
+            Assert.DoesNotContain(logLines, l => l.Contains("PauseMenu probe failed"));
         }
 
         [Fact]
