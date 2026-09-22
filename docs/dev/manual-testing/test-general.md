@@ -268,10 +268,9 @@ Before capturing any release bundle, verify that the deployed
 ## UI
 
 1. Toolbar button toggles the Parsek window on/off
-2. Window shows correct status: Idle / RECORDING / PREVIEWING
-3. Recorded points count and duration update in real time
-4. Timeline count and active ghosts count are accurate
-5. All buttons work: Start/Stop Recording, Preview/Stop Preview, Clear, Wipe
+2. The window title "Parsek" is bold; the footer shows the full version (e.g. v0.10.5) left of Close
+3. In flight the window opens on the button column (Real Spawn Control on top); there is no status readout
+4. Every launcher button opens its window
 
 ## Recordings Manager
 

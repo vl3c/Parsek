@@ -726,7 +726,12 @@ fixed. What is left:
    from the skin's font (the dump's `fontSize` / `fontStyle` keys, see
    `design-gui-tree-dump.md`) is drawn at that size and weight, pixels 1:1 -
    the page's `fs` / `fw` keys via `compact_font` and `applyFont`, window titles
-   included; everything else keeps the calibrated 13 px default.
+   included; everything else keeps the calibrated 13 px default. That reaches
+   further than the main window: Parsek's shared opaque window style carries an
+   explicit size-14 title while the stock skin's window size is 0, so every
+   Parsek window title now draws at 14 px, and the many size-10 and size-11
+   labels draw at those sizes in Arial, whose small-size metrics against KSP's
+   font are not measured.
 3. **A toggle's tick is a CSS checkmark, not KSP's skin texture.** Right state,
    right box, drawn shape. The texture is in no census artifact, so there is
    nothing to derive it from.

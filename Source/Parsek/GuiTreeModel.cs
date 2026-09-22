@@ -524,12 +524,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Best-effort kind for a <c>GUI.DoControl</c> hit whose caller hint is missing,
-        /// derived from the style name Unity was drawing with. Stock skin names are the
-        /// only reliable signal; a Parsek custom style falls through to
-        /// <see cref="GuiNodeKind.Control"/> rather than guessing.
-        /// </summary>
-        /// <summary>
         /// Wire name for a <c>UnityEngine.FontStyle</c> value, taken as its integer so
         /// this layer stays free of Unity types (Normal 0, Bold 1, Italic 2,
         /// BoldAndItalic 3). An unknown value is written as its number rather than
@@ -567,6 +561,12 @@ namespace Parsek
                 fontStyleName = FontStyleWireName(styleFontStyle);
         }
 
+        /// <summary>
+        /// Best-effort kind for a <c>GUI.DoControl</c> hit whose caller hint is missing,
+        /// derived from the style name Unity was drawing with. Stock skin names are the
+        /// only reliable signal; a Parsek custom style falls through to
+        /// <see cref="GuiNodeKind.Control"/> rather than guessing.
+        /// </summary>
         internal static GuiNodeKind ClassifyFromStyleName(string styleName, bool on)
         {
             if (!string.IsNullOrEmpty(styleName))

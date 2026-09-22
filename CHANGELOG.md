@@ -718,7 +718,8 @@ _(unreleased — entries accumulate here per commit)_
   skin's style of the same name (schema id unchanged, `parsek-gui-tree/1`); on a window
   node they describe the title. The mirror (`harness/tools/gui_mirror.py`) applies them to
   controls and window titles, which fixes the main window's version footer, a 10 px label
-  the mirror drew at 13 px and clipped to `v0.10.`; the offline viewer shows them in its
+  the mirror drew at 13 px and clipped to `v0.10.`; every Parsek window title (size 14 in
+  the shared window style) and every size-10 / size-11 label now draws at its recorded size too; the offline viewer shows them in its
   detail column. The mirror also reads run.py's `_run<N>` / `_a<N>` run-id suffixes as part
   of the run rather than the scenario id, so a same-minute re-flight keeps its dataset and
   pairs in Compare. Dumps taken before this change carry no font keys and still draw the
