@@ -14,13 +14,15 @@ the dump format is `docs/dev/design-gui-tree-dump.md`. This doc owns the mirror.
 `docs/dev/design-gui-state-gallery.md` owns the MOCKED-DATA half: an
 automation-only seam that hands a window a synthetic view model so the real draw
 code photographs states no fixture save can reach (the 17 hold clauses, the 12
-reject reasons, the Career divergence banner, a lost kerbal, a supersede row). It
-specifies what the mirror gains from that - a mocked capture declares itself in
-its own dump, is filed under `fixture = "mock"` so Compare can never pair it with
-a real capture, carries a `MOCKED DATA` badge, and is counted separately in
-`gui-mirror-index.json` - plus the per-state notes and export affordance the
-owner's feedback comes back through, and why the default dataset stops being
-derived once a mock dataset exists. Design only; nothing implemented.
+reject reasons, the Career divergence banner, a lost kerbal, a supersede row).
+The mirror's side of that contract is BUILT and is section 14 below: a mocked
+capture declares itself in its own dump, is filed under `fixture = "mock"` so
+Compare can never pair it with a real capture, carries a `MOCKED DATA` badge, and
+is counted separately in `gui-mirror-index.json`. Sections 15 and 16 own the other
+two halves of the review loop - the notes the owner's feedback comes back
+through, and the one-window focus link the round is scoped by - and section 17
+owns the three mechanical rules that stop a stale, an empty-hover or a
+mislabelled capture reading as coverage.
 
 ## 1. Generated, not written
 
@@ -37,7 +39,8 @@ produced:
 | A tab's display name | the capture in which THAT tab was selected (`buttongrid.textValue`) |
 | Where each tab label sits on its bar | measured in the frame: the bright runs inside the grid's own rect |
 | A modal's title and button labels | `uiaction dialog open=true ... title=... buttons=A|B` in the log |
-| Which dataset a capture is of | `fixture.saveTemplate` in `harness/scenarios/<specId>.toml` |
+| Which dataset a capture is of | `fixture.saveTemplate` in `harness/scenarios/<specId>.toml`, or the dump's own `mock` block (section 14) |
+| Whether a hover photographed anything | the pointer op's own `tooltip=` in that run's `KSP.log` (section 17) |
 | The Compare notes | `CHANGELOG.md` (current version), the `GUI-*` entries of `docs/dev/todo-and-known-bugs.md`, and the merge commits |
 | The Compare numbers | measured off the two dumps being compared |
 
@@ -185,10 +188,16 @@ ingested, that does have one - and says so in the status line, naming both
 fixtures. Silence there would be the one way this page could lie about what it is
 showing.
 
-The default dataset is derived, not pinned: the fixture that photographed the most
-DIFFERENT windows at the Space Center, which on the present corpus is the
-operator's own `c1-gui` career. "Most captures" would pick whichever lane happened
-to be longest.
+The default dataset is PINNED into the model by the generator, and pinned so that
+it is never the mocked one. The RULE is still the same measurement - the fixture
+that photographed the most DIFFERENT windows at the Space Center, which on the
+present corpus is the operator's own `c1-gui` career, where "most captures" would
+pick whichever lane happened to be longest - but it is computed over the REAL
+fixtures only and handed to the page as `defaultFixture`, rather than derived in
+the page over everything it holds. A ~300-state mocked gallery wins a breadth
+contest outright and would silently become the page the owner opens
+(`design-gui-state-gallery.md` 7.6). `--default-fixture` overrides it by hand and
+refuses a name that is not one of the corpus's datasets.
 
 ## 4. Before / after (the Compare view)
 
@@ -198,12 +207,25 @@ to it). Listing every window's keys at once was a page nobody could read. The
 whole-program summary table survives as a fold under the window's own section, and
 its rows are links into the other windows.
 
-`key = (fixture, window, tab, state, mode, scene)`. Every capture of one key is
-sorted by `capturedUtc`; BEFORE is the earliest, AFTER the latest, and the pair is
-reported as CHANGED only when the two trees differ once the sampled colours are
+`key = (fixture, window, tab, state, mode, scene)`, plus the catalogue state id
+for a mocked capture and nothing for a real one, so every real key is
+byte-identical to what it was before the gallery existed. Every capture of one key
+is sorted by `capturedUtc`; BEFORE is the earliest, AFTER the latest, and the pair
+is reported as CHANGED only when the two trees differ once the sampled colours are
 stripped out (a colour-only difference is a screenshot difference, not a layout
 one). Both sides are drawn by the same renderer off their own dump, so a
 difference visible on the page is a difference in the game.
+
+Each window's section opens with its own COUNTS, measured by
+`window_compare_summary`: states real and mocked, changed, unchanged, new, gone,
+captures with how many of them superseded, and the flag counts of section 17. The
+states are DISTINCT KEYS rather than files - the corpus carries 314 PNGs behind 182
+keys, so a file count reads as 1.7x the coverage there is - and NEW and GONE are
+read off SPEC RE-FLIGHTS, the only place the corpus has a before and an after of
+the same intent: for each spec that photographed this window more than once, the
+keys its newest run has and its oldest does not are new, and the reverse are gone.
+A spec that flew once contributes neither, because one flight cannot say a state
+disappeared. The window's known-uncaptured list is printed under the counts.
 
 `scene` is in the key deliberately. The same window at the Space Center and in
 flight is two pictures, not a change; pairing them reported three false changes
@@ -340,50 +362,67 @@ python harness/tools/gui_mirror.py \
 
 Later runs of the same lane may be passed alongside earlier ones; that is what
 populates Compare. `--no-photos` drops the photo toggle and the dialog crops and
-makes the page about a third of the size.
+makes the page about a third of the size. `--default-fixture` pins the dataset the
+page opens on (section 3) and `--stamp` pins the generation stamp, which is
+otherwise now (UTC) and which travels in the exported notes blob so a verdict
+names the corpus it was typed against.
 
 `gui-mirror-index.json` is the coverage record without the geometry: captures per
 window, states per window with their fixtures, the known-but-uncaptured states, and
 the before/after key table. It is the thing to read when the question is "what is
-covered" rather than "what does it look like".
+covered" rather than "what does it look like". Its top level carries
+`captureCount`, `mockedCaptureCount`, `distinctKeyCount`,
+`supersededCaptureCount`, `hoverNotCapturedCount`, `labelDisagreementCount` and
+`defaultFixture`; each window carries the same breakdown plus its
+`window_compare_summary`; and each state row carries `captures`, `mocked` and
+`superseded`. **`distinctKeyCount` is the coverage number, not `captureCount`.**
 
-## 10. Coverage as of the 2026-09-15 build
+## 10. Coverage as of the 2026-09-22 build
 
-192 captures over 7 fixtures and 12 windows, from 16 census runs (GUI-1 through
-GUI-11).
+314 captures over 16 fixtures and 13 windows, from 32 census runs (GUI-1 through
+GUI-23), behind **182 DISTINCT KEYS**. The two numbers are 1.7x apart and the
+second is the coverage one: 132 of the captures are SUPERSEDED, a later run of the
+same lane having photographed the same key (section 17). A file count was what let
+the state audit report 230 captures over 134 distinct labels and read as
+coverage that was not there.
 
-STALE BY ONE LANE AND ONE WINDOW as of the same day: `GUI-12-census-testrunners`
-(PASS `2026-09-15_2057`) adds SEVEN captures - four states of `testrunner` (idle,
-every fold collapsed, one category expanded, real results) against the one this
-table counts, and three of the THIRTEENTH window, `testrunnerglobal`, the global
-Ctrl+Shift+T runner, which had no capture of any kind before it. The generator needs
-no change to take them (`parse_label` reads its window vocabulary out of the logs),
-so the mirror wants one REGENERATION rather than an edit; the numbers above are left
-as the reading they were, per this section's own "as of" contract.
+Of those 314: **0 mocked** (no gallery lane has flown yet), **8** flagged
+`hover not captured` and **12** flagged `label disagrees with the log`. 47 of the
+182 keys have both sides and differ.
 
-| Window | Captures | Distinct states | Datasets |
-| --- | --- | --- | --- |
-| main | 56 | 27 | all 7 |
-| missions (incl. Recordings) | 39 | 14 | all 7 |
-| timeline | 33 | 10 | 6 |
-| kerbals | 22 | 14 | 5 |
-| career | 19 | 11 | 4 |
-| logistics | 7 | 6 | 3 |
-| structure | 5 | 3 | 3 |
-| gloops | 4 | 1 | 2 |
-| spawncontrol | 3 | 1 | 1 |
-| settings | 2 | 2 | 1 |
-| testrunner | 1 | 1 | 1 |
-| GuiTree probe | 1 | 1 | 1 |
-
-15 keys have both sides and differ (Missions/Recordings alignment and both group
-pickers, Structure on a mission, all four Career tabs, the Kerbals rebuild on
-Roster and Flights, Spawn Control, and the main window in flight with ghosts).
+| Window | Captures | Distinct keys | Superseded | Datasets |
+| --- | --- | --- | --- | --- |
+| main | 70 | 40 | 30 | 10 |
+| missions (incl. Recordings) | 60 | 35 | 25 | 11 |
+| timeline | 53 | 27 | 26 | 7 |
+| career | 40 | 21 | 19 | 6 |
+| kerbals | 34 | 17 | 17 | 5 |
+| logistics | 18 | 15 | 3 | 6 |
+| settings | 9 | 7 | 2 | 3 |
+| gloops | 8 | 5 | 3 | 3 |
+| testrunner | 6 | 5 | 1 | 2 |
+| structure | 6 | 4 | 2 | 3 |
+| testrunnerglobal | 3 | 3 | 0 | 1 |
+| GuiTree probe | 3 | 2 | 1 | 2 |
+| spawncontrol | 4 | 1 | 3 | 1 |
 
 Nine states are known to the seam and have no capture, and all nine are the same
 shape: a tab selected in BASIC mode (Missions' own tab, two Timeline tabs, both
 Kerbals tabs, all four Career tabs). Basic draws no tab bar, so the census never
-took them. They are listed in the left rail, greyed, and clicking one says why.
+took them. They are listed in the left rail, greyed, printed under each window's
+Compare header, and clicking one says why.
+
+One real state the corpus is still missing:
+`bdk-kerbals-roster-standin-chain-advanced`, which exists only in a shots
+directory nothing indexes. Adding it is a `--shots` argument, not a code change
+(`docs/dev/todo-and-known-bugs.md`).
+
+STALE BY FOUR LANES as of the same day: the wave-6 lanes `GUI-24` through
+`GUI-27` flew while this was being read and are not in the numbers above. The
+generator needs no change to take them - `parse_label` reads its window and tab
+vocabularies out of the logs - so the mirror wants one REGENERATION rather than
+an edit, and the reading above is left as the reading it was, per this section's
+own "as of" contract.
 
 ## 11. Fidelity: the page measured against the frame
 
@@ -553,6 +592,16 @@ from a resolved `[4, 242]` to unresolved the moment the handle goes.
 PNG), 9112 text controls. BEFORE is the page as it rendered on 2026-09-21; AFTER
 is the same corpus through the same instrument with the classes below fixed.
 
+RE-MEASURED 2026-09-22 over the wave-5 corpus (32 runs, 314 captures, 305
+measured, 12 912 text controls): every AFTER number in the table below held to
+the digit at p50 and p95 - dx 2 / 5 px, dy 1 / 4, width ratio 1.000 / 1.111, fill
+delta 0 / 0, all sliders resolving a thumb on both sides at a p50 offset of 1 px,
+window score p50 9.04 - and the residual's per-capture rate is flat (frame-only
+0.52 -> 0.57, clipped 0.28 -> 0.30), which is eleven new lanes photographing
+states nothing had measured before. Three new worst-case tails came with them and
+are `docs/dev/todo-and-known-bugs.md` T42b items 6 to 8. The table is left as the
+reading it was, per the same "as of" contract section 10 keeps.
+
 | Metric | BEFORE | AFTER |
 | --- | --- | --- |
 | text ink dx, p50 / p95 / worst | 2 / 52 / 643 px | 2 / **5** / **22** px |
@@ -713,3 +762,190 @@ mode to see it.
   its run id on the page.
 * Not a player-facing surface, and not a new UI surface in Parsek: it is a harness
   tool that renders artifacts, and it ships no game code.
+
+## 14. Mocked captures
+
+A gallery lane (`design-gui-state-gallery.md`) hands a window a synthetic view
+model and photographs the REAL draw code drawing a state no save can reach. Those
+captures live in the SAME page as the real ones, badged, because the owner's
+question is about one window at a time and splitting the page would make him
+remember which half he was in.
+
+**A mocked capture declares itself in its DUMP, never in its name.** The recorder
+writes an additive `mock` block at the unchanged `parsek-gui-tree/1` schema id -
+`stateId`, `window`, `catalogue`, `states`, `covers` - and ABSENT means real,
+which is every committed capture. `mock_provenance` reads it and answers None for
+an absent block, a block that is not an object, and a block with no `stateId`; a
+non-numeric `states` or a `covers` that is not a list degrades to 0 and `[]`
+rather than throwing.
+
+It has to be the dump and not the label because the mirror derives a capture's
+dataset from the lane's `fixture.saveTemplate`, and a gallery lane HAS one - it
+needs a loaded game. Without the block its captures would file under a real
+fixture's name and pair against real captures in Compare, which is the one lie
+this page must not tell.
+
+**The facets come out of the catalogue state id.** `mock_facets` reads
+`<window>.<family>.<variant>`: the block's `window` field is the authority for the
+window token, the leading tail token is the tab when it is in that window's own tab
+vocabulary (the same rule `parse_label` applies), and what is left is the state
+with dots turned into dashes. The mode still comes from the log. Nothing is read
+off the label, so a mocked capture carries no label-versus-log disagreement by
+construction.
+
+**`fixture` becomes `mock`, and that is what isolates Compare.** `fixture` is
+already part of `key_of`, so a mocked BEFORE can only ever pair with a mocked
+AFTER - structurally, not by a filter somebody has to remember. The catalogue state
+id is appended to the key as well, so two states of the same window and tab whose
+derived state tails agree still cannot pair with each other; real keys gain no
+segment and stay byte-identical.
+
+**Badged in four places**, all from one flag function: the rail entry (and the
+window header carries `N mocked` beside its capture count), the stage header, the
+status line, and the Compare rows including both sides of a pair. The badge's
+tooltip names the state id, the catalogue, the state count and the branch keys the
+state claims - all of it out of the block.
+
+**And `mock` is never the default view.** See section 3.
+
+`gui-mirror-index.json` carries `mockedCaptureCount` at the top level, a
+`capturesMocked` per window, and `mocked: true` on the state rows, so "how much of
+this is real" is answerable without opening the page.
+
+## 15. The notes the round comes back through
+
+The owner reviews a window, and what he types has to reach an agent in a later
+session. The page is a static file and must stay one, so the mechanism is
+`localStorage` plus a `<pre>`: no server, no upload, no download link (a viewer
+sandbox blocks one, and a blocked link is worse than a box you can select).
+
+**One field per row.** Every state view and every Compare pair gets a verdict
+(`keep` / `change` / `unsure`, or none) and a one-line note, stored under
+`(run pair, window, tab, state, mode, fixture)`. The run pair is what makes a
+Compare note about THIS before and THIS after: re-fly the lane and the pair
+changes, so last round's verdict does not silently attach itself to a picture the
+owner has not seen. A state view uses its own run id for both halves.
+
+**Every storage access is in try/catch, and a refusal is said out loud.** A fold
+that does not persist is a nuisance and the rail says nothing about it; a VERDICT
+that does not persist is lost work, so a refused write puts
+`this browser refused storage - export before you close the tab` beside the field
+and repeats it in the export panel. The page renders correctly with no storage at
+all.
+
+**Export is one blob in two forms.** `Export notes` serialises every non-empty
+note for the CURRENTLY SELECTED window, or for all windows, as JSON and as a
+markdown table in a `<pre>`, with a copy button. The clipboard API is refused in
+some viewers, so the fallback is visible: the `<pre>` is selected for the reader
+and is `user-select:all` anyway.
+
+The blob is a SCHEMA, because it leaves the page and is read back by something
+with nothing else to key on. `NOTES_SCHEMA = "parsek-gui-mirror-notes/1"`:
+
+```json
+{"schema": "parsek-gui-mirror-notes/1",
+ "pageSchema": "parsek-gui-mirror/1",
+ "generatedUtc": "2026-09-22T00:00:00Z",
+ "scope": "timeline", "count": 1,
+ "notes": [{"key": "<runPair>|<window>|<tab>|<state>|<mode>|<fixture>",
+            "window": "timeline", "tab": "overview", "state": "live",
+            "mode": "advanced", "fixture": "b1-pad-craft", "mocked": false,
+            "mockState": "", "beforeId": "<runId>/<label>",
+            "afterId": "<runId>/<label>",
+            "verdict": "change", "note": "one line"}]}
+```
+
+`generatedUtc` is the PAGE's generation stamp, not the export time: it says which
+corpus the owner was looking at. The row carries the capture ids of both sides, the
+five facets, the dataset, the mocked flag and the state id, which is what makes a
+verdict actionable in a session that never saw the page.
+
+The row's FIELD SET is `NOTES_FIELDS` in the generator and is forwarded into the
+page as `notesFields`, which the JS iterates to build a row. So the blob the page
+writes and the blob `parse_notes_blob` reads back cannot drift apart, and the
+round trip is a unit cell rather than a hope.
+
+**Import** is a textarea and a `merge` button: paste a blob back and it merges by
+key, replacing a row already there. It accepts the whole blob, a bare list of rows
+or a single row, rebuilds a missing key from the row's own facets, and DROPS a row
+with nothing to key on while saying how many it dropped - never merging one under
+a made-up key.
+
+## 16. One window at a time
+
+The owner's ruling (`design-gui-state-gallery.md` 12) is that the review runs a
+window at a time. Two affordances:
+
+* **`#win=<token>`**, or `#win=<token>&view=compare`, opens the page already
+  scoped to one window, in mirror or Compare view. The rail shows that window
+  alone with a `show every window` row out of it, and the link is printed in a
+  read-only field so it can be pasted into a message. A token no capture is of is
+  SAID in the status line rather than silently ignored, because the whole page
+  would otherwise look like the answer to a link that missed.
+* **the per-window Compare header** of section 4.
+
+The older deep link is untouched, and that matters more than it looks: the
+fidelity instrument photographs `#cap=<runId>%2F<label>&bare=1`, so `bootBare()`
+is still the first statement of `boot()` and returns before any of the above is
+reached. A bare page renders exactly what it rendered before - one stage, no rail,
+no header, no notes field - and every new element is in the `body.bare` hide list,
+which the "every bare rule is scoped to the bare class" cell keeps mechanical.
+
+## 17. Retiring false coverage
+
+Three rules, none of which names a label. A label typed into the generator is a
+label that rots, and the state audit's own finding was that the mirror was
+reporting 230 captures over 134 distinct labels with 8 of them photographing
+nothing.
+
+**(a) SUPERSEDED: a later capture exists for the same key.** Every capture of a
+key but the latest is marked `supersededBy` that one. The mirror shows the latest
+- `pick` filters superseded captures out of the pool, and so does the capture the
+page OPENS on - the rail lists the current one per state and greys a superseded
+row, and coverage counts DISTINCT KEYS rather than files. The superseded capture
+stays reachable as its pair's BEFORE and from its own rail row, because it is the
+evidence of what changed. This is what retires the audit's four stale labels with
+no label named: wave 5 re-flew their lanes, so
+`ksc-settings-advanced` / `-basic`, `ksc-career-milestones-advanced`,
+`ksc-kerbals-roster-advanced` / `-outcomes-advanced`,
+`fs-kerbals-outcomes-empty-advanced` and
+`play-kerbals-outcomes-flight-advanced` are all superseded by construction -
+verified on the corpus, 132 of 314 captures.
+
+**(b) HOVER NOT CAPTURED, from the log.** A pointer step that moved the cursor
+onto a control (`park=false`) logs its own result, and where that line carries
+`tooltip=-` the game's `GUI.tooltip` was EMPTY when the frame was taken: the
+capture is the window's idle state under a hover label. The flag is set from that,
+excluded from the state counts and from Compare, and greyed in the rail.
+
+The pointer state is ONE-SHOT: it belongs to the frame taken right after the op,
+never to every later capture of the run.
+
+The older census runs predate the `tooltip=` key, and an absent statement is not
+an empty tooltip. The fallback there is the capture's own TREE: a hover frame that
+is byte-identical to another capture of the same run, sampled colours stripped,
+photographed nothing its sibling did not - which is exactly the audit's measured
+reading that `b1-main-disabledecho-spawncontrol-advanced` is text-identical to its
+`b1-main-idle-advanced` sibling. Between the two arms all four hover labels are
+flagged (8 captures across the runs that took them): two from the log, six from
+the tree. With neither a `tooltip=` key nor an identical sibling, nothing is
+claimed.
+
+**(c) LABEL DISAGREES WITH THE LOG.** The log-over-label rule already decided the
+filing; this reports the disagreement so a reader knows the row he is looking at
+is filed under something its own name denies. Three arms, in
+`label_log_disagreements`: the label names a window the log contradicts; the label
+names a tab the log contradicts; or the label names NO tab - which reads as the
+window's default, index 0 - while the log selected a later one. The third arm is
+the quiet form and the one that matters: it is what catches `ksc-timeline-basic`
+(really the Re-Fly tab) and `ksc-missions-basic` / `bd-missions-basic`, the audit's
+mislabelled captures. A label whose leading state token turned out to be a tab's
+DISPLAY name is not a disagreement and is suppressed by the alias that resolved
+it. On the corpus: 12 captures, all of them tab arms.
+
+What (c) CANNOT see is a content mislabel - a state token that names something the
+tree does not show, like `fs-timeline-overview-empty-advanced`, which is not the
+empty branch, or `b1-missions-recordings-live-advanced`, which shows an empty tab.
+The seam log says which window and tab were open; it says nothing about what the
+rows in them read. Judging that would mean typing the word `empty` into the
+generator, which is the one thing this page may not do.

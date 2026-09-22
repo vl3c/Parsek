@@ -499,6 +499,55 @@ photographing them needs a rewound career first.
 ---
 ## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]
 
+**PART LANDED 2026-09-22 (the MIRROR half of phase P2, owner rulings 1, 5 and
+7).** Three things the loop needed, all in `harness/tools/gui_mirror.py`, all
+generated from the artifacts:
+
+1. **Mocked captures are read, badged and isolated.** The dump's additive `mock`
+   block (`stateId` / `window` / `catalogue` / `states` / `covers`, absent means
+   real) files a capture under the dataset `mock` with its facets taken from the
+   catalogue state id, badges it `MOCKED DATA` in the rail, the stage header, the
+   status line and both sides of a Compare pair, and counts it separately in
+   `gui-mirror-index.json`. Because `fixture` is part of the pair key, a mocked
+   BEFORE can only pair with a mocked AFTER - structural, not a filter. The
+   default dataset stopped being derived in the page and is PINNED by the
+   generator over the REAL fixtures only, so a ~300-state gallery cannot become
+   the page the owner opens. NOTHING mocked has been captured yet: the
+   `GalleryRun` verb and the two lanes are still P2's own remainder, and the
+   mirror's cells drive synthetic dumps.
+2. **The owner's verdicts come back as a schema.** A one-line note plus a
+   `keep` / `change` / `unsure` verdict on every state view and every Compare
+   pair, keyed on `(run pair, window, tab, state, mode, fixture)`, held in
+   `localStorage` with every access guarded and a refused write said out loud;
+   exported as a `parsek-gui-mirror-notes/1` JSON blob AND a markdown table with a
+   copy button and a visible select-all fallback, and merged back through a
+   textarea. No server and no download link, because a viewer sandbox blocks one.
+   `#win=<token>[&view=compare]` opens the page scoped to ONE window, which is the
+   unit a round covers, and each window's Compare section opens with its own
+   counts (states real / mocked, changed / unchanged / new / gone, superseded, and
+   its known-uncaptured list).
+3. **False coverage retires mechanically** (ruling 7), with no label named
+   anywhere: a capture is SUPERSEDED when a later run photographed the same key -
+   which retires all four stale labels by construction, 132 of the corpus's 314
+   captures - coverage counts DISTINCT KEYS (182, not 314), a hover capture whose
+   pointer op reported `tooltip=-` or whose frame is byte-identical to a sibling of
+   the same run flags `hover not captured` (8 captures, all four hover labels), and
+   a label whose window or tab the seam log contradicts flags
+   `label disagrees with the log` (12 captures). Contract:
+   `docs/dev/design-gui-mirror.md` 14-17.
+
+**Still open on this entry after that.** The gallery itself: the catalogue, the
+`op=mock` seam, `GalleryRun`, the two lanes and the harvest cap. Plus three
+mirror-side remainders: `bdk-kerbals-roster-standin-chain-advanced` is the one
+real state no indexed shots directory holds (a `--shots` argument on the next
+regeneration, not a code change); a CONTENT mislabel is outside what a seam log
+can witness, so `fs-timeline-overview-empty-advanced` (not the empty branch) and
+`b1-missions-recordings-live-advanced` (an empty tab) stay unflagged and judging
+them would mean typing `empty` into the generator; and two hover labels
+(`cek-main-tooltip-career-advanced`, `ib-main-tooltip-logistics-advanced`) are
+flagged only through the identical-sibling arm, because their lanes predate the
+`tooltip=` key and a re-flight would give the log the stronger statement.
+
 **PART LANDED 2026-09-22 (owner ruling question 3): the reason constants.** Every
 Logistics hold and reject clause is now a named `internal const string` format -
 `LogisticsHoldClauses` (**64**: 29 long-form, 29 compact Status-cell, 6 frames) and
@@ -16639,6 +16688,34 @@ defect in the product - they are all differences between the page and the game.
    centred uGUI canvas that overdraws the window rects in the FRAME and appears in no
    control tree, so every rect under it would read as a difference the page could not have
    avoided. The page shows the photograph for those, which is the honest rendering.
+
+**RE-MEASURED 2026-09-22 over the wave-5 corpus** (32 shots dirs, 314 captures,
+305 measured, 9 skipped; the earlier reading was 19 dirs and 222 measured).
+Nothing above was fixed and nothing regressed: text ink `dx` p50 / p95 held at
+2 / 5 px, `dy` at 1 / 4, width ratio at 1.000 / 1.111, fill delta p95 at 0,
+every slider thumb still resolves on both sides at a p50 offset of 1 px, and the
+window luminance score p50 moved 9.04 -> 9.04. The per-capture rates of the
+residual are flat too (frame-only 0.52 -> 0.57 per capture, clipped 0.28 ->
+0.30), which is the eleven new lanes photographing states nothing had measured
+before rather than the page getting worse.
+
+Three NEW tails the wave-5 lanes brought in, each a handful of controls and each
+worth a look before the next pass quotes a worst-case number:
+
+6. **`button|button|text` worst `dx` 85 px and worst width ratio 195.** One
+   control out of 3882 in that class, whose p50 is 2 px and p95 5 px. A ratio of
+   195 is an ink box the measurement found almost none of on the frame side, so
+   read it as a measurement artifact until it is located; the class is otherwise
+   the healthiest in the corpus.
+7. **`slider|horizontalscrollbar|notext` worst thumb-run delta 336 px**, over 4
+   nodes. A HORIZONTAL scroll bar is new to the corpus - 130 of the 142 sliders
+   the earlier reading measured were vertical - so `slider_thumb_run`'s
+   orientation handling has its first real horizontal cases and one of them
+   resolves a run the frame does not.
+8. **`layoutgroup|box|notext` worst fill delta 34**, over 426 nodes with a p95 of
+   0. A container whose sampled colour the page paints differently than the frame
+   in one place, which is the class the container-sampling rule exists for and
+   worth confirming is not that rule slipping.
 
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
 
