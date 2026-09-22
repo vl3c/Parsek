@@ -702,12 +702,22 @@ _(unreleased — entries accumulate here per commit)_
   merge, as design 7.16 promises. The tombstone guard and the tree splitter's ledger retag
   share that rule through one helper, so both sides of the seam still agree exactly.
   Every other ledger row keeps its old placement. A re-fly that kills the crew again
-  records its own death, which the merge never touches. The fix holds in-session, and
+  records its own death under the re-fly's recording, which the merge never touches;
+  with the dedup fix below that now also holds when the same slot is re-flown more than
+  once. The fix holds in-session, and
   after a reload on saves where the merge did not split the original recording at the
   rewind point. It does not yet survive a reload in the common case: the first re-fly of
   a crewed slot whose recording started at launch splits that recording, and the next
   load restores the Dead rows. That is no worse than before this fix; it is tracked as
   TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT.
+
+- **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
+  The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart
+  as the same row, whatever the kerbal or flight. Re-flying a slot a second time
+  therefore lost the new flight's crew rows against the previous attempt's, so a crew
+  killed again could read alive. The same collision could also drop one of two crews
+  starting at the same instant. Rows are now matched per flight and kerbal; committing
+  the same flight twice still records it once.
 
 - **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
   Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's

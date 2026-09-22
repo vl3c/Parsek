@@ -220,6 +220,13 @@ class RfoSchemaAndShellTests(unittest.TestCase):
         st = rfo_shell.build_state({"pitchDeg": -7})
         self.assertEqual(-7.0, st.params.pitch_deg)
 
+    def test_handoff_contract_names_the_terminal_and_the_owners(self):
+        c = mlib.mission_handoff_contract("rf12s_refly_orbit_insert")
+        self.assertEqual(mlib.RFO_ORBIT, c["terminal"])
+        self.assertIn("logContracts", c["verifiedBy"])
+        self.assertIn("handoff mission",
+                      mlib.handoff_ok_reason("rf12s_refly_orbit_insert", "ok"))
+
     def test_shell_has_no_module_top_krpc_import(self):
         with open(SHELL_PATH, encoding="utf-8") as f:
             for line in f:

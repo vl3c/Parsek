@@ -116,6 +116,21 @@ namespace Parsek
         /// <see cref="GameAction.UT"/>. NaN comes back only when the chosen key is
         /// NaN; callers treat it as "not provably pre-rewind".
         /// </para>
+        ///
+        /// <para>
+        /// TWO KNOWN LIMITS (TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS). (1)
+        /// <see cref="GameAction.EndUT"/> is a float: late in a career (UT around 2e7 s,
+        /// where a float step is 2 s) a death within about 1 s after the rewind point can
+        /// round BELOW the double cutoff and stay kept, while the paired KerbalDeath
+        /// reputation row (double UT) is refunded. Screening on the owning recording's
+        /// double EndUT is not a drop-in: the splitter's step 2.9 runs after
+        /// <c>SplitAtUT</c> has already truncated the origin to the rewind point, so the
+        /// two sides would read different recordings and the pair would stop being
+        /// bit-identical. (2) A Destroyed terminal marks every START crew member Dead at
+        /// the recording's end, so a kerbal who actually died BEFORE the rewind on a vessel
+        /// that flew on past it carries an end-of-recording EndUT and is now tombstoned.
+        /// Both are rare; neither changes the mirror.
+        /// </para>
         /// </summary>
         internal static double ComputeAttributionUT(GameAction action)
         {

@@ -42,6 +42,12 @@ id = "RF-12S-refly-saves-pre-rewind-boarded-crew"
 # reload; the burn reached pe=76 km). The pins below are tightened off that reading and
 # `[expectations.rewind]` is armed on it.
 #
+# RE-DERIVED 2026-09-22 FOR THE DEDUP FIX (same PR). With KerbalAssignment keyed per
+# (recording, kerbal), the new provisional's two crew rows survive the commit, so the
+# merge should read `2 reservations remain (permanent=0 temporary=2)` instead of 0; every
+# other count (Kerbal=4, tombstones=12, supersedeRows=5) is unchanged, because the
+# provisional is outside the superseded closure. The side finding below is now FIXED.
+#
 # A MEASURED SIDE FINDING a reader will trip over: the merge leaves ZERO reservations,
 # not two temporary ones, because the new provisional's own crew rows never reach the
 # ledger - `DeduplicateAgainstLedger` keys KerbalAssignment on "" and drops them against
@@ -127,8 +133,11 @@ required = [
   # plus the prior re-fly `rec_c54a110c`'s two). The main-DLL before-reading
   # `2026-09-22_1928` read Kerbal=2 (only rec_c54a110c's).
   "Tombstoned 4 career actions \\(.*Kerbal=4,",
-  # 7.16 at the merge: no death-sourced permanent reservation survives.
-  "Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 ",
+  # 7.16 at the merge: no death-sourced permanent reservation survives, and the re-fly's
+  # OWN crew rows (Aboard, in orbit) are in the ledger. The `2 ... temporary=2` half is
+  # the KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY fix: before it, `_1931` read `0 reservations
+  # remain` because those rows were deduped against the prior re-fly's.
+  "Recomputed after tombstones: 2 reservations remain \\(permanent=0 temporary=2\\)",
   # 7.16 after the reload: a reservation walk that runs AFTER the post-merge LoadGame
   # still reads no permanent reservation.
   "(?s)Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 .*exec id=[0-9]+ cmd=LoadGame start.*PostWalk summary: reservations=[0-9]+ permanent=0 ",

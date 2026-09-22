@@ -4012,7 +4012,24 @@ writes supersede rows, tombstones, and flips MergeState). Re-arming afterwards w
 later cells a marker pointing at an already-merged provisional. The precondition guard
 subsumes the problem.
 
-## KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY: a re-fly's own crew rows are dropped as duplicates of an unrelated assignment row 0.1 s away [FOUND 2026-09-22 on RF-12S's after-reading. OPEN]
+## TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS: two rare shapes the endUT death screen gets wrong [NOTED 2026-09-22 in #1759 review. OPEN, low]
+
+Both are documented on `TombstoneAttributionHelper.ComputeAttributionUT`.
+(1) FLOAT PRECISION. `GameAction.EndUT` is a float. Late in a career (UT around 2e7 s,
+where a float step is 2 s) a death within about 1 s after the rewind point can round
+below the double cutoff. The death row is then kept while its KerbalDeath reputation row
+(double UT) is refunded, so the kerbal stays Dead with the reputation hit undone.
+Screening on the owning recording's double EndUT is not a drop-in: step 2.9 runs after
+`SplitAtUT` has already truncated the origin, so the guard and the splitter would read
+different recordings and stop being bit-identical. A real fix stores the death UT as a
+double on the row, which is a serialized-field change.
+(2) PRE-REWIND DEATH ON A SURVIVING VESSEL. A Destroyed terminal marks every START crew
+member Dead at the recording's end, so a kerbal who actually died BEFORE the rewind on a
+vessel that flew on past it (e.g. killed on EVA, then the vessel crashed later) carries
+the end-of-recording EndUT and is now tombstoned. Rare, and the per-kerbal death instant
+is not recorded anywhere the screen could read.
+
+## ~~KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY~~: a re-fly's own crew rows are dropped as duplicates of an unrelated assignment row 0.1 s away [FOUND 2026-09-22 on RF-12S's after-reading. FIXED in the same PR (#1759)]
 
 `LedgerOrchestrator.GetActionKey` has no `KerbalAssignment` case, so it returns "" for
 every assignment row, and `DeduplicateAgainstLedger` treats ANY new assignment row as a
@@ -4032,11 +4049,20 @@ death row is dropped here, and the merge then tombstones the old one: the re-kil
 crew would come back alive. It is independent of the endUT change and was present on
 main, where the same run shape also deduped (`2026-09-22_1928`).
 
-FIX DIRECTION (not taken): give KerbalAssignment a key, e.g.
-`RecordingId + ":" + KerbalName`, so two recordings' rows never collapse. The load-time
-`MigrateKerbalAssignments` path compares whole row sets per recording and does not go
-through this dedup, so it is unaffected; the commit-time producers are the ones to
-re-check.
+WHY IT HAD TO LAND WITH THE endUT FIX. On main the guard kept the straddling origin
+death row, which masked the dropped re-fly row: a re-kill still read Dead. The endUT fix
+retires that row, so without this fix a second re-fly that killed the crew again would
+read alive until the next load, a regression against main.
+
+FIXED: `GetActionKey` keys `KerbalAssignment` on `RecordingId + "|" + KerbalName`, so
+two recordings' rows never collapse and a re-commit of the SAME recording still dedups.
+Caller set re-derived: of the four `DeduplicateAgainstLedger` callers, only
+`OnRecordingCommitted` (step 3c) produces this type. The discard re-home, the science
+re-home and the recovery XP path do not, and the load-time `MigrateKerbalAssignments`
+compares whole per-recording row sets without going through the dedup. Pinned through the
+real commit path by
+`OnRecordingCommitted_TwoRecordingsSameKerbal002sApart_BothKeepTheirRows` and its mirror,
+`OnRecordingCommitted_SameRecordingRecommitted_StillDedups`.
 
 ## TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. OPEN, needs two design decisions]
 

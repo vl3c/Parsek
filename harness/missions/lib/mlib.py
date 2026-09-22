@@ -17826,6 +17826,17 @@ MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
         "unverifiedByMission": ["ledgerScienceCapture", "ledgerRecoveryCapture"],
         "verifiedBy": ["CommitTree", "analyzer", "ledgerOracle"],
     },
+    # rf12s_refly_orbit_insert (RF-12S) is SBR's kind of gap: it terminates ON its own
+    # outcome (the orbit is observed on a frame it read), and the reason it is flown is
+    # a Parsek claim it has no view of - whether the merge that follows retires the
+    # straddling death rows and leaves no permanent reservation, before and after a
+    # reload. That belongs to the spec's log contracts and the armed rewind facets.
+    # The terminal is the literal "ORBIT" because RFO_ORBIT is defined below this table.
+    "rf12s_refly_orbit_insert": {
+        "terminal": "ORBIT",
+        "unverifiedByMission": ["tombstoneScreening", "reservationRecovery"],
+        "verifiedBy": ["AnswerMergeDialog", "logContracts", "saveParse"],
+    },
 }
 
 # What MISSION-OK means for a handoff mission, spelled out in the reason line the
