@@ -1267,7 +1267,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | H6 | `autoMerge`: clamped `true`, and the guide tells the player to turn it off | `ParsekSettings.cs:71`, clamp `:296`; `docs/user-guide.md:57` |
 | H7 | `forceFaithfulLoopPlayback`: decides whether a looped interplanetary mission replays verbatim or re-aims, with no player control | `ParsekSettings.cs:251`, clamp `:297` |
 | H8 | `LandingBodyAlignmentMode` pinned Loose as an `internal const`; `Drop` / `Tight` reachable only from tests | `ParsekSettings.cs:237` |
-| H9 | In Basic - the DEFAULT for a new install - the loop period, recorder fidelity and verbose logging have no in-game control, and there is no Kerbals or Career window either | `UI/UiComplexityMode.cs:185-187`, `:256`, `:181-182` |
+| H9 | In Basic - the DEFAULT for a new install - the loop period, recorder fidelity and verbose logging have no in-game control, and there is no Career window either (Kerbals is visible in Basic since 2026-09-22) | `UI/UiComplexityMode.cs:185-187`, `:256`, `:181-182` |
 | D12 | Five reserved seam verbs answering `not-implemented-v1`; three documented as never to be implemented | `TestCommands/TestCommandVerbs.cs:248-255` |
 | D15 | The Basic-disabled-while-Gloops-recording guard and its hint string, which no player can produce | `UI/SettingsWindowUI.cs:505`, `:514` |
 | D17 | The legacy sampling-threshold migration, which only fires for pre-preset config keys nothing has written since | `ParsekSettings.cs:395`, `:425-445` |

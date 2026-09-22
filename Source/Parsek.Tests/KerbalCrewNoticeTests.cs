@@ -79,7 +79,7 @@ namespace Parsek.Tests
         [InlineData((int)KerbalReservationKind.ReservedRetired,
             "This retired stand-in flew a committed flight on your timeline.")]
         [InlineData((int)KerbalReservationKind.NotManaged,
-            "This kerbal is a stand-in covering a reserved kerbal's seat.")]
+            "This kerbal is a stand-in in a reserved kerbal's replacement chain.")]
         public void DismissalBlock_ReasonUsesTheKerbalsWindowVocabulary(int kind, string expected)
         {
             Assert.Equal(expected,

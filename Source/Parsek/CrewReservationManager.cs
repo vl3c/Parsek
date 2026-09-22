@@ -351,6 +351,10 @@ namespace Parsek
                     (failCount > 0 ? $", {failCount} failed" : "") +
                     " — refreshed vessel crew display");
             }
+            else if (failCount > 0)
+            {
+                CrewLog($"Crew swap: 0 succeeded, {failCount} failed");
+            }
 
             // One screen message per swap call that actually took a reserved kerbal out of
             // a seat - an event that changed the craft, never a standing condition, and
@@ -361,10 +365,6 @@ namespace Parsek
                 ParsekLog.Info("CrewReservation",
                     $"Reserved-crew swap screen message shown: swaps={seatSwaps.Count} text=\"{swapMessage}\"");
                 ParsekLog.ScreenMessage(swapMessage, ReservedCrewSwapMessageSeconds);
-            }
-            else if (failCount > 0)
-            {
-                CrewLog($"Crew swap: 0 succeeded, {failCount} failed");
             }
 
             RemoveReservedEvaVessels(spawnedPids);

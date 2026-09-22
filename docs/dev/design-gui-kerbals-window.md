@@ -171,7 +171,7 @@ The status cell's hover text (`FormatStatusTooltip`):
 
 | Status | Hover |
 |---|---|
-| Lost | `Lost on <mission> (launched <date>). Re-flying that mission from a rewind point can undo the loss.` - the death mission is the latest mission that ends Dead; with none, `Lost on a committed flight. ...` |
+| Lost | `Lost on <mission> (launched <date>). If that mission has a rewind point, re-flying it can undo the loss.` - the death mission is the latest mission that ends Dead; with none, `Lost on a committed flight. ...` |
 | Reserved | `Held by the committed flight <mission>, which ends with this kerbal aboard <vessel>` / `recovered` / `, which has no recorded ending`, then `. Passing time does not release it; it lasts while that flight stays in the timeline.` (`ReservationHoldRule`); a reserved stand-in reads `Held by a committed flight flown in <owner>'s seat. ...` |
 | Stand-in aboard a craft | `Standing in for <owner>; aboard <vessel>.` (or `; on EVA.`) - only when the inline form does not fit |
 | others | none |
@@ -424,7 +424,7 @@ declaration, as on every earlier c1 flight).
 
 | Label | Lane, run | Reads |
 |---|---|---|
-| `ksc-kerbals-roster-advanced` | GUI-1, `2026-09-22_2006` | ONE involved row, `Jebediah Kerman [Pilot] / Lost / L5-B4L-U1-C1 - Lost`, over `Available, no recorded flights (3)`. The phantom `Lars Kerman / Available` row of every earlier c1 capture is GONE (ruling 11): the VM line reads `roster=1+3 omittedStandIns=1`, and the dump carries the Lost hover `Lost on L5-B4L-U1-C1 (launched Y1, D52, 00:10). Re-flying that mission from a rewind point can undo the loss.` No Since column |
+| `ksc-kerbals-roster-advanced` | GUI-1, `2026-09-22_2006` | ONE involved row, `Jebediah Kerman [Pilot] / Lost / L5-B4L-U1-C1 - Lost`, over `Available, no recorded flights (3)`. The phantom `Lars Kerman / Available` row of every earlier c1 capture is GONE (ruling 11): the VM line reads `roster=1+3 omittedStandIns=1`, and the dump carries the Lost hover `Lost on L5-B4L-U1-C1 (launched Y1, D52, 00:10). If that mission has a rewind point, re-flying it can undo the loss.` No Since column |
 | `ksc-kerbals-outcomes-advanced` | GUI-1, `2026-09-22_2006` | `Date / Mission / Outcome`, no Crew column: `Y1, D51, 05:17 / L5-B4-U1-C1 / Still aboard` and `Y1, D52, 00:10 / L5-B4L-U1-C1 / Lost` - both dated by launch, the date the Lost hover repeats |
 | `ksc-main-basic` | GUI-1, `2026-09-22_2006` | the Basic main window with `Kerbals` between Logistics and Settings, one gap either side (ruling 1 amended) |
 | `cek-kerbals-roster-advanced` / `-expanded-` | GUI-5, `2026-09-22_2005` | `Jebediah Kerman [Pilot] / Reserved: aboard Jumping Flea / Jumping Flea - Still aboard` with `\u2514\u2500 Debwig Kerman [Pilot] / Stand-in for Jebediah Kerman / -` directly under it; the expanded capture opens only the plain bucket (Bill / Bob / Valentina `Available`) - there is no chain fold left to open |

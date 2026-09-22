@@ -1101,7 +1101,7 @@ namespace Parsek
         /// <c>CL-3-refly-crew-tombstone</c>, "death-sourced reservation IS
         /// released").</summary>
         internal const string LostReFlyRemedy =
-            "Re-flying that mission from a rewind point can undo the loss.";
+            "If that mission has a rewind point, re-flying it can undo the loss.";
 
         /// <summary>
         /// The "Status now" cell's hover text, or null when the cell says everything

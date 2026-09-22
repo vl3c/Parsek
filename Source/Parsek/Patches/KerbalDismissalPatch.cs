@@ -65,7 +65,7 @@ namespace Parsek.Patches
                 case KerbalReservationKind.ReservedRetired:
                     return "This retired stand-in flew a committed flight on your timeline.";
                 default:
-                    return "This kerbal is a stand-in covering a reserved kerbal's seat.";
+                    return "This kerbal is a stand-in in a reserved kerbal's replacement chain.";
             }
         }
     }

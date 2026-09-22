@@ -105,7 +105,7 @@ Interactive-control counts are mechanical (`Button(` and `Toggle(` occurrences) 
 | Real Spawn Control | `UI/SpawnControlUI.cs` | 366 | - | - | InFlight utility |
 | Gloops Flight Recorder | `UI/GloopsRecorderUI.cs` | 330 | - | - | Manual ghost-only recorder |
 
-The Career window's two `Button(` hits are both `Close` (`CareerStateWindowUI.cs:1264`, `:1323`; its tab bar is a `Toolbar`, not counted); the Kerbals window's eight are `Close` (`KerbalsWindowUI.cs:645`), the plain-kerbal bucket fold (`:683`), the owner-row chain expand (`:735`), the per-kerbal Flights fold (`:865`) and the four cells of one Flights row (`:886`, `:890`, `:896`, `:899`), which all cross-link to a Timeline scroll (UI state only). Re-measured against the 2026-09-15 rebuild; the pre-rebuild reading was four at `:326` / `:399` / `:565` / `:577`. Neither window mutates game or Parsek state. Both are pure reporting surfaces.
+The Career window's two `Button(` hits are both `Close` (`CareerStateWindowUI.cs:1264`, `:1323`; its tab bar is a `Toolbar`, not counted); the Kerbals window's seven are `Close` (`KerbalsWindowUI.cs:636`), the plain-kerbal bucket fold (`:674`), the Roster's Last flight cell (`:735`), the per-kerbal Flights fold (`:814`) and the three cells of one Flights row (`:835`, `:839`, `:845`); the Last flight cell and the Flights cells cross-link to a Timeline scroll (UI state only). Re-measured against the 2026-09-22 round-2 rework; the pre-rebuild reading was four at `:326` / `:399` / `:565` / `:577`. Neither window mutates game or Parsek state. Both are pure reporting surfaces.
 
 ### 3.3 Tabs inside windows
 
