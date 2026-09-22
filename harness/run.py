@@ -2509,6 +2509,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                      "parsekFrames": killed_ue.parsek_frames,
                                      "afterQuit": killed_ue.after_quit,
                                      "quitMarkerSeen": killed_stacks.quit_marker_seen,
+                                     "uncountedExceptions": killed_stacks.uncounted,
                                      "parsekFrameSites": dict(killed_ue.parsek_frame_sites),
                                      "maxParsekFrames": None,
                                      "reason": "killed-triage-only"}
@@ -2724,6 +2725,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                      "parsekFrames": ue.parsek_frames,
                                      "afterQuit": ue.after_quit,
                                      "quitMarkerSeen": ue_stacks.quit_marker_seen,
+                                     "uncountedExceptions": ue_stacks.uncounted,
                                      "parsekFrameSites": dict(ue.parsek_frame_sites),
                                      "maxParsekFrames": ue.max_parsek_frames}
         if ue.status == "FAIL":

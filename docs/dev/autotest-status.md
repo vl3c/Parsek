@@ -5405,21 +5405,28 @@ six publish or compare numbers the runner already measured.
     from one thrown with Parsek on the stack (wave ruling A4-b: a `Parsek.` frame is a
     finding at ANY count), so `hlib.scan_unity_exception_stacks` now reads the stack block
     under each counted line - the continuation lines up to the next Unity record header,
-    the next counted line or a `[Parsek]` line - and reports `parsekFrames` (occurrences
+    the next exception line or a `[Parsek]` line - and reports `parsekFrames` (occurrences
     with a frame whose method begins `Parsek.`, after the optional `at` / `(wrapper ...)`
     prefixes), `parsekFrameSites` (innermost Parsek frame -> count), `afterQuit`
     (occurrences after the first `[Parsek]` `flushandquit: Application.Quit` or `autorun
     exit: teardown+export complete` line) and `quitMarkerSeen`, in every result JSON
-    including KILLED attempts. The per-pattern counts are untouched (0 differences against
-    the old line scan over 776 runs). `[expectations.unityExceptions] maxParsekFrames = N`
+    including KILLED attempts. FRAMES ARE READ UNDER EVERY EXCEPTION CLASS, not only the
+    four counted ones (PR #1747 review): any `[EXC ...]` record and any GameEvents
+    `Exception handling event ... <Class>Exception` line also open a block, feeding only
+    the stack figures and a separate `uncountedExceptions` count, so `total` and every
+    armed `maxTotal` are unchanged by construction (0 differences against the old line
+    scan over 781 runs). Both quit literals are pinned to the C# lines that write them
+    (`UnityStackScanTests.test_quit_markers_are_the_literals_the_mod_writes`). `[expectations.unityExceptions] maxParsekFrames = N`
     gates independently of `maxTotal`; a missing stack scan under an armed key fails
     closed. One asymmetry to know when reading a pair: a GameEvents `[ERR]` stack stops at
     the event dispatch, so a Parsek CALLER shows only on the `[EXC]` twin.
-    THE SWEEP, every collected KSP.log (872 files, 776 unique runs, 241 lanes; 757 carry
-    the quit marker): parsekFrames is 0 in every log of every lane that arms `maxTotal`
+    THE SWEEP, every collected KSP.log (877 files, 781 unique runs, 241 lanes; 762 carry
+    the quit marker), re-run after the widening: parsekFrames is 0 in every log of every lane that arms `maxTotal`
     (H23, L1-passive-sandbox and L3-strategy-exchanger-floor have no collected log), 0 on
     GS-4 (7 logs: totals 4, 2, 2, 1, 4, 0, 0; afterQuit 3, 1, 1, 1, 3, 0, 0) and 0 on W1
-    (4 logs: totals 0, 0, 0, 2; afterQuit 0, 0, 0, 2). Over the V family it is 0 in every
+    (4 logs: totals 0, 0, 0, 2; afterQuit 0, 0, 0, 2 - the INVALID reading attempts
+    `2026-08-28_1859` / `_1902` and the two driver-valid PASS readings `2026-09-10_1936` /
+    `_1939`; the PASS log of `2026-08-28_1624` is no longer on disk). Over the V family it is 0 in every
     collected log except V15T (1 in `2026-09-10_1917` and `_2218`), V18T (3 in
     `2026-09-02_1315`) and V26T (2 in `2026-09-15_1536` and `_1837`), all
     `Parsek.GhostMapPresence.EnsureGhostOrbitRenderers` after the quit (todo
@@ -5430,7 +5437,17 @@ six publish or compare numbers the runner already measured.
     `2026-08-08_1908`; fixed 2026-08-29). Outside both sets: RF-11 (1 in each of 3 logs,
     `Parsek.TestCommands.ParsekTestCommandAddon.LoadGameImpl` over a stock scene-switch
     throw) and one S0.7 log from 2026-07-30 (`ParsekTestCommandAddon.EvaBoardImpl`). The
-    caller shape (V23M, RF-11) is todo UNITY-PARSEK-FRAME-CALLER-SHAPE.
+    caller shape (V23M, RF-11) is todo UNITY-PARSEK-FRAME-CALLER-SHAPE. THE WIDENING MOVED
+    ONE RUN: that S0.7 log `2026-07-30_1833` goes 1 -> 502, adding 501 uncounted
+    `ArithmeticException`s at `Parsek.BallisticExtrapolator+TwoBodyOrbit.SolveHyperbolicKepler`
+    - the orbital-EVA defect of known-gate 12, fixed 2026-08-01, which the four counted
+    classes never saw. No other run moved, afterQuit moved on none, and GS-4 / W1 still
+    read 0. The 1,755 uncounted occurrences corpus-wide are otherwise the one
+    KSPCommunityFixes `Terminating stock loader coroutine` Exception every boot logs.
+    BY RULING, A STOCK THROW WITH A PARSEK CALLER UNDER A SEAM VERB REDS GS-4: the RF-11
+    shape (`ParsekTestCommandAddon.LoadGameImpl` over a stock scene-switch NRE) counts as a
+    Parsek frame, so if GS-4's own seam steps ever raise one it fails; see todo
+    UNITY-PARSEK-FRAME-CALLER-SHAPE.
     ARMED `maxParsekFrames = 0` on GS-4 (with its `maxTotal = 6`) and W1 (alone; its count
     stays report-only), each pinned in `UnityExceptionScanTests.ARMED_MAX_PARSEK_FRAMES`.
     NO OTHER LANE: V15T / V18T / V26T / V23M would red, and the rest of the V family has
@@ -5439,7 +5456,10 @@ six publish or compare numbers the runner already measured.
     every archived log of its lane through `hlib.evaluate_unity_exceptions`, and over its
     highest-count host with V15T `2026-09-10_1917`'s real 15-line Parsek-frame `[EXC]`
     record appended reds on EXACTLY ONE mismatch, `unityExceptions.parsekFrames 1 >
-    maxParsekFrames 0 (Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)`: GS-4 on
+    maxParsekFrames 0 (Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)`, and likewise
+    with S0.7 `2026-07-30_1833`'s uncounted `ArithmeticException` record appended
+    (`...(Parsek.BallisticExtrapolator+TwoBodyOrbit.SolveHyperbolicKepler=1)`, total
+    unchanged): GS-4 on
     `2026-09-11_0049` (sha256 `792f3e6992f7...`, the same bytes as the maxTotal control),
     W1 on `2026-09-10_1939` (2,251,162 bytes, sha256 `bf261f89e665...`). At
     `maxParsekFrames = 1` the same bytes PASS, so 0 is what reds them. V15T `_1917`'s own

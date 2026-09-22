@@ -8422,8 +8422,8 @@ class UnityExceptionScanTests(unittest.TestCase):
     # "Priority register (2026-09-11)" item C1). A `Parsek.` frame in an exception stack
     # is a finding at ANY count (wave-0910 ruling A4-b), so the only value is 0, and a
     # lane arms it only when the 2026-09-22 offline sweep
-    # (`hlib.scan_unity_exception_stacks` over every collected KSP.log of the lane) read
-    # parsekFrames 0 on every driver-valid log it has. Independent of `maxTotal`: W1
+    # (`hlib.scan_unity_exception_stacks` over every collected KSP.log of the lane, frames
+    # read under every exception class) read parsekFrames 0 on every log it has. Independent of `maxTotal`: W1
     # arms this key while its count stays report-only. The negative control is OFFLINE
     # (the BDOCK-1 / GS-4 precedent): each lane's committed block through
     # `hlib.evaluate_unity_exceptions` over its latest archived KSP.log PASSES, and over
@@ -8437,9 +8437,11 @@ class UnityExceptionScanTests(unittest.TestCase):
         # `2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`, `_0102`); control host
         # `_0049` (total 4, the highest).
         "GS-4-kerbalx-rewind-watch.toml": 0,
-        # 4 archived logs, parsekFrames 0 in each (`2026-08-28_1859`, `_1902`,
-        # `2026-09-10_1936`, `_1939`); control host `_1939` (total 2, both stock /
-        # MechJeb after the quit). W1 arms no maxTotal.
+        # 4 collected logs, parsekFrames 0 in each: the two INVALID reading attempts
+        # `2026-08-28_1859` / `_1902` and the two driver-valid PASS readings
+        # `2026-09-10_1936` / `_1939` (the PASS log of `2026-08-28_1624` is no longer on
+        # disk); control host `_1939` (total 2, both stock / MechJeb after the quit).
+        # W1 arms no maxTotal.
         "W1-watch-distance-cutoff.toml": 0,
     }
 
@@ -8556,6 +8558,75 @@ class UnityStackScanTests(unittest.TestCase):
             with self.subTest(frame=frame):
                 st = self.scan(self.STOCK_EXC.splitlines()[0] + "\n" + frame + "\n")
                 self.assertEqual(1, st.parsek_frames)
+
+    # An exception class the count does not budget still carries a Parsek frame; the
+    # frames-only openers read it without moving ``counts`` (PR #1747 review).
+    UNCOUNTED_EXC = (
+        "[EXC 12:00:01.000] InvalidOperationException: Sequence contains no elements\n"
+        "\tSystem.Linq.Enumerable.First[TSource] (System.Collections.Generic.IEnumerable`1[T] source) (at <x>:0)\n"
+        "\tParsek.RecordingStore:Foo()\n"
+        "\tUnityEngine.DebugLogHandler:LogException(Exception, Object)\n")
+    UNCOUNTED_ERR = (
+        "[ERR 12:00:02.000] Exception handling event onVesselDestroy in class ParsekFlight:System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n"
+        "  at System.Collections.Generic.Dictionary`2[TKey,TValue].get_Item (TKey key) [0x0001e] in <x>:0 \n"
+        "  at Parsek.ParsekFlight.OnVesselDestroy (Vessel v) [0x00010] in <y>:0 \n"
+        "\n")
+
+    def test_uncounted_exc_class_with_a_parsek_frame_is_read(self):
+        st = self.scan(self.UNCOUNTED_EXC)
+        self.assertEqual(0, sum(st.counts.values()))
+        self.assertEqual(1, st.uncounted)
+        self.assertEqual(1, st.parsek_frames)
+        self.assertEqual({"Parsek.RecordingStore.Foo": 1}, st.parsek_frame_sites)
+
+    def test_uncounted_event_handler_class_with_a_parsek_frame_is_read(self):
+        st = self.scan(self.UNCOUNTED_ERR)
+        self.assertEqual(0, sum(st.counts.values()))
+        self.assertEqual(1, st.uncounted)
+        self.assertEqual({"Parsek.ParsekFlight.OnVesselDestroy": 1}, st.parsek_frame_sites)
+
+    def test_uncounted_classes_move_no_count_and_red_only_the_frame_ceiling(self):
+        text = self.STOCK_EXC + self.QUIT + self.UNCOUNTED_EXC + self.UNCOUNTED_ERR
+        st = self.scan(text)
+        self.assertEqual(1, sum(st.counts.values()))     # the stock NRE only
+        self.assertEqual((2, 2, 2), (st.uncounted, st.parsek_frames, st.after_quit))
+        self.assertEqual("PASS", self._eval(text, {"maxTotal": 1}).status)
+        r = self._eval(text, {"maxTotal": 1, "maxParsekFrames": 0})
+        self.assertEqual(1, len(r.mismatches))
+        self.assertIn("parsekFrames 2 > maxParsekFrames 0", r.mismatches[0])
+
+    def test_quit_markers_are_the_literals_the_mod_writes(self):
+        # Reads OUTSIDE harness/: if either log line is reworded, afterQuit silently
+        # reads 0 and quitMarkerSeen False on every run, so pin each marker to the C#
+        # string literal that writes it (the literal must OPEN with the marker text).
+        sources = {
+            "flushandquit: Application.Quit":
+                ("Source/Parsek/TestCommands/ParsekTestCommandAddon.cs",
+                 '"flushandquit: Application.Quit"'),
+            "autorun exit: teardown+export complete":
+                ("Source/Parsek/InGameTests/InGameTestRunner.cs",
+                 '"autorun exit: teardown+export complete'),
+        }
+        self.assertEqual(sorted(sources), sorted(hlib.UNITY_QUIT_MARKERS))
+        for marker, (rel, literal) in sources.items():
+            with self.subTest(marker=marker):
+                with open(os.path.join(REPO_ROOT, *rel.split("/")), encoding="utf-8") as fh:
+                    text = fh.read().replace("\r\n", "\n")
+                self.assertIn(literal, text, "%s no longer writes %r" % (rel, marker))
+
+    def test_frames_only_openers_are_the_two_named_shapes(self):
+        # Mutation-style: an uncounted class on a LOG / WRN record, or an ERR record that
+        # is not the event dispatcher's, opens nothing, so a Parsek-looking continuation
+        # under it is not attributed. A counted line is never ALSO a frames-only one.
+        frame = "\tParsek.RecordingStore:Foo()\n"
+        for header in ("[LOG 12:00:03.000] InvalidOperationException: logged by a mod\n",
+                       "[WRN 12:00:03.000] InvalidOperationException: warned\n",
+                       "[ERR 12:00:03.000] Some mod failed: InvalidOperationException\n"):
+            with self.subTest(header=header[:40]):
+                st = self.scan(header + frame)
+                self.assertEqual((0, 0), (st.uncounted, st.parsek_frames))
+        st = self.scan(self.PARSEK_EXC + self.PARSEK_ERR)
+        self.assertEqual((0, 2), (st.uncounted, st.parsek_frames))
 
     def test_an_inner_exception_line_opens_its_own_block(self):
         text = (self.STOCK_EXC.splitlines()[0] + "\n"

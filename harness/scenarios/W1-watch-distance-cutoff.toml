@@ -490,8 +490,10 @@ forbidden = [
 # UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES); maxTotal stays report-only for the reason
 # in the header (the stock / MechJeb teardown NREs of `2026-09-10_1939`). A `Parsek.`
 # frame on an exception stack is a finding at any count, so this key is 0 whatever the
-# stock noise does. hlib.scan_unity_exception_stacks read parsekFrames 0 on all 4
-# archived W1 logs (`2026-08-28_1859`, `_1902`, `2026-09-10_1936`, `_1939`). CONTROLLED
+# stock noise does. hlib.scan_unity_exception_stacks (frames read under every exception
+# class) read parsekFrames 0 on all 4 collected W1 logs: the INVALID reading attempts
+# `2026-08-28_1859` / `_1902` and the driver-valid PASS readings `2026-09-10_1936` /
+# `_1939` (the PASS log of `2026-08-28_1624` is no longer on disk). CONTROLLED
 # OFFLINE, no flight: this block PASSES `_1939`'s archived KSP.log (total 2), and over the
 # same bytes with V15T `2026-09-10_1917`'s real Parsek-frame exception appended it reds on
 # exactly one mismatch, `unityExceptions.parsekFrames 1 > maxParsekFrames 0

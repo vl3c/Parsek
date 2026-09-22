@@ -13,10 +13,11 @@ _(unreleased — entries accumulate here per commit)_
 - **Automated testing: the raw-Unity-exception scan reads the stack under each exception.**
   The scan counted exception lines only, so a stock NRE and one thrown with Parsek on the
   stack looked the same, and a Parsek-frame NRE inside an armed `maxTotal` budget passed
-  unnoticed. Every result now also records `parsekFrames` (exceptions with a `Parsek.`
-  frame on their stack, plus the innermost such frame), `afterQuit` (exceptions after
-  the harness's `Application.Quit`) and whether the quit line was seen; the existing
-  counts are unchanged. A spec can arm `[expectations.unityExceptions] maxParsekFrames`
+  unnoticed. Every result now also records `parsekFrames` (exceptions of ANY class with
+  a `Parsek.` frame on their stack, plus the innermost such frame), `afterQuit`
+  (exceptions after the harness's `Application.Quit`), the number of exceptions outside
+  the four counted classes, and whether the quit line was seen; the existing counts are
+  unchanged. A spec can arm `[expectations.unityExceptions] maxParsekFrames`
   independently of `maxTotal`. GS-4 and W1 arm it at 0 (W1's count stays report-only),
   after a sweep of every collected KSP.log read 0 on both lanes; the red direction was
   proven offline on their archived logs. The sweep also found Parsek frames on a stock

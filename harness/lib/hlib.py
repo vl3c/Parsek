@@ -6914,9 +6914,9 @@ UNITY_EXCEPTIONS_STATUS_REPORT = "REPORT"
 # and the GameEvents handler shape, which ends in a blank line:
 #   [ERR 22:17:48.846] Exception handling event onVesselDestroy in class SpaceTracking:System.NullReferenceException: ...
 #     at KSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v) [0x000f8] in <4b44...>:0
-# So an exception's stack block is every line after its counted header line up to
-# the next record header (or the next counted exception line, or a `[Parsek]` line,
-# whichever comes first). A header with no continuation lines is a truncated stack:
+# So an exception's stack block is every line after its header line (a counted line or a
+# frames-only opener, below) up to the next record header, exception line or `[Parsek]` line,
+# whichever comes first. A header with no continuation lines is a truncated stack:
 # it counts toward the total and can never count as a Parsek frame.
 UNITY_LOG_RECORD_HEADER = re.compile(r"^\[(?:LOG|WRN|ERR|EXC|AST)\s+\d{1,2}:\d{2}:\d{2}(?:\.\d+)?\]")
 # A Parsek frame is a stack line whose METHOD is in the Parsek assembly's namespace:
@@ -6927,7 +6927,7 @@ UNITY_LOG_RECORD_HEADER = re.compile(r"^\[(?:LOG|WRN|ERR|EXC|AST)\s+\d{1,2}:\d{2
 # prefix or postfix that threw would appear as its own `Parsek.Patches...` frame.
 UNITY_PARSEK_FRAME = re.compile(r"^\s*(?:at\s+)?(?:\(wrapper[^)]*\)\s*)?(Parsek\.[^\s(]+)")
 # The application-quit marker. Every collected harness log that reached a clean exit
-# carries exactly one `flushandquit: Application.Quit` line (757 of the 776 unique
+# carries exactly one `flushandquit: Application.Quit` line (762 of the 781 unique
 # collected runs swept 2026-09-22; the other 19 did not quit through the seam), written by
 # `ParsekTestCommandAddon` in the same frame as its `Application.Quit()` call. The
 # autorun exit (`InGameTestRunner.PerformAutorunExit`) is the only other quit path
@@ -6939,6 +6939,17 @@ UNITY_QUIT_MARKERS: Tuple[str, ...] = (
     "flushandquit: Application.Quit",
     "autorun exit: teardown+export complete",
 )
+# FRAMES-ONLY OPENERS. The four counted patterns are the classes a `maxTotal` budgets,
+# but a Parsek frame is a finding under ANY exception class (an
+# `InvalidOperationException` from LINQ, a `KeyNotFoundException` in a Parsek event
+# handler). So two more line shapes open a stack block without touching ``counts``:
+# any `[EXC ...]` record (Unity's own uncaught-exception record, whatever the class)
+# and the GameEvents dispatcher's `Exception handling event <evt> in class
+# <Type>:<Namespace.Class>Exception` line. Such an occurrence feeds only the stack
+# figures (parsekFrames, its site, afterQuit) and ``uncounted``, so ``total`` and every
+# armed ``maxTotal`` are unchanged by construction.
+UNITY_EXC_RECORD = re.compile(r"^\[EXC\s+\d{1,2}:\d{2}:\d{2}(?:\.\d+)?\]")
+UNITY_EVENT_HANDLER_EXCEPTION = re.compile(r"Exception handling event .*:\s*[\w.`+]*Exception\b")
 
 
 @dataclass(frozen=True)
@@ -6946,9 +6957,10 @@ class UnityStackScan:
     """The stack-reading half of the raw-Unity-exception scan.
 
     ``counts`` is byte-identical to ``scan_unity_exceptions`` (per pattern, zeros
-    included). ``parsek_frames`` counts exception occurrences whose stack block holds
-    at least one ``Parsek.`` frame; ``after_quit`` counts occurrences logged after the
-    first quit marker (``quit_marker_seen`` says whether there was one, so a 0 on a
+    included). ``uncounted`` is the number of exception occurrences of any OTHER class
+    (the frames-only openers above). ``parsek_frames`` counts exception occurrences, of
+    any class, whose stack block holds at least one ``Parsek.`` frame; ``after_quit``
+    counts occurrences of any class logged after the first quit marker (``quit_marker_seen`` says whether there was one, so a 0 on a
     killed log is not read as "clean teardown"). ``parsek_frame_sites`` maps the
     FIRST (innermost) Parsek frame of each such occurrence, normalized to
     ``Namespace.Type.Method``, to its count - the evidence a mismatch names.
@@ -6958,6 +6970,7 @@ class UnityStackScan:
     after_quit: int = 0
     quit_marker_seen: bool = False
     parsek_frame_sites: Dict[str, int] = field(default_factory=dict)
+    uncounted: int = 0
 
 
 @dataclass(frozen=True)
@@ -6995,18 +7008,21 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
     The counting rule is exactly ``scan_unity_exceptions``'s (per LINE, `[Parsek]`
     lines skipped, one count per matching pattern), so ``counts`` never moves an
     armed ``maxTotal``. On top of it, each counted line opens a stack block (see
-    ``UNITY_LOG_RECORD_HEADER``); an occurrence counts once toward
-    ``parsek_frames`` when its block holds a ``UNITY_PARSEK_FRAME``, and once toward
-    ``after_quit`` when it follows the first ``UNITY_QUIT_MARKERS`` line. A line that
-    matches two patterns counts once per pattern in ``counts`` and likewise in the
-    two stack figures, so both stay comparable with ``total``.
+    ``UNITY_LOG_RECORD_HEADER``), and so does a frames-only opener
+    (``UNITY_EXC_RECORD`` / ``UNITY_EVENT_HANDLER_EXCEPTION``) that matched no counted
+    pattern, with weight 1 and no effect on ``counts``. An occurrence counts once
+    toward ``parsek_frames`` when its block holds a ``UNITY_PARSEK_FRAME``, and once
+    toward ``after_quit`` when it follows the first ``UNITY_QUIT_MARKERS`` line. A line
+    that matches two counted patterns counts once per pattern in ``counts`` and
+    likewise in the two stack figures.
     """
     counts: Dict[str, int] = {name: 0 for name, _ in UNITY_EXCEPTION_PATTERNS}
     sites: Dict[str, int] = {}
     parsek_frames = 0
     after_quit = 0
     quit_seen = False
-    open_weight = 0          # pattern hits of the exception whose block is open
+    uncounted = 0
+    open_weight = 0          # pattern hits (1 for frames-only) of the open block
     open_site: Optional[str] = None
 
     def close_block() -> None:
@@ -7028,6 +7044,10 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
             if pat.search(line) is not None:
                 counts[name] += 1
                 hits += 1
+        if not hits and (UNITY_EXC_RECORD.match(line) is not None
+                         or UNITY_EVENT_HANDLER_EXCEPTION.search(line) is not None):
+            uncounted += 1
+            hits = 1         # a frames-only block; ``counts`` untouched
         if hits:
             close_block()
             open_weight = hits
@@ -7042,7 +7062,7 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
             if m is not None:
                 open_site = _normalize_parsek_frame(m.group(1))
     close_block()
-    return UnityStackScan(counts, parsek_frames, after_quit, quit_seen, sites)
+    return UnityStackScan(counts, parsek_frames, after_quit, quit_seen, sites, uncounted)
 
 
 def scan_unity_exceptions(log_text: Optional[str]) -> Dict[str, int]:

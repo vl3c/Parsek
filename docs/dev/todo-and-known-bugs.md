@@ -932,31 +932,36 @@ expectedFail. About 80 lines of Python plus tests, and 0 flights by the memo's e
 Roadmap "Priority register (2026-09-11)" item C1.
 
 **Done 2026-09-22 (branch `c1-unity-scanner-frames`), 0 flights.**
-- `hlib.scan_unity_exception_stacks` reads the stack block under each counted exception
-  line: every following line up to the next Unity record header (`[LOG|WRN|ERR|EXC|AST
-  hh:mm:ss.mmm]`), the next counted exception line or a `[Parsek]` line. A Parsek frame
+- `hlib.scan_unity_exception_stacks` reads the stack block under each exception line:
+  every following line up to the next Unity record header (`[LOG|WRN|ERR|EXC|AST
+  hh:mm:ss.mmm]`), the next exception line or a `[Parsek]` line. The four counted
+  classes open a block, and so (PR #1747 review) does any other class on an `[EXC]`
+  record or a GameEvents `Exception handling event ...` line, which feeds only the stack
+  figures and `uncountedExceptions`, never `counts`. A Parsek frame
   is a stack line whose method, after the optional `at ` / `(wrapper ...)` prefixes,
   begins with `Parsek.` (a Parsek generic argument or a Harmony `_PatchN` stock body is
   not one). It reports `parsekFrames` (occurrences with at least one Parsek frame),
   `parsekFrameSites` (innermost Parsek frame -> count), `afterQuit` (occurrences after the
   first `[Parsek]` `flushandquit: Application.Quit` or `autorun exit: teardown+export
   complete` line) and `quitMarkerSeen`. The per-pattern counts are unchanged:
-  `scan_unity_exceptions` is now its per-pattern view, and a sweep of 776 collected runs
+  `scan_unity_exceptions` is now its per-pattern view, and a sweep of 781 collected runs
   found 0 count differences against the old line scan.
 - `[expectations.unityExceptions]` accepts `maxParsekFrames` beside `maxTotal`, validated
   the same way (non-negative int, unknown keys rejected). Either key arms the row; both
   mismatches are reported when both are over. `maxParsekFrames` with no stack scan fails
   closed. run.py records the four new fields in every result JSON, including KILLED
   attempts, and the dry-run plan names both armed keys.
-- Offline sweep over every collected KSP.log (776 unique runs, 241 lanes; table in the
+- Offline sweep over every collected KSP.log (781 unique runs, 241 lanes; table in the
   status doc's known-gate 11): parsekFrames is 0 on every armed `maxTotal` lane with a
   log, on GS-4 (7 logs) and on W1 (4 logs). Nonzero only on V15T / V18T / V26T
   (`GhostMapPresence.EnsureGhostOrbitRenderers`, the teardown NRE),
   V23M (`TimeJumpManager.PutLoadedVesselsOnRails`, 6 per run, every run), RF-11
   (`ParsekTestCommandAddon.LoadGameImpl`), and three historical readings
   (`WatchModeController.GetActiveVesselSafe` in V15M / V7Mc before its 2026-08-29 fix,
-  `ParsekTestCommandAddon.EvaBoardImpl` in one 2026-07-30 S0.7 log). The two non-teardown
-  shapes are filed as UNITY-PARSEK-FRAME-CALLER-SHAPE.
+  `ParsekTestCommandAddon.EvaBoardImpl` in one 2026-07-30 S0.7 log, which the widening
+  raises to 502 with 501 uncounted `ArithmeticException`s at `SolveHyperbolicKepler`, the
+  orbital-EVA defect fixed 2026-08-01). The two non-teardown caller shapes are filed as
+  UNITY-PARSEK-FRAME-CALLER-SHAPE.
 - ARMED `maxParsekFrames = 0` on GS-4 (beside its `maxTotal = 6`) and on W1 (alone; W1's
   count stays report-only). Negative control discharged OFFLINE: each committed block
   PASSES its lane's archived logs, and over the highest-count host (`2026-09-11_0049`,
