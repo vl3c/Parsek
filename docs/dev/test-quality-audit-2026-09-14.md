@@ -2123,18 +2123,24 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     Vessel passes the null check, and the register's mutant is value-equivalent because
     `CrewContainsKerbalNamed` rejects an empty name on its own - the new
     `CrewContainsKerbalNamed_NullOrEmptyName_ReturnsFalse` pins that guard and is the proof).
-  - Deleted in favour of a named twin (4): F-ghost-playback-018-01 (twin
-    `GhostPlaybackEngineTests.ClearLoadedVisualReferences_ResetsPendingSplitBuildState`),
-    F-legacy-bugfix-020-02 (twin `HealthCounters_Reset_ZerosReentryFxDeferred`),
-    F-map-render-025-02 (twins `AllowAnchorCorrection_NoAnchorInStore_ReturnsFalse` /
-    `_WrongSection_ReturnsFalse`); each twin is the only red, across every class that
-    reaches the SUT, under a mutant where the default value matters. F-catchall-060-02 is
-    the exception: the two redundant wheel-damage cells fold into the null-transform twin
-    (`IsRendererOnDamagedTransform_NullTransform_ReturnsFalseForAnyNames`), but NO headless
-    cell can red any mutant of that guard - deleting the names clause, the transform
-    check, or the whole guard all stay green, because the ancestor walk's own null test
-    answers false for a null start. The register's "red by NullReferenceException" is
-    wrong; the names half and the parent walk need a live Transform.
+  - Deleted in favour of a named twin (3): F-ghost-playback-018-01 (twin
+    `GhostPlaybackEngineTests.ClearLoadedVisualReferences_ResetsPendingSplitBuildState`) and
+    F-legacy-bugfix-020-02 (twin `HealthCounters_Reset_ZerosReentryFxDeferred`): under a
+    mutant where the default value matters, each twin is the only red across every class
+    that reaches the SUT. F-map-render-025-02 (twins
+    `AllowAnchorCorrection_NoAnchorInStore_ReturnsFalse` / `_WrongSection_ReturnsFalse`):
+    the twins are NOT the only reds. Under its patch (TryLookup reports a miss as found)
+    17 cells fail, 439 passed / 17 failed: the two named twins, three
+    `RenderSessionStateTests.TryLookup_*` cells, one `EnsurePassIntegrityTests` cell and
+    eleven `AnchorPropagationTests`; the deleted cell was green among the passes.
+  - Deleted with the coverage gap still OPEN (1): F-catchall-060-02. The two redundant
+    wheel-damage cells fold into the null-transform cell
+    (`IsRendererOnDamagedTransform_NullTransform_ReturnsFalseForAnyNames`), but no cell reds
+    under any mutant of the guard: deleting the names clause, the transform check, or the
+    whole guard all stay green, because the ancestor walk's own null test answers false for
+    a null start. The register's "red by NullReferenceException" is wrong. The guard's names
+    half and the parent walk need a live Transform; the in-game cell the register proposed
+    is filed as `TQ-2-wheel-damage-guard-needs-live-transform` in `todo-and-known-bugs.md`.
 
 ## July crosswalk
 

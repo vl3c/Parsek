@@ -581,26 +581,16 @@ namespace Parsek.Tests.Logistics
                 LogisticsDeliveryPresentation.FormatSourceRecordingDisplay(null, null, null, -1));
         }
 
-        // A large position prints as a plain integer, with no group separator. The
-        // InvariantCulture argument is not what this pins: a positive int formats the same
-        // in every culture. The de-DE host is there so a group-separated format would show
-        // its "." separator rather than an invariant ",".
+        // A large position prints as a plain integer, with no group separator. No culture
+        // pin: a positive int formats the same in every culture, and the production format
+        // passes InvariantCulture anyway, so a group-separated format would print "1,000"
+        // on any host. The exact-string equality is what catches it.
         [Fact]
         public void FormatSourceRecordingDisplay_LargePosition_NoThousandsSeparator()
         {
-            CultureInfo prev = Thread.CurrentThread.CurrentCulture;
-            try
-            {
-                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
-                string s = LogisticsDeliveryPresentation.FormatSourceRecordingDisplay(
-                    "abcd1234", "Run", "Tree", 1000);
-                Assert.Equal("Run (rec 1000 of tree 'Tree')", s);
-                Assert.DoesNotContain(".", s.Substring(s.IndexOf("rec ", System.StringComparison.Ordinal)));
-            }
-            finally
-            {
-                Thread.CurrentThread.CurrentCulture = prev;
-            }
+            string s = LogisticsDeliveryPresentation.FormatSourceRecordingDisplay(
+                "abcd1234", "Run", "Tree", 1000);
+            Assert.Equal("Run (rec 1000 of tree 'Tree')", s);
         }
     }
 }
