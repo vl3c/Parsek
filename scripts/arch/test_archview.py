@@ -713,6 +713,34 @@ class ProseTests(unittest.TestCase):
         findings = archview.prose_findings(self._model(), prose)
         self.assertEqual(findings["missingReadingOrder"], ["NopeThing"])
 
+    def test_missing_opportunity_types(self):
+        prose = {
+            "opportunities": [
+                {"rank": 1, "item": "x", "types": ["KeptThing", "GoneThing"]},
+                {"rank": 2, "item": "y"},
+                "not a table",
+            ]
+        }
+        findings = archview.prose_findings(self._model(type_names=["KeptThing"]), prose)
+        self.assertEqual(findings["missingOpportunityTypes"], ["GoneThing"])
+        self.assertEqual(archview.prose_findings(self._model(), {})["missingOpportunityTypes"], [])
+
+    def test_findings_review_age(self):
+        today = datetime.date(2026, 10, 30)
+        self.assertEqual(
+            archview.findings_review({"findings": {"reviewed": "2026-09-22"}}, today),
+            ("2026-09-22", 38),
+        )
+        self.assertEqual(
+            archview.findings_review({"findings": {"reviewed": datetime.date(2026, 10, 29)}}, today),
+            ("2026-10-29", 1),
+        )
+        self.assertEqual(
+            archview.findings_review({"findings": {"reviewed": "soon"}}, today), ("soon", None)
+        )
+        self.assertEqual(archview.findings_review({"findings": {}}, today), (None, None))
+        self.assertEqual(archview.findings_review({}, today), (None, None))
+
 
 def _atlas_model():
     return {
@@ -800,7 +828,8 @@ class AtlasRenderTests(unittest.TestCase):
         )
         self.assertIn('<div class="n">2</div><div class="l">of those types depend on nothing', text)
         self.assertIn(
-            '<div class="n knot">2</div><div class="l">types locked in one dependency cycle</div>',
+            '<div class="n knot">2</div><div class="l">types locked in one dependency cycle,'
+            " 67 percent of all</div>",
             text,
         )
         self.assertIn("2 types, 67 percent", text)
@@ -838,6 +867,103 @@ class AtlasRenderTests(unittest.TestCase):
         self.assertIn("Alpha &harr; Beta", text)
         self.assertIn("Alpha/A.cs", text)
         self.assertIn("AlphaThing", text)
+
+    def test_history_tiles_come_from_the_model(self):
+        history = {
+            "since": "2025-03-01",
+            "commits": 10,
+            "hotspots": [
+                {"name": "AlphaThing", "module": "Alpha", "file": "Alpha/A.cs",
+                 "fileCommits": 3, "fanIn": 50, "hotspot": 150},
+                {"name": "BetaThing", "module": "Beta", "file": "Beta/B.cs",
+                 "fileCommits": 4, "fanIn": 2, "hotspot": 8},
+            ],
+            "modulePairs": [
+                {"a": "Alpha", "b": "Tool", "both": 1, "either": 5, "jaccard": 0.2},
+                {"a": "Alpha", "b": "Beta", "both": 2, "either": 5, "jaccard": 0.4},
+            ],
+            "filePairs": [],
+            "modules": [],
+        }
+        text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), None, [], history)
+        self.assertIn(
+            '<div class="n">0.40</div><div class="l">highest co-change ratio between two'
+            " modules (Alpha, Beta)</div>",
+            text,
+        )
+        # The most-churned type is the one with the most commits, not the top hotspot.
+        self.assertIn(
+            '<div class="n">40%</div><div class="l">of commits since 2025-03-01 touch'
+            " BetaThing, the most-churned type</div>",
+            text,
+        )
+
+    def test_history_tiles_absent_without_history(self):
+        text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), None, [], None)
+        self.assertNotIn("highest co-change ratio", text)
+        self.assertNotIn("the most-churned type", text)
+        self.assertEqual(text.count('<div class="tile">'), 4)
+
+    def test_findings_and_opportunities_render(self):
+        prose = _atlas_prose()
+        prose["page"]["findings_note"] = "Findings note."
+        prose["page"]["opportunities_note"] = "Opportunities note."
+        prose["findings"] = {
+            "reviewed": "2026-09-22",
+            "items": [
+                {"title": "First finding.", "body": "Body <em>one</em>."},
+                {"title": "Second finding.", "body": "Body two."},
+            ],
+        }
+        prose["opportunities"] = [
+            {"rank": 2, "item": "Later item", "evidence": "Ev two.", "size": "small",
+             "status": "Done, PR #12."},
+            {"rank": 1, "item": "First item", "evidence": "Ev one.", "size": "large",
+             "status": "Open.", "types": ["AlphaThing"]},
+        ]
+        text = archview.render_atlas_html(_atlas_model(), prose)
+        self.assertNotIn("@@", text)
+        self.assertIn("<h2>Main findings</h2>", text)
+        self.assertIn("<p>Findings note. Last reviewed 2026-09-22.</p>", text)
+        self.assertIn("<li><strong>First finding.</strong> Body <em>one</em>.</li>", text)
+        self.assertLess(text.index("First finding."), text.index("Second finding."))
+        self.assertIn("<h2>Opportunities, ranked</h2>", text)
+        self.assertIn("<p>Opportunities note.</p>", text)
+        self.assertIn(
+            '<tr><td class="num">1</td><td>First item<br><span class="id">AlphaThing</span>'
+            "</td><td>Ev one.</td><td>large</td><td>Open.</td></tr>",
+            text,
+        )
+        self.assertIn("Done, PR #12.", text)
+        self.assertLess(text.index("First item"), text.index("Later item"))
+        # Findings sit right after the tiles, opportunities right before Reading order.
+        self.assertLess(text.index("Main findings"), text.index("<h2>The map</h2>"))
+        self.assertLess(text.index("Largest files and types"), text.index("Opportunities, ranked"))
+        self.assertLess(text.index("Opportunities, ranked"), text.index("<h2>Reading order</h2>"))
+
+    def test_absent_findings_and_opportunities_render_nothing(self):
+        prose = _atlas_prose()
+        prose["findings"] = {"reviewed": "2026-09-22"}
+        prose["opportunities"] = "not a list"
+        for candidate in (_atlas_prose(), prose):
+            text = archview.render_atlas_html(_atlas_model(), candidate)
+            self.assertNotIn("@@", text)
+            self.assertNotIn("Main findings", text)
+            self.assertNotIn("Opportunities, ranked", text)
+            self.assertIn("<h2>The map</h2>", text)
+            self.assertIn("<h2>Reading order</h2>", text)
+
+    def test_committed_atlas_prose_renders_both_sections(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        text = archview.render_atlas_html(_atlas_model(), prose)
+        self.assertIn("<h2>Main findings</h2>", text)
+        self.assertIn("<h2>Opportunities, ranked</h2>", text)
+        for item in prose["findings"]["items"]:
+            self.assertIn(item["title"], text)
+        for row in prose["opportunities"]:
+            self.assertIn(row["status"], text)
+        reviewed, age = archview.findings_review(prose)
+        self.assertIsNotNone(age, "atlas.toml [findings] reviewed must be a YYYY-MM-DD date")
 
     def test_atlas_history_notice_when_empty(self):
         text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), None, [], None)
@@ -1630,6 +1756,891 @@ class ModelWiringTests(unittest.TestCase):
         self.assertEqual(types["BetaThing"]["fanIn"], 1)
 
 
+SIZE_SAMPLE = """namespace N
+{
+    public class SampleThing
+    {
+        private static int counter;
+        private static readonly int Cap = 4;
+        private const int Limit = 8;
+        private int instanceField;
+        private static readonly Dictionary<string, int> Cache = new Dictionary<string, int>();
+        private static readonly Dictionary<int, (double a, double b)> Spans =
+            new Dictionary<int, (double a, double b)>();
+        private static readonly int[] Steps = { 1, 2, 3 };
+        private static readonly string Label = "x";
+        private static readonly IReadOnlyList<int> Fixed = new List<int>();
+        private static SampleThing instance;
+        internal static SampleThing Instance => instance;
+        internal static bool Armed { get; set; }
+        internal static int Seen { get; }
+        internal static event Action<int> Changed;
+
+        public SampleThing(int seed)
+        {
+            instanceField = seed;
+        }
+
+        internal static (bool ok, int size) Measure(string key)
+        {
+            return (true, key.Length);
+        }
+
+        internal static System.Collections.IEnumerator Walk()
+        {
+            yield return null;
+        }
+
+        internal static int Cached(string key)
+        {
+            return Cache[key];
+        }
+
+        internal static bool IsBig(int value)
+        {
+            return value > Limit;
+        }
+
+        /* a block comment
+           that spans
+           four lines
+           in the source */
+        public IEnumerator Run()
+        {
+            yield return null;
+        }
+
+        internal static int Doubled(int value) => value * 2;
+
+        internal static bool TryPick<T>(T candidate) where T : class
+        {
+            return candidate != null;
+        }
+
+        private void Touch(Vessel v)
+        {
+            counter = counter + 1;
+        }
+
+        private static int Bumped(int value)
+        {
+            return counter + value;
+        }
+
+        public int Ratio
+        {
+            get
+            {
+                if (instanceField == 0)
+                {
+                    return 0;
+                }
+                return Doubled(instanceField);
+            }
+        }
+
+        public class Nested
+        {
+            public void Inner()
+            {
+            }
+        }
+    }
+}
+"""
+
+
+def _scan_sample(source, name):
+    drops = []
+    stripped = archview.strip_comments_and_strings(source, drops)
+    line_at = archview.line_index(stripped, drops)
+    declarations = archview.type_declarations(stripped)
+    index = next(i for i, d in enumerate(declarations) if d["name"] == name)
+    return archview.scan_declaration_members(stripped, declarations, index, line_at), stripped
+
+
+class LineIndexTests(unittest.TestCase):
+    def test_offsets_map_back_to_original_lines_across_a_block_comment(self):
+        source = "line1\n/* two\nthree\nfour */\nTARGET\n"
+        drops = []
+        stripped = archview.strip_comments_and_strings(source, drops)
+        line_at = archview.line_index(stripped, drops)
+        self.assertEqual(line_at(stripped.index("TARGET")), 5)
+        # Two newlines live inside the comment span; the one that ends the
+        # `four */` line survives the strip and is counted the ordinary way.
+        self.assertEqual(drops, [(6, 2)])
+
+    def test_multi_line_string_bodies_keep_the_line_count(self):
+        source = 'var x = @"one\ntwo\nthree";\nTARGET\n'
+        drops = []
+        stripped = archview.strip_comments_and_strings(source, drops)
+        line_at = archview.line_index(stripped, drops)
+        self.assertEqual(line_at(stripped.index("TARGET")), 4)
+
+    def test_the_stripped_text_is_identical_with_and_without_the_list(self):
+        source = "class A { /* x\ny */ int i; }\n"
+        self.assertEqual(
+            archview.strip_comments_and_strings(source),
+            archview.strip_comments_and_strings(source, []),
+        )
+
+
+class MemberScanTests(unittest.TestCase):
+    def setUp(self):
+        self.facts, self.stripped = _scan_sample(SIZE_SAMPLE, "SampleThing")
+        self.methods = {method["name"]: method for method in self.facts["methods"]}
+
+    def test_block_expression_generic_tuple_and_constructor_members_are_delimited(self):
+        self.assertEqual(
+            sorted(self.methods),
+            [
+                "Bumped",
+                "Cached",
+                "Doubled",
+                "IsBig",
+                "Measure",
+                "Run",
+                "SampleThing",
+                "Touch",
+                "TryPick",
+                "Walk",
+            ],
+        )
+        self.assertEqual(self.facts["skipped"], 0)
+
+    def test_a_constructor_is_a_member_with_a_body(self):
+        ctor = self.methods["SampleThing"]
+        self.assertTrue(ctor["constructor"])
+        self.assertEqual(ctor["lines"], 4)
+        self.assertFalse(ctor["static"])
+        self.assertFalse(any(m["constructor"] for name, m in self.methods.items() if name != "SampleThing"))
+
+    def test_a_tuple_return_type_is_read_as_the_return_type(self):
+        measure = self.methods["Measure"]
+        self.assertEqual(measure["ret"], "(bool ok, int size)")
+        self.assertEqual(measure["lines"], 4)
+
+    def test_a_name_that_is_a_modifier_is_a_scan_failure_not_a_member(self):
+        # The shape that used to print `static 110 lines at ...`.
+        source = "class Oddity\n{\n    internal static (bool a, int b) Go(int x) { return (true, x); }\n}\n"
+        facts, _stripped = _scan_sample(source, "Oddity")
+        self.assertEqual([m["name"] for m in facts["methods"]], ["Go"])
+        self.assertEqual(facts["skipped"], 0)
+        blind = "class Oddity\n{\n    internal Thing static (int x) { }\n}\n"
+        facts, _stripped = _scan_sample(blind, "Oddity")
+        self.assertEqual(facts["methods"], [])
+        self.assertEqual(facts["skipped"], 1)
+
+    def test_start_lines_are_the_real_source_lines(self):
+        lines = SIZE_SAMPLE.splitlines()
+        for name, method in self.methods.items():
+            self.assertIn(name, lines[method["startLine"] - 1], name)
+
+    def test_method_length_counts_header_to_closing_brace(self):
+        self.assertEqual(self.methods["IsBig"]["lines"], 4)
+        self.assertEqual(self.methods["Doubled"]["lines"], 1)
+
+    def test_nested_type_members_belong_to_the_nested_type(self):
+        self.assertNotIn("Inner", self.methods)
+        self.assertEqual(self.facts["nested"], 1)
+        nested, _stripped = _scan_sample(SIZE_SAMPLE, "Nested")
+        self.assertEqual([m["name"] for m in nested["methods"]], ["Inner"])
+
+    def test_statements_inside_a_property_body_are_not_members(self):
+        # `return Doubled(instanceField);` and `if (instanceField == 0)` read
+        # like declarations to the header pattern; neither may be counted.
+        self.assertEqual(len(self.facts["methods"]), 10)
+
+    def test_mutable_static_detection(self):
+        fields = {field["name"]: field for field in self.facts["fields"]}
+        self.assertEqual(
+            sorted(fields),
+            ["Armed", "Cache", "Cap", "Changed", "Fixed", "Label", "Limit", "Spans", "Steps",
+             "counter", "instance", "instanceField"],
+        )
+        self.assertTrue(fields["counter"]["mutableStatic"])
+        self.assertFalse(fields["Cap"]["mutableStatic"])
+        self.assertFalse(fields["Limit"]["mutableStatic"])
+        self.assertFalse(fields["instanceField"]["mutableStatic"])
+
+    def test_an_expression_bodied_property_is_not_a_field(self):
+        # `internal static SampleThing Instance => instance;` is a forward, not
+        # state; counting its `=` made every such property read as a
+        # reassignable static.
+        self.assertNotIn("Instance", {field["name"] for field in self.facts["fields"]})
+
+    def test_a_static_auto_property_with_a_setter_is_reassignable_state(self):
+        fields = {field["name"]: field for field in self.facts["fields"]}
+        self.assertTrue(fields["Armed"]["mutableStatic"])
+        self.assertEqual(fields["Armed"]["kind"], "autoProperty")
+        # Get-only has no setter to reassign through, so it is left out.
+        self.assertNotIn("Seen", fields)
+
+    def test_a_static_event_is_reassignable_state(self):
+        fields = {field["name"]: field for field in self.facts["fields"]}
+        self.assertTrue(fields["Changed"]["mutableStatic"])
+
+    def test_readonly_collection_statics_are_counted_as_static_state(self):
+        fields = {field["name"]: field for field in self.facts["fields"]}
+        # Fixed handle, mutable contents. `Spans` also proves a tuple inside
+        # the generic arguments does not hide the field from the scan.
+        for name in ["Cache", "Spans", "Steps"]:
+            self.assertTrue(fields[name]["readonlyCollectionStatic"], name)
+            self.assertFalse(fields[name]["mutableStatic"], name)
+        for name in ["Cap", "Label", "Fixed", "counter", "instanceField"]:
+            self.assertFalse(fields[name]["readonlyCollectionStatic"], name)
+
+    def test_coroutine_flag(self):
+        self.assertTrue(self.methods["Run"]["coroutine"])
+        self.assertFalse(self.methods["IsBig"]["coroutine"])
+
+    def test_a_qualified_or_generic_enumerator_is_still_a_coroutine(self):
+        self.assertTrue(self.methods["Walk"]["coroutine"])
+        self.assertTrue(archview.is_enumerator_return("System.Collections.IEnumerator"))
+        self.assertTrue(archview.is_enumerator_return("IEnumerator<int>"))
+        self.assertTrue(archview.is_enumerator_return("System.Collections.Generic.IEnumerator<T>"))
+        self.assertFalse(archview.is_enumerator_return("IEnumerable"))
+        self.assertFalse(archview.is_enumerator_return("int"))
+
+    def test_purity_estimate_rejects_live_types_and_shared_statics(self):
+        merged = archview.merge_type_size(
+            [{"file": "One/A.cs", "facts": self.facts}],
+            lambda _file, start, end: self.stripped[start:end],
+        )
+        self.assertEqual(merged["mutableStaticNames"], ["Armed", "Changed", "counter", "instance"])
+        self.assertEqual(merged["readonlyCollectionStaticNames"], ["Cache", "Spans", "Steps"])
+        self.assertEqual(merged["mutableStatics"], 4)
+        self.assertEqual(merged["readonlyCollectionStatics"], 3)
+        # IsBig, Doubled, TryPick and Measure are static and name no shared
+        # state; Bumped reads `counter`, Cached reads the shared `Cache`;
+        # Touch is not static; Run and Walk are coroutines.
+        self.assertEqual(merged["pureStaticMethods"], 4)
+        self.assertEqual(merged["coroutines"], 2)
+
+
+class PurityEstimateTests(unittest.TestCase):
+    def test_a_live_ksp_identifier_is_impure(self):
+        for body in [
+            "{ return ResearchAndDevelopment.Instance != null; }",
+            "{ File.WriteAllText(path, text); }",
+            "{ var r = Resources.Load(name); }",
+            "{ return part.vessel != null && Part.Count > 0; }",
+            "{ return CelestialBody.Count; }",
+        ]:
+            self.assertFalse(archview.method_is_pure_candidate(body, []), body)
+
+    def test_a_singleton_access_is_impure_whatever_the_type(self):
+        self.assertFalse(archview.method_is_pure_candidate("{ return Whatever.Instance.X; }", []))
+        self.assertFalse(archview.method_is_pure_candidate("{ return Widget.fetch.Y; }", []))
+        self.assertTrue(archview.method_is_pure_candidate("{ return instanceCount; }", []))
+
+    def test_reaching_another_type_that_holds_static_state_is_impure(self):
+        body = "{ return RecordingStore.CommittedRecordings.Count; }"
+        self.assertFalse(
+            archview.method_is_pure_candidate(body, [], {"RecordingStore"}, "Other")
+        )
+        # The same call into a type with no static state stays pure.
+        self.assertTrue(archview.method_is_pure_candidate(body, [], {"SomethingElse"}, "Other"))
+
+    def test_a_types_own_name_does_not_disqualify_it(self):
+        body = "{ return Thing.Parse(text); }"
+        self.assertTrue(archview.method_is_pure_candidate(body, [], {"Thing"}, "Thing"))
+
+    def test_logging_is_exempt(self):
+        body = "{ ParsekLog.Verbose(\"[Size] x\"); return 1; }"
+        self.assertTrue(
+            archview.method_is_pure_candidate(body, [], {"ParsekLog", "RecordingStore"}, "Thing")
+        )
+
+
+class MutableCollectionTypeTests(unittest.TestCase):
+    def test_collections_arrays_and_builders_count(self):
+        for text in [
+            "Dictionary<string, int>",
+            "HashSet<uint>",
+            "List<Recording>",
+            "ConcurrentDictionary<int, string>",
+            "SortedSet<int>",
+            "Queue<string>",
+            "Stack<int>",
+            "StringBuilder",
+            "int[]",
+            "Vector3[,]",
+            "Dictionary<int, (double a, double b)>",
+        ]:
+            self.assertTrue(archview.is_mutable_collection_type(text), text)
+
+    def test_scalars_and_read_only_handles_do_not(self):
+        for text in [
+            "int",
+            "string",
+            "double",
+            "CultureInfo",
+            "IReadOnlyList<int>",
+            "ReadOnlyCollection<string>",
+            "ImmutableArray<int>",
+            "FrozenDictionary<int, int>",
+            "GhostState",
+        ]:
+            self.assertFalse(archview.is_mutable_collection_type(text), text)
+
+    def test_a_header_the_scan_cannot_follow_is_skipped_not_guessed(self):
+        source = "class Broken\n{\n    public void Cut(int a) % { }\n}\n"
+        facts, _stripped = _scan_sample(source, "Broken")
+        self.assertEqual(facts["methods"], [])
+        self.assertEqual(facts["skipped"], 1)
+
+    def test_member_body_kinds(self):
+        self.assertEqual(archview._member_body(" { }", 0, 4)[0], "block")
+        self.assertEqual(archview._member_body(" => 1;", 0, 6)[0], "expression")
+        self.assertEqual(archview._member_body(";", 0, 1)[0], "none")
+        self.assertEqual(archview._member_body(" % {", 0, 4)[0], "skip")
+
+    def test_bodyless_declarations_are_counted_apart_from_methods(self):
+        # An interface or abstract declaration has no body to extract from, so
+        # it is not a method here; it is not a scan failure either.
+        source = "interface IShape\n{\n    bool Fits(int size);\n    void Draw();\n}\n"
+        facts, _stripped = _scan_sample(source, "IShape")
+        self.assertEqual(facts["methods"], [])
+        self.assertEqual(facts["bodyless"], 2)
+        self.assertEqual(facts["skipped"], 0)
+
+
+class MergeTypeSizeTests(unittest.TestCase):
+    def test_partial_parts_merge_into_one_type(self):
+        big = "public partial class BigThing\n{\n%s\n}\n" % "\n".join(
+            "    private static int Field%d;" % index for index in range(30)
+        )
+        small = (
+            "public partial class BigThing\n{\n    internal static bool Ok()\n    {\n"
+            "        return true;\n    }\n}\n"
+        )
+        big_facts, big_text = _scan_sample(big, "BigThing")
+        small_facts, small_text = _scan_sample(small, "BigThing")
+        texts = {"Big.cs": big_text, "Small.cs": small_text}
+        merged = archview.merge_type_size(
+            [
+                {"file": "Big.cs", "facts": big_facts},
+                {"file": "Small.cs", "facts": small_facts},
+            ],
+            lambda name, start, end: texts[name][start:end],
+        )
+        self.assertEqual(merged["fields"], 30)
+        self.assertEqual(merged["mutableStatics"], 30)
+        self.assertEqual(merged["methods"], 1)
+        self.assertEqual([row["file"] for row in merged["files"]], ["Big.cs", "Small.cs"])
+        self.assertEqual(merged["lines"], sum(row["lines"] for row in merged["files"]))
+
+
+def _size_entry(**overrides):
+    entry = {
+        "name": "Thing",
+        "module": "Recording",
+        "file": "One/Thing.cs",
+        "files": [{"file": "One/Thing.cs", "lines": 400}],
+        "lines": 400,
+        "methods": 20,
+        "longMethods": 0,
+        "topMethods": [],
+        "coroutines": 0,
+        "fields": 4,
+        "mutableStatics": 0,
+        "readonlyCollectionStatics": 0,
+        "nestedTypes": 0,
+        "topLevelTypesInFile": 1,
+        "primaryTypeOfItsFile": True,
+        "enclosing": None,
+        "partial": False,
+        "pureStaticMethods": 0,
+        "pureStaticLines": 0,
+        "skippedMembers": 0,
+        "hotspotRank": None,
+        "fileCommits": 0,
+        "fanIn": 3,
+    }
+    entry.update(overrides)
+    return entry
+
+
+class SizeRuleTests(unittest.TestCase):
+    @staticmethod
+    def _rules(entry, runtime_coupled=("Ghost",)):
+        return {
+            row["rule"]: row["text"]
+            for row in archview.size_recommendations(entry, runtime_coupled)
+        }
+
+    def test_no_rule_fires_on_a_small_quiet_type(self):
+        self.assertEqual(self._rules(_size_entry()), {})
+
+    def test_s1_fires_on_long_methods_and_names_the_coroutines(self):
+        entry = _size_entry(
+            longMethods=2,
+            coroutines=3,
+            topMethods=[
+                {"name": "Huge", "file": "One/Thing.cs", "startLine": 12, "lines": 300},
+                {"name": "Small", "file": "One/Thing.cs", "startLine": 400, "lines": 10},
+            ],
+        )
+        rules = self._rules(entry)
+        self.assertIn("S1", rules)
+        self.assertIn("Huge 300 lines at One/Thing.cs:12", rules["S1"])
+        self.assertNotIn("Small", rules["S1"])
+        self.assertIn("3 IEnumerator", rules["S1"])
+        self.assertNotIn("S1", self._rules(_size_entry(longMethods=0)))
+
+    def test_s2_needs_a_big_pool_and_a_big_share(self):
+        lines = 4000
+        share = int(lines * archview.PURE_POOL_SHARE) + 10
+        self.assertIn(
+            "S2",
+            self._rules(
+                _size_entry(
+                    lines=lines,
+                    pureStaticMethods=archview.PURE_POOL_METHODS,
+                    pureStaticLines=share,
+                )
+            ),
+        )
+        self.assertIn(
+            "S2",
+            self._rules(
+                _size_entry(
+                    lines=lines,
+                    pureStaticMethods=1,
+                    pureStaticLines=max(archview.PURE_POOL_LINES, share),
+                )
+            ),
+        )
+        # A big pool that is a small share of a huge type does not fire: that
+        # was the shape that made S2 hit 25 of the top 25 types.
+        self.assertNotIn(
+            "S2",
+            self._rules(
+                _size_entry(
+                    lines=30000,
+                    pureStaticMethods=300,
+                    pureStaticLines=6000,
+                )
+            ),
+        )
+        self.assertNotIn(
+            "S2",
+            self._rules(
+                _size_entry(
+                    lines=lines,
+                    pureStaticMethods=archview.PURE_POOL_METHODS - 1,
+                    pureStaticLines=archview.PURE_POOL_LINES - 1,
+                )
+            ),
+        )
+
+    def test_s3_fires_on_the_largest_file_and_cites_it(self):
+        entry = _size_entry(
+            lines=archview.GIANT_TYPE_LINES + 2000,
+            files=[
+                {"file": "One/Thing.cs", "lines": archview.GIANT_TYPE_LINES},
+                {"file": "One/Thing.Extra.cs", "lines": 2000},
+            ],
+        )
+        text = self._rules(entry)["S3"]
+        self.assertIn("One/Thing.cs holds", text)
+        self.assertIn("across 2 file(s)", text)
+
+    def test_s3_does_not_fire_on_a_type_already_split_into_ordinary_files(self):
+        # Six 1,000-line partial files: the total clears the giant threshold,
+        # but the rule asks for a split that has already happened.
+        entry = _size_entry(
+            lines=6000,
+            files=[{"file": "One/Thing.%d.cs" % index, "lines": 1000} for index in range(6)],
+        )
+        self.assertNotIn("S3", self._rules(entry))
+
+    def test_s4_fires_on_the_sum_of_both_static_kinds(self):
+        half = archview.MUTABLE_STATIC_FLOOR // 2
+        entry = _size_entry(
+            mutableStatics=half,
+            readonlyCollectionStatics=archview.MUTABLE_STATIC_FLOOR - half,
+        )
+        text = self._rules(entry)["S4"]
+        self.assertIn("%d reassignable" % half, text)
+        self.assertIn("%d readonly collections" % (archview.MUTABLE_STATIC_FLOOR - half), text)
+        self.assertIn(
+            "S4", self._rules(_size_entry(readonlyCollectionStatics=archview.MUTABLE_STATIC_FLOOR))
+        )
+        self.assertNotIn(
+            "S4",
+            self._rules(
+                _size_entry(mutableStatics=half, readonlyCollectionStatics=half - 1)
+            ),
+        )
+
+    def test_s5_gives_sibling_advice_only_to_the_row_that_owns_the_file(self):
+        crowded = dict(topLevelTypesInFile=archview.SIBLING_TYPE_FLOOR + 5)
+        # A nested type has no siblings of its own to move.
+        self.assertNotIn(
+            "S5", self._rules(_size_entry(enclosing="Outer", **crowded))
+        )
+        # Neither does a small top-level type sharing a file it does not own;
+        # otherwise all 17 types in one file each get the same advice.
+        self.assertNotIn(
+            "S5", self._rules(_size_entry(primaryTypeOfItsFile=False, **crowded))
+        )
+        self.assertIn("S5", self._rules(_size_entry(**crowded)))
+
+    def test_s5_sends_nested_types_to_a_partial_file_and_siblings_to_their_own(self):
+        nested = self._rules(
+            _size_entry(nestedTypes=archview.NESTED_TYPE_FLOOR, partial=True)
+        )["S5"]
+        self.assertIn("partial file of Thing itself (it is partial today)", nested)
+        self.assertNotIn("their own files", nested)
+        not_partial = self._rules(_size_entry(nestedTypes=archview.NESTED_TYPE_FLOOR))["S5"]
+        self.assertIn("it is not partial today", not_partial)
+        siblings = self._rules(
+            _size_entry(topLevelTypesInFile=archview.SIBLING_TYPE_FLOOR)
+        )["S5"]
+        self.assertIn("sibling top-level type(s) in One/Thing.cs move to their own files", siblings)
+        self.assertNotIn(
+            "S5",
+            self._rules(
+                _size_entry(
+                    nestedTypes=archview.NESTED_TYPE_FLOOR - 1,
+                    topLevelTypesInFile=archview.SIBLING_TYPE_FLOOR - 1,
+                )
+            ),
+        )
+
+    def test_s6_fires_only_for_a_runtime_coupled_module(self):
+        self.assertIn("S6", self._rules(_size_entry(module="Ghost")))
+        self.assertNotIn("S6", self._rules(_size_entry(module="Recording")))
+
+    def test_s7_fires_inside_the_hotspot_window(self):
+        self.assertIn("S7", self._rules(_size_entry(hotspotRank=archview.HOTSPOT_PRIORITY_RANK)))
+        self.assertNotIn(
+            "S7", self._rules(_size_entry(hotspotRank=archview.HOTSPOT_PRIORITY_RANK + 1))
+        )
+
+
+class SizeTierTests(unittest.TestCase):
+    def test_small_quiet_type_is_a_watch(self):
+        self.assertEqual(archview.size_tier(_size_entry(lines=100)), ("watch", 0))
+
+    def test_large_file_alone_is_one_point(self):
+        self.assertEqual(
+            archview.size_tier(_size_entry(lines=archview.LARGE_FILE_LINES)), ("watch", 1)
+        )
+
+    def test_giant_plus_long_methods_reaches_tier_one(self):
+        entry = _size_entry(lines=archview.GIANT_TYPE_LINES, longMethods=8)
+        self.assertEqual(archview.size_tier(entry), ("Tier 1", 4))
+
+    def test_each_axis_contributes_once(self):
+        entry = _size_entry(
+            lines=archview.GIANT_TYPE_LINES,
+            longMethods=3,
+            mutableStatics=archview.MUTABLE_STATIC_FLOOR,
+            hotspotRank=1,
+        )
+        self.assertEqual(archview.size_tier(entry), ("Tier 1", 5))
+        self.assertEqual(
+            archview.size_tier(_size_entry(lines=archview.LARGE_FILE_LINES, longMethods=3)),
+            ("Tier 2", 2),
+        )
+
+    def test_the_static_point_reads_both_kinds_together(self):
+        half = archview.MUTABLE_STATIC_FLOOR // 2
+        entry = _size_entry(
+            lines=100,
+            mutableStatics=half,
+            readonlyCollectionStatics=archview.MUTABLE_STATIC_FLOOR - half,
+        )
+        self.assertEqual(archview.size_tier(entry), ("watch", 1))
+
+    def test_size_points_follow_the_total_not_the_largest_file(self):
+        # The same 6,000 lines spread over six files: still a big type (2
+        # points), even though S3 does not fire on it.
+        spread = _size_entry(
+            lines=6000,
+            files=[{"file": "One/Thing.%d.cs" % index, "lines": 1000} for index in range(6)],
+        )
+        self.assertEqual(archview.size_tier(spread), ("Tier 2", 2))
+        self.assertNotIn(
+            "S3", [row["rule"] for row in archview.size_recommendations(spread)]
+        )
+
+
+class GrowthParseTests(unittest.TestCase):
+    def test_no_git_output_is_an_empty_table(self):
+        self.assertEqual(archview.parse_growth(""), {"files": {}, "commits": 0, "skipped": 0})
+
+    def test_added_minus_deleted_per_file(self):
+        text = (
+            "COMMIT\taaa\n"
+            "10\t2\tSource/Parsek/One.cs\n"
+            "5\t0\tSource/Parsek/Two.cs\n"
+            "COMMIT\tbbb\n"
+            "1\t7\tSource/Parsek/One.cs\n"
+        )
+        parsed = archview.parse_growth(text)
+        # One.cs: +10-2 then +1-7, so the net over the window is 2, not 11.
+        self.assertEqual(parsed["files"], {"One.cs": 2, "Two.cs": 5})
+        self.assertEqual(parsed["commits"], 2)
+
+    def test_binary_rename_and_foreign_rows_are_ignored(self):
+        text = (
+            "COMMIT\taaa\n"
+            "-\t-\tSource/Parsek/Art.png\n"
+            "4\t1\tSource/Parsek/{Old => New}/Thing.cs\n"
+            "3\t0\tdocs/dev/notes.md\n"
+            "2\t0\tSource/Parsek/bin/Generated.cs\n"
+            "6\t1\tSource/Parsek/Real.cs\n"
+        )
+        self.assertEqual(archview.parse_growth(text)["files"], {"Real.cs": 5})
+
+    def test_a_sweep_commit_is_skipped(self):
+        rows = "".join(
+            "1\t0\tSource/Parsek/File%d.cs\n" % index
+            for index in range(archview.HISTORY_SWEEP_LIMIT + 1)
+        )
+        parsed = archview.parse_growth("COMMIT\taaa\n" + rows)
+        self.assertEqual(parsed["files"], {})
+        self.assertEqual(parsed["skipped"], 1)
+        self.assertEqual(parsed["commits"], 0)
+
+
+class PartialFileAttributionTests(unittest.TestCase):
+    """The primary file of a partial type, and the hotspot join that reads it."""
+
+    @staticmethod
+    def _write(root, rel, text):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _partial_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            # The SMALL part sorts first, so a first-seen rule attributes the
+            # type to it and the churn join then reads the wrong file.
+            self._write(root, "One/Aside.cs", "public partial class BigThing\n{\n    int a;\n}\n")
+            self._write(
+                root,
+                "One/Main.cs",
+                "public partial class BigThing\n{\n%s\n}\n"
+                % "\n".join("    int f%d;" % index for index in range(30)),
+            )
+            return archview.build_model(root, [{"name": "One", "folder": "One"}], set())
+
+    def test_two_nested_types_sharing_a_name_are_two_size_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(
+                root,
+                "One/AlphaOwner.cs",
+                "public class AlphaOwner\n{\n    internal class Handlers\n    {\n"
+                "        internal static void Go() { }\n    }\n}\n",
+            )
+            self._write(
+                root,
+                "One/BetaOwner.cs",
+                "public class BetaOwner\n{\n    internal class Handlers\n    {\n"
+                "        internal static void Stop() { }\n        internal static void Wait() { }\n"
+                "    }\n}\n",
+            )
+            model = archview.build_model(root, [{"name": "One", "folder": "One"}], set())
+        rows = {row["name"]: row for row in model["sizes"]["types"]}
+        # `Handlers` is declared twice and is not partial: one row each, keyed
+        # by the enclosing type, instead of one row with both bodies in it.
+        self.assertIn("AlphaOwner.Handlers", rows)
+        self.assertIn("BetaOwner.Handlers", rows)
+        self.assertEqual(rows["AlphaOwner.Handlers"]["methods"], 1)
+        self.assertEqual(rows["BetaOwner.Handlers"]["methods"], 2)
+        self.assertEqual(rows["AlphaOwner.Handlers"]["typeName"], "Handlers")
+
+    def test_a_partial_type_still_merges_across_files(self):
+        model = self._partial_model()
+        rows = {row["name"]: row for row in model["sizes"]["types"]}
+        self.assertEqual(len(rows["BigThing"]["files"]), 2)
+
+    def test_primary_file_is_the_one_holding_the_most_body_lines(self):
+        model = self._partial_model()
+        entry = {row["name"]: row for row in model["types"]}["BigThing"]
+        self.assertEqual(entry["file"], "One/Main.cs")
+        self.assertEqual(entry["files"], ["One/Main.cs", "One/Aside.cs"])
+
+    def test_hotspot_counts_the_union_of_the_commits_touching_any_part(self):
+        model = self._partial_model()
+        commits = [
+            {"sha": "a", "date": "2026-01-01", "files": ["One/Main.cs"]},
+            {"sha": "b", "date": "2026-01-02", "files": ["One/Main.cs", "One/Aside.cs"]},
+            {"sha": "c", "date": "2026-01-03", "files": ["One/Aside.cs"]},
+        ]
+        metrics = archview.history_metrics(commits, model, [{"name": "One", "folder": "One"}])
+        hotspot = {row["name"]: row for row in metrics["hotspots"]}["BigThing"]
+        # Three commits touched the type; commit b touched two parts and must
+        # not count twice (a sum would say 4, the primary file alone 2).
+        self.assertEqual(hotspot["fileCommits"], 3)
+        self.assertEqual(hotspot["file"], "One/Main.cs")
+        self.assertEqual(sorted(hotspot["files"]), ["One/Aside.cs", "One/Main.cs"])
+
+
+def _size_model():
+    return {
+        "types": [
+            {
+                "name": "Thing",
+                "module": "Ghost",
+                "file": "One/Thing.cs",
+                "role": "static",
+                "level": 2,
+                "knot": 1,
+                "fanIn": 9,
+            }
+        ],
+        "sizes": {
+            "files": [
+                {
+                    "file": "One/Thing.cs",
+                    "module": "Ghost",
+                    "lines": 6000,
+                    "declaredTypes": 2,
+                    "topLevelTypes": 1,
+                    "types": ["Thing"],
+                }
+            ],
+            "types": [
+                {
+                    "name": "Thing",
+                    "module": "Ghost",
+                    "file": "One/Thing.cs",
+                    "files": [{"file": "One/Thing.cs", "lines": 5900}],
+                    "lines": 5900,
+                    "methods": 40,
+                    "longMethods": 4,
+                    "topMethods": [
+                        {"name": "Big", "file": "One/Thing.cs", "startLine": 10, "lines": 200}
+                    ],
+                    "coroutines": 0,
+                    "fields": 20,
+                    "mutableStatics": 8,
+                    "mutableStaticNames": ["one"],
+                    "readonlyCollectionStatics": 4,
+                    "readonlyCollectionStaticNames": ["cache"],
+                    "nestedTypes": 1,
+                    "topLevelTypesInFile": 1,
+                    "pureStaticMethods": 2,
+                    "pureStaticLines": 30,
+                    "skippedMembers": 0,
+                }
+            ],
+        },
+    }
+
+
+class SizeReportTests(unittest.TestCase):
+    def test_history_and_growth_join_onto_the_rows(self):
+        history = {
+            "since": "2025-03-01",
+            "files": [{"file": "One/Thing.cs", "commits": 42, "churnRank": 3}],
+            "hotspots": [{"name": "Thing", "fileCommits": 42, "fanIn": 9, "hotspot": 378}],
+            "filePairs": [
+                {
+                    "a": "One/Thing.cs",
+                    "b": "Two/Other.cs",
+                    "count": 9,
+                    "moduleA": "Ghost",
+                    "moduleB": "UI",
+                }
+            ],
+        }
+        growth = {"files": {"One/Thing.cs": 1234}, "commits": 7, "skipped": 0}
+        payload = archview.size_report(_size_model(), history, growth, {"runtimeCoupled": ["Ghost"]})
+        row = payload["types"][0]
+        self.assertEqual(row["churnRank"], 3)
+        self.assertEqual(row["hotspotRank"], 1)
+        self.assertEqual(row["netLinesAdded"], 1234)
+        self.assertEqual(row["coChangePartners"], [{"file": "Two/Other.cs", "count": 9}])
+        self.assertEqual(row["tier"], "Tier 1")
+        self.assertEqual(
+            sorted(item["rule"] for item in row["recommendations"]),
+            ["S1", "S3", "S4", "S6", "S7"],
+        )
+        # S4 fired on 8 reassignable plus 4 readonly collections.
+        self.assertEqual(row["mutableStatics"], 8)
+        self.assertEqual(row["readonlyCollectionStatics"], 4)
+        self.assertNotIn("mutableStaticNames", row)
+        self.assertNotIn("readonlyCollectionStaticNames", row)
+        self.assertEqual(payload["files"][0]["netLinesAdded"], 1234)
+        self.assertTrue(payload["growth"]["available"])
+
+    def test_missing_history_and_growth_leave_null_columns(self):
+        payload = archview.size_report(_size_model())
+        row = payload["types"][0]
+        self.assertIsNone(row["churnRank"])
+        self.assertIsNone(row["hotspotRank"])
+        self.assertIsNone(row["netLinesAdded"])
+        self.assertEqual(row["coChangePartners"], [])
+        self.assertFalse(payload["growth"]["available"])
+        self.assertNotIn("S7", [item["rule"] for item in row["recommendations"]])
+
+    def test_check_section_prints_the_tables_and_the_rules(self):
+        payload = archview.size_report(_size_model(), None, None, {"runtimeCoupled": ["Ghost"]})
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.print_size_section(payload)
+        text = captured.getvalue()
+        self.assertIn("SIZE (text-scan approximation", text)
+        self.assertIn("One/Thing.cs", text)
+        self.assertIn("S3", text)
+        self.assertIn("no git history", text)
+
+    def test_recommendation_lines_are_wrapped_for_a_terminal(self):
+        payload = archview.size_report(_size_model(), None, None, {"runtimeCoupled": ["Ghost"]})
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.print_size_section(payload)
+        body = captured.getvalue().splitlines()
+        rules = body[body.index("  Recommendations (candidates and evidence, never a verdict):"):]
+        self.assertTrue(any(line.strip().startswith("S1") for line in rules))
+        for line in rules:
+            self.assertLessEqual(len(line), archview.SIZE_CHECK_WIDTH, line)
+        # A wrapped rule keeps its continuation indented under the rule text.
+        continuations = [line for line in rules if line.startswith("         ") and line.strip()]
+        self.assertTrue(continuations)
+
+    def test_empty_size_data_says_so(self):
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.print_size_section(None)
+        self.assertIn("no size data", captured.getvalue())
+
+    def test_atlas_renders_the_size_section(self):
+        payload = archview.size_report(_size_model(), None, None, {"runtimeCoupled": ["Ghost"]})
+        text = archview._atlas_sizes(payload)
+        self.assertIn("Largest files", text)
+        self.assertIn("Thing", text)
+        self.assertIn("S3", text)
+        self.assertIn("No size data", archview._atlas_sizes(None))
+
+
+class SizeSettingsTests(unittest.TestCase):
+    def test_the_committed_map_names_the_runtime_coupled_modules(self):
+        settings = archview.load_size_settings(archview.DEFAULT_MODULES)
+        self.assertIn("Ghost", settings["runtimeCoupled"])
+        self.assertIn("UI", settings["runtimeCoupled"])
+
+    def test_a_map_without_a_size_table_falls_back_to_the_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "modules.toml"
+            path.write_text('[[module]]\nname = "One"\nfolder = "One"\n', encoding="utf-8")
+            settings = archview.load_size_settings(path)
+        self.assertEqual(settings["runtimeCoupled"], sorted(archview.DEFAULT_RUNTIME_COUPLED))
+
+    def test_a_missing_file_falls_back_to_the_defaults(self):
+        settings = archview.load_size_settings(pathlib.Path("no-such-modules.toml"))
+        self.assertEqual(settings["runtimeCoupled"], sorted(archview.DEFAULT_RUNTIME_COUPLED))
+
+
 def _small_model():
     return {
         "modules": [
@@ -1764,7 +2775,51 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertIn("upward readings whose edge no longer exists (1): Gone -> Type", text)
         self.assertIn("reading-order types not in the model (1): NopeThing", text)
         self.assertIn("glossary entries outside the live top 18: none.", text)
+        self.assertIn("opportunity types not in the model: none.", text)
+        self.assertIn("main findings: no [findings] reviewed date.", text)
         self.assertLess(text.index("ATLAS"), text.index("Forbidden edges"))
+
+    def test_atlas_section_reports_findings_age_and_opportunity_types(self):
+        model = {
+            "modules": [
+                {"name": "Alpha", "files": 1, "fanIn": 0, "fanOut": 0, "instability": 0.5,
+                 "tooling": False}
+            ],
+            "edges": [],
+            "types": [],
+            "typeLevels": {"max": 0, "histogram": {}},
+            "knots": [],
+        }
+        old = (datetime.date.today() - datetime.timedelta(days=45)).isoformat()
+        fresh = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+        prose = {
+            "modules": {"Alpha": {"summary": "x"}},
+            "findings": {"reviewed": old, "items": [{"title": "t", "body": "b"}]},
+            "opportunities": [{"rank": 1, "item": "x", "types": ["GoneThing"]}],
+        }
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], prose)
+        text = captured.getvalue()
+        self.assertIn("opportunity types not in the model (1): GoneThing", text)
+        self.assertIn("main findings reviewed %s (45 days ago)." % old, text)
+        self.assertIn("main findings older than 30 days", text)
+        self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
+
+        prose["findings"]["reviewed"] = fresh
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], prose)
+        text = captured.getvalue()
+        self.assertIn("main findings reviewed %s (3 days ago)." % fresh, text)
+        self.assertNotIn("older than 30 days", text)
+
+        prose["findings"]["reviewed"] = "someday"
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], prose)
+        self.assertIn("main findings: reviewed 'someday' is not a YYYY-MM-DD date.",
+                      captured.getvalue())
 
     def test_atlas_section_reports_a_stale_glossary_entry(self):
         names = ["Type%02d" % index for index in range(1, 20)]
@@ -2025,6 +3080,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         }
         cls.history.update(archview.history_metrics(parsed["commits"], cls.model, rules))
         cls.has_history = cls.history["commits"] > 0
+        growth = archview.parse_growth(archview.git_numstat_lines(archview.REPO_ROOT, since))
+        cls.sizes = archview.size_report(
+            cls.model, cls.history, growth, archview.load_size_settings(archview.DEFAULT_MODULES)
+        )
+        cls.size_types = {row["name"]: row for row in cls.sizes["types"]}
 
     def test_logio_is_a_pure_sink(self):
         self.assertIn("LogIO", self.by_name)
@@ -2036,6 +3096,17 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_every_source_file_is_classified(self):
         self.assertEqual(self.model["unclassified"], [])
+
+    def test_atlas_carries_findings_opportunities_and_headline_tiles(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        text = archview.render_atlas_html(
+            self.model, prose, None, [], self.history, self.sizes
+        )
+        self.assertNotIn("@@", text)
+        self.assertIn("<h2>Main findings</h2>", text)
+        self.assertIn("<h2>Opportunities, ranked</h2>", text)
+        self.assertEqual(text.count('<div class="tile">'), 6 if self.has_history else 4)
+        self.assertEqual(archview.prose_findings(self.model, prose)["missingOpportunityTypes"], [])
 
     def test_parseklog_has_the_highest_fanin(self):
         top = max(self.model["types"], key=lambda entry: entry["fanIn"])
@@ -2054,20 +3125,31 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(self.model["typeLevels"]["max"], 4)
 
     def test_largest_knot_is_large_and_spans_modules(self):
+        # The intent, not a snapshot: the kernel is ONE large cycle that runs
+        # through most of the map. A refactor that shrinks it by a few dozen
+        # types must not red this cell; only one that breaks the kernel apart
+        # should, and then this floor is the thing to celebrate and rewrite.
+        # The exact sizes are pinned by test_knot_sizes_match_the_documented_tree.
         largest = self.model["knots"][0]
-        self.assertGreater(largest["size"], 300)
-        self.assertGreater(len(largest["modules"]), 10)
+        self.assertGreaterEqual(largest["size"], 200)
+        self.assertGreaterEqual(len(largest["modules"]), 10)
 
     def test_knot_sizes_match_the_documented_tree(self):
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [391, 4, 2])
+        # A snapshot of the current tree, re-derived 2026-09-22 (was
+        # [391, 4, 2] before the 2026-09-14 arch PRs shrank the kernel).
+        # It is a canary: when it reds, re-derive it and the README numbers
+        # from a fresh run in the same commit as whatever moved them.
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [286, 4, 2, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
         # externalRefs >= 5 AND (share >= 0.5 OR top >= 2 * second) on the
         # rebuilt evidence) moved 48 files and left 75; the R0 operator rules
-        # then placed 67 of those by hand, leaving the 8 kernel files that are
+        # then placed 67 of those by hand, leaving the kernel files that are
         # used across many modules (see README, "Editing modules.toml").
-        self.assertEqual(self.by_name["Core"]["files"], 8)
+        # VesselSnapshotOps.cs joined them in the 2026-09-14 VesselSpawner
+        # split, which named it in the Core rule, so the kernel is 9 files.
+        self.assertEqual(self.by_name["Core"]["files"], 9)
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
@@ -2075,6 +3157,7 @@ class RealTreeSmokeTests(unittest.TestCase):
             "IPlaybackTrajectory.cs",
             "VesselLaunchIdentity.cs",
             "VesselSpawner.cs",
+            "VesselSnapshotOps.cs",
             "MilestoneStore.cs",
             "GroupHierarchyStore.cs",
             "InventoryManifest.cs",
@@ -2082,6 +3165,10 @@ class RealTreeSmokeTests(unittest.TestCase):
         ]
         for name in kernel:
             self.assertEqual(self.model["fileModules"][name], "Core")
+        self.assertEqual(
+            sorted(f for f, m in self.model["fileModules"].items() if m == "Core"),
+            sorted(kernel),
+        )
 
     def test_phase_two_placements(self):
         modules = self.model["fileModules"]
@@ -2103,8 +3190,12 @@ class RealTreeSmokeTests(unittest.TestCase):
                 if not rule.get("placement") or rule.get("placement") == "R1"
             ]
         )
-        before_model = archview.build_model(REAL_SOURCE, before_rules, tooling)
-        after_r1_model = archview.build_model(REAL_SOURCE, after_r1_rules, tooling)
+        before_model = archview.build_model(
+            REAL_SOURCE, before_rules, tooling, measure_sizes=False
+        )
+        after_r1_model = archview.build_model(
+            REAL_SOURCE, after_r1_rules, tooling, measure_sizes=False
+        )
         fresh = archview.render_placement_report(
             before_model, after_r1_model, self.model, archview.default_placement_rules()
         )
@@ -2115,7 +3206,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        self.assertIn("| Core | 124 | 8 |", fresh)  # 124: the narrowed Trajectory family rule leaves the scene-exit finalizer in the historical before-state
+        # 126: the historical before-state collects every root file the narrowed
+        # family rules leave behind; 9 after, the kernel list as it stands today.
+        self.assertIn("| Core | 126 | 9 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -2149,11 +3242,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(len(production), 20)
 
     def test_first_cut_matches_the_documented_tree(self):
+        # Re-derived 2026-09-22: the 2026-09-14 arch PRs made ParsekLog a leaf,
+        # so the first cut the greedy walk picks is now RecordingStore. Same
+        # canary contract as the knot sizes above.
         first = self.model["knots"][0]["cuts"][0]
-        self.assertEqual(first["sink"], "ParsekLog")
-        self.assertEqual(first["sizeBefore"], 391)
-        self.assertEqual(first["sizeAfter"], 335)
-        self.assertEqual(first["droppedReferences"], ["ParsekSettings", "RecorderStateSnapshot"])
+        self.assertEqual(first["sink"], "RecordingStore")
+        self.assertEqual(first["sizeBefore"], 286)
+        self.assertEqual(first["sizeAfter"], 259)
+        self.assertIn("EffectiveState", first["droppedReferences"])
+        self.assertEqual(len(first["droppedReferences"]), 25)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         largest = self.model["knots"][0]
@@ -2204,6 +3301,80 @@ class RealTreeSmokeTests(unittest.TestCase):
             self.skipTest("no git history available in this checkout")
         self.assertEqual(len(self.history["hotspots"]), 30)
         self.assertEqual(len(self.history["filePairs"]), 40)
+
+    def test_the_legacy_giants_lead_the_size_view(self):
+        top = [row["name"] for row in self.sizes["types"][:10]]
+        for name in ["ParsekFlight", "GhostMapPresence", "FlightRecorder"]:
+            self.assertIn(name, top)
+
+    def test_ghostmappresence_gets_a_split_and_a_runtime_note(self):
+        row = self.size_types["GhostMapPresence"]
+        rules = {item["rule"] for item in row["recommendations"]}
+        # S3 (partial-class split) or S4 (static state map first), plus the
+        # runtime-coupled note: this type is the case the view exists for.
+        self.assertTrue(rules & {"S3", "S4"}, rules)
+        self.assertIn("S6", rules)
+        self.assertEqual(row["tier"], "Tier 1")
+        self.assertGreater(row["lines"], archview.GIANT_TYPE_LINES)
+        self.assertGreater(len(row["files"]), 1)
+
+    def test_size_lines_do_not_exceed_the_files_they_are_measured_in(self):
+        file_lines = {row["file"]: row["lines"] for row in self.sizes["files"]}
+        for row in self.sizes["types"][:25]:
+            for part in row["files"]:
+                self.assertLessEqual(part["lines"], file_lines[part["file"]], part["file"])
+
+    def test_the_largest_partials_are_in_the_top_hotspots(self):
+        if not self.has_history:
+            self.skipTest("no git history available in this checkout")
+        top = [row["name"] for row in self.history["hotspots"][:10]]
+        # Both are partial classes whose main file carries the churn; a
+        # first-seen file attribution dropped them out of this table.
+        self.assertIn("ParsekFlight", top)
+        self.assertIn("GhostMapPresence", top)
+
+    def test_growth_is_available_on_a_real_checkout(self):
+        if not self.has_history:
+            self.skipTest("no git history available in this checkout")
+        self.assertTrue(self.sizes["growth"]["available"])
+        self.assertGreater(self.size_types["ParsekFlight"]["netLinesAdded"], 0)
+
+    def test_almost_every_member_is_delimited(self):
+        skipped = sum(row["skippedMembers"] for row in self.sizes["types"])
+        methods = sum(row["methods"] for row in self.sizes["types"])
+        self.assertGreater(methods, 5000)
+        self.assertLess(skipped, methods / 100)
+
+    def test_no_member_is_named_after_a_modifier(self):
+        # `internal static (bool ok, int n) Foo(` misparsed as name `static`
+        # used to reach the output as a 110-line method called "static".
+        for row in self.sizes["types"]:
+            for method in row["topMethods"]:
+                self.assertNotIn(method["name"], archview.MEMBER_MODIFIERS, row["name"])
+
+    def test_the_purity_pool_discriminates(self):
+        # It fired on 25 of the top 25 before the estimate was tightened,
+        # which told a reader nothing.
+        top = self.sizes["types"][:archview.SIZE_TOP_N]
+        firing = [
+            row["name"]
+            for row in top
+            if any(item["rule"] == "S2" for item in row["recommendations"])
+        ]
+        self.assertLess(len(firing), len(top) / 2)
+        self.assertTrue(firing)
+
+    def test_expression_bodied_properties_are_not_counted_as_static_state(self):
+        # RecordingStore forwards about twenty of them; each used to read as a
+        # reassignable static.
+        row = self.size_types["RecordingStore"]
+        self.assertLess(row["mutableStatics"], 45)
+        self.assertGreater(row["mutableStatics"], 20)
+
+    def test_nested_types_that_share_a_name_are_separate_rows(self):
+        names = [row["name"] for row in self.sizes["types"]]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertTrue(any("." in name for name in names))
 
     def test_no_record_declarations_in_the_tree(self):
         # The literal `\brecord\b` grep would also match a local variable named

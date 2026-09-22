@@ -3143,6 +3143,75 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Research: a structural study of `GhostMapPresence`.**
+  `docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md` inventories the
+  14k-line class (clusters, state footprint, callers, pure pool, tests and gates that pin
+  the file) and ranks eight extraction candidates beside a do-not-extract list. Read-only
+  evidence; no code moved.
+
+- **Dev tooling: the architecture viewer now reports SIZE, and stops mis-attributing a
+  partial class to one file.** `scripts/arch/archview.py` measured what references what
+  and what changes together, but never how big anything is, so the 2026-09-14 findings
+  report said almost nothing about `GhostMapPresence` - a 13.5k-line partial class whose
+  members are all static, and one of the three largest things in the mod. A new size layer
+  writes `sizes.json` and a SIZE section in `--check` (and a "Largest files and types"
+  section in `atlas.html`): the largest files and, with the parts of a partial class merged
+  into one row, the largest types with their method count (constructors included, bodyless
+  declarations not), methods at or above 90 lines with file and start line, `IEnumerator`
+  coroutines however the return type is spelled, static state counted as two numbers (slots
+  that can be reassigned - fields, static auto-properties with a setter, field-like static
+  events - and `static readonly` collections whose contents change; `GhostMapPresence` has
+  17 of the first and 35 of the second), an estimate of the static methods that reach no
+  live state by name, nested and sibling types, and net lines added over the history
+  window. Over those numbers a rule table (S1 to S7, cheapest and safest first,
+  every row citing the numbers that fired it) and a four-axis tier suggest where a later refactor
+  pass would start; the rules speak the vocabulary of `docs/dev/refactor-guidelines.md`
+  (coroutines are never recommended for extraction, no pre-existing access modifier
+  changes, a compatibility facade in the first slice) and flag runtime-coupled modules as
+  needing in-game validation. It is a text scan under the same "approximation, never
+  proof" contract as the rest of the tool, it never says a split is safe, and its blind
+  spots are documented in `docs/dev/arch/README.md`.
+  The same pass fixes a real defect in the existing views: a partial class was attributed
+  to whichever of its files the walk met first, so `GhostMapPresence` read as its 2-commit
+  `Observability` part and `ParsekFlight` as its `BreakupChildSeed` part, and both fell out
+  of the co-change hotspot table entirely. A type now carries every file it is declared in,
+  its primary file is the one holding most of its body lines, and a hotspot counts the
+  union of the commits touching any of its parts (never the sum, which double counts a
+  commit that edited two parts). `ParsekFlight` and `GhostMapPresence` are now the first
+  and seventh hotspots.
+  The generator's six real-tree pins were also refreshed from a fresh run: they had gone
+  stale on `main` when the 2026-09-14 architecture PRs shrank the kernel cycle (391 types
+  to 286 at merge time), made `RecordingStore` the first greedy cut in `ParsekLog`'s place, added
+  `VesselSnapshotOps` to the nine-file kernel and removed the `Missions -> Logistics` edge
+  whose atlas note is now deleted. Those tests are not run by CI, which is how they drifted;
+  the knot-size floor now states its intent (one large cross-module cycle) instead of a
+  number one refactor away from red.
+  A clean-context review of the first version then tightened the measurement itself. The
+  field pattern was reading the `=` of an expression-bodied property as a field
+  initializer, so about a quarter of the tree's "reassignable statics" were forwards like
+  `CommittedRecordings => committedRecordings`; static auto-properties with setters and
+  field-like static events, which ARE state, were missed entirely. The purity estimate
+  called 81% of static methods pure and fired its rule on 25 of the top 25 types, which
+  discriminated nothing: it now knows about 50-odd live KSP, Unity and I/O identifiers,
+  treats `.Instance` / `.fetch` as live, treats reaching into another type that holds
+  static state as impure (logging exempted), and its rule needs the pool to be both big
+  and at least 30% of the type, which fires on 6 of the top 25. Tuple return types parse
+  instead of being misread as a method named `static`; constructors count as members and
+  bodyless declarations do not; `System.Collections.IEnumerator` is recognised as a
+  coroutine; two nested types that share a name are two rows; and a file full of small
+  types gets one "move the siblings out" row rather than one per type.
+  Report-only tooling; no gameplay or build change.
+
+- **Dev tooling: the architecture findings report is now the atlas.** The hand-written
+  `docs/dev/research/architecture-findings-2026-09-14.html` is retired (its numbers went
+  stale within a week); its two additions over the generated page, the "Main findings"
+  list and the ranked opportunities with their status, now live in
+  `scripts/arch/atlas.toml` and render in `atlas.html`, which also gains headline tiles for
+  the knot's share, the highest module co-change ratio and the most-churned type's share of
+  commits. The findings point at the generated sections instead of restating their
+  numbers, and `--check` reports the findings review date's age and any opportunity type
+  that is no longer in the model.
+
 - **The non-loop live-PID grep gate's two arms agree again, and a test keeps them in step.**
   The pwsh script and the managed fallback the Linux CI runner uses forbade different names
   for the deleted active-Re-Fly shadow resolver in `GhostMapPresence.cs`, and neither name
