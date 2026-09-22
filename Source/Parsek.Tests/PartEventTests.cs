@@ -68,19 +68,26 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_BackwardCompat_EmptyListWhenNoNodes()
         {
-            // Build a RECORDING with no PART_EVENT nodes
-            var recNode = new RecordingBuilder("OldVessel")
-                .AddPoint(100, 0, 0, 100)
-                .AddPoint(110, 0, 0, 200)
-                .Build();
+            // A trajectory with no part events (the shape every pre-part-event recording
+            // has) through the production codec on both ends: the writer emits no
+            // PART_EVENT node, and the reader, finding none among the node's other
+            // children, must leave PartEvents empty rather than read anything else as an
+            // event. The points round-trip proves the load actually ran.
+            var rec = new Recording { VesselName = "OldVessel" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, altitude = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, altitude = 200, bodyName = "Kerbin" });
 
-            var peNodes = recNode.GetNodes("PART_EVENT");
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+            Assert.Empty(node.GetNodes("PART_EVENT"));
+            Assert.NotEmpty(node.GetNodes());
 
-            Assert.Empty(peNodes);
+            var loaded = new Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
-            // A Recording starts with an empty PartEvents list
-            var rec = new Recording();
-            Assert.Empty(rec.PartEvents);
+            Assert.Equal(2, loaded.Points.Count);
+            Assert.NotNull(loaded.PartEvents);
+            Assert.Empty(loaded.PartEvents);
         }
 
         #endregion
@@ -280,13 +287,24 @@ namespace Parsek.Tests
         [Fact]
         public void ParentRecordingId_BackwardCompat_NullWhenMissing()
         {
+            // A current-schema recording node with no EVA linkage keys, read by the
+            // production metadata loader: a missing key must load as null, never as an
+            // empty string (every EVA-child check in the tree reads null as "not an EVA").
+            // The node carries the schema stamps, so the loader does not reject it before
+            // it reaches the linkage keys (RecordingFormatVersion -1 would mean it did).
             var recNode = new RecordingBuilder("Old Recording")
                 .AddPoint(100, 0, 0, 100)
                 .AddPoint(110, 0, 0, 200)
-                .Build();
-
+                .BuildV3Metadata();
             Assert.Null(recNode.GetValue("parentRecordingId"));
             Assert.Null(recNode.GetValue("evaCrewName"));
+
+            var loaded = new Recording();
+            RecordingTree.LoadRecordingFrom(recNode, loaded);
+
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+            Assert.Null(loaded.ParentRecordingId);
+            Assert.Null(loaded.EvaCrewName);
         }
 
         #endregion
@@ -613,26 +631,6 @@ namespace Parsek.Tests
                 42, "solarPanel", isExtended: true, extended, 100.0);
 
             Assert.Null(evt);
-        }
-
-        [Fact]
-        public void PartEvents_SerializationRoundtrip_DeployableExtended()
-        {
-            var recNode = new RecordingBuilder("TestVessel")
-                .AddPoint(100, 0, 0, 100)
-                .AddPoint(110, 0, 0, 200)
-                .AddPartEvent(105, 12345, (int)PartEventType.DeployableExtended, "solarPanels5")
-                .Build();
-
-            var peNodes = recNode.GetNodes("PART_EVENT");
-            Assert.Single(peNodes);
-
-            int typeInt;
-            int.TryParse(peNodes[0].GetValue("type"),
-                System.Globalization.NumberStyles.Integer,
-                CultureInfo.InvariantCulture, out typeInt);
-            Assert.Equal((int)PartEventType.DeployableExtended, typeInt);
-            Assert.Equal("solarPanels5", peNodes[0].GetValue("part"));
         }
 
         [Fact]
