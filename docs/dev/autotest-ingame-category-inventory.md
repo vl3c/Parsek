@@ -136,7 +136,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 58 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, deferred Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
 | `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 4; the residue wants an airborne vessel) | B |
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below), LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim; predicted on the 2026-09-07 second census, scratch CEN-4, run `2026-09-07_2010`, at 2 of 13 over `depot-route-recorded` - the dock-composition cell plus the station-mission phase-lock cell `RealSave_StationMission_PhaseLocksOrHolds`, which H54's `duna-one-recorded` host does not reach. The two lanes are different slices of ONE category, which is what the archetype note below predicts: no single real save is more than one or two archetypes. The census also read 1 of 13 on `career-earned-pad`, which is why LT-3 does not carry it. Both driving lanes execute a SLICE - H54 3 of 13, LT-4 2 of 13 - so the promotion rule does NOT fire and the bucket stays **B**, the archetype residue being the reason) | B |
-| `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at SPACECENTER with zero skips. Its cells mutate the live store and skip whenever a committed recording is present, which is why that lane injects NOTHING) | A |
+| `Optimizer` | 3 | 0 | 3 | 0 | 0 | 3 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes the whole category at SPACECENTER with zero skips. Its cells mutate the live store and skip whenever a committed recording is present, which is why that lane injects NOTHING. 2 -> 3 on 2026-09-22 (register item C2): `OnRailsBoundarySeam_SuppressesSplit_InGame`, the D3 `boundary-seam` cell; the re-pin's runs are in autotest-status.md) | A |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 1 of 6 - `LightInfosValid` - over the playing `part-showcase` corpus. The FIRST execution of any cell in this category anywhere; the five skips want an active ghost whose engine / chute / fairing / decoupler FX resolve at the batch UT, which the static showcase ghosts do not give, so this is a SLICE at 1 of 6: the promotion rule below does NOT fire on a green flight that drove only part of the category, and the bucket stays **B**) | B |
 | `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips; its deployable cell asserted the retired pre-S2 snap on the census and is re-pinned to the shipped animated contract) | A |
@@ -208,8 +208,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **114 categories / 629 declarations**. Buckets **A 87 categories
-(350 declarations)**, **B 26 categories (274 declarations)**, **C 1 category (5
+Totals, re-derived: **114 categories / 630 declarations**. Buckets **A 87 categories
+(351 declarations)**, **B 26 categories (274 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes). All re-derived
 mechanically by counting the table's
@@ -312,9 +312,9 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **113 of 114 categories**, covering **624 of 629
+Driven by a committed spec: **113 of 114 categories**, covering **625 of 630
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 629 declarations in
+Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 630 declarations in
 114 categories over `Source/Parsek`. The 2026-09-08 reading was 112 of 112; the GUI-tree
 dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on
 2026-09-11; the GUI state gallery's P1 opened a 114th on 2026-09-22 and left it
@@ -705,7 +705,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (87 categories, 350 declarations)
+### Bucket A - wired now (87 categories, 351 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.

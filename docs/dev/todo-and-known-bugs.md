@@ -2673,9 +2673,11 @@ Filed 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, no
 
 **The lesson for other lanes.** A UT printed by an autopilot-flown profile is not a fixture constant, however many flights agree. Pin the mechanism field, and regex the clock.
 
-## D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS: the registry cell `boundary-seam` has a production token, but no lane emits it on every flight, so no spec can gate it
+## ~~D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS: the registry cell `boundary-seam` has a production token, but no lane emits it on every flight, so no spec can gate it~~ [**CLOSED 2026-09-22 on branch `c2-optimizer-seam` (register item C2)**]
 
-Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect. OPEN.
+**DONE 2026-09-22.** The in-game road, as recommended. `OnRailsBoundarySeam_SuppressesSplit_InGame` (`Optimizer`, SPACECENTER, `PersistenceSplitOptimizerTest.cs`) injects a loaded Atmospheric state with five frames 2 s apart, calls `FlushLoadedStateForOnRailsTransitionForTesting` into SurfaceStationary with no on-rails payload, commits the recording and runs `RunOptimizationPass`. It asserts the seam flag before and after the pass, no split, the step-1 reason `SuppressedBoundarySeam`, and a counterfactual (the same boundary unflagged is splittable, reason `SurfaceInvolved`), then prints `BoundarySeamOptimizerWitness`. An xUnit twin in `BackgroundTrackSectionTests` pins both production lines headlessly. LT-2 claims D3 `boundary-seam` off the production `Persisted no-payload on-rails boundary section: pid=7700003 Atmospheric->SurfaceStationary at UT=17010.00 (seam=1)` and `Split summary: rec=rec_boundary_seam_smoke evaluated=1 ... seamSkipped=1 ...` lines: reading `2026-09-22_1736`, armed re-flight `2026-09-22_1738`, negative control `2026-09-22_1739`, recorded in autotest-status.md.
+
+Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect.
 
 **The token.** When a loaded background vessel goes on rails mid-section, `BackgroundRecorder.FlushLoadedStateForOnRailsTransition` writes the INFO line `Persisted no-payload on-rails boundary section: pid=<pid> <prev>-><next> at UT=<ut> (seam=1)` (BackgroundRecorder.cs:5054-5056). The section it closes carries `isBoundarySeam=true`, which step 1 of `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` honours.
 
@@ -2744,9 +2746,11 @@ Cost: generator + preset + one lane, 3 flights, no product C#. Confidence medium
 **Fix (revised 2026-09-11).** That synthetic lane, replacing the new-in-game-cell route
 above.
 
-## OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING: both `Optimizer` in-game cells set `RecordingStore.SuppressLogging = true` and never restore it, so every `RecordingStore.Log` site stays silent for the rest of the KSP process
+## ~~OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING: both `Optimizer` in-game cells set `RecordingStore.SuppressLogging = true` and never restore it, so every `RecordingStore.Log` site stays silent for the rest of the KSP process~~ [**CLOSED 2026-09-22 on branch `c2-optimizer-seam` (register item C2)**]
 
-Filed 2026-09-10 by the claim-gap wave (package A1) while appending `SceneAndPatch` to LT-2. A TEST defect, not a product defect. OPEN.
+**DONE 2026-09-22.** Every `Optimizer` cell (the two named here and the new boundary-seam cell) now runs its body through one `RunWithRecordingStoreLoggingSuppressed` helper that captures the flag on entry and restores it in a `finally`. Witnessed live on LT-2 `2026-09-22_1736`: the KSC cell's `runtime-ksc-relative-recorded-anchor-cleanup: removed committed tree ...` RecordingStore line, silent in every earlier LT-2 run, now prints.
+
+Filed 2026-09-10 by the claim-gap wave (package A1) while appending `SceneAndPatch` to LT-2. A TEST defect, not a product defect.
 
 **The shape.** `RealAscentReentry_ProducesPerPhaseChain_InGame` and `EccentricGrazing_StaysOneSegment_InGame` (`Source/Parsek/InGameTests/PersistenceSplitOptimizerTest.cs`, lines 63 and 168) set the static flag at the top of the body. Neither `finally` restores it, and `InGameTestRunner.cs` never references it. The flag gates `RecordingStore.Log` and the sites that read it directly, so once the category has run, those lines are silent until the process exits. Direct `ParsekLog.*` calls are unaffected, which is why LT-2 run `_1508` still printed its `Split recording` and `TrimBoringTail` lines.
 
@@ -9658,7 +9662,7 @@ facet, and are recorded in both spec headers and status rows.
 
 ---
 
-## GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE: at process teardown the Tracking-Station buildVesselsList Prefix re-creates a dying ghost's orbit renderer and stock throws with Parsek frames on the stack [OPENED 2026-09-10 on branch `loop-render-residue` off a report-only unityExceptions row. TODO, a finding (Parsek frames on an NRE stack), not verdict-bearing; needs a C# change, so nothing is done in this harness-only wave. Owner: `GhostMapPresence` / `Patches/GhostTrackingBuildVesselsListPatch`]
+## ~~GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE: at process teardown the Tracking-Station buildVesselsList Prefix re-creates a dying ghost's orbit renderer and stock throws with Parsek frames on the stack~~ [**FIXED 2026-09-22 on branch `c2-optimizer-seam` (register item C2)**: `EnsureGhostOrbitRenderers` now asks the pure `ResolveEnsureOrbitRenderersSkipReason(ParsekProcess.IsApplicationQuitting, IsRemoveAllGhostVesselsInProgress)` first and returns 0 with a rate-limited `EnsureGhostOrbitRenderers: skipped repair reason=<application-quitting|remove-all-ghosts-in-progress>` Verbose line. The quitting latch is set from `ParsekHarmony.OnApplicationQuit` (the one DontDestroyOnLoad Parsek object; Unity calls it before destroying scene objects) and logs `Application quitting latched` once; the quit latch is what covers the observed NRE. The remove-all flag is a new depth counter raised only around `RemoveAllGhostVessels`'s Die loop (deliberately NOT the wider `IsGhostTeardownInProgress`, which single-ghost removers also raise while other ghosts stay alive), and it guards only synchronous re-entry during that loop: decompiled stock `Vessel.Die()` fires `onVesselWillDestroy` then a deferred `Object.Destroy`, so the `onVesselDestroy` SpaceTracking rebuilds on fires from `Vessel.OnDestroy` after the loop, outside the counter. The Unity-touching repair moved into a NoInlining core so the guard is unit-tested headlessly (`GhostMapEnsureOrbitRenderersSkipTests`). Validated headlessly plus the latch line on every LT-2 flight; V15T / V18T not re-flown (report-only unityExceptions rows; nothing they require reads this path). The live `parsekFrames` reading is owed by register item C1's first sweep. OPENED 2026-09-10 on branch `loop-render-residue` off a report-only unityExceptions row. TODO, a finding (Parsek frames on an NRE stack), not verdict-bearing; needs a C# change, so nothing is done in this harness-only wave. Owner: `GhostMapPresence` / `Patches/GhostTrackingBuildVesselsListPatch`]
 
 Seen on V15T's criterion-(b) control run `2026-09-10_1917` (KSP.log 22:17:48.820, 0.7 s after
 `flushandquit: Application.Quit`): a NullReferenceException in stock `MapObject.Awake`, reached through
