@@ -192,6 +192,11 @@ namespace Parsek.Tests
             // StrategyScienceCredit: the OUTPUT direction of the same query-family
             // door, and the same answer on both gates for the same two reasons.
             yield return new object[] { GameActionType.StrategyScienceCredit, false, false };
+            // KerbalRecovered (KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL): a record
+            // that stock returned the kerbal; the walk re-derives the bounded hold from the
+            // surviving ELS and the merge retires the row via IsSupersedeTombstoneEligible.
+            // Neither gate blocks.
+            yield return new object[] { GameActionType.KerbalRecovered, false, false };
         }
 
         [Fact]

@@ -1114,7 +1114,8 @@ namespace Parsek
                     if (a.Type != GameActionType.KerbalAssignment
                         && a.Type != GameActionType.KerbalHire
                         && a.Type != GameActionType.KerbalRescue
-                        && a.Type != GameActionType.KerbalStandIn)
+                        && a.Type != GameActionType.KerbalStandIn
+                        && a.Type != GameActionType.KerbalRecovered)
                         continue;
                     kerbalActions.Add(a);
                 }

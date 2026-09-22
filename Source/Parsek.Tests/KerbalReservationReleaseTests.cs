@@ -408,11 +408,11 @@ namespace Parsek.Tests
             AssertHeld(Inv(currentUT), expectedUntilUT: double.PositiveInfinity);
         }
 
-        // Pins CURRENT behaviour, filed as KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL:
-        // reservations merge by max end, so an Aboard (+inf) row keeps the kerbal held
-        // even when a later committed flight recovers him. Committed recordings are never
-        // re-stamped by a later recovery of the spawned vessel either
-        // (ParsekScenario.UpdateRecordingsForTerminalEvent), so nothing ends the +inf hold.
+        // catches: a later, UNRELATED flight shortening an Aboard hold. Reservations merge
+        // by max end, so a Recovered flight in another tree does not end the +inf hold;
+        // only a recovery of the Aboard flight's own vessel does (a KerbalRecovered row,
+        // KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL; see
+        // KerbalRecoveryReservationCloseTests).
         [Fact]
         public void AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold()
         {

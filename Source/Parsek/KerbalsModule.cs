@@ -85,6 +85,29 @@ namespace Parsek
             = new Dictionary<string, RecordingMeta>();
         private HashSet<string> loopingChainIds = new HashSet<string>();
 
+        /// <summary>
+        /// Kerbal name -> the <see cref="GameActionType.KerbalRecovered"/> rows the walk's
+        /// action list carries for him (owner recording + recovery UT). Built in
+        /// <see cref="PrePass"/> because the KerbalAssignment rows a recovery closes sort
+        /// BEFORE it (they are stamped at their flight's start). Cleared in
+        /// <see cref="Reset"/>.
+        /// </summary>
+        private readonly Dictionary<string, List<RecoveryClosure>> recoveryClosures
+            = new Dictionary<string, List<RecoveryClosure>>(StringComparer.Ordinal);
+
+        internal struct RecoveryClosure
+        {
+            public string OwnerRecordingId;
+            public double RecoveryUT;
+        }
+
+        /// <summary>
+        /// Slack for "the held flight ended at or before the recovery": a recording's end
+        /// and the recovery that follows it are read from the same frozen KSC clock, but a
+        /// recording's EndUT is its last sample, which can trail the scene-exit instant.
+        /// </summary>
+        internal const double RecoveryClosureEndToleranceSeconds = 1.0;
+
         // ── Walk clock (captured once per walk in PrePass) ──
 
         /// <summary>
@@ -168,6 +191,7 @@ namespace Parsek
             public bool IsLoop;
             public bool IsChainRecording;
             public string ChainId;
+            public string TreeId;
             public double EndUT;
         }
 
@@ -594,6 +618,7 @@ namespace Parsek
             recordingMeta.Clear();
             loopingChainIds.Clear();
             careerEntriesByKerbal.Clear();
+            recoveryClosures.Clear();
         }
 
         /// <summary>
@@ -641,6 +666,7 @@ namespace Parsek
                     IsLoop = isLoop,
                     IsChainRecording = isChain,
                     ChainId = chainId,
+                    TreeId = rec.TreeId,
                     EndUT = rec.EndUT
                 };
 
@@ -667,6 +693,14 @@ namespace Parsek
                     rawCrewMembers,
                     loopingChainIds.Count)
                 + " walkClockUT=" + FormatClockUT(walkClockUT));
+
+            int closureRows = CollectRecoveryClosures(actions, recoveryClosures);
+            if (closureRows > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {closureRows.ToString(CultureInfo.InvariantCulture)} KerbalRecovered " +
+                    $"row(s) for {recoveryClosures.Count.ToString(CultureInfo.InvariantCulture)} kerbal(s)");
+            }
 
             // The kerbals module never mutates the action list, so no re-sort is needed.
             return false;
@@ -745,6 +779,25 @@ namespace Parsek
             double endUT = (endState == KerbalEndState.Recovered && !chainHasLoop)
                 ? meta.EndUT : double.PositiveInfinity;
 
+            // Design 9.3: an open-ended (Aboard / Unknown) hold ends when the kerbal is
+            // recovered from a real vessel continuing this flight's tree
+            // (KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL). A looping chain keeps
+            // +inf for the same reason a Recovered end does: the ghost replays past it.
+            if (!permanent && !chainHasLoop
+                && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
+            {
+                string closingOwner;
+                double closedAtUT = ResolveRecoveryClosureUT(name, recordingId, meta, out closingOwner);
+                if (!double.IsPositiveInfinity(closedAtUT))
+                {
+                    endUT = closedAtUT;
+                    ParsekLog.Verbose(Tag,
+                        $"Reservation bounded by recovery: '{name}' recording '{recordingId}' " +
+                        $"({endState}) endUT={closedAtUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"owner='{closingOwner}'");
+                }
+            }
+
             KerbalReservation existing;
             if (reservations.TryGetValue(name, out existing))
             {
@@ -767,6 +820,106 @@ namespace Parsek
                     $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +
                     $"({endState}{(chainHasLoop ? ", chainHasLoop" : "")}), recording '{recordingId}'");
             }
+        }
+
+        /// <summary>
+        /// Collects the <see cref="GameActionType.KerbalRecovered"/> rows of a walk's action
+        /// list into <paramref name="into"/> (kerbal -> closures). Rows without a kerbal
+        /// name, owner recording or finite UT are ignored. Returns the rows collected. Pure.
+        /// </summary>
+        internal static int CollectRecoveryClosures(
+            IReadOnlyList<GameAction> actions,
+            Dictionary<string, List<RecoveryClosure>> into)
+        {
+            if (actions == null || into == null) return 0;
+            int collected = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || a.Type != GameActionType.KerbalRecovered) continue;
+                if (string.IsNullOrEmpty(a.KerbalName) || string.IsNullOrEmpty(a.RecordingId))
+                    continue;
+                if (double.IsNaN(a.UT) || double.IsInfinity(a.UT)) continue;
+
+                List<RecoveryClosure> list;
+                if (!into.TryGetValue(a.KerbalName, out list))
+                {
+                    list = new List<RecoveryClosure>();
+                    into[a.KerbalName] = list;
+                }
+                list.Add(new RecoveryClosure { OwnerRecordingId = a.RecordingId, RecoveryUT = a.UT });
+                collected++;
+            }
+            return collected;
+        }
+
+        /// <summary>
+        /// Does a recovery (owner recording <paramref name="ownerRecordingId"/> in tree
+        /// <paramref name="ownerTreeId"/>, at <paramref name="recoveryUT"/>) end the
+        /// open-ended hold a flight (<paramref name="holdRecordingId"/>, tree
+        /// <paramref name="holdTreeId"/>, ending <paramref name="holdEndUT"/>) put on the
+        /// recovered kerbal?
+        ///
+        /// <para>Scope is the owner's own mission: the owner recording itself, or any
+        /// recording of the same tree (the chain segments and optimizer splits of one
+        /// launch, an EVA that re-boarded, a crew transfer inside the mission). A flight in
+        /// ANOTHER tree is never closed - a kerbal the player stranded on another mission
+        /// stays stranded until that mission's own vessel comes home, and a stand-in whose
+        /// recovered name reverse-maps to that owner cannot free him. The held flight must
+        /// also have ENDED by the recovery (within
+        /// <see cref="RecoveryClosureEndToleranceSeconds"/>): a later flight keeps its own
+        /// hold and the reservation keeps its max-end merge. Pure.</para>
+        /// </summary>
+        internal static bool RecoveryClosesHold(
+            string holdRecordingId,
+            string holdTreeId,
+            double holdEndUT,
+            string ownerRecordingId,
+            string ownerTreeId,
+            double recoveryUT)
+        {
+            if (string.IsNullOrEmpty(holdRecordingId) || string.IsNullOrEmpty(ownerRecordingId))
+                return false;
+            if (double.IsNaN(recoveryUT) || double.IsInfinity(recoveryUT)) return false;
+            if (double.IsNaN(holdEndUT) || holdEndUT > recoveryUT + RecoveryClosureEndToleranceSeconds)
+                return false;
+            if (string.Equals(holdRecordingId, ownerRecordingId, StringComparison.Ordinal))
+                return true;
+            return !string.IsNullOrEmpty(ownerTreeId)
+                && string.Equals(holdTreeId, ownerTreeId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The earliest recovery (this walk's <see cref="GameActionType.KerbalRecovered"/>
+        /// rows) that closes <paramref name="kerbalName"/>'s open-ended hold from
+        /// <paramref name="recordingId"/>, or +inf when none does. An owner recording that
+        /// is no longer committed closes nothing.
+        /// </summary>
+        private double ResolveRecoveryClosureUT(
+            string kerbalName, string recordingId, RecordingMeta holdMeta, out string closingOwner)
+        {
+            closingOwner = null;
+            List<RecoveryClosure> closures;
+            if (!recoveryClosures.TryGetValue(kerbalName, out closures))
+                return double.PositiveInfinity;
+
+            double best = double.PositiveInfinity;
+            for (int i = 0; i < closures.Count; i++)
+            {
+                var c = closures[i];
+                RecordingMeta ownerMeta;
+                if (!recordingMeta.TryGetValue(c.OwnerRecordingId, out ownerMeta))
+                    continue;
+                if (!RecoveryClosesHold(recordingId, holdMeta.TreeId, holdMeta.EndUT,
+                        c.OwnerRecordingId, ownerMeta.TreeId, c.RecoveryUT))
+                    continue;
+                if (c.RecoveryUT < best)
+                {
+                    best = c.RecoveryUT;
+                    closingOwner = c.OwnerRecordingId;
+                }
+            }
+            return best;
         }
 
         /// <summary>
