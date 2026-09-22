@@ -11,6 +11,20 @@ _(unreleased — entries accumulate here per commit)_
 ### Added
 
 - **Dev: the GUI mirror sizes an auto-fitted window by its content, not by the rect the seam applied.** The main window reports height 0 in every dump because its host re-fits it every frame; the mirror had been drawing it at the height the seam applied at open time (300 px, measured in Advanced), which went stale after the mode switch and drew a 74 px empty panel under Close in Basic mode. The owner read it as a product bug; the game frame shows the window ending under Close. `root_height` now takes the child extent plus the measured 14 px bottom chrome and keeps the applied rect only for a window that drew no children (`harness/tools/gui_mirror.py`).
+- **Automated testing: the GUI census photographs the Missions window's fold states.** The
+  operator lane `GUI-1-census-ksc` took exactly one picture of each of the window's two
+  tabs, so every fold arrow in the GUI mirror pointed at nothing - a reader could see that
+  a row collapses and never what collapsing hides. Six new captures (each with its
+  control-tree dump) show both tabs collapsed and fully expanded, plus one Recordings chain
+  block expanded inside its group folder with the other fifteen shut, and one Missions
+  row's `Events (N)` digest open on its own. Spec-only, driven entirely by the existing
+  `UiAction op=expand` vocabulary; no product code changed. Reading run `2026-09-22_1631`
+  (PASS, 87 s): the Missions tab goes 922 -> 1769 drawn nodes between the collapsed and
+  expanded captures, the Recordings tab 415 -> 1915, and the two deep folds read 999 and
+  453. Two measurements came out of it: a chain block only draws inside an OPEN group
+  folder (expanding the chain alone flips the flag and changes no pixel), and on this host
+  the window restores fully collapsed in both tabs.
+
 - **Automated testing: the GUI state gallery, phase 1 - a window can now be handed MOCKED
   DATA while the real IMGUI draw code computes every rect and every string.** The census is
   honest and incomplete: a harness flight can only photograph a state some fixture save plus
@@ -3128,6 +3142,16 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **The non-loop live-PID grep gate's two arms agree again, and a test keeps them in step.**
+  The pwsh script and the managed fallback the Linux CI runner uses forbade different names
+  for the deleted active-Re-Fly shadow resolver in `GhostMapPresence.cs`, and neither name
+  existed (a 2026-05 `AbsoluteShadow` -> `BodyFixedPrimary` rename swept one arm only). Both
+  now forbid `TryResolveActiveReFly\w*Point`; `NonLoopLivePidAudit_ManagedArmMatchesPwshArm`
+  parses the script's check rows and fails on any difference from the managed table, and the
+  managed arm now also runs on hosts that have pwsh. The managed scan also matches
+  case-insensitively now, as `Select-String` does, so the CI arm no longer passes a
+  differently-cased forbidden read that the pwsh arm catches.
 
 - **Dev tooling: a code and test counting script.** `python scripts/count-code.py` prints
   the line count per area of the repository (mod source, the xUnit project, the harness,
