@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/Logistics/RouteAnalysisEngine.cs b/Source/Parsek/Logistics/RouteAnalysisEngine.cs
+index 7bb18e001..c1225397a 100644
+--- a/Source/Parsek/Logistics/RouteAnalysisEngine.cs
++++ b/Source/Parsek/Logistics/RouteAnalysisEngine.cs
+@@ -299,6 +299,7 @@ namespace Parsek.Logistics
+             RecordingTree tree,
+             RouteAnalysisLogMode logMode = RouteAnalysisLogMode.Diagnostic)
+         {
++            return new RouteAnalysisResult { Status = RouteAnalysisStatus.MissingRouteProof };
+             if (tree?.Recordings == null || tree.Recordings.Count == 0)
+                 return MissingProof(logMode);
+ 

@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
-using System.Text;
 using Parsek;
 using Parsek.Logistics;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Parsek.Tests.Logistics
 {
@@ -30,13 +27,6 @@ namespace Parsek.Tests.Logistics
     /// </summary>
     public class RoverRelayCOracleTests
     {
-        private readonly ITestOutputHelper output;
-
-        public RoverRelayCOracleTests(ITestOutputHelper output)
-        {
-            this.output = output;
-        }
-
         internal const string TreeId = "88c012a6eed94bf09ff73397a4a31410";
         internal const string RootRecordingId = "8604fbc77d54482eae83424b7e401954";
         /// <summary>The dock-merged child at rover B (hop 1, the PICKUP).</summary>
@@ -66,62 +56,6 @@ namespace Parsek.Tests.Logistics
             RecordingTree tree = RecordingTree.Load(treeNode);
             Assert.NotNull(tree);
             return tree;
-        }
-
-        [Fact]
-        public void ReportTheOracle()
-        {
-            RecordingTree tree = LoadTree();
-            var sb = new StringBuilder();
-            sb.AppendLine($"tree={tree.Id} name='{tree.TreeName}' recordings={tree.Recordings.Count} root={tree.RootRecordingId}");
-            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
-            {
-                Recording r = kvp.Value;
-                sb.AppendLine(
-                    $"  rec={r.RecordingId} vessel='{r.VesselName}' pid={r.VesselPersistentId} " +
-                    $"order={r.TreeOrder} launchSite='{r.LaunchSiteName}' " +
-                    $"windows={r.RouteConnectionWindows?.Count ?? 0} " +
-                    $"proof={(r.RouteOriginProof != null ? r.RouteOriginProof.StartDockedOriginBindState.ToString() : "<none>")}" +
-                    (r.RouteOriginProof != null
-                        ? $" originRoot={r.RouteOriginProof.StartDockedOriginRootPartUId}" +
-                          $" originName='{r.RouteOriginProof.StartDockedOriginVesselName}'" +
-                          $" transportRoot={r.RouteOriginProof.StartDockedTransportRootPartUId}" +
-                          $" pickup={r.RouteOriginProof.StartDockedOriginPickupKind}" +
-                          $" validated={r.RouteOriginProof.StartDockedOriginPickupValidated}"
-                        : string.Empty));
-                if (r.RouteConnectionWindows != null)
-                {
-                    for (int i = 0; i < r.RouteConnectionWindows.Count; i++)
-                    {
-                        RouteConnectionWindow w = r.RouteConnectionWindows[i];
-                        sb.AppendLine(
-                            $"    window={w.WindowId} dock={w.DockUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"undock={w.UndockUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"target={w.TransferTargetVesselPid} kind={w.TransferKind} " +
-                            $"complete={w.IsComplete} endpoint={(w.EndpointAtDock.HasValue ? "yes" : "no")}");
-                    }
-                }
-            }
-
-            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
-            sb.AppendLine($"ANALYSIS status={result.Status} detail={result.RejectDetail ?? "<none>"}");
-            sb.AppendLine($"  stops={result.Stops?.Count ?? 0} midTreeDockedOrigin={result.IsMidTreeDockedOrigin} harvestOrigin={result.IsHarvestOrigin}");
-            if (result.Stops != null)
-            {
-                for (int i = 0; i < result.Stops.Count; i++)
-                {
-                    RouteAnalysisStop s = result.Stops[i];
-                    sb.AppendLine(
-                        $"  stop[{i}] dockUT={s.DockUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"endpointPid={s.EndpointAtDock.VesselPersistentId} " +
-                        $"deliver={FormatDouble(s.ResourceDeliveryManifest)} " +
-                        $"load={FormatDouble(s.ResourceLoadManifest)} " +
-                        $"deliverInv={s.InventoryDeliveryManifest?.Count ?? 0} " +
-                        $"loadInv={s.InventoryLoadManifest?.Count ?? 0}");
-                }
-            }
-
-            output.WriteLine(sb.ToString());
         }
 
         // catches: the relay silently ceasing to derive. This is THE oracle for the whole
@@ -239,15 +173,6 @@ namespace Parsek.Tests.Logistics
             // let the pickup window through - and why the binder fix is about the bytes
             // being wrong, not about this run's verdict.
             Assert.Equal(RouteAnalysisStatus.Eligible, RouteAnalysisEngine.AnalyzeTree(tree).Status);
-        }
-
-        private static string FormatDouble(Dictionary<string, double> m)
-        {
-            if (m == null || m.Count == 0) return "<none>";
-            var parts = new List<string>();
-            foreach (KeyValuePair<string, double> kvp in m)
-                parts.Add($"{kvp.Key}={kvp.Value.ToString("R", CultureInfo.InvariantCulture)}");
-            return string.Join(";", parts);
         }
     }
 }

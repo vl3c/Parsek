@@ -336,10 +336,15 @@ namespace Parsek.Tests
 
         #region Recording Growth Rate Logging
 
+        /// <summary>
+        /// The stop line is built by the production formatter FinalizeRecordingState
+        /// logs through (<c>FlightRecorder.FormatGrowthRateAtStop</c>), asserted as one
+        /// exact string so field order, precision and spelling are all pinned, and under
+        /// a comma-decimal culture because the elapsed time and both rates are doubles.
+        /// </summary>
         [Fact]
         public void RecordingGrowthRate_FormatMatchesExpected()
         {
-            // Simulate what FinalizeRecordingState logs
             var gr = new RecordingGrowthRate
             {
                 totalPoints = 500,
@@ -350,26 +355,24 @@ namespace Parsek.Tests
                 estimatedFinalBytes = 42500
             };
 
-            ParsekLog.Verbose("Diagnostics",
-                string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Recording growth rate at stop: {0} points, {1} events, {2:F1}s elapsed, " +
-                    "{3:F2} pts/s, {4:F2} evts/s, est {5} bytes",
-                    gr.totalPoints, gr.totalEvents, gr.elapsedSeconds,
-                    gr.pointsPerSecond, gr.eventsPerSecond, gr.estimatedFinalBytes));
+            System.Globalization.CultureInfo saved =
+                System.Threading.Thread.CurrentThread.CurrentCulture;
+            string line;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                line = FlightRecorder.FormatGrowthRateAtStop(gr);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
 
-            Assert.Contains(logLines, l =>
-                l.Contains("[VERBOSE]") &&
-                l.Contains("[Diagnostics]") &&
-                l.Contains("Recording growth rate at stop"));
-
-            var growthLine = logLines.FirstOrDefault(l =>
-                l.Contains("Recording growth rate at stop"));
-            Assert.NotNull(growthLine);
-            Assert.Contains("500 points", growthLine);
-            Assert.Contains("25 events", growthLine);
-            Assert.Contains("30.0s elapsed", growthLine);
-            Assert.Contains("pts/s", growthLine);
-            Assert.Contains("evts/s", growthLine);
+            Assert.Equal(
+                "Recording growth rate at stop: 500 points, 25 events, 30.0s elapsed, "
+                + "16.67 pts/s, 0.83 evts/s, est 42500 bytes",
+                line);
         }
 
         #endregion

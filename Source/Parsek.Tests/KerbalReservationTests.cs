@@ -867,12 +867,14 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateModule(module);
 
-            MethodInfo method = typeof(KerbalsModule).GetMethod(
-                "ShouldEnsureChainEntryInRoster", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(method);
+            // Neither stand-in is on the roster, so every chain entry ApplyToRoster
+            // decides to ensure reaches TryRecreateStandIn: the active occupant Hanley
+            // must be asked for, the displaced never-flown Kirrim must not.
+            var roster = new TombstoneCleanupFakeRoster();
+            kerbals.ApplyToRoster(roster);
 
-            Assert.True((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 0 }));
-            Assert.False((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 1 }));
+            Assert.Contains("Hanley", roster.RecreateRequests);
+            Assert.DoesNotContain("Kirrim", roster.RecreateRequests);
         }
 
         [Fact]
@@ -902,11 +904,13 @@ namespace Parsek.Tests
             Assert.NotNull(allRecordingCrewField);
             allRecordingCrewField.SetValue(kerbals, new HashSet<string> { "Kirrim" });
 
-            MethodInfo method = typeof(KerbalsModule).GetMethod(
-                "ShouldEnsureChainEntryInRoster", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(method);
+            // Kirrim is displaced but flew in a recording (retired), so ApplyToRoster
+            // must still ask the roster to recreate the missing entry.
+            var roster = new TombstoneCleanupFakeRoster();
+            kerbals.ApplyToRoster(roster);
 
-            Assert.True((bool)method.Invoke(kerbals, new object[] { kerbals.Slots["Jeb"], 1 }));
+            Assert.Contains("Kirrim", roster.RecreateRequests);
+            Assert.Contains("Hanley", roster.RecreateRequests);
         }
 
         [Fact]
@@ -1444,8 +1448,12 @@ namespace Parsek.Tests
                 return false;
             }
 
+            /// <summary>Every name ApplyToRoster asked this roster to recreate.</summary>
+            internal readonly List<string> RecreateRequests = new List<string>();
+
             public bool TryRecreateStandIn(string desiredName, string trait)
             {
+                RecreateRequests.Add(desiredName);
                 return false;
             }
 
