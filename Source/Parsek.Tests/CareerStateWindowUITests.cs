@@ -44,6 +44,10 @@ namespace Parsek.Tests
         // Helpers
         // ──────────────────────────────────────────────────────────────────
 
+        // A deterministic stand-in for KSPUtil.PrintDateCompact: "D<ut>".
+        private static string FakeDate(double ut)
+            => "D" + ut.ToString("F0", CultureInfo.InvariantCulture);
+
         private static (ContractsModule, StrategiesModule, FacilitiesModule, MilestonesModule) Modules()
         {
             return (new ContractsModule(), new StrategiesModule(),
@@ -273,8 +277,12 @@ namespace Parsek.Tests
             Assert.Single(vm.Contracts.CurrentRows);
             Assert.True(vm.Contracts.CurrentRows[0].IsClosingByTimelineEnd);
             Assert.False(vm.Contracts.CurrentRows[0].IsPendingAccept);
-            Assert.Contains("(closing)",
-                CareerStateWindowUI.FormatContractRow_Pending(vm.Contracts.CurrentRows[0]));
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Completed,
+                vm.Contracts.CurrentRows[0].EndKind);
+            Assert.Equal(300.0, vm.Contracts.CurrentRows[0].EndUT);
+            Assert.Equal("completes D300",
+                CareerStateWindowUI.FormatContractRow_TimelineEnd(
+                    vm.Contracts.CurrentRows[0], FakeDate));
         }
 
         [Fact]
@@ -293,8 +301,9 @@ namespace Parsek.Tests
             Assert.Single(vm.Strategies.CurrentRows);
             Assert.True(vm.Strategies.CurrentRows[0].IsClosingByTimelineEnd);
             Assert.False(vm.Strategies.CurrentRows[0].IsPendingActivate);
-            Assert.Contains("(closing)",
-                CareerStateWindowUI.FormatStrategyRow_Pending(vm.Strategies.CurrentRows[0]));
+            Assert.Equal("deactivates D300",
+                CareerStateWindowUI.FormatStrategyRow_TimelineEnd(
+                    vm.Strategies.CurrentRows[0], FakeDate));
         }
 
         [Fact]
@@ -802,193 +811,550 @@ namespace Parsek.Tests
         }
 
         // ──────────────────────────────────────────────────────────────────
-        // §8.2 Formatting tests (Phase 2)
+        // Timeline-end outcomes, pending groups, facility ids (round 3)
+        // ──────────────────────────────────────────────────────────────────
+
+        private static GameAction ContractEnd(GameActionType type, string contractId, double ut)
+        {
+            return new GameAction { Type = type, UT = ut, ContractId = contractId, Effective = true };
+        }
+
+        [Fact]
+        public void Build_Contracts_EachEndingKeepsItsOwnOutcomeAndUT()
+        {
+            // catches: a future FAILURE rendering like a completion (the old "(closing)").
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("done", ut: 10.0, title: "Done"),
+                Accept("fail", ut: 20.0, title: "Fail"),
+                Accept("drop", ut: 30.0, title: "Drop"),
+                Accept("keep", ut: 40.0, title: "Keep"),
+                ContractEnd(GameActionType.ContractComplete, "done", 300.0),
+                ContractEnd(GameActionType.ContractFail, "fail", 400.0),
+                ContractEnd(GameActionType.ContractCancel, "drop", 500.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            var byId = vm.Contracts.CurrentRows.ToDictionary(r => r.ContractId);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Completed, byId["done"].EndKind);
+            Assert.Equal(300.0, byId["done"].EndUT);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Failed, byId["fail"].EndKind);
+            Assert.Equal(400.0, byId["fail"].EndUT);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Cancelled, byId["drop"].EndKind);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.None, byId["keep"].EndKind);
+            Assert.False(byId["keep"].IsClosingByTimelineEnd);
+            Assert.Equal("FAILS D400",
+                CareerStateWindowUI.FormatContractRow_TimelineEnd(byId["fail"], FakeDate));
+            Assert.Equal("", CareerStateWindowUI.FormatContractRow_TimelineEnd(byId["keep"], FakeDate));
+        }
+
+        [Fact]
+        public void Build_Contracts_PendingRows_IncludeContractsAcceptedAndClosedInTheFuture()
+        {
+            // catches: a contract the recorded future both accepts and completes being in
+            // NEITHER the current nor the terminal set, and so on no row at all.
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("now", ut: 100.0, title: "Now"),
+                Accept("later", ut: 300.0, title: "Later"),
+                Accept("brief", ut: 350.0, title: "Brief"),
+                ContractEnd(GameActionType.ContractComplete, "brief", 380.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.Equal(new[] { "now" }, vm.Contracts.CurrentRows.Select(r => r.ContractId));
+            Assert.Equal(new[] { "now", "later" }, vm.Contracts.ProjectedRows.Select(r => r.ContractId));
+            Assert.Equal(new[] { "later", "brief" }, vm.Contracts.PendingRows.Select(r => r.ContractId));
+            Assert.All(vm.Contracts.PendingRows, r => Assert.True(r.IsPendingAccept));
+            var brief = vm.Contracts.PendingRows.Single(r => r.ContractId == "brief");
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Completed, brief.EndKind);
+            Assert.Equal(380.0, brief.EndUT);
+            Assert.True(vm.HasDivergence);
+        }
+
+        [Fact]
+        public void Build_Divergence_ClosingPlusPendingWithEqualCounts()
+        {
+            // catches: divergence keyed only on active COUNTS, which one closing plus one
+            // pending contract leave equal (1 now, 1 at the end) - the banner then hid the
+            // timeline end although both rows change.
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("old", ut: 100.0),
+                ContractEnd(GameActionType.ContractComplete, "old", 300.0),
+                Accept("new", ut: 400.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.Equal(vm.Contracts.CurrentActive, vm.Contracts.ProjectedActive);
+            Assert.True(vm.HasDivergence);
+        }
+
+        [Fact]
+        public void Build_Contracts_EndingBeforeLiveUT_LeavesNoRow()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("past", ut: 100.0),
+                ContractEnd(GameActionType.ContractFail, "past", 150.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.Empty(vm.Contracts.CurrentRows);
+            Assert.Empty(vm.Contracts.PendingRows);
+            Assert.False(vm.HasDivergence);
+        }
+
+        [Fact]
+        public void Build_Strategies_PendingRowsAndDeactivation()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Activate("now", ut: 100.0),
+                Activate("later", ut: 300.0),
+                Deactivate("later", ut: 350.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.Single(vm.Strategies.CurrentRows);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.None, vm.Strategies.CurrentRows[0].EndKind);
+            var later = Assert.Single(vm.Strategies.PendingRows);
+            Assert.Equal("later", later.StrategyId);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Deactivated, later.EndKind);
+            Assert.Equal("deactivates D350",
+                CareerStateWindowUI.FormatStrategyRow_TimelineEnd(later, FakeDate));
+        }
+
+        [Theory]
+        [InlineData("SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_launchPad", "LaunchPad")]
+        [InlineData("SpaceCenter/VehicleAssemblyBuilding/Facility/mainBuilding", "VehicleAssemblyBuilding")]
+        [InlineData("SpaceCenter/Runway", "Runway")]
+        [InlineData("Runway", "Runway")]
+        [InlineData("", "")]
+        [InlineData(null, "")]
+        public void FacilityIdForBuilding_ReducesABuildingIdToItsFacility(string buildingId, string expected)
+        {
+            Assert.Equal(expected, CareerStateWindowUI.FacilityIdForBuilding(buildingId));
+        }
+
+        [Fact]
+        public void Build_Facilities_ProductionDestructibleIdsReachTheFacilityRow()
+        {
+            // catches: destruction keyed by the raw DestructibleBuilding id
+            // ("SpaceCenter/LaunchPad/Facility/..."), which never matched a facility row, so
+            // a destroyed building never showed as destroyed.
+            var (c, s, f, m) = Modules();
+            const string tank = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank";
+            const string tower = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tower";
+            var actions = new List<GameAction>
+            {
+                Destroy(tank, ut: 100.0),
+                Destroy(tower, ut: 110.0),
+                // Only one of the two buildings is repaired in the recorded future: the
+                // facility stays destroyed at the timeline end.
+                Repair(tank, ut: 300.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
+            Assert.True(pad.CurrentDestroyed);
+            Assert.True(pad.ProjectedDestroyed);
+            Assert.Equal("L1 (destroyed)", CareerStateWindowUI.FormatFacilityRow_Level(pad));
+        }
+
+        [Fact]
+        public void Build_Facilities_RecordTheUTOfEachFutureChange()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Upgrade("SpaceCenter/LaunchPad", 2, ut: 100.0),
+                Upgrade("SpaceCenter/LaunchPad", 3, ut: 400.0),
+                Destroy("SpaceCenter/Runway/Facility/x", ut: 450.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
+            Assert.Equal("upgrades to L3, D400",
+                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(pad, true, FakeDate));
+            var runway = vm.Facilities.Rows.Single(r => r.FacilityId == "Runway");
+            Assert.Equal("destroyed D450",
+                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(runway, true, FakeDate));
+        }
+
+        [Fact]
+        public void Build_Milestones_UseTheTimelineTitleShape()
+        {
+            // catches: "Kerbin/ Science" (SpaceBeforeCapitals does not treat the slash as
+            // a word break).
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Milestone("Kerbin/Science", ut: 10.0),
+                Milestone("Minmus/ReturnFromFlyBy", ut: 20.0),
+                Milestone("FirstLaunch", ut: 30.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 100.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            Assert.Equal(
+                new[] { "Kerbin - Science", "Minmus - Return From Fly By", "First Launch" },
+                vm.Milestones.Rows.Select(r => r.DisplayTitle));
+            Assert.DoesNotContain(vm.Milestones.Rows, r => r.DisplayTitle.Contains("/ "));
+        }
+
+        [Fact]
+        public void Build_FacilityNames_ComeFromTheStockLookup()
+        {
+            CareerStateWindowUI.FacilityNameLookupForTesting =
+                id => id == "LaunchPad" ? "Launchpad" : null;
+            try
+            {
+                var (c, s, f, m) = Modules();
+                var vm = CareerStateWindowUI.Build(new List<GameAction>(), 0.0,
+                    Game.Modes.CAREER, c, s, f, m);
+
+                Assert.Equal("Launchpad",
+                    vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad").DisplayTitle);
+                // No stock answer -> the humanized id, with stock's lowercase conjunction.
+                Assert.Equal("Research and Development",
+                    vm.Facilities.Rows.Single(r => r.FacilityId == "ResearchAndDevelopment").DisplayTitle);
+            }
+            finally
+            {
+                CareerStateWindowUI.FacilityNameLookupForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void ResolveFacilityDisplayName_IgnoresAnUnresolvedLocalizationTag()
+        {
+            CareerStateWindowUI.FacilityNameLookupForTesting = id => "#autoLOC_6001646";
+            try
+            {
+                Assert.Equal("Research and Development",
+                    CareerStateWindowUI.ResolveFacilityDisplayName("ResearchAndDevelopment"));
+            }
+            finally
+            {
+                CareerStateWindowUI.FacilityNameLookupForTesting = null;
+            }
+        }
+
+        [Theory]
+        [InlineData("ResearchAndDevelopment", "Research and Development")]
+        [InlineData("VehicleAssemblyBuilding", "Vehicle Assembly Building")]
+        [InlineData("MissionControl", "Mission Control")]
+        public void HumanizeFacilityId_SplitsPascalCaseWithALowercaseAnd(string id, string expected)
+        {
+            Assert.Equal(expected, CareerStateWindowUI.HumanizeFacilityId(id));
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Pure formatters (round 3: dates, relative tails, outcomes)
         // ──────────────────────────────────────────────────────────────────
 
         [Fact]
-        public void FormatContractRow_WithDeadline_ShowsDeadline()
+        public void FormatDateCell_NaNIsDoubleDash_NullFormatterFallsBackToSeconds()
         {
-            // Regression: fails if the deadline is dropped from the formatted row
-            // or if F0 formatting is replaced with a locale-dependent call.
-            var row = new CareerStateWindowUI.ContractRow
-            {
-                ContractId = "ctr-1",
-                DisplayTitle = "Explore Mun",
-                AcceptUT = 104230.0,
-                DeadlineUT = 240000.0,
-                IsPendingAccept = false
-            };
-
-            string s = CareerStateWindowUI.FormatContractRow(row);
-
-            Assert.Contains("Explore Mun", s);
-            Assert.Contains("accepted UT 104230", s);
-            Assert.Contains("deadline UT 240000", s);
-            Assert.DoesNotContain("(pending)", s);
-            Assert.DoesNotContain("--", s);
+            Assert.Equal("--", CareerStateWindowUI.FormatDateCell(double.NaN, FakeDate));
+            Assert.Equal("D42", CareerStateWindowUI.FormatDateCell(42.0, FakeDate));
+            Assert.Equal("42", CareerStateWindowUI.FormatDateCell(42.0, null));
+            Assert.Equal("--", CareerStateWindowUI.FormatDateCell(42.0, ut => ""));
         }
 
         [Fact]
-        public void FormatContractRow_NaNDeadline_ShowsDoubleDash()
+        public void FormatRelativeTail_UsesTheLargestUnitOfThePlayersCalendar()
         {
-            // Regression: fails if NaN silently renders as "NaN" or is dropped
-            // rather than replaced with "(deadline --)".
-            var row = new CareerStateWindowUI.ContractRow
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            try
             {
-                ContractId = "ctr-1",
-                DisplayTitle = "Rescue Kerbal",
-                AcceptUT = 118900.0,
-                DeadlineUT = double.NaN,
-                IsPendingAccept = false
-            };
-
-            string s = CareerStateWindowUI.FormatContractRow(row);
-
-            Assert.Contains("Rescue Kerbal", s);
-            Assert.Contains("(deadline --)", s);
-            Assert.DoesNotContain("NaN", s);
+                const double day = 21600.0;
+                Assert.Equal("(in 12d)",
+                    CareerStateWindowUI.FormatRelativeTail(1000.0 + 12 * day + 3 * 3600, 1000.0));
+                Assert.Equal("(overdue 3d)",
+                    CareerStateWindowUI.FormatRelativeTail(1000.0, 1000.0 + 3 * day + 60));
+                Assert.Equal("(in 5h)",
+                    CareerStateWindowUI.FormatRelativeTail(5 * 3600 + 120, 0.0));
+                // Exactly at the deadline counts as passed.
+                Assert.Equal("(overdue 0s)", CareerStateWindowUI.FormatRelativeTail(50.0, 50.0));
+            }
+            finally
+            {
+                ParsekTimeFormat.KerbinTimeOverrideForTesting = null;
+            }
         }
 
         [Fact]
-        public void FormatContractRow_PendingAccept_IncludesPendingTag()
+        public void FormatContractRow_Deadline_ShowsDateAndRelativeTail()
         {
-            // Regression: fails if IsPendingAccept=true is silently elided from
-            // the output — pending entries must be visually distinguishable.
-            var row = new CareerStateWindowUI.ContractRow
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            try
             {
-                ContractId = "ctr-future",
-                DisplayTitle = "Future Contract",
-                AcceptUT = 500.0,
-                DeadlineUT = double.NaN,
-                IsPendingAccept = true
-            };
+                var row = new CareerStateWindowUI.ContractRow { DeadlineUT = 21600.0 * 2 };
+                Assert.Equal("D43200 (in 2d)",
+                    CareerStateWindowUI.FormatContractRow_Deadline(row, 0.0, FakeDate));
+                Assert.False(CareerStateWindowUI.IsDeadlineOverdue(row, 0.0));
 
-            string s = CareerStateWindowUI.FormatContractRow(row);
+                Assert.Equal("D43200 (overdue 1d)",
+                    CareerStateWindowUI.FormatContractRow_Deadline(row, 21600.0 * 3, FakeDate));
+                Assert.True(CareerStateWindowUI.IsDeadlineOverdue(row, 21600.0 * 3));
 
-            Assert.Contains("(pending)", s);
+                var none = new CareerStateWindowUI.ContractRow { DeadlineUT = double.NaN };
+                Assert.Equal("--", CareerStateWindowUI.FormatContractRow_Deadline(none, 0.0, FakeDate));
+                Assert.False(CareerStateWindowUI.IsDeadlineOverdue(none, 1e9));
+            }
+            finally
+            {
+                ParsekTimeFormat.KerbinTimeOverrideForTesting = null;
+            }
+        }
+
+        [Theory]
+        [InlineData((int)CareerStateWindowUI.TimelineEndKind.None, "", false)]
+        [InlineData((int)CareerStateWindowUI.TimelineEndKind.Completed, "completes D7", false)]
+        [InlineData((int)CareerStateWindowUI.TimelineEndKind.Failed, "FAILS D7", true)]
+        [InlineData((int)CareerStateWindowUI.TimelineEndKind.Cancelled, "cancelled D7", false)]
+        [InlineData((int)CareerStateWindowUI.TimelineEndKind.Deactivated, "deactivates D7", false)]
+        public void FormatTimelineEnd_NamesTheOutcomeAndItsDate(
+            int kindValue, string expected, bool alert)
+        {
+            var kind = (CareerStateWindowUI.TimelineEndKind)kindValue;
+            Assert.Equal(expected, CareerStateWindowUI.FormatTimelineEnd(kind, 7.0, FakeDate));
+            Assert.Equal(alert, CareerStateWindowUI.IsTimelineEndAlert(kind));
         }
 
         [Fact]
-        public void FormatStrategyRow_ShowsSourceTargetAndCommitment()
+        public void ContractEndKindFor_MapsTheThreeClosingActions()
         {
-            // Regression: fails if the resource direction swaps (Source↔Target)
-            // or if the commitment percentage loses InvariantCulture (e.g. on a
-            // comma-locale system "12.5%" becomes "12,5%").
-            var row = new CareerStateWindowUI.StrategyRow
-            {
-                StrategyId = "Subsidy",
-                DisplayTitle = "Subsidy",
-                ActivateUT = 150.0,
-                SourceResource = StrategyResource.Funds,
-                TargetResource = StrategyResource.Science,
-                Commitment = 0.125f,
-                IsPendingActivate = false
-            };
-
-            string s = CareerStateWindowUI.FormatStrategyRow(row);
-
-            Assert.Contains("Subsidy", s);
-            Assert.Contains("activated UT 150", s);
-            Assert.Contains("Funds -> Science", s);
-            Assert.Contains("12.5%", s);
-            Assert.DoesNotContain(",5%", s);
-            Assert.DoesNotContain("(pending)", s);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Completed,
+                CareerStateWindowUI.ContractEndKindFor(GameActionType.ContractComplete));
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Failed,
+                CareerStateWindowUI.ContractEndKindFor(GameActionType.ContractFail));
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Cancelled,
+                CareerStateWindowUI.ContractEndKindFor(GameActionType.ContractCancel));
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.None,
+                CareerStateWindowUI.ContractEndKindFor(GameActionType.ContractAccept));
         }
 
         [Fact]
-        public void FormatFacilityRow_UpcomingChange_ShowsArrow()
+        public void FormatFacilityRow_TimelineEnd_CoversEveryChange()
         {
-            // Regression: fails if an upcoming level change collapses to a
-            // single "L2" label instead of showing "L2 -> L3 (upcoming)".
-            var row = new CareerStateWindowUI.FacilityRow
+            var up = new CareerStateWindowUI.FacilityRow
             {
-                FacilityId = "LaunchPad",
-                DisplayTitle = "Launch Pad",
-                CurrentLevel = 2,
-                ProjectedLevel = 3,
-                CurrentDestroyed = false,
-                ProjectedDestroyed = false,
-                HasUpcomingChange = true
+                CurrentLevel = 1, ProjectedLevel = 2, LevelChangeUT = 40.0
             };
+            Assert.Equal("upgrades to L2, D40",
+                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(up, true, FakeDate));
+            // Levels are not shown in Science mode, so a level change says nothing there.
+            Assert.Equal("", CareerStateWindowUI.FormatFacilityRow_TimelineEnd(up, false, FakeDate));
+            Assert.True(CareerStateWindowUI.FacilityRowChanges(up, true));
+            Assert.False(CareerStateWindowUI.FacilityRowChanges(up, false));
 
-            string s = CareerStateWindowUI.FormatFacilityRow(row);
+            var repaired = new CareerStateWindowUI.FacilityRow
+            {
+                CurrentLevel = 2, ProjectedLevel = 2,
+                CurrentDestroyed = true, ProjectedDestroyed = false, DestroyedChangeUT = 90.0
+            };
+            Assert.Equal("repaired D90",
+                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(repaired, false, FakeDate));
 
-            Assert.Contains("Launch Pad", s);
-            Assert.Contains("L2 -> L3", s);
-            Assert.Contains("(upcoming)", s);
+            var both = new CareerStateWindowUI.FacilityRow
+            {
+                CurrentLevel = 1, ProjectedLevel = 3, LevelChangeUT = 40.0,
+                ProjectedDestroyed = true, DestroyedChangeUT = 90.0
+            };
+            Assert.Equal("upgrades to L3, D40; destroyed D90",
+                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(both, true, FakeDate));
+
+            var still = new CareerStateWindowUI.FacilityRow { CurrentLevel = 2, ProjectedLevel = 2 };
+            Assert.Equal("", CareerStateWindowUI.FormatFacilityRow_TimelineEnd(still, true, FakeDate));
         }
 
         [Fact]
-        public void FormatFacilityRow_DestroyedWithRepairPending_ShowsBothTags()
+        public void FormatFacilityRow_LevelAndState()
         {
-            // Regression: fails if the combined "destroyed + repair pending"
-            // state collapses to just "(destroyed)" — the projected-clears-destroyed
-            // case must show the repair signal.
-            var row = new CareerStateWindowUI.FacilityRow
+            var ok = new CareerStateWindowUI.FacilityRow { CurrentLevel = 2 };
+            var down = new CareerStateWindowUI.FacilityRow { CurrentLevel = 3, CurrentDestroyed = true };
+            Assert.Equal("L2", CareerStateWindowUI.FormatFacilityRow_Level(ok));
+            Assert.Equal("L3 (destroyed)", CareerStateWindowUI.FormatFacilityRow_Level(down));
+            Assert.Equal("intact", CareerStateWindowUI.FormatFacilityRow_State(ok));
+            Assert.Equal("destroyed", CareerStateWindowUI.FormatFacilityRow_State(down));
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Mode-appropriate tabs, banner, launcher (round 3)
+        // ──────────────────────────────────────────────────────────────────
+
+        private static CareerStateWindowUI.FacilitiesTabVM Facilities(params bool[] destroyed)
+        {
+            var tab = new CareerStateWindowUI.FacilitiesTabVM
             {
-                FacilityId = "Runway",
-                DisplayTitle = "Runway",
-                CurrentLevel = 1,
-                ProjectedLevel = 1,
-                CurrentDestroyed = true,
-                ProjectedDestroyed = false,
-                HasUpcomingChange = true
+                Rows = new List<CareerStateWindowUI.FacilityRow>()
             };
-
-            string s = CareerStateWindowUI.FormatFacilityRow(row);
-
-            Assert.Contains("Runway", s);
-            Assert.Contains("destroyed", s);
-            Assert.Contains("repair pending", s);
+            foreach (bool d in destroyed)
+                tab.Rows.Add(new CareerStateWindowUI.FacilityRow { CurrentLevel = 1, CurrentDestroyed = d });
+            return tab;
         }
 
         [Fact]
-        public void FormatMilestoneRow_ZeroRewards_ElidesSuffix()
+        public void VisibleTabsFor_EachMode()
         {
-            // Regression: fails if zero rewards still render ("+ 0 sci" clutter)
-            // instead of being elided per design doc E8.
-            var row = new CareerStateWindowUI.MilestoneRow
-            {
-                MilestoneId = "FirstLaunch",
-                DisplayTitle = "First Launch",
-                CreditedUT = 8230.0,
-                FundsAwarded = 10000f,
-                RepAwarded = 5f,
-                ScienceAwarded = 0f,
-                IsPendingCredit = false
-            };
-
-            string s = CareerStateWindowUI.FormatMilestoneRow(row);
-
-            Assert.Contains("UT 8230", s);
-            Assert.Contains("First Launch", s);
-            Assert.Contains("+ 10000 funds", s);
-            Assert.Contains("+ 5 rep", s);
-            Assert.DoesNotContain("sci", s);
-            Assert.DoesNotContain("(pending)", s);
+            Assert.Equal(new[] { 0, 1, 2, 3 },
+                CareerStateWindowUI.VisibleTabsFor(Game.Modes.CAREER, Facilities(false)));
+            // Science: no contracts, no strategies, no building levels. Facilities only
+            // while a building is destroyed.
+            Assert.Equal(new[] { CareerStateWindowUI.TabMilestones },
+                CareerStateWindowUI.VisibleTabsFor(Game.Modes.SCIENCE_SANDBOX, Facilities(false, false)));
+            Assert.Equal(new[] { CareerStateWindowUI.TabFacilities, CareerStateWindowUI.TabMilestones },
+                CareerStateWindowUI.VisibleTabsFor(Game.Modes.SCIENCE_SANDBOX, Facilities(false, true)));
+            Assert.Empty(CareerStateWindowUI.VisibleTabsFor(Game.Modes.SANDBOX, Facilities(true)));
+            Assert.Empty(CareerStateWindowUI.VisibleTabsFor(Game.Modes.MISSION, Facilities()));
         }
 
         [Fact]
-        public void FormatMilestoneRow_PendingCredit_ShowsPendingTag()
+        public void VisibleTabsFor_ScienceCountsAPendingDestruction()
         {
-            // Regression: fails if IsPendingCredit=true doesn't surface the
-            // "(pending)" suffix — players must see which milestones are
-            // projected-not-yet-credited.
-            var row = new CareerStateWindowUI.MilestoneRow
+            var tab = Facilities(false);
+            var row = tab.Rows[0];
+            row.ProjectedDestroyed = true;
+            tab.Rows[0] = row;
+            Assert.Contains(CareerStateWindowUI.TabFacilities,
+                CareerStateWindowUI.VisibleTabsFor(Game.Modes.SCIENCE_SANDBOX, tab));
+        }
+
+        [Fact]
+        public void FacilityRowVisible_ScienceListsOnlyDestroyedBuildings()
+        {
+            var ok = new CareerStateWindowUI.FacilityRow { CurrentLevel = 1 };
+            var down = new CareerStateWindowUI.FacilityRow { CurrentLevel = 1, CurrentDestroyed = true };
+            Assert.True(CareerStateWindowUI.FacilityRowVisible(ok, Game.Modes.CAREER));
+            Assert.False(CareerStateWindowUI.FacilityRowVisible(ok, Game.Modes.SCIENCE_SANDBOX));
+            Assert.True(CareerStateWindowUI.FacilityRowVisible(down, Game.Modes.SCIENCE_SANDBOX));
+            Assert.False(CareerStateWindowUI.FacilityRowVisible(down, Game.Modes.SANDBOX));
+        }
+
+        [Fact]
+        public void CoerceTab_KeepsADrawnTabAndOtherwiseTakesTheFirst()
+        {
+            int[] science = { CareerStateWindowUI.TabMilestones };
+            Assert.Equal(CareerStateWindowUI.TabMilestones,
+                CareerStateWindowUI.CoerceTab(CareerStateWindowUI.TabContracts, science));
+            Assert.Equal(CareerStateWindowUI.TabMilestones,
+                CareerStateWindowUI.CoerceTab(CareerStateWindowUI.TabMilestones, science));
+            Assert.Equal(2, CareerStateWindowUI.CoerceTab(2, new[] { 0, 1, 2, 3 }));
+            // A mode that draws no tabs keeps the stored selection for later.
+            Assert.Equal(1, CareerStateWindowUI.CoerceTab(1, new int[0]));
+        }
+
+        [Fact]
+        public void SelectedTabForTesting_CoercesAgainstTheCachedMode()
+        {
+            // catches: the seam writing tab=contracts in Science mode, reading it back as
+            // applied, and photographing Milestones under a Contracts label.
+            var ui = new CareerStateWindowUI(parentUI: null);
+            ui.CachedVMForTesting = new CareerStateWindowUI.CareerStateViewModel
             {
-                MilestoneId = "FirstOrbit",
-                DisplayTitle = "First Orbit",
-                CreditedUT = 118900.0,
-                FundsAwarded = 0f,
-                RepAwarded = 0f,
-                ScienceAwarded = 0f,
-                IsPendingCredit = true
+                Mode = Game.Modes.SCIENCE_SANDBOX,
+                Facilities = Facilities(false)
             };
+            ui.SelectedTabForTesting = CareerStateWindowUI.TabContracts;
+            Assert.Equal(CareerStateWindowUI.TabMilestones, ui.SelectedTabForTesting);
 
-            string s = CareerStateWindowUI.FormatMilestoneRow(row);
+            // No cached VM yet: stored as written, the draw coerces it.
+            var fresh = new CareerStateWindowUI(parentUI: null);
+            fresh.SelectedTabForTesting = CareerStateWindowUI.TabStrategies;
+            Assert.Equal(CareerStateWindowUI.TabStrategies, fresh.SelectedTabForTesting);
+        }
 
-            Assert.Contains("First Orbit", s);
-            Assert.Contains("(pending)", s);
+        [Fact]
+        public void ModeOffersLauncher_HidesCareerInSandbox()
+        {
+            Assert.True(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.CAREER));
+            Assert.True(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.SCIENCE_SANDBOX));
+            Assert.False(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.SANDBOX));
+            Assert.False(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.MISSION));
+            Assert.False(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.MISSION_BUILDER));
+        }
+
+        [Fact]
+        public void FormatModeBanner_DatesNotSeconds()
+        {
+            var vm = CachedVm(liveUT: 1000.0);
+            vm.TerminalUT = 5000.0;
+            Assert.Equal("Career mode - D1000", CareerStateWindowUI.FormatModeBanner(vm, FakeDate));
+
+            vm.HasDivergence = true;
+            Assert.Equal("Career mode - D1000  (timeline ends D5000)",
+                CareerStateWindowUI.FormatModeBanner(vm, FakeDate));
+
+            Assert.Equal("Science mode - no contracts, strategies or building levels",
+                CareerStateWindowUI.FormatModeBanner(
+                    CachedVm(1000.0, mode: Game.Modes.SCIENCE_SANDBOX), FakeDate));
+            Assert.Equal("Sandbox mode - career state is not tracked",
+                CareerStateWindowUI.FormatModeBanner(
+                    CachedVm(1000.0, mode: Game.Modes.SANDBOX), FakeDate));
+        }
+
+        [Fact]
+        public void CountPendingMilestones_CountsOnlyFutureCredits()
+        {
+            var rows = new List<CareerStateWindowUI.MilestoneRow>
+            {
+                new CareerStateWindowUI.MilestoneRow { IsPendingCredit = false },
+                new CareerStateWindowUI.MilestoneRow { IsPendingCredit = true },
+                new CareerStateWindowUI.MilestoneRow { IsPendingCredit = true },
+            };
+            Assert.Equal(2, CareerStateWindowUI.CountPendingMilestones(rows));
+            Assert.Equal(0, CareerStateWindowUI.CountPendingMilestones(null));
+        }
+
+        [Fact]
+        public void TheSeamPendingValuesMapToTheWindowsFoldKeys()
+        {
+            // The automation seam's `op=expand window=career key=pending:<tab>` names the
+            // TAB; every wire value must resolve to one of the window's own fold keys.
+            Assert.Equal(new[] { "contracts", "strategies", "milestones" },
+                Parsek.TestCommands.TestCommandUiState.CareerPendingFoldValues);
+            Assert.Equal(CareerStateWindowUI.GroupKey_MilestonesPending,
+                Parsek.TestCommands.TestCommandUiState.CareerFoldKeyFor("milestones"));
+            foreach (string v in Parsek.TestCommands.TestCommandUiState.CareerPendingFoldValues)
+                Assert.Contains(Parsek.TestCommands.TestCommandUiState.CareerFoldKeyFor(v),
+                    CareerStateWindowUI.FoldGroupKeys);
+            Assert.Null(Parsek.TestCommands.TestCommandUiState.CareerFoldKeyFor("facilities"));
+        }
+
+        [Fact]
+        public void FoldGroupKeys_CoverThePendingGroupOfEveryTabThatSplits()
+        {
+            Assert.Equal(
+                new[]
+                {
+                    CareerStateWindowUI.GroupKey_ContractsPending,
+                    CareerStateWindowUI.GroupKey_StrategiesPending,
+                    CareerStateWindowUI.GroupKey_MilestonesPending,
+                },
+                CareerStateWindowUI.FoldGroupKeys);
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -1253,59 +1619,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatContractRow_Deadline_NaN_ShowsDoubleDash()
-        {
-            // Regression: fails if the per-column deadline helper renders NaN as
-            // "NaN" (or worse, "-2,147,483,648"). The column header carries the
-            // "Deadline UT" label so the cell body stays bare "--".
-            var row = new CareerStateWindowUI.ContractRow
-            {
-                ContractId = "ctr-1", DeadlineUT = double.NaN
-            };
-
-            Assert.Equal("--", CareerStateWindowUI.FormatContractRow_Deadline(row));
-        }
-
-        [Fact]
-        public void FormatContractRow_Deadline_Finite_ShowsUT()
-        {
-            // Regression: fails if the helper loses InvariantCulture and
-            // renders a comma-locale "240.000" or drops the F0 formatting.
-            var row = new CareerStateWindowUI.ContractRow
-            {
-                ContractId = "ctr-1", DeadlineUT = 240000.0
-            };
-
-            Assert.Equal("240000", CareerStateWindowUI.FormatContractRow_Deadline(row));
-        }
-
-        [Fact]
-        public void FormatContractRow_Pending_EmptyWhenNotPending()
-        {
-            // Regression: fails if the column helper leaks "(pending)" onto
-            // non-pending rows, cluttering the Status column.
-            var row = new CareerStateWindowUI.ContractRow
-            {
-                ContractId = "ctr-1", IsPendingAccept = false
-            };
-
-            Assert.Equal("", CareerStateWindowUI.FormatContractRow_Pending(row));
-        }
-
-        [Fact]
-        public void FormatContractRow_Pending_TagWhenPending()
-        {
-            // Regression: fails if IsPendingAccept=true silently drops the
-            // "(pending)" tag — this signal is the amber-row distinguisher.
-            var row = new CareerStateWindowUI.ContractRow
-            {
-                ContractId = "ctr-1", IsPendingAccept = true
-            };
-
-            Assert.Equal("(pending)", CareerStateWindowUI.FormatContractRow_Pending(row));
-        }
-
-        [Fact]
         public void FormatStrategyRow_Title_UsesDisplayTitleOrId()
         {
             // Regression: mirrors the contract-title helper; fails if the
@@ -1329,14 +1642,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatStrategyRow_Activate_ShowsUT()
+        public void FormatStrategyRow_Activate_ShowsDate()
         {
-            // Regression: fails if F0 + InvariantCulture is replaced with a
-            // locale-dependent formatter or if the value is hidden behind a
-            // prefix (the column header carries the "Activated UT" label).
+            // Regression: the cell is the house date for the activation UT.
             var row = new CareerStateWindowUI.StrategyRow { ActivateUT = 150.0 };
 
-            Assert.Equal("150", CareerStateWindowUI.FormatStrategyRow_Activate(row));
+            Assert.Equal("D150", CareerStateWindowUI.FormatStrategyRow_Activate(row, FakeDate));
         }
 
         [Fact]
@@ -1354,25 +1665,6 @@ namespace Parsek.Tests
             string s = CareerStateWindowUI.FormatStrategyRow_Flow(row);
 
             Assert.Equal("Funds -> Science @ 10.0%", s);
-        }
-
-        [Fact]
-        public void FormatStrategyRow_Pending_EmptyWhenNotPending()
-        {
-            // Regression: fails if "(pending)" leaks onto active rows.
-            var row = new CareerStateWindowUI.StrategyRow { IsPendingActivate = false };
-
-            Assert.Equal("", CareerStateWindowUI.FormatStrategyRow_Pending(row));
-        }
-
-        [Fact]
-        public void FormatStrategyRow_Pending_TagWhenPending()
-        {
-            // Regression: fails if pending strategies silently collapse to the
-            // same empty-string Status cell as active rows.
-            var row = new CareerStateWindowUI.StrategyRow { IsPendingActivate = true };
-
-            Assert.Equal("(pending)", CareerStateWindowUI.FormatStrategyRow_Pending(row));
         }
 
         [Fact]
@@ -1400,75 +1692,22 @@ namespace Parsek.Tests
         [Fact]
         public void FormatFacilityRow_Level_CurrentOnly()
         {
-            // Regression: fails if the Level helper always renders "L1 -> L1"
-            // even when there's no upcoming change.
+            // Regression: the Level cell is the level NOW; what the timeline changes
+            // lives in the Timeline-end cell, never as an arrow here.
             var row = new CareerStateWindowUI.FacilityRow
             {
-                CurrentLevel = 2, ProjectedLevel = 2, HasUpcomingChange = false
+                CurrentLevel = 2, ProjectedLevel = 3, HasUpcomingChange = true
             };
 
             Assert.Equal("L2", CareerStateWindowUI.FormatFacilityRow_Level(row));
         }
 
         [Fact]
-        public void FormatFacilityRow_Level_WithUpcomingUpgrade()
+        public void FormatMilestoneRow_UT_ShowsDate()
         {
-            // Regression: fails if upcoming-change rows lose the arrow syntax.
-            var row = new CareerStateWindowUI.FacilityRow
-            {
-                CurrentLevel = 2, ProjectedLevel = 3, HasUpcomingChange = true
-            };
-
-            Assert.Equal("L2 -> L3 (upcoming)", CareerStateWindowUI.FormatFacilityRow_Level(row));
-        }
-
-        [Fact]
-        public void FormatFacilityRow_Status_EmptyWhenNotDestroyed()
-        {
-            // Regression: fails if healthy facilities emit noise in the Status
-            // column — the column should stay visually quiet for the common case.
-            var row = new CareerStateWindowUI.FacilityRow
-            {
-                CurrentDestroyed = false, ProjectedDestroyed = false
-            };
-
-            Assert.Equal("", CareerStateWindowUI.FormatFacilityRow_Status(row));
-        }
-
-        [Fact]
-        public void FormatFacilityRow_Status_DestroyedPersists()
-        {
-            // Regression: fails if a destroyed-and-stays-destroyed row loses
-            // the "(destroyed)" marker.
-            var row = new CareerStateWindowUI.FacilityRow
-            {
-                CurrentDestroyed = true, ProjectedDestroyed = true
-            };
-
-            Assert.Equal("(destroyed)", CareerStateWindowUI.FormatFacilityRow_Status(row));
-        }
-
-        [Fact]
-        public void FormatFacilityRow_Status_DestroyedRepairPending()
-        {
-            // Regression: fails if the combined "destroyed + repair pending"
-            // state collapses to a single tag.
-            var row = new CareerStateWindowUI.FacilityRow
-            {
-                CurrentDestroyed = true, ProjectedDestroyed = false
-            };
-
-            Assert.Equal("(destroyed, repair pending)",
-                CareerStateWindowUI.FormatFacilityRow_Status(row));
-        }
-
-        [Fact]
-        public void FormatMilestoneRow_UT_ShowsF0()
-        {
-            // Regression: fails if F0 + InvariantCulture is lost on the UT column.
             var row = new CareerStateWindowUI.MilestoneRow { CreditedUT = 8230.0 };
 
-            Assert.Equal("8230", CareerStateWindowUI.FormatMilestoneRow_UT(row));
+            Assert.Equal("D8230", CareerStateWindowUI.FormatMilestoneRow_UT(row, FakeDate));
         }
 
         [Fact]
@@ -1577,40 +1816,38 @@ namespace Parsek.Tests
                 + "it into a row grid that has no room for a second line");
         }
 
-        // catches: the table growing past the window it is drawn in. Rewards is the column
-        // that moves, and widening it to fit the string above is only correct while the four
-        // milestone columns still fit the window's default width.
-        [Fact]
-        public void MilestoneColumnsFitTheCareerWindowDefaultWidth()
+        // catches: a table's fixed columns growing until the expanding name column has
+        // no room at the window's default width. Each row is one table's fixed columns at
+        // their widest (with the Timeline-end column shown).
+        [Theory]
+        [InlineData("contracts", CareerStateWindowUI.ColW_Date + CareerStateWindowUI.ColW_Deadline + CareerStateWindowUI.ColW_TimelineEnd)]
+        [InlineData("strategies", CareerStateWindowUI.ColW_Date + CareerStateWindowUI.ColW_Flow + CareerStateWindowUI.ColW_TimelineEnd)]
+        [InlineData("facilities", CareerStateWindowUI.ColW_Level + CareerStateWindowUI.ColW_TimelineEnd)]
+        [InlineData("milestones", CareerStateWindowUI.ColW_Date + CareerStateWindowUI.ColW_Rewards)]
+        public void EachTableLeavesTheNameColumnRoomAtTheDefaultWidth(string table, float fixedColumns)
         {
-            float table = CareerStateWindowUI.ColW_MilestoneUT
-                + CareerStateWindowUI.ColW_MilestoneTitle
-                + CareerStateWindowUI.ColW_Rewards
-                + CareerStateWindowUI.ColW_PendingTag;
-
-            Assert.True(table <= CareerStateWindowUI.DefaultWindowWidth - 40f,
-                $"the milestone columns total {table} px, which does not leave the window "
+            float needed = fixedColumns + CareerStateWindowUI.MinNameColumnWidth;
+            Assert.True(needed <= CareerStateWindowUI.DefaultWindowWidth - 40f,
+                $"the {table} table needs {needed} px (fixed {fixedColumns} + name "
+                + $"{CareerStateWindowUI.MinNameColumnWidth}), which does not leave the window "
                 + $"chrome its room inside {CareerStateWindowUI.DefaultWindowWidth} px");
         }
 
         [Fact]
-        public void FormatMilestoneRow_Pending_EmptyWhenNotPending()
+        public void TheDateColumnsHoldACompactKspDate()
         {
-            // Regression: fails if the Status column leaks "(pending)" onto
-            // credited milestones.
-            var row = new CareerStateWindowUI.MilestoneRow { IsPendingCredit = false };
-
-            Assert.Equal("", CareerStateWindowUI.FormatMilestoneRow_Pending(row));
+            // "Y12, D426, 05:17" at the 7 px/char bound plus the 30 px cell allowance.
+            Assert.True("Y12, D426, 05:17".Length * 7f + 30f <= CareerStateWindowUI.ColW_Date);
+            Assert.True("Y12, D426, 05:17 (in 99d)".Length * 7f + 30f
+                        <= CareerStateWindowUI.ColW_Deadline);
+            Assert.True("upgrades to L3, Y12, D426, 05:17".Length * 7f
+                        <= CareerStateWindowUI.ColW_TimelineEnd);
         }
 
         [Fact]
-        public void FormatMilestoneRow_Pending_TagWhenPending()
+        public void MinWindowHeightLeavesRowsVisible()
         {
-            // Regression: fails if pending milestones collapse to the same
-            // blank Status cell as credited ones.
-            var row = new CareerStateWindowUI.MilestoneRow { IsPendingCredit = true };
-
-            Assert.Equal("(pending)", CareerStateWindowUI.FormatMilestoneRow_Pending(row));
+            Assert.True(CareerStateWindowUI.MinWindowHeight >= 320f);
         }
 
         [Fact]

@@ -99,6 +99,15 @@ namespace Parsek.Tests
                 MethodMarker = "internal static CareerStateViewModel Build(",
                 Why = "the VM walk's branches ARE the Career window's row variants",
             },
+            new GuardedEnum
+            {
+                EnumType = typeof(CareerStateWindowUI.TimelineEndKind),
+                ShortName = "TimelineEndKind",
+                RelativePath = "UI/CareerStateWindowUI.cs",
+                MethodMarker = "internal static string FormatTimelineEnd(",
+                Why = "the Career Timeline-end cell words each recorded outcome differently, "
+                      + "and a failure is drawn in the alert colour",
+            },
         };
 
         /// <summary>
@@ -121,6 +130,12 @@ namespace Parsek.Tests
                 { "ChainMemberStatus.Unknown",
                   "BuildChainMembers emits only Retired / Active / Displaced, so no "
                   + "recording can produce an Unknown chain member" },
+
+                // None is the absence of an outcome: the Timeline-end cell is empty (and
+                // the column is not drawn at all while every row of a tab is None).
+                { "TimelineEndKind.None",
+                  "an empty Timeline-end cell; every row the recorded timeline leaves "
+                  + "untouched already draws it" },
 
                 // Every GameActionType the Career VM walk does NOT branch on. The walk
                 // switches on ten; the rest are other subsystems' rows (recordings,

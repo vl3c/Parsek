@@ -15,6 +15,40 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
+
+Done on the branch (owner-approved review items 1-8): house dates with a relative deadline
+tail; expanding name column in every table; milestone titles via the Timeline humanizer and
+facility names from `ScenarioUpgradeableFacilities.GetFacilityName`; Science mode draws
+Milestones plus Facilities only while a building is destroyed (no Level column), Sandbox
+hides the launcher; the empty Status columns, the triple pending marker and the Facilities
+section bar are gone, the Contracts-tab and Facilities-Status tooltips are corrected; minimum
+height 320; a `Timeline end` column plus a now-vs-pending split on every tab except
+Facilities (whose Timeline-end column is its split). Found on the way and fixed in the same
+branch: a FacilityDestruction / FacilityRepair is keyed by the DestructibleBuilding id
+(`SpaceCenter/LaunchPad/Facility/...`), which the walk never mapped to its facility row, so a
+destroyed building could not show; divergence ignored a closing-plus-pending pair whose
+counts cancel.
+
+Science-mode destruction, answered from decompiled KSP 1.12.5 (the owner's question):
+`ScenarioDestructibles` is registered with `ScenarioCreationOptions` 3198 (every mode, new
+and existing games), `DestructibleBuilding` returns before damage only when
+`HighLogic.CurrentGame.Parameters.Difficulty.IndestructibleFacilities` is set, and that field
+defaults to false and is set true only by the Easy difficulty preset. So buildings CAN be
+destroyed in a default Science game; the committed `fresh-science` fixture carries
+`IndestructibleFacilities = False`.
+
+Open residue:
+1. No census picture of a destroyed facility, a recorded contract failure, populated
+   strategies, the split layout with pending rows, or Science mode with a destroyed
+   building. The gallery catalogue covers each as a synthetic state; a real one needs a
+   rewound career fixture (same need as item 4 of GUI-CENSUS-WAVE6-RESIDUE-2026-09-22).
+2. The Career launcher's tooltip still reads "Contracts, strategies and buildings along
+   the timeline." in Science mode, where the window has neither contracts nor strategies.
+   Left as is: a mode-dependent tooltip is a second copy for one sentence.
+3. Items 9-11 of the review were not approved (merge Strategies into Contracts, a Tech
+   tab, re-fly change history) and are not filed as work.
+
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
 **What was wrong.** `phase_download` fetched every pinned release zip from its URL on

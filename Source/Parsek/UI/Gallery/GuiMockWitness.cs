@@ -216,6 +216,11 @@ namespace Parsek.UI.Gallery
             CareerStateWindowUI.CareerStateViewModel vm, string tab, string enumName,
             string member, List<string> into)
         {
+            if (enumName == "TimelineEndKind")
+            {
+                AppendTimelineEndCovered(vm, tab, member, into);
+                return;
+            }
             if (enumName != "GameActionType") return;
             switch (member)
             {
@@ -270,6 +275,45 @@ namespace Parsek.UI.Gallery
             }
         }
 
+        // The Timeline-end cell IS the branch: its text names the outcome, so it is the
+        // witness, taken from the first row (current, then pending) that carries it.
+        private static void AppendTimelineEndCovered(
+            CareerStateWindowUI.CareerStateViewModel vm, string tab, string member,
+            List<string> into)
+        {
+            CareerStateWindowUI.TimelineEndKind want;
+            if (!TryParseEnum(out want, member)) return;
+            if (tab == StrategiesTab)
+            {
+                foreach (List<CareerStateWindowUI.StrategyRow> rows in new[]
+                         { vm.Strategies.CurrentRows, vm.Strategies.PendingRows })
+                {
+                    if (rows == null) continue;
+                    for (int i = 0; i < rows.Count; i++)
+                    {
+                        if (rows[i].EndKind != want) continue;
+                        Add(into, CareerStateWindowUI.FormatStrategyRow_TimelineEnd(
+                            rows[i], CareerStateWindowUI.FormatDate));
+                        return;
+                    }
+                }
+                return;
+            }
+            if (tab != ContractsTab) return;
+            foreach (List<CareerStateWindowUI.ContractRow> rows in new[]
+                     { vm.Contracts.CurrentRows, vm.Contracts.PendingRows })
+            {
+                if (rows == null) continue;
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    if (rows[i].EndKind != want) continue;
+                    Add(into, CareerStateWindowUI.FormatContractRow_TimelineEnd(
+                        rows[i], CareerStateWindowUI.FormatDate));
+                    return;
+                }
+            }
+        }
+
         private static void AppendFirstContract(
             List<CareerStateWindowUI.ContractRow> rows,
             Func<CareerStateWindowUI.ContractRow, bool> match, List<string> into)
@@ -307,7 +351,8 @@ namespace Parsek.UI.Gallery
             for (int i = 0; i < rows.Count; i++)
             {
                 if (!match(rows[i])) continue;
-                Add(into, CareerStateWindowUI.FormatFacilityRow_Status(rows[i]));
+                Add(into, CareerStateWindowUI.FormatFacilityRow_TimelineEnd(
+                    rows[i], true, CareerStateWindowUI.FormatDate));
                 Add(into, CareerStateWindowUI.FormatFacilityRow_Level(rows[i]));
                 return;
             }
@@ -585,17 +630,18 @@ namespace Parsek.UI.Gallery
                 if (rows == null) return;
                 for (int i = 0; i < rows.Count && into.Count < MaxWitnesses; i++)
                 {
-                    // The LEVEL and STATUS cells are the discriminating ones: EVERY
+                    // The LEVEL and TIMELINE-END cells are the discriminating ones: EVERY
                     // facility row draws a title (the tab emits the whole nine-building
                     // inventory even on day one), so a title would match an unmocked
-                    // window exactly. A row that reads plain "L1" with an empty status is
-                    // day-one state and is skipped for the same reason.
+                    // window exactly. A row that reads plain "L1" with no timeline change
+                    // is day-one state and is skipped for the same reason.
                     string level = CareerStateWindowUI.FormatFacilityRow_Level(rows[i]);
-                    string status = CareerStateWindowUI.FormatFacilityRow_Status(rows[i]);
-                    if (level == DayOneFacilityLevel && string.IsNullOrEmpty(status))
+                    string end = CareerStateWindowUI.FormatFacilityRow_TimelineEnd(
+                        rows[i], true, CareerStateWindowUI.FormatDate);
+                    if (level == DayOneFacilityLevel && string.IsNullOrEmpty(end))
                         continue;
                     Add(into, level);
-                    Add(into, status);
+                    Add(into, end);
                 }
                 return;
             }

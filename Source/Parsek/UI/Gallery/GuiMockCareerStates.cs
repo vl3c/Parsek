@@ -9,10 +9,10 @@ namespace Parsek.UI.Gallery
     /// <para><b>Every state is a synthetic LEDGER, not a synthetic view model.</b> Each
     /// builder assembles a <c>GameAction</c> list and a live UT and hands them to the real
     /// <see cref="CareerStateWindowUI.Build"/>, which is the same pure walk the window
-    /// runs over <c>EffectiveState.ComputeELS()</c>. So the current-vs-projected split,
-    /// the <c>(pending)</c> / <c>(closing)</c> tags, the divergence flag, the slot counts
-    /// and the facility levels are all decided by production code - the catalogue only
-    /// decides what happened in the career.</para>
+    /// runs over <c>EffectiveState.ComputeELS()</c>. So the now-vs-pending split, the
+    /// Timeline-end outcomes, the divergence flag, the slot counts and the facility levels
+    /// are all decided by production code - the catalogue only decides what happened in
+    /// the career.</para>
     ///
     /// <para>That is also what makes the completeness guard meaningful on this window: the
     /// ten <c>GameActionType</c> branches <c>Build</c> switches on are the row variants,
@@ -56,11 +56,14 @@ namespace Parsek.UI.Gallery
             // The split layout IS the divergent banner's own layout - a career with
             // pending contracts draws both at once - so one state carries both.
             into.Add(New("career.contracts.closing", ContractsTab,
-                "A contract active now that the recorded timeline completes, fails or "
-                + "cancels before its end - the (closing) tag.",
+                "Contracts active now that the recorded timeline completes, fails or "
+                + "cancels before its end - the Timeline-end column, with the failure in "
+                + "the alert colour.",
                 new[] { "GameActionType.ContractComplete", "GameActionType.ContractFail",
                         "GameActionType.ContractCancel",
-                        "ContractRow.IsClosingByTimelineEnd" },
+                        "ContractRow.IsClosingByTimelineEnd",
+                        "TimelineEndKind.Completed", "TimelineEndKind.Failed",
+                        "TimelineEndKind.Cancelled" },
                 () => Build(ContractsClosing())));
 
             into.Add(New("career.contracts.deadline-none", ContractsTab,
@@ -102,7 +105,8 @@ namespace Parsek.UI.Gallery
             into.Add(New("career.strategies.closing", StrategiesTab,
                 "A strategy active now that the recorded timeline deactivates.",
                 new[] { "GameActionType.StrategyDeactivate",
-                        "StrategyRow.IsClosingByTimelineEnd" },
+                        "StrategyRow.IsClosingByTimelineEnd",
+                        "TimelineEndKind.Deactivated" },
                 () => Build(StrategiesClosing())));
 
             into.Add(New("career.strategies.admin-above-one", StrategiesTab,
@@ -121,7 +125,7 @@ namespace Parsek.UI.Gallery
                 () => Build(FacilitiesUpgraded())));
 
             into.Add(New("career.facilities.upcoming-upgrade", FacilitiesTab,
-                "'L2 -> L3 (upcoming)' - the projected column's only visual form.",
+                "'upgrades to L3, <date>' - the Timeline-end column on the Facilities tab.",
                 new[] { "GameActionType.FacilityUpgrade",
                         "FacilityRow.HasUpcomingChange" },
                 () => Build(FacilitiesUpcoming())));
@@ -141,8 +145,8 @@ namespace Parsek.UI.Gallery
             // ---------- Milestones ----------
 
             into.Add(New("career.milestones.pending", MilestonesTab,
-                "A milestone the recorded timeline credits after live UT: the (pending) "
-                + "row status.",
+                "Milestones the recorded timeline credits after live UT: the 'Pending in "
+                + "timeline' group.",
                 new[] { "GameActionType.MilestoneAchievement",
                         "MilestoneRow.IsPendingCredit" },
                 () => Build(MilestonesPending())));
@@ -421,7 +425,7 @@ namespace Parsek.UI.Gallery
         private static List<GameAction> FacilitiesUpcoming()
         {
             var actions = FacilitiesUpgraded();
-            // After live UT, so the row reads "L2 -> L3 (upcoming)" in amber.
+            // After live UT, so the row's Timeline-end cell reads "upgrades to L3, ...".
             actions.Add(Upgrade("LaunchPad", 3, 1_500_000.0));
             actions.Add(Upgrade("Runway", 2, 1_700_000.0));
             return actions;
