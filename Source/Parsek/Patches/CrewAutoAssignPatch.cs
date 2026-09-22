@@ -156,6 +156,21 @@ namespace Parsek.Patches
         /// </summary>
         static void Prefix(VesselCrewManifest crewManifest)
         {
+            // The dialog answers against the LIVE clock when it opens: if game time has
+            // reached a Recovered flight's end since the last walk, re-walk first so the
+            // returning owner is offered (and not swapped out) and his stand-in's
+            // displacement is applied. A no-op compare otherwise. RefreshCrewLists runs
+            // before CreateAvailList, so CrewDialogFilterPatch sees the fresh walk too.
+            try
+            {
+                LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(
+                    Planetarium.GetUniversalTime(), "crew-dialog");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"crew dialog reservation release check failed: {ex.GetType().Name}: {ex.Message}");
+            }
             ApplyCrewAssignmentSwaps(crewManifest);
         }
 

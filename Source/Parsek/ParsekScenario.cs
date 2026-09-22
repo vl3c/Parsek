@@ -4741,6 +4741,7 @@ namespace Parsek
             // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
             // Setting UT before LoadScene does NOT work — scene transition overwrites it.
             RecordingStore.RewindUTAdjustmentPending = true;
+            RecordingStore.RewindUTAdjustmentTargetUT = RewindContext.RewindAdjustedUT;
             // Drawdown-guard signal 5 (Blocker 1): arm BEFORE scheduling the coroutine so
             // it is true before EndRewind() below clears IsRewinding. The coroutine's
             // try/finally around the deferred RecalculateAndPatch clears it (authoritative);

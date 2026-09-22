@@ -978,8 +978,12 @@ namespace Parsek
 
             IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots =
                 kerbals != null ? kerbals.Slots : null;
+            // The holds in force NOW (a Recovered flight whose end the clock has reached
+            // has released its kerbal and he reads as his own status again). Each entry
+            // is the same reservation object the raw map carries, so the hold flight and
+            // its release date are still nameable from it.
             IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> reservations =
-                kerbals != null ? kerbals.Reservations : null;
+                kerbals != null ? kerbals.ActiveReservations : null;
             IReadOnlyList<string> retired = kerbals != null ? kerbals.GetRetiredKerbals() : null;
             IReadOnlyDictionary<string, IReadOnlyCollection<string>> rawCrew =
                 kerbals != null ? kerbals.RawRecordingCrewByRecordingId : null;

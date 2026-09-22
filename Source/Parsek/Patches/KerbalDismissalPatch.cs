@@ -33,16 +33,17 @@ namespace Parsek.Patches
             if (GameStateRecorder.IsReplayingActions) return true;
 
             var kerbals = LedgerOrchestrator.Kerbals;
-            if (kerbals?.IsManaged(crew.name) ?? false)
+            if (kerbals?.ShouldBlockDismissal(crew.name) ?? false)
             {
                 ParsekLog.Info("KerbalDismissal",
-                    $"Blocked dismissal of '{crew.name}' — managed by Parsek");
+                    $"Blocked dismissal of '{crew.name}' — managed by Parsek or named by a committed flight");
                 // The same Action Blocked dialog its four sibling blocks (hire, contract
                 // accept, facility upgrade, tech research) raise, so a refused dismissal
                 // stops being the one silent refusal.
                 CommittedActionDialog.ShowBlocked(
                     "Cannot dismiss \"" + crew.name + "\"",
-                    DescribeDismissalBlock(kerbals.GetReservationKind(crew.name)),
+                    DescribeDismissalBlock(kerbals.GetReservationKind(crew.name),
+                        kerbals.IsNamedByCommittedFlight(crew.name)),
                     "");
                 return false;
             }
@@ -56,6 +57,16 @@ namespace Parsek.Patches
         /// back to its owner), and an active STAND-IN (neither of the above, but a slot
         /// chain lists him, so he is covering someone's seat).
         /// </summary>
+        internal static string DescribeDismissalBlock(
+            KerbalReservationKind kind, bool namedByCommittedFlight)
+        {
+            // A returned owner (his hold ended with his recovery) is no longer reserved,
+            // retired or a stand-in, but a committed flight still names him.
+            if (kind == KerbalReservationKind.NotManaged && namedByCommittedFlight)
+                return "This kerbal flew a committed flight on your timeline.";
+            return DescribeDismissalBlock(kind);
+        }
+
         internal static string DescribeDismissalBlock(KerbalReservationKind kind)
         {
             switch (kind)

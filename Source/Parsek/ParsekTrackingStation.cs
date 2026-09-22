@@ -267,6 +267,12 @@ namespace Parsek
                 nextLifecycleCheckTime = 0f; // force tick this frame
             }
 
+            // Time passes here (TS warp) with no scene change: a Recovered flight's crew
+            // hold that the clock has just reached is released by one recalculation.
+            // Two double comparisons per frame; the recalculation runs once per release.
+            LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(
+                Planetarium.GetUniversalTime(), "ts-reservation-release");
+
             if (GhostTrackingStationSelection.HasSelectedGhost)
                 RefreshGhostActionCache();
             UpdatePendingMaterializedFocus();

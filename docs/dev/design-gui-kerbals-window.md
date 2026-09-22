@@ -80,17 +80,22 @@ bdock-recorded captures; the owner approved these, and each is a row of this doc
     reservation's date could read in the future after a rewind, and it dated a mission by
     its END while the Flights tab dated it by its START. The one useful fact it carried - when
     a kerbal died - moved into the Lost hover text.
-13. **A reservation names what holds the kerbal, never a date** (rec 2 + open question 1,
-    VERIFIED). `KerbalReservationReleaseTests` drives the real ledger walk
-    (`LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT` at clocks before, during,
-    at and long after a Recovered flight, plus the uncut full replay): the reservation is
-    present at every clock with `ReservedUntilUT` still the flight's end, and the kerbal
-    stays filtered from the crew dialog. Only removing the flight from the committed set
-    frees him. So `Reserved until <date>` promised a release that never happens; the cell
-    now reads `Reserved: aboard <vessel>` / `Reserved: <mission>` / `Reserved for <owner>`
-    and the hover ends with the rule. Whether a recovered kerbal SHOULD be released at the
-    flight's end is filed for the owner in `todo-and-known-bugs.md`; reservation semantics
-    are unchanged.
+13. **A finite hold reads its release date; an open-ended hold names what holds the
+    kerbal** (rec 2 + open question 1). SUPERSEDED IN PART 2026-09-23: this ruling first
+    said "never a date", because `KerbalReservationReleaseTests` measured that a Recovered
+    flight's reservation never lifted with time. That was the backend bug
+    KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, now fixed: the kerbal is free once game time
+    reaches the flight's recorded end (design 9.3), and the window only ever receives the
+    reservations in force now (`KerbalsModule.ActiveReservations`). So a finite hold reads
+    `Reserved until <date>` (`KerbalsPresentation.FormatReleaseDate`, the window's own date
+    formatter) and its hover ends `Free again from <date>, when that flight ends.`
+    (`FormatReservationReleaseRule`). An open-ended hold (the flight ends with the kerbal
+    aboard, or has no recorded ending) still reads `Reserved: aboard <vessel>` /
+    `Reserved: <mission>` and its hover ends with `ReservationHoldRule`, which is still
+    true for it. A reserved stand-in reads `Reserved for <owner>` either way. The date is
+    the LAST walk's view: the Space Center, the Tracking Station and the crew dialog run a
+    crossed-an-end check, but in flight the release lands at the next warp exit, commit or
+    scene change, so the cell can briefly show a date that has just passed.
 14. **The Roster is grouped by slot** (rec 7). Each owner row is followed directly by its
     chain members as rows of their own (tree glyph in the Name cell), so the per-owner chain
     fold - which repeated what the stand-in rows already said - is gone, and with it the
@@ -162,7 +167,7 @@ stand-in gets one) carries his own members one level deeper. Not user-selectable
 |---|---|---|
 | Lost | `Lost` | `KerbalSlot.OwnerPermanentlyGone`, or a permanent (`IsPermanent`) reservation |
 | Retired | `Retired` | in the retired set |
-| Reserved | `Reserved: aboard <vessel>` / `Reserved: <mission>` / `Reserved` / `Reserved for <owner>` | a live reservation. The flight is `ResolveHoldFlight`: for an open-ended (`+inf`) hold the latest mission that ends Still aboard, else the latest-ending mission; `aboard <vessel>` when that mission ends with the kerbal aboard (vessel = its last segment's recorded vessel), the mission name otherwise, bare `Reserved` when the kerbal has no flight of his own; a composed text past `StatusCellMaxChars` falls back to `Reserved: still aboard` / `Reserved`. The `for <owner>` form only when the kerbal is a stand-in in someone else's chain. NEVER a date (ruling 13) |
+| Reserved | `Reserved until <date>` / `Reserved: aboard <vessel>` / `Reserved: <mission>` / `Reserved` / `Reserved for <owner>` | a reservation in force NOW (`KerbalsModule.ActiveReservations`). A finite hold (a Recovered flight's end) reads `Reserved until <date>` (ruling 13). Otherwise the flight is `ResolveHoldFlight`: for an open-ended (`+inf`) hold the latest mission that ends Still aboard, else the latest-ending mission; `aboard <vessel>` when that mission ends with the kerbal aboard (vessel = its last segment's recorded vessel), the mission name otherwise, bare `Reserved` when the kerbal has no flight of his own; a composed text past `StatusCellMaxChars` falls back to `Reserved: still aboard` / `Reserved`. The `for <owner>` form only when the kerbal is a stand-in in someone else's chain |
 | Stand-in | `Stand-in for <owner>` / `Stand-in for <owner> (aboard <vessel>)` / `(on EVA)` | the kerbal is the **ACTIVE** occupant of some OTHER kerbal's slot chain |
 | Assigned | `Assigned (<vessel>)` / `On EVA` | the kerbal is aboard a live vessel (ghost-map ProtoVessels excluded first); `On EVA` when that vessel is his own EVA vessel (`Vessel.isEVA`, gathered into `RosterKerbal.AssignedVesselIsEva`) |
 | Available | `Available` | none of the above |
@@ -172,7 +177,7 @@ The status cell's hover text (`FormatStatusTooltip`):
 | Status | Hover |
 |---|---|
 | Lost | `Lost on <mission> (launched <date>). If that mission has a rewind point, re-flying it can undo the loss.` - the death mission is the latest mission that ends Dead; with none, `Lost on a committed flight. ...` |
-| Reserved | `Held by the committed flight <mission>, which ends with this kerbal aboard <vessel>` / `recovered` / `, which has no recorded ending`, then `. Passing time does not release it; it lasts while that flight stays in the timeline.` (`ReservationHoldRule`); a reserved stand-in reads `Held by a committed flight flown in <owner>'s seat. ...` |
+| Reserved | `Held by the committed flight <mission>, which ends with this kerbal aboard <vessel>` / `recovered` / `, which has no recorded ending`, then the release rule: `. Free again from <date>, when that flight ends.` for a finite hold (`FormatReservationReleaseRule`), `. Passing time does not release it; it lasts while that flight stays in the timeline.` for an open-ended one (`ReservationHoldRule`); a reserved stand-in reads `Held by a committed flight flown in <owner>'s seat. ...` |
 | Stand-in aboard a craft | `Standing in for <owner>; aboard <vessel>.` (or `; on EVA.`) - only when the inline form does not fit |
 | others | none |
 

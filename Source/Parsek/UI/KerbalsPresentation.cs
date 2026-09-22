@@ -725,7 +725,8 @@ namespace Parsek
                 MembersOf = membersOf,
                 GroupOf = groupOf,
                 LastFlightOf = lastFlightOf,
-                DeathFlightOf = deathFlightOf
+                DeathFlightOf = deathFlightOf,
+                FormatDate = formatDate
             };
 
             // Top level: every name that is not listed under an owner. Each owner is
@@ -762,6 +763,7 @@ namespace Parsek
             public Dictionary<string, FlightGroup> GroupOf;
             public Dictionary<string, FlightRow> LastFlightOf;
             public Dictionary<string, FlightRow> DeathFlightOf;
+            public Func<double, string> FormatDate;
         }
 
         private static void EmitRowWithMembers(
@@ -835,6 +837,9 @@ namespace Parsek
             FlightRow? hold = status == RosterStatus.Reserved
                 ? ResolveHoldFlight(reservation, ownGroup)
                 : null;
+            string releaseDateText = status == RosterStatus.Reserved
+                ? FormatReleaseDate(reservation, ctx.FormatDate)
+                : null;
             FlightRow deathRow;
             FlightRow? death = ctx.DeathFlightOf.TryGetValue(name, out deathRow)
                 ? deathRow
@@ -852,9 +857,9 @@ namespace Parsek
                 Trait = trait,
                 Status = status,
                 StatusText = FormatStatus(status, name, slotOwner, hold,
-                    assignedVessel, eva),
+                    assignedVessel, eva, releaseDateText),
                 StatusTooltipText = FormatStatusTooltip(status, name, slotOwner, hold,
-                    death, assignedVessel, eva),
+                    death, assignedVessel, eva, releaseDateText),
                 LastFlightText = FormatLastFlight(name, ctx.LastFlightOf),
                 LastFlightRecordingId = hasFlights && !string.IsNullOrEmpty(lastRow.RecordingId)
                     ? lastRow.RecordingId
@@ -985,18 +990,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The calendar date a FINITE reservation ends at (a Recovered flight's end), or
+        /// null for a permanent / open-ended hold, which time alone never releases.
+        /// </summary>
+        internal static string FormatReleaseDate(
+            KerbalsModule.KerbalReservation reservation, Func<double, string> formatDate)
+        {
+            if (reservation == null || reservation.IsPermanent) return null;
+            double until = reservation.ReservedUntilUT;
+            if (double.IsNaN(until) || double.IsInfinity(until)) return null;
+            return FormatDateCell(until, formatDate);
+        }
+
+        /// <summary>
         /// The "Status now" cell.
         ///
-        /// <para><b>A reservation names what holds the kerbal, never a date.</b> The
-        /// reservation a committed flight creates does NOT lift when game time passes the
-        /// flight's recorded end: <c>KerbalReservationReleaseTests</c> drives the real
-        /// ledger walk before, during and after that UT and the kerbal stays reserved and
-        /// filtered from the crew dialog every time; only removing the flight from the
-        /// committed set frees him. So the old <c>Reserved until &lt;date&gt;</c> promised
-        /// a release that never happens, and <c>Reserved until recovery</c> never said
-        /// recovery of what. The cell now reads <c>Reserved: aboard &lt;vessel&gt;</c> for
-        /// a flight that ends with the kerbal aboard, <c>Reserved: &lt;mission&gt;</c>
-        /// otherwise, and the release rule is the hover text.</para>
+        /// <para><b>A finite hold reads its release date; an open-ended one names what
+        /// holds the kerbal.</b> A Recovered flight's reservation ends when game time
+        /// reaches the flight's recorded end (design 9.3; <c>KerbalReservationReleaseTests</c>
+        /// drives the real walk before, at and after that UT), and the window only ever
+        /// sees the reservations the LAST walk found in force, so <c>Reserved until
+        /// &lt;date&gt;</c> (<paramref name="releaseDateText"/>) is the date the next walk
+        /// after it will release him. The window does not re-walk on its own: the Space
+        /// Center, the Tracking Station and the crew dialog run a crossed-an-end check,
+        /// but in FLIGHT the release lands at the next warp exit, commit or scene change,
+        /// so until then the cell can show a date that has just passed. A flight
+        /// that ends with the kerbal aboard (or with no recorded ending) holds him with no
+        /// end date, so that cell reads <c>Reserved: aboard &lt;vessel&gt;</c> /
+        /// <c>Reserved: &lt;mission&gt;</c> and the hover carries the rule.</para>
         ///
         /// <para>The reserved form names the slot it serves only when that is SOMEONE
         /// ELSE: a reserved stand-in reads <c>Reserved for &lt;owner&gt;</c>.</para>
@@ -1012,7 +1033,8 @@ namespace Parsek
             string slotOwnerName,
             FlightRow? hold,
             string assignedVesselName,
-            bool assignedVesselIsEva)
+            bool assignedVesselIsEva,
+            string releaseDateText = null)
         {
             switch (status)
             {
@@ -1024,6 +1046,11 @@ namespace Parsek
                 {
                     if (IsForSomeoneElse(name, slotOwnerName))
                         return "Reserved for " + slotOwnerName;
+                    if (!string.IsNullOrEmpty(releaseDateText))
+                    {
+                        string until = "Reserved until " + releaseDateText;
+                        return until.Length <= StatusCellMaxChars ? until : "Reserved";
+                    }
                     if (!hold.HasValue) return "Reserved";
                     FlightRow h = hold.Value;
                     if (h.EndState == KerbalEndState.Aboard)
@@ -1087,12 +1114,19 @@ namespace Parsek
             get { return (int)(KerbalsWindowUI.ColW_RosterStatus / StatusCellCharAdvancePx); }
         }
 
-        /// <summary>The release rule every reservation hover ends with. Pinned by
-        /// <c>KerbalReservationReleaseTests</c>: the walk keeps the reservation at every
-        /// game time once the flight is committed, and drops it only when the flight
-        /// leaves the committed set.</summary>
+        /// <summary>The release rule an OPEN-ENDED reservation hover ends with (a flight
+        /// that ends with the kerbal aboard, or with no recorded ending): no end date
+        /// exists, so the walk keeps it at every game time and drops it only when the
+        /// flight leaves the committed set (<c>KerbalReservationReleaseTests</c>).</summary>
         internal const string ReservationHoldRule =
             "Passing time does not release it; it lasts while that flight stays in the timeline.";
+
+        /// <summary>The release rule a FINITE reservation hover ends with: the kerbal is
+        /// free again once game time reaches the Recovered flight's end.</summary>
+        internal static string FormatReservationReleaseRule(string releaseDateText)
+        {
+            return "Free again from " + releaseDateText + ", when that flight ends.";
+        }
 
         /// <summary>The Lost hover's way back. True because a Re-Fly merge tombstones the
         /// superseded flight's <c>KerbalAssignment</c>+Dead row
@@ -1112,7 +1146,8 @@ namespace Parsek
         /// every other date in the window, and the way back
         /// (<see cref="LostReFlyRemedy"/>).</item>
         /// <item><b>Reserved</b>: the flight that holds the kerbal and the release rule
-        /// (<see cref="ReservationHoldRule"/>).</item>
+        /// (<see cref="FormatReservationReleaseRule"/> for a finite hold,
+        /// <see cref="ReservationHoldRule"/> for an open-ended one).</item>
         /// <item><b>Stand-in</b> aboard a craft whose inline form does not fit
         /// <see cref="StatusCellMaxChars"/>: where he is.</item>
         /// </list>
@@ -1124,8 +1159,12 @@ namespace Parsek
             FlightRow? hold,
             FlightRow? death,
             string assignedVesselName,
-            bool assignedVesselIsEva)
+            bool assignedVesselIsEva,
+            string releaseDateText = null)
         {
+            string rule = string.IsNullOrEmpty(releaseDateText)
+                ? ReservationHoldRule
+                : FormatReservationReleaseRule(releaseDateText);
             switch (status)
             {
                 case RosterStatus.Lost:
@@ -1138,9 +1177,9 @@ namespace Parsek
                 {
                     if (IsForSomeoneElse(name, slotOwnerName))
                         return "Held by a committed flight flown in " + slotOwnerName
-                               + "'s seat. " + ReservationHoldRule;
+                               + "'s seat. " + rule;
                     if (!hold.HasValue)
-                        return "Held by a committed flight. " + ReservationHoldRule;
+                        return "Held by a committed flight. " + rule;
                     FlightRow h = hold.Value;
                     string lead = "Held by the committed flight " + h.MissionText;
                     switch (h.EndState)
@@ -1155,7 +1194,7 @@ namespace Parsek
                             lead += ", which has no recorded ending";
                             break;
                     }
-                    return lead + ". " + ReservationHoldRule;
+                    return lead + ". " + rule;
                 }
 
                 case RosterStatus.StandIn:
