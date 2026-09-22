@@ -2498,7 +2498,8 @@ table.sum .wlink:hover{text-decoration:underline}
 .gn.strip.over .tx{white-space:pre;animation:mq 9s linear infinite}
 @keyframes mq{0%{transform:translateX(0)}8%{transform:translateX(0)}
   92%{transform:translateX(var(--mqshift,-50%))}100%{transform:translateX(var(--mqshift,-50%))}}
-.echo{margin-top:6px;font-size:12px;color:#b9c6d4;min-height:18px;
+.echo{margin-top:6px;font-size:12px;line-height:16px;color:#b9c6d4;
+  height:48px;box-sizing:content-box;overflow-y:auto;
   background:#1b1b1b;border:1px solid #2c2c2c;border-radius:3px;padding:4px 8px}
 .dlg{position:absolute;z-index:40;left:50%;transform:translateX(-50%);top:150px;
   background:#2c2c2c;border:1px solid #777;border-radius:6px;padding:0 0 10px;
