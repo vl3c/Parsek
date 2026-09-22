@@ -148,30 +148,6 @@ namespace Parsek.Tests
         // 5. UT sort order across sources
         // ================================================================
 
-        [Fact]
-        public void UTSortOrderAcrossSources()
-        {
-            var rec = MakeRecording("Rocket", 100, 500);
-            var actions = new List<GameAction>
-            {
-                new GameAction { UT = 200, Type = GameActionType.ScienceEarning, Effective = true },
-                new GameAction { UT = 300, Type = GameActionType.FundsEarning, Effective = true }
-            };
-
-            var result = TimelineBuilder.Build(
-                new List<Recording> { rec },
-                actions,
-                new List<Milestone>(),
-                _ => true);
-
-            // Verify ascending UT order
-            for (int i = 1; i < result.Count; i++)
-            {
-                Assert.True(result[i].UT >= result[i - 1].UT,
-                    $"Entry at index {i} (UT={result[i].UT}) should be >= entry at index {i - 1} (UT={result[i - 1].UT})");
-            }
-        }
-
         // ================================================================
         // 6. GameAction types map correctly
         // ================================================================

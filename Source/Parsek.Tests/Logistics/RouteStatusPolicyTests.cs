@@ -58,16 +58,6 @@ namespace Parsek.Tests.Logistics
             Assert.True(RouteStatusPolicy.BindsTree(status));
         }
 
-        // Belt-and-suspenders: every enumerated value binds, computed over the
-        // live enum set rather than a hand-list (so the count of TRUEs equals
-        // the count of values).
-        [Fact]
-        public void BindsTree_IsTrue_ForAllEnumeratedValues()
-        {
-            var values = Enum.GetValues(typeof(RouteStatus)).Cast<RouteStatus>().ToArray();
-            Assert.All(values, s => Assert.True(RouteStatusPolicy.BindsTree(s)));
-        }
-
         // GhostDriving is TRUE only for the five live-render states.
         [Theory]
         [InlineData((int)RouteStatus.Active)]

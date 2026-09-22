@@ -544,27 +544,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KerbalAssignment_Dead_RoundTrip()
-        {
-            var original = new GameAction
-            {
-                UT = 17000.0,
-                Type = GameActionType.KerbalAssignment,
-                RecordingId = "rec_012",
-                KerbalName = "Bill Kerman",
-                KerbalRole = "Engineer",
-                StartUT = 17000.0f,
-                EndUT = 17200.0f,
-                KerbalEndStateField = KerbalEndState.Dead,
-                XpGained = 0.0f
-            };
-
-            var result = RoundTrip(original);
-
-            Assert.Equal(KerbalEndState.Dead, result.KerbalEndStateField);
-        }
-
-        [Fact]
         public void KerbalHire_RoundTrip()
         {
             var original = new GameAction

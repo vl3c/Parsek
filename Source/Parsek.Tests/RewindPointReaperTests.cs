@@ -644,30 +644,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_AllSlotTipsImmutable_Reaped()
-        {
-            // A slot whose effective tip is Immutable is closed; with every
-            // slot's tip Immutable the RP reaps.
-            var bp = Bp("bp_1", "rp_1");
-            InstallTree("tree_1",
-                new List<Recording>
-                {
-                    Rec("rec_a", MergeState.Immutable),
-                    Rec("rec_b", MergeState.Immutable),
-                },
-                new List<BranchPoint> { bp });
-            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_a"), Slot(1, "rec_b"));
-            var scenario = InstallScenario(new List<RewindPoint> { rp });
-
-            int reaped = RewindPointReaper.ReapOrphanedRPs();
-
-            Assert.Equal(1, reaped);
-            Assert.Empty(scenario.RewindPoints);
-            Assert.Null(bp.RewindPointId);
-        }
-
-        [Fact]
         public void Reap_AnySlotNotCommittedTip_StillRetained()
         {
             // A NotCommitted tip is open (recorder still running) and keeps the

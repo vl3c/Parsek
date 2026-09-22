@@ -162,17 +162,6 @@ namespace Parsek.Tests
             Assert.Null(coalescer.Tick(100.499));
         }
 
-        [Fact]
-        public void WindowBoundary_Exact_ReturnsBreakup()
-        {
-            var coalescer = new CrashCoalescer();
-            coalescer.OnSplitEvent(100.0, 1000, false);
-
-            // Exactly at 0.5s boundary (>= check)
-            var bp = coalescer.Tick(100.5);
-            Assert.NotNull(bp);
-        }
-
         #endregion
 
         #region Reset between uses

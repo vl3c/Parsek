@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/TrajectoryTextSidecarCodec.cs b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+index e53c1c2c0..4c6e7040f 100644
+--- a/Source/Parsek/TrajectoryTextSidecarCodec.cs
++++ b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+@@ -1698,7 +1698,7 @@ namespace Parsek
+                 }
+                 if (!Enum.IsDefined(typeof(SegmentEventType), typeInt))
+                 {
+-                    RecordingStore.Log($"[Recording] WARNING: Skipping SEGMENT_EVENT with unknown type={typeInt}");
++                    RecordingStore.Log($"[Recording] Skipping SEGMENT_EVENT with unknown type={typeInt}");
+                     skipped++;
+                     continue;
+                 }

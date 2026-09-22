@@ -74,16 +74,5 @@ namespace Parsek.Tests
                 && l.Contains("InvalidOperationException"));
         }
 
-        // Guards edge 13 wiring: a button-initiated batch (wasAutorunBatch=false) never
-        // reaches PerformAutorunExit because H2ExitDecision.ShouldQuit is false even with
-        // the exit env armed. This is the decision that gates the exit tail; the pure
-        // AutorunHooksTests cover the full truth table, this pins the wiring intent.
-        [Fact]
-        public void H2Decision_ButtonBatchWithExitArmed_DoesNotQuit()
-        {
-            var d = AutorunHooks.H2ExitDecision(
-                exitArmed: true, wasAutorunBatch: false, bounceArmed: false);
-            Assert.False(d.ShouldQuit);
-        }
     }
 }

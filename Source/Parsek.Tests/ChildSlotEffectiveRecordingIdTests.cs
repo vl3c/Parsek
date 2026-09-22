@@ -122,17 +122,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EffectiveRecordingId_OrphanEndpoint_AtoB_BNotInOldList_ReturnsB()
-        {
-            // rec_B is the new id for rec_A, and no supersede has rec_B as Old.
-            // Per design section 5.2, B IS the effective id — the walk returns B.
-            var slot = new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_A" };
-            var list = new List<RecordingSupersedeRelation> { Rel("rec_A", "rec_B") };
-            string eff = slot.EffectiveRecordingId(list);
-            Assert.Equal("rec_B", eff);
-        }
-
-        [Fact]
         public void EffectiveRecordingId_NullOrigin_ReturnsNull()
         {
             var slot = new ChildSlot { SlotIndex = 0, OriginChildRecordingId = null };

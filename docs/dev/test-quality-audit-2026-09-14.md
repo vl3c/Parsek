@@ -2310,6 +2310,69 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     half and the parent walk need a live Transform; the in-game cell the register proposed
     is filed as `TQ-2-wheel-damage-guard-needs-live-transform` in `todo-and-known-bugs.md`.
 
+- `testfix-low-t2-01` (2026-09-23): the Low T2 (duplicate) register, all 231 rows, plus
+  the five Low T6 (organization) rows. With this PR the Low T2 and Low T6 registers are
+  closed. The per-row outcome of every T2 row is in `work/phase-b-low-t2-dedupe.tsv`.
+  Method: a read-only Sonnet classifier paired each cell with its twin; a mechanical
+  statement-subset check proved the cells whose every statement also appears in the twin;
+  an Opus approver compared the rest side by side, checked each production claim in source
+  and rejected when in doubt; and a guard refused any removal whose twin was itself being
+  removed. Outcomes: 175 removed (35 `removed-mechanical`, 140 `removed-opus-approved`),
+  21 `kept-reviewer-found-unique-coverage`, 2 `kept-theory-duplicate` (data-driven rows),
+  1 `kept-held`, 24 `declined-cosmetic-fold` (Theory folds that are organization only and
+  gain no failure mode), and the 8 "B" rows below. No production change. Each B row has a
+  `mutations/<id>-phaseB.patch` that `git apply --check`s against the branch and one row in
+  `mutations.csv`. One combined run of the old test files under all eight patches read
+  408 passed / 8 failed: each old cell red, each old twin green, except where noted.
+  - Assertion moved into the twin, cell removed (6), each twin the only red in its class
+    under its patch: F-catchall-006-03 (`Assert.Same` on the origin instance; mutant: the
+    rollback swaps in a `DeepClone`), F-recorder-events-024-05 (the `OnBackgroundPartDie`
+    prefix; mutant drops it), F-rewind-refly-004-04 (no defensive Immutable Warn on the
+    self-rewind path; mutant emits it and still retires), F-catchall-003-01 (the absolute
+    first-event UT of every RCS showcase entry; test-side generator mutant, offset 0 -> 3),
+    F-ghost-playback-008-04 (`result=True`, where the twin matched a bare `True`; mutant
+    renames the token), F-catchall-040-03 (the WARNING marker on the unknown-type line;
+    mutant drops it).
+  - F-ghost-playback-017-02, PREMISE WRONG, cell removed: the twin
+    `ChooseStrategy_OrbitalTerminal_ReturnsOrbital` already asserts the log line and the
+    return value, and the cell was a strict subset. Under a body-dropping probe mutant
+    both the cell and the twin red.
+  - F-rewind-refly-005-01, KEPT AND RENAMED
+    `RetirementPointingAtImmutable_NoSourceRelationId_RestoresRelationUnderLegacyRestoreId`:
+    only its arrange (no `SourceSupersedeRelationId`) reaches the `rsr_legacyrestore_`
+    fallback, so the assertion cannot move. It now asserts the Old/New ids and the prefixed
+    id. The old cell was green under the prefix-dropping mutant; the renamed cell is the
+    only red.
+  - T6, no mutation proof (organization rows):
+    - F-analyzer-003-02: `RecordingSectionDump.Manual_DumpRecordingSections` now reports
+      SKIPPED when `PARSEK_DUMP_SAVE` is unset (a `DumpSaveFact` attribute sets `Skip`),
+      where it used to report a pass with no assertion. With the variable set it still
+      runs (checked against `bdock-recorded`).
+    - F-catchall-005-01: the seven injectors (`InjectPendingLimboTree` ...
+      `InjectAllRecordings`) now report SKIPPED when their target save is absent (an
+      `InjectTargetFact` attribute resolves the same KSP root and save / target env vars
+      as the bodies), where they used to report seven passes that ran nothing. The
+      register's proposal (throw `SkipException`) is wrong for this suite: under xUnit
+      2.4.2 a thrown `Xunit.Sdk.SkipException` reports as FAILED (measured with a
+      throwaway probe), so the KSP.log lock refusal inside the bodies already fails red
+      rather than skipping as the register assumed. Checked: with
+      `PARSEK_INJECT_SAVE_NAME` pointing at no save all seven skip; with a staged save
+      under a scratch `KSPDIR` the injector runs.
+    - F-legacy-bugfix-018-02: the uncalled `MakeActiveProbeTipMergeThenSplit` helper in
+      `Bug618ReFlyMergeParentChainTipTests` is deleted.
+    - F-recording-tree-013-05: the dead `v1SectionAuthoritative` ternary arm and its stale
+      comment are deleted, and the theory is renamed
+      `CodecRoundTrip_BoundaryFixture_SectionAuthoritativeBinaryPreservesSemantics` to
+      name the one write path its two rows cover.
+    - F-trajectory-orbit-005-02: the `OrbitSegment Serialization` region in
+      `OrbitSegmentTests` is renamed `FindOrbitSegment boundaries, Recording UT derivation
+      and ToString`.
+  - Filtered classes after the branch, all 0 failed: the eight B-row classes 409 passed
+    (the seven removed cells gone; `SyntheticRecordingTests` without its injectors); the
+    T6 classes (`Bug618ReFlyMergeParentChainTipTests`, `RecordingStorageRoundTripTests`,
+    `OrbitSegmentTests`, `RecordingSectionDump`, `SyntheticRecordingTests`) 259 passed / 8
+    skipped with the injectors pointed at no save.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

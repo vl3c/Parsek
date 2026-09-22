@@ -70,18 +70,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RelaunchUTForWindow_NormalCase_CoincidesWithSynodicDeparture()
-        {
-            // synodic > span => cadence == synodic, so the cadence-clock relaunch time and the synodic-clock
-            // departure are identical at every window (the park re-phase is byte-identical to pre-fix).
-            var s = PlanKerbinDuna(referenceUT: 100_000.0);
-            Assert.True(s.Valid, s.Reason);
-            Assert.Equal(s.SynodicPeriodSeconds, s.CadenceSeconds, 3);
-            for (long k = 0; k <= 5; k++)
-                Assert.Equal(s.DepartureUTForWindow(k), s.RelaunchUTForWindow(k), 3);
-        }
-
-        [Fact]
         public void RelaunchUTForWindow_SpanExceedsSynodic_CadenceIsSynodicMultiple_ClocksCoincide()
         {
             // A mission whose recorded span (25e6 s) EXCEEDS the Kerbin->Duna synodic (~19.6e6 s): the loop

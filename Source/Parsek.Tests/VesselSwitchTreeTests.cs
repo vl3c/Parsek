@@ -221,14 +221,6 @@ namespace Parsek.Tests
             Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
-        [Fact]
-        public void DecideOnVesselSwitch_TreeNull_DoesNotCrash()
-        {
-            // Explicit null tree -> fallback TransitionToBackground
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, 0, activeTree: null);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
-        }
-
         #endregion
 
         #region BackgroundMap consistency
@@ -1023,30 +1015,6 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
                 activeVesselPid: 0u,
                 freshRolloutVesselPid: 0u));
-        }
-
-        [Fact]
-        public void TryFindCommittedTreeForSpawnedVessel_StillMatchesAfterFreshLaunchGuardLayer()
-        {
-            // The fresh-launch guard lives at the instance dispatcher in
-            // TryRestoreCommittedTreeForSpawnedActiveVessel, not in the static
-            // lookup. The lookup must keep returning the matching tree so any
-            // non-fresh-launch caller (background promotion, missed-switch
-            // recovery for a loaded vessel) keeps working.
-            var tree = MakeTree("rec_active");
-            tree.Recordings["rec_active"].VesselPersistentId = 2708531065u;
-            tree.Recordings["rec_active"].VesselSpawned = true;
-            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 2708531065u;
-
-            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
-                new List<RecordingTree> { tree },
-                activeVesselPid: 2708531065u,
-                out RecordingTree matchedTree,
-                out string matchedRecordingId);
-
-            Assert.True(found);
-            Assert.Same(tree, matchedTree);
-            Assert.Equal("rec_active", matchedRecordingId);
         }
 
         [Fact]

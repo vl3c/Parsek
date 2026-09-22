@@ -181,20 +181,5 @@ namespace Parsek.Tests
             Assert.Equal("not-the-session-provisional", r.Reason);
         }
 
-        /// <summary>
-        /// The two points must be independently sufficient. Point 1 cannot fire when
-        /// the restore coroutine was never scheduled; point 2 covers that shape, and
-        /// vice versa when the session is concluded before any save.
-        /// </summary>
-        [Fact]
-        public void BothDetectionPoints_FireIndependentlyOnTheSameSession()
-        {
-            var marker = InPlaceMarker(treeId: "tree-b9-stack-root", forkId: "rec_5b0697a6");
-
-            Assert.True(ReFlyProvisionalBinding
-                .EvaluateRestoreGiveUp(marker, "b435c4ad").ShouldRaise);
-            Assert.True(ReFlyProvisionalBinding
-                .EvaluateSidecarRewrite(marker, "rec_5b0697a6", "trajectory-missing").ShouldRaise);
-        }
     }
 }

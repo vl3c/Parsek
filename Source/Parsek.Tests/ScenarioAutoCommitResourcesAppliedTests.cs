@@ -167,22 +167,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SceneExitAutoMerge_AdvancesRecordingIndexes()
-        {
-            // Scenario: FLIGHT → KSC/TS with autoMerge=ON and !isRevert (ParsekScenario.cs:~1186).
-            // The flight's resources are already live in KSP; the commit must advance
-            // recording indexes so the committed tree is immediately fully applied.
-            var rec = MakeRecording("rec-scene-exit", "tree-scene-exit", 100.0, 200.0);
-            var tree = MakeTree("tree-scene-exit", "rec-scene-exit", rec);
-
-            RecordingStore.StashPendingTree(tree);
-            ParsekScenario.CommitPendingTreeAsApplied(tree);
-
-            Assert.Equal(2, rec.LastAppliedResourceIndex);
-            Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-scene-exit");
-        }
-
-        [Fact]
         public void OutsideFlightAutoCommit_AdvancesRecordingIndexes()
         {
             // Scenario: Esc > Abort Mission → Space Center with autoMerge=ON

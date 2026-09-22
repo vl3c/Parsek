@@ -359,7 +359,7 @@ namespace Parsek.Tests.Logistics
         // hashes differently from the same window stamped DockingPort, and
         // the Grapple shape gets its own byte-stability pin. Pre-existing
         // recordings are stamped DockingPort and keep their pinned hash
-        // (Hash_PreM3Recording_ByteStable, untouched).
+        // (Hash_PreM2Recording_ByteStable, untouched).
         // ---------------------------------------------------------------
 
         [Fact]

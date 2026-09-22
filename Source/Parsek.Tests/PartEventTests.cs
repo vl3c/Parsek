@@ -271,20 +271,6 @@ namespace Parsek.Tests
         #region EVA child recording fields
 
         [Fact]
-        public void ParentRecordingId_SerializationRoundtrip()
-        {
-            var recNode = new RecordingBuilder("EVA Child")
-                .AddPoint(100, 0, 0, 100)
-                .AddPoint(110, 0, 0, 200)
-                .WithParentRecordingId("abc123")
-                .WithEvaCrewName("Jebediah Kerman")
-                .Build();
-
-            Assert.Equal("abc123", recNode.GetValue("parentRecordingId"));
-            Assert.Equal("Jebediah Kerman", recNode.GetValue("evaCrewName"));
-        }
-
-        [Fact]
         public void ParentRecordingId_BackwardCompat_NullWhenMissing()
         {
             // A current-schema recording node with no EVA linkage keys, read by the
@@ -1262,30 +1248,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyGearState_Deployed_IsDeployed()
-        {
-            FlightRecorder.ClassifyGearState("Deployed", out bool isDeployed, out bool isRetracted);
-            Assert.True(isDeployed);
-            Assert.False(isRetracted);
-        }
-
-        [Fact]
-        public void ClassifyGearState_Retracted_IsRetracted()
-        {
-            FlightRecorder.ClassifyGearState("Retracted", out bool isDeployed, out bool isRetracted);
-            Assert.False(isDeployed);
-            Assert.True(isRetracted);
-        }
-
-        [Fact]
-        public void ClassifyGearState_Deploying_NeitherEndpoint()
-        {
-            FlightRecorder.ClassifyGearState("Deploying", out bool isDeployed, out bool isRetracted);
-            Assert.False(isDeployed);
-            Assert.False(isRetracted);
-        }
-
-        [Fact]
         public void ClassifyGearState_Retracting_NeitherEndpoint()
         {
             FlightRecorder.ClassifyGearState("Retracting", out bool isDeployed, out bool isRetracted);
@@ -1306,27 +1268,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyCargoBayState_ClosedPos0_AnimTime1_IsOpen()
-        {
-            FlightRecorder.ClassifyCargoBayState(1f, 0f, out bool isOpen, out bool isClosed);
-            Assert.True(isOpen);
-            Assert.False(isClosed);
-        }
-
-        [Fact]
         public void ClassifyCargoBayState_ClosedPos1_AnimTime0_IsOpen()
         {
             FlightRecorder.ClassifyCargoBayState(0f, 1f, out bool isOpen, out bool isClosed);
             Assert.True(isOpen);
             Assert.False(isClosed);
-        }
-
-        [Fact]
-        public void ClassifyCargoBayState_ClosedPos1_AnimTime1_IsClosed()
-        {
-            FlightRecorder.ClassifyCargoBayState(1f, 1f, out bool isOpen, out bool isClosed);
-            Assert.False(isOpen);
-            Assert.True(isClosed);
         }
 
         [Fact]
@@ -1635,22 +1581,6 @@ namespace Parsek.Tests
             float power = FlightRecorder.ComputeRcsPower(
                 new float[] { 0.5f, 0.5f, 0.5f, 0.5f }, 1.0f);
             Assert.Equal(0.5f, power, 0.001f);
-        }
-
-        [Fact]
-        public void ComputeRcsPower_ZeroThrusterPower_ReturnsZero()
-        {
-            float power = FlightRecorder.ComputeRcsPower(
-                new float[] { 0.5f, 0.5f }, 0f);
-            Assert.Equal(0f, power);
-        }
-
-        [Fact]
-        public void ComputeRcsPower_EmptyForces_ReturnsZero()
-        {
-            float power = FlightRecorder.ComputeRcsPower(
-                new float[0], 1.0f);
-            Assert.Equal(0f, power);
         }
 
         [Fact]
@@ -2130,22 +2060,6 @@ namespace Parsek.Tests
             Assert.True(evt.HasValue);
             Assert.Equal(PartEventType.ThermalAnimationHot, evt.Value.eventType);
             Assert.Equal(HeatLevel.Hot, levelMap[key]);
-        }
-
-        [Fact]
-        public void AnimateHeatTransition_HotToColdDirect()
-        {
-            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
-            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
-
-            var evt = FlightRecorder.CheckAnimateHeatTransition(
-                key, 450, "shockConeIntake",
-                normalizedHeat: 0.05f,
-                levelMap, ut: 100.0, moduleIndex: 0);
-
-            Assert.True(evt.HasValue);
-            Assert.Equal(PartEventType.ThermalAnimationCold, evt.Value.eventType);
-            Assert.Equal(HeatLevel.Cold, levelMap[key]);
         }
 
         [Fact]

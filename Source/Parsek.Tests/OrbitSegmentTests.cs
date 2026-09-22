@@ -736,7 +736,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region OrbitSegment Serialization
+        #region FindOrbitSegment boundaries, Recording UT derivation and ToString
 
         [Fact]
         public void FindOrbitSegment_AdjacentSegments_NoOverlap()
@@ -767,18 +767,6 @@ namespace Parsek.Tests
             var result = TrajectoryMath.FindOrbitSegment(segments, 400);
             Assert.NotNull(result);
             Assert.Equal("Mun", result.Value.bodyName);
-        }
-
-        [Fact]
-        public void FindOrbitSegment_NegativeUT_ReturnsNull()
-        {
-            var segments = new List<OrbitSegment>
-            {
-                MakeSegment(100, 200)
-            };
-
-            var result = TrajectoryMath.FindOrbitSegment(segments, -50);
-            Assert.Null(result);
         }
 
         [Fact]

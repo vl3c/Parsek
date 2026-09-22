@@ -159,34 +159,6 @@ namespace Parsek.Tests
         // Membership rules
         // =====================================================================
 
-        [Fact]
-        public void HasStashedResolvedSlot_StashedThenSealedSlot_ReturnsFalse()
-        {
-            // A stashed slot whose effective tip has been sealed (Immutable) is
-            // closed; HasStashedResolvedSlot reads open/closed from the tip
-            // MergeState, so it returns false (collapse-seal-into-mergestate).
-            var rec = Rec("rec_stashed", MergeState.Immutable, TerminalState.Landed,
-                parentBranchPointId: "bp_1", treeId: "tree_1");
-            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
-            InstallScenario(rps: new List<RewindPoint>
-            {
-                new RewindPoint
-                {
-                    RewindPointId = "rp_1",
-                    BranchPointId = "bp_1",
-                    FocusSlotIndex = 0,
-                    ChildSlots = new List<ChildSlot>
-                    {
-                        Slot(0, "rec_stashed", stashedSlot: true)
-                    }
-                }
-            });
-
-            bool result = UnfinishedFlightClassifier.HasStashedResolvedSlot(rec);
-
-            Assert.False(result);
-        }
-
         // ImmutableDestroyedUnderRP_IsMember was DELETED here (test-quality audit,
         // F-legacy-bugfix-010-01). Its name, doc comment and claimed regression all said Immutable,
         // but the fixture passed MergeState.CommittedProvisional, which made it an exact duplicate

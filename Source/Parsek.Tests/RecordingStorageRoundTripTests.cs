@@ -2194,19 +2194,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrajectorySidecarBinary_TryProbe_PartialMagic_ReturnsFalse()
-        {
-            string path = Path.Combine(tempDir, "partial-magic.prec");
-            // "PS" only -- first two bytes of "PSK0" but file length (2) < 16 minimum
-            File.WriteAllBytes(path, new byte[] { (byte)'P', (byte)'S' });
-
-            TrajectorySidecarProbe probe;
-            bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
-            Assert.False(result);
-            Assert.Equal("binary header truncated", probe.FailureReason);
-        }
-
-        [Fact]
         public void TrajectorySidecarBinary_TryProbe_MagicButHeaderBodyTruncated_ReturnsFalse()
         {
             // Write "PSK0" + 4 zero bytes = 8 bytes total.
@@ -2533,23 +2520,20 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------------
-        // Codec round-trip matrix (1 theory)
+        // Codec round trip of the boundary fixture (1 theory)
         // -----------------------------------------------------------------------
 
         [Theory]
         [InlineData("currentSparse")]
         [InlineData("aliasSnapshot")]
-        public void CodecRoundTripMatrix_EveryFormatPreservesSemanticsAndBoundaryPairs(string caseName)
+        public void CodecRoundTrip_BoundaryFixture_SectionAuthoritativeBinaryPreservesSemantics(string caseName)
         {
-            // The section-authoritative case needs a fixture whose flat payload exactly matches
-            // both the rebuilt points AND the rebuilt orbit segments. BuildBoundaryCodecFixture
-            // has 2 flat OrbitSegments but only Absolute track sections (which contribute nothing
-            // to RebuildOrbitSegmentsFromTrackSections), so its OrbitSegment exact-match fails
-            // and the writer falls through to flat-fallback — good for the duplicated case,
-            // wrong for the section-authoritative case.
-            Recording fixture = caseName == "v1SectionAuthoritative"
-                ? BuildSectionAuthoritativeCodecFixture()
-                : BuildBoundaryCodecFixture();
+            // Both rows run BuildBoundaryCodecFixture through the same current-format binary
+            // write path (EnsureCheckpointSectionsForTopLevelOrbitSegments makes it
+            // section-authoritative). The aliasSnapshot row adds alias snapshots, which the
+            // trajectory sidecar does not carry, so it pins that the snapshot mode leaves the
+            // trajectory write-path choice unchanged. The pre-collapse format variants are gone.
+            Recording fixture = BuildBoundaryCodecFixture();
 
             TrajectorySidecarEncoding expectedEncoding;
             bool expectSectionAuthoritative;

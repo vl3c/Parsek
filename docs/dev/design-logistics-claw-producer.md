@@ -243,7 +243,7 @@ Unit (xUnit):
   still rejects (regression pin); mid-run grab fixture per 4.2 end to end.
 - Codec: `Grapple` and `Unknown` round-trip on window + recording + route stop
   (existing `ParseConnectionKind` covers names; pin it).
-- Byte identity: `Hash_PreM3Recording_ByteStable` untouched (pre-existing recordings keep
+- Byte identity: `Hash_PreM2Recording_ByteStable` untouched (pre-existing recordings keep
   `DockingPort`); NEW pinned hash for a Grapple-stamped window (transferKind IS hashed,
   `RouteProofHasher` writes `(int)TransferKind`, so the new shape needs its own pin);
   save/load round-trip of an old-shape recording stays byte-identical.

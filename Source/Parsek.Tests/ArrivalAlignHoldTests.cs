@@ -323,15 +323,6 @@ namespace Parsek.Tests
             }
         }
 
-        [Fact]
-        public void PerLoop_FirstLoopMatchesConstantHold()
-        {
-            // On loop 0 the per-loop hold equals the constant W_0, so the reference loop is unchanged from the
-            // pre-13c constant-hold behavior. (Cross-checks PerLoop_NEquals0 against the clock's W_0.)
-            const double w0 = 46450.59, cadence = 19653076.0, tRot = 65518.0;
-            Assert.Equal(w0, GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, 0L, cadence, tRot), 6);
-        }
-
         // === TryComputeSpanLoopUT byte-identical when Off / invalid T_rot (13c regression fence) ==
 
         [Theory]

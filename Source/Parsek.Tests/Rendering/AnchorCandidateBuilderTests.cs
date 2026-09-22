@@ -609,23 +609,6 @@ namespace Parsek.Tests.Rendering
                 Assert.DoesNotContain(arr, c => c.Source == AnchorSource.Loop);
         }
 
-        [Fact]
-        public void NoLoopMarker_WhenLoopIntervalUnset()
-        {
-            // What makes it fail: emitting the marker for non-looping
-            // recordings would feed phantom Loop candidates into the
-            // resolver and let them outrank OrbitalCheckpoint candidates
-            // that should win.
-            var rec = MakeRecording("rec-no-loop",
-                MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic, 0, 100));
-            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
-
-            if (SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out var arr))
-            {
-                Assert.DoesNotContain(arr, c => c.Source == AnchorSource.Loop);
-            }
-        }
-
         // --- ordering + flag-off behaviour --------------------------------
 
         [Fact]

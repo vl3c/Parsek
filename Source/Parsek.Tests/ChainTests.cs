@@ -36,13 +36,6 @@ namespace Parsek.Tests
         #region DecideOnVesselSwitch
 
         [Fact]
-        public void DecideOnVesselSwitch_SameVessel_ReturnsNone()
-        {
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 100, false, false);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.None, result);
-        }
-
-        [Fact]
         public void DecideOnVesselSwitch_SameVessel_EvaFlags_StillNone()
         {
             // Same vessel PID overrides everything
@@ -115,13 +108,6 @@ namespace Parsek.Tests
         #endregion
 
         #region CreateRecordingFromFlightData edge cases
-
-        [Fact]
-        public void CreateRecordingFromFlightData_NullPoints_ReturnsNull()
-        {
-            var rec = RecordingStore.CreateRecordingFromFlightData(null, "Test");
-            Assert.Null(rec);
-        }
 
         [Fact]
         public void CreateRecordingFromFlightData_OnePoint_ReturnsNull()
@@ -1066,23 +1052,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ApplyPersistenceArtifacts_CopiesChainFields()
-        {
-            var source = new Recording
-            {
-                ChainId = "test-chain",
-                ChainIndex = 2,
-                VesselName = "Source"
-            };
-
-            var target = new Recording();
-            target.ApplyPersistenceArtifactsFrom(source);
-
-            Assert.Equal("test-chain", target.ChainId);
-            Assert.Equal(2, target.ChainIndex);
-        }
-
-        [Fact]
         public void ApplyPersistenceArtifacts_CopiesAllFields()
         {
             var source = new Recording
@@ -1304,29 +1273,6 @@ namespace Parsek.Tests
         #endregion
 
         #region Chain spawn safety
-
-        [Fact]
-        public void IsChainMidSegment_ReturnsFalse_WhenOnlyOneSegmentCommitted()
-        {
-            // When CommitChainSegment commits the vessel segment but the EVA segment
-            // hasn't been committed yet, IsChainMidSegment returns false.
-            // This is the window where spawning must be suppressed by the activeChainId guard.
-            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(10, 100), "Vessel Seg");
-            Assert.NotNull(rec);
-            rec.ChainId = "incomplete-chain";
-            rec.ChainIndex = 0;
-            rec.VesselSnapshot = new ConfigNode("VESSEL");
-            RecordingStore.CommitRecordingDirect(rec);
-
-            var vessel = RecordingStore.CommittedRecordings[0];
-
-            // With only segment 0 committed, it's NOT detected as mid-chain
-            // because there's no segment with a higher index.
-            Assert.False(RecordingStore.IsChainMidSegment(vessel));
-
-            // This means the activeChainId guard in UpdateTimelinePlayback is ESSENTIAL
-            // to prevent spawning during chain building.
-        }
 
         [Fact]
         public void ContinuationAppendedPoints_ExtendEndUT()

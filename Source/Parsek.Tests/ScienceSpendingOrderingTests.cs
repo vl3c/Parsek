@@ -163,24 +163,6 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void SortActions_AtEqualUT_PlacesEarningBeforeSpending()
-        {
-            // Input order is deliberately spending-first, so only the sort key can
-            // produce the earning-first result.
-            var actions = new List<GameAction>
-            {
-                Spending(100.0, "heavyRocketry", 90f),
-                Earning(100.0, "mysteryGoo@KerbinSrfLandedShores", 50f)
-            };
-
-            var sorted = RecalculationEngine.SortActions(actions);
-
-            Assert.Equal(2, sorted.Count);
-            Assert.Equal(GameActionType.ScienceEarning, sorted[0].Type);
-            Assert.Equal(GameActionType.ScienceSpending, sorted[1].Type);
-        }
-
-        [Fact]
         public void Spending_AtSameUTAsTheEarning_IsAffordable_ViaTheTiebreak()
         {
             var science = RegisterScienceModule();

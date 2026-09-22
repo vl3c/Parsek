@@ -315,18 +315,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanAutoMerge_TwoUntouchedRecordings_ReturnsTrue()
-        {
-            // Same regression: two recordings at the untouched sentinel must be mergeable
-            // regardless of the user-facing DefaultLoopIntervalSeconds value.
-            var a = MakeChainSegment("chain1", 0);
-            var b = MakeChainSegment("chain1", 1);
-            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, a.LoopIntervalSeconds);
-            Assert.Equal(LoopTiming.UntouchedLoopIntervalSentinel, b.LoopIntervalSeconds);
-            Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
-        }
-
-        [Fact]
         public void CanAutoMerge_AnchorSet_ReturnsFalse()
         {
             var a = MakeChainSegment("chain1", 0);

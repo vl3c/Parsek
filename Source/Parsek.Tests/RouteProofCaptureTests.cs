@@ -747,41 +747,6 @@ namespace Parsek.Tests
             }
         }
 
-        // Regression for the 2026-05-18 playtest: a stock fuel transfer pumps fuel
-        // between two tanks BUT leaves the outer part-PID set unchanged. The
-        // warning must NOT fire — only outer-part changes (EVA construction etc.)
-        // should trip it.
-        [Fact]
-        public void LogRoutePartSetEqualityWarnings_FuelTransferOnly_DoesNotEmitWarning()
-        {
-            var logLines = new List<string>();
-            ParsekLog.ResetTestOverrides();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            try
-            {
-                // Transport had 200 LF pre-dock, has 400 LF post-undock (gained 200).
-                // Endpoint had 200 LF pre-dock, has 0 LF post-undock (lost 200).
-                // Same part-PID sets on both sides.
-                ConfigNode transport = MakeVessel(
-                    MakePart(100, "transportTank", MakeResource("LiquidFuel", 400.0, 400.0)));
-                ConfigNode endpoint = MakeVessel(
-                    MakePart(200, "endpointTank", MakeResource("LiquidFuel", 0.0, 400.0)));
-
-                RouteProofCapture.LogRoutePartSetEqualityWarnings(
-                    new[] { transport, endpoint },
-                    transportPartPersistentIds: new List<uint> { 100u },
-                    endpointPartPersistentIds: new List<uint> { 200u },
-                    windowId: "test-window");
-
-                Assert.DoesNotContain(logLines, l => l.Contains("part-set drift"));
-            }
-            finally
-            {
-                ParsekLog.ResetTestOverrides();
-            }
-        }
-
         [Fact]
         public void CompleteRouteConnectionWindowAtUndock_MissingEndpointPart_DoesNotMarkComplete()
         {

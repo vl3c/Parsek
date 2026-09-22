@@ -400,16 +400,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Constructor_OnRailsState_LastExplicitEndUpdate_IsNegativeOne()
-        {
-            var tree = MakeTree((100, "rec_bg1"));
-            var bgRecorder = new BackgroundRecorder(tree);
-
-            // Minimal state has lastExplicitEndUpdate = -1
-            Assert.Equal(-1.0, bgRecorder.GetOnRailsLastExplicitEndUpdate(100));
-        }
-
-        [Fact]
         public void RefreshOnRailsFinalizationCacheForTesting_CachesStableOrbit()
         {
             var tree = MakeTree((100, "rec_bg1"));
@@ -1297,23 +1287,6 @@ namespace Parsek.Tests
         #region 9.3 Part Event Polling (Static Method Integration)
 
         [Fact]
-        public void CheckParachuteTransition_WorksWithBackgroundStateCollections()
-        {
-            // Verify that the static CheckParachuteTransition method works with
-            // the same Dictionary<uint, int> type used by BackgroundVesselState
-            var parachuteStates = new Dictionary<uint, int>();
-            parachuteStates[42] = 0; // STOWED
-
-            // Transition STOWED -> SEMI-DEPLOYED (state 0 -> 1)
-            var evt = FlightRecorder.CheckParachuteTransition(42, "parachuteSingle", 1, parachuteStates, 100.0);
-
-            Assert.NotNull(evt);
-            Assert.Equal(PartEventType.ParachuteSemiDeployed, evt.Value.eventType);
-            Assert.Equal(42u, evt.Value.partPersistentId);
-            Assert.Equal(100.0, evt.Value.ut);
-        }
-
-        [Fact]
         public void CheckEngineTransition_WorksWithBackgroundStateCollections()
         {
             // Verify that CheckEngineTransition works with the same collection types
@@ -2062,35 +2035,6 @@ namespace Parsek.Tests
                 ParsekLog.ResetTestOverrides();
                 ParsekLog.SuppressLogging = true;
             }
-        }
-
-        [Fact]
-        public void CheckpointAllVessels_ClosesSegmentEvenWhenVesselNotFound()
-        {
-            // Verifies that the segment is always closed at checkpoint UT,
-            // preserving recorded orbital data, even if vessel can't be found
-            var tree = MakeTree((100, "rec_bg1"));
-            var bgRecorder = new BackgroundRecorder(tree);
-            bgRecorder.SetVesselFinderForTesting(pid => null);
-
-            bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
-            {
-                startUT = 200.0,
-                semiMajorAxis = 750000.0,
-                bodyName = "Kerbin"
-            });
-
-            bgRecorder.CheckpointAllVessels(350.0);
-
-            // Segment was closed with correct endUT
-            Assert.Single(tree.Recordings["rec_bg1"].OrbitSegments);
-            Assert.Equal(200.0, tree.Recordings["rec_bg1"].OrbitSegments[0].startUT);
-            Assert.Equal(350.0, tree.Recordings["rec_bg1"].OrbitSegments[0].endUT);
-            Assert.Single(tree.Recordings["rec_bg1"].TrackSections);
-            Assert.Equal(350.0, tree.Recordings["rec_bg1"].TrackSections[0].endUT);
-
-            // No new segment opened (vessel not found)
-            Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));
         }
 
         [Fact]

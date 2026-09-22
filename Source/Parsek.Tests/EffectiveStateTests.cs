@@ -206,15 +206,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EffectiveRecordingId_OrphanEndpoint_ReturnsLastNonSuperseded()
-        {
-            // rec_B is the new id for rec_A, and no supersede has rec_B as Old.
-            // Per design §5.2, B IS the effective id — the walk returns B.
-            var list = new List<RecordingSupersedeRelation> { Rel("rec_A", "rec_B") };
-            Assert.Equal("rec_B", EffectiveState.EffectiveRecordingId("rec_A", list));
-        }
-
-        [Fact]
         public void EffectiveRecordingId_NullOrigin_ReturnsNull()
         {
             var list = new List<RecordingSupersedeRelation> { Rel("rec_A", "rec_B") };

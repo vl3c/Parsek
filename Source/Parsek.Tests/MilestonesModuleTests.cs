@@ -74,29 +74,6 @@ namespace Parsek.Tests
         // Design doc 7.4 — Retroactive priority shift
         // ================================================================
 
-        [Fact]
-        public void RetroactivePriorityShift()
-        {
-            // Step 1: Recording A at UT=1000 achieves "First Mun Landing."
-            // Step 2: Rewind. Recording B at UT=700 also achieves it.
-            // Recalculate (UT-sorted): B at UT=700 first, A at UT=1000 second.
-            // B gets credit, A is zeroed.
-            module.Reset();
-
-            var actionB = MakeMilestone("FirstMunLanding", 700.0,
-                recordingId: "recB", fundsAwarded: 10000f, repAwarded: 15f);
-            var actionA = MakeMilestone("FirstMunLanding", 1000.0,
-                recordingId: "recA", fundsAwarded: 10000f, repAwarded: 15f);
-
-            // Walk in UT order (B first, A second)
-            module.ProcessAction(actionB);
-            module.ProcessAction(actionA);
-
-            Assert.True(actionB.Effective);
-            Assert.False(actionA.Effective);
-            Assert.Equal(1, module.GetCreditedCount());
-        }
-
         // ================================================================
         // Design doc 7.4 — Multiple milestones, independent flags
         // ================================================================
@@ -312,15 +289,6 @@ namespace Parsek.Tests
         // ================================================================
         // Unit tests — IsMilestoneCredited queries
         // ================================================================
-
-        [Fact]
-        public void IsMilestoneCredited_True_AfterProcessing()
-        {
-            var action = MakeMilestone("FirstEVA", 800.0, recordingId: "rec1");
-            module.ProcessAction(action);
-
-            Assert.True(module.IsMilestoneCredited("FirstEVA"));
-        }
 
         [Fact]
         public void IsMilestoneCredited_False_BeforeProcessing()

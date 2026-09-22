@@ -869,26 +869,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResetForBatchFlightBaselineRestoreBypassingGuard_DoesNotWeakenRegularResetGuard()
-        {
-            // Regression guard: the public ResetForTesting() must still
-            // throw on live data even after the bypass variant is in scope.
-            // Pins that the refactor did not silently flip the guard's
-            // sense for the public method.
-            var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "GuardedLive");
-            Assert.NotNull(live);
-            RecordingStore.AddRecordingWithTreeForTesting(live);
-
-            RecordingStore.ApplicationIsPlayingForTesting = () => true;
-
-            var ex = Assert.Throws<InvalidOperationException>(
-                () => RecordingStore.ResetForTesting());
-            Assert.Contains("ResetForTesting blocked", ex.Message);
-            Assert.Single(RecordingStore.CommittedRecordings);
-            Assert.Equal("GuardedLive", RecordingStore.CommittedRecordings[0].VesselName);
-        }
-
-        [Fact]
         public void Snapshot_GuardStillBlocksDirectReset_AfterRestore()
         {
             // End-to-end: even if the test correctly snapshot/restored its work, a

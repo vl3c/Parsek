@@ -826,15 +826,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveOwnership_NoDraw_NoOwnership_NoNewGap()
-        {
-            // THE no-new-gap invariant: when NO leg actually drew, the signal is FALSE, so the proto orbit
-            // line / icon is NOT hidden. The drew set is populated only on an actual draw, so "Director
-            // decided TracedPath but nothing drew" can never report ownership. proto hidden IFF a leg drew.
-            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(inDrewSet: false));
-        }
-
-        [Fact]
         public void IsRenderingNonOrbitalLeg_EndToEnd_Dispatches()
         {
             // End-to-end (the dispatch IsPolylineOwningGhostPhase ultimately calls): post-S3b the drew set
@@ -849,22 +840,6 @@ namespace Parsek.Tests
 
             // Null recordingId is never owned.
             Assert.False(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(null));
-        }
-
-        [Fact]
-        public void DrewSetPublish_AnyDrawNonTracedPath_PublishesToDrewSet()
-        {
-            // 8e S3a.1: the drew-set publish is DECOUPLED from the Director's TracedPath classification -
-            // an ANY-draw leg that the Director classified StockConic (the re-aim "bridge" leg) publishes
-            // to the drew set just like an owned-treatment leg, modeled here via SetOwnershipPublishForTesting
-            // with inDrewSet:true (the real Driver populates the drew set on the `if (anyDrawn)` condition,
-            // on EITHER path). The recording is reported owned - so a StockConic bridge leg is accounted by
-            // the drew set, which is exactly the coverage S3a.1 closed and S3b now relies on as the sole
-            // source.
-            const string recBridge = "rec-stockconic-bridge";
-            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(recBridge, inDrewSet: true);
-
-            Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recBridge));
         }
 
         // --- FIX #27: below-SURFACE degenerate-segment cover exclusion ---
@@ -3036,22 +3011,6 @@ namespace Parsek.Tests
 
             // C is new (in current, not previous); A is gone (in previous, not current); B is steady.
             Assert.Equal(new[] { "C" }, appeared);
-            Assert.Equal(new[] { "A" }, disappeared);
-        }
-
-        [Fact]
-        public void DiffDrawnSets_SameCountSwap_IsNotSilent()
-        {
-            // The count-keyed legacy "polyline.drawset" line misses a same-count swap (A->B, count stays 1);
-            // the set diff catches it as one disappear + one appear.
-            var prev = Set("A");
-            var cur = Set("B");
-            var appeared = new List<string>();
-            var disappeared = new List<string>();
-
-            GhostTrajectoryPolylineRenderer.DiffDrawnSets(prev, cur, appeared, disappeared);
-
-            Assert.Equal(new[] { "B" }, appeared);
             Assert.Equal(new[] { "A" }, disappeared);
         }
 

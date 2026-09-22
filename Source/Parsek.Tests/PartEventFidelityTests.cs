@@ -1076,16 +1076,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PastTheThreshold_NoFurtherEventsAreEmittedWhileThrustContinues()
-        {
-            // Unlike RCS there is no continuous power to re-report, so a long burn must not
-            // dribble events - which is what a copy-paste of the RCS path would have done.
-            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
-            var events = RunThrustFrames(Frames(true, threshold + 500));
-            Assert.Single(events);
-        }
-
-        [Fact]
         public void TwoSeparateSustainedBursts_EmitTwoPairs()
         {
             int threshold = FlightRecorder.RcsDebounceFrameThreshold;
@@ -1270,18 +1260,6 @@ namespace Parsek.Tests
         {
             Assert.Equal(expected,
                 GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(deployed, thrusting, ragdoll));
-        }
-
-        [Fact]
-        public void RagdollSuppressesThePlumeEvenWhileTheRecordingSaysThrusting()
-        {
-            // The one place the ragdoll events earn their keep VISUALLY, given the pose itself is
-            // deliberately never replayed. Stock cuts thrust when the FSM enters ragdoll, and the
-            // recorder's two flags are read independently, so this combination does occur on disk.
-            Assert.True(GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(
-                deployed: true, thrusting: true, ragdoll: false));
-            Assert.False(GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(
-                deployed: true, thrusting: true, ragdoll: true));
         }
 
         // TryUpdateEvaFlags is the headless-reachable half. ApplyEvaState wraps it and then

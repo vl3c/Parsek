@@ -1707,12 +1707,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RetirementPointingAtImmutable_DefaultReason_SweptAsLegacy()
+        public void RetirementPointingAtImmutable_NoSourceRelationId_RestoresRelationUnderLegacyRestoreId()
         {
-            // Counterpart to the test above: a retirement pointing at an
-            // Immutable recording WITHOUT the DemotedCanonReason tag is
-            // pre-fix legacy bad state. The sweep removes it and reconstructs
-            // the dropped supersede relation.
+            // A legacy retirement pointing at an Immutable recording that carries
+            // no SourceSupersedeRelationId. The sweep removes it and reconstructs
+            // the dropped supersede relation under a synthesized
+            // "rsr_legacyrestore_<guid>" id (the sibling with a preserved id
+            // covers the carry-over branch).
             InstallTree("tree_legacy",
                 new List<Recording>
                 {
@@ -1733,7 +1734,11 @@ namespace Parsek.Tests
             LoadTimeSweep.Run();
 
             Assert.Empty(scenario.RecordingRewindRetirements);
-            Assert.Single(scenario.RecordingSupersedes);
+            var restored = Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("rec_priorTip", restored.OldRecordingId);
+            Assert.Equal("rec_canon", restored.NewRecordingId);
+            Assert.StartsWith("rsr_legacyrestore_", restored.RelationId);
+            Assert.True(restored.RelationId.Length > "rsr_legacyrestore_".Length);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("Removing rewind-retirement=rrt_legacy")

@@ -57,7 +57,7 @@ namespace Parsek.Tests
             Assert.True(result);
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]") && l.Contains("HasOrbitData") &&
-                l.Contains("Kerbin") && l.Contains("True"));
+                l.Contains("Kerbin") && l.Contains("result=True"));
         }
 
         /// <summary>
@@ -642,26 +642,6 @@ namespace Parsek.Tests
             Assert.True(GhostMapPresence.IsGhostMapVessel(100));
             Assert.False(GhostMapPresence.IsGhostMapVessel(200));
             Assert.True(GhostMapPresence.IsGhostMapVessel(300));
-        }
-
-        #endregion
-
-        #region Log assertions
-
-        /// <summary>
-        /// HasOrbitData logs result with [GhostMap] tag.
-        /// Guards: diagnostic logging fires for orbit data checks.
-        /// </summary>
-        [Fact]
-        public void HasOrbitData_LogsResult()
-        {
-            var rec = new Recording
-            {
-                TerminalOrbitBody = "Kerbin",
-                TerminalOrbitSemiMajorAxis = 700000
-            };
-            GhostMapPresence.HasOrbitData(rec);
-            Assert.Contains(logLines, l => l.Contains("[GhostMap]") && l.Contains("result=True"));
         }
 
         #endregion
