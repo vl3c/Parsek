@@ -34,6 +34,15 @@ _(unreleased — entries accumulate here per commit)_
   `chain-terminated-destruction-recovery`. Proven by an armed re-flight and a negative control. The recovery half, and a seam verb pair to
   spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
   Harness-only; no game code changed.
+- **Automated testing: a re-fly host whose merge splits the original recording, and the
+  lane that will fly it.** `RF-13H-crewed-crash-refly-host` flies a crewed Kerbal X whose
+  core comes off inside the atmosphere and whose upper stack is left to crash, so one
+  crewed recording runs from launch through the rewind point to a death with no optimizer
+  split. Its save is committed as the fixture `refly-split-crewed-recorded`. The proof lane
+  `RF-13-refly-split-crew-survives-reload` re-flies that crew to orbit, merges, saves and
+  reloads. It is not green yet: from that host the upper stack cannot reach orbit
+  (tracked as RF-13-HOST-CANNOT-REACH-ORBIT). The orbit-insert mission now reports a
+  burn that runs dry by name instead of failing to write its result.
 - **Automated testing: RF-12S proves the re-fly crew-recovery fix end to end.** The lane
   rewinds a recorded crewed flight to the moment after launch where its upper stack
   separated. It flies the restored stack to orbit with a new small mission, so the crew

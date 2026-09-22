@@ -4312,6 +4312,38 @@ real commit path by
 the fixed DLL (`2026-09-22_2010`) read the provisional's `dedup=2` (was 4) and `2 reservations
 remain (permanent=0 temporary=2)` (was 0).
 
+## RF-13-HOST-CANNOT-REACH-ORBIT: the RP-split re-fly lane never reaches its merge, because the host restores the crewed stack too low to burn to orbit [FOUND 2026-09-22 on RF-13's reading runs. OPEN, harness-only]
+
+`RF-13-refly-split-crew-survives-reload` is the live proof of the fix below: rewind
+`refly-split-crewed-recorded` slot 0, burn the restored crewed stack to orbit with
+`rf12s_refly_orbit_insert` so the crew SURVIVE, merge (a merge that SPLITS the origin
+at the rewind point), SaveGame + LoadGame, and assert no permanent reservation after the
+reload. The host (RF-13H, `2026-09-22_2315`) is right for the SPLIT: one crewed recording
+from launch through the RewindPoint to a death, no optimizer split. It is wrong for the
+BURN. GS-4's 60 km core gate leaves the stack at 29.1 km climbing near-vertically (vsurf
+711 m/s, ap 60.5 km), and every fixed pitch ran the X200-16 dry short of orbit:
+`2026-09-22_2319` + `_2322_a2` (pitch -5): dry at 62.7 km, pe 61.8 km, near-escape
+apoapsis; `_2333` (-10): pe 50.8 km; `_2337` (+5): pe 54.2 km. None reached
+`AnswerMergeDialog`, so the lane's tokens are unflown. Stopped at the flight cap (5 of ~8).
+
+The two constraints pull apart: the host's top stack must stay INSIDE the atmosphere
+after the discard (else the optimizer splits the pod at 70 km and the death lands on the
+second segment, which the rewind split never touches - RF-9's shape), and the re-fly
+needs enough energy at the rewind point to make orbit. Options, cheapest first:
+(1) re-harvest with the core gate just under the atmosphere (e.g. 68-69 km apoapsis) and
+re-read the burn, i.e. more energy at the RP for the same single-environment shape
+(a point-mass sweep calibrated on the four burns says marginal); (2) give
+`rf12s_refly_orbit_insert` a pitch program (steep, then flat) instead of one fixed pitch;
+(3) have the re-fly survive WITHOUT an orbit, which needs a craft with a parachute on the
+upper stack and a scene-exit merge that stamps Landed / Splashed. Cost after the
+re-harvest: a reading run, an armed run and a main-DLL negative control.
+
+ALSO FOUND AND FIXED on these runs: `mlib.evaluate_rfo_assertions` put NaN cut stamps
+into the orbit row whenever the burn gave up before the cut, `serialize_mission_result`
+(allow_nan=False) raised, and the harness read `<no-result>` / INVALID(driver stage)
+instead of the named MISSION-ASSERT-FAIL. Non-finite values are now written as null
+(`RfoGiveUpSerializesTests`); `_2333` and `_2337` report the named verdict.
+
 ## OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. OPEN, needs a design decision]
 
 MEASURED HEADLESSLY by the skipped
@@ -4421,6 +4453,9 @@ FIXED (branch `tombstone-reload`):
   is un-skipped and green, with mirror cells for two reloads, a re-commit of TIP, a merge
   that does not split, a mid-split rollback and a crewless recording; mutation-checked
   (removing the inheritance, the dedup identity or the move reds 8 / 2 / 6 cells).
+- LIVE PROOF: the host was harvested (`refly-split-crewed-recorded` from RF-13H
+  `2026-09-22_2315`), but RF-13's re-fly burn never reached the merge; see
+  RF-13-HOST-CANNOT-REACH-ORBIT. The fix is proven headlessly only.
 
 ## ~~TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START~~: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09. RULED 2026-09-22: screen death intervals by `endUT`. FIXED on branch `tombstone-endut` and LIVE-PROVEN by RF-12S; two follow-ups filed above]
 

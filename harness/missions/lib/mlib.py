@@ -24705,22 +24705,29 @@ def evaluate_rfo_assertions(frames, params: RfoParams, state) -> List[AssertionO
     orbit = bool(st is not None and st.phase == RFO_ORBIT
                  and _is_finite(st.cut_periapsis)
                  and st.cut_periapsis >= params.target_periapsis)
+
+    def num(value):
+        # A give-up before the cut leaves the cut stamps NaN, and the result file is
+        # written with allow_nan=False: a NaN here used to crash the writer, so the
+        # harness read `<no-result>` instead of the named MISSION-ASSERT-FAIL.
+        return value if _is_finite(value) else None
+
     return [
         AssertionOutcome(
             "handoffAirborneCrewed", handoff_ok,
             st.start_situation if st is not None else None,
-            {"altitude": st.start_altitude if st is not None else None,
+            {"altitude": num(st.start_altitude) if st is not None else None,
              "crew": st.start_crew if st is not None else None,
              "minCrew": params.min_crew,
              "minStartAltitude": params.min_start_altitude}),
         AssertionOutcome(
-            "engineLit", lit, st.peak_thrust if st is not None else None,
+            "engineLit", lit, num(st.peak_thrust) if st is not None else None,
             {"note": "peak available_thrust observed during BURN"}),
         AssertionOutcome(
             "orbitAboveAtmosphere", orbit,
-            st.cut_periapsis if st is not None else None,
+            num(st.cut_periapsis) if st is not None else None,
             {"targetPeriapsis": params.target_periapsis,
-             "apoapsis": st.cut_apoapsis if st is not None else None,
-             "cutUT": st.cut_ut if st is not None else None,
-             "liquidFuelAtCut": st.cut_liquid_fuel if st is not None else None}),
+             "apoapsis": num(st.cut_apoapsis) if st is not None else None,
+             "cutUT": num(st.cut_ut) if st is not None else None,
+             "liquidFuelAtCut": num(st.cut_liquid_fuel) if st is not None else None}),
     ]

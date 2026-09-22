@@ -9678,9 +9678,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RF-13-refly-split-crew-survives-reload.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-23 as the proof "
             "lane of TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a re-fly "
-            "merge that SPLITS the origin, then SaveGame + LoadGame. Flies a reading "
-            "and an armed run on the fixed DLL and a main-DLL negative control. Owes "
-            "flights, not a human call",
+            "merge that SPLITS the origin, then SaveGame + LoadGame. Four reading "
+            "attempts 2026-09-22 ran the burn dry short of orbit (host too low); "
+            "RF-13-HOST-CANNOT-REACH-ORBIT owns the re-harvest. Owes flights, not a "
+            "human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",

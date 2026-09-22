@@ -668,6 +668,26 @@ Two things a lane author must know before choosing it:
   StopRecording / CommitTree mints one that `tree=latest` resolves to, which is exactly
   what H58 does and what RF-4's re-host should do rather than carrying payload.
 
+### refly-split-crewed-recorded (GAME Mode = SANDBOX)
+
+The RP-SPLIT RE-FLY HOST, landed 2026-09-23 for RF-13 (TOMBSTONED-DEATH-RESURRECTS-ON-
+RELOAD-AFTER-A-RP-SPLIT). Produced by `RF-13H-crewed-crash-refly-host` run
+`2026-09-22_2315` (PASS attempt 1) and harvested with
+`harvest_bdock_station.py --target-name refly-split-crewed-recorded --keep-parsek`;
+shape pinned in `RECORDED_FIXTURES`.
+
+GS-4's crewed Kerbal X with the probe-cored core discarded inside the atmosphere (the
+RewindPoint at UT 118.48), and the top stack left coasting in the atmosphere at the scene
+exit, so the finalizer ran it to a predicted impact. The result is ONE crewed recording
+(pod `816a8822`, Bill and Bob) from launch through the rewind point to a death, with no
+optimizer split, and Dead crew rows in the ledger. A re-fly merge of slot 0 therefore
+SPLITS that recording at the rewind point, which is the common player shape and the one
+no earlier fixture carried: `refly-autopilot-recorded` already holds a merged zero-point
+re-fly, and RF-9's flight crosses 70 km so its death sits on the optimizer's second
+segment. Never re-flown: no supersedes, no tombstones. The RewindPoint quicksave's
+`rewindSave` and `resumeRewindSave` VALUES were cleared after the harvest (keys kept),
+the corpus-wide RF-11 policy `CommittedFixtureRewindSaveTests` gates.
+
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 
 The supply-route lane host (RVR-1 / RVR-2 / RVR-3), landed 2026-08-30. Harvested from a

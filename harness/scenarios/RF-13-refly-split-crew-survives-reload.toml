@@ -31,6 +31,13 @@ id = "RF-13-refly-split-crew-survives-reload"
 # THE DISCRIMINATOR is the reload. On the fixed DLL the post-reload reservation walk
 # reads no permanent reservation and Migrate reports inherited ids; on a main DLL the
 # reload re-derives Dead rows under fresh ids, orphaning the merge's tombstones.
+#
+# STATUS 2026-09-23: NOT YET GREEN, AND NOT FOR A PARSEK REASON. Four reading attempts on
+# the fixed DLL never reached the merge: the burn ran dry short of orbit every time
+# (`2026-09-22_2319` + `_2322_a2` pitch -5, `_2333` pitch -10, `_2337` pitch +5; best
+# periapsis 61.8 km). The host restores the stack too low and too vertical for the
+# X200-16 to make orbit. Every token below is therefore UNFLOWN. Filed as
+# RF-13-HOST-CANNOT-REACH-ORBIT in docs/dev/todo-and-known-bugs.md.
 # =====================================================================================
 tier = "operator"
 description = "Proof lane for TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: rewind refly-split-crewed-recorded slot 0 (crew boarded at launch, died after the rewind point), burn the restored stack to orbit so the crew survive, merge - a merge that SPLITS the origin recording at the rewind point - then save and reload. The crew must not read Dead after the reload."
@@ -67,12 +74,20 @@ steps = [
 ]
 
 [driver.missionParams]
-# RF-12S's burn, one notch less nose-down: the host's core comes off at a lower
-# apoapsis than RF-12S's, so the restored stack climbs less steeply.
-pitchDeg                = -5.0
+# NOT RF-12S's burn. The host restores the stack at 29.1 km climbing almost
+# vertically (vsurf 711 m/s, ap 60.5 km), and a periapsis can never exceed the current
+# altitude, so the burn must CLIMB through 70 km rather than trade vertical speed away.
+# MEASURED: pitch -5 / target 75 km (2026-09-22_2319 + _2322_a2) ran dry at 62.7 km
+# with pe 61.8 km on a near-escape trajectory; pitch -10 / target 71 km
+# (2026-09-22_2333) ran dry with pe 50.8 km. A point-mass sweep calibrated on those two
+# (m0 ~11 t, 8 t propellant, 250 kN, Isp 350) peaks at +5 deg and reads pessimistic by
+# 3-8 km against both measurements. Target: the atmosphere top plus 500 m - any
+# periapsis above 70 km is an orbit the finalizer stamps Orbiting, which is all the
+# lane needs (crew alive at the merge).
+pitchDeg                = 5.0
 headingDeg              = 90.0
 throttle                = 1.0
-targetPeriapsisMeters   = 75000.0
+targetPeriapsisMeters   = 70500.0
 periapsisDebounceFrames = 2
 minStartAltitudeMeters  = 10000.0
 minCrew                 = 1
@@ -127,7 +142,9 @@ tombstones    = { min = 1 }
 budgetSeconds = 4200
 
 [retry]
-policy = "once"
+# none while the burn is being tuned: a MISSION give-up retried is a second
+# identical flight.
+policy = "none"
 
 [expectedFail]
 bugId = ""
