@@ -1,0 +1,133 @@
+schema = 1
+id = "RF-13-refly-split-crew-survives-reload"
+# =====================================================================================
+# THE PROOF LANE OF TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT
+# (operator rulings of 2026-09-23).
+#
+# RF-12S proved the endUT tombstone ruling on a host whose merge does NOT split the
+# origin (its closure root is a prior zero-point re-fly). The COMMON player shape does
+# split: crew boarded at launch on a recording that spans the rewind point, so the
+# merge cuts it into HEAD (pre-rewind, kept) + TIP (post-rewind, superseded) and
+# retags the death row onto TIP. On a pre-fix DLL the next load then brought the
+# retired deaths back for BOTH halves:
+#   - TIP: the retagged row keeps the ORIGIN's UT, so MigrateKerbalAssignments
+#     re-derived it with a fresh ActionId no tombstone covers;
+#   - HEAD: the split left the origin's Dead CrewEndStates on HEAD, so HEAD derived a
+#     death it never had.
+# The fix: re-derived rows inherit the replaced row's ActionId (ruling a1), and the
+# split moves the crew end states to TIP with the terminal so HEAD re-derives through
+# the chain-handoff rule as Recovered.
+#
+# THE HOST is `refly-split-crewed-recorded`, harvested from RF-13H: GS-4's crewed
+# Kerbal X with the probe-cored core discarded inside the atmosphere (the
+# RewindPoint), the top stack left coasting in the atmosphere at the scene exit, so
+# one crewed recording runs from launch through the rewind point to a predicted
+# impact (Destroyed, crew Dead) with no optimizer split.
+#
+# THE FLIGHT is RF-12S's, pointed at that host: rewind slot 0 (the crewed stack),
+# burn it to orbit with `rf12s_refly_orbit_insert` so the crew SURVIVE the re-fly,
+# merge (this merge SPLITS the origin), then SaveGame + LoadGame.
+#
+# THE DISCRIMINATOR is the reload. On the fixed DLL the post-reload reservation walk
+# reads no permanent reservation and Migrate reports inherited ids; on a main DLL the
+# reload re-derives Dead rows under fresh ids, orphaning the merge's tombstones.
+# =====================================================================================
+tier = "operator"
+description = "Proof lane for TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: rewind refly-split-crewed-recorded slot 0 (crew boarded at launch, died after the rewind point), burn the restored stack to orbit so the crew survive, merge - a merge that SPLITS the origin recording at the rewind point - then save and reload. The crew must not read Dead after the reload."
+instanceProfile = "stock-minimal"
+tags = ["RF-13", "rewind", "refly", "merge", "tombstone", "crew-loss", "reload",
+        "rp-split", "autopilot", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-split-crewed-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "rf12s_refly_orbit_insert"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the guard, split-move and Migrate per-recording lines are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  # InvokeRewind REJECTs `recording-active`; RF-12S's order.
+  { cmd = "StopRecording",                                                         expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles", expect = "OK" },
+  # Slot 0: the crewed stack (RF-13H's promotion line pins slot=0).
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },       expect = "OK", budget = 300 },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 900 },
+  # Drives the scene exit, finalization (terminal Orbiting) and the merge.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                        expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                        expect = "OK" },
+  # THE RELOAD: persist the merged career, then load it back.
+  { cmd = "SaveGame",          args = { name = "persistent" },                     expect = "OK" },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-12S's burn, one notch less nose-down: the host's core comes off at a lower
+# apoapsis than RF-12S's, so the restored stack climbs less steeply.
+pitchDeg                = -5.0
+headingDeg              = 90.0
+throttle                = 1.0
+targetPeriapsisMeters   = 75000.0
+periapsisDebounceFrames = 2
+minStartAltitudeMeters  = 10000.0
+minCrew                 = 1
+igniteFrames            = 20
+burnFrames              = 600
+
+[dimensionsCovered]
+# BASICS ONLY until a reading run.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 40 }
+
+[expectations.logContracts]
+required = [
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  # THE PRECONDITION: this merge splits the origin at the rewind point.
+  "Split origin \\S+ at UT=[0-9.]+: HEAD=\\[",
+  "Split: moved [1-9] crew end state\\(s\\) from \\S+ onto the second half",
+  "PreRewindTombstoneGuard: death interval screened by endUT action=act_[0-9a-f]{32} kerbal=",
+  "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
+  "Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 ",
+  # THE RELOAD: the re-derivation keeps the tombstoned ids, and a walk after the
+  # post-merge LoadGame reads no permanent reservation.
+  "(?s)exec id=[0-9]+ cmd=LoadGame start.*MigrateKerbalAssignments: re-derived recording '\\S+' rows=[1-9] inheritedActionIds=[1-9]",
+  "(?s)Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 .*exec id=[0-9]+ cmd=LoadGame start.*PostWalk summary: reservations=[0-9]+ permanent=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The pre-fix reload: a re-derived row under a fresh id orphans the merge's tombstone.
+  "Orphan tombstone=",
+  # Any permanent reservation after the post-merge reload.
+  "(?s)Recomputed after tombstones: .*exec id=[0-9]+ cmd=LoadGame start.*PostWalk summary: reservations=[0-9]+ permanent=[1-9]",
+  "(?s)Recomputed after tombstones: .*exec id=[0-9]+ cmd=LoadGame start.*endUT=INDEFINITE \\(Dead\\)",
+  "reason=sealedTipClosed",
+]
+
+[expectations.rewind]
+# REPORT-ONLY until the reading run.
+supersedeRows = { min = 1 }
+tombstones    = { min = 1 }
+
+[runtime]
+# LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120
+#   + InvokeRewind 660 + mission 900 + AnswerMergeDialog 240 + RecordingState 120
+#   + SaveGame 120 + LoadGame 660 + FlushAndQuit 120 = 3960. 4200 clears it by 240.
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

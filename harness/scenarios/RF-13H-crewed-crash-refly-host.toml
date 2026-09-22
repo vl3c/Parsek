@@ -1,0 +1,116 @@
+schema = 1
+id = "RF-13H-crewed-crash-refly-host"
+# =====================================================================================
+# THE HOST PRODUCER FOR RF-13 (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT).
+#
+# RF-13 needs a committed save whose RewindPoint restores a CREWED stack whose origin
+# recording STARTED AT LAUNCH, carries trajectory points on BOTH sides of the rewind
+# point, and ENDS in a death - so a re-fly merge SPLITS that recording at the rewind
+# point into HEAD + TIP. No committed fixture has that shape:
+#   - `refly-autopilot-recorded` (RF-12S's host) already carries a merged re-fly
+#     (`rec_c54a110c`, zero points), so the closure root has no trajectory and the
+#     merge does not split;
+#   - `rewind-crew-loss` (CL-3 / CL-4) injects a pod recording that STARTS at the
+#     split, so there is nothing before the rewind point to split off;
+#   - RF-9's flight coasts out through 70 km, so the optimizer splits the pod
+#     recording at the atmosphere exit and the death lands on the SECOND segment,
+#     which the rewind split never touches.
+#
+# THE SHAPE, FLOWN WITH EXISTING MACHINERY ONLY. GS-4's Kerbal X ascent and core
+# discard (the probe-cored core makes it a multi-controllable split, so KSP physics
+# authors a RewindPoint), with the core gate at GS-4's own 60 km apoapsis so the top
+# stack NEVER leaves the atmosphere (one environment, nothing for the optimizer to
+# split), and RF-9's `coastExitProfile` hand-over RE-AIMED at the atmosphere: the
+# gate accepts `FLYING` from 20 km, so the mission ends in FLIGHT after `coastSeconds`
+# of post-separation coast with the recorder live. The spec's own `ExitToSpaceCenter`
+# commits the tree; the scene-exit finalizer extrapolates the unpowered, chuteless
+# stack to a predicted impact, stamps `Destroyed`, and the crew read Dead.
+#
+# WHAT IT PRODUCES: the fixture `refly-split-crewed-recorded`, harvested
+# `--keep-parsek` from this run's `_save` snapshot. The tokens below are the shape
+# gates the harvest relies on: one RewindPoint, slot 0 promoted `reason=crashed`, NO
+# optimizer split, and at least one Dead crew assignment derived from the pod.
+# =====================================================================================
+tier = "operator"
+description = "Host producer for RF-13: GS-4's Kerbal X ascent with the core discarded inside the atmosphere (authoring a RewindPoint), the crewed top stack left coasting in the atmosphere at the scene exit so the finalizer runs it to a predicted impact - one crewed recording from launch through the rewind point to a death, with no optimizer split. Harvested as refly-split-crewed-recorded."
+instanceProfile = "stock-minimal"
+tags = ["RF-13H", "rewind", "refly", "fixture-producer", "staging", "scene-exit",
+        "crew-loss", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# GS-4's fixture verbatim (see RF-9's header for why).
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+# RF-9's act 1 plus a SaveGame: `autoMerge=true` is mandatory for ExitToSpaceCenter
+# (else it REJECTs `dialog-required`), `verboseLogging=true` puts the classifier
+# verdict and the crew-end-state lines in the log.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+coastExitProfile = true
+# GS-4's gate: the top stack peaks inside the atmosphere.
+coreDiscardApoapsisMeters   = 60000.0
+coreDiscardMaxFlightSeconds = 300.0
+# Post-separation coast the recorder authors on both halves of the split, i.e. the
+# points AFTER the rewind point that the RF-13 merge splits off into TIP.
+coastSeconds                = 20.0
+# The hand-over, re-aimed INTO the atmosphere: any FLYING reading from 20 km.
+coastExitMinAltitudeMeters  = 20000.0
+coastExitSituations         = ["FLYING"]
+coastExitDebounceFrames     = 2
+coastExitFrames             = 600
+flightMaxSeconds            = 700.0
+recordedSpanWindowSeconds   = { min = 60.0, max = 650.0 }
+
+[dimensionsCovered]
+# BASICS ONLY: a producer, not a claim lane.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 30 }
+
+[expectations.logContracts]
+required  = ["Recording started",
+             "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+             "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+             "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+             "IsUnfinishedFlight=true rec=\\S+ reason=crashed terminal=Destroyed",
+             "CommitTree promoted rec=\\S+ vessel='.+' slot=0 rp=\\S+ reason=crashed to CommittedProvisional",
+             "PopulateCrewEndStates: recording='.+' \\(id=\\S+\\) crew=[1-9] aboard=0 dead=[1-9]",
+             "ReapOrphanedRPs: reaped=0 remaining=1"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             # The whole point: the pod recording must stay ONE recording.
+             "Split candidate \\(PersistedPhaseChange\\)",
+             "Reaped rp="]
+
+[runtime]
+# LoadGame 660 + SetSetting x3 360 + mission 1600 + ExitToSpaceCenter 240 + SaveGame 120
+#   + RecordingState 120 + FlushAndQuit 120 = 3220. 3600 clears it.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
