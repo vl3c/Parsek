@@ -4012,7 +4012,7 @@ writes supersede rows, tombstones, and flips MergeState). Re-arming afterwards w
 later cells a marker pointing at an already-merged provisional. The precondition guard
 subsumes the problem.
 
-## TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09 while diagnosing the entry above. An OPEN QUESTION, deliberately not filed as a bug on this evidence]
+## TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09 while diagnosing the entry above. RULED 2026-09-22: screen death intervals by `endUT`. CODE on branch `tombstone-endut`; flight proof pending]
 
 `KerbalAssignment` is an INTERVAL action (`startUT`..`endUT`) but
 `TombstoneAttributionHelper.IsPreRewindAttributedAction` screens it by its `UT`. On
@@ -4050,6 +4050,44 @@ must not be taken from RF-12W, where both answers agree; it needs the shape RF-1
 authored for (pre-rewind-boarded crew, re-fly lands them). Decisions owed: (1) yes or no on
 `endUT` screening for death-encoding intervals; (2) whether RF-12L is flown to its intended
 conclusion first, as the lane that would prove the change.
+
+OPERATOR RULING 2026-09-22 ("Fly RF-12L, then fix"): (1) YES, screen a `KerbalAssignment`
+whose encoded outcome is a death by its `endUT`, on both sides of the seam, every other
+interval action staying on `UT`; (2) the lane that proves it flies first.
+
+WHAT WAS DONE (branch `tombstone-endut`). One shared key,
+`TombstoneAttributionHelper.ComputeAttributionUT` (`EndUT` for a Dead `KerbalAssignment`
+with a known end, `UT` otherwise), read by `IsPreRewindAttributedAction` and by the new
+`RecordingTreeSplitter.ShouldRetagLedgerActionToTip`, which step 2.9 now calls instead of
+comparing `a.UT` inline. `TombstoneScreeningMirrorTests` walks one synthetic ledger
+through both predicates and asserts they are complements; reverting either side to the
+raw `UT` reds four cells. `CommitTombstones` logs each death interval the clause keeps in
+scope (`PreRewindTombstoneGuard: death interval screened by endUT ...`) plus a count line.
+THE PREMISE, RE-DERIVED FROM CODE: a re-fly that kills the crew again files its own death
+row at `NotifyLedgerTreeCommitted`, which `MergeCommit` runs BEFORE
+`TryCommitReFlySupersede`, under the provisional's id. The closure never contains the
+provisional (`EnqueuePidPeerSiblings` skips a NotCommitted or active-session peer, and
+MergeState flips only at Finalize), so the clause cannot reach that row;
+`CommitTombstones_ReFlyOwnDeathRow_OutsideTheClosure_Survives` pins it. CL-4's flights
+measured the OTHER half (the tombstone releases a permanent reservation for a re-flown
+kerbal who SURVIVED: `permanent=0 temporary=1`); no flight has yet measured a re-kill
+merge.
+
+WHY RF-12L AS AUTHORED CANNOT BE THE PROOF. It re-flies `rewind-b9` slot 1, a CREWLESS
+probe whose recording starts at the rewind point, so no straddling death row exists and
+both DLLs read the same. The only committed straddling crewed host is
+`refly-autopilot-recorded` slot 0 (Bill and Bob, origin `4a7739f6` spanning 29.94 to
+413.53, rewind at 131.54), and that stack carries no parachute, with a sea-level Poodle
+TWR below 1 even with the tank dry, so it cannot land. A landing would not reach the
+in-batch merge cells anyway, because a landing in flight stamps no terminal. The proving
+lane is therefore a scene-exit merge with the crew surviving, which is waiting on a
+lane decision.
+
+PREDICTED KNOCK-ON: on the fixed DLL, RF-12W's `KerbalRecoveryOnSupersede` cell stops
+skipping (Bill's and Bob's straddling rows are no longer kept), runs its real merge
+first (K sorts before M), and spends the session, so `MergeCrashedReFlyCreatesCPSupersede`
+should skip and RF-12W's required `PASSED:` token should red. RF-12W needs a re-read on
+this DLL.
 
 ## ~~REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached~~ [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. FIXED 2026-09-15 on branch `render-and-recorder-hygiene`: the second candidate and the sixth-segment sentence are gone; `ResolveFixtureDir` / `DescribeCandidates` are untouched]
 

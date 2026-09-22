@@ -684,6 +684,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A re-fly that saves crew who boarded before the rewind point now brings them back.**
+  When a flight's crew boarded at launch, the rewind point came later in the same flight,
+  and the original flight then killed them, merging a re-fly kept them Dead. The death
+  row's boarding time came before the rewind point, and the merge treats anything before
+  the rewind point as part of the flight it keeps. A kerbal-death row is now placed on the
+  timeline by the moment of death: a death after the rewind point is refunded by the
+  merge, as design 7.16 promises. The tombstone guard and the tree splitter's ledger retag
+  share that rule through one helper, so both sides of the seam still agree exactly.
+  Every other ledger row keeps its old placement. A re-fly that kills the crew again
+  records its own death, which the merge never touches.
+
 - **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
   Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's
   hook on that rebuild repaired any ghost missing its orbit line. During shutdown that
