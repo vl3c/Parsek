@@ -716,6 +716,40 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Tests: sixteen cells from the audit's Low T1 (vacuous) register, slice 2, now fail for
+  the reason their names give, or are gone.** Eleven were strengthened - five of them
+  renamed to what they prove - three were deleted in favour of named twins that red under
+  the same mutant, and two were recorded as premise-wrong and kept. Two location and
+  terminal-orbit load cells went through a test-only ParsekScenario helper that no
+  production path calls, into an all-null target; they now load through the recording
+  codec into a pre-seeded target (missing keys must clear stale location fields) and with
+  orphan orbit keys (no tOrbBody means nothing is hydrated), with a present-key mirror. The
+  destroyed-ghost naming and the breakup-into-tree wiring were each re-typed inline in the
+  test; each is now a small behaviour-identical extraction
+  (`GhostPlaybackEngine.ResolveDestroyedGhostName`, `ParsekFlight.WireBreakupIntoTree`)
+  that the cell drives, plus a source gate on the call site. The sidecar-epoch cells did
+  `SidecarEpoch++` themselves; the two that remain save through the real sidecar writer and
+  probe the epoch the .prec carries, one per direction of the incrementEpoch flag, and the
+  two that only re-narrated the same sequences are deleted. Three point-flag cells were bit
+  identities no enum edit could red; one now round-trips 0x81 and 0x80 through the binary
+  codec and the other two are deleted. The group-duration guard was filed as unreachable,
+  but a data-less recording with only ExplicitStartUT reads a negative duration, and that
+  case is now pinned. The null-marker merge cell passed a null provisional too, so the
+  provisional guard answered; it now passes the fixture's real provisional. The
+  relative-rotation cell compared the resolver with its own callee; it now builds
+  anchor * stored independently and pins the order, which catches a convention flip
+  applied to both encode and decode that 1,511 relative / anchor / debris cells missed.
+  The background part-event subscribe cell never subscribed, on a stated premise
+  (GameEvents is null headless) that is false. The crew-replacement reset cell now seeds
+  both stores it clears. Deleted: two cells that read back their own writes (a field
+  assignment, a hand-built ConfigNode) and one seed-UT equality cell where both branches of
+  the guard return the same value. Premise-wrong: the before-start active-cycles return is
+  redundant with a clamp, so the cell pins the output (comment added), and the rewind-strip
+  log cell had already been re-aimed by 8d0c07363. Per commit (from
+  `git diff origin/main...HEAD -- Source/Parsek.Tests`): 8f27c01a8 4 renames + 2 new + 2
+  deletions, 943e05977 2 renames + 2 deletions, 9cba48eca 2 deletions, 23d453c2f 1
+  deletion, ee289af56 1 new; the other re-aims keep their names.
+
 - **Tests: twenty ghost-playback, analyzer and flight-seam cells from the audit's T3
   (weak or misleading) register now let the production term they name decide the
   verdict.** Every one of them already ran the right code; none could see the branch,
