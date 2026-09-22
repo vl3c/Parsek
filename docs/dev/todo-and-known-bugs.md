@@ -1006,7 +1006,9 @@ live pid and different from the craft pid) - that ended at or before the recover
 latest-ending one per tree. The recovered names are reverse-mapped to reservation owners
 (`KerbalsModule.ReverseMapCrewNames`, as the assignment rows are), and one row per (owner,
 kerbal) is written only when that kerbal has an open-ended hold in scope (an ELS
-`KerbalAssignment` row, non-tourist, non-loop, end state Aboard or Unknown). Rows are deduped
+`KerbalAssignment` row, non-tourist, not a loop and not in a chain with a looping segment -
+the walk's own override, mirrored so the writer never logs a closure that changes nothing -
+end state Aboard or Unknown). Rows are deduped
 by `GetActionKey` = `recordingId|kerbalName` inside the 0.1 s window, logged once at Info as
 `Crew reservation closed by recovery: '<name>' recoveryUT=<ut> recordingId=<id> vessel='<v>'
 openHolds=<n>`, then `RecalculateAndPatchForLiveTimelineEvent(ut,
@@ -1057,7 +1059,23 @@ launch guid is never an owner (positive-match rule), so its crew keep the open-e
 after a recovery; re-flying or deleting that flight still releases them. (3) A recovery
 never replays: after a rewind to before it, Parsek respawns the vessel at the recording's
 end, and the committed row still releases the crew at the ORIGINAL recovery UT whether or
-not the player recovers the respawned vessel again.
+not the player recovers the respawned vessel again. The same holds for a quickload: the row
+carries a recording id, so `Ledger.Reconcile` keeps it past `maxUT` (the tagged "other"
+branch, `Ledger.cs` ~895-901), and an F9 to a save from before a Tracking Station recovery
+still frees the kerbal once the clock passes the old recovery UT. Impact is the stand-in
+deletion / retirement only; the contract is the one the #444 recovery-funds rows already
+have. (4) A cross-mission rescue is not closed: `RecoveryClosesHold` never reaches across
+trees, so if Jeb ended mission T aboard its vessel (`+inf`) and came home aboard mission U's
+vessel, U's recovery closes U's hold and T's stays open-ended (design 9.3's rescue case; not
+a regression; pinned as current behaviour by
+`CrossMissionRescue_ClosesOnlyTheRecoveredMissionsHold`). Fix idea: when the recovered name
+was NOT reverse-mapped from a stand-in (the kerbal himself is physically aboard), closing his
+held flights from ANY tree that ended by the recovery would be correct; the tree fence only
+exists for the stand-in case. (5) The tree scope is wider than the vessel's lineage: a
+surviving row closes any open-ended hold of the same kerbal in the same tree that ended by the
+recovery UT, including one from a branch the recovered vessel never carried him on. The risky
+shape needs a recovery during an uncommitted re-fly whose later commit adds such a hold to the
+tree; not proven live.
 
 **The common case (measured).** Stock's in-flight Recover requests the Space Center scene
 first and recovers the vessel there. Parsek finalizes the recording at the scene change

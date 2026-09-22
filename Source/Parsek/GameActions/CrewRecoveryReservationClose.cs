@@ -11,8 +11,10 @@ namespace Parsek
     /// until a rescue recording closes it").
     ///
     /// <para>The live shell is <c>LedgerOrchestrator.OnRealVesselCrewRecovered</c>; the walk
-    /// side is <c>KerbalsModule.RecoveryClosesHold</c>, which this class reuses so the write
-    /// decision and the reservation derivation can never disagree about scope.</para>
+    /// side is <c>KerbalsModule.RecoveryClosesHold</c>, which this class reuses, plus the
+    /// walk's two open-ended-hold exemptions it mirrors (a loop recording, and a chain with
+    /// a looping segment, <see cref="IsInLoopingChain"/>), so the write decision and the
+    /// reservation derivation do not disagree about which holds a row closes.</para>
     ///
     /// <para><b>Identity is POSITIVE.</b> Closing a hold RELEASES a kerbal, and before this
     /// row existed the answer was to leave the hold alone, so an unknown launch guid must
@@ -102,8 +104,10 @@ namespace Parsek
         /// kerbal) that closes at least one open-ended hold: an effective
         /// <see cref="GameActionType.KerbalAssignment"/> row for that kerbal whose end state is
         /// <see cref="KerbalEndState.Aboard"/> or <see cref="KerbalEndState.Unknown"/>, on a
-        /// non-loop, non-tourist flight that <see cref="KerbalsModule.RecoveryClosesHold"/>
-        /// puts in the owner's scope. A kerbal with nothing open-ended in scope (a
+        /// non-tourist flight that is neither a loop nor a member of a chain with a looping
+        /// segment (the walk keeps those holds open-ended, see
+        /// <see cref="IsInLoopingChain"/>), and that
+        /// <see cref="KerbalsModule.RecoveryClosesHold"/> puts in the owner's scope. A kerbal with nothing open-ended in scope (a
         /// Recovered flight, a death, a hold from another mission) gets no row.
         ///
         /// <para><paramref name="recoveredOwnerNames"/> are the recovered crew ALREADY
@@ -123,11 +127,14 @@ namespace Parsek
             if (effectiveActions == null || effectiveRecordings == null) return result;
 
             var recordingsById = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            var loopingChainIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < effectiveRecordings.Count; i++)
             {
                 var rec = effectiveRecordings[i];
                 if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
                     recordingsById[rec.RecordingId] = rec;
+                if (rec != null && rec.LoopPlayback && rec.IsChainRecording)
+                    loopingChainIds.Add(rec.ChainId);
             }
 
             var names = new HashSet<string>(StringComparer.Ordinal);
@@ -154,6 +161,7 @@ namespace Parsek
                     Recording held;
                     if (!recordingsById.TryGetValue(action.RecordingId, out held)) continue;
                     if (held.LoopPlayback) continue;
+                    if (IsInLoopingChain(held, loopingChainIds)) continue;
                     if (!KerbalsModule.RecoveryClosesHold(
                             held.RecordingId, held.TreeId, held.EndUT,
                             owner.RecordingId, owner.TreeId, recoveryUT))
@@ -186,6 +194,18 @@ namespace Parsek
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The walk's looping-chain override (<c>KerbalsModule.ProcessAction</c>'s
+        /// <c>chainHasLoop</c>): a recording in a chain that has a looping segment keeps
+        /// its hold at +inf whatever a recovery says, because the ghost replays past its
+        /// end. The writer mirrors it so it never logs a closure that changes nothing.
+        /// </summary>
+        internal static bool IsInLoopingChain(Recording rec, HashSet<string> loopingChainIds)
+        {
+            return rec != null && rec.IsChainRecording
+                && loopingChainIds != null && loopingChainIds.Contains(rec.ChainId);
         }
 
         /// <summary>

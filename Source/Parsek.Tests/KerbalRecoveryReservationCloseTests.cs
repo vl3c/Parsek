@@ -246,10 +246,10 @@ namespace Parsek.Tests
             Assert.False(Kerbals.IsReservedNow(Jeb));
         }
 
-        // catches: the recovery of one mission's vessel freeing a kerbal STRANDED by a
-        // different mission (design 9.3: stays open until that mission's rescue).
+        // catches: a recovery ending the open-ended hold of a LATER flight in another
+        // mission (the held flight ends after the recovery, so it is out of scope).
         [Fact]
-        public void StrandedOnAnotherMission_StaysOpenEnded()
+        public void ALaterAboardFlightInAnotherMission_KeepsItsOpenEndedHold()
         {
             CommitL3Flight();
             Commit(MakeRecording("rec-mun-stranding", null, 400.0, 900.0,
@@ -263,6 +263,56 @@ namespace Parsek.Tests
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(10000.0, "stranded-test");
             Assert.True(double.IsPositiveInfinity(Kerbals.Reservations[Jeb].ReservedUntilUT));
             Assert.True(Kerbals.IsReservedNow(Jeb));
+        }
+
+        // Pins CURRENT behaviour (todo Residual 4): a cross-mission rescue is not closed.
+        // Jeb ended mission T aboard its vessel (+inf), then came home aboard mission U's
+        // vessel; U's recovery closes U's hold only, because RecoveryClosesHold never
+        // reaches across trees, so T's hold stays open-ended. Invert this cell when the
+        // residual is fixed.
+        [Fact]
+        public void CrossMissionRescue_ClosesOnlyTheRecoveredMissionsHold()
+        {
+            Commit(MakeRecording("rec-mission-t", null, 10.0, 200.0,
+                guid: OtherLaunchGuid, crew: Jeb));
+            Ledger.AddAction(Assignment("rec-mission-t", Jeb, 10.0, 200.0,
+                KerbalEndState.Aboard, 1));
+            CommitL3Flight();
+
+            Assert.Equal(1, LedgerOrchestrator.OnRealVesselCrewRecovered(
+                RecoveryUT, CraftPid, LaunchGuid, "Jumping Flea", new List<string> { Jeb }));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(10000.0, "cross-mission-test");
+            Assert.True(double.IsPositiveInfinity(Kerbals.Reservations[Jeb].ReservedUntilUT));
+            Assert.True(Kerbals.IsReservedNow(Jeb));
+        }
+
+        // catches: the writer disagreeing with the walk on a chain with a looping segment:
+        // the walk keeps that hold +inf, so a row (and its "closed by recovery" line) would
+        // change nothing.
+        [Fact]
+        public void BuildClosureRows_SkipsAHoldInAChainWithALoopingSegment()
+        {
+            var tip = MakeRecording("tip", "t", 100, 200);
+            tip.ChainId = "chain-1";
+            var loopSegment = MakeRecording("loop-seg", "t", 0, 100);
+            loopSegment.ChainId = "chain-1";
+            loopSegment.LoopPlayback = true;
+            var actions = new List<GameAction>
+            {
+                Assignment("tip", Jeb, 100, 200, KerbalEndState.Aboard, 1),
+            };
+
+            var rows = CrewRecoveryReservationClose.BuildClosureRows(
+                new List<Recording> { tip }, new List<string> { Jeb }, actions,
+                new List<Recording> { tip, loopSegment }, 250.0);
+            Assert.Empty(rows);
+
+            // Control: the same hold without the looping segment is closed.
+            rows = CrewRecoveryReservationClose.BuildClosureRows(
+                new List<Recording> { tip }, new List<string> { Jeb }, actions,
+                new List<Recording> { tip }, 250.0);
+            Assert.Single(rows);
         }
 
         // catches: the craft-baked pid alone identifying the vessel. A fresh launch of the
