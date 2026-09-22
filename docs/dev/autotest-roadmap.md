@@ -115,7 +115,7 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 189 of 250 registry cells (was 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
+### Coverage: 190 of 250 registry cells (was 189 of 250 before register item C2 claimed D3 `boundary-seam` on LT-2 on 2026-09-22, 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
 
 RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main`:
 `hlib.compute_coverage(specs, [], registry)` over the 266 committed specs returns
@@ -313,7 +313,7 @@ with what closing the rest takes:
 | D6 | playback / ghosts | 13 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
 | D5 | tree topology | 9 / 12 | `staging-debris-ttl` / `-promotion` (Tier A item 5, sized as two lanes) and `dock-merge-same-tree` (Tier 4). `bg-on-rails` was CLAIMED 2026-09-10 on LT-2, off the wave's one post-assert C# line `BgOnRailsNoEnvSectionsWitness` (armed `2026-09-10_1957`, control `_2002`). Its caveat: the cell seeds its state, injects its segments and passes a null vessel finder, so only the CheckpointAllVessels close path is production. `chain-continuation-switch` (CI-1) and `crash-coalescing` (GS-7) closed 2026-09-08. |
 | D12 | crew | 7 / 10 | `stand-ins` is CL-4's (Stage B closure, 2026-09-09, live-proven `2026-09-09_1815`; the registry pins the cell to a Parsek-GENERATED stand-in); `tombstone-rep-penalty` is CL-4's too since 2026-09-10, once the product change shipped (`LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions` files a `ReputationPenalty(KerbalDeath)` row at commit from the recording's captured `VesselLoss` event and the merge tail tombstones it with the death; token `Tombstoned ... Reputation=[1-9]`, facet `tombstones=2`); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
-| D3 | reference frames | 5 / 7 | The claim-gap wave claimed two on 2026-09-10 (register item 3, part 0). `absolute` is on V27M, off its already-required KSC `branch=absolute` token (armed `2026-09-10_1748`, control `_1752`). `relative-anchored-nonloop` is on LT-2, off `SceneAndPatch`'s `ParsekKscRelativePlaybackUsesRecordedAnchor` post-assert probe line (armed `2026-09-10_1957`, control `_2005`; the positioner line is required as uncontrolled corroboration); that cell plays a Relative section through the production KSC positioner. H11's mapping is confirmed NO: its seven `Pipeline-Anchor` cells resolve through test seams, so they earn no D3 cell. The seams are `ResolverOverrideForTesting`, `PutAnchorForTesting` and the `RebuildFromMarker` test overload (RuntimeTests.cs:25157 / 25249 / 25749 / 25820 / 25893). Residue: `relative-loop` and `boundary-seam` have no deterministic witness, and each needs C# or a new deterministic producer. See the todo entries `D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL` and `D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS`. |
+| D3 | reference frames | 6 / 7 | The claim-gap wave claimed two on 2026-09-10 (register item 3, part 0). `absolute` is on V27M, off its already-required KSC `branch=absolute` token (armed `2026-09-10_1748`, control `_1752`). `relative-anchored-nonloop` is on LT-2, off `SceneAndPatch`'s `ParsekKscRelativePlaybackUsesRecordedAnchor` post-assert probe line (armed `2026-09-10_1957`, control `_2005`; the positioner line is required as uncontrolled corroboration); that cell plays a Relative section through the production KSC positioner. H11's mapping is confirmed NO: its seven `Pipeline-Anchor` cells resolve through test seams, so they earn no D3 cell. The seams are `ResolverOverrideForTesting`, `PutAnchorForTesting` and the `RebuildFromMarker` test overload (RuntimeTests.cs:25157 / 25249 / 25749 / 25820 / 25893). `boundary-seam` is on LT-2 since 2026-09-22 (register item C2), off the production `Persisted no-payload on-rails boundary section: ... (seam=1)` line and the optimizer's `Split summary ... seamSkipped=1`, both driven by the new `Optimizer` cell `OnRailsBoundarySeam_SuppressesSplit_InGame` (reading `2026-09-22_1736`, armed re-flight `2026-09-22_1738`, negative control `2026-09-22_1739`). Residue: `relative-loop` only, which needs a new deterministic producer; see todo `D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL`. |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
 | D17 | mod compatibility | 3 / 6 | `better-time-warp` is CLAIMED since 2026-09-11 by `MC-3-better-time-warp` (an AIRLESS-body recording, because only there is the recovered warp limit consumed): reading `2026-09-10_2025` on outcome (A), armed re-flight `_2208`, negative control `_2213` (stock-minimal, red on exactly the zeroed-limit token); `making-history` is DEFINITION-blocked, not instance-blocked - Making History ships through the SquadExpansion junction on BOTH instances (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
@@ -416,8 +416,11 @@ Re-derive before acting:
   from the specs' `tier` keys; re-derived 2026-09-15 after the registry PR, which was 256 =
   125 / 26 / 105 when this register was written and moved four lanes operator -> nightly
   under item B7).
-- Coverage, from `harness/`: the one-liner below prints `266 specs 189 of 250`, so **189 of
-  250** cells are covered and 61 are uncovered (was 187 of 250 over 263 specs; the Gloops PR
+- Coverage, from `harness/`: the one-liner below prints `283 specs 190 of 250`, so **190 of
+  250** cells are covered and 60 are uncovered (re-derived 2026-09-22 by item C2, which
+  claimed D3 `boundary-seam` on LT-2; the same one-liner over the same 283 specs read 189 of
+  250 before the claim, so the lanes merged since the Gloops PR moved the spec count 266 ->
+  283 and not the numerator. Was 187 of 250 over 263 specs; the Gloops PR
   claimed D1 `manual-gloops` and `sub-2-point-drop` off GL-1 / GL-2, both long-standing
   values, so the numerator moves by two and the denominator not at all. Before that: 184 of
   248, taken to 187 of 250 by the registry PR, which added D4
@@ -596,6 +599,12 @@ verb pair, which is its own PR on branch `gloops-seam-verbs`.
      OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING,
      GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE.
    - Decisions: none.
+   - SHIPPED 2026-09-22 on branch `c2-optimizer-seam`, all three parts. LT-2 re-pinned
+     (`Optimizer` 2 -> 3, aggregate 17 -> 18) and D3 `boundary-seam` claimed after a
+     reading run, an armed re-flight and one negative control; the run ids are in the LT-2
+     row of `autotest-status.md`. The guard is proved headlessly; V15T / V18T were not
+     re-flown (nothing they require reads the guarded path, and their `unityExceptions`
+     rows are report-only), so item 1's ordering precondition is met once this merges.
 3. **Registry PR** (no product C#). SHIPPED 2026-09-15 on branch `registry-decisions-0911`,
    every part below except B4's verb pair.
    - Scope; each part shipped once its own decision was ruled:

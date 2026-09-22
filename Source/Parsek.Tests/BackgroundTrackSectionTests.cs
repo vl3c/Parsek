@@ -829,6 +829,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FlushLoadedStateForOnRailsTransition_NoPayloadSeam_OptimizerSkipsItAndLogsSeamSkipped()
+        {
+            // Headless twin of the in-game Optimizer cell OnRailsBoundarySeam_SuppressesSplit_InGame:
+            // pins the two production lines LT-2 gates D3 `boundary-seam` on.
+            uint pid = 7700003;
+            string recId = "rec_boundary_seam_smoke";
+            var tree = MakeTree(pid, recId);
+            var rec = tree.Recordings[recId];
+            rec.Points.Clear();
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 17000.0);
+            for (int i = 0; i < 5; i++)
+                bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(17000.0 + 2.0 * i));
+
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.SurfaceStationary,
+                willHavePlayableOnRailsPayload: false,
+                boundaryPoint: Point(17010.0),
+                ut: 17010.0);
+
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.False(rec.TrackSections[0].isBoundarySeam);
+            Assert.True(rec.TrackSections[1].isBoundarySeam);
+            Assert.Contains(logLines, l =>
+                l.Contains("[BgRecorder]")
+                && l.Contains("Persisted no-payload on-rails boundary section: pid=7700003 Atmospheric->SurfaceStationary at UT=17010.00 (seam=1)"));
+            // The in-game twin runs in a nightly lane: its fixture must not trip the
+            // sparse-sampling WARN (2 s spacing is inside the recorder's threshold).
+            Assert.DoesNotContain(logLines, l => l.Contains("TrackSection sparse sampling: pid=7700003"));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(new List<Recording> { rec });
+
+            Assert.Empty(candidates);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("Split summary: rec=rec_boundary_seam_smoke evaluated=1 grazeForward=0 grazeBackward=0 surfaceGrazeForward=0 surfaceGrazeBackward=0 seamSkipped=1 exoCoastBodyChangeKept=0 splittableButRejected=0"));
+
+            // Counterfactual: the same boundary without the flag is a splittable Surface boundary.
+            var counterfactual = new Recording { RecordingId = recId + "_counterfactual" };
+            counterfactual.TrackSections.Add(rec.TrackSections[0]);
+            TrackSection unflagged = rec.TrackSections[1];
+            unflagged.isBoundarySeam = false;
+            counterfactual.TrackSections.Add(unflagged);
+            RecordingOptimizer.SplitBoundaryReason reason;
+            Assert.True(RecordingOptimizer.IsSplittableEnvOrBodyBoundary(counterfactual, 1, out reason));
+        }
+
+        [Fact]
         public void FlushLoadedStateForOnRailsTransitionForTesting_ParentAnchoredDebris_FlatBoundaryDoesNotExtendRelativeTail()
         {
             uint pid = 7034;

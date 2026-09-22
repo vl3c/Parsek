@@ -28,6 +28,28 @@ tier = "nightly"
 # C2 owns it, and no tally moved this session, so no re-pin was needed; nothing below
 # touches a tally.
 # =====================================================================================
+# RE-PINNED 2026-09-22 BY REGISTER ITEM C2 (branch `c2-optimizer-seam`): the `Optimizer`
+# category grew 2 -> 3 with `OnRailsBoundarySeam_SuppressesSplit_InGame`, the D3
+# `boundary-seam` cell (todo D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS), so the
+# Optimizer line and the multi:7 aggregate moved; the other six lines did not.
+#   READING: the Optimizer line and the aggregate were interim (`total=` literal, split
+#   regexed) for the reading. `2026-09-22_1734` flew a first build of the cell whose
+#   fixture sampled every 60 s and tripped the recorder's sparse-sampling WARN; the
+#   fixture was re-cut to 2 s spacing and re-read as `2026-09-22_1736` (PASS attempt 1,
+#   53 s, zero WARN / ERROR lines), which is the reading of record: `total=3 passed=3
+#   failed=0 skipped=0 category=Optimizer` and `total=18 passed=11 failed=0 skipped=7
+#   category=multi:7`, every other line re-read token for token. Both now pinned WHOLE,
+#   plus three cell tokens (see the logContracts comment).
+#   ARMED re-flight `2026-09-22_1738` PASS attempt 1, 49 s, mismatches=0.
+#   NEGATIVE CONTROL `2026-09-22_1739` inverted exactly the seam `Split summary` token
+#   (`seamSkipped=1` -> `seamSkipped=2`) and read PARSEK-FAIL(expectation) with exactly
+#   that one mismatch, every other verifier PASS / REPORT; drift gate in its own KSP.log:
+#   original 1 line, inverted 0. Reverted. Deployed DLL sha256 1aa2431d for all three.
+#   The same C2 change restored RecordingStore.SuppressLogging after each Optimizer cell
+#   (todo OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING): the ORDER SIDE
+#   EFFECT note below is historical, and the KSC cell's `runtime-ksc-relative-recorded-
+#   anchor-cleanup: removed committed tree` line now prints (measured in `_1736`).
+# =====================================================================================
 # THE LONG TAIL'S SPACECENTER SLICE, ONE BOOT. Six categories whose executable cells
 # are SPACECENTER-scoped or need an EMPTY store, as one multi-category batch (the
 # LT-1 contract, at the other scene the seam can boot to). `fresh-sandbox` has no
@@ -129,7 +151,7 @@ tier = "nightly"
 #   gate held in each control's own KSP.log: the original pattern matched 1 line, the
 #   inverted 0. Each was reverted with `git checkout`. The three claims in
 #   [dimensionsCovered] rest on this record.
-description = "Run the seven SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store: all seven constituents and the aggregate pinned whole (SceneAndPatch appended 2026-09-10 and measured by its reading run), plus four cell tokens that gate D3 relative-anchored-nonloop, D4 tail-trim and D5 bg-on-rails (armed re-flight and one negative control per token, 2026-09-10)."
+description = "Run the seven SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store: all seven constituents and the aggregate pinned whole (SceneAndPatch appended 2026-09-10 and measured by its reading run), plus cell tokens that gate D3 relative-anchored-nonloop, D4 tail-trim and D5 bg-on-rails (armed re-flight and one negative control per token, 2026-09-10) and D3 boundary-seam (Optimizer 2 -> 3, reading 2026-09-22_1736, armed 2026-09-22_1738, control 2026-09-22_1739)."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-2"]
 
@@ -166,6 +188,14 @@ steps = [
 #  - D5 `bg-on-rails`: the post-assert `BgOnRailsNoEnvSectionsWitness` line, WITH the
 #    three bypasses the logContracts comment names. Only the CheckpointAllVessels close
 #    path is production.
+#  - D3 `boundary-seam` (ADDED 2026-09-22, register item C2): the production seam line
+#    `Persisted no-payload on-rails boundary section: ... (seam=1)` written by
+#    BackgroundRecorder.FlushLoadedStateForOnRailsTransition, and the production
+#    `Split summary: rec=rec_boundary_seam_smoke ... seamSkipped=1` of the
+#    RunOptimizationPass that OnRailsBoundarySeam_SuppressesSplit_InGame drives. The
+#    loaded state and its frames are injected; the flush, the seam flag, the optimizer
+#    pass and both lines are production. Controlled by `2026-09-22_1739` (the summary
+#    token). See the header.
 #  - D4 `persistence-graze-suppression` (ADDED 2026-09-15, ruling B1): the production
 #    `Split summary` line of the SAME `RunOptimizationPass` that
 #    EccentricGrazing_StaysOneSegment_InGame drives, read for its NONZERO STEP-7
@@ -179,7 +209,7 @@ steps = [
 #    literal (rec id, 4 boundaries, 2 + 2), so the pattern is literal. FLOWN
 #    2026-09-15: armed re-flight `2026-09-15_1525` PASS, negative control
 #    `2026-09-15_1527` red on exactly this token. See the header.
-D3  = ["relative-anchored-nonloop"]
+D3  = ["relative-anchored-nonloop", "boundary-seam"]
 D4  = ["tail-trim", "persistence-graze-suppression"]
 D5  = ["bg-on-rails"]
 D14 = ["sandbox", "scene-ksc"]
@@ -230,14 +260,14 @@ count = { min = 0, max = 0 }
 #    offset and are literal.
 required  = [
   "runtests start category=Optimizer,Recording,ResourceReconciliation,WarpToTime,TestRunnerIsolation,SwitchIntentPatch,SceneAndPatch isolated=false strict=false multi=7",
-  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Optimizer scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=Optimizer scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=Recording scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ResourceReconciliation scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=WarpToTime scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=TestRunnerIsolation scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=3 passed=1 failed=0 skipped=2 category=SwitchIntentPatch scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=7 passed=3 failed=0 skipped=4 category=SceneAndPatch scene=SPACECENTER",
-  "BATCH_COMPLETE v1 total=17 passed=10 failed=0 skipped=7 category=multi:7 scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=18 passed=11 failed=0 skipped=7 category=multi:7 scene=SPACECENTER",
   "TrimBoringTail: trimmed 'Persistence Smoke Grazing Probe' \\(rec_persistence_smoke_grazing\\) from endUT=21580\\.0 to 20080\\.0 \\(removed 1500\\.0s, 5 points; trimUT=20090\\.0 lastInterestingUT=20080\\.0\\)",
   "BgOnRailsNoEnvSectionsWitness: on-rails BG vessel emitted no env-classified TrackSections across 50 orbits pid=8888001 perFrameEnvSections=0 checkpointSections=50 orbitSegments=50",
   "KSC relative runtime probe resolved anchorRec=runtime-ksc-recorded-anchor error=0\\.[0-9]{3}m",
@@ -249,6 +279,19 @@ required  = [
   # UNSCOPED for the same reason as TrimBoringTail above: the first Optimizer cell runs
   # before the runner logs `runtests start`.
   "Split summary: rec=rec_persistence_smoke_grazing evaluated=4 grazeForward=2 grazeBackward=2 surfaceGrazeForward=0 surfaceGrazeBackward=0 seamSkipped=0 exoCoastBodyChangeKept=0 splittableButRejected=0",
+  # D3 `boundary-seam`, added 2026-09-22 (register item C2), pinned WHOLE off reading run
+  # `2026-09-22_1736`. OnRailsBoundarySeam_SuppressesSplit_InGame drives the PRODUCTION
+  # seam producer (BackgroundRecorder.FlushLoadedStateForOnRailsTransition) and then the
+  # production RunOptimizationPass. The first two lines are production: the producer's
+  # INFO seam line and the optimizer's step-1 summary (`seamSkipped=1`, every other
+  # counter held at zero in the same assertion). The third is the cell's post-assert
+  # witness (corroboration; it prints only after every assertion held, including the
+  # counterfactual that the unflagged boundary IS splittable). Every value is a fixture
+  # literal (pid 7700003, UT 17010.00, one boundary), so all three are literal. UNSCOPED
+  # for the same reason as the Optimizer lines above.
+  "Persisted no-payload on-rails boundary section: pid=7700003 Atmospheric->SurfaceStationary at UT=17010\\.00 \\(seam=1\\)",
+  "Split summary: rec=rec_boundary_seam_smoke evaluated=1 grazeForward=0 grazeBackward=0 surfaceGrazeForward=0 surfaceGrazeBackward=0 seamSkipped=1 exoCoastBodyChangeKept=0 splittableButRejected=0",
+  "BoundarySeamOptimizerWitness: seam section survived RunOptimizationPass unsplit rec=rec_boundary_seam_smoke sections=2 splitsAdded=0 seamReason=SuppressedBoundarySeam counterfactualReason=SurfaceInvolved",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
