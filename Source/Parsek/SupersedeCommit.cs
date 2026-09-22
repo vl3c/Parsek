@@ -2371,6 +2371,11 @@ namespace Parsek
             // the two concerns separately testable and the skip separately counted.
             double rewindCutoffUT = ComputeTombstoneRewindCutoffUT(marker);
             int preRewindKept = 0;
+            // TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: death rows that
+            // boarded BEFORE the cutoff but died at or after it. The guard screens them
+            // by EndUT, so they stay in scope; counted so the log shows the clause
+            // deciding rather than leaving it to be inferred from a missing keep line.
+            int deathIntervalsInScopeByEndUT = 0;
 
             var subtreeSet = new HashSet<string>(subtreeIds, StringComparer.Ordinal);
             var actions = Ledger.Actions;
@@ -2396,6 +2401,7 @@ namespace Parsek
                             $"PreRewindTombstoneGuard: keep action={a.ActionId ?? "<no-id>"} " +
                             $"type={a.Type} rec={a.RecordingId} " +
                             $"ut={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"attributionUT={TombstoneAttributionHelper.ComputeAttributionUT(a).ToString("R", CultureInfo.InvariantCulture)} " +
                             $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
                     else if (preRewindKept == PreRewindKeepLogCap + 1)
@@ -2406,6 +2412,23 @@ namespace Parsek
                             $"see the summary line for the total");
                     }
                     continue;
+                }
+                if (!double.IsNaN(rewindCutoffUT)
+                    && TombstoneAttributionHelper.IsDeathEncodingInterval(a)
+                    && a.UT < rewindCutoffUT)
+                {
+                    deathIntervalsInScopeByEndUT++;
+                    if (deathIntervalsInScopeByEndUT <= PreRewindKeepLogCap)
+                    {
+                        ParsekLog.Verbose(LedgerSwapTag,
+                            $"PreRewindTombstoneGuard: death interval screened by endUT " +
+                            $"action={a.ActionId ?? "<no-id>"} kerbal={a.KerbalName ?? "<none>"} " +
+                            $"rec={a.RecordingId} " +
+                            $"startUT={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"endUT={((double)a.EndUT).ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"-> in scope");
+                    }
                 }
                 List<GameAction> slice;
                 if (!sliceByRecording.TryGetValue(a.RecordingId, out slice))
@@ -2524,6 +2547,9 @@ namespace Parsek
                 $"PreRewindTombstoneGuard: kept {preRewindKept.ToString(CultureInfo.InvariantCulture)} " +
                 $"pre-rewind action(s) attributed to the superseded subtree " +
                 $"(cutoffUT={(double.IsNaN(rewindCutoffUT) ? "<none>" : rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture))})");
+            ParsekLog.Info(LedgerSwapTag,
+                $"PreRewindTombstoneGuard: {deathIntervalsInScopeByEndUT.ToString(CultureInfo.InvariantCulture)} " +
+                $"pre-rewind-boarded death interval(s) kept in scope by endUT");
 
             ParsekLog.Info(Tag,
                 $"Supersede tombstone effects: tombstoned {tombstoned} recording-scoped career actions; " +

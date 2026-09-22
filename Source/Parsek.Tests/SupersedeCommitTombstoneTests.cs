@@ -1082,6 +1082,103 @@ namespace Parsek.Tests
             Assert.DoesNotContain(bundledRep.ActionId, tombstoned);
         }
 
+        // ---------- TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START ----
+
+        private static GameAction CrewInterval(string recordingId, double startUT,
+            double endUT, KerbalEndState endState, string kerbalName)
+        {
+            return new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = recordingId,
+                KerbalName = kerbalName,
+                KerbalEndStateField = endState,
+                UT = startUT,
+                StartUT = (float)startUT,
+                EndUT = (float)endUT,
+            };
+        }
+
+        [Fact]
+        public void CommitTombstones_PreRewindBoardedDeathAfterRewind_TombstonedByEndUT()
+        {
+            // RF-12W's shape: crew boarded at launch (UT 29.94) on a recording that
+            // straddles the rewind (131.54) and died on the superseded branch (413.53).
+            // The death is what the merge refunds, so the row is screened by EndUT and
+            // retired; before the ruling it was kept by its boarding UT and the kerbal
+            // stayed Dead after a re-fly that saved them.
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = 131.54;
+            var scenario = InstallScenario(marker);
+
+            var straddlingDeath = CrewInterval("rec_origin", 29.94, 413.53,
+                KerbalEndState.Dead, "Bill Kerman");
+            var straddlingAboard = CrewInterval("rec_origin", 29.94, 413.53,
+                KerbalEndState.Aboard, "Bob Kerman");
+            var diedBeforeRewind = CrewInterval("rec_origin", 29.94, 100.0,
+                KerbalEndState.Dead, "Val Kerman");
+            Ledger.AddAction(straddlingDeath);
+            Ledger.AddAction(straddlingAboard);
+            Ledger.AddAction(diedBeforeRewind);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var tombstoned = new HashSet<string>(
+                scenario.LedgerTombstones.Select(t => t.ActionId));
+            Assert.Contains(straddlingDeath.ActionId, tombstoned);
+            // A non-death interval stays on its start UT: kept by the guard.
+            Assert.DoesNotContain(straddlingAboard.ActionId, tombstoned);
+            // A death that happened before the rewind belongs to the kept flight.
+            Assert.DoesNotContain(diedBeforeRewind.ActionId, tombstoned);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerSwap]")
+                && l.Contains("PreRewindTombstoneGuard: death interval screened by endUT")
+                && l.Contains(straddlingDeath.ActionId)
+                && l.Contains("kerbal=Bill Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PreRewindTombstoneGuard: 1 pre-rewind-boarded death interval(s) kept in scope by endUT"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PreRewindTombstoneGuard: kept 2 "));
+        }
+
+        [Fact]
+        public void CommitTombstones_ReFlyOwnDeathRow_OutsideTheClosure_Survives()
+        {
+            // The ruling's premise, pinned: a re-fly that kills the crew again files its
+            // own death row under the PROVISIONAL's id. Its UT can precede the cutoff (the
+            // fork carries the origin's pre-rewind anchor tail) and its EndUT lies after
+            // it, exactly the shape the endUT clause moves into scope - but scope is
+            // subtree membership first, and the provisional is never in the superseded
+            // closure. The re-fly's own death must stay effective.
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Destroyed, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = 131.54;
+            var scenario = InstallScenario(marker);
+
+            var oldDeath = CrewInterval("rec_origin", 29.94, 413.53,
+                KerbalEndState.Dead, "Bill Kerman");
+            var reFlyDeath = CrewInterval("rec_provisional", 29.94, 300.0,
+                KerbalEndState.Dead, "Bill Kerman");
+            Ledger.AddAction(oldDeath);
+            Ledger.AddAction(reFlyDeath);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var tombstoned = new HashSet<string>(
+                scenario.LedgerTombstones.Select(t => t.ActionId));
+            Assert.Contains(oldDeath.ActionId, tombstoned);
+            Assert.DoesNotContain(reFlyDeath.ActionId, tombstoned);
+            var els = EffectiveState.ComputeELS();
+            Assert.Contains(els, a => a.ActionId == reFlyDeath.ActionId);
+        }
+
         // ---------- TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT ------------------
 
         [Fact]

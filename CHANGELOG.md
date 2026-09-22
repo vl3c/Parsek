@@ -19,6 +19,14 @@ _(unreleased — entries accumulate here per commit)_
   `chain-terminated-destruction-recovery`. Proven by an armed re-flight and a negative control. The recovery half, and a seam verb pair to
   spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
   Harness-only; no game code changed.
+- **Automated testing: RF-12S proves the re-fly crew-recovery fix end to end.** The lane
+  rewinds a recorded crewed flight to the moment after launch where its upper stack
+  separated. It flies the restored stack to orbit with a new small mission, so the crew
+  who died on the original flight survive the re-fly, then merges and reloads the game.
+  On a build without the fix the crew stay Dead after the merge and after the reload; with
+  it they come back, and the save carries the two extra tombstones. The lane is armed on
+  that save count. RF-12W's in-game batch now reaches the crew-recovery check first (it
+  passes there for the first time), so its pinned cell changed with it.
 
 - **Automated testing: provisioning shares one artifact cache across worktrees.** The
   provisioner used to download every pinned release zip on every run into the worktree's
@@ -789,6 +797,32 @@ _(unreleased — entries accumulate here per commit)_
   new atlas section. No player-visible behavior changes.
 
 ### Fixed
+
+- **A re-fly that saves crew who boarded before the rewind point now brings them back.**
+  When a flight's crew boarded at launch, the rewind point came later in the same flight,
+  and the original flight then killed them, merging a re-fly kept them Dead. The death
+  row's boarding time came before the rewind point, and the merge treats anything before
+  the rewind point as part of the flight it keeps. A kerbal-death row is now placed on the
+  timeline by the moment of death: a death after the rewind point is refunded by the
+  merge, as design 7.16 promises. The tombstone guard and the tree splitter's ledger retag
+  share that rule through one helper, so both sides of the seam still agree exactly.
+  Every other ledger row keeps its old placement. A re-fly that kills the crew again
+  records its own death under the re-fly's recording, which the merge never touches;
+  with the dedup fix below that now also holds when the same slot is re-flown more than
+  once. The fix holds in-session, and
+  after a reload on saves where the merge did not split the original recording at the
+  rewind point. It does not yet survive a reload in the common case: the first re-fly of
+  a crewed slot whose recording started at launch splits that recording, and the next
+  load restores the Dead rows. That is no worse than before this fix; it is tracked as
+  TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT.
+
+- **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
+  The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart
+  as the same row, whatever the kerbal or flight. Re-flying a slot a second time
+  therefore lost the new flight's crew rows against the previous attempt's, so a crew
+  killed again could read alive. The same collision could also drop one of two crews
+  starting at the same instant. Rows are now matched per flight and kerbal; committing
+  the same flight twice still records it once.
 
 - **No more Parsek-attributed NullReferenceException while KSP quits from the Tracking
   Station.** Destroying a vessel makes the Tracking Station rebuild its list, and Parsek's

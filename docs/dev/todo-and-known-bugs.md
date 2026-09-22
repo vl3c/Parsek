@@ -4184,7 +4184,101 @@ writes supersede rows, tombstones, and flips MergeState). Re-arming afterwards w
 later cells a marker pointing at an already-merged provisional. The precondition guard
 subsumes the problem.
 
-## TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09 while diagnosing the entry above. An OPEN QUESTION, deliberately not filed as a bug on this evidence]
+## TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS: two rare shapes the endUT death screen gets wrong [NOTED 2026-09-22 in #1759 review. OPEN, low]
+
+Both are documented on `TombstoneAttributionHelper.ComputeAttributionUT`.
+(1) FLOAT PRECISION. `GameAction.EndUT` is a float. Late in a career (UT around 2e7 s,
+where a float step is 2 s) a death within about 1 s after the rewind point can round
+below the double cutoff. The death row is then kept while its KerbalDeath reputation row
+(double UT) is refunded, so the kerbal stays Dead with the reputation hit undone.
+Screening on the owning recording's double EndUT is not a drop-in: step 2.9 runs after
+`SplitAtUT` has already truncated the origin, so the guard and the splitter would read
+different recordings and stop being bit-identical. A real fix stores the death UT as a
+double on the row, which is a serialized-field change.
+(2) PRE-REWIND DEATH ON A SURVIVING VESSEL. A Destroyed terminal marks every START crew
+member Dead at the recording's end, so a kerbal who actually died BEFORE the rewind on a
+vessel that flew on past it (e.g. killed on EVA, then the vessel crashed later) carries
+the end-of-recording EndUT and is now tombstoned. Rare, and the per-kerbal death instant
+is not recorded anywhere the screen could read.
+
+## ~~KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY~~: a re-fly's own crew rows are dropped as duplicates of an unrelated assignment row 0.1 s away [FOUND 2026-09-22 on RF-12S's after-reading. FIXED in the same PR (#1759)]
+
+`LedgerOrchestrator.GetActionKey` has no `KerbalAssignment` case, so it returns "" for
+every assignment row, and `DeduplicateAgainstLedger` treats ANY new assignment row as a
+duplicate of ANY existing assignment row whose UT is within 0.1 s. That covers any
+kerbal on any recording. MEASURED on `2026-09-22_1931_RF-12S-refly-saves-pre-rewind-boarded-crew`:
+the merge committed the new re-fly provisional `rec_bff51dd8` (Bill and Bob, UT 131.9),
+and `Committed recording 'rec_bff51dd8...': 6 actions added to ledger (... kerbals=2,
+dedup=4 ...)` shows its two crew rows deduped against the PRIOR re-fly `rec_c54a110c`'s
+rows (UT 131.88). The saved ledger carries no assignment row for the new provisional,
+and the merge leaves `0 reservations remain`.
+
+WHY IT MATTERS. The endUT ruling (entry below) rests on "a re-fly that kills the crew
+again files its own death row". That holds on the FIRST re-fly of a straddling slot
+(`CommitTombstones_ReFlyOwnDeathRow_OutsideTheClosure_Survives` pins the closure exclusion, but it inserts the row directly and so bypasses this dedup). But on a SECOND re-fly of the same slot, or
+whenever the new provisional starts within 0.1 s of any existing assignment row, the new
+death row is dropped here, and the merge then tombstones the old one: the re-killed
+crew would come back alive. It is independent of the endUT change and was present on
+main, where the same run shape also deduped (`2026-09-22_1928`).
+
+WHY IT HAD TO LAND WITH THE endUT FIX. On main the guard kept the straddling origin
+death row, which masked the dropped re-fly row: a re-kill still read Dead. The endUT fix
+retires that row, so without this fix a second re-fly that killed the crew again would
+read alive until the next load, a regression against main.
+
+FIXED: `GetActionKey` keys `KerbalAssignment` on `RecordingId + "|" + KerbalName`, so
+two recordings' rows never collapse and a re-commit of the SAME recording still dedups.
+Caller set re-derived: of the four `DeduplicateAgainstLedger` callers, only
+`OnRecordingCommitted` (step 3c) produces this type. The discard re-home, the science
+re-home and the recovery XP path do not, and the load-time `MigrateKerbalAssignments`
+compares whole per-recording row sets without going through the dedup. Pinned through the
+real commit path by
+`OnRecordingCommitted_TwoRecordingsSameKerbal002sApart_BothKeepTheirRows` and its mirror,
+`OnRecordingCommitted_SameRecordingRecommitted_StillDedups`. LIVE: RF-12S's armed re-flight on
+the fixed DLL (`2026-09-22_2010`) read the provisional's `dedup=2` (was 4) and `2 reservations
+remain (permanent=0 temporary=2)` (was 0).
+
+## TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. OPEN, needs two design decisions]
+
+MEASURED HEADLESSLY by `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
+(skipped, naming this entry). The shape: crew board at launch on a recording that spans
+the rewind point (the first re-fly of a crewed slot whose recording started at launch,
+i.e. the COMMON player shape), so the merge splits it into HEAD + TIP. The split, the
+endUT-screened retag and `CommitTombstones` retire both deaths in-session. Then the next
+load's `LedgerOrchestrator.MigrateKerbalAssignments` re-derives every committed
+recording's KerbalAssignment rows, and the test reads FOUR Dead rows back, all with fresh
+ActionIds no tombstone covers: HEAD 8..34 and TIP 34..53, for each of two kerbals. On
+main the same shape is Dead after a reload anyway (the guard kept the row), so this
+cancels the new fix's benefit on reload without making anything worse. It does not
+reach `refly-autopilot-recorded` (RF-12S's host), whose closure root has no points, so
+its merge does not split.
+
+TWO INDEPENDENT CAUSES, each with its own decision:
+
+(a) TIP. Step 2.9 retags the stored row to TIP unchanged, so it keeps the ORIGIN's `UT`
+    and `StartUT`. `KerbalAssignmentActionsMatch` compares those against TIP's own
+    derivation, fails, and `ReplaceActionsForRecording` writes a fresh-id row.
+    Option a1: Migrate inherits the replaced row's ActionId per (recording, kerbal), so
+    a re-derived row stays covered by a tombstone on the row it replaces. It changes
+    ledger identity for EVERY re-derived row. No committed fixture tombstones a row that
+    would be re-derived today (checked on `refly-autopilot-recorded`: its two tombstoned
+    assignment rows match their derivation).
+    Option a2: the retag rewrites the moved row to TIP's window (`UT` / `StartUT` =
+    TIP's start), so it matches TIP's derivation. That is local to the splitter, but it
+    rewrites a ledger row's timing and its `SplitMutationLedger` undo must restore it.
+(b) HEAD. `RecordingOptimizer.SplitAtSection` moves the terminal state to TIP but leaves
+    the origin's `CrewEndStates` (Dead) on HEAD, so HEAD derives a death it never had.
+    Option b1: the rewind splitter moves CrewEndStates to TIP and gives HEAD Unknown or
+    Aboard. Both map to an INDEFINITE temporary reservation, which would lock out crew
+    that the re-fly recovers (the reservation merge takes the max endUT).
+    Option b2: give HEAD Recovered, which reserves until HEAD's end, the right
+    reservation, but the Kerbals window would show a wrong fate. Or add a new end state
+    for "continued into the next segment", an enum addition that bumps no schema
+    generation but needs a reservation rule and UI wording.
+Whatever is chosen must keep the guard/splitter mirror bit-identical (the retag key is
+`TombstoneAttributionHelper.ComputeAttributionUT`) and un-skip the test above.
+
+## ~~TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START~~: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09. RULED 2026-09-22: screen death intervals by `endUT`. FIXED on branch `tombstone-endut` and LIVE-PROVEN by RF-12S; two follow-ups filed above]
 
 `KerbalAssignment` is an INTERVAL action (`startUT`..`endUT`) but
 `TombstoneAttributionHelper.IsPreRewindAttributedAction` screens it by its `UT`. On
@@ -4222,6 +4316,63 @@ must not be taken from RF-12W, where both answers agree; it needs the shape RF-1
 authored for (pre-rewind-boarded crew, re-fly lands them). Decisions owed: (1) yes or no on
 `endUT` screening for death-encoding intervals; (2) whether RF-12L is flown to its intended
 conclusion first, as the lane that would prove the change.
+
+OPERATOR RULING 2026-09-22 ("Fly RF-12L, then fix"): (1) YES, screen a `KerbalAssignment`
+whose encoded outcome is a death by its `endUT`, on both sides of the seam, every other
+interval action staying on `UT`; (2) the lane that proves it flies first.
+
+WHAT WAS DONE (branch `tombstone-endut`). One shared key,
+`TombstoneAttributionHelper.ComputeAttributionUT` (`EndUT` for a Dead `KerbalAssignment`
+with a known end, `UT` otherwise), read by `IsPreRewindAttributedAction` and by the new
+`RecordingTreeSplitter.ShouldRetagLedgerActionToTip`, which step 2.9 now calls instead of
+comparing `a.UT` inline. `TombstoneScreeningMirrorTests` walks one synthetic ledger
+through both predicates and asserts they are complements; reverting either side to the
+raw `UT` reds four cells. `CommitTombstones` logs each death interval the clause keeps in
+scope (`PreRewindTombstoneGuard: death interval screened by endUT ...`) plus a count line.
+THE PREMISE, RE-DERIVED FROM CODE: a re-fly that kills the crew again files its own death
+row at `NotifyLedgerTreeCommitted`, which `MergeCommit` runs BEFORE
+`TryCommitReFlySupersede`, under the provisional's id. The closure never contains the
+provisional (`EnqueuePidPeerSiblings` skips a NotCommitted or active-session peer, and
+MergeState flips only at Finalize), so the clause cannot reach that row;
+`CommitTombstones_ReFlyOwnDeathRow_OutsideTheClosure_Survives` pins it. CL-4's flights
+measured the OTHER half (the tombstone releases a permanent reservation for a re-flown
+kerbal who SURVIVED: `permanent=0 temporary=1`); no flight has yet measured a re-kill
+merge.
+
+WHY RF-12L AS AUTHORED CANNOT BE THE PROOF. It re-flies `rewind-b9` slot 1, a CREWLESS
+probe whose recording starts at the rewind point, so no straddling death row exists and
+both DLLs read the same. The only committed straddling crewed host is
+`refly-autopilot-recorded` slot 0 (Bill and Bob, origin `4a7739f6` spanning 29.94 to
+413.53, rewind at 131.54), and that stack carries no parachute, with a sea-level Poodle
+TWR below 1 even with the tank dry, so it cannot land. A landing would not reach the
+in-batch merge cells anyway, because a landing in flight stamps no terminal. The proving
+lane is therefore a scene-exit merge with the crew surviving: RF-12S
+(`RF-12S-refly-saves-pre-rewind-boarded-crew`), with the new `rf12s_refly_orbit_insert`
+mission burning the restored stack to orbit, then `AnswerMergeDialog merge`, then
+`SaveGame` + `LoadGame` for the reload.
+
+FLOWN 2026-09-22. Before-reading on a main DLL (markers verified absent)
+`2026-09-22_1928`: PARSEK-FAIL(expectation) on exactly the endUT tokens - `keep ...
+type=KerbalAssignment rec=4a7739f6` for both kerbals, `permanent=2` at the merge and after
+the reload, tombstones=10. After-reading on the fixed DLL `2026-09-22_1931`: PASS, two
+`death interval screened by endUT` lines, `Kerbal=4`, `permanent=0` at the merge and after
+the reload, tombstones=12. Armed re-flight `_1937` PASS with `[expectations.rewind]`
+gating; the main-DLL run, replayed offline against the armed contract, is the negative
+control (`rewind.tombstones 10 < min 12` plus nine log tokens). RF-12W re-read on the
+fixed DLL (`_1941`) went red on exactly the predicted `PASSED:
+MergeCrashedReFlyCreatesCPSupersede` pin, because `KerbalRecoveryOnSupersede` now passes
+there and spends the session; its contract was re-shaped to follow that cell.
+
+FOLLOW-UPS FILED ABOVE: TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT (the fix
+does not survive a reload on the common split shape) and KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY
+(a re-fly's own crew rows can be deduped away, which breaks the premise on a re-fly of a
+re-fly).
+
+KNOCK-ON (predicted, then measured on `_1941`): on the fixed DLL, RF-12W's
+`KerbalRecoveryOnSupersede` cell stops skipping (Bill's and Bob's straddling rows are no
+longer kept), runs its real merge first (K sorts before M) and spends the session, so
+`MergeCrashedReFlyCreatesCPSupersede` skips and RF-12W's old `PASSED:` pin reds. RF-12W's
+claim-to-token pin now follows `KerbalRecoveryOnSupersede`.
 
 ## ~~REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached~~ [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. FIXED 2026-09-15 on branch `render-and-recorder-hygiene`: the second candidate and the sixth-segment sentence are gone; `ResolveFixtureDir` / `DescribeCandidates` are untouched]
 

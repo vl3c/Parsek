@@ -117,8 +117,8 @@ these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 192 of 250 registry cells (was 190 of 250 before the D18 spawn-in-run wave's PR-A claimed `intermediate-spawn-suppression` and the destroyed half of `chain-terminated-destruction-recovery` on V26T on 2026-09-22, 189 of 250 before register item C2 claimed D3 `boundary-seam` on LT-2 on 2026-09-22, 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
 
-RE-DERIVED 2026-09-22 on `d18-free-claims` (branched from `origin/main` `ce9821bd9`):
-`hlib.compute_coverage(specs, [], registry)` over the 283 committed specs returns
+RE-DERIVED 2026-09-22 on `d18-free-claims` after merging `origin/main` (with #1759):
+`hlib.compute_coverage(specs, [], registry)` over the 284 committed specs returns
 `values 250 covered 192 uncovered 58`. The two new D18 cells both ride
 `V26T-interbody-route-ts-arrival`, off fixture-byte literals its five archived logs all
 print (see the D18 row below); the denominator does not move.

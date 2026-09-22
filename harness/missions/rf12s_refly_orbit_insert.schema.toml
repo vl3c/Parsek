@@ -1,0 +1,67 @@
+# Declared param schema for mission rf12s_refly_orbit_insert (the RF-12S re-fly
+# orbit-insertion burn; see the machine header in mlib: `rfo_decide`).
+#
+# run.py parses this with tomllib and injects it into hlib's pure validator, which
+# checks required-key presence and per-value type/range. Every value is a target /
+# tolerance / bound, never a golden trajectory. None is required: the defaults are
+# the ones the machine header's burn sweep chose for `refly-autopilot-recorded`.
+
+# Surface-frame AP attitude held for the whole burn (kRPC target_pitch_and_heading).
+# Negative pitch trades the restored stack's surplus vertical speed for horizontal.
+[params.pitchDeg]
+required = false
+type = "number"
+min = -45.0
+max = 45.0
+
+[params.headingDeg]
+required = false
+type = "number"
+min = 0.0
+max = 360.0
+
+[params.throttle]
+required = false
+type = "number"
+min = 0.05
+max = 1.0
+
+# The burn ends when the orbit's periapsis ALTITUDE clears this (Kerbin's atmosphere
+# tops out at 70 km), read on periapsisDebounceFrames consecutive frames.
+[params.targetPeriapsisMeters]
+required = false
+type = "number"
+min = 70000.0
+
+[params.periapsisDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 20
+
+# The first-frame handoff gate: an AIRBORNE craft above this altitude with at least
+# minCrew aboard, i.e. the restored crewed stack and not whatever else is active.
+[params.minStartAltitudeMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.minCrew]
+required = false
+type = "int"
+min = 0
+max = 16
+
+# FRAME bounds (post-rewind, so never game seconds): ignition must read thrust within
+# igniteFrames of the stage command, and the whole burn within burnFrames.
+[params.igniteFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+[params.burnFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
