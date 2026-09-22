@@ -4042,7 +4042,7 @@ function buildRail(){
       }
       var sr = el('div', 's' + (c.id === S.capture ? ' sel' : '')
                        + (isStale(c) ? ' stale' : ''));
-      sr.appendChild(el('span', null, stateLabel(w.token, c.tab, c.state, c.mode)));
+      sr.appendChild(el('span', null, stateLabel(w.token, headed ? null : c.tab, c.state, c.mode)));
       appendFlags(sr, c, true);
       sr.title = 'dataset ' + c.fixture + ', run ' + c.runId + ' (' + c.label + ')';
       sr.dataset.nk = railNoteKey(w.token, c.tab, c.state, c.mode);
