@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingSidecarStore.cs b/Source/Parsek/RecordingSidecarStore.cs
+index f59f16a43..ac8efbded 100644
+--- a/Source/Parsek/RecordingSidecarStore.cs
++++ b/Source/Parsek/RecordingSidecarStore.cs
+@@ -1161,7 +1161,7 @@ namespace Parsek
+                 // and scene-exit force-writes would advance the epoch independently,
+                 // causing false-positive staleness on quickload (bug #290).
+                 if (incrementEpoch)
+-                    rec.SidecarEpoch++;
++                    { }
+ 
+                 changes.Add(SidecarFileCommitBatch.StageWrite(path => RecordingStore.WriteTrajectorySidecar(path, rec, rec.SidecarEpoch), precPath));
+ 

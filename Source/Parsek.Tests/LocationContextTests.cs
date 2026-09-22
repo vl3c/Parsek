@@ -29,19 +29,59 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SaveLoad_NullLocationFields_DefaultsSafely()
+        public void CodecRoundTrip_LocationFields_Survive()
         {
-            // Simulate a legacy recording with no location fields
+            // Mirror of the missing-key cell below: present keys must hydrate.
+            var source = new Recording
+            {
+                RecordingId = "loc-present",
+                StartBodyName = "Mun",
+                StartBiome = "Midlands",
+                StartSituation = "Landed",
+                EndBiome = "Highlands",
+                LaunchSiteName = "Woomerang"
+            };
             var node = new ConfigNode("RECORDING");
-            node.AddValue("loopPlayback", "False");
+            RecordingTree.SaveRecordingInto(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
 
+            Assert.Equal("Mun", loaded.StartBodyName);
+            Assert.Equal("Midlands", loaded.StartBiome);
+            Assert.Equal("Landed", loaded.StartSituation);
+            Assert.Equal("Highlands", loaded.EndBiome);
+            Assert.Equal("Woomerang", loaded.LaunchSiteName);
+        }
+
+        [Fact]
+        public void CodecLoad_MissingLocationKeys_ClearsStaleLocationFields()
+        {
+            // The production recording codec loads location context unconditionally:
+            // a node without the keys (a recording captured with no location) must
+            // leave the target null, not keep whatever the Recording held before.
+            // The target is pre-seeded so a loader that skips the assignment is visible.
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, new Recording { RecordingId = "loc-missing" });
+            Assert.Null(node.GetValue("startBodyName"));
+            Assert.Null(node.GetValue("endBiome"));
+
+            var loaded = new Recording
+            {
+                StartBodyName = "StaleBody",
+                StartBiome = "StaleBiome",
+                StartSituation = "StaleSituation",
+                EndBiome = "StaleEndBiome",
+                LaunchSiteName = "StaleSite"
+            };
+            RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
+
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
             Assert.Null(loaded.StartBodyName);
             Assert.Null(loaded.StartBiome);
             Assert.Null(loaded.StartSituation);
             Assert.Null(loaded.EndBiome);
+            Assert.Null(loaded.LaunchSiteName);
         }
 
         [Fact]
@@ -313,16 +353,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Load_MissingTerminalOrbit_DefaultsToZero()
+        public void CodecLoad_TerminalOrbitKeysWithoutBody_AreNotHydrated()
         {
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("loopPlayback", "False");
+            // The production codec hydrates the terminal orbit only when tOrbBody is
+            // present and non-empty. Orbit keys without a body (absent or empty) are
+            // an incomplete orbit and must leave the element fields at zero.
+            foreach (string body in new[] { null, "" })
+            {
+                var node = new ConfigNode("RECORDING");
+                RecordingTree.SaveRecordingInto(node, new Recording { RecordingId = "orb-orphan" });
+                Assert.Null(node.GetValue("tOrbBody"));
+                if (body != null)
+                    node.AddValue("tOrbBody", body);
+                node.AddValue("tOrbSma", "250000");
+                node.AddValue("tOrbInc", "12.5");
+                node.AddValue("tOrbEpoch", "50000");
 
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+                var loaded = new Recording();
+                RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
 
-            Assert.Null(loaded.TerminalOrbitBody);
-            Assert.Equal(0.0, loaded.TerminalOrbitSemiMajorAxis);
+                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+                Assert.True(string.IsNullOrEmpty(loaded.TerminalOrbitBody));
+                Assert.Equal(0.0, loaded.TerminalOrbitSemiMajorAxis);
+                Assert.Equal(0.0, loaded.TerminalOrbitInclination);
+                Assert.Equal(0.0, loaded.TerminalOrbitEpoch);
+            }
         }
     }
 }

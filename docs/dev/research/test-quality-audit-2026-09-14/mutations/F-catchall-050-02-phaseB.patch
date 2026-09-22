@@ -1,0 +1,21 @@
+diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/RecordingTreeRecordCodec.cs
+index d248a92b8..af52e3598 100644
+--- a/Source/Parsek/RecordingTreeRecordCodec.cs
++++ b/Source/Parsek/RecordingTreeRecordCodec.cs
+@@ -699,11 +699,11 @@ namespace Parsek
+             rec.SegmentBodyName = recNode.GetValue("segmentBodyName");
+ 
+             // Location context (Phase 10)
+-            rec.StartBodyName = recNode.GetValue("startBodyName");
+-            rec.StartBiome = recNode.GetValue("startBiome");
+-            rec.StartSituation = recNode.GetValue("startSituation");
+-            rec.EndBiome = recNode.GetValue("endBiome");
+-            rec.LaunchSiteName = recNode.GetValue("launchSiteName");
++            rec.StartBodyName = recNode.GetValue("startBodyName") ?? rec.StartBodyName;
++            rec.StartBiome = recNode.GetValue("startBiome") ?? rec.StartBiome;
++            rec.StartSituation = recNode.GetValue("startSituation") ?? rec.StartSituation;
++            rec.EndBiome = recNode.GetValue("endBiome") ?? rec.EndBiome;
++            rec.LaunchSiteName = recNode.GetValue("launchSiteName") ?? rec.LaunchSiteName;
+ 
+             // Pre-launch resources
+             rec.PreLaunchFunds = ParseDoubleOr(recNode, "preLaunchFunds", rec.PreLaunchFunds);
