@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Recording.cs b/Source/Parsek/Recording.cs
+index b7ecce655..c24ede526 100644
+--- a/Source/Parsek/Recording.cs
++++ b/Source/Parsek/Recording.cs
+@@ -376,7 +376,7 @@ namespace Parsek
+         internal int CachedStatsPointCount;
+ 
+         // Pre-launch resource snapshot (captured before recording starts)
+-        public double PreLaunchFunds;
++        public double PreLaunchFunds = 1;
+         public double PreLaunchScience;
+         public float PreLaunchReputation;
+ 

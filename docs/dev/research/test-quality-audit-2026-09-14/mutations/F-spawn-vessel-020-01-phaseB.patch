@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+index f397ac6c9..1a7c4b7a7 100644
+--- a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
++++ b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+@@ -202,7 +202,7 @@ namespace Parsek
+         /// </summary>
+         internal static bool ShouldCheckForSpawnDeath(bool vesselSpawned, uint spawnedPid, bool spawnAbandoned)
+         {
+-            return vesselSpawned && spawnedPid != 0 && !spawnAbandoned;
++            return true;
+         }
+ 
+         internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
