@@ -334,8 +334,16 @@ namespace Parsek.Tests
 
             Assert.False(bgRecorder.IsPartEventsSubscribed);
 
-            // Cannot actually call SubscribePartEvents outside Unity (GameEvents is null),
-            // but we can verify the flag is initially false.
+            bgRecorder.SubscribePartEvents();
+            try
+            {
+                Assert.True(bgRecorder.IsPartEventsSubscribed);
+            }
+            finally
+            {
+                bgRecorder.UnsubscribePartEvents();
+            }
+            Assert.False(bgRecorder.IsPartEventsSubscribed);
         }
 
         #endregion

@@ -209,9 +209,11 @@ def extras_of(node) -> str:
         parts.append('textValue="%s"' % node["textValue"])
     if "horizontal" in node:
         parts.append("horizontal" if node.get("horizontal") else "vertical")
-    for key in ("windowId", "controlId", "selectedIndex", "clipDepth"):
+    for key in ("windowId", "controlId", "selectedIndex", "clipDepth", "fontSize"):
         if isinstance(node.get(key), int) and not isinstance(node.get(key), bool):
             parts.append("%s=%d" % (key, node[key]))
+    if isinstance(node.get("fontStyle"), str):
+        parts.append("fontStyle=%s" % node["fontStyle"])
     return " ".join(parts)
 
 

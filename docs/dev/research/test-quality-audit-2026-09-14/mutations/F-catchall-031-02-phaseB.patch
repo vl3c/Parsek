@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 4068c7e92..40f787acc 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -11845,7 +11845,7 @@ namespace Parsek
+             if (string.IsNullOrEmpty(formattedDate))
+                 return originalText ?? "";
+ 
+-            if (string.IsNullOrEmpty(originalText))
++            if (originalText == "")
+                 return formattedDate;
+ 
+             return originalText + " - " + formattedDate;

@@ -77,7 +77,7 @@ namespace Parsek.Tests.Rendering
             // Compare component-wise — Vector3d's IEquatable uses an
             // epsilon-based KSP convention that doesn't always satisfy
             // xUnit's Assert.Equal contract. (Same pattern as
-            // AnchorCorrectionTests.AnchorCorrection_Default_HasZeroEpsilon.)
+            // AnchorCorrectionConsumerHookTests.AllowAnchorCorrection_NullRecordingId_ReturnsFalse.)
             AssertVec(new Vector3d(5, -3, 2), interval.EvaluateAt(50.0));
             AssertVec(new Vector3d(5, -3, 2), interval.EvaluateAt(100.0));
             AssertVec(new Vector3d(5, -3, 2), interval.EvaluateAt(150.0));

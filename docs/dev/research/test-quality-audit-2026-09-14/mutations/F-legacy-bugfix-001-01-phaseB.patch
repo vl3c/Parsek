@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackEngine.cs b/Source/Parsek/GhostPlaybackEngine.cs
+index 906e25d06..a0a7cd9b1 100644
+--- a/Source/Parsek/GhostPlaybackEngine.cs
++++ b/Source/Parsek/GhostPlaybackEngine.cs
+@@ -8541,7 +8541,7 @@ namespace Parsek
+         /// </summary>
+         internal static string ResolveDestroyedGhostName(GhostPlaybackState state, IPlaybackTrajectory traj)
+         {
+-            return state?.vesselName ?? traj?.VesselName ?? "Unknown";
++            return traj?.VesselName ?? state?.vesselName ?? "Unknown";
+         }
+ 
+         /// <summary>

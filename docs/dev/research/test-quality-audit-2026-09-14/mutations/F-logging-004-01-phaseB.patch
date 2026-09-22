@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index c68ac94be..424d1396f 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -9975,7 +9975,7 @@ namespace Parsek
+         internal static string FormatGrowthRateAtStop(RecordingGrowthRate gr)
+         {
+             return string.Format(CultureInfo.InvariantCulture,
+-                "Recording growth rate at stop: {0} points, {1} events, {2:F1}s elapsed, " +
++                "Recording growth rate at stop: {1} points, {0} events, {2:F1}s elapsed, " +
+                 "{3:F2} pts/s, {4:F2} evts/s, est {5} bytes",
+                 gr.totalPoints, gr.totalEvents, gr.elapsedSeconds,
+                 gr.pointsPerSecond, gr.eventsPerSecond, gr.estimatedFinalBytes);

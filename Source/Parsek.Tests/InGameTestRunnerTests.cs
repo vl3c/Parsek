@@ -574,13 +574,22 @@ namespace Parsek.Tests
         {
             // ClearAllSceneHistory clears both the top-level fields AND the scene dict.
             // This is what the explicit Reset button triggers so the next auto-export
-            // produces a clean file. Driven through the same production helper, with the
-            // history flag SET - the one input that separates the two reset controls.
-            var t = MakeTest("Cat", "Alpha");
+            // produces a clean file. Driven on a real runner (discovery needs no host), so
+            // the flag ClearAllSceneHistory hands the per-test helper decides the verdict;
+            // ResetResults on the same runner is the control that must keep the history.
+            var runner = new InGameTestRunner(null);
+            Assert.NotEmpty(runner.Tests);
+            var t = runner.Tests[0];
             StampResult(t, GameScenes.SPACECENTER, TestStatus.Failed, err: "old");
             StampResult(t, GameScenes.FLIGHT, TestStatus.Passed);
+            t.Status = TestStatus.Passed;
 
-            InGameTestRunner.ResetLiveStatus(t, clearSceneHistory: true);
+            runner.ResetResults();
+            Assert.Equal(2, t.ResultsByScene.Count);
+            Assert.Equal(TestStatus.NotRun, t.Status);
+
+            t.Status = TestStatus.Passed;
+            runner.ClearAllSceneHistory();
 
             Assert.Empty(t.ResultsByScene);
             Assert.Equal(TestStatus.NotRun, t.Status);

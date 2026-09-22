@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index bf1e687b9..603e73dc0 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -5750,7 +5750,7 @@ namespace Parsek
+                 $"onRails={(onRails ? 1 : 0)} source={source}");
+ 
+             CloseCurrentTrackSection(soiUT);
+-            StartNewTrackSection(env, frame, soiUT, source);
++            StartNewTrackSection(env, frame, soiUT + 1.0, source);
+         }
+ 
+         /// <summary>

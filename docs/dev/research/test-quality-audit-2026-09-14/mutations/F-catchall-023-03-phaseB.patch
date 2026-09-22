@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekUI.cs b/Source/Parsek/ParsekUI.cs
+index fe98e84c5..b5173aaff 100644
+--- a/Source/Parsek/ParsekUI.cs
++++ b/Source/Parsek/ParsekUI.cs
+@@ -1559,7 +1559,7 @@ namespace Parsek
+         internal static float ComposeScrollbarGutterWidth(float scrollbarFootprint,
+             int cellHorizontalMargin)
+         {
+-            return scrollbarFootprint + cellHorizontalMargin;
++            return Mathf.Max(scrollbarFootprint, cellHorizontalMargin);
+         }
+ 
+         private void EnsureSharedHeaderStyles()
