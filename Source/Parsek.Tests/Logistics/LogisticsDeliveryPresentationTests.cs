@@ -581,9 +581,12 @@ namespace Parsek.Tests.Logistics
                 LogisticsDeliveryPresentation.FormatSourceRecordingDisplay(null, null, null, -1));
         }
 
-        // The rec number is InvariantCulture: a large position carries no separator.
+        // A large position prints as a plain integer, with no group separator. The
+        // InvariantCulture argument is not what this pins: a positive int formats the same
+        // in every culture. The de-DE host is there so a group-separated format would show
+        // its "." separator rather than an invariant ",".
         [Fact]
-        public void FormatSourceRecordingDisplay_PositionIsInvariant()
+        public void FormatSourceRecordingDisplay_LargePosition_NoThousandsSeparator()
         {
             CultureInfo prev = Thread.CurrentThread.CurrentCulture;
             try
