@@ -2107,7 +2107,10 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     with no edit).
   - Follow-up, not done here: `ParsekScenario.SaveRecordingMetadata` /
     `LoadRecordingMetadataForTests` are test-only (11 test files use them), so every other
-    cell built on that pair pins a copy of the codec rather than the codec.
+    cell built on that pair pins a copy of the codec rather than the codec. CLOSED by
+    `retarget-recording-metadata-tests` (2026-09-22): every such cell now drives
+    `RecordingTree.SaveRecordingInto` / `LoadRecordingFrom`, the pair is deleted, and the one
+    key the codec lacks is filed as LOOP-TIME-UNIT-NOT-PERSISTED.
 - `testfix-low-03` (2026-09-22): Low T1 slice 3, the remainder of slice 1
   (`work/phase-b-slice-low-t1-03.txt`, 14 ids; slice 1's other two rows,
   F-analyzer-002-02 and F-rewind-refly-019-02, are on `testfix-low-01`). Counting rule:

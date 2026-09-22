@@ -525,9 +525,9 @@ namespace Parsek.Tests.Generators
         /// <see cref="Recording"/> proof carrier in
         /// <see cref="SerializeRouteProofMetadataInto"/> and written through
         /// <c>RecordingStore.SerializeRouteProofMetadata</c> -&gt;
-        /// <c>RouteProofCodec</c>, the same chokepoint both persistence paths
-        /// (<c>RecordingTreeRecordCodec.SaveRecordingResourceAndState</c> and
-        /// <c>ParsekScenario.SaveRecordingMetadata</c>) use. There is
+        /// <c>RouteProofCodec</c>, the same chokepoint the production recording
+        /// writer (<c>RecordingTreeRecordCodec.SaveRecordingResourceAndState</c>)
+        /// uses. There is
         /// deliberately no hand-written <c>ROUTE_CONNECTION_WINDOWS</c> node
         /// here — mirroring the codec by hand is how a fixture drifts from the
         /// format it claims to produce.

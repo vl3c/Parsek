@@ -15,6 +15,33 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LOOP-TIME-UNIT-NOT-PERSISTED: a recording's loop period unit is not saved, so Auto (and Min / Hour) revert to Sec on reload [FILED 2026-09-22 off the recording-metadata test retarget (branch `retarget-recording-metadata-tests`). A PRODUCT serialization gap. OPEN]
+
+**Finding.** `Recording.LoopTimeUnit` is player-set (the Recordings table's unit button
+cycles sec / min / hr / auto, `RecordingsTableUI.cs`) and `ParsekFlight` commits Gloops
+recordings with `LoopTimeUnit.Auto`. Playback reads it: `GhostPlaybackLogic.ResolveLoopInterval`
+takes the global Auto interval instead of `LoopIntervalSeconds` for an Auto recording, and
+`ShouldUseGlobalAutoLaunchQueue` puts Auto recordings on the shared launch queue.
+`RecordingTreeRecordCodec` neither writes nor reads a `loopTimeUnit` key (grep: zero
+occurrences), so every reload yields `LoopTimeUnit.Sec`. An Auto recording then loops at its
+stored `LoopIntervalSeconds` (0 for a Gloops recording, clamped to `MinCycleDuration` with a
+warning) and leaves the Auto queue. For Min / Hour only the displayed unit changes, since
+the period is stored in seconds.
+
+**History (`git log -S'"loopTimeUnit"'`).** `722d00ff1` added the key only to the
+`ParsekScenario` standalone metadata path. That path lost its production caller when every
+recording moved into a tree, and it was deleted as test-only by the retarget. The tree codec
+never had the key. `Mission.LoopTimeUnit` is a separate field and is persisted
+(`Mission.cs`).
+
+**Fix (not done).** In `RecordingTreeRecordCodec`, write `loopTimeUnit` sparsely (omit Sec)
+in `SaveLoopAndPlaybackSettings` and parse it with `Enum.TryParse` in the load mirror. This is
+additive, so no schema generation bump. Then unskip
+`AutoLoopTests.LoopTimeUnit_SaveLoad_RoundTrip_Auto` / `_Hour`, which already drive the
+production pair.
+
+---
+
 ## ~~NON-LOOP-LIVE-PID-GATE-ARMS-DRIFTED: the two arms of the non-loop live-PID grep gate forbade different GhostMapPresence symbols, and neither symbol existed~~ [FILED + FIXED 2026-09-22]
 
 **Finding.** `scripts/grep-audit-non-loop-live-pid.ps1` (the pwsh arm) and the managed

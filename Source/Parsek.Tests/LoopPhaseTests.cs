@@ -534,7 +534,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RoundTrip_ViaParseScenario()
+        public void RoundTrip_ViaRecordCodec()
         {
             var source = new Recording
             {
@@ -545,10 +545,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
+            RecordingTree.SaveRecordingInto(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal("Mun", loaded.LoopAnchorBodyName);
         }
@@ -584,28 +584,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Sparse_NullNotWritten_ParsekScenario()
-        {
-            var source = new Recording
-            {
-                RecordingId = "sparse-scenario",
-                LoopAnchorBodyName = null,
-            };
-
-            var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
-
-            Assert.Null(node.GetValue("loopAnchorBodyName"));
-        }
-
-        [Fact]
         public void BackwardCompat_MissingKey_ReturnsNull_RecordingTree()
         {
-            // The _RecordingTree half must decode through RecordingTree.Load ->
-            // RecordingTreeRecordCodec, not through the ParsekScenario test helper its
-            // twin below already drives. A missing key alone cannot discriminate (the
-            // field defaults to null either way), so the tree node also carries a
-            // recording WITH the key: the codec's assignment is then the deciding term.
+            // Decodes through RecordingTree.Load -> RecordingTreeRecordCodec. A missing
+            // key alone cannot discriminate (the field defaults to null either way), so
+            // the tree node also carries a recording WITH the key: the codec's
+            // assignment is then the deciding term.
             var missing = new Recording { RecordingId = "old-rec", LoopPlayback = true, LoopAnchorVesselId = 42 };
             var present = new Recording { RecordingId = "new-rec", LoopPlayback = true, LoopAnchorBodyName = "Duna" };
 
@@ -620,19 +604,6 @@ namespace Parsek.Tests
             Assert.Equal(2, loadedTree.Recordings.Count);
             Assert.Null(loadedTree.Recordings["old-rec"].LoopAnchorBodyName);
             Assert.Equal("Duna", loadedTree.Recordings["new-rec"].LoopAnchorBodyName);
-        }
-
-        [Fact]
-        public void BackwardCompat_MissingKey_ReturnsNull_ParsekScenario()
-        {
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "old-rec-scenario");
-            // No loopAnchorBodyName
-
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
-
-            Assert.Null(loaded.LoopAnchorBodyName);
         }
 
         [Fact]

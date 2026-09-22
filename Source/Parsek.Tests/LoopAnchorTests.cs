@@ -35,74 +35,10 @@ namespace Parsek.Tests
             Assert.Equal(0u, rec.LoopAnchorVesselId);
         }
 
-        // --- ParsekScenario serialization round-trip ---
-
-        [Fact]
-        public void LoopAnchorVesselId_Scenario_SaveLoad_RoundTrip()
-        {
-            var source = new Recording
-            {
-                RecordingId = "anchor-test",
-                LoopPlayback = true,
-                LoopAnchorVesselId = 12345,
-            };
-            var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
-
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
-
-            Assert.Equal(12345u, loaded.LoopAnchorVesselId);
-        }
-
-        [Fact]
-        public void LoopAnchorVesselId_Scenario_Zero_NotWritten()
-        {
-            var source = new Recording
-            {
-                RecordingId = "no-anchor",
-                LoopAnchorVesselId = 0,
-            };
-            var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
-
-            Assert.Null(node.GetValue("loopAnchorPid"));
-        }
-
-        [Fact]
-        public void LoopAnchorVesselId_Scenario_BackwardCompat_MissingKey_DefaultsZero()
-        {
-            var node = new ConfigNode("RECORDING");
-            // No loopAnchorPid key at all
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
-
-            Assert.Equal(0u, loaded.LoopAnchorVesselId);
-        }
-
         // --- LoopStartUT / LoopEndUT save/load round-trip ---
 
         [Fact]
-        public void LoopRange_Scenario_SaveLoad_RoundTrip_ValidValues()
-        {
-            var source = new Recording
-            {
-                RecordingId = "loop-range-test",
-                LoopStartUT = 130.5,
-                LoopEndUT = 170.25,
-            };
-            var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
-
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
-
-            Assert.Equal(130.5, loaded.LoopStartUT);
-            Assert.Equal(170.25, loaded.LoopEndUT);
-        }
-
-        [Fact]
-        public void LoopRange_Scenario_Load_CurrentNegativeInterval_PreservesStoredValue()
+        public void LoopRange_Load_CurrentNegativeInterval_PreservesStoredValue()
         {
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "current-scenario-negative-loop");
@@ -127,7 +63,7 @@ namespace Parsek.Tests
                 bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
             });
 
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.Equal(-20.0, loaded.LoopIntervalSeconds);
             Assert.Equal(120.0, loaded.LoopStartUT);
@@ -137,7 +73,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoopRange_Scenario_Load_CurrentPositiveGap_PreservesStoredValue()
+        public void LoopRange_Load_CurrentPositiveGap_PreservesStoredValue()
         {
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "current-scenario-positive-gap");
@@ -148,7 +84,8 @@ namespace Parsek.Tests
             node.AddValue("loopPlayback", true);
             node.AddValue("loopStartUT", 120.0.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("loopEndUT", 180.0.ToString("R", CultureInfo.InvariantCulture));
-            node.AddValue("loopIntervalSeconds", 10.0.ToString("R", CultureInfo.InvariantCulture));
+            // Not the Recording default (10 s), so a loader that skips the key is visible.
+            node.AddValue("loopIntervalSeconds", 25.0.ToString("R", CultureInfo.InvariantCulture));
 
             var loaded = new Recording { VesselName = "CurrentScenarioPositive" };
             loaded.Points.Add(new TrajectoryPoint
@@ -162,39 +99,12 @@ namespace Parsek.Tests
                 bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
             });
 
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+            RecordingTree.LoadRecordingFrom(node, loaded);
 
-            Assert.Equal(10.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(25.0, loaded.LoopIntervalSeconds);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
             Assert.DoesNotContain(logLines, line => line.Contains("migrated recording"));
-        }
-
-        [Fact]
-        public void LoopRange_Scenario_SaveLoad_NaN_NotWritten()
-        {
-            var source = new Recording
-            {
-                RecordingId = "loop-range-nan",
-                LoopStartUT = double.NaN,
-                LoopEndUT = double.NaN,
-            };
-            var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
-
-            Assert.Null(node.GetValue("loopStartUT"));
-            Assert.Null(node.GetValue("loopEndUT"));
-        }
-
-        [Fact]
-        public void LoopRange_Scenario_BackwardCompat_MissingKeys_DefaultsNaN()
-        {
-            var node = new ConfigNode("RECORDING");
-            // No loopStartUT / loopEndUT keys
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
-
-            Assert.True(double.IsNaN(loaded.LoopStartUT));
-            Assert.True(double.IsNaN(loaded.LoopEndUT));
+            Assert.DoesNotContain(logLines, line => line.Contains("deferred migration"));
         }
 
         // --- RecordingTree serialization round-trip ---
@@ -210,6 +120,9 @@ namespace Parsek.Tests
             };
             var node = new ConfigNode("RECORDING");
             RecordingTree.SaveRecordingInto(node, source);
+            // Pins the on-disk key: a rename on both sides would still round-trip
+            // but would drop the loop anchor from every existing save.
+            Assert.Equal("67890", node.GetValue("loopAnchorPid"));
 
             var loaded = new Recording();
             RecordingTree.LoadRecordingFrom(node, loaded);
@@ -234,10 +147,9 @@ namespace Parsek.Tests
         [Fact]
         public void LoopAnchorVesselId_Tree_BackwardCompat_MissingKey_DefaultsZero()
         {
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "compat-test");
-            var loaded = new Recording();
-            RecordingTree.LoadRecordingFrom(node, loaded);
+            var node = RecordingCodecTestNodes.BareCurrentContract("compat-test");
+            Assert.Null(node.GetValue("loopAnchorPid"));
+            var loaded = RecordingCodecTestNodes.LoadPastSchemaGate(node);
 
             Assert.Equal(0u, loaded.LoopAnchorVesselId);
         }
@@ -262,28 +174,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoopRange_Tree_Load_CurrentFormat_PreservesLaunchPeriod()
-        {
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "current-tree-loop");
-            node.AddValue("recordingFormatVersion",
-                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
-            node.AddValue("vesselName", "CurrentTree");
-            node.AddValue("explicitStartUT", 0.0.ToString("R", CultureInfo.InvariantCulture));
-            node.AddValue("explicitEndUT", 300.0.ToString("R", CultureInfo.InvariantCulture));
-            node.AddValue("loopStartUT", 100.0.ToString("R", CultureInfo.InvariantCulture));
-            node.AddValue("loopEndUT", 200.0.ToString("R", CultureInfo.InvariantCulture));
-            node.AddValue("loopIntervalSeconds", 10.0.ToString("R", CultureInfo.InvariantCulture));
-
-            var loaded = new Recording();
-            RecordingTree.LoadRecordingFrom(node, loaded);
-
-            Assert.Equal(10.0, loaded.LoopIntervalSeconds);
-            Assert.DoesNotContain(logLines, line => line.Contains("migrated recording 'CurrentTree'"));
-            Assert.DoesNotContain(logLines, line => line.Contains("deferred migration"));
-        }
-
-        [Fact]
         public void LoopRange_Tree_NaN_NotWritten()
         {
             var source = new Recording
@@ -302,10 +192,10 @@ namespace Parsek.Tests
         [Fact]
         public void LoopRange_Tree_BackwardCompat_MissingKey_DefaultsNaN()
         {
-            var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "tree-compat-test");
-            var loaded = new Recording();
-            RecordingTree.LoadRecordingFrom(node, loaded);
+            var node = RecordingCodecTestNodes.BareCurrentContract("tree-compat-test");
+            Assert.Null(node.GetValue("loopStartUT"));
+            Assert.Null(node.GetValue("loopEndUT"));
+            var loaded = RecordingCodecTestNodes.LoadPastSchemaGate(node);
 
             Assert.True(double.IsNaN(loaded.LoopStartUT));
             Assert.True(double.IsNaN(loaded.LoopEndUT));
@@ -452,23 +342,6 @@ namespace Parsek.Tests
         // --- Serialization with large PID values ---
 
         [Fact]
-        public void LoopAnchorVesselId_Scenario_LargePid_RoundTrip()
-        {
-            var source = new Recording
-            {
-                RecordingId = "large-pid",
-                LoopAnchorVesselId = 4294967295, // uint.MaxValue
-            };
-            var node = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(node, source);
-
-            var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
-
-            Assert.Equal(4294967295u, loaded.LoopAnchorVesselId);
-        }
-
-        [Fact]
         public void LoopAnchorVesselId_Tree_LargePid_RoundTrip()
         {
             var source = new Recording
@@ -485,31 +358,5 @@ namespace Parsek.Tests
             Assert.Equal(4294967295u, loaded.LoopAnchorVesselId);
         }
 
-        // --- Cross-path: both serializers produce same key name ---
-
-        [Fact]
-        public void LoopAnchorVesselId_SavedKeyName_ConsistentAcrossSerializers()
-        {
-            var rec = new Recording
-            {
-                RecordingId = "key-consistency",
-                LoopAnchorVesselId = 42,
-            };
-
-            var scenarioNode = new ConfigNode("RECORDING");
-            ParsekScenario.SaveRecordingMetadata(scenarioNode, rec);
-
-            var treeNode = new ConfigNode("RECORDING");
-            RecordingTree.SaveRecordingInto(treeNode, rec);
-
-            // Both should use the same key name
-            string scenarioValue = scenarioNode.GetValue("loopAnchorPid");
-            string treeValue = treeNode.GetValue("loopAnchorPid");
-
-            Assert.NotNull(scenarioValue);
-            Assert.NotNull(treeValue);
-            Assert.Equal("42", scenarioValue);
-            Assert.Equal("42", treeValue);
-        }
     }
 }
