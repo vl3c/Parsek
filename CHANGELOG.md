@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: two more ghost-chain coverage cells are claimed on an existing lane.**
+  `V26T-interbody-route-ts-arrival` already printed both on every run from its fixture's
+  committed chains: a recording refused a spawn because it is an intermediate link of a
+  claimed vessel's chain, and chains marked terminated because their tip vessel was
+  destroyed. Those three lines are now required fixture literals, and the lane claims
+  D18 `intermediate-spawn-suppression` plus the destroyed half of
+  `chain-terminated-destruction-recovery`. The recovery half, and a seam verb pair to
+  spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
+  Harness-only; no game code changed.
+
 - **Tests: two Low T1 cells from the unit-test quality audit now observe production decisions.**
   Baseline keys compare separate findings with numeric drift and distinguish different rules,
   rather than comparing a function call with itself. Rewind cleanup tests null and empty RP

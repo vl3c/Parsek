@@ -261,6 +261,36 @@ steps = [
 # `8f644e71 ... transferDropped=0` beside it; the registry entry carries the argument.
 D10 = ["route-map-lines-inter-body", "route-transfer-leg-drop"]
 D14 = ["kerbin", "duna", "scene-ts", "sandbox"]
+# D18, ADDED 2026-09-22 (the D18 spawn-in-run wave, PR-A; operator rulings of the same
+# day), CLAIMED CONDITIONAL ON THE ARMED RE-FLIGHT AND ITS NEGATIVE CONTROL (the H59
+# precedent this block already follows for `route-transfer-leg-drop`). Neither cell needed a
+# new flight to be FOUND: this fixture's committed ghost chains print both on every run.
+#   `intermediate-spawn-suppression` <- `Intermediate spawn suppressed:
+#       rec=58130506e8f84025b78a95d2497534ab vessel=Kerbal X` (GhostPlaybackLogic
+#       `ShouldSuppressSpawnForChain`, Verbose rate-limited, so ONE line per run): the
+#       recording is an intermediate link of the MERGE-claimed Kerbal X chain (pid
+#       4277041026, tip 7e0d79b5...), and the spawn decision refuses it during the
+#       tracking-station load.
+#   `chain-terminated-destruction-recovery`, THE DESTROYED HALF ONLY <- the walker's
+#       `ResolveTermination: vessel=186323176 tip=0954c2659a3e4c1d831fff867bca441d
+#       terminalState=Destroyed` plus that chain's `Chain built: ... terminated=True`, the
+#       first of 23 such pairs this fixture prints (GhostChainWalker, VerboseOnChange, so
+#       they print on the FIRST evaluation in the FLIGHT half and never again). Scope,
+#       stated: this is the walker's termination DECISION for a destroyed tip. Its recovery
+#       half (a `Recovered` tip) and the spawn-side `Terminated chain spawn suppressed:`
+#       line are NOT exercised here - this fixture's clock is past every terminated chain's
+#       spawn UT, so the flight scene drops those chains before the terminated check and
+#       no spawn is ever attempted - and both are filed as residue
+#       (D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED).
+# ARCHIVE EVIDENCE: all three literals match ONCE in each of the five archived V26T logs
+# (`2026-09-10_2153`, `2026-09-11_0203`, `2026-09-15_1536`, `2026-09-15_1638`,
+# `2026-09-22_1835`), the 23 `terminated=True` lines are byte-identical across all five,
+# and the summary reads `Ghost chains evaluated: 28 chain(s), 0 vessel(s) ghosted` every
+# time. The pids and recording ids are fixture bytes, which is why they are literals.
+# SECOND WITNESS, NOT CLAIMED: `BDOCK-1-station-interceptor` prints the same two walker
+# lines (5-6 destroyed staging-debris chains per run, e.g. `2026-09-10_2215`), but its
+# pids are per-launch, so there it is regex-only evidence and carries no claim.
+D18 = ["intermediate-spawn-suppression", "chain-terminated-destruction-recovery"]
 
 [expectations]
 # EMPTY, AND THAT IS NOW A MEASUREMENT RATHER THAN A POSTURE: two runs took the
@@ -367,6 +397,11 @@ required  = [
   "loadgame trackstation route: booting to TRACKSTATION save=",
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
+  # D18 (the claim and its archive evidence are in [dimensionsCovered]). Fixture-byte
+  # literals; the walker's em-dash suffix on the ResolveTermination line is left out.
+  "\\[ChainWalker\\] Intermediate spawn suppressed: rec=58130506e8f84025b78a95d2497534ab vessel=Kerbal X",
+  "\\[ChainWalker\\] ResolveTermination: vessel=186323176 tip=0954c2659a3e4c1d831fff867bca441d terminalState=Destroyed ",
+  "\\[ChainWalker\\] Chain built: vessel=186323176 links=1 tip=0954c2659a3e4c1d831fff867bca441d spawnUT=6623307\\.3 terminated=True",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

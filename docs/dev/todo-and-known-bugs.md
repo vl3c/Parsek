@@ -15,6 +15,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR: the player-action half of D18 needs a RealSpawn / Recover seam verb pair [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A, on the operator ruling that no player-action verbs are built in that wave. OPEN; a follow-on design item]
+
+D18 is at 6 of 12 after PR-A. The cells still open are the ones where the PLAYER acts on a
+ghost chain: spawning a ghost as a real vessel through Real Spawn Control
+(`SpawnControlUI` / `ParsekFlight`'s proximity spawn path), docking with it, and recovering
+it. No seam verb drives either action today, so a driven lane can only observe what a
+committed fixture already contains (V26T's claims, CI-2's claim) or what a rewind derives
+(CI-3). What the next wave needs, and deliberately did not build:
+
+- `RealSpawn rec=<id|${handle}>`: drive the same entry point the Real Spawn Control button
+  uses for one committed recording, answering the spawned vessel's KSP-unique pid (the
+  handle a follow-on `SimulateStockSwitchClick pid=` or a dock mission needs). Refusals
+  mirror the UI's own gates (not spawnable, already spawned, proximity blocked).
+- `Recover pid=<pid|${handle}>`: recover a live vessel through the stock recovery path, so
+  a chain whose tip was spawned can reach the `Recovered` terminal and the recovery half of
+  `chain-terminated-destruction-recovery` (and the spawn-side
+  `Terminated chain spawn suppressed:` line) gets a subject.
+
+Both need the M-A2 design pass (design-autotest-command-seam.md), the pure / applier
+split, the dispatch rows, the hlib verb and role tables and `GuiCensusSeamVerbTests`'s
+vocabulary sync, before any lane can use them.
+
+## D18-TERMINATED-CHAIN-RECOVERY-HALF-AND-SPAWN-SUPPRESSION-UNWITNESSED: the recovery half of `chain-terminated-destruction-recovery` and the spawn-side suppression line have no driven subject [FILED 2026-09-22 with the D18 spawn-in-run wave, PR-A. OPEN; needs D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR or a harvested save with a Recovered chain tip]
+
+PR-A claims `chain-terminated-destruction-recovery` on V26T for the DESTROYED half only,
+off the walker's `ResolveTermination: ... terminalState=Destroyed` and
+`Chain built: ... terminated=True` lines. Two parts of the cell stay unwitnessed:
+
+1. **The Recovered half.** `GhostChainWalker.ResolveTermination` marks a chain terminated
+   for a `Destroyed`, `Recovered` or `Disassembled` tip. No committed fixture carries a
+   chain whose tip recording ends `Recovered` (every archived termination line reads
+   `terminalState=Destroyed`, V26T's 23 and BDOCK-1's 5-6 alike).
+2. **The spawn-side suppression.** `GhostPlaybackLogic.ShouldSuppressSpawnForChain` logs
+   `Terminated chain spawn suppressed: rec=... vessel=... vesselPid=...` when a terminated
+   chain's tip reaches its spawn decision. Zero archived logs print it: on V26T the fixture
+   clock is past every terminated chain's spawn UT, so the flight scene drops those chains
+   (`Skipping chain for pid=... currentUT >= spawnUT`) before the terminated check, and on
+   BDOCK-1 the chains are staging debris that never reach a spawn decision.
+
+A subject for either needs a chain whose tip is still in the future when the scene loads
+and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
+RealSpawn / Recover verb pair.
+
 ## ~~NON-LOOP-LIVE-PID-GATE-ARMS-DRIFTED: the two arms of the non-loop live-PID grep gate forbade different GhostMapPresence symbols, and neither symbol existed~~ [FILED + FIXED 2026-09-22]
 
 **Finding.** `scripts/grep-audit-non-loop-live-pid.ps1` (the pwsh arm) and the managed
