@@ -1,0 +1,349 @@
+schema = 1
+id = "GUI-20-census-logistics-hold-second-cycle"
+tier = "operator"
+# THE GUI CENSUS: A HELD ROUTE, PHOTOGRAPHED FROM BOTH SECTIONS OF THE LOGISTICS WINDOW.
+#
+# WHY THIS LANE EXISTS. Every Logistics capture the census has taken shows routes that
+# have never blocked. `LogisticsHoldPresentation` is 606 lines of player-facing hold
+# language - the yellow `Last cycle blocked: ...` detail line, the `Held: ...` Status-cell
+# override with its green-to-yellow tint flip, the `Enum - clause` tooltip - and not one
+# pixel of it has ever been in an image. The same is true of the whole M6 per-cycle flow
+# display (`Recent cycles:` and its cycle lines), the H2 realized/cumulative pair
+# (`Last cycle: ...` / `Total delivered: ...`), the `Cyc` column's `/ N skipped` suffix and
+# the H3 `Delivering` badge. This lane is RVR-8's chain with a capture tail, because RVR-8
+# is the one committed lane that reaches ALL of those in one run.
+#
+# WHY RVR-8 AND NOT ONE OF THE STAGED SIBLINGS. RVR-8 drives a cycle that DELIVERS and
+# then a second that BLOCKS, so at the capture point the route carries both a delivery
+# history (which is what `Recent cycles:` / `Last cycle:` / `Total delivered:` /
+# `Delivering` are all derived from) and a live hold. RVR-10 / RVR-13 block on their FIRST
+# cycle, so on those hosts the flow display and the H2 pair render NOTHING - a different
+# and also-unphotographed state, taken by GUI-21 and GUI-22.
+#
+# ------------------------------------------------------------------------------------
+# THE ONE STATE THAT NEEDED THE CHAIN EXTENDED, AND THE MEASUREMENT THAT MAKES IT SAFE.
+#
+# `Held: <reason>` IS DRAWN ONLY IN THE ACTIVE SECTION. `LogisticsWindowUI.cs:1157-1180`
+# splits the row draw: the `section == RouteSection.Paused` branch draws
+# `leg.PausedLabelText` (the L1 New/Paused label) and the ELSE branch draws
+# `leg.HoldCellText ?? StatusReason(route.Status)`, with the green-to-yellow tint flip at
+# `:1174-1175`. The section split is on STATUS (`:625-626`: `Paused` goes to the paused
+# list, everything else to the active one). RVR-8 ends its chain Active, but its final
+# `RouteCommand action=activate` runs `route.ClearHold("player-activate")`
+# (`RouteOrchestrator.cs:236`), so at THAT instant there is no hold to draw. The `Held:`
+# cell therefore needs a crossing AFTER the activate, and RVR-8's own header says whether
+# it gets one is frame timing - which is exactly why its `[expectations.routes]` declares
+# `skippedCycles = { min = 1 }` as a FLOOR rather than a window.
+#
+# SO THIS LANE ADDS TWO TIMEJUMPS, and the second is the one that turns that frame-timing
+# accident into a driven step.
+#
+# ------------------------------------------------------------------------------------
+# HOW THE TWO EXTRA UTs WERE CHOSEN, AND WHAT IS NOT CERTAIN ABOUT THEM.
+#
+# THE LOOP PERIOD IS 162.74 s, and it is not this lane's derivation: it is the number
+# RVR-7's header records as the relay tree's own span after PR #1623 removed the orbital
+# phase lock's 551.62 s re-anchor ("the loop keeps the tree's own 162.74 s span, five
+# crossings fit" before ut=1100). Both extra jumps are +600 s, which is 3.7 loop periods -
+# comfortably more than one crossing and chosen as a round number rather than tuned to
+# land between crossings, because neither jump depends on WHERE in the span it lands.
+#
+#   ut=3000 (after RVR-8's 2400): AGES THE HOLD, and cannot do anything else. Once the
+#   blocked cycle-1 consumed the armed pause the route is Paused, and `ProcessLoopRoute`
+#   early-returns at `RouteOrchestrator.cs:694-701` on `!GhostDriving(route.Status)` with
+#   `GhostDriving(Paused) == false` (`RouteStatusPolicy.cs:79`). No crossing runs, so
+#   `LastHoldUT` is FROZEN at the cycle-1 crossing UT while the clock advances. That
+#   freeze is what makes the age suffix derivable at all: `RecordHold` writes
+#   `LastHoldUT = ut` UNCONDITIONALLY (`Route.cs:661`, outside the `changed` guard), so on
+#   a still-crossing route the age would be re-zeroed every crossing and the suffix would
+#   be unpredictable.
+#
+#   ut=3600 (after the activate): PRODUCES THE POST-ACTIVATE CROSSING. `TryActivate` sets
+#   `PauseAfterCurrentCycle = false` (`RouteOrchestrator.cs:190`) and does NOT re-arm it,
+#   so `TryHonorArmedPauseOnBlockedCycle` returns false at its first guard
+#   (`:3799-3800`) and the blocked crossing leaves the route ACTIVE with a recorded hold.
+#   The blocked branch itself never transitions status - it calls `RecordHold` and nothing
+#   else (`:1394`).
+#
+# WHAT IS NOT CERTAIN, stated rather than glossed:
+#   * THE EXACT AGE THE FIRST CAPTURE RENDERS. The suffix is
+#     `FormatDuration(currentUT - LastHoldUT)` (`LogisticsHoldPresentation.cs:119-122`),
+#     and `LastHoldUT` is the cycle-1 CROSSING UT, which is somewhere in (2400 - 162.74,
+#     2400] rather than 2400 exactly. So the age is 600 s plus up to one span, i.e.
+#     `FormatDuration` renders somewhere in "10.0m" to "12.7m" (`:3830-3833`: under 3600 s
+#     is `{0:F1}m`). The lane asserts the suffix EXISTS by asserting nothing about it - the
+#     dump is the evidence - and the header records the band so a reader is not surprised.
+#     What IS certain is that it is non-degenerate: `FormatDuration` returns "-" only for
+#     `seconds <= 0` (`:3828`) and 600 s is the floor here.
+#   * WHETHER THE POST-ACTIVATE CROSSING FIRES AT ALL. 600 s is 3.7 spans and the cursors
+#     were rebased to -1 by `TryActivate` (`:212`) so the FIRST post-activate crossing
+#     fires, but the crossing detector is the loop clock's and this lane has never
+#     measured it from an activate. The `Held:` cell is therefore declared a MAY below and
+#     is NOT in `required`.
+#   * IT CANNOT DELIVER. That much is certain: rover B holds 45.59999999999814 against the
+#     same 154.3999999999952 pickup manifest, so gate 6 fails by 108.79999999999706 on
+#     every further crossing exactly as it did on cycle-1. A post-activate DELIVERY would
+#     be a product defect, and RVR-8's own forbidden `Delivery write: ... tankBefore=400`
+#     token is carried forward here and would catch it.
+#
+# ------------------------------------------------------------------------------------
+# NO `[expectations.routes]` BLOCK, AND THAT IS THE DECISION THAT FREES THE TWO JUMPS.
+# RVR-8 carries that block ARMED (`gating = true`, armed 2026-09-10 off `_1731`), and its
+# `completedCycles = { min = 1, max = 1 }` / `statuses = { Active = 1 }` windows are the
+# produced-bytes half of its log claims. This lane drives MORE cycles than RVR-8 does (the
+# post-activate blocked crossing bumps `SkippedCycles` past RVR-8's floor) and drops
+# `SaveGame` entirely, so there is no produced save to read and any window copied here
+# would be a guess. The ORIGINAL keeps the gating; the census is DREW-only. A census that
+# re-declared its host's behavioural windows would also be claiming a behaviour twice,
+# which is the same non-inflation rule `[dimensionsCovered]` below applies to D10.
+#
+# ------------------------------------------------------------------------------------
+# WHAT THIS LANE CANNOT PHOTOGRAPH BY APPENDING, FILED RATHER THAN FAKED. Each of these
+# was measured to be unreachable from this chain, with the gate named:
+#
+#   * `<dest> tanks full: ...` (the M4 capacity context,
+#     `LogisticsDeliveryPresentation.cs:578-605`). Gated on the route's STATUS being
+#     `RouteStatus.DestinationFull` at BOTH the compute site
+#     (`LogisticsWindowUI.cs:3192`) and the draw site (`:1702`) - not on
+#     `LastHoldKind`. The loop dispatch path never assigns that status: the blocked branch
+#     calls only `RecordHold` (`RouteOrchestrator.cs:1394`) and the sole transition is to
+#     `Paused` (`:3832`). So no lane that blocks through the loop clock can reach it, and
+#     RVR-13 / RVR-14 hold `LastHoldKind=DestinationFull` at `Status=Paused`. Filed as
+#     GUI-CENSUS-CAPACITY-CONTEXT-IS-STATUS-GATED-OFF-THE-LOOP-PATH.
+#   * `Pausing after this cycle...` (`LogisticsWindowUI.cs:1549-1550`). Needs
+#     `ArmedSendKind.PauseAfterCycle`, i.e. an arm created by Pause-while-InTransit; a
+#     `send-once` arm resolves to `"Sending one cycle..."` (`:1551-1553`). No seam verb
+#     drives Pause on an InTransit route, and the loop path never assigns `InTransit`.
+#   * The partial-delivery report (`FormatPartialDeliveryLine`,
+#     `LogisticsHoldPresentation.cs:594-604`). Needs
+#     `Route.LastPartialDeliverySummary`, written only by a mid-transit capacity shrink.
+#     Every cycle here either delivers in full (`partial=0`, RVR-7's measured reading) or
+#     blocks and writes nothing.
+#   * `Flying, not delivering` (`LogisticsDeliveryPresentation.cs:331-332`). Needs
+#     `ghostDriving && lastOutcome == None && (completed > 0 || skipped > 0)`
+#     (`ClassifyDeliveryBadge`, `:303-320`). This host's cycle-0 delivery leaves a
+#     delivered ledger row that `ClassifyLastOutcome` reads as `Full`
+#     (`LogisticsWindowUI.cs:3417-3428`) for the rest of the run, so the Active row reads
+#     `Delivering` and never the yellow badge.
+#   * EVERY `RouteStatus` BEYOND Active AND Paused - `InTransit`,
+#     `WaitingForResources`, `WaitingForFunds`, `DestinationFull`, `EndpointLost`,
+#     `MissingSourceRecording`, `SourceChanged` - and with them the whole
+#     `StatusReason` table (`LogisticsWindowUI.cs:3882-3897`) and the red
+#     `statusStyleRed` treatment (`:3929-3932`). The loop path assigns only the two, per
+#     the transitions cited above. Filed as
+#     GUI-CENSUS-SEVEN-ROUTESTATUS-VALUES-HAVE-NO-DRIVEN-HOST.
+#
+# ------------------------------------------------------------------------------------
+# TWO CORRECTIONS TO THE AUTHORING BRIEF, measured before the preamble was placed.
+#   1. `op=complexity mode=advanced` IS NEVER REFUSED. The refusal is
+#      `ParsekUI.ShouldRefuseModeChange` (`ParsekUI.cs:690-693`), whose whole body is
+#      `next == UiComplexityMode.Basic && gloopsRecording` - Basic only, and GLOOPS
+#      recording (`WouldRefuseModeChange` -> `IsGloopsRecordingNow()`, `:705-708`), not a
+#      flight recording. The preamble is still placed after `StopRecording` /
+#      `DiscardTree` because that is where it reads best and those steps are the chain's
+#      own second and third, but the placement is not load-bearing and the brief's stated
+#      reason for it does not hold.
+#   2. `windows=12` IS SCENE-INDEPENDENT. The describe echo prints
+#      `windows={Int(rows.Count)}` over the whole window TABLE
+#      (`ParsekTestCommandAddon.UiAction.cs:835`, rows built from
+#      `TestCommandUiAction.Windows` at `:796-821`), not over the scene-available subset,
+#      so the FLIGHT echo carries the same 12 GUI-13's SPACECENTER echo does. GUI-2 and
+#      GUI-6 pin `scene=FLIGHT ... windows=12` already, which is the precedent rather
+#      than this lane's reading.
+#
+# THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 / GUI-13 residue verbatim:
+# `LogisticsWindowUI`'s own `MinWindowWidth` is 1410 px against the profile's 1280x720
+# screen and `op=rect` clamps to that floor, so the picture is honestly CLIPPED at the
+# client edge (GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH). The Status and Delivery
+# columns are the rightmost data cells and are the ones this lane is about, so a reader
+# should expect to read them out of the DumpGuiTree rather than off the screenshot.
+#
+# Basic is NOT photographed, for GUI-13's measured reason: `LogisticsWindowUI` and its
+# presentation helpers contain zero `UiSurface` / `UiComplexityMode` references, the only
+# gate is the launcher, and GUI-3's basic and advanced dumps yield an identical text set.
+description = "GUI census: a HELD supply route photographed from BOTH Logistics sections, on RVR-8's chain plus a capture tail. RVR-8 is the one committed lane that delivers a cycle and then blocks one, so at the capture point the route carries a delivery history AND a live hold - which is what makes it the only host for the M6 per-cycle flow display (Recent cycles: and its lines), the H2 realized/cumulative pair (Last cycle: / Total delivered:), the Cyc column's / N skipped suffix, the H3 Delivering badge and the yellow Last cycle blocked: hold line all in one run. CAPTURE 1 (paused-hold): after RVR-8's two cycles plus an extra TimeJump to ut=3000 that AGES the hold, the row sits in the Paused section with the grey Paused label (completedCycles=1, so NOT the cyan New form) and the yellow Last cycle blocked: B is short 108.8 LiquidFuel line carrying a (checked N ago) suffix. The age suffix needs that extra jump and the jump is safe because a Paused route runs no crossings (ProcessLoopRoute early-returns on !GhostDriving at RouteOrchestrator.cs:694-701), so LastHoldUT is frozen while the clock advances - RecordHold writes LastHoldUT unconditionally (Route.cs:661), so on a still-crossing route the age would be re-zeroed every crossing. CAPTURE 2 (active-delivering): RVR-8's activate step, which clears the hold (RouteOrchestrator.cs:236), then a second extra TimeJump to ut=3600 so a post-activate crossing records a fresh hold with the row now in the ACTIVE section - the Pause button, the green Delivering badge, and MAY-ONLY the Held: B short 108.8 LiquidFuel status-cell override with its green-to-yellow tint flip (LogisticsWindowUI.cs:1174-1180), declared a MAY because the crossing is the loop clock's and this lane has never measured one from an activate. NO [expectations.routes] block: the ORIGINAL keeps that gating armed, and dropping it here is what frees the two extra TimeJumps to move cycle counts past RVR-8's floor. FILED AS UNREACHABLE BY APPENDING, each with its measured gate: the <dest> tanks full: capacity line (status-gated on RouteStatus.DestinationFull at LogisticsWindowUI.cs:1702 and :3192, which the loop path never assigns), Pausing after this cycle... (needs a Pause-while-InTransit arm), the partial-delivery report, Flying, not delivering, and all seven RouteStatus values beyond Active/Paused."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "logistics", "GUI-20", "pending-operator"]
+
+[fixture]
+# RVR-8's host verbatim, UNPATCHED - the one matrix fixture that needs no
+# `[[fixture.liveState]]` block, because the state it measures is reached by PLAYING the
+# fixture forward one cycle rather than by staging it. That is also what makes it the only
+# host with a delivery HISTORY at the capture point.
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- RVR-8's steps 0-4 verbatim. `activeVessel = 5` is focusable and no `scene=` arg is
+  # passed, so this boots FLIGHT (which is where the Logistics window is drawn from the
+  # flight-scene launcher; `logistics` is `InFlight = true` in the window table,
+  # `TestCommandUiAction.cs:535`).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+
+  # --- the host surface, placed after StopRecording / DiscardTree. `open window=main`
+  # FIRST is the real precondition: the settle for a non-`main` open / rect REFUSES while
+  # the host's `showUI` is false (`ERROR window-host-hidden`).
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+
+  # --- RVR-8's steps 5-10 verbatim: seal, create, send-once, cycle 0 (delivers),
+  # send-once, cycle 1 (blocks on gate 6 and consumes the arm into Paused).
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "2400" },                             expect = "OK", budget = 300 },
+
+  # --- EXTRA JUMP 1: age the hold. +600 s over a 162.74 s span; the route is Paused so no
+  # crossing runs and `LastHoldUT` stays at the cycle-1 crossing UT (see the header for the
+  # resulting 10.0m-to-12.7m band and why the band rather than a value).
+  { cmd = "TimeJump",     args = { ut = "3000" },                             expect = "OK", budget = 300 },
+
+  # --- CAPTURE 1: the PAUSED section, with the hold aged. `expand key=all` opens the route
+  # detail panel: the route's own `Id` IS the panel's `expandedRows` key
+  # (`LogisticsWindowUI.cs:1075` draws from `route.Id ?? "<no-id>"`, and
+  # `EnumerateRowKeysForTesting` at `:98-114` emits exactly that id), so the bulk form is
+  # the right one - the id is minted per run and no committed spec could name it.
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rvr8-logistics-paused-hold-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "rvr8-logistics-paused-hold-advanced" }, expect = "OK" },
+
+  # --- RVR-8's step 11: the player-resume path on a route holding a REAL reason. Clears
+  # the hold and moves the row from the Paused section to the Active one. The expand set is
+  # keyed by route id, which the activate does not change, so the detail panel stays open
+  # across the section move.
+  { cmd = "RouteCommand", args = { action = "activate",  route = "relay-c" },  expect = "OK", budget = 120 },
+
+  # --- EXTRA JUMP 2: produce the post-activate crossing. It can only BLOCK (B is still
+  # short by 108.8 and the arm is spent), and a blocked crossing leaves the route ACTIVE
+  # because `TryActivate` cleared `PauseAfterCurrentCycle` and the blocked branch
+  # transitions nothing.
+  { cmd = "TimeJump",     args = { ut = "3600" },                             expect = "OK", budget = 300 },
+
+  # --- CAPTURE 2: the ACTIVE section. The Pause button, the Delivering badge, and MAY-ONLY
+  # the `Held:` cell override.
+  { cmd = "CaptureScreenshot", args = { label = "rvr8-logistics-active-delivering-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree",       args = { label = "rvr8-logistics-active-delivering-advanced" }, expect = "OK" },
+
+  # RVR-8's `SaveGame` is DROPPED: this lane carries no `[expectations.routes]` block and
+  # no `[expectations.recordings.structure]` one, so nothing reads a produced save and the
+  # step would only be a clobber risk against a sibling run sharing the template.
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 ONLY, and the absence of D10 is the non-inflation rule rather than an omission:
+# RVR-8's own `[dimensionsCovered]` declares no D10 value either (its header records that
+# `hold-reasons` is `H38-logistics-isolated`'s and `dispatch-cadence` is H34's), and a
+# CENSUS must not claim a behavioural row its host lane declined. What this lane adds is
+# images of a surface that has none, which is not a registry cell.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RVR-8's exact window, inherited as a MEASURED number: both of RVR-7's flights read 10 and
+# saveParse agreed, so the load-time optimizer split does not happen on this corpus. It is
+# the anti-vacuity floor for the whole lane as much as an anti-data-loss one - the route
+# holds three `SOURCE` references into this corpus, so a destroyed sidecar would flip the
+# route to `SourceChanged`, `ShouldDisplayHold` would then SUPPRESS the hold text
+# (`LogisticsHoldPresentation.cs:143-145`), and both captures would photograph an empty
+# detail panel under labels claiming a held route.
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# RVR-8's NINETEEN required tokens are carried forward UNCHANGED. The chain edits are two
+# appended TimeJumps and a dropped `SaveGame`, and no token reads either: every one is a
+# boot / seal / create / cycle-0 / cycle-1 / resume line emitted at or before RVR-8's own
+# step 11. Nothing was dropped as invalidated. They are here as the PRECONDITION of the
+# captures: if cycle 0 did not deliver there is no flow display to photograph, and if
+# cycle 1 did not block there is no hold.
+#
+# THE SEAM RECORDS ARE THIS LANE'S OWN, in the GUI-13 style and DREW-ONLY. Nothing is
+# pinned about WHAT the window drew - the dump is the evidence a human or an agent reads.
+# The two describe echoes are the in-run mapping check and are EXACT claims (a third open
+# window would move `open=`); `scene=FLIGHT ... windows=12` follows GUI-2 / GUI-6, and
+# `windows=` counts the whole table rather than the scene-available subset (see the
+# header's correction 2).
+#
+# THE EXPAND LINE is the only seam token that is not bookkeeping: `changed=[1-9][0-9]*`
+# says at least one addressable row went from collapsed to expanded. On this host
+# `key=all` finds the three fixed section keys plus the one route id, and two of those
+# sections (Dormant, Dismissed) render nothing here, so a floor of 1 is not vacuous - a
+# zero would mean the window drew no route and both labels photograph an empty table.
+# `expanded=` / `total=` are left open because they count a set derived per run.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=unloaded",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=200 tankAfter=400 .* path=unloaded",
+  "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all-or-nothing FAIL first-short source pid=90564594 name=B short=LiquidFuel shortfall=108\\.79.* inventory=False sources=1",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} short-cause=physical pid=90564594 resource=LiquidFuel raw=45\\.[56][0-9]* netted=45\\.[56][0-9]* reservingRouteId=<none>",
+  "Route [0-9a-f]{8} hold recorded kind=OriginLacksCargo detail=source:90564594:B:LiquidFuel shortfall=108\\.79",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-1 cMin=[0-9]+ BLOCKED kind=OriginLacksCargo reason=source:90564594:B:LiquidFuel shortfall=108\\.79",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-1 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+  "TryActivate: route=[0-9a-f]{8} now Active",
+  "LifecycleMarker: route [0-9a-f]{8} type=RouteResumed reason=player-activate",
+  "routecommand complete action=activate route=.* name='relay-c' match=name statusBefore=Paused status=Active",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=all state=true changed=[1-9][0-9]* expanded=[1-9][0-9]* total=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rvr8-logistics-paused-hold-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rvr8-logistics-paused-hold-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rvr8-logistics-active-delivering-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rvr8-logistics-active-delivering-advanced .*patched=17/17",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # RVR-8's no-second-delivery claim, carried forward and now covering the post-activate
+  # crossing as well: A is full at 400 after cycle 0, so `tankBefore=400` is the only form
+  # a SECOND delivery could take, and this lane drives one more crossing than RVR-8 does.
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=400",
+]
+
+[runtime]
+# RVR-8's 3000 unchanged. The capture tail adds ~10 UI ops and two capture/dump pairs, and
+# those are single-phase or two-phase settles measured at seconds each (GUI-12 measured
+# seven captures plus seven dumps at 89 s wall), not another deferred verb. What DOES add
+# deferred budget is the two extra TimeJumps: `run.py` gives every deferred seam verb
+# `max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600)` = 660 s regardless of the declared
+# budget, so this lane has FIVE deferred steps (LoadGame + four TimeJumps) = 3300 s worst
+# case against RVR-8's three at 1980. The 3000 is kept anyway rather than raised, because
+# every RVR-8 flight came in at ~50 s wall and the worst case is a timeout bound nothing
+# has approached; a KILLED run here loses the images, which is the product.
+# 900 s, the figure every other census lane uses, and it is a REDUCTION from the 3000 /
+# 2400 this lane inherited from its RVR original. The original's budget is sized for a
+# behaviour lane that may retry a long chain; this clone's MEASURED wall is 57 s
+# (run `2026-09-21_2122`), and its longest single step is the mid-chain `TimeJump`, whose own
+# step budget is declared inline and unchanged. 900 s is therefore still 15x the
+# measurement and stays generous because the PRODUCT is the images and the trees, and a
+# KILLED run leaves neither.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

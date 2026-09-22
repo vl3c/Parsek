@@ -15,6 +15,536 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~NON-LOOP-LIVE-PID-GATE-ARMS-DRIFTED: the two arms of the non-loop live-PID grep gate forbade different GhostMapPresence symbols, and neither symbol existed~~ [FILED + FIXED 2026-09-22]
+
+**Finding.** `scripts/grep-audit-non-loop-live-pid.ps1` (the pwsh arm) and the managed
+fallback in `Source/Parsek.Tests/GrepAuditNonLoopLivePidTests.cs` (the arm the Linux CI
+runner uses, since it has no pwsh) disagreed on one alternative of the
+`GhostMapPresence.cs` pattern: the pwsh arm forbade `TryResolveActiveReFlyAbsoluteShadowPoint`,
+the managed arm `TryResolveActiveReFlyBodyFixedPrimaryPoint`. Only one arm runs per machine,
+so both passed. Neither name exists anywhere in `Source/Parsek`.
+
+**History (`git log -S`).** The resolver was added to `GhostMapPresence` in `a420f3c08`
+(2026-04-27): during an in-place Re-Fly it compared a Relative section's live anchor PID with
+the active Re-Fly target's PID and substituted the section's absolute-shadow frame. `9c2d78bcc`
+(2026-05-06, Phase D D.7) deleted it along with the rest of the map live-PID Relative
+fallback and created this gate to keep it deleted. `ed15897db` (2026-05-12) then renamed the
+whole `AbsoluteShadow*` API to `BodyFixedPrimary*` by sweep; the sweep rewrote the managed
+arm's tombstone to a name the resolver never carried and missed the `.ps1`. No successor
+resolver exists: map Relative playback goes through `RecordedRelativeAnchorPoseResolver`.
+Every other row of the two arms was already identical.
+
+**Fix.** Both arms now forbid `TryResolveActiveReFly\w*Point` in `GhostMapPresence.cs`, which
+covers the deleted resolver under its original name and under the current body-fixed-primary
+vocabulary. The managed rows moved to static tables, a new
+`NonLoopLivePidAudit_ManagedArmMatchesPwshArm` parses the `.ps1`'s `$checks` /
+`$requiredChecks` rows and reds on any Path / Pattern / Label difference, and
+`NonLoopLivePidAudit_ManagedArmPasses` runs the managed arm on every host rather than only
+where pwsh is missing. The clean review found a second divergence: the pwsh arm's
+`Select-String` matches case-insensitively while the managed arm's `Regex` did not, so CI
+(managed) would pass a forbidden read spelled in a different case that Windows (pwsh) reds;
+the managed scan now uses `RegexOptions.IgnoreCase`, as the ERS/ELS fallback already did, and
+a `Section.AnchorVesselId` insert reds both arms. Mutation-proven locally: a forbidden call inserted into
+`GhostMapPresence.cs` (under each of the two names) reds the pwsh arm, the pwsh-driven Fact
+and the managed Fact, while the origin/main `.ps1` passed the same insert; restoring the old
+pwsh alternative reds the sync test naming both rows.
+
+---
+
+## GUI-MOCK-P1-RESIDUE-2026-09-22: three product findings and three deferrals from the GUI state gallery's first phase [FILED 2026-09-22 with the P1 + P1b build, EXTENDED the same day after the clean review. SIX items. Items 1 to 3 are PRODUCT findings, each verified at its source site and pinned by a cell; items 4 to 6 are deferrals with a named owning phase. OPEN]
+
+**Where this came from.** Building the catalogue of synthetic GUI states
+(`docs/dev/design-gui-state-gallery.md`, P1) meant constructing each state's INPUTS and
+letting the real pure presentation helper render the cell - which is how a state that the
+product cannot actually produce shows up as a builder that cannot be written.
+
+**1. PRODUCT: the inline "Stand-in for X (aboard Y)" status form is unreachable for any real
+kerbal.** `KerbalsPresentation.FormatStatus` keeps the vessel name INLINE only while the
+composed text fits `StatusCellMaxChars` - 31 characters, being the 220 px "Status now"
+column at the 7 px advance `TooltipEchoBudgetTests` budgets by. The fixed scaffolding alone
+is 23 characters (`"Stand-in for "` 13 + `" (aboard "` 9 + `")"` 1), leaving 8 for the
+owner's name AND the vessel's TOGETHER, while the shortest stock kerbal name is
+`"Bob Kerman"` at 10. So the branch at `KerbalsPresentation.cs` (the `StandIn` arm of
+`FormatStatus`) can only fire for names no career contains, and every real stand-in-aboard
+row takes the hover-text path instead.
+Fix: either widen the column, shorten the composed form (e.g. `"aboard Y"` without the
+"Stand-in for X" prefix, which the row's own Name cell partly duplicates), or accept the
+hover-only form and delete the inline branch. NOT fixed in the P1 PR: it is a layout
+decision for the owner's iteration loop, which is the thing this whole feature exists to
+enable - so it belongs in the first round of that loop rather than in the phase that builds
+it. The boundary is pinned against the REAL formatter by
+`GuiMockCatalogueTests.TheInlineStandInVesselFormIsUnreachableForRealNames`, which fails the
+moment the form fits and tells the next author to ADD the inline catalogue state.
+
+**2. PRODUCT: the Structure List window's "Switch" event word is unreachable.**
+`MissionCompositionBuilder.BranchEventName` renders `BranchPointType.VesselSwitchContinuation`
+as `"Switch"`, and the structure-list builder's branch-point pass SKIPS that type by name
+("an observation boundary, not a physical event"). So the word exists in the vocabulary and
+no Log window can ever draw it. Found by building the catalogue against the real builders: a
+state claiming a "Switch" row could not be written. Pinned by
+`GuiMockStructureBuilderFidelityTests.NoSwitchContinuationRowCanBeDrawnSoNoStateClaimsOne`,
+which runs a tree carrying exactly that branch point and asserts the row is absent.
+Fix: either emit the row (a switch IS a thing that happened to the run, and the Missions tab
+already shows it) or drop the `VesselSwitchContinuation` arm from `BranchEventName` so the
+vocabulary stops claiming a word nothing renders. NOT fixed here: which way it goes is a
+product decision about whether an observation boundary belongs in a chronological log, and
+that is exactly the kind of question the owner's iteration loop exists to answer.
+
+**3. PRODUCT: `MissionStructureListBuilder`'s terminal row makes the Event column
+redundant on a one-leg run.** Its terminal pass writes `Label = "End"` always and puts the
+terminal word in STATUS - which is the right split when several legs end differently, and
+reads as a wasted column on a single-leg mission whose last two rows are `End | Splashed`
+under a Status column that was empty on every row above. Not a defect and not fixed: it is a
+layout judgement, and `structure.mission.terminal-*` now photographs it so the owner can
+make that call against a picture rather than against a description.
+
+**4. DEFERRED to P2: the mirror half of P1.** `fixture=mock`, the `MOCKED DATA` badge, the
+`mockedCaptureCount` index field and the pinned default dataset all live in
+`harness/tools/gui_mirror.py`, which had an open PR against it while P1 was built. The
+LOAD-BEARING half - the provenance that travels inside the artifact - shipped: every capture
+taken under a mock carries a `mock` block in its `.gui.json`, and
+`harness/tools/gui_tree_view.py` prints `MOCKED <stateId>` in its header strip. Until the
+mirror learns the block, a mocked capture files under its lane's `fixture.saveTemplate` and
+CAN pair with a real capture in Compare, which is the one lie that page must not tell - so
+P2 must land the mirror half before any gallery lane's output is shown to the owner.
+
+**5. DEFERRED to P2: `GUI-13` and `GUI-14` are taken.** The design named the two gallery
+lanes `GUI-13-gallery-mock` and `GUI-14-gallery-mock-flight`; both numbers were claimed by
+the 2026-09-21 census wave (`GUI-13-census-logistics-candidates`,
+`GUI-14-census-settings-and-facility`). P2 picks fresh ids and checks every OPEN PR branch
+for collisions, not just `origin/main`.
+
+**6. DEFERRED: no lane has flown `op=mock`, and the five in-game cells are unflown too.**
+The op is unflown by construction - P1 ships no lane, P2 owns the two gallery lanes, and
+provisioning is operator-gated. The in-game half now EXISTS (`GuiMock`, five SPACECENTER
+cells: the three windows' apply-draw-clear round trip, the `SaveGame` refusal, and the
+inert-with-no-scope property measured on a running game), and it is driven by NO committed
+spec on purpose - a new category no spec pins keeps every other spec's `BATCH_COMPLETE`
+tally honest, and claiming the row from an unrelated census lane would be a tally nobody
+measured. So the suppression-plus-draw path has a witness written but not yet taken. The
+first flight is the acceptance gate the design names for P1: `op=mock` green in-game for
+three windows. Until then every pin in `GuiMockApplyInGameTest.cs` is a prediction, and each
+failure message prints what it measured so that flight corrects a pin rather than guessing
+at one.
+
+---
+
+## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and one product finding [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). EIGHT items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan; 8 IS a product finding, verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
+
+**Read 5 and 6 before authoring any census lane.** Both are cases where every log contract
+PASSED over a picture that showed the wrong thing, which is the failure mode a census is
+least able to notice: a spec cannot assert what a PNG contains.
+
+**Where this came from.** PR #1734 shipped the automation-only seam operations that write
+the window state a player writes with a click (`op=state`, `op=sort`, `op=select`,
+`op=edit`, `op=run await=false`, the three Logistics raise rows, `RouteCommand
+action=link|unlink|set-cadence`). Four census lanes were authored against them. These are
+the states that STILL have no picture, each re-derived from the committed bytes or from
+the source rather than assumed.
+
+**1. NO HOST CARRIES AN ARCHIVED RECORDING OR AN ARCHIVED MISSION**
+(`GUI-CENSUS-NO-HOST-CARRIES-AN-ARCHIVED-RECORDING-OR-MISSION`).
+`RecordingTreeRecordCodec` writes the `hidden` key only when `Recording.Hidden` is true,
+and the token appears ZERO times across all 59 directories under
+`harness/fixtures/saves/` and in the operator's own `c1/persistent.sfs`;
+`Mission.Archived` serializes unconditionally and reads `False` in all 9 of its
+occurrences. So `op=state key=archived` and `key=archivedMissions` move the FILTER CONTROL
+(which the dump proves - `GuiTreeJson` records a toggle's own `value`) and can never move
+a ROW. Unreachable: the Timeline's per-row `[archived]` marker, the Recordings tab's
+archived rows re-appearing, and the Missions tab's list shrinking. NEEDS a fixture whose
+builder archives one recording and one mission, or a seam verb that sets
+`Recording.Hidden` / `Mission.Archived` - neither exists today, and the two filter ops
+deliberately drive the FILTER rather than the flag.
+
+**2. NO COMMITTED FIXTURE CARRIES A DORMANT ROUTE**
+(`GUI-CENSUS-NO-FIXTURE-CARRIES-A-DORMANT-ROUTE`). `TryResolveRaiseDormantRoute` reads
+`RouteStore.DormantRoutes`, a population DISJOINT from `CommittedRoutes`, so a host with
+routes can still answer `dialog-target-unavailable`. The two route-carrying fixtures
+(`interbody-route-recorded`, `depot-route-recorded`) carry no dormant entry at all, and
+GUI-25 declares `popup=deletedormantroute` as a REJECTED naming the reason rather than
+photographing nothing under a dialog label. That makes `Confirm: Delete Dormant Route` ONE
+OF TWO rows of `TestCommandUiDialogRaise`'s ten-row table with no host anywhere - NOT the
+only one, which an earlier draft of this entry claimed. The other is `popup=rewind`,
+unphotographable on the whole committed set for its own reason: its spawn site silently
+returns when `RecordingStore.GetRewindRecording` is null and `rewindSave` is empty in all
+27 occurrences across the 21 fixtures that carry the key (recorded in the wave-5 residue
+and in `design-gui-inventory.md`'s "what stays unreachable" paragraph). So EIGHT of the ten
+raisable rows have a host and two do not. NEEDS a fixture with a dormant route, which is a
+rewind-visibility state a builder would have to produce.
+
+**3. REAL SPAWN CONTROL'S FOUR SORT STATES HAVE NO OPENABLE HOST**
+(`GUI-CENSUS-SPAWN-CONTROL-SORT-HAS-NO-OPENABLE-HOST`). `op=sort` is one of the three ops
+that refuse a closed window (`TestCommandUiAction.OpRequiresWindowOpen`), and
+`SpawnControlUI.DrawIfOpen` FORCE-CLOSES itself on its first draw when
+`ResolveAutoCloseReason` finds zero nearby spawn candidates - which GUI-2 already measured
+and pins as `uiaction error reason=window-self-closed window=spawncontrol`. So the `craft`
+/ `dist` / `relspeed` / `spawntime` columns of `SpawnControlColumns` cannot be driven on
+any committed FLIGHT host. Same root cause as item 1 of
+GUI-STATE-COVERAGE-RESIDUE-2026-09-21 (which records that window's zero-candidate draw
+branch as dead) seen from the other side, and it NEEDS the same thing: a FLIGHT fixture
+with a spawnable committed recording close to the active vessel.
+
+**4. THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE**
+(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MEASURED by GUI-24's first
+flight (`2026-09-21_2252`) rather than derived. `op=expand window=career key=none` ran
+correctly and answered `state=false expanded=0 total=2`, and the two captures beside it
+showed NO FOLD: `CareerStateWindowUI` draws `Pending in timeline (N)` only in the `else`
+arm of `RowsEqual(tab.CurrentRows, tab.ProjectedRows)` (`:1478`), i.e. only when the
+recorded future DIVERGES from now. The operator's own 110-recording career reads
+`Mission Control L1 - slots 0/2 now, 0/2 at timeline end` and
+`Administration L1 - slots 0/1 now, 0/1 at timeline end`, so the same-as-projected arm
+draws and there is no fold to collapse. The two steps were REMOVED from GUI-24 rather
+than relabelled - GUI-1 already photographs both tabs resting on this host. NEEDS a host
+whose ledger carries a pending contract accept or a pending strategy activation in the
+FUTURE; `career-contract-pad` (GUI-15's host) carries two accepts but GUI-15's reading
+records them as CURRENT, so it is a candidate to re-measure rather than a known answer.
+
+**5. GROUPED DISPLAY BLOCKS ARE NOT EXPANDABLE THROUGH THE SEAM, so a recording inside
+one cannot be edited or photographed**
+(`GUI-CENSUS-GROUPED-DISPLAY-BLOCKS-ARE-NOT-EXPANDABLE-THROUGH-THE-SEAM`). MEASURED by
+GUI-25's first flight (`2026-09-21_2254`, INVALID at the recording-rename step with
+`edit-not-drawn`). The Recordings tab draws TWO kinds of collapsible block and the seam's
+`op=expand` enumerates only one: `DrawChainBlock` keys its block by `Recording.ChainId`,
+which `RecordingsTableUI.EnumerateChainIdsForTesting` walks, while
+`DrawGroupedRecordingBlock` keys its block `"<groupName>::<identity>"` (`:5713`, built in
+`:5741-5754`), a shape no expand set produces. So `key=all` answered
+`changed=29 expanded=52 total=52` - every key it knows - and the multi-member
+`Kerbal X (2)` block still drew its collapsed caret, leaving both of its member
+recordings undrawable. Consequences beyond this lane: `op=edit field=recordingname` and
+any capture of a grouped block's MEMBER ROWS are unreachable on any host that groups two
+same-identity recordings under one group. The lane's remedy is to key the edit to a
+SINGLE-member block (which draws as a plain row); the instrument remedy is a `block:`
+expand prefix over `EnumerateDisplayBlockKeys`, which does not exist. NEEDS that prefix,
+or an enumeration of the grouped keys folded into `chain:`.
+
+**6. AN IMGUI WINDOW OVER THE SCREEN CENTRE HIDES A RAISED `PopupDialog` IN THE CAPTURE**
+(`GUI-CENSUS-AN-IMGUI-WINDOW-HIDES-A-RAISED-POPUPDIALOG-IN-THE-CAPTURE`). MEASURED TWICE,
+by GUI-25's `2026-09-21_2258` and GUI-26's `2026-09-21_2300` - both PASS on every log
+contract, with `uiaction dialog open=true count=1 name=ParsekLogisticsDeleteRouteConfirm`
+/ `...CreateRouteConfirm` and a `dismiss ok` afterwards proving the modal stood through
+the capture, and both PNGs showing the full-width Logistics window with NO DIALOG in it. A
+`PopupDialog` is uGUI on `UIMasterController`'s dialog canvas; KSP's legacy IMGUI
+(`OnGUI`) renders after it, so any Parsek window covering the screen centre paints over
+the modal. GUI-10 never hit this because only the 250 px `main` window was open beside its
+six dialogs. THE SEAM CANNOT SEE IT: `op=dialog` reports the modal's own open flag, which
+is true either way, so the log contract passes over a false picture - the PNG is the only
+check. The lane remedy, taken in both specs, is `op=close` on the covering window before
+the raise. NEEDS, if it is ever to be automatic: an `op=raise` post-settle that refuses
+when a non-`main` window's rect covers the dialog's own rect, which nothing computes
+today.
+
+**7. `" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`**
+(`GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT`). A CORRECTION to the
+wave-6 lane plan, which asked for the suffix by driving ONE of a vessel's own interval
+keys with `include=false`. The op cannot express that: `TryParseSelectKey` yields a
+`vessel:<value>` pair, the applier RESOLVES A ROW from it (`FindVesselRow` matches
+`OwnerHeadId` first, then ANY ONE of that row's interval keys, and returns the ROW either
+way), and `ApplyVesselSelection` then calls `MissionVesselRowBuilder.ApplyVesselInclusion`
+over ALL of that row's own keys. `ClassifyInclusion` therefore answers `All` or `None` and
+never `Partial`, and the op's own settle check compares against exactly those two. The
+mixed picture the census CAN take is one vessel excluded among included siblings, which
+GUI-27 does. NEEDS a per-interval-key affordance in the op (a `key=interval:<key>` prefix)
+if the suffix is ever judged worth a capture; nothing in the product is wrong.
+
+**8. A ROUTE NAME'S `->` ARROW RENDERS AS A MISSING-GLYPH BOX IN EVERY uGUI CONFIRM
+(PRODUCT).** The one PRODUCT finding in this entry - items 1 to 7 are gaps. Seen in
+GUI-25's `ib-dlg-deleteroute.png` (run `2026-09-21_2316`): the Delete Route confirm reads
+`Delete route 'Route: KSC [box] Mun'?` where the route name's arrow should be.
+`RouteCreationFormatters.cs:487` builds the name as `"Route: " + origin + " → " +
+endpoint`, and that is NOT the bug - the IMGUI Logistics window in the SAME frame renders
+it correctly, which the dump beside the PNG proves three times over (`Route: KSC →
+Mun`, the caret row, and the `Round-trip linked to '...'` note all carry U+2192). The
+difference is the RENDERER: `LogisticsWindowUI.cs:2874` interpolates the same string into a
+`PopupDialog` body, and the TextMeshPro font KSP's dialog canvas uses has no glyph for
+U+2192, so TMP substitutes its missing-glyph box. Every uGUI surface that interpolates a
+route name is affected - the two route confirms - while every IMGUI surface is fine. The
+Create Supply Route confirm is NOT affected: it builds its body from `Origin:` /
+`Endpoint:` lines and never embeds the composed name. NEEDS a decision rather than an
+obvious fix: either ASCII-ise the arrow in the composed name (which changes the IMGUI
+surfaces too, where it currently looks right), or substitute at the two dialog-body sites
+only. Not fixed here - this PR adds no C#.
+
+## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
+
+**Where this came from.** A read-only audit enumerated every visibly distinct draw branch
+of the 14 IMGUI windows from the source and checked each against the `.gui.json` control-
+tree dumps the census had already written (node `text`, `enabled`, `value`, `tooltip`,
+`rect`). Eleven new census lanes landed off it. These are the leftovers.
+
+**1. `SpawnControlUI`'s zero-candidate draw branch is UNREACHABLE.** `DrawIfOpen` reads
+`flight.NearbySpawnCandidates.Count` into `ResolveAutoCloseReason`, which returns
+`"zero-candidates"` for `candidateCount <= 0`; the caller then logs, sets
+`showSpawnControlWindow = false`, releases the input lock and RETURNS
+(`Source/Parsek/UI/SpawnControlUI.cs:142-153`). The branch at `:243-250` that draws
+`No nearby craft to spawn.` plus a `Close` button reads the SAME list a few lines later and
+can therefore never execute: the window vanishes instead of showing its empty message. The
+evidence that this is not theoretical is a capture: the un-indexed census label
+`flight-spawncontrol-advanced` contains no Spawn Control window at all (roots: kRPC,
+Parsek, MechJeb), and GUI-2 now asserts the self-close as `ERROR window-self-closed`.
+**Fix:** delete the dead branch, or move the auto-close behind a "was open and had rows"
+check if the empty message is wanted. No behaviour change either way - nobody has ever
+seen that label.
+
+**2. The Gloops launcher is RETIRED in both complexity modes, so no player can open that
+window.** `UiSurfaceVisibility.IsRetired` returns true for exactly one surface,
+`UiSurface.MainButtonGloops` (`Source/Parsek/UI/UiComplexityMode.cs:141-143`), and retired
+surfaces are hidden in BOTH modes. The window is still drawn, still has three states, and
+`GUI-16-census-gloops-states` now photographs them - but it reaches the window by writing
+its own `IsOpen` through the seam, which no player can do. Every Gloops state is therefore
+DIAGNOSTIC in practice, and a reviewer judging the player-facing UI should read the whole
+window as out of scope. **Fix:** either un-retire the surface (one line) or record the
+window as automation-only in the GUI inventory. Not a defect; a standing decision that had
+never been written down beside the states it affects.
+
+**3. No fixture carries a depot-ORIGIN supply route,** so the Structure window's
+`Origin: depot` step form is unreachable from every committed host. All three committed
+routes in the fixture set read `isKscOrigin = True` (one in `depot-route-recorded`, two in
+`interbody-route-recorded`); `depot-route-recorded` is named for its flight shape, not for
+its route's origin. **Fix:** harvest or construct a fixture whose route origin is a
+player-typed depot, which also needs
+`ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT` resolved first.
+
+**4. The Logistics capacity line `<dest> tanks full: ...` is unreachable from a
+loop-dispatch chain,** including in the destination-full lane. Both the compute site and
+the draw site gate on `route.Status == RouteStatus.DestinationFull`
+(`Source/Parsek/UI/LogisticsWindowUI.cs:1702` and `:3192`), not on `LastHoldKind` - and the
+loop path never transitions to that status: a blocked cycle calls `route.RecordHold(...)`
+and the only transition it makes is
+`TransitionTo(RouteStatus.Paused, BlockedThenPausedReason)`. So `RVR-13`'s clone holds
+`LastHoldKind=DestinationFull` with `Status=Paused` and `leg.CapacityContext` stays null.
+Same reasoning retires six more RouteStatus values (`InTransit`,
+`WaitingForResources`, `WaitingForFunds`, `EndpointLost`, `MissingSourceRecording`,
+`SourceChanged`) from census reach. **Fix (if the line is wanted):** either drive the
+legacy wait-state path that assigns those statuses, or re-gate the capacity line on
+`LastHoldKind`. The second is a product question, not an instrument one.
+
+**5. `strategy-career` cannot photograph populated Strategies rows.** It is `fresh-career`
+plus one reputation seed: its stock `STRATEGIES` node is empty and it carries no Parsek
+footprint, while `CareerStateWindowUI`'s Strategies tab reads Parsek's own effective ledger
+(`EffectiveState.ComputeELS()`). With no ledger row it draws `(no active strategies)`,
+which three existing captures already show. The only driver that activates a strategy is
+the in-game `StrategyLifecycle` category, and an in-game batch captures and RESTORES a
+`persistent.sfs` baseline around itself, so nothing it activates survives to be
+photographed. **Fix:** a fixture with a strategy-activation ledger row, built by
+construction the way `career-contract-pad` was.
+
+**6. The Career State window's DIVERGENCE banner and its two `Pending in timeline` folds
+have no HOST.** The banner's `(timeline ends at UT N)` form and the split
+`Active now (N)` + `Pending in timeline (K)` layout need committed actions in the FUTURE of
+the live clock, i.e. a rewind. **The SEAM half is no longer missing:** this item was filed
+saying `career` had no `op=expand` route, and the wave-6 seam additions that landed the
+same day added exactly that (`career: ("pending",)`, with the wire values `pending:
+contracts` / `pending:strategies`). But both folds only DRAW under the divergence layout,
+so on any ordinary career the op answers OK over a fold nothing is drawing. **Fix:** a
+rewound career fixture; nothing else is owed. See `GUI-SEAM-WAVE6-RESIDUE-2026-09-21`,
+which records the same reading from the seam side.
+
+**7. There is no `GloopsPreview` verb,** so the Gloops recorder's `Previewing` state (the
+Preview button's label becomes `Stop Preview`) cannot be photographed. The seam's Gloops
+pair is exactly `GloopsStart` / `GloopsStop`, and the playback-side `StopPlayback` is
+deliberately RESERVED. **Fix:** an automation-only preview start/stop pair, if the state is
+judged worth it - see item 2 on why the whole window is diagnostic.
+
+**8. A MULTI-ROW Real Spawn Control capture needs a MEASURED UT first.** The one existing
+capture read ONE candidate at UT 55 on `gloops-airshow`, and no UT at which several ghosts
+pass inside `NearbySpawnRadius` is derivable from the fixture or from any collected log. A
+warp that lands on zero candidates makes the window self-close (item 1), which turns
+`op=open window=spawncontrol` into an ERROR and reds the lane, so guessing a UT is a
+fishing expedition dressed as a step. **Fix:** log or compute the pass geometry over that
+corpus once, then pin the UT. Until then the window's comparison-table shape - which is its
+whole point - has no picture.
+
+**9. A LIVE rewind, an armed `R`, and a merge journal have no census host - and in the
+FLIGHT scene the `rewindff` and `refly` tabs draw NOTHING AT ALL.** Two readings, and the
+second is new from the 2026-09-21 flights. (i) At the Space Center, every `rewindff`
+capture shows `R` buttons ENABLED with resolved targets - rewind-AVAILABLE, never
+rewind-ARMED. (ii) In FLIGHT, measured on BOTH hosts this wave flew, those two tabs drew
+their EMPTY forms: 83 nodes on `gloops-airshow` (GUI-6 `2026-09-21_2110`) and 81 on
+`refly-a-recorded` (GUI-19 `_2103`), in each case the filter bar, the `(now)` divider and
+the warp field row, with no `R`, no `W` and no `Fly` / `Seal` pair. Two hosts at opposite
+densities reading the same way makes it the SCENE rather than either corpus. `details` is
+populated on both, so the window is not simply blank in flight. **Fix:** a census lane on
+a fixture carrying a usable RewindPoint (`bdock-recorded` and `refly-autopilot-recorded`
+both do) - which is a larger lane than this wave's shape, because the rewind mutates the
+host - and the populated FLIGHT forms of both tabs are owed by the same lane.
+
+**10. GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-DUPLICATE-CREDIT-NOT-SUPERSEDE-OR-TOMBSTONE.**
+The audit called the Timeline's grey row "the only visual trace of a supersede", and
+`GUI-19`'s first flight (`2026-09-21_2059`) refuted it. THIS ENTRY WAS THEN WRONG A SECOND
+TIME and is corrected here, because the first correction guessed at the replacement
+instead of deriving it.
+
+*What is true.* `TimelineWindowUI` picks `timelineStrikethroughStyle` on
+`!entry.IsEffective`. `TimelineEntry.IsEffective` is written in exactly two places
+(`Source/Parsek/Timeline/TimelineBuilder.cs`): seeded from `action.Effective` on a
+game-action entry, and merged with `|=` when milestone rows compact. Nothing derives it
+from a recording supersede, so **a supersede produces no Timeline pixel at all** - its
+consequence is row ABSENCE, because the effective-set walk drops the recording before the
+window draws.
+
+*What this entry first claimed, and why that is also wrong.* It said a struck row means a
+TOMBSTONED ledger action, "what CL-3 / CL-4's crew-death rewinds produce". The Timeline is
+fed `EffectiveState.ComputeELS()` (`Source/Parsek/UI/TimelineWindowUI.cs:477-483`), which
+filters tombstoned actions BEFORE the builder sees them - so a tombstone is also row
+absence. The only writers of `Effective = false` in the whole program are
+`Source/Parsek/GameActions/ContractsModule.cs:399/408/417/428` (a contract completion that
+is a duplicate, past an already-resolved deadline, already explicitly resolved, or
+resolved at the same tick) and `Source/Parsek/GameActions/MilestonesModule.cs:108` (a
+duplicate milestone), all reset to true on every recalc at
+`Source/Parsek/GameActions/RecalculationEngine.cs:519`.
+
+*So the state needs a DUPLICATE-CREDIT host* - a save whose ledger carries a duplicate
+contract completion or a duplicate milestone - and no committed fixture is one.
+
+*And it is not a strike.* `timelineStrikethroughStyle` differs from the label style only
+by `normal.textColor = Color.gray` (`Source/Parsek/UI/TimelineWindowUI.cs:395-396`); there
+is no strike glyph anywhere. Even on a host that produced one, the state would be a COLOUR
+and therefore a PNG verdict - a `parsek-gui-tree/1` node carries no colour field, so no
+dump could ever gate it. **Not a defect**; the window does what the code says. Filed
+because the original claim was load-bearing for a whole lane, and because the name
+`timelineStrikethroughStyle` is itself misleading about what it draws.
+
+**11. The near-miss subsection buys TWO reject strings on the operator's career, not
+twelve.** `GUI-1`'s 2026-09-21 re-fly expanded it for the first time anywhere. Counted off
+the dump: SEVENTEEN of the eighteen rows read `Recording has no route proof - log the dock
+event to enable a Supply Route.` and ONE reads `not fully sealed (1 recording still
+re-flyable)`. TEN of the twelve `LogisticsRejectPresentation.DescribeNearMiss` /
+`RouteCreationFormatters` reasons are still dark. **Fix:** a host chosen for the REASON
+rather than for density - the operator's career is one long-lived campaign, so its
+ineligible trees nearly all fail the same way.
+
+**12. The EDITABLE Loop ON period form has no host.** `GUI-17`, `GUI-18` and `GUI-19`
+between them photographed THREE LOCKED renderings of the Missions tab's period cell -
+window-locked (`~13d-19d (Mun window, varies)`), re-aim (`~2.1y (Duna transfer)`) and
+rotation-locked (`~6h (Kerbin rot)`, tooltipped `Period locked to the launch / transfer
+window - set by physics, not editable.`). The EDITABLE cell - a `TextField` plus a live
+unit button - draws only when the locked branch is NOT taken, and that branch is
+`enabled && (periodicity.IsPhaseLockedConstrained || periodicity.IsReaim)`
+(`Source/Parsek/UI/MissionsWindowUI.cs`, the period-cell block). Every committed recorded
+fixture is a launch from a rotating body toward a body with a window, so every one of them
+locks. **Fix:** a fixture whose mission periodicity is unconstrained or unsupported, or an
+automation-only way to force the branch. Until then the form a player edits by hand is the
+one form of that cell with no picture.
+
+**13. Roughly sixty hover and disabled-reason strings remain unreachable,** which is the
+one item on this list that is MEASURED rather than merely unattempted. Filed separately and
+unchanged as `GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT`: `focus=true nudge=true`
+is already refuted (a real `WM_MOUSEMOVE` was delivered after an `AttachThreadInput`
+foreground steal and `GUI.tooltip` was still empty). This wave routed around it everywhere
+it could by reading `enabled` from the dump instead - which is how the two greyed Wipe
+buttons and the greyed Basic radio are claimed without hover - but a REASON STRING has no
+such substitute.
+
+---
+
+**PRODUCT FINDINGS THE FLIGHTS TURNED UP (14 to 18).** Each was verified at its source site
+before being written down, and none is fixed in the wave-5 PR - a census PR that started
+editing the windows it photographs would be photographing its own edits.
+
+**14. `Status: Paused - Paused - not auto-dispatching` doubles the word,** in all four
+Logistics hold captures. One site:
+`DetailLine($"Status: {route.Status} - {StatusReason(route.Status)}")`
+(`Source/Parsek/UI/LogisticsWindowUI.cs:1669`), where `StatusReason(RouteStatus.Paused)`
+already returns `"Paused - not auto-dispatching"` (`:3894`). The other eight statuses
+return a bare phrase, so only `Paused` doubles - which is also the status every census
+capture lands on. **Fix:** either drop the `{route.Status} - ` prefix (the reason strings
+already name their status where it matters) or make `StatusReason` return reason-only text
+for every member. Cosmetic, one line, but it is on the most-photographed row in the window.
+STILL OPEN after the 2026-09-22 clause-constant extraction, deliberately: `StatusReason` is
+the per-STATUS sentence family, not the hold or reject vocabulary, so neither site was in
+that refactor's scope and the doubled text is byte-for-byte what it was. The fix is an
+owner decision about wording, not a mechanical move.
+
+**15. The Gloops recorder's idle state shows a raw localization key,**
+`Vessel: #autoLOC_501232`, where the saved state two steps later reads
+`Saved: "Kerbal X"`. Measured on `GUI-16` (`2026-09-21_2050`). The idle branch reads
+`FlightGlobals.ActiveVessel.vesselName` directly
+(`Source/Parsek/UI/GloopsRecorderUI.cs:340-343`); stock stores an unlocalized key in
+`vesselName` for a vessel whose name has never been edited, and nothing here runs it
+through `Localizer`. **Fix:** route that one label through the same resolution the commit
+path already uses - the take it produced carried the human name, so the resolution exists.
+
+**16. `Delivers per cycle: (nothing)` sits directly above a route that has delivered.**
+On `GUI-20`'s Paused capture the detail panel reads `Delivers per cycle: (nothing)` while
+three lines below it `Last cycle: delivered 200.0 LiquidFuel` and `Total delivered: 200.0
+LiquidFuel`. The first is `FormatRouteDelivery(route)`
+(`Source/Parsek/UI/LogisticsWindowUI.cs:1667-1668`), which describes the route's CONFIGURED
+manifest; on this relay the cargo is discovered per cycle rather than configured, so the
+configured manifest is legitimately empty. **The strings are each true and the pair is
+not:** a player reads "delivers nothing" and "delivered 200" in one glance. **Fix:** word
+the configured-manifest line so it says it is a configuration (or suppress it when a
+delivery history exists).
+
+**17. The Mun host's Loop ON period cell and its summary clause disagree.** `GUI-17`
+(`2026-09-21_2053`) reads period `~13d-19d (Mun window, varies)` beside the summary
+`Loops ~57d 5h`. Both are documented as describing different things - the cell is the
+relaunch cadence range, the basis names the dominant celestial event, and
+`BuildScheduledPeriodCellDisplay`'s own comment says so - but `~57d 5h` is neither end of
+`13d-19d`, so nothing on the row explains the third number. **Fix:** name what `Loops ~P`
+is measuring, or show the same quantity in both places. Recorded as a legibility finding
+rather than an arithmetic one: no number here has been shown to be wrong.
+
+**18. The main window's root rect reports `height = 0` in every dump,** across all 20
+runs. This is WINDOW-side and by design, not a recorder defect: both hosts zero the height
+every frame before the layout pass so the window is content-sized
+(`Source/Parsek/ParsekFlight.cs:2120` and `Source/Parsek/ParsekKSC.cs:247`), and the
+recorder faithfully records the rect the window declared. It is written down only because
+a reader of the dumps will otherwise take it for a capture fault - and because it is why
+`op=rect` exempts the main window from its size read-back
+(`TestCommandUiAction.RectAppliedWithinTolerance`'s `sizeIsHostControlled`). **No fix
+wanted.**
+
+**19. A Logistics hold can quote a generic noun as if it were a route name:**
+`Depot B has LiquidFuel reserved by route 'another route'`, and its compact Status-cell
+form `LiquidFuel reserved by 'another route'`. The escrow-hold token is
+`source-reserved:<pid>:<name>:<resource>:<reservingRouteName>`, and when the reserving
+route's name slot is empty the parse substitutes the fallback noun `another route`
+(`Source/Parsek/UI/LogisticsHoldPresentation.cs`, `DescribeReservedPickupSource` and
+`CompactOriginLacksCargo`) into a clause that wraps its argument in quotes
+(`LogisticsHoldClauses.NamedSourceResourceReserved`,
+`CompactResourceReservedByNamedRoute`). The quotes are what makes it read wrong: every
+other route name in the window is a real name in quotes, so this one reads as a route
+actually called "another route". Found while extracting the clause constants, and pinned
+as-is by `LogisticsReasonClauseCharacterizationTests` (case
+`ReservedPickupSourceResourceUnnamedRoute`) so a fix has to be deliberate. **Fix:** give
+the unnamed case its own unquoted clause ("... reserved by another route"), the way the
+four-field parse failure already does. Cosmetic, and it needs a reserving route whose name
+never resolved, which is rare.
+
+**20. Two hold clauses print a raw internal token to the player,** by design and with the
+reason written down: `origin vessel could not be found - it may have moved, been
+recovered, or been destroyed (origin-unresolved:7)` and the same shape for
+`pickup-source-unresolved:*`. The comment at the site says the raw token is kept "so the
+log-grep handle survives into the UI text". That is a real debugging benefit, and it is
+also the one place the legible-token work left an internal code on screen - every other
+arm was rewritten precisely to remove them. Recorded, not fixed: it is a deliberate
+trade the owner may want to keep. **Fix (if wanted):** drop the parenthesised token from
+the UI clause and keep it in the Warn that records the hold.
+
+**NOT A FINDING, checked and cleared:** the Warn
+`SaveActiveTreeIfAny: skipped active tree '<name>' because at least one recording could
+not be written with current v0 sidecars; outcome=both-or-neither` appears once each on
+`GUI-17` and `GUI-18` and on no other census lane. It is PRE-EXISTING rather than
+census-introduced: `V6M-mun-player-loop`'s own run `2026-09-10_1901` emits the same line
+once over the same fixture and the same `MissionConfig` step. It is also the designed
+both-or-neither guard working (the entry that introduced it is struck as FIXED further
+down this file), it is a WARN rather than an error, and `logValidate` passed on both runs.
+
+**SIBLING ENTRY.** `GUI-STATE-GALLERY-2026-09-21` below is the DESIGN for the states
+no flight can reach; this entry is the residue of the states a flight CAN reach, after
+the eleven-lane wave (GUI-13..GUI-23) flew green on 2026-09-21. The two landed the same
+day off the same read-only audit and do not overlap: anything here is reachable and
+filed for a reason, and anything there needs the mock surface that design proposes.
+
+
+**SIBLING ENTRIES.** Two more entries below came out of the same read-only audit on the
+same day and do not overlap with this one. `GUI-SEAM-WAVE6-RESIDUE-2026-09-21` is what
+is still unreachable AFTER the wave-6 seam additions; several items here name a missing
+op that wave shipped, so read that entry before acting on one of those. And
+`GUI-STATE-GALLERY-2026-09-21` is the DESIGN for the states no flight can reach at all.
+This entry is the residue of the states a flight CAN reach, plus what the eleven-lane
+wave (GUI-13..GUI-23) measured while reaching them.
+
 ## GUI-SEAM-WAVE6-RESIDUE-2026-09-21: six of the nine in-place text editors, every hover string, and the Gloops window are still unreachable by the census [FILED 2026-09-21 with the wave-6 seam additions. OPEN; each needs a mechanism the wave deliberately did not build]
 
 **What landed.** `UiAction op=state` / `op=sort` / `op=select` / `op=edit`, three new
@@ -83,8 +613,68 @@ photographing them needs a rewound career first.
 ---
 ## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]
 
+**PART LANDED 2026-09-22 (the MIRROR half of phase P2, owner rulings 1, 5 and
+7).** Three things the loop needed, all in `harness/tools/gui_mirror.py`, all
+generated from the artifacts:
+
+1. **Mocked captures are read, badged and isolated.** The dump's additive `mock`
+   block (`stateId` / `window` / `catalogue` / `states` / `covers`, absent means
+   real) files a capture under the dataset `mock` with its facets taken from the
+   catalogue state id, badges it `MOCKED DATA` in the rail, the stage header, the
+   status line and both sides of a Compare pair, and counts it separately in
+   `gui-mirror-index.json`. Because `fixture` is part of the pair key, a mocked
+   BEFORE can only pair with a mocked AFTER - structural, not a filter. The
+   default dataset stopped being derived in the page and is PINNED by the
+   generator over the REAL fixtures only, so a ~300-state gallery cannot become
+   the page the owner opens. NOTHING mocked has been captured yet: the
+   `GalleryRun` verb and the two lanes are still P2's own remainder, and the
+   mirror's cells drive synthetic dumps.
+2. **The owner's verdicts come back as a schema.** A one-line note plus a
+   `keep` / `change` / `unsure` verdict on every state view and every Compare
+   pair, keyed on `(run pair, window, tab, state, mode, fixture)`, held in
+   `localStorage` with every access guarded and a refused write said out loud;
+   exported as a `parsek-gui-mirror-notes/1` JSON blob AND a markdown table with a
+   copy button and a visible select-all fallback, and merged back through a
+   textarea. No server and no download link, because a viewer sandbox blocks one.
+   `#win=<token>[&view=compare]` opens the page scoped to ONE window, which is the
+   unit a round covers, and each window's Compare section opens with its own
+   counts (states real / mocked, changed / unchanged / new / gone, superseded, and
+   its known-uncaptured list).
+3. **False coverage retires mechanically** (ruling 7), with no label named
+   anywhere: a capture is SUPERSEDED when a later run photographed the same key -
+   which retires all four stale labels by construction, 132 of the corpus's 314
+   captures - coverage counts DISTINCT KEYS (182, not 314), a hover capture whose
+   pointer op reported `tooltip=-` or whose frame is byte-identical to a sibling of
+   the same run flags `hover not captured` (8 captures, all four hover labels), and
+   a label whose window or tab the seam log contradicts flags
+   `label disagrees with the log` (12 captures). Contract:
+   `docs/dev/design-gui-mirror.md` 14-17.
+
+**Still open on this entry after that.** The gallery itself: the catalogue, the
+`op=mock` seam, `GalleryRun`, the two lanes and the harvest cap. Plus three
+mirror-side remainders: `bdk-kerbals-roster-standin-chain-advanced` is the one
+real state no indexed shots directory holds (a `--shots` argument on the next
+regeneration, not a code change); a CONTENT mislabel is outside what a seam log
+can witness, so `fs-timeline-overview-empty-advanced` (not the empty branch) and
+`b1-missions-recordings-live-advanced` (an empty tab) stay unflagged and judging
+them would mean typing `empty` into the generator; and two hover labels
+(`cek-main-tooltip-career-advanced`, `ib-main-tooltip-logistics-advanced`) are
+flagged only through the identical-sibling arm, because their lanes predate the
+`tooltip=` key and a re-flight would give the log the stronger statement.
+
+**PART LANDED 2026-09-22 (owner ruling question 3): the reason constants.** Every
+Logistics hold and reject clause is now a named `internal const string` format -
+`LogisticsHoldClauses` (**64**: 29 long-form, 29 compact Status-cell, 6 frames) and
+`LogisticsRejectClauses` (**12**), enumerable through `LogisticsClauseCatalog.All` - so
+the completeness guard of design section 11.2 can walk the vocabulary mechanically instead
+of scraping literals that an interpolated clause defeats. No behavior change, proved by a
+characterization suite written against the unrefactored code and left untouched across the
+extraction. The "17 hold clauses" below was an estimate over long-form reason FAMILIES; it
+missed the compact Status-cell vocabulary and the frames. The reject count was exact.
+Details and the corrected table: design section 11.3.
+
 **What is true.** The census photographs healthy resting states because that is what a
-fixture save plus an op sequence can reach. The gap is the product's failure surface: 17
+fixture save plus an op sequence can reach. The gap is the product's failure surface: 64
 Logistics hold clauses and 12 reject reasons with ZERO captures, 6 of 9 route statuses, the
 Career divergence banner (the window's whole point), `Lost` and `Retired` kerbals in the
 current design, Timeline supersede / rewind-armed / live Re-Fly, the Test Runner running
@@ -16201,6 +16791,73 @@ spec injects the preset on a modded install]**; only after that
 is a gate worth discussing. Extraction/diff tooling landed with R14
 (`hlib.parse_fx_fingerprint_lines` / `diff_fx_fingerprints` /
 `format_fx_fingerprint_diff` + `harness/tools/fx_fingerprint_diff.py`).
+
+### T42b. GUI mirror: what the fidelity instrument measured and did NOT fix
+
+`harness/tools/gui_mirror_fidelity.py` (design: `docs/dev/design-gui-mirror.md` section 11)
+photographs the generated mirror page in a headless browser and compares it against the
+census PNG inside the Parsek window rects. The classes it found were fixed in the same PR;
+these are the ones left, each with the number that says how big it is. None of them is a
+defect in the product - they are all differences between the page and the game.
+
+1. **A label that WRAPS in the game is drawn on one line.** KSP's label styles word-wrap and
+   the page sets `white-space:pre`, so the Logistics route cell that reads `> Route: KSC` /
+   `-> Duna` over two lines in the frame is one line on the page. It shows as a `dy` of
+   about 10 px on those rows and nothing else. Fix: wrap where the dump's own rect is more
+   than one line tall, which IS derivable (the rect height over the line height) - but it
+   moves every multi-line cell on the page, so it wants its own pass with the instrument
+   re-run beside it rather than a guess bolted onto this one.
+2. **KSP's own font metrics are not Arial's.** The size was calibrated against measured ink
+   (13 px Arial renders three corpus runs at 136.6 / 144.5 / 86.8 px against a measured
+   136 / 144 / 87) and the corpus width ratio sits at 1.000 at the median, but the tails are
+   real: a long single line still ends a character or two early or late. A real fix means
+   shipping KSP's font metrics, which is a bigger thing than this page.
+3. **A toggle's tick is a CSS checkmark, not KSP's skin texture.** Right state, right box,
+   drawn shape. The texture is in no census artifact, so there is nothing to derive it
+   from; this is as close as the page gets without shipping the game's atlas.
+4. **A control hidden behind another Parsek window is still measured.** The dump records
+   every window's controls, including the ones another window covers, and neither the page
+   nor the game publishes its stacking order. Of the 222 measured captures, 170 carry more
+   than one Parsek window and 61 have two whose rects actually OVERLAP; 46 of the 115
+   remaining frame-only controls (40%) and 32 of the 63 remaining clipped runs (51%) sit
+   fully inside two window rects at once, which makes them readings about which window won
+   rather than about the rendering. (The counting rule matters and is worth stating: a
+   control counts when its rect is fully contained in two or more window rects. A looser
+   rule - the rect INTERSECTS a second window - gives a slightly higher clipped count, 34
+   rather than 32, and the difference is entirely controls that straddle an edge.) Fix:
+   record which root a control came from and skip it when a later root covers it.
+5. **A capture with a stock modal is not measured at all** (6 of 230). A `PopupDialog` is a
+   centred uGUI canvas that overdraws the window rects in the FRAME and appears in no
+   control tree, so every rect under it would read as a difference the page could not have
+   avoided. The page shows the photograph for those, which is the honest rendering.
+
+**RE-MEASURED 2026-09-22 over the wave-5 corpus** (32 shots dirs, 314 captures,
+305 measured, 9 skipped; the earlier reading was 19 dirs and 222 measured).
+Nothing above was fixed and nothing regressed: text ink `dx` p50 / p95 held at
+2 / 5 px, `dy` at 1 / 4, width ratio at 1.000 / 1.111, fill delta p95 at 0,
+every slider thumb still resolves on both sides at a p50 offset of 1 px, and the
+window luminance score p50 moved 9.04 -> 9.04. The per-capture rates of the
+residual are flat too (frame-only 0.52 -> 0.57 per capture, clipped 0.28 ->
+0.30), which is the eleven new lanes photographing states nothing had measured
+before rather than the page getting worse.
+
+Three NEW tails the wave-5 lanes brought in, each a handful of controls and each
+worth a look before the next pass quotes a worst-case number:
+
+6. **`button|button|text` worst `dx` 85 px and worst width ratio 195.** One
+   control out of 3882 in that class, whose p50 is 2 px and p95 5 px. A ratio of
+   195 is an ink box the measurement found almost none of on the frame side, so
+   read it as a measurement artifact until it is located; the class is otherwise
+   the healthiest in the corpus.
+7. **`slider|horizontalscrollbar|notext` worst thumb-run delta 336 px**, over 4
+   nodes. A HORIZONTAL scroll bar is new to the corpus - 130 of the 142 sliders
+   the earlier reading measured were vertical - so `slider_thumb_run`'s
+   orientation handling has its first real horizontal cases and one of them
+   resolves a run the frame does not.
+8. **`layoutgroup|box|notext` worst fill delta 34**, over 426 nodes with a p95 of
+   0. A container whose sampled colour the page paints differently than the frame
+   in one place, which is the class the container-sampling rule exists for and
+   worth confirming is not that rule slipping.
 
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
 

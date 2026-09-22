@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime
 import json
 import os
 import re
@@ -58,10 +59,34 @@ from collections import Counter, OrderedDict, defaultdict
 
 TREE_SCHEMA = "parsek-gui-tree/1"
 MIRROR_SCHEMA = "parsek-gui-mirror/1"
+# The owner's feedback blob carries its own schema id, because it leaves the page
+# and is read back by an agent that has nothing else to key on.
+NOTES_SCHEMA = "parsek-gui-mirror-notes/1"
 MODE_TOKENS = ("advanced", "basic")
 DEFAULT_BUDGET_BYTES = 16 * 1024 * 1024
 # The census instance's frame. Overridden per capture by the dump's own `screen`.
 FRAME_W, FRAME_H = 1280, 720
+
+# The dataset a MOCKED capture is filed under. `fixture` is already part of
+# `key_of`, so giving mocked captures their own dataset makes the Compare
+# isolation structural rather than cosmetic: a mocked BEFORE can only ever pair
+# with a mocked AFTER of the same state.
+MOCK_FIXTURE = "mock"
+# The catalogue state id's own separator, per design-gui-state-gallery 7.6:
+# `<window>.<family>.<variant>`.
+MOCK_STATE_SEP = "."
+# The pointer op's own token for "GUI.tooltip was empty when the frame was taken".
+POINTER_TOOLTIP_EMPTY = "-"
+# The scene a dataset's breadth is judged at, which is the census's
+# general-purpose host scene. Automation vocabulary, out of the seam's own
+# `describe` line.
+SCENE_SPACECENTER = "SPACECENTER"
+# The verdicts a note can carry. Page chrome, not window text.
+NOTE_VERDICTS = ("keep", "change", "unsure")
+# One row of the export blob. Emitted into the page so the JS that builds a row
+# and the Python that round-trips one cannot disagree about the field set.
+NOTES_FIELDS = ("key", "window", "tab", "state", "mode", "fixture", "mocked",
+                "mockState", "beforeId", "afterId", "verdict", "note")
 
 
 # --------------------------------------------------------------------------
@@ -127,7 +152,8 @@ def parse_label(label, window_tokens=(), tab_tokens_by_window=None):
 
 
 _LOG_LINE = re.compile(
-    r"uiaction (?P<verb>open|close|tab|rect|complexity|dialog|describe|playback)\b(?P<tail>[^\r\n]*)")
+    r"uiaction (?P<verb>open|close|tab|rect|complexity|dialog|describe|playback"
+    r"|pointer)\b(?P<tail>[^\r\n]*)")
 _LOG_SHOT = re.compile(r"capturescreenshot ok label=(?P<label>[A-Za-z0-9_.-]+)")
 _KV = re.compile(r"(\w+)=([^\s]+)")
 
@@ -135,9 +161,14 @@ _KV = re.compile(r"(\w+)=([^\s]+)")
 # They are AUTOMATION vocabulary, not window text - which matters because one of
 # them ("close") is also a button label, and the mirror's no-typed-UI-text guard
 # has to be able to tell the two apart.
-SEAM_VERBS = tuple(_LOG_LINE.pattern.split("(?P<verb>")[1].split(")")[0].split("|"))
+SEAM_VERBS = tuple(v for v in re.split(
+    r"[|)]", _LOG_LINE.pattern.split("(?P<verb>")[1])
+    if re.match(r"^[a-z]+$", v))
 VERB_OPEN, VERB_CLOSE, VERB_TAB, VERB_RECT = SEAM_VERBS[0:4]
 VERB_COMPLEXITY, VERB_DIALOG, VERB_DESCRIBE = SEAM_VERBS[4:7]
+# `playback` is at 7 and is not read here; `pointer` is what a hover capture's
+# own outcome is read from.
+VERB_POINTER = SEAM_VERBS[8]
 
 
 def _kv(tail):
@@ -148,10 +179,10 @@ def parse_ksp_log(text):
     """Replay a shots-dir KSP.log into per-capture seam state.
 
     Returns ``{label: {...}}`` with the window that was open besides the main
-    one, its rect, its selected tab, the complexity mode, the whole open set and
-    the standing dialog (title plus button labels) if any. The seam prints these
-    itself, so this is the game's own account of each frame rather than a guess
-    off the label.
+    one, its rect, its selected tab, the complexity mode, the whole open set, the
+    standing dialog (title plus button labels) if any, and the last pointer op's
+    own outcome. The seam prints these itself, so this is the game's own account
+    of each frame rather than a guess off the label.
     """
     state = {
         "scene": None,
@@ -160,6 +191,7 @@ def parse_ksp_log(text):
         "rects": {},
         "tabs": {},
         "dialog": None,
+        "pointer": None,
     }
     out = OrderedDict()
     tabs_seen = defaultdict(OrderedDict)
@@ -184,7 +216,13 @@ def parse_ksp_log(text):
                 "openWindows": list(openset),
                 "rects": dict(state["rects"]),
                 "dialog": dict(state["dialog"]) if state["dialog"] else None,
+                "pointer": dict(state["pointer"]) if state["pointer"] else None,
             }
+            # A pointer op sets up ONE frame: its reported tooltip is what
+            # `GUI.tooltip` held when the next screenshot was taken, and
+            # carrying it forward would claim the same outcome for every later
+            # capture of the run.
+            state["pointer"] = None
             continue
         m = _LOG_LINE.search(raw)
         if not m:
@@ -222,6 +260,26 @@ def parse_ksp_log(text):
             names = kv.get("openWindows", "")
             if names and names != "-":
                 state["open"] = [n for n in names.split(",") if n]
+        elif verb == VERB_POINTER and "at=" in tail:
+            # The pointer op logs several lines per step; the one that carries
+            # `at=` is its RESULT. Only that line is read, and `tooltip=` is cut
+            # out by position because a populated tooltip carries spaces - the
+            # same reason the dialog's title is.
+            tip = None
+            if "tooltip=" in tail:
+                tip = _between(tail, "tooltip=", " tooltipFrame=")
+                if tip is None:
+                    tip = _between(tail, "tooltip=", None)
+            state["pointer"] = {
+                "at": kv.get("at", ""),
+                # A PARK moves the cursor to 0,0 to get it out of the frame, so
+                # it is the opposite of a hover: the capture after it was never
+                # asked to show one.
+                "park": kv.get("park") == "true",
+                # None means the log does not SAY: the key postdates the older
+                # census runs, and an absent statement is not an empty tooltip.
+                "tooltip": tip,
+            }
         elif verb == VERB_DIALOG:
             if kv.get("open") == "true":
                 # `title=` and `buttons=` carry spaces, so they are cut out by
@@ -269,6 +327,94 @@ def fixture_of_template(save_template):
     return (save_template or "").rstrip("/").split("/")[-1]
 
 
+def mock_provenance(dump):
+    """The dump's own `mock` block, or None for an ordinary real-save capture.
+
+    ADDITIVE at the unchanged `parsek-gui-tree/1` schema id
+    (`docs/dev/design-gui-tree-dump.md`), so a dump written before the block
+    existed - which is every committed census artifact - reads exactly as it did.
+    ABSENT means real, which is the reader's rule and the common case.
+
+    It has to be the DUMP rather than the label, because a gallery lane HAS a
+    `fixture.saveTemplate` (it needs a loaded game) and the mirror derives a
+    capture's dataset from that: without this block a mocked capture would file
+    under a real fixture's name and pair against real captures in Compare.
+    """
+    block = (dump or {}).get("mock")
+    if not isinstance(block, dict):
+        return None
+    state_id = str(block.get("stateId") or "").strip()
+    if not state_id:
+        return None
+    try:
+        states = int(block.get("states") or 0)
+    except (TypeError, ValueError):
+        states = 0
+    covers = block.get("covers")
+    return {
+        "stateId": state_id,
+        "window": str(block.get("window") or "").strip(),
+        "catalogue": str(block.get("catalogue") or "").strip(),
+        "states": states,
+        "covers": [str(c) for c in (covers if isinstance(covers, list) else ()) if c],
+    }
+
+
+def mock_facets(prov, tab_tokens=()):
+    """A mocked capture's (window, tab, state), derived from the catalogue state
+    id rather than from its label.
+
+    The id is `<window>.<family>.<variant>`, and the label a gallery lane writes
+    is that id with the window prefix dropped and the dots turned into dashes
+    (`design-gui-state-gallery.md` 7.6). Reading the facets back out of the id
+    means the filing does not depend on a filename the label grammar has to
+    re-split, and the `window` field of the block is the authority for the window
+    token. The tab is taken only when the leading tail token is in that window's
+    own tab vocabulary, which is the same rule `parse_label` applies.
+    """
+    prov = prov or {}
+    parts = [p for p in str(prov.get("stateId") or "").split(MOCK_STATE_SEP) if p]
+    window = prov.get("window") or (parts[0] if parts else "")
+    tail = parts[1:] if (parts and parts[0] == window) else list(parts)
+    tab = None
+    if tail and tail[0] in (tab_tokens or ()):
+        tab = tail[0]
+        tail = tail[1:]
+    return window, tab, "-".join(tail)
+
+
+def label_log_disagreements(lab, log, window_tabs, tab_alias=None):
+    """Where the LABEL's own reading of a capture and the seam log's disagree.
+
+    The log wins - it is what was on screen, and the label is a filename someone
+    typed into a spec - so this changes no filing. It reports, so a reader of the
+    rail knows the row he is looking at is filed under something its name denies,
+    which is exactly the case three of the corpus's captures are in.
+
+    `window_tabs` is that window's `{token: index}` out of the logs. The third
+    arm is the one that catches the quiet form: a label that names NO tab reads
+    as the window's default (index 0), so a log that selected a later tab
+    contradicts it just as plainly as a different token would. A label whose
+    leading state token turned out to be a tab's DISPLAY name is not a
+    disagreement at all, which is what `tab_alias` suppresses.
+    """
+    out = []
+    log_window = (log or {}).get("window")
+    log_tab = (log or {}).get("tab")
+    tabs = window_tabs or {}
+    if lab.get("window") and log_window and lab["window"] != log_window:
+        out.append({"field": "window", "label": lab["window"], "log": log_window})
+    if lab.get("tab") and log_tab and lab["tab"] != log_tab:
+        out.append({"field": "tab", "label": lab["tab"], "log": log_tab})
+    elif (not lab.get("tab") and not tab_alias and log_tab
+            and tabs.get(log_tab, 0) > 0):
+        out.append({"field": "tab", "label": "", "log": log_tab})
+    head = (lab.get("state") or "").split("-")[0]
+    if head and head in tabs and log_tab and head != log_tab:
+        out.append({"field": "state", "label": head, "log": log_tab})
+    return out
+
+
 def choose_capture(by_fixture, want_fixture, fixture_order):
     """The dataset rule: the selected fixture's capture when it exists, else the
     nearest one in the declared fixture order, and a flag saying which happened
@@ -284,15 +430,170 @@ def choose_capture(by_fixture, want_fixture, fixture_order):
     return by_fixture[first], False
 
 
-def key_of(fixture, window, tab, state, mode, scene=""):
+def key_of(fixture, window, tab, state, mode, scene="", mock_state=""):
     """The identity a before/after pair is formed on.
 
     `scene` is part of it: the same window drawn at the Space Center and in
     flight is two different pictures, not a change, and pairing them would
     report every scene difference as a regression.
+
+    `mock_state` is the catalogue state id, and it is APPENDED only when there is
+    one, so every real capture's key stays byte-identical to what it was before
+    the gallery existed. Mocked captures already sit in their own `fixture`, so
+    this segment is not what isolates them - it is what keeps two DIFFERENT
+    states of one window from pairing with each other when their derived state
+    tails happen to agree.
     """
-    return "|".join([fixture or "", window or "", tab or "", state or "",
-                     mode or "", scene or ""])
+    parts = [fixture or "", window or "", tab or "", state or "",
+             mode or "", scene or ""]
+    if mock_state:
+        parts.append(mock_state)
+    return "|".join(parts)
+
+
+def default_fixture(captures, fixture_order, scene=SCENE_SPACECENTER):
+    """The dataset the page OPENS on, decided here and PINNED into the model.
+
+    It used to be derived in the page, which was fine while every dataset was a
+    real save: the fixture that photographed the most DIFFERENT windows at the
+    Space Center is the census's general-purpose host, where "most captures"
+    would only pick whichever lane ran longest. A ~300-state mocked gallery wins
+    that contest outright, and would silently become the page the owner opens -
+    so the mocked dataset is excluded from the contest here and offered as an
+    explicit choice instead (`design-gui-state-gallery.md` 7.6).
+
+    Deterministic: breadth first, then the declared fixture order, then the name.
+    """
+    real = [c for c in captures if not c.get("mocked")]
+    for pool in ([c for c in real if (c.get("scene") or "") == scene], real):
+        breadth = defaultdict(set)
+        for cap in pool:
+            breadth[cap["fixture"]].add(cap["window"])
+        if breadth:
+            return sorted(breadth, key=lambda f: (
+                -len(breadth[f]),
+                fixture_order.index(f) if f in fixture_order else len(fixture_order),
+                f))[0]
+    return fixture_order[0] if fixture_order else ""
+
+
+# --------------------------------------------------------------------------
+# the owner's notes: the blob that leaves the page and comes back
+# --------------------------------------------------------------------------
+
+def note_key(window, tab, state, mode, fixture, run_pair=""):
+    """The identity a note is stored under.
+
+    `(run pair, window, tab, state, mode, fixture)`. The run pair is what makes a
+    Compare note about THIS before/after pair rather than about the window in
+    general: re-fly the lane and the pair changes, so last round's verdict does
+    not silently attach itself to a picture the owner has not seen. A note taken
+    on a single state view carries that capture's own run id as both halves.
+
+    The JOINED ORDER is the contract - the page's own `noteKey` takes the run
+    pair FIRST because every one of its callers has one, and this one takes it
+    last with a default because the import path reads rows that carry none.
+    """
+    return "|".join([run_pair or "", window or "", tab or "", state or "",
+                     mode or "", fixture or ""])
+
+
+def notes_blob(rows, stamp="", scope="", page_schema=MIRROR_SCHEMA):
+    """The export payload: every non-empty note, with enough beside it to act on
+    without the page.
+
+    The point of the extra fields is that the blob is read by an agent in a fresh
+    session. A verdict with no capture ids, no window and no mocked flag is a
+    sentence about nothing; with them it is a task. `generatedUtc` is the PAGE's
+    own generation stamp, not the export time, because that is what says which
+    corpus the owner was looking at.
+    """
+    out = []
+    for row in rows or ():
+        rec = OrderedDict()
+        for field in NOTES_FIELDS:
+            val = row.get(field)
+            if field == "mocked":
+                rec[field] = bool(val)
+            else:
+                rec[field] = "" if val is None else str(val)
+        out.append(rec)
+    return OrderedDict([
+        ("schema", NOTES_SCHEMA),
+        ("pageSchema", page_schema),
+        ("generatedUtc", stamp or ""),
+        ("scope", scope or ""),
+        ("count", len(out)),
+        ("notes", out),
+    ])
+
+
+def notes_markdown(blob):
+    """The same rows as a markdown table, for pasting somewhere that renders one.
+
+    Two forms of one payload rather than a choice: the owner pastes whichever his
+    next destination reads, and the JSON is the one an agent parses.
+    """
+    blob = blob or {}
+    head = ["window", "tab", "state", "mode", "fixture", "mocked", "verdict", "note"]
+    lines = ["| " + " | ".join(head) + " |",
+             "| " + " | ".join("---" for _ in head) + " |"]
+    for row in blob.get("notes") or ():
+        cells = []
+        for field in head:
+            val = row.get(field)
+            if field == "mocked":
+                val = "yes" if val else ""
+            cells.append(str("" if val is None else val).replace("|", "/")
+                         .replace("\n", " ").strip() or "-")
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def parse_notes_blob(text):
+    """A pasted blob back into `{key: row}`, tolerantly.
+
+    Tolerant on purpose: the owner pastes out of a browser and into a chat box,
+    and the thing that comes back may be the whole blob, a bare list of rows, or
+    one row. Anything with no usable key is DROPPED rather than merged under a
+    made-up one, and the count of what was dropped is returned so the page can
+    say so instead of quietly losing a verdict.
+    """
+    try:
+        data = json.loads(text) if isinstance(text, str) else text
+    except (TypeError, ValueError):
+        return {}, 0, "not JSON"
+    rows = None
+    schema = ""
+    if isinstance(data, dict) and isinstance(data.get("notes"), list):
+        rows, schema = data["notes"], str(data.get("schema") or "")
+    elif isinstance(data, list):
+        rows = data
+    elif isinstance(data, dict) and data.get("key"):
+        rows = [data]
+    if rows is None:
+        return {}, 0, "no notes in it"
+    out = OrderedDict()
+    dropped = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            dropped += 1
+            continue
+        key = str(row.get("key") or "").strip()
+        if not key:
+            key = note_key(row.get("window"), row.get("tab"), row.get("state"),
+                           row.get("mode"), row.get("fixture"),
+                           row.get("runPair") or "")
+            if key.strip("|") == "":
+                dropped += 1
+                continue
+        rec = {}
+        for field in NOTES_FIELDS:
+            if field in row:
+                rec[field] = bool(row[field]) if field == "mocked" else row[field]
+        rec["key"] = key
+        out[key] = rec
+    return out, dropped, schema
 
 
 # --------------------------------------------------------------------------
@@ -539,6 +840,143 @@ def grid_label_runs(w, h, bpp, px, rect, min_width=18, gap=16, bright=150):
     return [r for r in merged if r[1] - r[0] >= min_width]
 
 
+def text_ink_offset(w, h, bpp, px, rect, inset=3, cut=0.45):
+    """Where a control's text actually STARTS inside its own rect, measured off
+    the frame, as an offset in pixels from the rect's left edge.
+
+    For the same reason the tab bar's labels are measured rather than assumed:
+    the product is not uniform about alignment and the dump records none of it.
+    KSP's `box` style CENTRES the Logistics section heading ("Active Routes" sits
+    at x=649 in a 1358 px box) and LEFT-ALIGNS the sortable column headers of the
+    same table ("Origin" at the left edge of its 95 px cell). The page, which
+    left-aligned the first and centred the second, was 643 px out on one and
+    roughly a cell wide on the other.
+
+    The middle of the rect only, inset from every edge, so a box's own border is
+    never mistaken for its first glyph.
+
+    The three numbers, each measured rather than chosen. `inset=3`: KSP's box
+    style draws a one-pixel outline with a one-pixel inner shadow, and the
+    Logistics header cells put their first glyph 4 to 5 px in (measured: "#" at
+    4, "Actions" at 4, "Origin" at 5, "Interval" at 5) - so 3 clears the frame
+    and still sits before the earliest glyph. `cut=0.45`: a fraction of the
+    rect's OWN contrast range rather than an absolute level, because the same
+    style is drawn on #444444, #292929 and #313131 across the corpus; at 0.45
+    the anti-aliased left edge of a glyph counts and the shadow does not.
+    `spread < 20` is the "nothing here to read" floor - an empty box varies by
+    2 or 3 across its own surface, and the weakest real run in the corpus (the
+    dimmed Missions interval field) spreads 30.
+
+    Returns None when there is no ink to measure, and the page then keeps its CSS
+    alignment.
+    """
+    x, y, rw, rh = [int(v) for v in rect]
+    if rw <= 2 * inset or rh <= 2 * inset:
+        return None
+    x0, x1 = max(0, x + inset), min(w, x + rw - inset)
+    y0, y1 = max(0, y + inset), min(h, y + rh - inset)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    vals = []
+    for yy in range(y0, y1):
+        base = yy * w * bpp
+        for xx in range(x0, x1):
+            o = base + xx * bpp
+            vals.append(_lum((px[o], px[o + 1], px[o + 2])))
+    if not vals:
+        return None
+    ordered = sorted(vals)
+    med = ordered[len(ordered) // 2]
+    spread = max(abs(ordered[0] - med), abs(ordered[-1] - med))
+    if spread < 20:
+        return None
+    thr = spread * cut
+    for xx in range(x0, x1):
+        for yy in range(y0, y1):
+            o = (yy * w + xx) * bpp
+            if abs(_lum((px[o], px[o + 1], px[o + 2])) - med) > thr:
+                return xx - x
+    return None
+
+
+def slider_thumb_run(w, h, bpp, px, rect, min_contrast=12):
+    """Where a slider's or scrollbar's THUMB sits, measured off the frame inside
+    the control's own rect.
+
+    The dump records a slider's rect and no value, so the page had nothing to
+    position a knob from and drew a bare groove - a Settings row that reads as an
+    empty channel where the game shows a handle at about 70%, and a scroll bar
+    with no bar in it. But the thumb IS in the pixels.
+
+    What is bright is the thumb's BEVEL, not its face, and the difference
+    matters. Measured across the `ib-structure-mission-advanced` vertical scroll
+    bar: the groove is a flat luminance 45, and the thumb's own columns read
+    14, 0, 101, 85, 68, 50, 17, 17, 17, 17, 34, 50, 50, 0, 14 - a one-pixel
+    highlight at 101/85 over a FACE of 17 to 50, which is DARKER than the groove
+    it sits in. So this profiles the MAXIMUM along each step of the control's
+    long axis, where the bevel shows, and the longest run above two thirds of the
+    control's own range is the thumb. Taking "lighter than its groove" literally
+    and colouring the face light is exactly the mistake that made the page's
+    handle read at luminance 185 against the game's 17.
+
+    Returns `(start, length, vertical)` in the control's own axis - `start`
+    relative to the rect - or None when the rect carries no contrast to read
+    (a groove whose thumb fills it, or a control drawn flat). The page then
+    keeps the bare groove, which is the honest answer for "not measurable here".
+    """
+    x, y, rw, rh = [int(v) for v in rect]
+    if rw <= 0 or rh <= 0:
+        return None
+    vertical = rh > rw
+    span = rh if vertical else rw
+    if span < 6:
+        return None
+    prof = []
+    if vertical:
+        for yy in range(max(0, y), min(h, y + rh)):
+            top = 0
+            for xx in range(max(0, x), min(w, x + rw)):
+                o = (yy * w + xx) * bpp
+                top = max(top, _lum((px[o], px[o + 1], px[o + 2])))
+            prof.append(top)
+    else:
+        for xx in range(max(0, x), min(w, x + rw)):
+            top = 0
+            for yy in range(max(0, y), min(h, y + rh)):
+                o = (yy * w + xx) * bpp
+                top = max(top, _lum((px[o], px[o + 1], px[o + 2])))
+            prof.append(top)
+    if len(prof) < 6:
+        return None
+    lo, hi = min(prof), max(prof)
+    if hi - lo < min_contrast:
+        return None
+    # `min_contrast` of 12: the smallest real separation in the corpus is the
+    # Settings horizontal slider, whose groove profiles at 36-40 against a handle
+    # at 54 - a range of about 18. A flat groove (no thumb to find, or a thumb
+    # that fills it) profiles within 2 or 3 of itself, so 12 sits clear of the
+    # noise and below every genuine thumb measured.
+    #
+    # Two thirds of the way up the control's OWN range, not an absolute level:
+    # the bevel tops out at 101 over a 45 groove on a scroll bar and at 54 over
+    # a 36 groove on the Settings slider, and no single threshold separates both.
+    cut = lo + (hi - lo) * 2.0 / 3.0
+    best = None
+    start = None
+    for i, v in enumerate(prof):
+        if v >= cut and start is None:
+            start = i
+        elif v < cut and start is not None:
+            if best is None or i - start > best[1]:
+                best = (start, i - start)
+            start = None
+    if start is not None and (best is None or len(prof) - start > best[1]):
+        best = (start, len(prof) - start)
+    if not best or best[1] <= 0:
+        return None
+    return (best[0], best[1], vertical)
+
+
 def _hex(rgb):
     return "#%02x%02x%02x" % tuple(rgb)
 
@@ -556,16 +994,31 @@ BG_KINDS = ("window", "box", "button", "repeatbutton", "buttongrid", "textfield"
 CLICK_KINDS = ("button", "repeatbutton", "toggle", "buttongrid", "slider", "textfield")
 
 
+# The bottom chrome of an auto-fitted window: the gap between its last child's
+# bottom edge and its own border. Measured on ksc-main-advanced (2026-09-11_0548):
+# the seam's applied rect was 300 tall while the Close row ended 286 px in, and the
+# frame's border sits 14 px under Close in Basic mode as well.
+WINDOW_BOTTOM_PAD = 14
+
+
 def root_height(root, log_rects):
-    """A GUILayout window reports h=0 in the dump; the seam's own `rect` line
-    reports what it was actually laid out at, and the child extent is the last
-    resort."""
+    """A GUILayout window reports h=0 in the dump because its host zeroes the
+    height every frame so IMGUI re-fits it to the content (`ParsekKSC.cs`,
+    `ParsekFlight.cs`). So the CONTENT decides: the child extent plus the bottom
+    chrome. The seam's own `rect` line is the height the window had when the
+    seam applied it, which goes stale the moment the content shrinks - the Basic
+    mode main window drew 74 px of empty panel under Close from it - so it is
+    only a fallback for a window that drew no children at all."""
     rect = list(root.get("rect") or [0, 0, 0, 0])
     if rect[3] > 0:
         return rect[3]
+    applied = 0
     for _w, r in (log_rects or {}).items():
         if len(r) == 4 and r[0] == rect[0] and r[1] == rect[1] and r[2] == rect[2] and r[3] > 0:
-            return r[3]
+            applied = r[3]
+            break
+    if not root.get("children") and applied:
+        return applied
     bottom = rect[1]
 
     def walk(node):
@@ -576,11 +1029,11 @@ def root_height(root, log_rects):
             walk(ch)
 
     walk(root)
-    return max(1, bottom - rect[1] + 4)
+    return max(1, bottom - rect[1] + WINDOW_BOTTOM_PAD)
 
 
 def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
-                 grid_runs=None):
+                 grid_runs=None, thumb_runs=None, text_offsets=None):
     """One dump node -> the page's compact node: rect made parent-relative (so a
     scroll view clips its own children), plus the colours sampled off the frame."""
     rect = [int(v) for v in (node.get("rect") or [0, 0, 0, 0])]
@@ -633,20 +1086,72 @@ def compact_tree(node, parent_rect, sampler=None, parent_bg=None,
                     cells.append(cbg)
                 if all(cells):
                     out["gc"] = cells
+    if (style == "box" and text and text_offsets is not None
+            and out["k"] in ("label", "button")):
+        # Only the box style: the ordinary label and button alignments agree with
+        # the frame to a pixel or three, and storing an offset for all 71 000
+        # labels would be payload for nothing.
+        off = text_offsets(rect)
+        if off is not None:
+            out["tx"] = off
+    thumb_rect = None
+    if out["k"] == "slider" and thumb_runs is not None:
+        run = thumb_runs(rect)
+        if run:
+            # Start and length along the control's own long axis, plus which axis
+            # that is. Read off THIS frame, so the page draws the handle where
+            # the game drew it rather than at a position nothing recorded.
+            out["th"] = [run[0], run[1]]
+            if sampler is not None:
+                # And its COLOURS, off the same frame, by the same rule as every
+                # other surface on this page. A typed colour was wrong by 168
+                # luminance: KSP's scroll bar thumb has a dark face (17 to 50)
+                # under a one-pixel bevel (85 to 101), and the page drew the
+                # whole handle at #b9b9b9. `sample_colors` answers with exactly
+                # the two the thumb has - the median of its own surface, and the
+                # extreme tail, which IS the bevel.
+                trect = ([rect[0], rect[1] + run[0], rect[2], run[1]]
+                         if run[2] else
+                         [rect[0] + run[0], rect[1], run[1], rect[3]])
+                thumb_rect = trect
+                tbg, tfg = sampler(trect, ())
+                if tbg:
+                    out["tc"] = tbg
+                if tfg:
+                    out["te"] = tfg
+        out["vt"] = 1 if rect[3] > rect[2] else 0
     if node.get("horizontal") is not None:
         out["hz"] = 1 if node["horizontal"] else 0
     bg = None
     if sampler is not None and out["w"] > 0 and out["h"] > 0:
         kid_rects = [c.get("rect") or [0, 0, 0, 0]
                      for c in (node.get("children") or ())]
+        if thumb_rect is not None:
+            # The groove is the slider's surface MINUS its thumb, the same rule
+            # a container's colour follows. Sampling the whole rect took the
+            # median of a scroll bar that is more thumb than groove, so the page
+            # painted the groove in the thumb's own colour - and then drawing the
+            # thumb on top of it changed nothing a measurement could see.
+            kid_rects = list(kid_rects) + [thumb_rect]
         bg, fg = sampler(rect, kid_rects)
         # A background identical to the parent's is what CSS already inherits,
         # so storing it again would only make the page bigger.
-        if bg and bg != parent_bg and (out["k"] in BG_KINDS or style == "box"):
+        # A toggle in the BUTTON style is painted like a button, so its fill is
+        # worth storing; the 7000 checkbox-styled ones draw no surface of their
+        # own and storing a colour for them was only payload.
+        paints = (out["k"] in BG_KINDS or style == "box"
+                  or (out["k"] == "toggle" and style == "button")
+                  # A slider's GROOVE is a surface like any other, and the page
+                  # was drawing a 3 px line at #666 (luminance 102) where KSP
+                  # fills the whole 15 px width at 45. Measured on the
+                  # ib-structure-mission scroll bar.
+                  or out["k"] == "slider")
+        if bg and bg != parent_bg and paints:
             out["bg"] = bg
         if fg and (text or out["k"] in ("box", "toggle")):
             out["fg"] = fg
-    kids = [compact_tree(ch, rect, sampler, bg or parent_bg, grid_runs)
+    kids = [compact_tree(ch, rect, sampler, bg or parent_bg, grid_runs,
+                         thumb_runs, text_offsets)
             for ch in (node.get("children") or ())]
     if kids:
         out["c"] = kids
@@ -800,6 +1305,67 @@ def measure_pair(before, after):
     }
 
 
+def window_compare_summary(captures, keys, window, missing=()):
+    """One window's Compare header, in counts.
+
+    Two things it deliberately does NOT count. Coverage is DISTINCT KEYS, not
+    files: the corpus has 228 PNGs behind 134 distinct labels, so a file count
+    reads as about 1.7x the coverage there is. And a capture the log says
+    photographed no hover is left out of the state counts entirely, because a
+    frame that is text-identical to its own baseline is not a state.
+
+    NEW and GONE are read off SPEC RE-FLIGHTS, which is the only place the corpus
+    has a before and an after of the same intent: for each spec that photographed
+    this window more than once, the keys its newest run has and its oldest run
+    does not are new, and the reverse are gone. A spec that flew once contributes
+    neither, because one flight cannot say a state disappeared.
+    """
+    by_id = {c["id"]: c for c in captures}
+    caps = [c for c in captures if c["window"] == window]
+    live = [c for c in caps if not c.get("hoverEmpty")]
+    win_keys = {k: v for k, v in keys.items()
+                if (by_id.get(v["after"]) or {}).get("window") == window}
+    real_keys = {k for k, v in win_keys.items()
+                 if not (by_id.get(v["after"]) or {}).get("mocked")}
+    mock_keys = set(win_keys) - real_keys
+    changed = sum(1 for v in win_keys.values() if v["changed"])
+
+    # spec -> run -> earliest capturedUtc in that run
+    runs_by_spec = defaultdict(dict)
+    keys_by_run = defaultdict(set)
+    for cap in live:
+        seen = runs_by_spec[cap["specId"]].get(cap["runId"])
+        if seen is None or cap["capturedUtc"] < seen:
+            runs_by_spec[cap["specId"]][cap["runId"]] = cap["capturedUtc"]
+        keys_by_run[(cap["specId"], cap["runId"])].add(cap.get("key") or "")
+    fresh = gone = reflown = 0
+    for spec, runs in runs_by_spec.items():
+        if len(runs) < 2:
+            continue
+        reflown += 1
+        order = sorted(runs, key=lambda r: (runs[r], r))
+        first, last = keys_by_run[(spec, order[0])], keys_by_run[(spec, order[-1])]
+        fresh += len(last - first)
+        gone += len(first - last)
+    return {
+        "window": window,
+        "captures": len(caps),
+        "capturesReal": len([c for c in caps if not c.get("mocked")]),
+        "capturesMocked": len([c for c in caps if c.get("mocked")]),
+        "superseded": len([c for c in caps if c.get("supersededBy")]),
+        "hoverNotCaptured": len([c for c in caps if c.get("hoverEmpty")]),
+        "labelDisagreements": len([c for c in caps if c.get("disagrees")]),
+        "statesReal": len(real_keys),
+        "statesMocked": len(mock_keys),
+        "changed": changed,
+        "unchanged": len(win_keys) - changed,
+        "new": fresh,
+        "gone": gone,
+        "reflownSpecs": reflown,
+        "uncaptured": [m for m in (missing or ()) if m.get("window") == window],
+    }
+
+
 # --------------------------------------------------------------------------
 # repo records -> Compare notes
 # --------------------------------------------------------------------------
@@ -943,6 +1509,47 @@ def _rect_owner(rect, log_rects, subject, open_windows):
     return None
 
 
+def title_prefix(titles):
+    """The leading words every window title shares - the product's own name.
+
+    Derived, not typed. Titles read "Parsek", "Parsek - Logistics",
+    "Parsek - Real Spawn Control": the longest run of leading words common to all
+    of them is the head the page must strip before it can compare a control's
+    label to a window's name.
+
+    Returns "" unless at least two distinct titles agree on a prefix AND at least
+    one title is longer than it - a single title would otherwise "share" the
+    whole of itself and strip every window's name to nothing.
+    """
+    words = []
+    for title in titles:
+        parts = [p for p in re.split(r"[\s-]+", (title or "").strip()) if p]
+        if parts:
+            words.append(parts)
+    if len(words) < 2:
+        return ""
+    head = []
+    for i in range(min(len(w) for w in words)):
+        first = words[0][i].lower()
+        if any(w[i].lower() != first for w in words):
+            break
+        head.append(words[0][i])
+    if not head or not any(len(w) > len(head) for w in words):
+        return ""
+    return " ".join(head)
+
+
+def strip_title_prefix(title, prefix):
+    """`title` with the product's own name taken off the front, if it is there."""
+    if not prefix:
+        return (title or "").strip()
+    low, plow = (title or "").strip(), prefix.strip()
+    if low.lower().startswith(plow.lower()):
+        rest = low[len(plow):]
+        return rest.lstrip(" -\t").strip()
+    return low
+
+
 def window_vocabulary(window_tokens, window_titles, window_tabs=None):
     """Per window, the words a repo record may name it by, and the words a SOURCE
     FILE may name it by.
@@ -959,26 +1566,31 @@ def window_vocabulary(window_tokens, window_titles, window_tabs=None):
     * `file` - the same words plus the product name, so the main window, whose
       title IS the product name, can still be matched to `ParsekUI.cs`.
     """
+    # The product's own name, DERIVED from the titles rather than typed: it is
+    # the run of leading words every window title shares.
+    prefix = title_prefix([t for tok in window_tokens
+                           for t in (window_titles.get(tok) or ()) if t])
     product = set()
     for tok in window_tokens:
         for title in window_titles.get(tok, ()):
-            raw = (title or "").lower().strip()
-            if raw and not re.sub(r"^parsek\b[\s-]*", "", raw).strip():
+            raw = (title or "").strip()
+            if raw and not strip_title_prefix(raw, prefix):
                 product.add(norm(raw))
     vocab = {}
     for tok in window_tokens:
         titles = [t for t in (window_titles.get(tok) or ()) if t]
         per_title = []
         for title in titles:  # e.g. "Parsek - Real Spawn Control"
-            cleaned = re.sub(r"^parsek\b[\s-]*", "", title.lower()).strip()
+            cleaned = strip_title_prefix(title, prefix).lower()
             if not cleaned:
                 continue
             # A multi-word title contributes only its concatenation. Its
             # individual words are generic ("Real Spawn Control" -> real, spawn,
             # control; "Gloops Flight Recorder" -> flight, recorder) and each one
             # pulled in records about something else entirely.
+            generic = {norm(prefix), "state", "window"} - {""}
             parts = [w for w in re.findall(r"[a-z]{4,}", cleaned)
-                     if w not in ("parsek", "state", "window")]
+                     if w not in generic]
             words = {norm(cleaned)} | (set(parts) if len(parts) == 1 else set())
             per_title.append(words)
         stable = set()
@@ -1126,6 +1738,8 @@ def scan_shots_dir(path, scenarios_dir, want_colors=True, verbose=False):
             "runId": run_id,
             "specId": spec_id,
             "fixture": fixture,
+            # ABSENT means a real-save capture, which is every committed one.
+            "mock": mock_provenance(dump),
             "dump": dump,
             "png": png if os.path.isfile(png) else None,
             "log": replay["captures"].get(label) or {},
@@ -1194,7 +1808,8 @@ def classify_foreign(all_caps):
 # --------------------------------------------------------------------------
 
 def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
-                budget=DEFAULT_BUDGET_BYTES, verbose=False):
+                budget=DEFAULT_BUDGET_BYTES, verbose=False, stamp="",
+                pin_fixture=""):
     scans = [scan_shots_dir(d, scenarios_dir, verbose=verbose) for d in shots_dirs]
     all_caps = [c for s in scans for c in s["captures"]]
     if not all_caps:
@@ -1227,7 +1842,19 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         mode = cap["log"].get("mode") or lab["mode"]
         state = lab["state"]
         tab_alias = None
-        if lab["window"] and lab["window"] != window:
+        prov = cap.get("mock")
+        fixture = cap["fixture"]
+        disagrees = []
+        if prov:
+            # A MOCKED capture's facets come out of the catalogue state id, not
+            # out of its label and not out of the lane's own fixture: the gallery
+            # lane loads a real save, so the fixture the spec names would file a
+            # synthetic picture under a real dataset.
+            window, tab, state = mock_facets(
+                prov, set(tabs_by_window.get(prov.get("window") or "") or ()))
+            window = window or lab["window"] or lab["host"]
+            fixture = MOCK_FIXTURE
+        elif lab["window"] and lab["window"] != window:
             state = "-".join([p for p in [lab["window"], lab["tab"], state] if p])
         elif lab["tab"] and lab["tab"] != tab:
             state = "-".join([p for p in [lab["tab"], state] if p])
@@ -1241,6 +1868,12 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
                 if any(norm(txt) == norm(head) for txt in _root_texts(dump)):
                     tab_alias = head
                     state = "-".join(state.split("-")[1:])
+        if not prov:
+            # Filed under the log either way; this only SAYS so, and only for a
+            # real capture - a mocked one's label is generated from the same
+            # state id its facets came from, so there is nothing to disagree.
+            disagrees = label_log_disagreements(
+                lab, cap["log"], tabs_by_window.get(window) or {}, tab_alias)
 
         screen = dump.get("screen") or {}
         sw = int(screen.get("width") or FRAME_W)
@@ -1248,6 +1881,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
 
         sampler = None
         grid_runs = None
+        thumb_runs = None
+        text_offsets = None
         pix = None
         if cap["png"]:
             try:
@@ -1269,6 +1904,12 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
 
                 def grid_runs(rect, _p=pix):
                     return grid_label_runs(_p[0], _p[1], _p[2], _p[3], rect)
+
+                def thumb_runs(rect, _p=pix):
+                    return slider_thumb_run(_p[0], _p[1], _p[2], _p[3], rect)
+
+                def text_offsets(rect, _p=pix):
+                    return text_ink_offset(_p[0], _p[1], _p[2], _p[3], rect)
             except Exception as exc:
                 if verbose:
                     sys.stderr.write("png %s: %s\n" % (cap["png"], exc))
@@ -1281,7 +1922,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             is_foreign = key in foreign
             h = root_height(root, cap["log"].get("rects"))
             node = compact_tree(root, [rect[0], rect[1]], sampler,
-                                grid_runs=grid_runs)
+                                grid_runs=grid_runs, thumb_runs=thumb_runs,
+                                text_offsets=text_offsets)
             node["x"], node["y"] = rect[0], rect[1]
             node["h"] = h
             node["title"] = root.get("text") or ""
@@ -1332,7 +1974,7 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             "label": cap["label"],
             "runId": cap["runId"],
             "specId": cap["specId"],
-            "fixture": cap["fixture"],
+            "fixture": fixture,
             "window": window,
             "tab": tab,
             "tabNames": [],
@@ -1340,10 +1982,15 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             "scene": cap["log"].get("scene") or "",
             "mode": mode,
             "state": state,
+            # The dump's own provenance block, forwarded whole: the page badges
+            # off it and the index counts off it.
+            "mocked": prov,
+            "disagrees": disagrees,
             "capturedUtc": dump.get("capturedUtc") or "",
             "screen": [sw, sh],
             "openWindows": cap["log"].get("openWindows") or [],
             "dialog": cap["log"].get("dialog"),
+            "pointer": cap["log"].get("pointer"),
             "roots": roots,
             "photo": photo,
             "counts": dump.get("counts") or {},
@@ -1422,20 +2069,55 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             names.append({"token": tok, "index": idx, "name": name})
         cap["tabNames"] = names
 
+    # ---- a hover capture that photographed no hover -------------------------
+    # The pointer op's own outcome, read off the log: a step that moved the
+    # cursor onto a control (`park=false`) and then reported `tooltip=-` had an
+    # EMPTY `GUI.tooltip` when the frame was taken, so the capture is of the
+    # window's idle state under a hover label. `tooltip` absent from the line is
+    # the log declining to say - the key postdates the older runs - and the
+    # fallback there is the capture's own tree: a hover frame that is
+    # byte-identical to another capture of the same run, colours stripped,
+    # photographed nothing its sibling did not.
+    sig_by_run = defaultdict(dict)
+    for cap in captures:
+        sig_by_run[cap["runId"]].setdefault(_tree_sig(cap), []).append(cap)
+    for cap in captures:
+        ptr = cap.get("pointer")
+        if not ptr or ptr.get("park"):
+            continue
+        tip = ptr.get("tooltip")
+        if tip == POINTER_TOOLTIP_EMPTY:
+            cap["hoverEmpty"] = {"why": "log", "at": ptr.get("at") or ""}
+        elif tip is None:
+            twins = [c for c in sig_by_run[cap["runId"]].get(_tree_sig(cap), [])
+                     if c["id"] != cap["id"]]
+            if twins:
+                cap["hoverEmpty"] = {"why": "twin", "twin": twins[0]["label"]}
+
     # ---- keys, before/after -------------------------------------------------
     by_key = defaultdict(list)
     for cap in captures:
-        by_key[key_of(cap["fixture"], cap["window"], cap["tab"], cap["state"],
-                      cap["mode"], cap["scene"])].append(cap)
+        cap["key"] = key_of(cap["fixture"], cap["window"], cap["tab"], cap["state"],
+                            cap["mode"], cap["scene"],
+                            (cap.get("mocked") or {}).get("stateId", ""))
+        by_key[cap["key"]].append(cap)
     keys = {}
     for k, caps in by_key.items():
         caps.sort(key=lambda c: (c["capturedUtc"], c["runId"]))
         before, after = caps[0], caps[-1]
         changed = before["id"] != after["id"] and _differs(before, after)
+        # SUPERSEDED: a later capture of the same key exists, so this one is not
+        # the current picture of that state. It stays reachable as the pair's
+        # BEFORE, and it stops being what the mirror shows or what coverage
+        # counts - which is how a re-flown lane retires its own stale capture
+        # without a label being named anywhere.
+        for older in caps[:-1]:
+            older["supersededBy"] = after["id"]
         keys[k] = {
             "all": [c["id"] for c in caps],
             "before": before["id"],
             "after": after["id"],
+            "superseded": [c["id"] for c in caps[:-1]],
             "changed": bool(changed),
             "measured": measure_pair(before, after) if changed else None,
         }
@@ -1457,10 +2139,13 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
                      for t, i in sorted(tabs_by_window.get(tok, {}).items(),
                                         key=lambda kv: kv[1])],
             "captureCount": len(caps),
+            "mockedCount": len([c for c in caps if c.get("mocked")]),
         })
     for tok in sorted({c["window"] for c in captures} - set(window_tokens)):
+        caps = [c for c in captures if c["window"] == tok]
         windows.append({"token": tok, "titles": sorted(window_titles.get(tok, [])),
-                        "tabs": [], "captureCount": len([c for c in captures if c["window"] == tok])})
+                        "tabs": [], "captureCount": len(caps),
+                        "mockedCount": len([c for c in caps if c.get("mocked")])})
 
     # states with no capture: a tab the seam knows but no capture selected, per
     # window and mode.
@@ -1487,20 +2172,42 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         notes = attach_records(vocab, parse_changelog(cl), parse_todo(td),
                                parse_merges(repo_root), ui_paths=True)
 
+    fixture_order = [f["key"] for f in fixtures.values()]
+    pinned = pin_fixture if pin_fixture in fixture_order else None
+    if pin_fixture and not pinned:
+        raise SystemExit("--default-fixture %r is not one of: %s"
+                         % (pin_fixture, ", ".join(fixture_order)))
+    summaries = {w["token"]: window_compare_summary(captures, keys, w["token"],
+                                                    missing)
+                 for w in windows if w["captureCount"]}
+
     return {
         "schema": MIRROR_SCHEMA,
+        # The page's own generation stamp. It travels in the notes blob, because
+        # a verdict is about the corpus that was on screen when it was typed.
+        "generatedUtc": stamp or "",
         # The windows the command seam can open. A capture whose subject is not
         # one of them is a diagnostic surface (the GuiTree probe), shown in the
         # mirror because it WAS photographed but left out of Compare, which is
         # about the product's windows.
         "seamWindows": list(window_tokens.keys()),
+        # The product's own name, derived from the window titles the captures
+        # carry, so the page can strip it without knowing it.
+        "titlePrefix": title_prefix([t for w in windows for t in w["titles"]]),
         "clickKinds": list(CLICK_KINDS),
         # The op vocabulary, so the page can recognise the one op that is also a
         # button label without a window string being typed into this file.
         "seamOps": list(SEAM_VERBS),
         "closeOp": VERB_CLOSE,
         "fixtures": list(fixtures.values()),
+        # PINNED here, never derived in the page: see `default_fixture`.
+        "defaultFixture": pinned or default_fixture(captures, fixture_order),
+        "mockFixture": MOCK_FIXTURE,
+        "notesSchema": NOTES_SCHEMA,
+        "notesFields": list(NOTES_FIELDS),
+        "noteVerdicts": list(NOTE_VERDICTS),
         "windows": windows,
+        "windowSummaries": summaries,
         "captures": captures,
         "keys": keys,
         "missing": missing,
@@ -1528,11 +2235,16 @@ def _done_volumes(repo_root):
     return sorted(out)
 
 
+def _tree_sig(cap):
+    """One capture's tree with the SAMPLED COLOURS stripped: what two captures
+    have to differ in before a difference is a layout difference rather than a
+    screenshot one."""
+    return json.dumps([_strip(r) for r in cap["roots"] if not r.get("foreign")],
+                      sort_keys=True)
+
+
 def _differs(a, b):
-    def sig(cap):
-        return json.dumps([_strip(r) for r in cap["roots"] if not r.get("foreign")],
-                          sort_keys=True)
-    return sig(a) != sig(b)
+    return _tree_sig(a) != _tree_sig(b)
 
 
 def _strip(node):
@@ -1634,14 +2346,26 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 /* A row container is a `box` with no text: KSP draws it in the panel colour, so
    a border here would invent a grid the game does not draw. */
 .gn.k-box.notext{border-color:transparent;background:none;padding-left:0}
-.gn.k-button,.gn.k-repeatbutton{background:var(--btn);border:1px solid var(--btnedge);
+/* Measured on the ib-logistics-basic frame (Rename / Log (Route) / Logistics /
+   Timeline): KSP draws a button as a NEAR-BLACK outline - grey 5 to 25 - with a
+   light top bevel inside it (88, 71, 61, fading) over a fill of 25 to 76. A
+   uniform #5a5a5a line is brighter than the fill on every one of them, which is
+   why the whole button interior read as ink where only its label should. */
+.gn.k-button,.gn.k-repeatbutton{background:var(--btn);border:1px solid #141414;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.17);
   border-radius:3px;justify-content:center;color:var(--ink);cursor:pointer}
 .gn.k-button.s-label,.gn.k-button.s-{background:none;border:0;justify-content:flex-start;
   padding-left:0}
-.gn.k-buttongrid{background:var(--btn);border:1px solid var(--btnedge);border-radius:3px}
+.gn.k-buttongrid{background:var(--btn);border:1px solid #141414;border-radius:3px}
 .gn.k-buttongrid.grid{background:none;border:0}
+/* A BOX-styled button is a table header cell, not a raised button: KSP draws it
+   with the box's dark outline and no bevel, and the page's button rules were
+   giving it a light border and centring its label. The label's own position is
+   measured off the frame (see `text_ink_offset`); these rules carry the edge. */
+.gn.k-button.s-box{border:1px solid #1d1d1d;box-shadow:none;
+  justify-content:flex-start}
 .gn.k-buttongrid .gi{position:absolute;top:0;bottom:0;background:var(--btn);
-  border:1px solid var(--btnedge);border-radius:3px;color:var(--ink);cursor:pointer;
+  border:1px solid #141414;border-radius:3px;color:var(--ink);cursor:pointer;
   font:var(--gfont)/1 Arial,Helvetica,sans-serif}
 .gn.k-buttongrid .gi>.gl{left:0;right:0}
 /* Measured on the cek-career-contracts and bdk-kerbals-roster frames: the
@@ -1659,12 +2383,75 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 .gn.k-toggle{cursor:pointer}
 .gn.k-toggle .cb{width:14px;height:14px;border:1px solid #777;background:#222;
   display:inline-block;margin-right:4px;text-align:center;line-height:12px;font-size:11px;
-  color:#cfe6ff;flex:0 0 auto}
-.gn.k-textfield{background:#1e1e1e;border:1px solid #666;border-radius:2px;padding-left:3px}
-.gn.k-scrollview{overflow:hidden}
+  color:#cfe6ff;flex:0 0 auto;position:relative}
+/* The mark inside the box, drawn rather than typed: KSP's tick lives in its own
+   skin texture, and an ASCII `x` in its place was the wrong SHAPE at the right
+   state. Two borders rotated 45 degrees is a tick, and it costs no font. */
+.gn.k-toggle .cb.on::after{content:"";position:absolute;left:3px;top:0px;
+  width:5px;height:9px;border:solid #cfe6ff;border-width:0 2px 2px 0;
+  transform:rotate(40deg)}
+/* A toggle in the BUTTON style is not a checkbox. KSP draws
+   `GUILayout.Toggle(v, text, "button")` as a button that sits pushed in while
+   it is on - 987 of the corpus's 8154 toggles - and the page drew every one of
+   them as "x label" on bare window fill. The fill is sampled off the frame like
+   any other button's; these rules carry the edge and the pushed state. */
+.gn.k-toggle.s-button{background:var(--btn);border:1px solid #141414;
+  border-radius:3px;justify-content:center;color:var(--ink);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.17)}
+/* Pushed in: the bevel goes and the outline darkens, which is the same move the
+   selection grid's selected cell makes - measured there as a grey profile of
+   130,30,32,35,40,43,44..60 against an unselected 14,102,88,78,68,41..59. The
+   two use the same #242424 because they are the same skin state. */
+.gn.k-toggle.s-button.on{box-shadow:none;border-color:#242424}
+.gn.k-toggle.s-button .cb{display:none}
+/* A text field is SUNKEN: KSP draws the same near-black outline as a button
+   (measured 5 to 25 on the ib-logistics frame) with no top bevel, over a fill
+   darker than the window's. The #666 line this replaced was brighter than the
+   field it enclosed, which is what made 55 disabled fields read as having no
+   text at all. */
+.gn.k-textfield{background:#1e1e1e;border:1px solid #141414;border-radius:2px;
+  padding-left:3px}
+/* A scroll view SCROLLS. Its children are laid out at the rects the dump
+   recorded, which for the Missions table and the test runner's idle tree run
+   thousands of pixels past the fold, and `overflow:hidden` made everything
+   below it unreachable - the page showed the same first screenful the census
+   photographed and nothing else, with no sign that more existed. The children
+   are absolutely positioned inside it, and an absolutely positioned descendant
+   of its own containing block DOES create scrollable overflow, so the extent
+   needs no content sizer: the rects are the extent. The initial offset stays
+   zero, which is the offset the frame was taken at. */
+.gn.k-scrollview{overflow:auto;scrollbar-width:none}
+/* The BROWSER's own scroll bar, hidden. KSP's scroll bar is a control in the
+   dump and the page draws it from that control's own rect, so leaving the
+   native one visible put a white bar over the mirrored one on all 52
+   overflowing scroll views - a difference from the game that the page itself
+   introduced. Wheel and drag still scroll; the mirrored bar is the visible one,
+   as it is in the game. */
+.gn.k-scrollview::-webkit-scrollbar{display:none}
 .gn.k-slider{display:flex;align-items:center}
+/* The groove. Where the frame gave a colour for it (`sg`) the control is filled
+   with it across its own rect, which is what KSP draws - the
+   ib-structure-mission scroll bar is a flat luminance 45 over its whole 15 px
+   width. The drawn line below is the FALLBACK for a groove that would not
+   sample, oriented by the control's own rect: 130 of the corpus's 142 sliders
+   are scroll bars and 130 of those are vertical, and a horizontal rule drew a
+   15x546 scroll bar as a short bar across its middle. */
 .gn.k-slider::before{content:"";position:absolute;left:0;right:0;top:50%;height:3px;
-  background:#666;border-radius:2px}
+  margin-top:-1px;background:#666;border-radius:2px}
+.gn.k-slider.vt::before{left:50%;right:auto;top:0;bottom:0;width:3px;height:auto;
+  margin-top:0;margin-left:-1px}
+.gn.k-slider.sg::before{display:none}
+/* The handle, at the position AND in the colours MEASURED off the frame
+   (`slider_thumb_run` plus the same sampler every other surface uses). Absent
+   when the frame carried no contrast to read, and then the groove stays bare
+   rather than showing a knob at a position nothing recorded.
+   The fallback greys are for a thumb whose colours would not sample; the face is
+   the one a scroll bar actually has (dark, under a light bevel), not the light
+   one a "handle" suggests. */
+.gn.k-slider .th{position:absolute;background:#2b2b2b;border:1px solid #5a5a5a;
+  border-radius:2px}
+.gn.k-slider:not(.vt) .th{top:1px;bottom:1px}
+.gn.k-slider.vt .th{left:1px;right:1px}
 .gn.k-layoutgroup{}
 .gn.dis{opacity:.42}
 %CLICK_CSS%
@@ -1723,6 +2510,77 @@ table.sum .wlink:hover{text-decoration:underline}
 .dlg .dcap{font-size:10px;color:var(--dim);text-align:center;padding:0 10px 4px}
 .small{font-size:11px;color:var(--dim)}
 .hidden{display:none !important}
+/* A badge is page chrome. Every word INSIDE one that names a state comes out of
+   the dump's own `mock` block or the seam log's own tokens. */
+.badge{display:inline-block;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+  border:1px solid #4a4a4a;color:#9a9a9a;border-radius:3px;padding:0 3px;margin-left:4px;
+  vertical-align:middle;white-space:nowrap}
+.badge.mock{border-color:#8a6ab0;background:#2a2036;color:#dcc6f2}
+.badge.sup{border-color:#4a4a4a;background:#232323;color:#9a9a9a}
+.badge.nohover{border-color:#7a6a3a;background:#2a2620;color:#cbb782}
+.badge.disagree{border-color:#a05a5a;background:#2e2020;color:#e0a0a0}
+#rail .s.stale{opacity:.5;font-style:italic}
+#rail .s .badge{margin-left:2px;flex:0 0 auto}
+#stagehead{font-size:12px;color:#cfcfcf;margin:0 0 6px;display:flex;gap:8px;
+  align-items:center;flex-wrap:wrap}
+#stagehead .lab{font:11px Consolas,monospace;color:#c8d8a8}
+#focusbar{font-size:11px;color:var(--dim);margin:0 0 8px;display:flex;gap:8px;
+  align-items:center;flex-wrap:wrap}
+#focusbar input{background:#1b1b1b;color:#c8d8a8;border:1px solid #333;border-radius:3px;
+  font:11px Consolas,monospace;padding:2px 4px;width:280px}
+.notebox{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0;
+  font-size:11px;color:var(--dim)}
+.notebox input.nt{flex:1 1 320px;min-width:200px;background:#1b1b1b;color:var(--ink);
+  border:1px solid #333;border-radius:3px;font:12px inherit;font-family:inherit;
+  padding:3px 5px}
+.notebox .saved{color:var(--ok)}
+.notebox .nostore{color:var(--warn)}
+#notesPanel{background:#1b1b1b;border:1px solid #2c2c2c;border-radius:4px;
+  padding:8px 10px;margin:0 0 10px;font-size:12px}
+#notesPanel .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0}
+/* `user-select:all` is the fallback's fallback: a viewer that refuses the
+   clipboard API still lets the reader click once and copy. */
+#notesPanel pre{background:#111;border:1px solid #2a2a2a;border-radius:3px;
+  padding:6px 8px;max-height:300px;overflow:auto;font:11px Consolas,monospace;
+  color:#cfe0b8;white-space:pre-wrap;user-select:all}
+#notesPanel textarea{width:100%;height:78px;background:#111;color:#cfe0b8;
+  border:1px solid #2a2a2a;border-radius:3px;font:11px Consolas,monospace}
+#notesPanel .saved{color:var(--ok)}
+#notesPanel .nostore{color:var(--warn)}
+.cmp .sumhead{background:#1b1b1b;border:1px solid #2c2c2c;border-radius:4px;
+  padding:6px 10px;font-size:12px;margin:6px 0 12px}
+.cmp .sumhead .num{font-family:Consolas,monospace;color:#c8d8a8}
+.cmp .sumhead>div{margin-top:4px}
+"""
+
+# The bare-mode skin, kept apart from CSS so a test can assert that every
+# selector in it is scoped to the `bare` class - which is what makes "the page
+# opened without the hash is unchanged" a mechanical claim and not a promise.
+BARE_CSS = """
+/* Bare mode: exactly one capture's stage, at 1:1 CSS pixels, at the top-left of
+   the page, with no rail, header, status line, echo strip or photograph, and no
+   animation running. It is the surface `gui_mirror_fidelity.py` photographs, so
+   that what gets measured is THIS page's own rendering rather than a second
+   renderer written to imitate it. */
+body.bare{background:#000;overflow:hidden}
+body.bare #top,body.bare #rail,body.bare #status,body.bare #echo,
+body.bare #sidewrap,body.bare #compareView,body.bare #mirrorView>p,
+body.bare #stagehead,body.bare #statenote,body.bare #notesPanel,
+body.bare #focusbar{display:none}
+body.bare #wrap{display:block}
+body.bare #main{padding:0}
+body.bare .sidebyside{display:block;gap:0}
+body.bare .sidebyside h5{display:none}
+body.bare .stagewrap{border:0;overflow:visible;max-width:none}
+body.bare .stage{background:#000;background-image:none}
+/* The ready gate, and the reason the instrument needs no second browser call to
+   read the DOM marker: in bare mode the stage paints only once `data-ready` is
+   set, so a screenshot taken before the page finished comes back BLANK instead
+   of half-drawn, and a blank frame where the census frame has ink is a refusal
+   the instrument can see. */
+body.bare .stagewrap{visibility:hidden}
+html[data-ready="1"] body.bare .stagewrap{visibility:visible}
+body.bare *,body.bare *::before,body.bare *::after{animation:none;transition:none}
 """
 
 JS = r"""
@@ -1737,6 +2595,10 @@ var S = {
   view: 'mirror',
   window: null, tab: null, state: null, mode: null,
   fixture: null, photo: 'off', boxes: true, foreign: false, capture: null,
+  /* One window at a time (owner ruling): the review runs a window at a time, so
+     the rail and Compare can be scoped to one, and a `#win=` link opens the page
+     already scoped. Null means the whole page, which is the default. */
+  focus: null,
   collapsed: {}
 };
 /* Which windows are folded shut in the rail. A per-viewer convenience, so it
@@ -1761,6 +2623,30 @@ function saveCollapsed(){
       JSON.stringify(Object.keys(S.collapsed).filter(function(t){ return S.collapsed[t]; })));
   } catch (e) { /* per-viewer convenience only; nothing depends on it */ }
 }
+/* The owner's per-state notes. Same guard discipline as the rail's fold set -
+   every access in try/catch, and the page renders correctly with none of it -
+   but a note is WORK rather than a convenience, so a write the browser refused
+   says so next to the field and the Export panel repeats the warning. That is
+   what makes "export before you close the tab" actionable instead of a surprise.
+   One entry per (run pair, window, tab, state, mode, fixture). */
+var NOTES_KEY = 'parsek-gui-mirror.notes';
+var STORE_OK = true;
+function loadNotes(){
+  try {
+    var raw = window.localStorage.getItem(NOTES_KEY);
+    if (!raw) return {};
+    var obj = JSON.parse(raw);
+    return (obj && typeof obj === 'object' && !obj.length) ? obj : {};
+  } catch (e) { STORE_OK = false; return {}; }
+}
+function saveNotes(){
+  try {
+    window.localStorage.setItem(NOTES_KEY, JSON.stringify(NOTES));
+    STORE_OK = true;
+    return true;
+  } catch (e) { STORE_OK = false; return false; }
+}
+var NOTES = loadNotes();
 /* off -> the rendering alone (the default: it is the thing being checked)
    overlay -> the photograph alone, with the rendering as outlines over it
    side -> the rendering and the photograph next to each other, same scale */
@@ -1774,11 +2660,340 @@ function el(tag, cls, txt){
   return e;
 }
 function norm(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+/* A window title with the product's own name taken off the front. The prefix is
+   the generator's, derived from the titles; this page types no part of it. */
+function stripPrefix(t){
+  var s = (t || '').trim(), p = (M.titlePrefix || '').trim();
+  if (p && s.toLowerCase().indexOf(p.toLowerCase()) === 0){
+    return s.slice(p.length).replace(/^[\s-]+/, '').trim();
+  }
+  return s;
+}
 function capsFor(win){ return M.captures.filter(function(c){ return c.window === win; }); }
 function status(msg, warn){
   var s = document.getElementById('status');
   s.textContent = msg || '';
   s.className = warn ? 'warn' : '';
+}
+
+/* ---- what a capture declares about itself ---- */
+/* Four flags, none of them a judgement this page makes: MOCKED comes out of the
+   dump's own provenance block, SUPERSEDED out of a later capture existing for
+   the same key, the hover one out of the pointer op's own reported tooltip (or,
+   where the log predates that key, out of the capture's own tree being
+   byte-identical to a sibling of the same run), and the last out of the label
+   and the seam log saying different things about what was on screen. */
+function capFlags(cap){
+  var out = [];
+  if (!cap) return out;
+  if (cap.mocked){
+    out.push({ cls: 'mock', text: 'MOCKED DATA', short: 'mock',
+      title: 'a synthetic view model drove this draw: state ' + cap.mocked.stateId
+             + ' of ' + cap.mocked.states + ' in catalogue ' + cap.mocked.catalogue
+             + (cap.mocked.covers && cap.mocked.covers.length
+                ? '; covers ' + cap.mocked.covers.join(', ') : '') });
+  }
+  if (cap.supersededBy){
+    out.push({ cls: 'sup', text: 'superseded', short: 'old',
+      title: 'a later run photographed this same key: ' + cap.supersededBy
+             + '. Kept as the BEFORE of that pair; not counted as coverage.' });
+  }
+  if (cap.hoverEmpty){
+    out.push({ cls: 'nohover', text: 'hover not captured', short: 'no hover',
+      title: cap.hoverEmpty.why === 'log'
+        ? 'the pointer op moved to ' + cap.hoverEmpty.at
+          + ' and reported an empty tooltip, so this is the idle state under a'
+          + ' hover label'
+        : 'this frame is byte-identical to ' + cap.hoverEmpty.twin
+          + ' in the same run, so the hover changed nothing' });
+  }
+  if (cap.disagrees && cap.disagrees.length){
+    out.push({ cls: 'disagree', text: 'label disagrees with the log',
+      short: 'label?',
+      title: 'filed under the log, which is what was on screen. '
+             + cap.disagrees.map(function(d){
+                 return d.field + ': label "' + (d.label || '-')
+                        + '", log "' + d.log + '"'; }).join('; ') });
+  }
+  return out;
+}
+function appendFlags(host, cap, short){
+  capFlags(cap).forEach(function(f){
+    var b = el('span', 'badge ' + f.cls, short ? f.short : f.text);
+    b.title = (short ? f.text + ' - ' : '') + f.title;
+    host.appendChild(b);
+  });
+}
+function flagWords(cap){
+  return capFlags(cap).map(function(f){ return f.text; });
+}
+
+/* ---- the notes a round of review comes back through ---- */
+function noteKey(runPair, win, tab, state, mode, fixture){
+  return [runPair || '', win || '', tab || '', state || '', mode || '',
+          fixture || ''].join('|');
+}
+/* The row shape is the generator's `NOTES_FIELDS`, forwarded in the model, so
+   the blob this page writes and the blob the Python side round-trips cannot
+   disagree about the field set. */
+function noteRow(ctx, verdict, note){
+  var row = {};
+  M.notesFields.forEach(function(f){ row[f] = ''; });
+  row.key = ctx.key;
+  row.window = ctx.win || '';
+  row.tab = ctx.tab || '';
+  row.state = ctx.state || '';
+  row.mode = ctx.mode || '';
+  row.fixture = ctx.fixture || '';
+  row.mocked = !!ctx.mocked;
+  row.mockState = ctx.mockState || '';
+  row.beforeId = ctx.beforeId || '';
+  row.afterId = ctx.afterId || '';
+  row.verdict = verdict || '';
+  row.note = note || '';
+  return row;
+}
+function stateCtx(cap){
+  return {
+    key: noteKey(cap.runId + ' -> ' + cap.runId, cap.window, cap.tab, cap.state,
+                 cap.mode, cap.fixture),
+    win: cap.window, tab: cap.tab, state: cap.state, mode: cap.mode,
+    fixture: cap.fixture, mocked: !!cap.mocked,
+    mockState: cap.mocked ? cap.mocked.stateId : '',
+    beforeId: cap.id, afterId: cap.id
+  };
+}
+function pairCtx(info){
+  var b = byId[info.before], a = byId[info.after];
+  if (!a) return null;
+  return {
+    key: noteKey((b ? b.runId : '') + ' -> ' + a.runId, a.window, a.tab, a.state,
+                 a.mode, a.fixture),
+    win: a.window, tab: a.tab, state: a.state, mode: a.mode, fixture: a.fixture,
+    mocked: !!a.mocked, mockState: a.mocked ? a.mocked.stateId : '',
+    beforeId: b ? b.id : '', afterId: a.id
+  };
+}
+function notesBox(ctx){
+  var d = el('div', 'notebox');
+  if (!ctx) return d;
+  var rec = NOTES[ctx.key] || {};
+  d.appendChild(el('span', null, 'verdict'));
+  var sel = document.createElement('select');
+  [''].concat(M.noteVerdicts).forEach(function(v){
+    var o = document.createElement('option');
+    o.value = v;
+    o.textContent = v || '(none)';
+    sel.appendChild(o);
+  });
+  sel.value = rec.verdict || '';
+  var inp = document.createElement('input');
+  inp.className = 'nt';
+  inp.type = 'text';
+  inp.value = rec.note || '';
+  inp.setAttribute('aria-label', 'one line about this state');
+  var st = el('span', 'saved', '');
+  function commit(){
+    var row = noteRow(ctx, sel.value, inp.value);
+    if (!row.verdict && !String(row.note).replace(/\s+/g, '')){
+      delete NOTES[ctx.key];
+    } else {
+      NOTES[ctx.key] = row;
+    }
+    var ok = saveNotes();
+    st.className = ok ? 'saved' : 'nostore';
+    st.textContent = ok
+      ? 'saved in this browser'
+      : 'this browser refused storage - export before you close the tab';
+    paintNotesPanel();
+  }
+  sel.onchange = commit;
+  inp.onchange = commit;
+  inp.onblur = commit;
+  d.appendChild(sel);
+  d.appendChild(inp);
+  d.appendChild(st);
+  if (!STORE_OK){
+    st.className = 'nostore';
+    st.textContent = 'this browser refused storage - export before you close the tab';
+  }
+  return d;
+}
+
+/* ---- export / import: the blob, and the two ways out of the page ---- */
+function notesRowsFor(scope){
+  return Object.keys(NOTES).sort().map(function(k){ return NOTES[k]; })
+    .filter(function(r){ return !scope || r.window === scope; });
+}
+function notesBlob(scope){
+  var rows = notesRowsFor(scope);
+  return { schema: M.notesSchema, pageSchema: M.schema,
+           generatedUtc: M.generatedUtc || '',
+           scope: scope || 'all windows', count: rows.length, notes: rows };
+}
+function notesMarkdown(blob){
+  var head = ['window','tab','state','mode','fixture','mocked','verdict','note'];
+  var out = ['| ' + head.join(' | ') + ' |',
+             '| ' + head.map(function(){ return '---'; }).join(' | ') + ' |'];
+  (blob.notes || []).forEach(function(r){
+    out.push('| ' + head.map(function(f){
+      var v = (f === 'mocked') ? (r[f] ? 'yes' : '') : r[f];
+      v = String(v == null ? '' : v).replace(/\|/g, '/').replace(/\n/g, ' ').trim();
+      return v || '-';
+    }).join(' | ') + ' |');
+  });
+  return out.join('\n');
+}
+function selectAllIn(node){
+  try {
+    var r = document.createRange();
+    r.selectNodeContents(node);
+    var s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  } catch (e) { /* the CSS `user-select:all` is the fallback's fallback */ }
+}
+function mergeNotes(text){
+  var data;
+  try { data = JSON.parse(text); }
+  catch (e) { return { ok: false, msg: 'that is not JSON' }; }
+  var rows = null;
+  if (data && data.notes && data.notes.length != null) rows = data.notes;
+  else if (data && data.length != null && typeof data !== 'string') rows = data;
+  else if (data && data.key) rows = [data];
+  if (!rows) return { ok: false, msg: 'no notes in it' };
+  var merged = 0, dropped = 0;
+  rows.forEach(function(r){
+    if (!r || typeof r !== 'object'){ dropped++; return; }
+    var key = String(r.key || '').replace(/^\s+|\s+$/g, '');
+    if (!key){
+      key = noteKey(r.runPair, r.window, r.tab, r.state, r.mode, r.fixture);
+    }
+    if (key.replace(/\|/g, '') === ''){ dropped++; return; }
+    var row = {};
+    M.notesFields.forEach(function(f){ row[f] = (f in r) ? r[f] : ''; });
+    row.key = key;
+    NOTES[key] = row;
+    merged++;
+  });
+  var ok = saveNotes();
+  return { ok: true, msg: 'merged ' + merged
+    + (dropped ? ', dropped ' + dropped + ' row(s) with nothing to key on' : '')
+    + (ok ? '' : ' (not stored: this browser refused localStorage)') };
+}
+function paintNotesPanel(){
+  var host = document.getElementById('notesPanel');
+  if (!host || host.classList.contains('hidden')) return;
+  host.innerHTML = '';
+  var scope = (S.notesScope === 'all') ? '' : (S.window || '');
+  var blob = notesBlob(scope);
+
+  var bar = el('div', 'row');
+  bar.appendChild(el('b', null, 'Export notes'));
+  var sel = document.createElement('select');
+  [['window', 'this window only'], ['all', 'all windows']].forEach(function(p){
+    var o = document.createElement('option');
+    o.value = p[0]; o.textContent = p[1];
+    sel.appendChild(o);
+  });
+  sel.value = S.notesScope || 'window';
+  sel.onchange = function(){ S.notesScope = sel.value; paintNotesPanel(); };
+  bar.appendChild(sel);
+  var fmt = document.createElement('select');
+  [['json', 'JSON blob'], ['md', 'markdown table']].forEach(function(p){
+    var o = document.createElement('option');
+    o.value = p[0]; o.textContent = p[1];
+    fmt.appendChild(o);
+  });
+  fmt.value = S.notesFormat || 'json';
+  fmt.onchange = function(){ S.notesFormat = fmt.value; paintNotesPanel(); };
+  bar.appendChild(fmt);
+  var cp = el('button', 'ui', 'copy');
+  bar.appendChild(cp);
+  var msg = el('span', 'small', blob.count + ' note(s) in scope, page generated '
+    + (M.generatedUtc || '?'));
+  bar.appendChild(msg);
+  host.appendChild(bar);
+
+  var pre = document.createElement('pre');
+  pre.textContent = (S.notesFormat === 'md')
+    ? notesMarkdown(blob)
+    : JSON.stringify(blob, null, 1);
+  host.appendChild(pre);
+  /* There is no download link on purpose: a viewer sandbox blocks one, and a
+     blocked link is worse than a box you can select. */
+  cp.onclick = function(){
+    var done = function(ok){
+      msg.className = ok ? 'saved' : 'nostore';
+      msg.textContent = ok
+        ? 'copied ' + blob.count + ' note(s)'
+        : 'the clipboard was refused - the text below is selected, copy it by hand';
+      if (!ok) selectAllIn(pre);
+    };
+    try {
+      if (window.navigator && navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(pre.textContent)
+          .then(function(){ done(true); }, function(){ done(false); });
+      } else { done(false); }
+    } catch (e) { done(false); }
+  };
+  if (!STORE_OK){
+    host.appendChild(el('div', 'nostore',
+      'This browser refused localStorage, so nothing typed here survives a '
+      + 'reload. Copy the blob out before you close the tab.'));
+  }
+
+  var imp = el('div', 'row');
+  imp.appendChild(el('b', null, 'Import notes'));
+  imp.appendChild(el('span', 'small',
+    'paste a blob back to merge it; a row already here is replaced by key'));
+  host.appendChild(imp);
+  var ta = document.createElement('textarea');
+  ta.setAttribute('aria-label', 'paste a notes blob');
+  host.appendChild(ta);
+  var irow = el('div', 'row');
+  var ib = el('button', 'ui', 'merge');
+  var imsg = el('span', 'small', '');
+  ib.onclick = function(){
+    var res = mergeNotes(ta.value);
+    imsg.className = res.ok ? 'saved' : 'nostore';
+    imsg.textContent = res.msg;
+    paintNotesPanel();
+    if (S.view === 'compare') buildCompare();
+    else if (byId[S.capture]) select(byId[S.capture], true);
+  };
+  irow.appendChild(ib);
+  irow.appendChild(imsg);
+  host.appendChild(irow);
+}
+
+/* ---- focus: one window at a time ---- */
+function focusLink(){
+  return '#win=' + encodeURIComponent(S.window || '')
+         + (S.view === 'compare' ? '&view=compare' : '');
+}
+function paintFocus(){
+  var bar = document.getElementById('focusbar');
+  if (!bar) return;
+  bar.innerHTML = '';
+  var b = el('button', 'ui' + (S.focus ? ' on' : ''),
+             S.focus ? 'focused on ' + S.focus : 'focus this window');
+  b.title = 'Scope the rail and Compare to one window, which is the unit a '
+            + 'review round covers.';
+  b.onclick = function(){
+    S.focus = S.focus ? null : S.window;
+    buildRail();
+    paintFocus();
+    if (S.view === 'compare') buildCompare();
+  };
+  bar.appendChild(b);
+  bar.appendChild(el('span', null, 'link to this view'));
+  var inp = document.createElement('input');
+  inp.readOnly = true;
+  inp.setAttribute('aria-label', 'deep link to this window');
+  inp.value = focusLink();
+  inp.onclick = function(){ try { inp.select(); } catch (e) { /* no selection API */ } };
+  bar.appendChild(inp);
 }
 
 /* ---- dataset choice: exact fixture, else nearest in declared order ---- */
@@ -1811,6 +3026,14 @@ function pick(win, tab, state, mode, fixture){
            (mode == null || c.mode === mode);
   });
   if (!pool.length) return null;
+  /* A capture a LATER run photographed the same key of is not the current
+     picture of that state, so a click never lands on it. It stays reachable as
+     the BEFORE of its own Compare pair and from its own rail row, which is how a
+     re-flown lane retires its predecessor without a label being named anywhere.
+     If every candidate is superseded (nothing else was ever photographed) the
+     pool is left alone rather than emptied. */
+  var live = pool.filter(function(c){ return !c.supersededBy; });
+  if (live.length) pool = live;
   var cmp = rank(win);
   var exact = pool.filter(function(c){ return c.fixture === fixture; });
   if (exact.length) return { cap: exact.sort(cmp)[0], exact: true };
@@ -1864,18 +3087,41 @@ function richText(parent, text){
 }
 function renderNode(n, out, opts){
   opts = opts || {};
-  var d = el('div', 'gn k-' + n.k + (n.s ? ' s-' + n.s : '') + (n.e === 0 ? ' dis' : '') +
+  /* `dis` dims a control that the frame gave us no colour for. Where it DID -
+     every control with text - the sampled `fg` is already the greyed colour the
+     game drew, and dimming it again put the Missions window's disabled interval
+     field below the threshold of being visible at all. */
+  var d = el('div', 'gn k-' + n.k + (n.s ? ' s-' + n.s : '') +
+                   ((n.e === 0 && !n.fg) ? ' dis' : '') +
                    (n.t ? '' : ' notext'));
   d.style.left = n.x + 'px'; d.style.top = n.y + 'px';
   d.style.width = n.w + 'px'; d.style.height = n.h + 'px';
   if (n.bg && (n.k === 'box' || n.s === 'box' || n.k === 'button' ||
-               n.k === 'buttongrid' || n.k === 'textfield' || n.k === 'window')) {
+               n.k === 'buttongrid' || n.k === 'textfield' || n.k === 'window' ||
+               (n.k === 'toggle' && n.s === 'button'))) {
     d.style.background = n.bg;
   }
   if (n.fg) d.style.color = n.fg;
   if (n.k === 'toggle'){
-    var cb = el('span','cb', n.v ? 'x' : '');
-    d.appendChild(cb);
+    /* The box is empty and its MARK is drawn in CSS; a glyph typed here was the
+       wrong shape. A toggle in the button style hides the box entirely and takes
+       the pushed-in look instead - which is what KSP draws for that style. */
+    d.appendChild(el('span','cb' + (n.v ? ' on' : '')));
+    if (n.v) d.classList.add('on');
+  }
+  if (n.k === 'slider'){
+    if (n.vt) d.classList.add('vt');
+    if (n.bg){ d.style.background = n.bg; d.classList.add('sg'); }
+    /* The handle at its MEASURED position. No measurement, no handle. */
+    if (n.th && n.th[1] > 0){
+      var th = el('div','th');
+      if (n.vt){ th.style.top = n.th[0] + 'px'; th.style.height = n.th[1] + 'px'; }
+      else { th.style.left = n.th[0] + 'px'; th.style.width = n.th[1] + 'px'; }
+      /* Sampled off this capture's own frame - the face and its bevel. */
+      if (n.tc) th.style.background = n.tc;
+      if (n.te) th.style.borderColor = n.te;
+      d.appendChild(th);
+    }
   }
   if (n.k === 'buttongrid'){
     /* A selection grid reports only the selected item. The item NAMES come from
@@ -1912,6 +3158,12 @@ function renderNode(n, out, opts){
       out.appendChild(d);
       return d;
     }
+  }
+  if (n.tx != null){
+    /* The text run at its MEASURED offset: KSP's box style centres some of them
+       and left-aligns others, and no rule the page could carry knows which. */
+    d.style.justifyContent = 'flex-start';
+    d.style.paddingLeft = n.tx + 'px';
   }
   if (n.t || (n.k === 'buttongrid' && n.tv)){
     var span = el('span', 'tx');
@@ -1977,7 +3229,10 @@ function renderCapture(cap, host, opts){
     });
     host.appendChild(w);
   });
-  if (cap.dialog){
+  /* The modal block carries a PHOTOGRAPH of the whole frame, so bare mode leaves
+     it out: a measurement of the page's own rendering must not be handed a copy
+     of the thing it is being measured against. */
+  if (cap.dialog && opts.dialog !== false){
     host.appendChild(buildDialog(cap));
   }
   wireEcho(host);
@@ -2081,8 +3336,11 @@ function routeClick(ev, cap){
   var wins = M.windows.filter(function(w){ return w.captureCount > 0; });
   for (var i=0;i<wins.length;i++){
     var w = wins[i];
+    /* `M.titlePrefix` is the product's own name, derived by the generator from
+       the run of leading words every window title shares - not a word typed
+       into this page. */
     var names = [norm(w.token)].concat(w.titles.map(function(t){
-      return norm((t||'').replace(/^Parsek\s*-?\s*/i,'')); }));
+      return norm(stripPrefix(t)); }));
     if (names.indexOf(txt) >= 0 && w.token !== cap.window){
       go(w.token, null, null, S.mode); return;
     }
@@ -2189,7 +3447,21 @@ function select(cap, exact){
     side.innerHTML = '';
   }
   var bits = [cap.window, cap.tab, cap.state, cap.mode].filter(Boolean).join(' / ');
-  var msg = bits + '   [' + cap.fixture + ' | ' + cap.label + ' | run ' + cap.runId + ']';
+  /* The stage's own header: what this capture IS, and every flag it declares.
+     The status line repeats the flag words because a reader who scrolled the
+     stage still has the status line in view. */
+  var head = document.getElementById('stagehead');
+  head.innerHTML = '';
+  head.appendChild(el('b', null, bits));
+  head.appendChild(el('span', 'lab', cap.label + '  -  run ' + cap.runId
+                                    + '  -  dataset ' + cap.fixture));
+  appendFlags(head, cap);
+  var note = document.getElementById('statenote');
+  note.innerHTML = '';
+  note.appendChild(notesBox(stateCtx(cap)));
+  var flags = flagWords(cap);
+  var msg = bits + '   [' + cap.fixture + ' | ' + cap.label + ' | run ' + cap.runId + ']'
+            + (flags.length ? '   -- ' + flags.join('; ') : '');
   /* Every axis the request fell back on, not just the dataset: asking for a Basic
      capture and silently getting an Advanced one is the same kind of lie. */
   var fell = [];
@@ -2203,6 +3475,8 @@ function select(cap, exact){
   } else { status(msg); }
   paintMode();
   buildRail();
+  paintFocus();
+  paintNotesPanel();
 }
 
 /* ---- left rail: every window and state with a capture, and the gaps ---- */
@@ -2213,8 +3487,20 @@ function select(cap, exact){
 function buildRail(){
   var rail = document.getElementById('rail');
   rail.innerHTML = '';
-  rail.appendChild(el('h2', null, 'Windows (' + M.captures.length + ' captures)'));
-  M.windows.filter(function(w){ return w.captureCount > 0; }).forEach(function(w){
+  var mocked = M.captures.filter(function(c){ return c.mocked; }).length;
+  rail.appendChild(el('h2', null, 'Windows (' + M.captures.length + ' captures'
+    + (mocked ? ', ' + mocked + ' mocked' : '')
+    + ', ' + Object.keys(M.keys).length + ' distinct states)'));
+  var shown = M.windows.filter(function(w){ return w.captureCount > 0; });
+  if (S.focus){
+    shown = shown.filter(function(w){ return w.token === S.focus; });
+    var all = el('div', 's', 'show every window');
+    all.title = 'Leave the one-window focus this page was opened with.';
+    all.onclick = function(){ S.focus = null; buildRail(); paintFocus();
+      if (S.view === 'compare') buildCompare(); };
+    rail.appendChild(all);
+  }
+  shown.forEach(function(w){
     var open = !S.collapsed[w.token];
     var listId = 'rail-' + w.token;
     var row = el('div', 'w' + (w.token === S.window && S.view === 'mirror' ? ' sel' : ''));
@@ -2229,6 +3515,14 @@ function buildRail(){
       : 'Show the ' + w.token + ' window';
     row.appendChild(el('span', 'caret' + (open ? ' open' : ''), '\u25b8'));
     row.appendChild(el('b', null, w.token));
+    if (w.mockedCount){
+      /* The mocked count BESIDE the real one, per window: "how much of this is
+         real" has to be answerable without opening a capture. */
+      var mb = el('span', 'badge mock', w.mockedCount + ' mocked');
+      mb.title = w.mockedCount + ' of this window\'s ' + w.captureCount
+                 + ' captures were driven by a synthetic view model';
+      row.appendChild(mb);
+    }
     var cmpBtn = el('span', 'cmpbtn', 'cmp');
     cmpBtn.title = 'Compare the ' + w.token + ' window';
     cmpBtn.onclick = function(ev){
@@ -2267,12 +3561,19 @@ function buildRail(){
     list.dataset.collapsible = '1';
     list.hidden = !open;
     var seen = {};
-    capsFor(w.token).forEach(function(c){
+    /* The CURRENT capture of each state first: a superseded one is shown only
+       where nothing newer exists, so the rail lists what the mirror would
+       actually draw. */
+    capsFor(w.token).slice().sort(function(a, b){
+      return (a.supersededBy ? 1 : 0) - (b.supersededBy ? 1 : 0);
+    }).forEach(function(c){
       var k = [c.tab || '-', c.state || '-', c.mode || '-'].join(' / ');
       if (seen[k]) return;
       seen[k] = 1;
-      var sr = el('div', 's' + (c.id === S.capture ? ' sel' : ''));
+      var sr = el('div', 's' + (c.id === S.capture ? ' sel' : '')
+                       + ((c.hoverEmpty || c.supersededBy) ? ' stale' : ''));
       sr.appendChild(el('span', null, k));
+      appendFlags(sr, c, true);
       sr.appendChild(el('span', 'n', c.fixture));
       sr.onclick = function(){
         select(c, c.fixture === S.fixture);
@@ -2307,6 +3608,7 @@ function showView(){
   document.getElementById('compareView').classList.toggle('hidden', S.view !== 'compare');
   document.getElementById('btnMirror').classList.toggle('on', S.view === 'mirror');
   document.getElementById('btnCompare').classList.toggle('on', S.view === 'compare');
+  paintFocus();
   if (S.view === 'compare') buildCompare();
 }
 
@@ -2322,10 +3624,51 @@ function compareRowsFor(win){
     if (!cap) return;
     if (cap.window !== win) return;
     if (M.seamWindows.indexOf(cap.window) < 0) return;
+    /* A capture the log says photographed no hover is the window's idle state
+       under a hover label, so a pair of it reports no change and occupies a row
+       that reads as coverage. It keeps its rail row and its badge. */
+    if (cap.hoverEmpty) return;
     rows.push({ k: k, info: info });
   });
   rows.sort(function(a,b){ return (b.info.changed?1:0) - (a.info.changed?1:0); });
   return rows;
+}
+/* One window's own header, in counts the generator measured. `fixture` is part
+   of the pair key and a mocked capture sits in its own fixture, so a mocked
+   BEFORE can only ever pair with a mocked AFTER - that isolation is structural,
+   and this line is where a reader can SEE the two populations side by side. */
+function summaryHead(win){
+  var s = (M.windowSummaries || {})[win] || {};
+  var d = el('div', 'sumhead');
+  var line = el('div');
+  line.appendChild(el('b', null, 'This window: '));
+  var parts = [
+    'states ' + (s.statesReal || 0) + ' real'
+      + (s.statesMocked ? ' + ' + s.statesMocked + ' mocked' : ''),
+    'changed ' + (s.changed || 0),
+    'unchanged ' + (s.unchanged || 0),
+    'new ' + (s['new'] || 0),
+    'gone ' + (s.gone || 0),
+    'captures ' + (s.captures || 0)
+      + (s.superseded ? ' (' + s.superseded + ' superseded)' : '')
+  ];
+  if (s.hoverNotCaptured) parts.push('hover not captured ' + s.hoverNotCaptured);
+  if (s.labelDisagreements) parts.push('label disagrees with the log '
+                                       + s.labelDisagreements);
+  line.appendChild(el('span', 'num', parts.join('   |   ')));
+  d.appendChild(line);
+  d.appendChild(el('div', 'small',
+    'States are DISTINCT keys, not files - a capture a later run replaced is not '
+    + 'a second state. NEW and GONE are read off spec RE-FLIGHTS ('
+    + (s.reflownSpecs || 0) + ' of this window\'s specs flew more than once): the '
+    + 'keys the newest run of a spec has and its oldest does not, and the '
+    + 'reverse.'));
+  if ((s.uncaptured || []).length){
+    d.appendChild(el('div', 'small', 'known to the seam, never photographed: '
+      + s.uncaptured.map(function(m){
+          return (m.tab || '-') + ' / ' + (m.mode || '-'); }).join(', ')));
+  }
+  return d;
 }
 function buildCompare(){
   var host = document.getElementById('compareView');
@@ -2376,7 +3719,12 @@ function buildCompare(){
     if (w2 === win) tr.className = 'here';
     var wc = el('td');
     var link = el('span','wlink', w2);
-    link.onclick = function(){ S.window = w2; buildCompare(); buildRail(); };
+    link.onclick = function(){ S.window = w2;
+      /* Following a summary row MOVES the focus rather than dropping it: the
+         rail is filtered to the focused window, and leaving it behind would
+         empty the rail. */
+      if (S.focus) S.focus = w2;
+      buildCompare(); buildRail(); paintFocus(); };
     wc.appendChild(link);
     tr.appendChild(wc);
     var td = el('td', changed ? 'y' : 'n', changed ? 'yes' : 'no');
@@ -2390,6 +3738,7 @@ function buildCompare(){
   [win].forEach(function(win){
     var sec = el('div','cmp');
     sec.appendChild(el('h3', null, win));
+    sec.appendChild(summaryHead(win));
     sec.appendChild(noteBlock(win, rows[win]));
     if (!rows[win].length){
       sec.appendChild(el('div','small',
@@ -2406,9 +3755,16 @@ function buildCompare(){
                                 : 'UNCHANGED (one capture)'),
         before, r.info));
       if (r.info.changed) pair.appendChild(sideBlock('AFTER', after, r.info));
-      sec.appendChild(el('div','small', r.k.split('|').filter(Boolean).join(' / ')));
+      var kline = el('div','small');
+      kline.appendChild(document.createTextNode(
+        r.k.split('|').filter(Boolean).join(' / ')));
+      appendFlags(kline, after);
+      sec.appendChild(kline);
       sec.appendChild(pair);
       if (r.info.measured) sec.appendChild(measuredBlock(r.info.measured));
+      /* One line of the owner's own, per pair, keyed on THIS before/after: a
+         verdict does not follow a picture he has not seen. */
+      sec.appendChild(notesBox(pairCtx(r.info)));
     });
     host.appendChild(sec);
   });
@@ -2418,6 +3774,7 @@ function buildCompare(){
 function sideBlock(title, cap, info){
   var side = el('div','side');
   var h = el('h4', null, title + '  -  ' + (cap ? cap.runId + ' / ' + cap.label : '?'));
+  appendFlags(h, cap);
   side.appendChild(h);
   if (!cap){ side.appendChild(el('div','small','no capture')); return side; }
   var bar = el('div');
@@ -2556,24 +3913,90 @@ function noteBlock(win, keyRows){
   return d;
 }
 
+/* ---- bare mode: the deep link the fidelity instrument photographs ---- */
+/* `#cap=<capture id>&bare=1` renders exactly one capture's stage at 1:1 CSS
+   pixels at the top-left, with the page's own chrome, photograph and animations
+   off, and sets `data-ready` on <html> once the stage has painted, which is what
+   the headless screenshot waits for.
+   Everything below is reached only through the hash: `bootBare` returns false on
+   a page opened without it and boot() then follows exactly the path it always
+   did. That is the whole reason the instrument can claim it measures the real
+   page - there is no second rendering path to drift. */
+function parseHash(h){
+  var out = {};
+  String(h || '').replace(/^#/, '').split('&').forEach(function(p){
+    if (!p) return;
+    var i = p.indexOf('=');
+    var k = (i < 0) ? p : p.slice(0, i);
+    var v = (i < 0) ? '1' : p.slice(i + 1);
+    if (!k) return;
+    try { out[decodeURIComponent(k)] = decodeURIComponent(v); }
+    catch (e) { out[k] = v; }
+  });
+  return out;
+}
+function bootBare(){
+  var q = parseHash(window.location.hash);
+  if (q.bare !== '1') return false;
+  document.body.classList.add('bare');
+  var stage = document.getElementById('stage');
+  var cap = byId[q.cap];
+  if (!cap){
+    /* Named a capture that is not in this page: say which, and mark the document
+       NOT ready, so the instrument fails loudly instead of measuring a blank. */
+    document.documentElement.dataset.error = 'no capture "' + (q.cap || '') + '"';
+    document.documentElement.dataset.ready = '0';
+    return true;
+  }
+  renderCapture(cap, stage, { photo: 'off', dialog: false,
+                              foreign: (q.foreign === '1') });
+  /* The stage is pinned to the frame the dump was taken at, so a screenshot of
+     it shares one coordinate system with the census PNG: pixel (x,y) here is
+     pixel (x,y) there. renderCapture grows the stage to the widest root, which
+     is right for a reader scrolling a window the instance could not fit and
+     wrong for a measurement against a screen-sized frame. */
+  stage.style.width = cap.screen[0] + 'px';
+  stage.style.height = cap.screen[1] + 'px';
+  document.documentElement.dataset.capture = cap.id;
+  /* `&scroll=<px>` scrolls every scroll view on the stage before the page marks
+     itself ready. It exists so that "content below the fold is REACHABLE" is a
+     thing a screenshot can show rather than a claim about CSS: photograph one
+     capture at 0 and at 400 and the rows on screen differ. The default is 0,
+     which is the offset the census frame was taken at, so an ordinary
+     measurement is unaffected. */
+  var sc = parseInt(q.scroll, 10);
+  if (sc > 0){
+    Array.prototype.forEach.call(stage.querySelectorAll('.gn.k-scrollview'),
+      function(sv){ sv.scrollTop = sc; });
+    document.documentElement.dataset.scrolled = String(sc);
+  }
+  /* Two frames: one for layout, one for the paint. */
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      document.documentElement.dataset.ready = '1';
+    });
+  });
+  return true;
+}
+
 /* ---- boot ---- */
 function boot(){
+  if (bootBare()) return;
   var fixSel = document.getElementById('fixture');
   M.fixtures.forEach(function(f){
     var o = document.createElement('option');
-    o.value = f.key; o.textContent = f.key;
+    o.value = f.key;
+    o.textContent = f.key + (f.key === M.mockFixture ? ' (mocked data)' : '');
     fixSel.appendChild(o);
   });
-  /* Default dataset: the one that photographed the most DIFFERENT windows at
-     the Space Center - the census's general-purpose host - rather than the one
-     with the most captures, which is whichever lane happened to be longest. */
-  var breadth = {};
-  M.captures.forEach(function(c){
-    if ((c.scene||'') !== 'SPACECENTER') return;
-    (breadth[c.fixture] = breadth[c.fixture] || {})[c.window] = 1; });
-  S.fixture = FIX_ORDER.slice().sort(function(a,b){
-    return Object.keys(breadth[b]||{}).length - Object.keys(breadth[a]||{}).length;
-  })[0];
+  /* The default dataset is PINNED by the generator, not derived here. It used to
+     be derived - the fixture that photographed the most different windows at the
+     Space Center - and that was right while every dataset was a real save; a
+     ~300-state mocked gallery wins that contest outright and would silently
+     become the page the owner opens. `default_fixture` excludes the mocked
+     dataset from the contest and `--default-fixture` pins it by hand. */
+  S.fixture = (FIX_ORDER.indexOf(M.defaultFixture) >= 0)
+    ? M.defaultFixture : FIX_ORDER[0];
   fixSel.value = S.fixture;
   fixSel.onchange = function(){ S.fixture = fixSel.value;
     go(S.window, S.tab, S.state, S.mode);
@@ -2612,16 +4035,55 @@ function boot(){
     if (byId[S.capture]) select(byId[S.capture], true); };
   document.getElementById('btnMirror').onclick = function(){ S.view='mirror'; showView(); };
   document.getElementById('btnCompare').onclick = function(){ S.view='compare'; showView(); };
+  var nb = document.getElementById('btnNotes');
+  nb.onclick = function(){
+    var host = document.getElementById('notesPanel');
+    var open = host.classList.contains('hidden');
+    host.classList.toggle('hidden', !open);
+    nb.classList.toggle('on', open);
+    paintNotesPanel();
+  };
 
-  var first = capsFor('main')[0] || M.captures[0];
+  /* The capture the page OPENS on goes through the same ranking a click does,
+     so it cannot be one a later run superseded. Taking the first in model order
+     opened the page on the oldest capture of the main window, badged
+     `superseded`, which is the one picture the mirror should never lead with. */
+  var firstWin = capsFor('main').length
+    ? 'main' : ((M.captures[0] || {}).window || null);
+  var r0 = pick(firstWin, null, null, S.mode, S.fixture)
+           || pick(firstWin, null, null, null, S.fixture);
+  var first = (r0 && r0.cap) || capsFor('main')[0] || M.captures[0];
   var stored = loadCollapsed();
   if (stored){
     S.collapsed = stored;
   } else {
     M.windows.forEach(function(w){ S.collapsed[w.token] = true; });
   }
+  /* The FOCUS deep link: `#win=<token>`, plus `&view=compare`. It opens the page
+     already scoped to one window, which is the unit a review round covers, and
+     it is what a chat message can carry. A token no capture is of is SAID rather
+     than silently ignored - the whole page would otherwise look like the answer
+     to a link that missed. `bare=1` never reaches here: bootBare() returned
+     before this. */
+  var q = parseHash(window.location.hash);
+  var missed = null;
+  if (q.win){
+    if (M.captures.some(function(c){ return c.window === q.win; })){
+      S.focus = q.win;
+      S.window = q.win;
+      var r = pick(q.win, null, null, S.mode, S.fixture)
+              || pick(q.win, null, null, null, S.fixture);
+      if (r) first = r.cap;
+      if (q.view === 'compare') S.view = 'compare';
+    } else {
+      missed = 'the link names window "' + q.win
+               + '", which no capture in this page is of.';
+    }
+  }
   showView();
   select(first, first.fixture === S.fixture);
+  paintFocus();
+  if (missed) status(missed, true);
 }
 document.addEventListener('DOMContentLoaded', boot);
 """
@@ -2642,7 +4104,8 @@ def render_html(model):
         '<html lang="en"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width,initial-scale=1">',
         "<title>Parsek GUI mirror</title>",
-        "<style>%s</style>" % CSS.replace("%CLICK_CSS%", click_kind_css()),
+        "<style>%s</style>" % (CSS.replace("%CLICK_CSS%", click_kind_css())
+                               + BARE_CSS),
         "</head><body>",
         '<div id="top">',
         "<h1>Parsek GUI mirror</h1>",
@@ -2653,6 +4116,7 @@ def render_html(model):
         '<button class="ui" id="btnPhoto">photo: off</button>',
         '<button class="ui hidden" id="btnBoxes">outlines on</button>',
         '<button class="ui" id="btnForeign">other mods</button>',
+        '<button class="ui" id="btnNotes">notes</button>',
         '<span class="sp"></span>',
         '<span class="small">%d captures, %d windows, %d fixtures (%s)</span>'
         % (len(model["captures"]), len([w for w in model["windows"] if w["captureCount"]]),
@@ -2660,7 +4124,10 @@ def render_html(model):
         "</div>",
         '<div id="wrap"><div id="rail"></div><div id="main">',
         '<div id="status"></div>',
+        '<div id="focusbar"></div>',
+        '<div id="notesPanel" class="hidden"></div>',
         '<div id="mirrorView">',
+        '<div id="stagehead"></div>',
         '<div class="sidebyside">',
         '<div><h5>rendered from the control tree</h5>'
         '<div class="stagewrap"><div class="stage" id="stage"></div></div></div>',
@@ -2668,6 +4135,7 @@ def render_html(model):
         '<div class="stagewrap"><div class="stage" id="sidestage"></div></div></div>',
         '</div>',
         '<div class="echo" id="echo"></div>',
+        '<div id="statenote"></div>',
         '<p class="small">Hovering a control puts its real tooltip in the strip above '
         "and on the element itself. A click switches to the capture of that state where "
         "the census produced one; where it did not, the control flashes and the status "
@@ -2705,12 +4173,22 @@ def _page_model(model):
     """The page gets everything except the raw dumps' unused bookkeeping."""
     return {
         "schema": model["schema"],
+        "generatedUtc": model.get("generatedUtc", ""),
         "seamWindows": model["seamWindows"],
+        "titlePrefix": model["titlePrefix"],
         "clickKinds": model["clickKinds"],
         "seamOps": model["seamOps"],
         "closeOp": model["closeOp"],
         "fixtures": model["fixtures"],
+        # Defaulted rather than required, so a hand-built model (the fidelity
+        # tool's own fixture) still renders a page.
+        "defaultFixture": model.get("defaultFixture") or "",
+        "mockFixture": model.get("mockFixture") or MOCK_FIXTURE,
+        "notesSchema": model.get("notesSchema") or NOTES_SCHEMA,
+        "notesFields": model.get("notesFields") or list(NOTES_FIELDS),
+        "noteVerdicts": model.get("noteVerdicts") or list(NOTE_VERDICTS),
         "windows": model["windows"],
+        "windowSummaries": model.get("windowSummaries") or {},
         "modes": model["modes"],
         "captures": model["captures"],
         "keys": model["keys"],
@@ -2720,22 +4198,61 @@ def _page_model(model):
 
 
 def build_index(model):
-    """The companion JSON: coverage without the geometry."""
+    """The companion JSON: coverage without the geometry.
+
+    Coverage is counted in DISTINCT KEYS, not files. The corpus carries 228 PNGs
+    behind 134 distinct labels, so a file count reads as about 1.7x the coverage
+    there is; and a capture a later run superseded, or one the log says
+    photographed no hover, is not coverage at all.
+    """
     per_window = {}
     for cap in model["captures"]:
-        w = per_window.setdefault(cap["window"], {"captures": 0, "states": {}, "fixtures": {}})
+        w = per_window.setdefault(cap["window"], {
+            "captures": 0, "capturesMocked": 0, "superseded": 0,
+            "hoverNotCaptured": 0, "labelDisagreements": 0,
+            "states": {}, "fixtures": {}})
         w["captures"] += 1
+        if cap.get("mocked"):
+            w["capturesMocked"] += 1
+        if cap.get("supersededBy"):
+            w["superseded"] += 1
+        if cap.get("hoverEmpty"):
+            w["hoverNotCaptured"] += 1
+        if cap.get("disagrees"):
+            w["labelDisagreements"] += 1
         k = "%s / %s / %s" % (cap["tab"] or "-", cap["state"] or "-", cap["mode"] or "-")
-        w["states"][k] = w["states"].get(k, 0) + 1
+        row = w["states"].setdefault(k, {"captures": 0, "mocked": False,
+                                         "superseded": 0})
+        row["captures"] += 1
+        if cap.get("mocked"):
+            row["mocked"] = True
+        if cap.get("supersededBy"):
+            row["superseded"] += 1
+        if cap.get("hoverEmpty"):
+            row["hoverNotCaptured"] = row.get("hoverNotCaptured", 0) + 1
+        if cap.get("disagrees"):
+            row["labelDisagreements"] = row.get("labelDisagreements", 0) + 1
         w["fixtures"][cap["fixture"]] = w["fixtures"].get(cap["fixture"], 0) + 1
+    for tok, w in per_window.items():
+        w["summary"] = (model.get("windowSummaries") or {}).get(tok) or {}
+    caps = model["captures"]
     return {
         "schema": MIRROR_SCHEMA,
-        "captureCount": len(model["captures"]),
+        "generatedUtc": model.get("generatedUtc", ""),
+        "captureCount": len(caps),
+        "mockedCaptureCount": len([c for c in caps if c.get("mocked")]),
+        "distinctKeyCount": len(model["keys"]),
+        "supersededCaptureCount": len([c for c in caps if c.get("supersededBy")]),
+        "hoverNotCapturedCount": len([c for c in caps if c.get("hoverEmpty")]),
+        "labelDisagreementCount": len([c for c in caps if c.get("disagrees")]),
+        "defaultFixture": model["defaultFixture"],
         "seamWindows": model["seamWindows"],
         "fixtures": [f["key"] for f in model["fixtures"]],
         "windows": per_window,
         "missing": model["missing"],
-        "compare": {k: {"before": v["before"], "after": v["after"], "changed": v["changed"]}
+        "compare": {k: {"before": v["before"], "after": v["after"],
+                        "changed": v["changed"],
+                        "superseded": v.get("superseded") or []}
                     for k, v in model["keys"].items()},
         "photoBytes": model.get("photoBytes", 0),
     }
@@ -2753,6 +4270,13 @@ def main(argv=None):
     ap.add_argument("--index", default=None)
     ap.add_argument("--no-photos", action="store_true")
     ap.add_argument("--budget-mb", type=float, default=16.0)
+    ap.add_argument("--default-fixture", default="",
+                    help="pin the dataset the page opens on; the default is the "
+                         "widest REAL fixture and is never the mocked one")
+    ap.add_argument("--stamp", default="",
+                    help="the page's generation stamp; defaults to now (UTC). It "
+                         "travels in the exported notes blob, so a verdict names "
+                         "the corpus it was typed against")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
 
@@ -2769,10 +4293,14 @@ def main(argv=None):
         scenarios = os.path.join(args.repo, "harness", "scenarios")
 
     budget = int(args.budget_mb * 1024 * 1024)
+    stamp = args.stamp or datetime.datetime.now(
+        datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     model = build_model(dirs, scenarios, repo_root=args.repo,
                         with_photos=not args.no_photos,
                         budget=budget,
-                        verbose=args.verbose)
+                        verbose=args.verbose,
+                        stamp=stamp,
+                        pin_fixture=args.default_fixture)
     html = render_html(model)
     size = len(html.encode("utf-8"))
     # Measured BEFORE the file is opened: an over-budget page that has already

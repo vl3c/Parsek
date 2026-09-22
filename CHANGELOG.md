@@ -10,6 +10,310 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the GUI mirror sizes an auto-fitted window by its content, not by the rect the seam applied.** The main window reports height 0 in every dump because its host re-fits it every frame; the mirror had been drawing it at the height the seam applied at open time (300 px, measured in Advanced), which went stale after the mode switch and drew a 74 px empty panel under Close in Basic mode. The owner read it as a product bug; the game frame shows the window ending under Close. `root_height` now takes the child extent plus the measured 14 px bottom chrome and keeps the applied rect only for a window that drew no children (`harness/tools/gui_mirror.py`).
+- **Automated testing: the GUI census photographs the Missions window's fold states.** The
+  operator lane `GUI-1-census-ksc` took exactly one picture of each of the window's two
+  tabs, so every fold arrow in the GUI mirror pointed at nothing - a reader could see that
+  a row collapses and never what collapsing hides. Six new captures (each with its
+  control-tree dump) show both tabs collapsed and fully expanded, plus one Recordings chain
+  block expanded inside its group folder with the other fifteen shut, and one Missions
+  row's `Events (N)` digest open on its own. Spec-only, driven entirely by the existing
+  `UiAction op=expand` vocabulary; no product code changed. Reading run `2026-09-22_1631`
+  (PASS, 87 s): the Missions tab goes 922 -> 1769 drawn nodes between the collapsed and
+  expanded captures, the Recordings tab 415 -> 1915, and the two deep folds read 999 and
+  453. Two measurements came out of it: a chain block only draws inside an OPEN group
+  folder (expanding the chain alone flips the flag and changes no pixel), and on this host
+  the window restores fully collapsed in both tabs.
+
+- **Automated testing: the GUI state gallery, phase 1 - a window can now be handed MOCKED
+  DATA while the real IMGUI draw code computes every rect and every string.** The census is
+  honest and incomplete: a harness flight can only photograph a state some fixture save plus
+  op sequence reaches, and the 2026-09-21 coverage audit put that at about 166 of roughly 480
+  enumerated states - with the gap falling almost entirely on the product's failure surface.
+  A new automation-only op, `UiAction op=mock window=<token> mockState=<catalogue id>`,
+  swaps ONE window's view model for a synthetic one from a catalogue compiled into
+  `Parsek.dll`, so a capture can show a state no save reaches. **Only DATA is mocked**: the
+  draw code is never bypassed or imitated, and nothing typed by hand reaches a cell the
+  window draws. The Kerbals states run `KerbalsPresentation.BuildRosterRows` /
+  `BuildFlightRows` over synthetic inputs; the Career states run the real
+  `CareerStateWindowUI.Build` over a synthetic ledger whose strategy and milestone ids are
+  the stock ones, each with its own declared Source -> Target flow; and the Structure List
+  states build DETACHED `RecordingTree` / `Route` graphs and run the REAL
+  `MissionStructureListBuilder` / `RouteStructureListBuilder` over them. 43 states ship
+  across three windows: Kerbals (the lost and retired statuses and the whole stand-in chain
+  vocabulary, none of which has a picture in the current design), Career State (the
+  divergence banner - the window's entire point, unphotographed - plus the Flow column,
+  facility levels above 1 and both destroyed forms), and Structure List (the six
+  unphotographed terminal STATUS words, the EVA / breakup event words, and the route pickup
+  and depot-origin forms).
+
+  **The apply's read-back is DRAW-PRODUCED, and it is three-phase.** Phase 1 applies the
+  window's chrome and captures it WITHOUT the mock; phase 2 installs the data and captures
+  again; the check then requires every witness to be present in the second capture and
+  absent from the first, over the TARGET WINDOW's own subtree. The witnesses are derived
+  from the payload through the same per-column formatters the draw method calls, and the row
+  that carries the state's own declared branch is derived FIRST - so a witness says
+  something about the state rather than about the window. Reading back the field just
+  written is the vacuous read-back `op=rect` had to be fixed for, and it cannot fire on any
+  input.
+
+  **Nothing injected can reach a save**, structurally: every member the applier writes is a
+  UI-layer field that `ParsekScenario.OnSave`, the sidecar writers and every store never
+  read. A new grep gate (`scripts/grep-audit-gui-mock-writeset.ps1`) enforces it as an
+  ALLOWLIST of the types a gallery file may name, with `using X = Y` aliases banned outright
+  - a denylist can only ban the writers somebody thought of. `SaveGame`, `LoadGame` and
+  `RunTests` each refuse `save-refused-gui-mock` while a scope is live, and every exit path
+  clears unconditionally. A mocked capture announces itself forever through an additive
+  `mock` block in its `.gui.json` (the schema id does not move; absent means a real
+  capture), which the offline viewer already reads.
+
+  **Guards:** a completeness guard reflects over each guarded enum's whole member set and
+  additionally names every BOOL-driven branch a state must claim (the divergence banner,
+  `(pending)`, `(closing)`, destroyed, upcoming, a status tooltip, a collapsed run), each
+  with a predicate proving the catalogue reaches it; a builder-fidelity gate asserts every
+  Structure state's rows EQUAL real-builder output and fails on any string literal assigned
+  to a drawn row field; an id-shape gate pins the stock strategy names and cross-checks the
+  milestone ids against the committed fixtures' own ledgers; and three source gates keep the
+  applier's install arms, its four suppression sites and every exit path honest.
+
+  **NO PLAYER-FACING SURFACE and no player-build behaviour change**: the op is inert unless
+  `PARSEK_TEST_COMMANDS=1` arms the addon, and the four cache suppressions are one predicate
+  read each, false in every build where no armed seam created a session. **NOTHING HAS
+  FLOWN**: P1 ships no lane by design, the five in-game `GuiMock` cells are driven by no
+  committed spec, and an hlib gate refuses any committed spec that drives the op until the
+  mirror reads the dump's `mock` block. Design:
+  `docs/dev/design-gui-state-gallery.md` (section 18 records what the code forced to change
+  from the design and why).
+
+- **Automated testing: the harvest cap no longer silently drops most of a capture-heavy
+  run.** `ARTIFACT_MAX_SCREENSHOTS` goes from 64 to 1024 and
+  `ARTIFACT_MAX_SCREENSHOT_BYTES` from 256 MB to 768 MB. A capture PAIR is two files (both
+  `.png` and `.gui.json` are harvested suffixes), so the old count cap harvested at most 32
+  STATES and dropped the rest into `skipped_over_cap` - reported as
+  `artifacts.screenshotsSkipped` and easy to miss. Every lane to date reads 0 skipped
+  because GUI-1's 45 files sit just under the old ceiling, which is exactly why nothing
+  noticed it. The byte figure is sized off measured census artifacts (PNG p90 660 KB,
+  `.gui.json` max 2.44 MB), where 400 states is about 257 MB at p90 - i.e. exactly AT the
+  old cap in the worst case. `ARTIFACT_SHOTS_MAX_TOTAL_BYTES` is deliberately unchanged: it
+  bounds the retained results tree rather than one run.
+
+- **Automated testing: the GUI mirror can now run the owner's review loop - mocked captures
+  badged and isolated, his verdicts exported as a schema, one window at a time, and false
+  coverage retired mechanically.** The mirror half of the state gallery's phase P2
+  (`docs/dev/design-gui-state-gallery.md`), all of it in `harness/tools/gui_mirror.py` and
+  all of it still GENERATED from the census artifacts - no window text, no per-window
+  geometry and no per-window special case entered the generator, which its corpus-driven AST
+  guard keeps mechanical. Four parts.
+
+  **Mocked captures.** A gallery lane hands a window a synthetic view model and photographs
+  the real draw code drawing a state no save can reach. Such a capture declares itself in its
+  own DUMP - the additive `mock` block at the unchanged `parsek-gui-tree/1` schema id, absent
+  meaning real, which is every committed capture - and the mirror files it under the dataset
+  `mock` with its window / tab / state read off the catalogue state id rather than off its
+  label. It has to be the dump and not the name because a gallery lane HAS a
+  `fixture.saveTemplate` (it needs a loaded game), so without the block its captures would
+  file under a real fixture and pair against real ones in Compare. Because `fixture` is
+  already part of the before/after key, a mocked BEFORE can now only pair with a mocked
+  AFTER: the isolation is structural rather than a filter somebody has to remember, and the
+  catalogue state id is appended to the key so two states of one tab cannot pair with each
+  other either. Real keys gain no segment and stay byte-identical. `MOCKED DATA` is badged in
+  the rail (with a per-window mocked count), the stage header, the status line and both sides
+  of a Compare pair, all from one flag function; `gui-mirror-index.json` gains
+  `mockedCaptureCount`, a per-window `capturesMocked` and `mocked` on each state row. And the
+  default dataset stopped being DERIVED in the page: the same breadth measurement now runs in
+  the generator over the REAL fixtures only and is PINNED into the model, because a ~300-state
+  mocked gallery wins a breadth contest outright and would silently become the page the owner
+  opens. `--default-fixture` pins it by hand and refuses a name that is not a dataset of the
+  corpus.
+
+  **The notes the round comes back through.** Every state view and every Compare pair carries
+  a one-line note and a `keep` / `change` / `unsure` verdict, held in `localStorage` under
+  `(run pair, window, tab, state, mode, fixture)` - the run pair is what keeps a verdict from
+  following a picture the owner has not seen after a re-flight. Every storage access is in
+  try/catch and the page renders with none of it, but a refused write is SAID beside the field
+  and in the export panel, because a fold that does not persist is a nuisance while a verdict
+  that does not is lost work. `Export notes` serialises the selected window's notes, or all of
+  them, as a `parsek-gui-mirror-notes/1` JSON blob AND a markdown table in a `<pre>`, with a
+  copy button and a visible select-all fallback for a viewer that refuses the clipboard API;
+  the blob carries both capture ids, the five facets, the dataset, the mocked flag, the state
+  id, the verdict, the note and the PAGE's generation stamp, which is what makes a verdict
+  actionable in a session that never saw the page. An `Import notes` textarea merges a pasted
+  blob back by key, accepting the whole blob, a bare list or a single row, and dropping - out
+  loud - a row with nothing to key on. No server and no download link: a viewer sandbox
+  blocks one, and a blocked link is worse than a box you can select. The row FIELD SET is one
+  constant in the generator, forwarded into the page and iterated by the JS, so the blob the
+  page writes and the blob the Python side round-trips cannot drift.
+
+  **One window at a time** (the owner's ruling for the analysis): `#win=<token>`, optionally
+  `&view=compare`, opens the page already scoped to one window - rail filtered, with a way
+  out, and the link printed in a read-only field so it can be pasted into a message - and a
+  token no capture is of is said in the status line rather than silently ignored. Each
+  window's Compare section opens with its own counts: states real and mocked, changed,
+  unchanged, new, gone, captures with how many superseded, the flag counts, and the window's
+  known-uncaptured list. The older `#cap=...&bare=1` deep link the fidelity instrument
+  photographs is untouched, `bootBare()` is still the first statement of `boot()`, and every
+  new element is in the `body.bare` hide list.
+
+  **False coverage retires mechanically** (owner ruling 7), with no label named anywhere,
+  because a label typed into the generator is a label that rots. A capture is SUPERSEDED when
+  a later run photographed the same key: the mirror shows the latest, the page no longer even
+  OPENS on a superseded capture (found by photographing the page, and the one picture the
+  mirror must not lead with), the rail greys it, and coverage counts DISTINCT KEYS. On the
+  wave-5 corpus that is 182 keys behind 314 captures with 132 superseded - a file count reads
+  as 1.7x the coverage there is, which is exactly how the state audit found 230 captures over
+  134 distinct labels - and it retires all four stale labels by construction, since wave 5
+  re-flew their lanes. A hover capture whose pointer op reported `tooltip=-`, or whose frame is
+  byte-identical to a sibling of the same run where the log predates that key, flags
+  `hover not captured`, is left out of the state counts and of Compare, and greys in the rail:
+  8 captures, which is all four hover labels the audit measured as photographing nothing. And
+  a capture whose label names a window or tab the seam log contradicts - including the quiet
+  form, a label that names NO tab while the log selected one past the default - flags
+  `label disagrees with the log`, stays filed under the log as it always was, and catches the
+  audit's mislabelled `ksc-timeline-basic` (really the Re-Fly tab) and the two
+  `*-missions-basic` captures: 12 in all.
+
+  Contracts: `docs/dev/design-gui-mirror.md` sections 14-17 (plus a refreshed coverage
+  section 10 at DISTINCT-key counts). 74 new unit cells in `harness/lib/test_gui_mirror.py`
+  over synthetic mocked dumps, re-flown runs and pointer logs, since no gallery lane has flown
+  yet. Re-measured with the fidelity instrument over the whole 32-directory corpus: text ink
+  dx p50 / p95 held at 2 / 5 px, fill delta p95 at 0, every slider thumb still resolving on
+  both sides - three new worst-case tails from the eleven new lanes are filed in T42b.
+
+- **Automated testing: four census lanes that photograph the window states only a click
+  could write.** GUI-24..GUI-27, operator-tier, authored against the automation-only seam
+  operations PR #1734 shipped - `UiAction op=state` (a window's scalar view state),
+  `op=sort` (a table's column and direction), `op=select` (the Missions tab's include
+  affordance), `op=edit` (the three in-place rename editors), `op=run await=false`
+  (dispatch an in-game batch and leave it running), the three Logistics raise rows and
+  `RouteCommand action=link|unlink|set-cadence`. NO NEW C#: every lane drives ops that
+  already shipped. What the wave buys, each measured against the `.gui.json` dumps the
+  census already holds rather than assumed: the Timeline window with each of its three
+  source toggles OFF, its archive filter ON, its Custom range revealed (the window's only
+  two sliders, plus `From:` / `To:` - zero hits program-wide before), two time-range
+  presets and the entry list scrolled - eight states that read one identical value in
+  every prior dump; the
+  Missions window's expanded-stats columns (six header strings with zero hits
+  program-wide), both archive filters, three sort states across its two COLLIDING tables,
+  and all three in-place rename editors ARMED - the mid-edit layout no census gesture
+  could reach, since the arming gesture is a double-click; the Logistics route table
+  sorted, its `Confirm: Delete Route` and `Create Supply Route?` modals, and a
+  round-trip-linked route at a non-1x cadence; the in-game test runner photographed WHILE
+  a batch runs rather than after it; and the Missions tab's include affordance in its
+  excluded, re-included and mixed forms. Three of the four lanes write state a save would
+  keep (both archive flags, `op=select`'s two Mission fields, the recording rename a rival
+  arm commits, and a route's link and cadence), so each runs on the throwaway copy the
+  harness stages and no fixture is ever harvested from these runs. Four states in the
+  family still have no host and are filed rather than faked (no fixture and not the
+  operator's career carries an archived recording or mission; none carries a dormant
+  route; Real Spawn Control cannot be opened without a nearby spawn candidate, so its four
+  sort states are unreachable; and `" (partial)"` inclusion is not expressible through
+  `op=select`, which resolves a ROW and applies to all of its own interval keys) - see
+  `GUI-CENSUS-WAVE6-RESIDUE-2026-09-22` in `docs/dev/todo-and-known-bugs.md`. ALL FOUR
+  FLEW GREEN 2026-09-22 on one pinned automation DLL (nine flights, every lane's final
+  verdict PASS on attempt 1, 55-88 s wall), and the flights forced four corrections that
+  no log contract could have caught - three of them runs that passed every pinned line
+  over a picture showing the wrong thing: a raised `PopupDialog` is uGUI and a full-width
+  IMGUI window paints over it, so both Logistics modals were invisible in their first
+  captures while the seam correctly reported them standing; `op=run await=false` reads
+  `running=` at DISPATCH, and an eight-cell `TrajectoryMath` batch finished in 149 ms
+  before the screenshot landed, so the runner photographed results under a running label;
+  `op=expand key=all` cannot open a GROUPED display block (the Recordings tab has two
+  block kinds and only `ChainId` is enumerated), so a recording inside one is undrawable
+  and its rename editor answers `edit-not-drawn`; and the Career `Pending in timeline`
+  fold needs a career whose recorded future DIVERGES from now rather than merely a long
+  one, so those two captures were dropped. Each is filed with what it needs. The wave also
+  turned up ONE product finding, filed and not fixed here (this PR adds no C#): a route
+  name's `->` arrow renders as a missing-glyph box in both uGUI route confirms, because the
+  TextMeshPro font KSP's dialog canvas uses has no glyph for U+2192 - the composed name is
+  correct and the IMGUI Logistics window in the same frame renders it fine.
+
+- **Automated testing: the GUI census can now photograph the product FAILING, refusing and
+  being authored, not only resting.** Eleven new operator-tier census lanes
+  (GUI-13..GUI-23) plus three amendments to existing ones, all authored off a read-only
+  state-coverage audit that enumerated every visibly distinct draw branch of the 14 IMGUI
+  windows from the source and checked each one against the `.gui.json` control-tree dumps
+  the census had already written. Its finding was that all 14 windows were MODELLED and
+  none was COVERED: what had been photographed was the product's resting state, with every
+  in-progress, blocked, held, refused, superseded and authoring state absent. NO NEW C#
+  anywhere in the wave - every lane uses seam verbs and ops that already shipped, and the
+  single highest-yield lever (`MissionConfig tree=... loop=true`, used by ten-plus non-GUI
+  specs and by zero GUI specs) had simply never been pointed at a window. What the wave
+  buys: the Logistics window's Candidates section populated and its near-miss subsection
+  expanded (the route-creation workflow, and two of the twelve reject strings - all that
+  the operator's own career reaches); that same window with a hold LIVE in three hold
+  kinds, which is the
+  first capture anywhere of it refusing to dispatch; the Missions tab with a loop armed, in
+  three LOCKED renderings of its period cell, against every prior dump reading
+  `value=False`;
+  the Timeline window's three non-overview tabs in the FLIGHT scene and the `W*` watching
+  marker, both measured at zero captures program-wide, plus the first `W` with
+  `enabled=false` anywhere (the tabs exist at the Space Center too; the `W` column does
+  not); the Settings
+  window's two greyed Wipe buttons, its Low and High density states, its Diagnostics
+  section armed, and its Basic radio greyed behind a live Gloops recording; the Career State
+  window's Contracts tab with real rows and a Facilities row above level 1 after a driven
+  upgrade; and the Gloops recorder recording and holding a take, against four prior
+  captures the audit measured as the same idle state. Four of the eleven are a new shape:
+  GUI-20..GUI-23 clone the RVR-8 / RVR-10 / RVR-13 / RVR-17 driver chains and append a
+  capture tail, which no non-GUI spec had ever carried. They deliberately declare no
+  `[expectations.routes]` block - the originals keep that gating - which is what lets them
+  append the extra `TimeJump` that ages a hold into its `(checked N ago)` form without
+  reding a cycle-count window. ALL THIRTEEN LANES FLEW GREEN the same day, twenty
+  flights on one pinned automation DLL - 18 PASS and 2 PARSEK-FAIL, both of them one
+  lane's own log-contract regex casing rather than a product failure, and every lane's
+  final verdict PASS on attempt 1 at 53-92 s wall - and every capture was then read back out of its own control-tree dump rather than
+  assumed. The readings that were not predictions: the Missions tab's period cell is a
+  DISABLED LABEL under a loop (`~13d-19d (Mun window, varies)` on the Mun subject,
+  `~2.1y (Duna transfer)` on Duna) rather than the editable field every prior capture
+  shows; the Gloops recorder committed its take at 15 points, so all three of its states
+  landed including `Saved: "Kerbal X"` with Preview finally enabled; the Settings
+  Interface section drew `Basic` greyed beside the extended hint ending
+  `Stop the Gloops recording first.`; a driven Tracking Station upgrade put one row at
+  `L2` beside eight at `L1`; and the four Logistics clones produced the whole refusal
+  vocabulary at once - `Held: B short 108.8 LiquidFuel`, the `Delivering` badge, the
+  `Pause` button, `Recent cycles:` with a real per-cycle line, `Total delivered:`,
+  `Cyc = 1 / 3 skipped`, and a yellow `Last cycle blocked: ... (checked 10.0m ago)` line
+  in three different hold vocabularies.
+- **Automated testing: the Timeline's grey `!IsEffective` row is neither a supersede's
+  trace nor a tombstone's, and the census lane authored to photograph one refuted its own
+  premise on its first flight.** `TimelineEntry.IsEffective` is written in exactly two
+  places (`Timeline/TimelineBuilder.cs`: seeded from `action.Effective`, merged on
+  milestone compaction), so a recording supersede produces no Timeline pixel at all - only
+  row absence. The follow-up claim that a struck row means a TOMBSTONED action is refuted
+  too: the Timeline's grey `!IsEffective` row is neither a supersede's trace nor a tombstone's: the window is fed `EffectiveState.ComputeELS()` (`UI/TimelineWindowUI.cs:477-483`), so a tombstoned action is filtered out before the builder, and the only writers of `Effective = false` are `GameActions/ContractsModule.cs:399/408/417/428` (a duplicate / already-resolved contract completion) and `GameActions/MilestonesModule.cs:108` (a duplicate milestone), reset at `RecalculationEngine.cs:519`. It also is not a STRIKE - `timelineStrikethroughStyle` differs from the label style only by `normal.textColor = Color.gray` (`UI/TimelineWindowUI.cs:395-396`), so the state is a colour and therefore a PNG verdict. So the state needs a duplicate-contract or duplicate-milestone
+  host, which no census fixture is, and it would be a PNG verdict even then. Measured on
+  the flight: the fixture's supersede relation loaded, the Details tab drew one launch
+  row, nothing was grey. The capture was relabelled and the finding filed rather than left
+  standing in a spec header. The lane keeps its flight for what it did buy - the three
+  non-overview Timeline tabs in the FLIGHT scene, a `W` button with `enabled=false` (zero
+  hits program-wide before), and the measured EMPTY forms of Rewind/FF and Re-Fly there.
+- **Automated testing: four census captures were STALE against HEAD and are re-shot by the
+  act of re-flying their lane.** `ksc-settings-advanced` / `ksc-settings-basic`
+  photographed a button reading `Wipe All Game Actions (N)` where HEAD draws
+  `Wipe All Milestones (N)`; `ksc-career-milestones-advanced` photographed the Rewards
+  column at 180 px with cells wrapping where HEAD sets `ColW_Rewards = 320f` (widened
+  BECAUSE of that dump); and the two GUI-1 Kerbals captures photographed the pre-redesign
+  single-line shape that HEAD replaced with four-column tables. Nothing in the spec named
+  the old labels, so re-flying is the whole fix. The Kerbals pair is KEPT rather than
+  dropped, correcting the audit's own recommendation: the lane photographs whatever HEAD
+  draws, and those two are the census's only DENSE Kerbals pictures. The Basic Settings
+  capture additionally moved from `h = 700` to `h = 350` so the picture shows the height a
+  player gets rather than 363 px of dead space - `op=rect` treats both size axes as floors,
+  so the window fits to its own content minimum.
+- **Automated testing: two DEAD draw branches and eight unreachable window states are now
+  filed with the source gate that makes each one so** (todo
+  `GUI-STATE-COVERAGE-RESIDUE-2026-09-21`). The dead pair, both verified from source rather
+  than inferred: `SpawnControlUI`'s `No nearby craft to spawn.` branch can never execute,
+  because `DrawIfOpen` reads the same candidate list into `ResolveAutoCloseReason` a few
+  lines earlier and closes the window on `zero-candidates`; and the Gloops launcher is
+  retired in BOTH complexity modes, so no player can open a window whose three states this
+  wave now photographs through the seam. Also recorded, because each cost an authoring
+  decision: no committed fixture carries a depot-ORIGIN route (all three read
+  `isKscOrigin = True`), so the Structure window's `Origin: depot` form is unreachable;
+  the Logistics capacity line is gated on `RouteStatus == DestinationFull`, a status the
+  loop dispatch path never assigns, so it is unreachable even in the destination-full lane;
+  and `strategy-career` cannot photograph populated Strategies rows, because that tab reads
+  Parsek's effective ledger and the fixture carries no Parsek footprint at all.
 - **Automated testing: five new automation-only seam surfaces for the GUI census, plus the
   selected tab in the GUI-tree dump.** A read-only audit of every IMGUI draw branch put
   about 380 visibly distinct window states against about 150 captured, with the gap
@@ -58,6 +362,72 @@ _(unreleased — entries accumulate here per commit)_
   reads a SECOND, draw-produced signal - each editor's focus sentinel - so a row inside a
   collapsed group or on the unselected tab answers `edit-not-drawn` rather than `armed=true`
   over a plain label.
+
+- **Tooling: the GUI mirror's rendering is now MEASURED against the game frame instead of
+  judged by eye.** `harness/tools/gui_mirror_fidelity.py` opens the generated mirror page
+  itself in a headless Chromium - at a deep link the generator now ships for it
+  (`#cap=<capture id>&bare=1`: one capture's stage, 1:1 CSS pixels, top-left, no chrome, no
+  photograph, no animation, `data-ready` when painted) - and compares that screenshot
+  against the census PNG inside the Parsek window rects only. It measures the page a reader
+  opens rather than a second renderer built to imitate it: the bare skin is a separate
+  stylesheet whose every selector a test asserts is scoped to one class, and the bare entry
+  is the first statement of `boot()` behind a hash check, so a page opened without the hash
+  is the page that shipped. Four metrics, per capture and aggregated per window and per
+  control class - the ink bounding box of every text-bearing leaf control (dx, dy, width
+  ratio, and a clipped flag for a run the page cut off where the game did not), the median
+  fill of every painted control against the colour it sampled off that same frame, controls
+  with ink in the frame and none in the mirror or the reverse, and a window luminance score
+  for ranking. Outputs (a report, a page, one screenshot per capture, crops and heatmaps)
+  go to a scratch folder and nowhere near the repository; a test cell fails if any tracked
+  file under `harness/` or `docs/` is an image or carries an inlined image payload. The
+  browser is optional equipment - with none installed the tool exits 3 naming the paths it
+  probed, and every unit test passes without one. No player-visible change.
+
+- **Tooling: seven classes of difference between the GUI mirror and the game, found by that
+  instrument over all 230 captures and fixed by class.** Worst first, each measured rather
+  than assumed. A disabled control was dimmed TWICE - the colours are sampled per control
+  out of the frame, so a disabled one's colour is already the grey the game drew, and an
+  `opacity:.42` on top of it put the Missions window's disabled interval field below the
+  threshold of being visible at all (377 controls had ink in the frame and none on the
+  page). A raised control's outline was brighter than its fill, where KSP draws a near-black
+  outline with a light top bevel (measured: outline grey 5 to 25, bevel 88 / 71 / 61, over
+  fills of 25 to 76). `box`-styled text was aligned by a rule KSP does not have - it centres
+  the Logistics section heading in its 1358 px box and left-aligns the column headers of the
+  same table - so the offset is now measured off the frame, the move the tab bar's labels
+  already used. A toggle in the BUTTON style (987 of 8154) was drawn as a checkbox instead
+  of the pushed-in button KSP draws. A slider had no handle and a scroll bar had no bar,
+  which the design doc had called unfixable from the dump: the dump has no value, but the
+  PNG has the thumb, and it reads on 81 of the corpus's 137 sliders including the Settings
+  ghost-audio one. A scroll view did not scroll, leaving up to 23 529 px of rows per view
+  unreachable. And a toggle's tick was an ASCII `x`. Corpus: worst text offset 643 px -> 22,
+  p95 52 -> 5, width-ratio p95 2.21 -> 1.11, fill-colour p95 5 -> 0, runs the page clipped
+  and the game did not 554 -> 63, controls with ink in the frame and none on the page
+  587 -> 115, and - on the metric the review added afterwards - slider luminance error p50
+  34.2 -> 18.1 with the thumb resolving on both sides for 41 of 41 sliders against 0 of 41. Numbers, method and what is still different: `docs/dev/design-gui-mirror.md`
+  section 11. No player-visible change - the mirror is a harness page, not game code.
+
+- **Tooling: the review of that work found one of its own fixes had moved the page AWAY
+  from the game, and the metric that was supposed to notice could not see it.** The slider
+  handle was drawn in a typed light grey (luminance 185) where KSP's scroll bar thumb has a
+  dark face (17 to 50) under a one-pixel bevel (85 to 101) over a groove of 45 - and
+  PRESENCE, being a binary "at least four ink pixels in this rect", is satisfied by a
+  groove's own border whatever is drawn inside it, so deleting the handle entirely moved no
+  number at all while the report counted "slider frame-only 41 -> 0". Both halves are fixed:
+  the thumb's face and bevel and the groove are now sampled per capture off the PNG (the
+  groove with the thumb excluded, or the median of a scroll bar that is mostly thumb paints
+  the groove in the thumb's own colour), and sliders get a metric of their own - the mean
+  absolute luminance error over the control's rect plus the thumb run's position and length
+  where both sides resolve one. On the structure capture that error is 19.9 with the thumb
+  against 41 without it and 86 with the typed colour, and deleting the handle now takes the
+  mirror's thumb run from resolved to unresolved. Four more from the same review: the
+  scroll-view fix had given every overflowing view a white NATIVE browser scroll bar over
+  the mirrored KSP one, which the instrument's own `--hide-scrollbars` was hiding from the
+  measurement (the page hides its own now, and the flag is gone); browser profile
+  directories leaked 320 MB into the owner's temp folder because they were deleted with
+  errors ignored while the browser still held them; a halted batch exited 0; and the
+  no-typed-UI-text guard now walks the AST, which caught the product's own name typed into
+  the page as a regex and twice more in the vocabulary builder - derived from the window
+  titles now. No player-visible change.
 
 - **Tests: the last fourteen priority-2 coverage rows from the unit-test quality audit
   are closed, and the priority-2 register with them.** Eight rows were new coverage, five
@@ -296,6 +666,32 @@ _(unreleased — entries accumulate here per commit)_
   thing that draws it. The hand-off is now leg by leg: the ghost keeps the piece it is
   actually drawing and the route line keeps the rest. On a single-leg flight nothing
   changes, because there the two answers were already the same.
+
+### Changed
+
+- **The Logistics refusal vocabulary is now a named, enumerable catalogue instead of
+  seventy-six literals spread over four files.** Every sentence the window can show for a
+  route that will not dispatch (the yellow blocked line, the `Held: ...` cell, its tooltip,
+  the Send Once toast) and every reason a committed flight is refused as a Supply Run
+  candidate is now a named `internal const string` format in `LogisticsHoldClauses` (64: 29
+  long-form, 29 compact, 6 frames) or `LogisticsRejectClauses` (12), walkable as one list
+  through `LogisticsClauseCatalog`. Nothing the player reads changed - not a character of
+  spacing, punctuation or number formatting - and a characterization suite written against
+  the old code and left untouched across the extraction is what says so. The point is the
+  GUI state gallery's completeness guard: it can now enumerate the vocabulary and prove
+  every reason is reachable, where before it would have had to scrape literals out of the
+  source, which an interpolated clause defeats by being stored split at its holes. A side
+  benefit for debugging: the reason vocabulary is greppable by name.
+
+- **Tests: every Logistics hold and reject clause the player can read is now pinned,
+  character for character, before anything touches it.** A new characterization suite
+  renders each one through the real producer and compares it against a literal written
+  out by hand, twice: once under the host culture and once under `de-DE`, because the
+  three numeric clauses (the whole-unit funds shortfall, the one-decimal resource
+  shortfall, the re-flyable recording count) are contractually invariant and a
+  comma-locale host is exactly how that would ship unnoticed. Nothing in the product
+  changed; the suite exists so that the clause-constant extraction that follows it can be
+  proved to have changed nothing either.
 
 ### Changed
 
@@ -2815,6 +3211,16 @@ _(unreleased — entries accumulate here per commit)_
   commits. The findings point at the generated sections instead of restating their
   numbers, and `--check` reports the findings review date's age and any opportunity type
   that is no longer in the model.
+
+- **The non-loop live-PID grep gate's two arms agree again, and a test keeps them in step.**
+  The pwsh script and the managed fallback the Linux CI runner uses forbade different names
+  for the deleted active-Re-Fly shadow resolver in `GhostMapPresence.cs`, and neither name
+  existed (a 2026-05 `AbsoluteShadow` -> `BodyFixedPrimary` rename swept one arm only). Both
+  now forbid `TryResolveActiveReFly\w*Point`; `NonLoopLivePidAudit_ManagedArmMatchesPwshArm`
+  parses the script's check rows and fails on any difference from the managed table, and the
+  managed arm now also runs on hosts that have pwsh. The managed scan also matches
+  case-insensitively now, as `Select-String` does, so the CI arm no longer passes a
+  differently-cased forbidden read that the pwsh arm catches.
 
 - **Dev tooling: a code and test counting script.** `python scripts/count-code.py` prints
   the line count per area of the repository (mod source, the xUnit project, the harness,

@@ -265,7 +265,7 @@ ones exist only in the pixels); tabs, launchers, folds and pickers are clickable
 and switch to the capture of that state.
 
 ```
-python tools/gui_mirror.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out gui-mirror.html --index gui-mirror-index.json
+python tools/gui_mirror.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out gui-mirror.html --index gui-mirror-index.json   [--no-photos] [--budget-mb 16] [--default-fixture NAME] [--stamp UTC]
 ```
 
 Nothing about a window is written into the generator - not a label, not a tooltip,
@@ -290,18 +290,86 @@ BEFORE is the earliest capture of a
 `(fixture, window, tab, state, mode, scene)` key, AFTER the latest, drawn side by
 side by the same renderer, with the CHANGELOG entries and struck `GUI-*` todo
 entries that name that window printed beside them and the node / row / header-to-cell
-numbers measured off the two dumps.
+numbers measured off the two dumps. Each window's section opens with its own
+counts - states real and mocked, changed / unchanged / new / gone, captures with
+how many superseded, and its known-uncaptured list.
 
-The page is NOT committed (it is 15 MB of inlined PNG); the generator, its tests
-(`lib/test_gui_mirror.py`) and `docs/dev/design-gui-mirror.md` are. Regenerate
-after a census. It writes wherever `--out` says and claims no path inside a shots
-directory, so it collides with neither `index.html`, `<runId>_contact.html` nor
-`gui-tree-index.html`.
+**Coverage is DISTINCT KEYS, not files.** The 2026-09-22 corpus is 314 captures
+behind 182 keys: 132 of them are SUPERSEDED, a later run of the same lane having
+photographed the same key, and the mirror shows the latest while keeping the older
+as its pair's BEFORE. Two more mechanical flags keep a capture from reading as
+coverage it is not: `hover not captured` (the pointer op's own `tooltip=-`, or a
+frame byte-identical to a sibling of the same run) and
+`label disagrees with the log` (filed under the log, as always; the badge is what
+is new). `gui-mirror-index.json` carries all of it.
+
+**The review loop.** Every state view and Compare pair carries a one-line note
+plus a `keep` / `change` / `unsure` verdict, held in `localStorage` (every access
+guarded) and exported as a `parsek-gui-mirror-notes/1` JSON blob and a markdown
+table with a copy button and a select-all fallback; pasting a blob back merges it.
+`#win=<token>[&view=compare]` opens the page scoped to ONE window, which is the
+unit a review round covers. A capture a gallery lane took under a synthetic view
+model declares itself in its own dump, files under the dataset `mock` so Compare
+can never pair it with a real capture, and badges `MOCKED DATA`; the default
+dataset is pinned and is never the mocked one. Contracts:
+`docs/dev/design-gui-mirror.md` 14-17, `docs/dev/design-gui-state-gallery.md`.
+
+The page is NOT committed (it is 27 MB of inlined PNG on the present corpus); the
+generator, its tests (`lib/test_gui_mirror.py`) and
+`docs/dev/design-gui-mirror.md` are. Regenerate after a census. It writes wherever
+`--out` says and claims no path inside a shots directory, so it collides with
+neither `index.html`, `<runId>_contact.html` nor `gui-tree-index.html`.
+
+### Measuring the mirror against the frame (`tools/gui_mirror_fidelity.py`)
+
+How close the mirror's rendering actually is to the game, as numbers rather than
+as an impression. It opens the generated page itself in a headless Chromium at a
+deep link the generator ships for it (`#cap=<capture id>&bare=1`: one capture's
+stage, 1:1 CSS pixels, top-left, no chrome, no photograph, no animation), then
+compares that screenshot against the census PNG **inside the Parsek window rects
+only** - the rest of the frame is the game's scene.
+
+```
+python tools/gui_mirror_fidelity.py   --shots results/<runId>_<specId>_shots [--shots ...]   --repo <repo-root> --out-dir <a scratch folder>   [--browser PATH] [--window main] [--capture <id>] [--limit N]   [--jobs 4] [--browser-jobs 1] [--page an-existing-mirror.html]   [--triples 10] [--budget-ms 2500] [--timeout 120]
+```
+
+`--jobs` is worker threads (they overlap the browser wait with the measurement,
+which is the Python-bound half); `--browser-jobs` is how many browser launches
+may be in flight, separately, because four heavy pages at once made Edge exit 0
+with no screenshot and no stderr. `--page` reuses an already-generated page,
+which is what makes a before/after pair comparable. Exit codes: 3 no browser,
+4 the batch halted part-way and the report covers only what came before it.
+
+Four metrics, per capture and aggregated per window and per control class
+(`kind|style|text`): **TEXT** - the ink bounding box of every text-bearing leaf
+control in the frame against the mirror's inside the same rect (dx, dy, the width
+ratio, and a `clipped` flag for a run that ends at the rect edge where the
+frame's ends inside it); **FILL** - the median colour of each painted control's
+own surface, frame against mirror, which the mirror sampled off that very frame,
+so a delta means the page is not painting what it stored; **PRESENCE** - controls
+with ink in the frame and none in the mirror, or the reverse, grouped so each
+group is one fixable class; **WINDOW** - the mean absolute luminance difference
+over the window rect, for ranking only.
+
+It writes `report.json`, a self-contained `index.html` (worst captures first,
+with a frame crop / mirror crop / difference heatmap triple for the worst N) and,
+unless `--page` names one, the `mirror-bare.html` it measured, all into
+`--out-dir`. The browser's own working files - one profile per worker, one
+screenshot per capture - go to short temp directories and are removed at the end,
+with anything that would not go named on stderr. The browser is optional equipment: with none
+installed it exits 3 saying which paths it probed, and every unit test
+(`lib/test_gui_mirror_fidelity.py`) passes without one. Nothing it produces is
+committed - the outputs are screenshots and heatmaps by the hundred, and one test
+cell fails if any tracked file under `harness/` or `docs/` is an image or carries
+an inlined image payload.
+
+Numbers, what they found and what is still different:
+`docs/dev/design-gui-mirror.md` section 11.
 
 ### Running a GUI census end to end
 
-TEN FLOWN CENSUS LANES, in four waves, all `tier = "operator"` and all flown on request
-only. (`GUI-9-playback-toggle-map-scope` carries the `gui-census` tag and drives the same
+TEN FLOWN CENSUS LANES IN FOUR WAVES, PLUS AN ELEVEN-LANE FIFTH WAVE AUTHORED
+2026-09-21, all `tier = "operator"` and all flown on request only. (`GUI-9-playback-toggle-map-scope` carries the `gui-census` tag and drives the same
 ops, but it is a LIVE PROOF of the playback tick box's map scope rather than a census of
 chrome, so it is not in the table below and step 1 does not apply to it.
 `GUI-11-census-kerbals-crewed` is committed and `tier = "operator"` too; nothing in this
@@ -332,7 +400,109 @@ two are the last rows below:
 | `GUI-10-census-dialogs` (run `2026-09-15_1538`, PASS attempt 1, 67 s, 8 + 8) | `bdock-recorded`, at the Space Center (`scene = "spacecenter"`: this host's activeVessel is focusable, so the default route would boot into FLIGHT) | six of the 21 modals STANDING - the two informational popups (`actionblocked`, `savefailed`), both Settings wipe confirmations, and the two that need a committed recording (`fastforward`, `seal`) - each with `op=dialog` reporting its name, title and ordered buttons beside the PNG, plus the two typed refusals (`dialog-target-unavailable` for `rewind`, which has no rewind owner on this host, and `dialog-already-open` for a second modal) |
 | `GUI-12-census-testrunners` (run `2026-09-15_2057`, PASS attempt 1, 89 s, 7 + 7) | `career-earned-ksc`, at the Space Center (`scene = "spacecenter"`) - the one census lane whose CONTENT is host-independent, since both runner windows read the assembly's `[InGameTest]` attributes rather than the save | BOTH in-game test runner windows in their real states: the Settings-launched one (`testrunner`) idle, every fold closed, one category expanded, and with REAL RESULTS after running the `GuiTree` category through its own runner (`discovered=1 total=1 passed=1 failed=0`, the summary moving to `1 passed` and the header to `GuiTree (1/1)`), plus the global Ctrl+Shift+T one (`testrunnerglobal`) idle, closed and one category expanded - ITS FIRST PICTURES OF ANY KIND. The two differ by exactly 3 nodes at every comparable state, which the dumps name as the `Search:` label, the text field and the 24 px clear button the global window does not draw |
 
-Steps 2 to 6 below apply to any of the ten. In order:
+WAVE 5 (2026-09-21, ALL ELEVEN FLOWN GREEN the same day, plus both amended lanes -
+twenty flights on one pinned automation DLL, 18 PASS and 2 PARSEK-FAIL, with both
+failures one lane's own log-contract regex casing rather than a product failure, and every
+lane's final verdict PASS on attempt 1 at 53-92 s wall) is ELEVEN lanes, `GUI-13` through `GUI-23`, plus amendments to `GUI-1` and
+`GUI-6`. It is a different kind of wave from the four above it, and
+the difference is the input: waves 1 to 4 walked SURFACES (which window, which tab, which
+modal), while wave 5 came from a read-only STATE-COVERAGE AUDIT that enumerated the
+visibly distinct draw branches of those surfaces from the source and checked each against
+the `.gui.json` dumps the census had already written. Its reading was that all 14 windows
+were MODELLED and none was COVERED: what had been photographed was the product's RESTING
+state, with every in-progress, blocked, held, refused, superseded and authoring state
+absent. NO NEW C# LANDED WITH IT - every lane uses ops and verbs that already shipped, and
+the single highest-yield lever (`MissionConfig tree=... loop=true`, used by ten-plus
+non-GUI specs and by zero GUI ones) had simply never been pointed at a window.
+
+Seven of the eleven are ordinary census lanes on committed hosts (`GUI-13`..`GUI-19`).
+THE OTHER FOUR ARE A NEW SHAPE: `GUI-20`..`GUI-23` CLONE the `RVR-8` / `RVR-10` /
+`RVR-13` / `RVR-17` driver chains and append a census capture tail, which no non-GUI spec
+had ever carried. They exist because the Logistics window's whole failure vocabulary - the
+`Held:` status-cell override, the yellow `Last cycle blocked: ...` detail line, the
+`Delivering` badge, `Recent cycles:`, `Cyc = N / M skipped` - is only on screen while a
+route is actually holding, and no static fixture can be in that state. The clones
+deliberately declare NO `[expectations.routes]` block: the ORIGINALS keep that gating, and
+dropping it is what lets a clone append the extra `TimeJump` that ages a hold into its
+`(checked N ago)` form without reding a cycle-count window. RVR-14's clone was DROPPED
+rather than written - its required-token set is byte-identical to RVR-13's and its hold
+renders the same literal, so it reaches no distinct window state.
+
+| lane | host | what it photographs |
+|---|---|---|
+| `GUI-13-census-logistics-candidates` | `rover-route-recorded` (SPACECENTER) | the Logistics window's Candidates section POPULATED, collapsed then with every `cand:<treeId>` detail panel open - the route-CREATION workflow, which GUI-3's own header records as still owed. That host is the route-CANDIDATE fixture by construction: two fully sealed trees and no `ROUTES` node |
+| `GUI-14-census-settings-and-facility` | `fresh-career` (SPACECENTER) | both Settings Wipe buttons GREYED (the window's only two disabled controls, claimed from the dump's `enabled` field rather than from hover), Low and High sample density, all five Diagnostics toggles armed - then a driven `KscAction upgrade-facility` so Career State's Facilities tab has a row above level 1 and Milestones a credited row, both also at the declared 520x200 floor |
+| `GUI-15-census-career-contracts` | `career-contract-pad` (SPACECENTER) | the Career State Contracts tab with REAL ROWS, on the one fixture whose ledger sidecar carries two accepts and no terminal row - every prior capture, including the operator's own dense career, read `Active (0)` |
+| `GUI-16-census-gloops-states` | `b2-lko-craft` (FLIGHT) | the Gloops recorder RECORDING and holding a finished TAKE (all four existing Gloops captures are the same IDLE state), plus the Settings Interface section with `Basic` greyed and its extended hint while that recording runs |
+| `GUI-17-census-missions-loop-mun` / `GUI-18-census-missions-loop-duna` | `mun-orbit-recorded` / `duna-direct-recorded` (FLIGHT - `MissionConfig` is `RequiresFlight`) | the Missions tab with a loop ARMED: eight states behind one switch, against every prior dump reading `value=False`. The pair takes the two LABEL forms of the period cell (phase-locked, re-aim), which are a different control set from the editable field rather than a different string |
+| `GUI-19-census-timeline-supersede` | `refly-a-recorded` (FLIGHT) | the Timeline window over the one committed fixture carrying a `RECORDING_SUPERSEDES` entry, across all four tabs in FLIGHT - three of which had ZERO captures in that scene, and FLIGHT is the only scene the `W` column draws in. Plus the third and last period rendering, the editable form |
+| `GUI-20-census-logistics-hold-second-cycle` | RVR-8's `rover-relay-c-recorded` (FLIGHT) | the richest of the four clones, because RVR-8 delivers a cycle before it blocks: the Paused row with its aged hold detail line, `Recent cycles:`, `Last cycle:`, `Total delivered:`, `Cyc = 1 / 1 skipped` - then the ACTIVE section with `Pause`, the `Delivering` badge and (declared a MAY) the `Held:` override |
+| `GUI-21-census-logistics-hold-origin-empty` | RVR-10's host + its `liveState` patch (FLIGHT) | the `OriginLacksCargo` hold over a drained source, the cyan `New (not yet run)` cell with its send-once guidance line, `Cyc = 0 / 1 skipped`, and NO `Recent cycles:` header - a blocked cycle emits no ledger cargo rows, so the ABSENCE is the state |
+| `GUI-22-census-logistics-hold-destination-full` | RVR-13's host + its `liveState` patch (FLIGHT) | the `DestinationFull` hold over a topped-out endpoint. The `<dest> tanks full:` capacity line is NOT bought and cannot be: it is gated on `RouteStatus == DestinationFull`, which the loop dispatch path never assigns |
+| `GUI-23-census-logistics-hold-funds-short` | RVR-17's `rover-route-career` (FLIGHT) | the `FundsShort` hold on the CAREER route host, and `Cyc = 0 / 2 skipped` - the only two-skip reading of the four |
+
+WAVE 6 (authored AND FLOWN 2026-09-22, all four PASS on attempt 1 at 55-88 s wall, nine
+flights on one pinned DLL) is FOUR lanes, `GUI-24` through `GUI-27`, and its input is
+the SEAM rather than an audit: PR #1734 added the automation-only operations that write
+the window state a player writes with a click - `UiAction op=state` (a window's scalar
+view state), `op=sort` (a table's column and direction), `op=select` (the Missions tab's
+include affordance), `op=edit` (the three in-place rename editors), `op=run await=false`
+(dispatch a batch and LEAVE IT RUNNING), three Logistics raise rows and
+`RouteCommand action=link|unlink|set-cadence`. Wave 5's audit named these states as
+unreachable; this wave photographs them.
+
+THREE OF THE FOUR WRITE STATE A SAVE WOULD KEEP - both archive flags, `op=select`'s two
+Mission fields, the recording rename a rival arm commits, and a route's link and cadence.
+Each runs on the throwaway copy the harness stages from its template, and NO FIXTURE IS
+EVER HARVESTED FROM THESE RUNS. That is a LANE RULE, not a property of the ops: nothing in
+the seam can tell a staged fixture from a real career.
+
+| lane | host | what it photographs |
+|---|---|---|
+| `GUI-24-census-timeline-filters` | `fixtures/local-saves/c1-gui` (SPACECENTER) | the Timeline window's scalar view state: each of the three source toggles OFF, the archive filter ON, the Custom range revealed with the window's only two sliders, two time-range presets and the entry list scrolled - eight states that read one identical value in every dump the census holds. Plus the Career window's two `Pending in timeline` folds COLLAPSED, which draw only under the divergence layout a long career produces |
+| `GUI-25-census-missions-state-sort-edit` | `interbody-route-recorded` (SPACECENTER) | the Missions window's expanded-stats columns (six header strings with zero hits program-wide), both archive filters, three sort states across its two COLLIDING tables, and all three in-place rename editors ARMED but not committed - the mid-edit layout no census gesture could reach, since the arming gesture is a double-click. Plus the Logistics route table sorted, the `Confirm: Delete Route` modal, and a round-trip-linked route at a non-1x cadence. The only committed host carrying stable Mission ids, auto root group names AND two routes at once |
+| `GUI-26-census-createroute-and-running-batch` | `rover-route-recorded` (SPACECENTER) | the `Create Supply Route?` confirm, whose spawn guard needs a live candidate carrying both `Tree` and `Analysis` - which only this host has. Plus the in-game test runner photographed WHILE a batch runs: `await=false` is the only way past the default form, which cannot terminate until the batch stops and so always photographs results |
+| `GUI-27-census-missions-include` | `bdock-recorded` (SPACECENTER) | the Missions tab's per-vessel include affordance: every vessel and every derived partner journey excluded (the greyed tab), every one included again (the partner-journey renderer's first picture), and one vessel excluded among included siblings |
+
+THREE STATES IN THIS FAMILY HAVE NO HOST AT ALL and are filed rather than faked, each
+re-derived from the committed bytes: no fixture and not the operator's own career carries
+an archived RECORDING or an archived MISSION (so both archive captures show the FILTER
+CONTROL moving, never a row), no fixture carries a DORMANT route (so
+`popup=deletedormantroute` is declared as a REJECTED), and Real Spawn Control's four sort
+states cannot be reached because `op=sort` refuses a closed window and that window
+FORCE-CLOSES itself when there is no nearby spawn candidate. A fourth, the `" (partial)"`
+inclusion suffix, is not reachable through `op=select` at all: that op resolves a ROW and
+applies to ALL of its own interval keys, so the classified outcome is `All` or `None`.
+
+**THREE MORE CAME OUT OF THE FLIGHTS, and if you author a census lane read these first**
+- each was a run that PASSED every pinned line over a picture showing the wrong thing, a
+failure mode no log contract can catch:
+
+1. **A full-width IMGUI window HIDES a raised `PopupDialog` in the PNG.** A `PopupDialog`
+   is uGUI; KSP's legacy `OnGUI` pass paints over it. Both Logistics modals were invisible
+   in their first captures while `op=dialog` reported `open=true count=1` and the dismiss
+   confirmed the modal had stood through the capture. `op=close` the covering window before
+   any raise. GUI-10 never hit it because only the 250 px `main` window was open.
+2. **`op=run await=false` is a RACE the seam cannot win, and the best margin on record is
+   about one second.** `running=` is read at DISPATCH. `TrajectoryMath`'s whole eight-cell
+   batch ran in 149 ms and the capture landed 58 ms later, so the PNG read `idle | 8 passed`
+   under a label claiming a running batch. `Periodicity` is the LONGEST SPACECENTER
+   category measured at 1.43 s, and 816 ms of that is ONE of its nine cells - so GUI-26's
+   screenshot, requested 115 ms in, is reproducible, while the `.gui.json` beside it was
+   written SIXTEEN MILLISECONDS before `BATCH_COMPLETE` and is correct by a coin flip. So:
+   the PNG is the product of a running-batch label, the dump pin stays at `patched=` and
+   says nothing about the batch (a pin that demanded a running dump would be flaky on a
+   16 ms race), and the image is read after the flight.
+3. **`op=expand key=all` cannot open a GROUPED display block**, so a recording inside one is
+   undrawable and `op=edit field=recordingname` on it answers `edit-not-drawn`. The
+   Recordings tab has two block kinds and only `ChainId` is enumerated;
+   `DrawGroupedRecordingBlock` keys its block `"<groupName>::<identity>"`. Key such an edit
+   to a single-member block.
+
+All seven are in `docs/dev/todo-and-known-bugs.md` under
+`GUI-CENSUS-WAVE6-RESIDUE-2026-09-22`.
+
+Steps 2 to 6 below apply to any census lane. In order:
 
 1. **Stage the host - WAVE 1 ONLY.** Those two lanes need a save with rows in every
    window, which is the operator's own long-lived career - it cannot be committed and
@@ -483,6 +653,7 @@ authoring summary.
 | `edit` | `op=edit window=missions field=<recordingname\|groupname\|missiontitle> key=<row> [draft=<text>] [commit=<true\|false>]` | puts one of the in-place rename editors into EDIT MODE with a draft: a label becomes a `GUILayout.TextField`, so it is a LAYOUT change and not a restyle, and the arming gesture is a double-click the seam does not synthesise. `commit=` DEFAULTS TO FALSE, the opposite of the seam's other write ops, because none of these commits is "write a name" - a group or mission-title commit renames a root group plus its auto `/ Debris` and `/ Crew` subgroups plus `Mission.Name` atomically and rejects BOTH halves on a collision, and a recording commit silently drops a row that has left the committed list. `key=` means a RecordingId, a group NAME or a Mission id depending on `field=`, and the reject says which. `draft=` and not `text=` (that key is `op=find`'s). Assert on the payload's `armed=`, which is the settled read-back of the row-key sentinel; a commit step reports `armed=false` by design, its own body having cleared it. The other six in-place editors are NOT driveable - see the todo entry for why the two Logistics ones and the four period / auto-loop / warp ones need a different mechanism |
 | `raise` | `op=raise popup=<one of ten>` | calls ONE dialog's own production spawn site and STOPS, so the modal STANDS to be reported and photographed. The closed set is `actionblocked`, `savefailed`, `wiperecordings`, `wipemilestones`, `rewind`, `fastforward`, `seal`, and - since wave 6 - the three Logistics confirms `deleteroute`, `deletedormantroute`, `createroute`, each resolving "the first one" out of the store the window itself draws. Every row's spawn is reachable by a pure in-process call with data the host already carries. `deletedormantroute` will answer `dialog-target-unavailable` on any fixture with no dormant route, which is the normal shape - that bubble only grows on a rewound save. A raise while any Parsek popup stands is `REJECTED dialog-already-open` |
 | `dismiss` | `op=dismiss popup=<same> [press=<OK\|Cancel>]` | takes it down. NO `press=` is the DEFAULT and means `PopupDialog.DismissPopup`, because most of these confirms mutate the save; the seam REFUSES every mutating confirm (`press-not-allowed`), so the only pressable labels across the whole table are the informational `OK` and the confirms' `Cancel` |
+| `mock` | `op=mock window=<kerbals\|career\|structure> mockState=<catalogue id\|none>` or `op=mock describe=true` | THE GUI STATE GALLERY primitive: hands ONE window a synthetic VIEW MODEL from a catalogue compiled into `Parsek.dll` while the real IMGUI draw code computes every rect and every string, so a census can photograph states no save reaches (43 states in P1: lost / retired / stand-in chains on Kerbals, the divergence banner and the Flow column on Career State, six unphotographed terminal statuses and the route pickup forms on Structure List). A PAIRED op - `mockState=none` is the clear (and a clear naming another window is refused rather than tearing down whatever was live), and every exit path clears unconditionally. SPELLED `mockState=` AND NOT `state=` because that key is ONE closed true/false vocabulary across three other ops, the same rule that made `op=find`'s filter `ctrl=` rather than `kind=`. ITS READ-BACK IS DRAW-PRODUCED AND THREE-PHASE, which is the whole point: phase 1 applies the window's chrome and captures it WITHOUT the mock, phase 2 installs the data and captures again, and every WITNESS string - derived from the payload through the real per-column formatters, the row carrying the state's declared branch first - must be present in the second capture over THAT WINDOW's own subtree and absent from the first. Reading back the field just written is the vacuous read-back `op=rect` had to be fixed for; a witness the unmocked window already draws witnesses nothing, which is what the baseline catches. NOTHING IT INJECTS CAN REACH A SAVE: every member is a UI-layer field no writer reads, enforced by `scripts/grep-audit-gui-mock-writeset.ps1`, and `SaveGame` refuses `save-refused-gui-mock` while a scope is live. A mocked capture announces itself forever through a `mock` block in its `.gui.json`. Eleven typed refusals (`mock-arg-missing`, `mock-state-unknown`, `mock-window-unsupported`, `mock-state-window-mismatch`, `mock-refused-scene`, `mock-refused-recording`, `mock-refused-session-live`, `mock-refused-mode` - the current complexity mode hides that window's launcher, so no player can have it on screen - `mock-not-applied`, `mock-restore-failed`, and `mock-scope-broken`, which means the model was there and WENT AWAY and sends an author to a missing suppression site). `SaveGame`, `LoadGame` and `RunTests` each refuse `save-refused-gui-mock` while a scope is live. NEVER FLOWN, and an hlib gate refuses any committed spec that drives it until `tools/gui_mirror.py` reads the dump's `mock` block - without that a mocked capture files under a real fixture's name and can pair against a real one in Compare. Design: `docs/dev/design-gui-state-gallery.md` |
 
 `RouteCommand` GREW THREE ACTIONS in the same wave, and they are not `UiAction` ops - the
 verb is its own. `action=link route=<sel> [partner=<sel>]` calls `RouteStore.LinkRoutes`;

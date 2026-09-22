@@ -14,13 +14,15 @@ the dump format is `docs/dev/design-gui-tree-dump.md`. This doc owns the mirror.
 `docs/dev/design-gui-state-gallery.md` owns the MOCKED-DATA half: an
 automation-only seam that hands a window a synthetic view model so the real draw
 code photographs states no fixture save can reach (the 17 hold clauses, the 12
-reject reasons, the Career divergence banner, a lost kerbal, a supersede row). It
-specifies what the mirror gains from that - a mocked capture declares itself in
-its own dump, is filed under `fixture = "mock"` so Compare can never pair it with
-a real capture, carries a `MOCKED DATA` badge, and is counted separately in
-`gui-mirror-index.json` - plus the per-state notes and export affordance the
-owner's feedback comes back through, and why the default dataset stops being
-derived once a mock dataset exists. Design only; nothing implemented.
+reject reasons, the Career divergence banner, a lost kerbal, a supersede row).
+The mirror's side of that contract is BUILT and is section 14 below: a mocked
+capture declares itself in its own dump, is filed under `fixture = "mock"` so
+Compare can never pair it with a real capture, carries a `MOCKED DATA` badge, and
+is counted separately in `gui-mirror-index.json`. Sections 15 and 16 own the other
+two halves of the review loop - the notes the owner's feedback comes back
+through, and the one-window focus link the round is scoped by - and section 17
+owns the three mechanical rules that stop a stale, an empty-hover or a
+mislabelled capture reading as coverage.
 
 ## 1. Generated, not written
 
@@ -37,7 +39,8 @@ produced:
 | A tab's display name | the capture in which THAT tab was selected (`buttongrid.textValue`) |
 | Where each tab label sits on its bar | measured in the frame: the bright runs inside the grid's own rect |
 | A modal's title and button labels | `uiaction dialog open=true ... title=... buttons=A|B` in the log |
-| Which dataset a capture is of | `fixture.saveTemplate` in `harness/scenarios/<specId>.toml` |
+| Which dataset a capture is of | `fixture.saveTemplate` in `harness/scenarios/<specId>.toml`, or the dump's own `mock` block (section 14) |
+| Whether a hover photographed anything | the pointer op's own `tooltip=` in that run's `KSP.log` (section 17) |
 | The Compare notes | `CHANGELOG.md` (current version), the `GUI-*` entries of `docs/dev/todo-and-known-bugs.md`, and the merge commits |
 | The Compare numbers | measured off the two dumps being compared |
 
@@ -185,10 +188,16 @@ ingested, that does have one - and says so in the status line, naming both
 fixtures. Silence there would be the one way this page could lie about what it is
 showing.
 
-The default dataset is derived, not pinned: the fixture that photographed the most
-DIFFERENT windows at the Space Center, which on the present corpus is the
-operator's own `c1-gui` career. "Most captures" would pick whichever lane happened
-to be longest.
+The default dataset is PINNED into the model by the generator, and pinned so that
+it is never the mocked one. The RULE is still the same measurement - the fixture
+that photographed the most DIFFERENT windows at the Space Center, which on the
+present corpus is the operator's own `c1-gui` career, where "most captures" would
+pick whichever lane happened to be longest - but it is computed over the REAL
+fixtures only and handed to the page as `defaultFixture`, rather than derived in
+the page over everything it holds. A ~300-state mocked gallery wins a breadth
+contest outright and would silently become the page the owner opens
+(`design-gui-state-gallery.md` 7.6). `--default-fixture` overrides it by hand and
+refuses a name that is not one of the corpus's datasets.
 
 ## 4. Before / after (the Compare view)
 
@@ -198,12 +207,25 @@ to it). Listing every window's keys at once was a page nobody could read. The
 whole-program summary table survives as a fold under the window's own section, and
 its rows are links into the other windows.
 
-`key = (fixture, window, tab, state, mode, scene)`. Every capture of one key is
-sorted by `capturedUtc`; BEFORE is the earliest, AFTER the latest, and the pair is
-reported as CHANGED only when the two trees differ once the sampled colours are
+`key = (fixture, window, tab, state, mode, scene)`, plus the catalogue state id
+for a mocked capture and nothing for a real one, so every real key is
+byte-identical to what it was before the gallery existed. Every capture of one key
+is sorted by `capturedUtc`; BEFORE is the earliest, AFTER the latest, and the pair
+is reported as CHANGED only when the two trees differ once the sampled colours are
 stripped out (a colour-only difference is a screenshot difference, not a layout
 one). Both sides are drawn by the same renderer off their own dump, so a
 difference visible on the page is a difference in the game.
+
+Each window's section opens with its own COUNTS, measured by
+`window_compare_summary`: states real and mocked, changed, unchanged, new, gone,
+captures with how many of them superseded, and the flag counts of section 17. The
+states are DISTINCT KEYS rather than files - the corpus carries 314 PNGs behind 182
+keys, so a file count reads as 1.7x the coverage there is - and NEW and GONE are
+read off SPEC RE-FLIGHTS, the only place the corpus has a before and an after of
+the same intent: for each spec that photographed this window more than once, the
+keys its newest run has and its oldest does not are new, and the reverse are gone.
+A spec that flew once contributes neither, because one flight cannot say a state
+disappeared. The window's known-uncaptured list is printed under the counts.
 
 `scene` is in the key deliberately. The same window at the Space Center and in
 flight is two pictures, not a change; pairing them reported three false changes
@@ -340,70 +362,385 @@ python harness/tools/gui_mirror.py \
 
 Later runs of the same lane may be passed alongside earlier ones; that is what
 populates Compare. `--no-photos` drops the photo toggle and the dialog crops and
-makes the page about a third of the size.
+makes the page about a third of the size. `--default-fixture` pins the dataset the
+page opens on (section 3) and `--stamp` pins the generation stamp, which is
+otherwise now (UTC) and which travels in the exported notes blob so a verdict
+names the corpus it was typed against.
 
 `gui-mirror-index.json` is the coverage record without the geometry: captures per
 window, states per window with their fixtures, the known-but-uncaptured states, and
 the before/after key table. It is the thing to read when the question is "what is
-covered" rather than "what does it look like".
+covered" rather than "what does it look like". Its top level carries
+`captureCount`, `mockedCaptureCount`, `distinctKeyCount`,
+`supersededCaptureCount`, `hoverNotCapturedCount`, `labelDisagreementCount` and
+`defaultFixture`; each window carries the same breakdown plus its
+`window_compare_summary`; and each state row carries `captures`, `mocked` and
+`superseded`. **`distinctKeyCount` is the coverage number, not `captureCount`.**
 
-## 10. Coverage as of the 2026-09-15 build
+## 10. Coverage as of the 2026-09-22 build
 
-192 captures over 7 fixtures and 12 windows, from 16 census runs (GUI-1 through
-GUI-11).
+314 captures over 16 fixtures and 13 windows, from 32 census runs (GUI-1 through
+GUI-23), behind **182 DISTINCT KEYS**. The two numbers are 1.7x apart and the
+second is the coverage one: 132 of the captures are SUPERSEDED, a later run of the
+same lane having photographed the same key (section 17). A file count was what let
+the state audit report 230 captures over 134 distinct labels and read as
+coverage that was not there.
 
-STALE BY ONE LANE AND ONE WINDOW as of the same day: `GUI-12-census-testrunners`
-(PASS `2026-09-15_2057`) adds SEVEN captures - four states of `testrunner` (idle,
-every fold collapsed, one category expanded, real results) against the one this
-table counts, and three of the THIRTEENTH window, `testrunnerglobal`, the global
-Ctrl+Shift+T runner, which had no capture of any kind before it. The generator needs
-no change to take them (`parse_label` reads its window vocabulary out of the logs),
-so the mirror wants one REGENERATION rather than an edit; the numbers above are left
-as the reading they were, per this section's own "as of" contract.
+Of those 314: **0 mocked** (no gallery lane has flown yet), **8** flagged
+`hover not captured` and **12** flagged `label disagrees with the log`. 47 of the
+182 keys have both sides and differ.
 
-| Window | Captures | Distinct states | Datasets |
-| --- | --- | --- | --- |
-| main | 56 | 27 | all 7 |
-| missions (incl. Recordings) | 39 | 14 | all 7 |
-| timeline | 33 | 10 | 6 |
-| kerbals | 22 | 14 | 5 |
-| career | 19 | 11 | 4 |
-| logistics | 7 | 6 | 3 |
-| structure | 5 | 3 | 3 |
-| gloops | 4 | 1 | 2 |
-| spawncontrol | 3 | 1 | 1 |
-| settings | 2 | 2 | 1 |
-| testrunner | 1 | 1 | 1 |
-| GuiTree probe | 1 | 1 | 1 |
-
-15 keys have both sides and differ (Missions/Recordings alignment and both group
-pickers, Structure on a mission, all four Career tabs, the Kerbals rebuild on
-Roster and Flights, Spawn Control, and the main window in flight with ghosts).
+| Window | Captures | Distinct keys | Superseded | Datasets |
+| --- | --- | --- | --- | --- |
+| main | 70 | 40 | 30 | 10 |
+| missions (incl. Recordings) | 60 | 35 | 25 | 11 |
+| timeline | 53 | 27 | 26 | 7 |
+| career | 40 | 21 | 19 | 6 |
+| kerbals | 34 | 17 | 17 | 5 |
+| logistics | 18 | 15 | 3 | 6 |
+| settings | 9 | 7 | 2 | 3 |
+| gloops | 8 | 5 | 3 | 3 |
+| testrunner | 6 | 5 | 1 | 2 |
+| structure | 6 | 4 | 2 | 3 |
+| testrunnerglobal | 3 | 3 | 0 | 1 |
+| GuiTree probe | 3 | 2 | 1 | 2 |
+| spawncontrol | 4 | 1 | 3 | 1 |
 
 Nine states are known to the seam and have no capture, and all nine are the same
 shape: a tab selected in BASIC mode (Missions' own tab, two Timeline tabs, both
 Kerbals tabs, all four Career tabs). Basic draws no tab bar, so the census never
-took them. They are listed in the left rail, greyed, and clicking one says why.
+took them. They are listed in the left rail, greyed, printed under each window's
+Compare header, and clicking one says why.
 
-## 11. Known differences from the frame
+One real state the corpus is still missing:
+`bdk-kerbals-roster-standin-chain-advanced`, which exists only in a shots
+directory nothing indexes. Adding it is a `--shots` argument, not a code change
+(`docs/dev/todo-and-known-bugs.md`).
 
-Read off the side-by-side and overlay modes over the Career, Kerbals, Settings and
-Missions captures. None of the three is fixable from the dump alone; each needs a
-value the dump does not carry, or a font.
+STALE BY FOUR LANES as of the same day: the wave-6 lanes `GUI-24` through
+`GUI-27` flew while this was being read and are not in the numbers above. The
+generator needs no change to take them - `parse_label` reads its window and tab
+vocabularies out of the logs - so the mirror wants one REGENERATION rather than
+an edit, and the reading above is left as the reading it was, per this section's
+own "as of" contract.
 
-1. **A slider draws its track and not its handle.** The dump gives the slider's
-   rect and no value, so there is nothing to position a knob from. The Settings
-   ghost-audio row therefore reads as an empty groove where the game shows a knob
-   near 70%. Fixable only by having the recorder emit the slider's value.
-2. **A toggle's mark is an ASCII `x` in a CSS box.** The dump carries the boolean,
-   not the glyph, and KSP draws a tick in its own skin texture. Right state, wrong
-   shape, and the box is drawn rather than sampled.
-3. **Very long single lines clip a few characters early.** Arial at 13px matches
-   KSP's face to under a pixel over a 140 px run (that is how the size was
-   chosen), but the error accumulates: the Settings rewind-point disk line ends
-   `crashed=0, stabl` in the mirror against `crashed=0, stable` in the frame. A
-   real fix means shipping KSP's own font metrics, which is a bigger thing than
-   this page.
+## 11. Fidelity: the page measured against the frame
+
+`harness/tools/gui_mirror_fidelity.py`. Until this existed, "the mirror looks like
+the game" was an impression, and the impression had already been wrong three times
+in ways the eye caught only by luck: tab headings from an older epoch drawn over a
+frame that said something else, a container painted in its own child's colour, text
+drawn twice. What an eye finds by luck it misses by luck, so the question needed an
+instrument.
+
+### It measures THIS page, not a second renderer
+
+The obvious way to build this - re-implement the layout in Python and compare that
+against the frame - measures a program that does not ship, and it agrees with the
+page wherever both are wrong for the same reason. So the instrument opens the
+generated file itself in a headless Chromium, at a deep link the generator carries
+for exactly this purpose:
+
+```
+gui-mirror.html#cap=<runId>%2F<label>&bare=1
+```
+
+Bare mode renders ONE capture's stage, at 1:1 CSS pixels, at the top-left of the
+page, with the rail, header, status line, echo strip, photograph and every
+animation off, and pins the stage to the frame the dump was taken at - so pixel
+(x, y) in the screenshot is pixel (x, y) in the census PNG. Then it sets
+`data-ready` on `<html>`.
+
+Three things keep that honest:
+
+* The bare skin is a separate string (`BARE_CSS`) and every selector in it is
+  scoped to the `bare` class, which a test asserts by PARSING the selectors. So a
+  page opened without the hash is the page that shipped, mechanically rather than
+  by promise.
+* `bootBare()` is the first statement of `boot()` and returns false when the hash
+  is absent, so there is no second rendering path to drift from the first.
+* The ready marker needs no second browser call to read: in bare mode the stage is
+  `visibility:hidden` until `data-ready` is set, so a screenshot taken too early
+  comes back BLANK, and a blank window rect where the census frame has ink is a
+  refusal the instrument reports rather than a measurement it takes.
+
+### The four metrics
+
+All of them are taken INSIDE the Parsek window rects of that capture. Everything
+outside is the game's own scene, which the page neither has nor claims.
+
+* **TEXT**, the one that matters. For every text-bearing LEAF control, the ink
+  bounding box in the frame against the ink bounding box in the mirror, inside the
+  same rect: `dx`, `dy`, the width ratio `wr` (mirror ink width over the frame's),
+  and a `clipped` flag. Ink is any pixel whose luminance is more than 45 from the
+  rect's OWN median - not from a constant, because the same label style is drawn
+  on `#444444` window fill, `#292929` content boxes and `#313131` buttons across
+  the corpus. `clipped` is set when the mirror's run ends AT the rect edge while
+  the frame's ends inside it; deliberately NOT "the mirror's run is shorter",
+  because a font a few per cent wide runs into the edge and is cut there with MORE
+  ink than the frame's, which is the exact case that loses characters.
+* **FILL**. The median colour of each painted control's own surface - the points
+  its children do not cover, the same rule the generator sampled it with - frame
+  against mirror, reported as the worst single channel. The mirror sampled those
+  colours off that very frame, so this asks whether the page paints what it
+  stored. It is the standing guard for the container-took-its-child's-colour
+  class.
+* **PRESENCE**. Controls whose rect carries ink in the frame and none in the
+  mirror, and the reverse, grouped by `kind|style|text` so a group is one fixable
+  class instead of a list of coordinates. This is what finds a handle, a tick, an
+  icon or a scroll bar the page draws nothing for.
+* **WINDOW**. The mean absolute luminance difference over the window rect. For
+  RANKING captures only, and not a pass/fail number: a window with a transparent
+  gutter has the game's scenery behind it and will never read zero.
+
+Two instrument details, each of which produced a wrong reading before it was
+right. The ink is looked for two pixels IN from every rect edge: a button's border
+contrasts with its fill as strongly as its label does, and measuring the whole
+rect made the frame's ink box the entire 980 px border of the Close button against
+the 33 px word inside it - dx 471, `wr` 0.03, and a defect report about a control
+that was perfect. And a control is measured only over the part of it that all its
+ancestors contain, because that is what the page draws; where the GAME clips
+differently (it clips at scroll views and windows, not at every box) that surfaces
+as the `clipped` flag instead, which is a thing a reader can act on.
+
+### Running it
+
+```bash
+python harness/tools/gui_mirror_fidelity.py \
+  --shots "<...>/results/<runId>_<specId>_shots" [--shots ...] \
+  --repo . --out-dir <a scratch folder>
+```
+
+`report.json` and a self-contained `index.html` land in `--out-dir` and nowhere
+else - the run produces one screenshot per capture plus crops and heatmaps, none
+of which belongs in the repository, and a test cell fails if any tracked file
+under `harness/` or `docs/` is an image or carries an inlined image payload.
+`--window`, `--capture` and `--limit` narrow a re-measure to seconds. `--jobs`
+(4) is the worker threads, which overlap the browser wait with the measurement -
+the Python-bound half - and `--browser-jobs` (1) is how many browser launches
+may be in flight at once, which is separate because four heavy pages at once made
+Edge exit 0 with no screenshot and no stderr. `--page` reuses an already-built
+page instead of generating one, which is what makes a before/after pair
+comparable; `--budget-ms`, `--timeout` and `--triples` tune the browser's virtual
+time, the wait for a screenshot, and how many worst captures get an image triple.
+
+`--out-dir` receives `report.json`, `index.html` and - unless `--page` names one -
+the `mirror-bare.html` the measurement was taken against. The browser's own
+working files go to short temp directories and are removed at the end.
+
+The browser is optional equipment: with none installed it exits 3 naming the
+paths it probed, and every unit test (`harness/lib/test_gui_mirror_fidelity.py`)
+passes without one - which is the machine CI runs on.
+
+One caveat about running a SUBSET. Whether a root belongs to another mod is a
+property of the CORPUS: the generator calls it foreign only when the same root
+repeats under four or more different windows. A run given a few shots directories
+can fall below that and classify nothing - on a four-directory sample a MechJeb
+title bar was measured as a Parsek window in 13 captures - so the instrument
+warns when the run covers fewer than four windows. Quote numbers from a full-corpus
+run.
+
+Two things about driving a headless Chromium on Windows that cost a run each.
+`msedge.exe` is a LAUNCHER: it returns in tens of milliseconds and a child writes
+the screenshot half a second later, so the driver waits for the file's own IEND
+chunk rather than for the process. And the `--user-data-dir` must be an absolute
+path in a SHORT directory, one per worker thread: a relative one makes Edge put
+"can't read and write to its data directory" on the desktop once per launch, a
+profile under a deep scratch path silently exceeds Windows' path limit and the
+launch then returns 0 having written nothing, and two threads sharing one profile
+make the second Edge hand its URL to the first and exit. The profiles are
+therefore `tempfile.mkdtemp` directories, keyed by thread, removed at the end, and
+the argv is a list from end to end so no path can be re-split on a space. A launch
+that fails twice STOPS the batch rather than repeating the browser's dialog 230
+times. The screenshots themselves go to a short temp directory too, numbered
+rather than named after their capture: written beside the report they came to 264
+characters for the long labels, and those launches returned 0, wrote nothing and
+said nothing, which cost 240 s of timeout and retry each before it was understood.
+Those temp directories are removed from a `finally`, with a retry and a backoff,
+and the run REPORTS any it could not remove: deleting them with
+`ignore_errors=True` ran while the browser's children still held files, failed
+silently because errors were ignored, and left 43 of them (320 MB) in the owner's
+temp directory. And the launch carries no `--hide-scrollbars`: it hid a
+difference the page itself had introduced (a native scroll bar over the mirrored
+KSP one), which is the opposite of what an instrument is for. A run that cannot
+finish exits non-zero - 3 with no browser, 4 when the batch halted part-way - so
+a partial corpus cannot be read as a whole one.
+
+### What a metric cannot see, and what to do about it
+
+PRESENCE asks one binary question - are there at least four ink pixels in this
+rect - and that is enough for text, where the answer flips when a label is
+missing. It is NOT enough for a control whose own border satisfies it whatever is
+drawn inside. The slider is the case that proved it: the page drew its handle in
+a typed light grey (luminance 185) where KSP's scroll bar thumb has a dark face
+(17 to 50) under a one-pixel bevel (85 to 101) over a groove of 45, so the page
+moved AWAY from the game while the report counted "slider frame-only 41 -> 0",
+and DELETING the handle element entirely moved no number at all.
+
+Two things follow, and they are the general lesson rather than a slider story.
+First, a fix and a metric are not independent when the fix is judged by the
+metric that motivated it: a class whose count went to zero deserves the question
+"what would this number do if I removed the fix?" before it is quoted. Second,
+when the answer is "nothing", the metric is wrong for that class and needs one of
+its own - here the mean absolute luminance error over the control's rect, plus
+the thumb run's position and length where both sides resolve one, which moves
+from a resolved `[4, 242]` to unresolved the moment the handle goes.
+
+### What it found, and the corpus before and after
+
+230 captures over 19 census runs, 222 measured (6 carry a stock modal, 2 have no
+PNG), 9112 text controls. BEFORE is the page as it rendered on 2026-09-21; AFTER
+is the same corpus through the same instrument with the classes below fixed.
+
+RE-MEASURED 2026-09-22 over the wave-5 corpus (32 runs, 314 captures, 305
+measured, 12 912 text controls): every AFTER number in the table below held to
+the digit at p50 and p95 - dx 2 / 5 px, dy 1 / 4, width ratio 1.000 / 1.111, fill
+delta 0 / 0, all sliders resolving a thumb on both sides at a p50 offset of 1 px,
+window score p50 9.04 - and the residual's per-capture rate is flat (frame-only
+0.52 -> 0.57, clipped 0.28 -> 0.30), which is eleven new lanes photographing
+states nothing had measured before. Three new worst-case tails came with them and
+are `docs/dev/todo-and-known-bugs.md` T42b items 6 to 8. The table is left as the
+reading it was, per the same "as of" contract section 10 keeps.
+
+| Metric | BEFORE | AFTER |
+| --- | --- | --- |
+| text ink dx, p50 / p95 / worst | 2 / 52 / 643 px | 2 / **5** / **22** px |
+| text ink dy, p50 / p95 / worst | 1 / 4 / 16 px | 1 / 4 / 16 px |
+| text width ratio, p50 / p95 | 1.000 / 2.214 | 1.000 / **1.111** |
+| fill colour delta, p50 / p95 / worst | 0 / 5 / 43 | 0 / **0** / **16** |
+| slider luminance error, p50 / p95 / worst | 34.2 / 39.7 / 45.2 | **18.1** / **28.0** / **28.1** |
+| sliders whose thumb resolves on BOTH sides | 0 of 41 | **41** of 41, p50 offset 1 px |
+| runs the page clipped and the game did not | 554 | **63** |
+| ink in the frame, none in the mirror | 587 | **115** |
+| ink in the mirror, none in the frame | 122 | 99 |
+| window luminance score, p50 | 8.86 | 9.04 |
+
+The two slider rows are the ones this table did not have when the work was first
+reported, and they are the reason it did not: see "What a metric cannot see"
+above. The thumb-run row is the sharpest single number here - 0 of 41 sliders had
+a thumb the frame and the page BOTH resolved before, 41 of 41 do now, and the
+page puts it within a pixel of where the game did.
+
+The window score is the one number that went UP, and it is the one number that is
+not a quality measure: it is a raw luminance difference over the whole window
+rect, and the page now DRAWS things it used to leave blank - scroll bar thumbs,
+slider handles, tick marks, the disabled text it had dimmed to nothing. A control
+drawn one pixel from where the game drew it scores worse than a control not drawn
+at all. It is kept for ranking captures, which is all it was ever for.
+
+Fixed, worst class first, each measured rather than assumed:
+
+1. **A disabled control was dimmed twice** - 377 controls with ink in the frame
+   and none on the page. The colours here are sampled per control out of the
+   frame, so a disabled control's colour is ALREADY the grey the game drew;
+   `opacity:.42` on top of that put the Missions window's disabled interval field
+   below the threshold of being visible at all. The opacity now applies only where
+   the frame gave no colour to carry the state. `button|button|text`: frame-only
+   377 -> 43, clipped 376 -> 15.
+2. **A raised control's outline was brighter than its fill** - so the ink
+   measurement found the whole button interior instead of its label, and the page
+   looked like a web form rather than like KSP. Measured on the ib-logistics
+   frame: KSP draws a near-black outline (grey 5 to 25) with a light top bevel
+   inside it (88, 71, 61, fading) over a fill of 25 to 76. Buttons, repeat
+   buttons, selection-grid cells, button-styled toggles and text fields now carry
+   that edge. Corpus width ratio p95 2.214 -> 1.111.
+3. **`box`-styled text was aligned by a rule, and KSP has no such rule** - the
+   Logistics section heading is CENTRED in its 1358 px box while the sortable
+   column headers of the same table are LEFT-ALIGNED in theirs. The page
+   left-aligned the first (643 px out) and centred the second. The offset is now
+   MEASURED off the frame (`text_ink_offset`), the same move the tab bar's labels
+   already used. `label|box|text` worst dx 643 -> 5; `button|box|text` p95 dx
+   195 -> 4 and clipped 128 -> 7.
+
+   **Read the dx of those two classes with that in mind.** The page places their
+   text at an offset taken off the same PNG the instrument then grades it
+   against, so for `label|box` and `button|box` the text dx is a measurement
+   graded against itself and near zero by construction. It says the page applied
+   what it measured; it does not say the page is in the right place. The
+   INDEPENDENT evidence for those classes is the width ratio and the clipped
+   flag, neither of which the offset can flatter - and both moved for real
+   (clipped 128 -> 7). The same circularity has a second edge: a box that
+   another window covers takes its offset from the COVERING window's pixels,
+   because the covering window is what is in the frame at that rect. That is one
+   more reason the overlap share in section 12 is worth reading before any
+   per-class number here.
+4. **A toggle in the BUTTON style was drawn as a checkbox** - 987 of the corpus's
+   8154 toggles. KSP draws `Toggle(v, text, "button")` as a button that sits
+   pushed in while it is on; the page drew "x label" on bare window fill. It now
+   takes the button's shape, its sampled fill and the pushed state.
+   `toggle|button|text` p50 dx 52 -> 2, width ratio 1.367 -> 1.000.
+5. **A slider had no handle and a scroll bar had no bar** - 41 controls. The dump
+   records a rect and no value, which section 12 below used to call unfixable
+   from the dump; it was never unfixable from the PNG. `slider_thumb_run` reads
+   the brightest contiguous run along the control's own long axis, which resolves
+   on 81 of the corpus's 137 sliders - including the Settings ghost-audio slider,
+   at 152 of its 227 px groove. The groove is also oriented by the rect's own
+   aspect now: 130 of the 142 sliders are VERTICAL scroll bars and the page was
+   drawing a horizontal bar across their middle.
+6. **A scroll view did not scroll** - 52 of them carry content below the fold, up
+   to 23 529 px of it, and `overflow:hidden` made every row of it unreachable.
+   The children are absolutely positioned inside their own containing block, so
+   the rects ARE the extent and no content sizer is needed. `&scroll=<px>` on the
+   bare link scrolls every scroll view before the page marks itself ready, so
+   that "reachable" is a thing a screenshot can show rather than a claim about
+   CSS.
+7. **A toggle's tick was an ASCII `x`** - the right state in the wrong shape. It
+   is drawn in CSS now. This is the one fix with no measurement behind it, and
+   the one that is still not the game's own glyph.
+
+Two things the numbers say that the list does not. The fill metric reaching a p95
+of ZERO is the quiet one: wherever the page stores a colour it now paints that
+colour, which is the standing guard against the
+container-took-its-child's-colour class returning. And 429 more ink pairs are
+measurable after than before (8227 against 8656) - the page draws text in places
+where it used to draw nothing at all.
+
+What the residual is made of, so the next pass starts in the right place: of the
+115 controls with ink in the frame and none on the page, 46 (40%) sit in a region
+two Parsek windows both cover, and of the 63 clipped runs, 32 (51%) do. Neither
+the page nor the game publishes its window stacking, so those readings are about
+which window won rather than about the rendering. The rest, and the four
+differences that are real, are section 12 and
+`docs/dev/todo-and-known-bugs.md` T42b.
+
+## 12. Known differences from the frame
+
+MEASURED by section 11's instrument over the whole corpus, not read off the
+side-by-side by eye. The three entries this section used to carry were the eye's
+reading, and two of them were wrong about what was possible: the slider's handle
+and the box alignment were both derivable from the PNG all along, and both are
+fixed. What is left:
+
+1. **A label that WRAPS in the game is drawn on one line.** KSP's label styles
+   word-wrap; the page sets `white-space:pre`. The Logistics route cell that reads
+   `> Route: KSC` / `-> Duna` over two lines in the frame is one line on the page,
+   which is most of the residual `dy` of about 10 px on those rows. The rect
+   height over the line height says how many lines the game used, so it IS
+   derivable - but it moves every multi-line cell on the page and wants its own
+   pass with the instrument beside it.
+2. **KSP's own font metrics are not Arial's.** 13 px Arial renders three measured
+   corpus runs at 136.6 / 144.5 / 86.8 px against a measured 136 / 144 / 87, and
+   the corpus width ratio is 1.000 at the median and 1.111 at p95 - but the tails
+   are real, and a long single line still ends a character or two early or late.
+   A real fix means shipping KSP's font metrics.
+3. **A toggle's tick is a CSS checkmark, not KSP's skin texture.** Right state,
+   right box, drawn shape. The texture is in no census artifact, so there is
+   nothing to derive it from.
+4. **A control hidden behind another Parsek window is still measured, and drawn
+   from the wrong window.** The dump records every window's controls including the
+   covered ones, and neither side publishes its stacking order. 170 of the 222
+   measured captures have more than one Parsek window; 40% of the residual
+   frame-only controls and 51% of the residual clipped runs sit in a region two
+   windows both cover. This is the largest single share of what is left, and it
+   is an instrument fix (record which root a control came from) rather than a
+   page fix.
+5. **A capture with a stock modal is not measured at all** - 6 of 230. A
+   `PopupDialog` is a centred uGUI canvas that overdraws the window rects in the
+   FRAME and appears in no control tree, so every rect under it would read as a
+   difference the page could not have avoided. The page shows the photograph for
+   those, which is the honest rendering.
+
+`docs/dev/todo-and-known-bugs.md` T42b carries the same list as work items.
 
 ### What "unchanged" does not cover
 
@@ -416,7 +753,7 @@ though: a window whose only change was a text colour (a status turning red, a ro
 becoming a link) reads as unchanged here. Put the two sides in side-by-side photo
 mode to see it.
 
-## 12. What this page is not
+## 13. What this page is not
 
 * Not a status authority. `docs/dev/autotest-status.md` owns the census's status
   and `design-gui-inventory.md` owns the structural map.
@@ -425,3 +762,190 @@ mode to see it.
   its run id on the page.
 * Not a player-facing surface, and not a new UI surface in Parsek: it is a harness
   tool that renders artifacts, and it ships no game code.
+
+## 14. Mocked captures
+
+A gallery lane (`design-gui-state-gallery.md`) hands a window a synthetic view
+model and photographs the REAL draw code drawing a state no save can reach. Those
+captures live in the SAME page as the real ones, badged, because the owner's
+question is about one window at a time and splitting the page would make him
+remember which half he was in.
+
+**A mocked capture declares itself in its DUMP, never in its name.** The recorder
+writes an additive `mock` block at the unchanged `parsek-gui-tree/1` schema id -
+`stateId`, `window`, `catalogue`, `states`, `covers` - and ABSENT means real,
+which is every committed capture. `mock_provenance` reads it and answers None for
+an absent block, a block that is not an object, and a block with no `stateId`; a
+non-numeric `states` or a `covers` that is not a list degrades to 0 and `[]`
+rather than throwing.
+
+It has to be the dump and not the label because the mirror derives a capture's
+dataset from the lane's `fixture.saveTemplate`, and a gallery lane HAS one - it
+needs a loaded game. Without the block its captures would file under a real
+fixture's name and pair against real captures in Compare, which is the one lie
+this page must not tell.
+
+**The facets come out of the catalogue state id.** `mock_facets` reads
+`<window>.<family>.<variant>`: the block's `window` field is the authority for the
+window token, the leading tail token is the tab when it is in that window's own tab
+vocabulary (the same rule `parse_label` applies), and what is left is the state
+with dots turned into dashes. The mode still comes from the log. Nothing is read
+off the label, so a mocked capture carries no label-versus-log disagreement by
+construction.
+
+**`fixture` becomes `mock`, and that is what isolates Compare.** `fixture` is
+already part of `key_of`, so a mocked BEFORE can only ever pair with a mocked
+AFTER - structurally, not by a filter somebody has to remember. The catalogue state
+id is appended to the key as well, so two states of the same window and tab whose
+derived state tails agree still cannot pair with each other; real keys gain no
+segment and stay byte-identical.
+
+**Badged in four places**, all from one flag function: the rail entry (and the
+window header carries `N mocked` beside its capture count), the stage header, the
+status line, and the Compare rows including both sides of a pair. The badge's
+tooltip names the state id, the catalogue, the state count and the branch keys the
+state claims - all of it out of the block.
+
+**And `mock` is never the default view.** See section 3.
+
+`gui-mirror-index.json` carries `mockedCaptureCount` at the top level, a
+`capturesMocked` per window, and `mocked: true` on the state rows, so "how much of
+this is real" is answerable without opening the page.
+
+## 15. The notes the round comes back through
+
+The owner reviews a window, and what he types has to reach an agent in a later
+session. The page is a static file and must stay one, so the mechanism is
+`localStorage` plus a `<pre>`: no server, no upload, no download link (a viewer
+sandbox blocks one, and a blocked link is worse than a box you can select).
+
+**One field per row.** Every state view and every Compare pair gets a verdict
+(`keep` / `change` / `unsure`, or none) and a one-line note, stored under
+`(run pair, window, tab, state, mode, fixture)`. The run pair is what makes a
+Compare note about THIS before and THIS after: re-fly the lane and the pair
+changes, so last round's verdict does not silently attach itself to a picture the
+owner has not seen. A state view uses its own run id for both halves.
+
+**Every storage access is in try/catch, and a refusal is said out loud.** A fold
+that does not persist is a nuisance and the rail says nothing about it; a VERDICT
+that does not persist is lost work, so a refused write puts
+`this browser refused storage - export before you close the tab` beside the field
+and repeats it in the export panel. The page renders correctly with no storage at
+all.
+
+**Export is one blob in two forms.** `Export notes` serialises every non-empty
+note for the CURRENTLY SELECTED window, or for all windows, as JSON and as a
+markdown table in a `<pre>`, with a copy button. The clipboard API is refused in
+some viewers, so the fallback is visible: the `<pre>` is selected for the reader
+and is `user-select:all` anyway.
+
+The blob is a SCHEMA, because it leaves the page and is read back by something
+with nothing else to key on. `NOTES_SCHEMA = "parsek-gui-mirror-notes/1"`:
+
+```json
+{"schema": "parsek-gui-mirror-notes/1",
+ "pageSchema": "parsek-gui-mirror/1",
+ "generatedUtc": "2026-09-22T00:00:00Z",
+ "scope": "timeline", "count": 1,
+ "notes": [{"key": "<runPair>|<window>|<tab>|<state>|<mode>|<fixture>",
+            "window": "timeline", "tab": "overview", "state": "live",
+            "mode": "advanced", "fixture": "b1-pad-craft", "mocked": false,
+            "mockState": "", "beforeId": "<runId>/<label>",
+            "afterId": "<runId>/<label>",
+            "verdict": "change", "note": "one line"}]}
+```
+
+`generatedUtc` is the PAGE's generation stamp, not the export time: it says which
+corpus the owner was looking at. The row carries the capture ids of both sides, the
+five facets, the dataset, the mocked flag and the state id, which is what makes a
+verdict actionable in a session that never saw the page.
+
+The row's FIELD SET is `NOTES_FIELDS` in the generator and is forwarded into the
+page as `notesFields`, which the JS iterates to build a row. So the blob the page
+writes and the blob `parse_notes_blob` reads back cannot drift apart, and the
+round trip is a unit cell rather than a hope.
+
+**Import** is a textarea and a `merge` button: paste a blob back and it merges by
+key, replacing a row already there. It accepts the whole blob, a bare list of rows
+or a single row, rebuilds a missing key from the row's own facets, and DROPS a row
+with nothing to key on while saying how many it dropped - never merging one under
+a made-up key.
+
+## 16. One window at a time
+
+The owner's ruling (`design-gui-state-gallery.md` 12) is that the review runs a
+window at a time. Two affordances:
+
+* **`#win=<token>`**, or `#win=<token>&view=compare`, opens the page already
+  scoped to one window, in mirror or Compare view. The rail shows that window
+  alone with a `show every window` row out of it, and the link is printed in a
+  read-only field so it can be pasted into a message. A token no capture is of is
+  SAID in the status line rather than silently ignored, because the whole page
+  would otherwise look like the answer to a link that missed.
+* **the per-window Compare header** of section 4.
+
+The older deep link is untouched, and that matters more than it looks: the
+fidelity instrument photographs `#cap=<runId>%2F<label>&bare=1`, so `bootBare()`
+is still the first statement of `boot()` and returns before any of the above is
+reached. A bare page renders exactly what it rendered before - one stage, no rail,
+no header, no notes field - and every new element is in the `body.bare` hide list,
+which the "every bare rule is scoped to the bare class" cell keeps mechanical.
+
+## 17. Retiring false coverage
+
+Three rules, none of which names a label. A label typed into the generator is a
+label that rots, and the state audit's own finding was that the mirror was
+reporting 230 captures over 134 distinct labels with 8 of them photographing
+nothing.
+
+**(a) SUPERSEDED: a later capture exists for the same key.** Every capture of a
+key but the latest is marked `supersededBy` that one. The mirror shows the latest
+- `pick` filters superseded captures out of the pool, and so does the capture the
+page OPENS on - the rail lists the current one per state and greys a superseded
+row, and coverage counts DISTINCT KEYS rather than files. The superseded capture
+stays reachable as its pair's BEFORE and from its own rail row, because it is the
+evidence of what changed. This is what retires the audit's four stale labels with
+no label named: wave 5 re-flew their lanes, so
+`ksc-settings-advanced` / `-basic`, `ksc-career-milestones-advanced`,
+`ksc-kerbals-roster-advanced` / `-outcomes-advanced`,
+`fs-kerbals-outcomes-empty-advanced` and
+`play-kerbals-outcomes-flight-advanced` are all superseded by construction -
+verified on the corpus, 132 of 314 captures.
+
+**(b) HOVER NOT CAPTURED, from the log.** A pointer step that moved the cursor
+onto a control (`park=false`) logs its own result, and where that line carries
+`tooltip=-` the game's `GUI.tooltip` was EMPTY when the frame was taken: the
+capture is the window's idle state under a hover label. The flag is set from that,
+excluded from the state counts and from Compare, and greyed in the rail.
+
+The pointer state is ONE-SHOT: it belongs to the frame taken right after the op,
+never to every later capture of the run.
+
+The older census runs predate the `tooltip=` key, and an absent statement is not
+an empty tooltip. The fallback there is the capture's own TREE: a hover frame that
+is byte-identical to another capture of the same run, sampled colours stripped,
+photographed nothing its sibling did not - which is exactly the audit's measured
+reading that `b1-main-disabledecho-spawncontrol-advanced` is text-identical to its
+`b1-main-idle-advanced` sibling. Between the two arms all four hover labels are
+flagged (8 captures across the runs that took them): two from the log, six from
+the tree. With neither a `tooltip=` key nor an identical sibling, nothing is
+claimed.
+
+**(c) LABEL DISAGREES WITH THE LOG.** The log-over-label rule already decided the
+filing; this reports the disagreement so a reader knows the row he is looking at
+is filed under something its own name denies. Three arms, in
+`label_log_disagreements`: the label names a window the log contradicts; the label
+names a tab the log contradicts; or the label names NO tab - which reads as the
+window's default, index 0 - while the log selected a later one. The third arm is
+the quiet form and the one that matters: it is what catches `ksc-timeline-basic`
+(really the Re-Fly tab) and `ksc-missions-basic` / `bd-missions-basic`, the audit's
+mislabelled captures. A label whose leading state token turned out to be a tab's
+DISPLAY name is not a disagreement and is suppressed by the alias that resolved
+it. On the corpus: 12 captures, all of them tab arms.
+
+What (c) CANNOT see is a content mislabel - a state token that names something the
+tree does not show, like `fs-timeline-overview-empty-advanced`, which is not the
+empty branch, or `b1-missions-recordings-live-advanced`, which shows an empty tab.
+The seam log says which window and tab were open; it says nothing about what the
+rows in them read. Judging that would mean typing the word `empty` into the
+generator, which is the one thing this page may not do.

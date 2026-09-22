@@ -3376,6 +3376,24 @@ namespace Parsek
                 mergeDialogPending = false;
                 InputLockManager.RemoveControlLock("ParsekMergeDialog");
 
+                // GUI state gallery (design-gui-state-gallery.md 7.5, layer 4). A mock
+                // scope is a static on an automation-only type and every exit path clears
+                // it, so finding one set here is UNREACHABLE across processes: a crash
+                // mid-mock takes the static with the process. One bool read per load
+                // turns "nothing injected can survive into a load" from an assumption
+                // into an observable claim, which is the only kind of crash-safety
+                // statement worth making.
+                if (Parsek.UI.Gallery.GuiMockSession.IsLive)
+                {
+                    ParsekLog.Warn("Scenario",
+                        "GuiMock session found LIVE at OnLoad: state="
+                        + (Parsek.UI.Gallery.GuiMockSession.StateId ?? "-")
+                        + " window=" + (Parsek.UI.Gallery.GuiMockSession.Window ?? "-")
+                        + " - dropping it (nothing injected reaches a save, so no data is "
+                        + "at risk; an exit path did not clear)");
+                    Parsek.UI.Gallery.GuiMockSession.ResetForTesting();
+                }
+
                 // Restore user-intent settings (tracking-station visibility, readable
                 // sidecar mirrors, etc.) from the
                 // external settings.cfg file, overwriting whatever stale value KSP's

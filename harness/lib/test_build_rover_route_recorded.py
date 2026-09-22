@@ -321,7 +321,25 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              # campaign-isolation ceiling) and the kill triple its presence justifies as
              # an idempotent guard in the driver (both H69 flights measured nothing live
              # to stop). Same pairing obligation as the other live-reason consumers.
-             "H69-autorecord-landed.toml")
+             "H69-autorecord-landed.toml",
+             # GUI-13 (2026-09-21) is the first consumer that reads neither the recorded
+             # corpus's behaviour nor a live property of the active vessel. It boots these
+             # bytes for the one STRUCTURAL fact the fixture README's `--check` asserts -
+             # two fully sealed trees and NO `ROUTES` node - because that is precisely what
+             # makes the Logistics window's Candidates section draw ROWS, which no census
+             # capture had on any host. Its product is a screenshot plus a control-tree
+             # dump rather than a verdict; the pairing obligation is every other consumer's,
+             # which is the whole reason it is listed here.
+             "GUI-13-census-logistics-candidates.toml",
+             # GUI-26 (2026-09-22, wave 6) boots these bytes for the SAME structural fact
+             # GUI-13 does - two sealed trees and no `ROUTES` node, hence live route
+             # CANDIDATES - because a candidate carrying both `Tree` and `Analysis` is the
+             # one precondition of the `Create Supply Route?` confirm's spawn guard, and no
+             # other committed host has one (the route-carrying `interbody-route-recorded`
+             # answers `dialog-target-unavailable`, which GUI-25 declares). Its second
+             # subject, the test runner photographed mid-batch, needs no fixture property
+             # at all. Same pairing obligation as every other consumer.
+             "GUI-26-census-createroute-and-running-batch.toml")
 
     FIXTURE_PATH = "fixtures/saves/rover-route-recorded"
     FIXTURE_LITERAL = '"%s"' % FIXTURE_PATH

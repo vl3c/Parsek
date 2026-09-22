@@ -9,7 +9,9 @@ tier = "operator"
 #
 # WHY IT NEEDS THREE NEW VERBS. Two of them close a measured instrument gap:
 #   - the always-collect leg has harvested `<instance>/Screenshots/` into
-#     `results/<runId>_shots/` since V3 (hlib.select_run_screenshots, 64-file cap) and
+#     `results/<runId>_shots/` since V3 (hlib.select_run_screenshots, a file-count cap
+#     that was 64 and is 1024 since the gallery's P1b - see hlib.ARTIFACT_MAX_SCREENSHOTS)
+#     and
 #     `tools/contact_sheet.py` renders whatever it finds, but NOTHING ever wrote a file
 #     there: the only screenshot path in the game is the player's F1 key. That tool's own
 #     empty-state text ("no screenshots captured (the V4 capture verbs feed this)") has
@@ -75,16 +77,64 @@ tier = "operator"
 # the count is the seam's whole TABLE, not the scene's drawn set.
 # The two flight-only windows - spawncontrol and gloops - belong to GUI-2; asking for
 # either here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
-# scene without them. Twelve of the captures are TABS: missions x2, timeline x4 (its
-# filter modes), kerbals x2, career x4. Settings has six SECTIONS rather than tabs (they
+# scene without them. Eighteen of the captures are TABS: missions x8 (its two tabs, each
+# in the restored, the collapsed and the fully expanded state, plus one deep fold
+# apiece), timeline x4 (its filter modes), kerbals x2, career x4. Settings has six SECTIONS rather than tabs (they
 # all draw in one pass, and three are hidden in Basic), so the Advanced/Basic pair IS its
 # section coverage; Logistics' bubbles are expand-collapse, not a selector.
 #
-# 22 PNGs (17 Advanced + 5 Basic) and 22 dumps beside them: 44 files, plus ONE more the
+# 29 PNGs (24 Advanced + 5 Basic) and 29 dumps beside them: 58 files, plus ONE more the
 # `GuiTree` batch below writes itself (`parsek-guitree-probe.gui.json`, its probe
-# window's own capture) = 45, against the harvest's 64-file cap
-# (hlib.ARTIFACT_MAX_SCREENSHOTS). That is why the dump steps do not need the cap raised
-# and why a 23rd capture would want the arithmetic re-checked rather than just added.
+# window's own capture) = 59, against the harvest's file-count cap
+# (hlib.ARTIFACT_MAX_SCREENSHOTS). That cap was 64 when this lane was written, which is
+# why the dump steps did not need it raised; it is 1024 since the GUI state gallery's P1b
+# (a capture PAIR is two files, so 64 harvested at most 32 STATES and silently dropped the
+# rest), so this arithmetic has three hundred-odd captures of headroom now. Re-check it
+# anyway before adding a 30th capture: the BYTE cap is the one that binds at scale.
+#
+# THE SIX FOLD CAPTURES (24th-29th) WERE ADDED 2026-09-22, and the gap they close is one
+# a reader of the GUI mirror hits immediately: the Missions window's two tabs were each
+# photographed in exactly ONE state, so every fold arrow in both pictures pointed at
+# nothing. The mirror could show that a row COLLAPSES and never what collapsing hides.
+# Six labels, all Advanced, all on the Missions window and all inside its existing
+# open / close pair (no new window is opened, so every pinned `describe` echo below is
+# untouched):
+#   - `ksc-missions-{missions,recordings}-collapsed-advanced` - `key=none`, the floor;
+#   - `ksc-missions-{missions,recordings}-expanded-advanced`  - `key=all`, the ceiling;
+#   - `ksc-missions-recordings-chain-advanced` - ONE chain block, the rest shut;
+#   - `ksc-missions-missions-events-advanced`  - ONE mission's Events digest, ditto.
+# The two SINGLE-key steps are what `key=all` cannot buy: under `all`, a chain block and
+# an event digest are two open things among every other open thing, and the picture
+# stops saying which affordance drew what. Their ids are host-specific and the spec says
+# so at the pins below.
+# ORDERING IS DELIBERATE: none -> chain -> all -> (tab) -> none -> digest, which is four
+# expand ops for six pictures, because the expand sets are per WINDOW rather than per
+# TAB. The two pre-existing `ksc-missions-*-advanced` captures are KEPT and still come
+# first: they photograph the state the window RESTORES, which is the state a player
+# actually opens it in, and none of the six replaces that.
+#
+# THE 23rd IS `ksc-logistics-nearmiss-advanced`, added 2026-09-21 off a state-coverage
+# audit of every capture this census had taken. It is the highest-yield single step the
+# audit found: the Logistics window's near-miss subsection header is present and
+# COLLAPSED in every existing capture, so all twelve of its reject reason strings had
+# never been photographed anywhere, while this host alone had 18 rows waiting under it.
+#
+# TWO EXISTING LABELS CHANGED MEANING RATHER THAN NAME in the same pass, and both are
+# re-shot by the act of re-flying this lane against HEAD:
+#   - `ksc-settings-advanced` / `ksc-settings-basic` photographed a button reading
+#     `Wipe All Game Actions (N)`; HEAD draws `Wipe All Milestones (N)`
+#     (SettingsWindowUI.cs, renamed after the first flight). Nothing in this spec named
+#     the old label, so the re-fly is the whole fix. The Basic capture ALSO changed rect
+#     (see its step) so that it shows the height a player gets.
+#   - `ksc-career-milestones-advanced` photographed the Rewards column at 180 px with
+#     cells wrapping; HEAD sets `ColW_Rewards = 320f`, widened BECAUSE of that dump.
+# And `ksc-kerbals-roster-advanced` / `ksc-kerbals-outcomes-advanced` photographed the
+# PRE-REDESIGN single-line Kerbals shape, which HEAD replaced with four-column tables.
+# They are KEPT rather than dropped, which is a correction to the audit's own
+# recommendation: the lane photographs whatever HEAD draws, so a re-fly makes them
+# current, and they are this census's only DENSE Kerbals pictures (the committed-fixture
+# lanes GUI-11 / GUI-6 hold a handful of kerbals each). Dropping them would have traded a
+# stale picture for no picture.
 # The batch's own dump is a BONUS artefact, not a product of this lane: it is the probe
 # window, not a Parsek one, and the viewer will render it beside the census pages.
 #
@@ -149,8 +199,21 @@ tier = "operator"
 # `w = 400`, above either mode's minimum, so neither picture is clipped and neither
 # depends on the tolerance to pass.
 #
-# FLOWN ONCE, 2026-09-10 (`2026-09-10_2255`, attempt 2 `_2256`), both INVALID on that one
-# rect step and on nothing else - 22 captures, 22 dumps and the GuiTree batch all landed.
+# FLOWN 2026-09-10 (`2026-09-10_2255`, attempt 2 `_2256`), both INVALID on that one
+# rect step and on nothing else - 22 captures, 22 dumps and the GuiTree batch all landed;
+# the READING run is `2026-09-11_0548` (PASS, attempt 1, 96 s wall). THE FOLD RE-FLY is
+# `2026-09-22_1631` (PASS, attempt 1, 87 s wall, 60 harvested files), and its dumps are
+# what the six new labels are worth, counted as nodes under the `Parsek - Missions`
+# window root:
+#   Missions tab   922 restored = 922 collapsed -> 1769 expanded, 999 with one digest;
+#   Recordings tab 415 restored = 415 collapsed -> 1915 expanded,  453 with one group
+#                  folder plus its chain block.
+# THE TWO `collapsed` PICTURES MEASURED IDENTICAL TO THE RESTORED ONES (922 and 415 to
+# the node), which is a reading rather than a redundancy: on this host the Missions
+# window opens FULLY COLLAPSED in both tabs, so the census's two original captures were
+# already the floor and nobody could tell. They are kept as the named half of each pair -
+# the mirror pairs `-collapsed-` with `-expanded-`, and a jump needs both ends to exist -
+# and the day the window restores anything open they diverge by themselves.
 # The `[expectations.logContracts]` lines below pin ONLY the seam log lines
 # this lane's own verbs write, and nothing about the host: a local fixture is
 # unreproducible by construction (one person's save at one moment), so a lane on it may
@@ -195,6 +258,45 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-missions-recordings-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-missions-recordings-advanced" }, expect = "OK" },
+
+  # --- THE SIX FOLD CAPTURES (added 2026-09-22) ---
+  # Everything shut FIRST, so the two collapsed pictures are a COMMANDED state rather
+  # than whatever the two captures above happened to restore. One `key=none` serves both
+  # tabs: the five expand sets this window resolves (group, chain, vessel, leg, digest)
+  # are one collection per window, not per tab, so the state written here is still
+  # standing when the tab flips.
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "none" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-recordings-collapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-recordings-collapsed-advanced" }, expect = "OK" },
+  # ONE chain block open with everything else shut - the picture `key=all` cannot give,
+  # where a chain block is one expanded thing among fifty.
+  # THE GROUP FOLDER IS OPENED FIRST, and that is MEASURED rather than assumed. The
+  # 2026-09-22_1627 flight drove the chain expand on its own: the seam answered
+  # `changed=1 expanded=1` - the flag really flipped - and the dump beside the picture
+  # read 415 nodes, identical to the collapsed one. A chain block is drawn INSIDE its
+  # group folder, and the `key=none` above had just shut all sixteen of them, so there
+  # was nothing on screen for the flag to open. The group that owns this chain is
+  # `R3-B2-U1-S7` (read off the host's own save: the five recordings carrying that
+  # chainId all sit in it), and opening the two in order is what makes this capture a
+  # picture of ONE chain block inside ONE open folder.
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "group:R3-B2-U1-S7" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "chain:97aedc38ca2f46fca19adab0a569dbdc" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-recordings-chain-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-recordings-chain-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-recordings-expanded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-recordings-expanded-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-missions-expanded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-missions-expanded-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "none" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-missions-collapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-missions-collapsed-advanced" }, expect = "OK" },
+  # ONE mission's Events digest, on its own. `digest:` is the Missions tab's event-digest
+  # foldout, keyed by MISSION ID (MissionsWindowUI.EnumerateDigestKeysForTesting).
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "digest:6fab7338969f4bb2a6fcc7027a012bce" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-missions-events-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-missions-events-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
 
   # timeline (four filter modes, treated as tabs: four mutually exclusive views)
@@ -261,6 +363,24 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
+  # THE NEAR-MISS SUBSECTION, EXPANDED. The one line item this host buys that no other
+  # can: the collapsed header `Recently committed trees not yet eligible (N)` is already
+  # in the capture above, and every one of the reject strings under it
+  # (LogisticsRejectPresentation.DescribeNearMiss over RouteCreationFormatters) has been
+  # dark in every census dump, because nothing ever expanded it. The key is the window's
+  # own fixed section key, published as `LogisticsWindowUI.NearMissSectionKeyForTesting`
+  # ("nearmiss:section") and enumerated by `EnumerateRowKeysForTesting`, so the wire form
+  # is `key=row:nearmiss:section` - the `row` prefix is the Logistics window's only one.
+  # NAMED RATHER THAN `key=all`: `all` would also open every route detail panel and every
+  # candidate row, which is `ib-logistics-expanded-advanced`'s picture on GUI-3 and would
+  # bury the subsection this capture exists for under the rest of the stack.
+  # The near-miss list is built on the window's own ~1 Hz timer (`GetNearMisses`), and the
+  # header above is drawn from the same cache, so a non-zero count in the collapsed
+  # picture is what makes the expanded one non-empty. It is also this window's first
+  # scroll-extent picture on this host.
+  { cmd = "UiAction", args = { op = "expand", window = "logistics", key = "row:nearmiss:section" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-nearmiss-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-logistics-nearmiss-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
 
   # structure list (empty chrome - see KNOWN THIN CAPTURE above)
@@ -323,7 +443,17 @@ steps = [
 
   { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "700" }, expect = "OK" },
+  # `h = 350`, NOT the 700 every other step here commands, and the number is the point.
+  # `op=rect` treats BOTH size axes as FLOORS (RectAppliedWithinTolerance), so a commanded
+  # height BELOW the window's own content minimum is applied and the window then grows to
+  # exactly that minimum - which is the height a PLAYER gets. At 700 the Basic capture
+  # carried ~363 px of dead space under its last control, so the picture showed a window
+  # shape nobody sees; Basic drops the Looping (3) + Diagnostics (10) + Sample Density (5)
+  # = 18 controls of Advanced (UiComplexityMode.cs), and this is the capture that shows
+  # what that does to the window's size rather than only to its contents. 350 is below the
+  # measured Basic content height and above nothing, so the read-back reports the fitted
+  # rect and the step is still an assertion.
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "350" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-settings-basic" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-settings-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
@@ -374,18 +504,18 @@ allowedAnomalies = []
 # whole census ran where it said (GUI-2's twin pins `scene=FLIGHT`), and `complexity=`
 # separates the two passes.
 #
-# ONE CAPTURE LINE is pinned, not twenty-two: `capturescreenshot ok` is emitted only after
+# ONE CAPTURE LINE is pinned, not twenty-nine: `capturescreenshot ok` is emitted only after
 # the file settled at a stable non-zero size, so one is proof the write-and-poll path
-# works end to end, and the other twenty-one are the PRODUCT - a reviewer counts them in
+# works end to end, and the other twenty-eight are the PRODUCT - a reviewer counts them in
 # the contact sheet. `bytes=` is deliberately not pinned; it is a real file size and would
 # pin a machine.
 #
-# ALL TWENTY-TWO DUMP LINES ARE PINNED, and the asymmetry with the captures above is
+# ALL TWENTY-NINE DUMP LINES ARE PINNED, and the asymmetry with the captures above is
 # deliberate rather than untidy. `patched=<ok>/<of>` is the recorder's ARM-TIME
 # Harmony.GetPatchInfo reading, taken FRESH on every arm - the patches are applied at arm
 # and removed again when each capture flushes - so it is a per-dump measurement and not a
 # property of the build. `patched=17/17` therefore asserts that all seventeen
-# interceptions were installed for THAT frame, twenty-two times over, and one funnel
+# interceptions were installed for THAT frame, twenty-nine times over, and one funnel
 # whose signature drifted out from under the patch reds the lane at the dump where it
 # happened. It is also the pinning that MADE this lane's first flight a measurement of the
 # interception layer, which had never run inside KSP: all 22 read `patched=17/17` on both
@@ -394,7 +524,7 @@ allowedAnomalies = []
 # (`design-gui-tree-dump.md` -> "What the first flight measured") and these lines stay
 # pinned as the regression check they now are. `hits=` is deliberately left UNPINNED: it counts funnel body runs in a real
 # frame, so any literal would pin the row count of whatever the window happened to
-# contain; a reader compares it across the 22 dumps instead. `windows=` / `nodes=` are
+# contain; a reader compares it across the 29 dumps instead. `windows=` / `nodes=` are
 # unpinned for the same reason.
 #
 # THE BATCH LINE IS A WHOLE PIN SINCE THE READING RUN, and it was an INTERIM one until
@@ -433,12 +563,40 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,timeline",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,logistics",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,settings",
+  # --- the near-miss expand, pinned `changed=1` so a key the window no longer enumerates
+  # reds here rather than producing a picture of the collapsed section under the expanded
+  # label. `expanded=` / `total=` are left open: they count this host's live row set. ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=row:nearmiss:section state=true changed=1 expanded=[0-9]+ total=[0-9]+",
+  # --- the Missions window's four fold ops, which is what the six fold captures assert.
+  # `expanded=` is the WHOLE claim here and it is the only one a local-fixture lane may
+  # make: `expanded=0` says the collapsed pictures really photograph a shut window, and
+  # `expanded=[1-9][0-9]*` says the expanded ones really photograph an open one. The
+  # counts themselves are this host's live row set and stay regexed.
+  # THE TWO NAMED KEYS PIN `changed=1`, for the reason the near-miss step above does: a
+  # key the window no longer enumerates is REJECTED outright by `op=expand` (the run
+  # would read INVALID at that step), and a key that resolves but changes nothing would
+  # otherwise produce a picture of a collapsed row under an expanded label. Both ids were
+  # read out of the staged host's own `persistent.sfs`
+  # (`chain:` from the RECORDING chainId with the most members, `digest:` from the
+  # MISSION whose tree carries the most recordings), so a RE-STAGE that drops either is
+  # meant to red here rather than to photograph nothing. ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=none state=false changed=[0-9]+ expanded=0 total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=group:R3-B2-U1-S7 state=true changed=1 expanded=1 total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=chain:97aedc38ca2f46fca19adab0a569dbdc state=true changed=1 expanded=2 total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=all state=true changed=[0-9]+ expanded=[1-9][0-9]* total=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=digest:6fab7338969f4bb2a6fcc7027a012bce state=true changed=1 expanded=[1-9][0-9]* total=[0-9]+",
   # --- and one capture, proving the write-and-settle path end to end ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ksc-main-advanced",
   # --- every dump, each pinning the arm-time funnel reading for its own frame ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-main-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-missions-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-recordings-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-recordings-collapsed-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-recordings-chain-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-recordings-expanded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-missions-expanded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-missions-collapsed-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-missions-events-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-overview-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-details-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-rewindff-advanced .*patched=17/17",
@@ -450,6 +608,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-facilities-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-milestones-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-nearmiss-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-structure-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-settings-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-testrunner-advanced .*patched=17/17",
@@ -497,11 +656,11 @@ forbidden = []
 gating = false
 
 [runtime]
-# 22 captures and 22 dumps, each holding the FIFO head for a couple of frames, plus a
+# 29 captures and 29 dumps, each holding the FIFO head for a couple of frames, plus a
 # 300 s cold load of a 42 MB career, ~60 single-phase UI ops and one one-cell in-game
 # batch. 1500 s is generous on purpose: the product is the images and the trees, and a
 # KILLED run leaves neither. The 300 s added over the pre-dump 1200 s was never a measured
-# cost - it is head-room for 22 more two-phase steps whose flush assembles, serialises and
+# cost - it is head-room for 29 more two-phase steps whose flush assembles, serialises and
 # writes a file inside ONE LateUpdate, which is a visible hitch on a big window by design.
 # THE MEASURED WALL IS 96 s (reading run `2026-09-11_0548`, PASS attempt 1; the two
 # 2026-09-10 INVALID attempts read 79 / 80 s), so the budget is 15x the measurement and

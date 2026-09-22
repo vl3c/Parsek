@@ -377,6 +377,16 @@ def render_page(dump, error=None, title=None, image_uri=None, source_name=None) 
         for key in ("capturedUtc", "frame"):
             if dump.get(key) not in (None, ""):
                 meta_bits.append("%s %s" % (key, dump[key]))
+        # GUI state gallery: a capture taken under a mock carries a `mock` block naming
+        # the catalogue state that drove it. ABSENT means a real-save capture, which is
+        # the default and the common case - so the strip says nothing then, and says
+        # MOCKED loudly when it applies. Nobody reading a dump should have to remember
+        # which half of a dataset is real.
+        mock = dump.get("mock")
+        if isinstance(mock, dict) and mock.get("stateId"):
+            meta_bits.append("MOCKED %s" % mock["stateId"])
+            if mock.get("catalogue"):
+                meta_bits.append("catalogue %s" % mock["catalogue"])
     meta_bits.append("screen %dx%d" % (width, height))
     for key in ("windows", "nodes", "events"):
         if isinstance(counts.get(key), int):

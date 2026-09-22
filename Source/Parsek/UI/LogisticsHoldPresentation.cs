@@ -48,10 +48,8 @@ namespace Parsek
                     // inside its token), so legacy holds render the generic text -
                     // accepted degradation, do NOT parse the token suffix.
                     return shortfall > 0.0
-                        ? string.Format(CultureInfo.InvariantCulture,
-                            "not enough funds at KSC - short {0:F0} funds for this dispatch",
-                            shortfall)
-                        : "not enough funds at KSC for this dispatch";
+                        ? Fmt(LogisticsHoldClauses.FundsShortWithAmount, shortfall)
+                        : LogisticsHoldClauses.FundsShortGeneric;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull:
                 {
@@ -63,14 +61,12 @@ namespace Parsek
                     if (storedPart != null)
                     {
                         return storedPart.Length == 0
-                            ? "destination has no free inventory slot for a stored part - delivers when it has room for the full manifest"
-                            : "destination has no free inventory slot for stored part '" + storedPart
-                                + "' - delivers when it has room for the full manifest";
+                            ? LogisticsHoldClauses.DestinationNoInventorySlot
+                            : Fmt(LogisticsHoldClauses.DestinationNoInventorySlotForNamedPart, storedPart);
                     }
                     return string.IsNullOrEmpty(resource)
-                        ? "destination has no room for the delivery - delivers when it has room for the full manifest"
-                        : "destination has no room for " + resource
-                            + " - delivers when it has room for the full manifest";
+                        ? LogisticsHoldClauses.DestinationNoRoomForDelivery
+                        : Fmt(LogisticsHoldClauses.DestinationNoRoomForResource, resource);
                 }
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost:
@@ -79,11 +75,11 @@ namespace Parsek
                     // is a destination loss.
                     return detail != null
                         && detail.StartsWith("origin-", System.StringComparison.Ordinal)
-                        ? "origin vessel could not be found"
-                        : "destination vessel could not be found - re-target or recreate the route";
+                        ? LogisticsHoldClauses.OriginVesselNotFound
+                        : LogisticsHoldClauses.DestinationVesselNotFound;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale:
-                    return "route source recordings are unavailable right now";
+                    return LogisticsHoldClauses.SourceRecordingsUnavailable;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner:
                 {
@@ -93,8 +89,8 @@ namespace Parsek
                     // flying its loop (GhostDriving) while it waits.
                     string partner = StripPrefix(detail, "partner:");
                     return string.IsNullOrEmpty(partner)
-                        ? "waiting for the linked route to complete its run"
-                        : "waiting for the linked route '" + partner + "' to complete its run";
+                        ? LogisticsHoldClauses.WaitingForLinkedRoute
+                        : Fmt(LogisticsHoldClauses.WaitingForNamedLinkedRoute, partner);
                 }
 
                 default:
@@ -115,11 +111,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(describe))
                 return null;
             if (ageSeconds < 0.0)
-                return "Last cycle blocked: " + describe;
+                return Fmt(LogisticsHoldClauses.HoldDetailLine, describe);
             string age = LogisticsWindowUI.FormatDuration(ageSeconds);
             if (age == "-")
-                return "Last cycle blocked: " + describe;
-            return "Last cycle blocked: " + describe + " (checked " + age + " ago)";
+                return Fmt(LogisticsHoldClauses.HoldDetailLine, describe);
+            return Fmt(LogisticsHoldClauses.HoldDetailLineWithAge, describe, age);
         }
 
         /// <summary>
@@ -190,8 +186,7 @@ namespace Parsek
             if (token != null
                 && token.StartsWith("pickup-source-unresolved:", System.StringComparison.Ordinal))
             {
-                return "a pickup source vessel could not be found - it may have moved, been recovered, or been destroyed ("
-                    + token + ")";
+                return Fmt(LogisticsHoldClauses.PickupSourceNotFound, token);
             }
             // M6 escrow-hold legibility: an ESCROW-caused pickup-source short -
             // the source physically holds the cargo but a competing route's
@@ -222,31 +217,29 @@ namespace Parsek
             if (stateName != null)
             {
                 return stateName.Length == 0
-                    ? "a stored part at the origin does not match the recorded cargo - its charge, fuel, or contents changed"
-                    : "stored part '" + stateName + "' at the origin does not match the recorded cargo - its charge, fuel, or contents changed";
+                    ? LogisticsHoldClauses.OriginStoredPartStateChanged
+                    : Fmt(LogisticsHoldClauses.OriginNamedStoredPartStateChanged, stateName);
             }
             string inventoryName = TryStripPrefix(token, "inventory:");
             if (inventoryName != null)
             {
                 return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
-                    ? "origin is missing a required stored part - delivers when the origin holds it"
-                    : "origin is missing stored part '" + inventoryName
-                        + "' - delivers when the origin holds it";
+                    ? LogisticsHoldClauses.OriginMissingStoredPart
+                    : Fmt(LogisticsHoldClauses.OriginMissingNamedStoredPart, inventoryName);
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
             {
                 // Keep the raw token in the tail so the log-grep handle survives
                 // into the UI text.
-                return "origin vessel could not be found - it may have moved, been recovered, or been destroyed ("
-                    + token + ")";
+                return Fmt(LogisticsHoldClauses.OriginVesselNotFoundWithToken, token);
             }
             if (string.IsNullOrEmpty(token))
                 return Fallback(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, detail);
             return shortfall > 0.0
-                ? "origin is short " + FormatShortfallAmount(shortfall) + " " + token
-                    + " - delivers when the origin has the full amount"
-                : "origin is out of " + token + " - delivers when the origin has the full amount";
+                ? Fmt(LogisticsHoldClauses.OriginShortOfResource,
+                    FormatShortfallAmount(shortfall), token)
+                : Fmt(LogisticsHoldClauses.OriginOutOfResource, token);
         }
 
         // M4b Phase B1: parse the "source:<pid>:<name>:<short>" pickup-source token
@@ -262,27 +255,26 @@ namespace Parsek
             string body = token.Substring("source:".Length);
             string[] parts = body.Split(new[] { ':' }, 3);
             if (parts.Length < 3)
-                return "a pickup source is missing required cargo - delivers when the source has the full amount";
+                return LogisticsHoldClauses.PickupSourceMissingCargo;
             string name = string.IsNullOrEmpty(parts[1]) ? "a pickup source" : parts[1];
             string shortToken = parts[2];
             string inventoryName = TryStripPrefix(shortToken, "inventory:");
             if (inventoryName != null)
             {
                 return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
-                    ? name + " is missing a required stored part - delivers when it holds it"
-                    : name + " is missing stored part '" + inventoryName
-                        + "' - delivers when it holds it";
+                    ? Fmt(LogisticsHoldClauses.NamedSourceMissingStoredPart, name)
+                    : Fmt(LogisticsHoldClauses.NamedSourceMissingNamedStoredPart, name, inventoryName);
             }
             if (string.IsNullOrEmpty(shortToken))
-                return name + " is missing required cargo - delivers when it has the full amount";
+                return Fmt(LogisticsHoldClauses.NamedSourceMissingCargo, name);
             // A PARTIALLY short source held with "is out of X" and no number, which
             // read as an empty depot when it held most of the manifest
             // (ROUTE-HOLD-SHORTFALL-DROPPED). Name the missing amount whenever the
             // gate measured one.
             return shortfall > 0.0
-                ? name + " is short " + FormatShortfallAmount(shortfall) + " " + shortToken
-                    + " - delivers when it has the full amount"
-                : name + " is out of " + shortToken + " - delivers when it has the full amount";
+                ? Fmt(LogisticsHoldClauses.NamedSourceShortOfResource,
+                    name, FormatShortfallAmount(shortfall), shortToken)
+                : Fmt(LogisticsHoldClauses.NamedSourceOutOfResource, name, shortToken);
         }
 
         // M6 escrow-hold legibility: parse
@@ -299,17 +291,15 @@ namespace Parsek
             string body = token.Substring("source-reserved:".Length);
             string[] parts = body.Split(new[] { ':' }, 4);
             if (parts.Length < 4)
-                return "a pickup source has cargo reserved by another route - delivers when the reservation clears";
+                return LogisticsHoldClauses.ReservedPickupSourceCargo;
             string name = string.IsNullOrEmpty(parts[1]) ? "a pickup source" : parts[1];
             string resource = parts[2];
             string routeName = string.IsNullOrEmpty(parts[3]) ? "another route" : parts[3];
             if (string.IsNullOrEmpty(resource))
             {
-                return name + " has cargo reserved by route '" + routeName
-                    + "' - delivers when the reservation clears";
+                return Fmt(LogisticsHoldClauses.NamedSourceCargoReserved, name, routeName);
             }
-            return name + " has " + resource + " reserved by route '" + routeName
-                + "' - delivers when the reservation clears";
+            return Fmt(LogisticsHoldClauses.NamedSourceResourceReserved, name, resource, routeName);
         }
 
         // ------------------------------------------------------------------
@@ -342,7 +332,8 @@ namespace Parsek
             string compact = CompactHold(kind, detail, shortfall);
             if (string.IsNullOrEmpty(compact))
                 return null;
-            return TruncateForCell("Held: " + compact, StatusCellMaxChars);
+            return TruncateForCell(
+                Fmt(LogisticsHoldClauses.StatusCellHeld, compact), StatusCellMaxChars);
         }
 
         /// <summary>
@@ -372,9 +363,8 @@ namespace Parsek
                     // ONLY from the shortfall argument (legacy captures store 0
                     // and render the generic text).
                     return shortfall > 0.0
-                        ? string.Format(CultureInfo.InvariantCulture,
-                            "short {0:F0} funds", shortfall)
-                        : "insufficient funds";
+                        ? Fmt(LogisticsHoldClauses.CompactFundsShortWithAmount, shortfall)
+                        : LogisticsHoldClauses.CompactFundsShortGeneric;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull:
                 {
@@ -383,34 +373,33 @@ namespace Parsek
                     if (storedPart != null)
                     {
                         return storedPart.Length == 0
-                            ? "no free inventory slot"
-                            : "no slot for '" + storedPart + "'";
+                            ? LogisticsHoldClauses.CompactNoFreeInventorySlot
+                            : Fmt(LogisticsHoldClauses.CompactNoSlotForNamedPart, storedPart);
                     }
                     return string.IsNullOrEmpty(resource)
-                        ? "destination full"
-                        : "no room for " + resource;
+                        ? LogisticsHoldClauses.CompactDestinationFull
+                        : Fmt(LogisticsHoldClauses.CompactNoRoomForResource, resource);
                 }
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost:
                     return detail != null
                         && detail.StartsWith("origin-", System.StringComparison.Ordinal)
-                        ? "origin vessel lost"
-                        : "destination vessel lost";
+                        ? LogisticsHoldClauses.CompactOriginVesselLost
+                        : LogisticsHoldClauses.CompactDestinationVesselLost;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale:
-                    return "source recordings unavailable";
+                    return LogisticsHoldClauses.CompactSourceRecordingsUnavailable;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner:
                 {
                     string partner = StripPrefix(detail, "partner:");
                     return string.IsNullOrEmpty(partner)
-                        ? "waiting for linked route"
-                        : "waiting for '" + partner + "'";
+                        ? LogisticsHoldClauses.CompactWaitingForLinkedRoute
+                        : Fmt(LogisticsHoldClauses.CompactWaitingForNamedRoute, partner);
                 }
 
                 default:
-                    return string.Format(CultureInfo.InvariantCulture,
-                        "blocked ({0})", kind);
+                    return Fmt(LogisticsHoldClauses.CompactBlockedUnknownKind, kind);
             }
         }
 
@@ -423,7 +412,7 @@ namespace Parsek
             if (token != null
                 && token.StartsWith("pickup-source-unresolved:", System.StringComparison.Ordinal))
             {
-                return "pickup source vessel lost";
+                return LogisticsHoldClauses.CompactPickupSourceVesselLost;
             }
             if (token != null
                 && token.StartsWith("source-reserved:", System.StringComparison.Ordinal))
@@ -432,12 +421,12 @@ namespace Parsek
                 string body = token.Substring("source-reserved:".Length);
                 string[] parts = body.Split(new[] { ':' }, 4);
                 if (parts.Length < 4)
-                    return "cargo reserved by another route";
+                    return LogisticsHoldClauses.CompactCargoReservedByAnotherRoute;
                 string resource = parts[2];
                 string routeName = string.IsNullOrEmpty(parts[3]) ? "another route" : parts[3];
                 return string.IsNullOrEmpty(resource)
-                    ? "cargo reserved by '" + routeName + "'"
-                    : resource + " reserved by '" + routeName + "'";
+                    ? Fmt(LogisticsHoldClauses.CompactCargoReservedByNamedRoute, routeName)
+                    : Fmt(LogisticsHoldClauses.CompactResourceReservedByNamedRoute, resource, routeName);
             }
             if (token != null
                 && token.StartsWith("source:", System.StringComparison.Ordinal))
@@ -448,46 +437,49 @@ namespace Parsek
                 string body = token.Substring("source:".Length);
                 string[] parts = body.Split(new[] { ':' }, 3);
                 if (parts.Length < 3)
-                    return "pickup source short of cargo";
+                    return LogisticsHoldClauses.CompactPickupSourceShortOfCargo;
                 string name = string.IsNullOrEmpty(parts[1]) ? "pickup source" : parts[1];
                 string shortToken = parts[2];
                 string sourceInventoryName = TryStripPrefix(shortToken, "inventory:");
                 if (sourceInventoryName != null)
                 {
                     return sourceInventoryName.Length == 0 || IsOpaqueInventoryTail(sourceInventoryName)
-                        ? name + " missing a stored part"
-                        : name + " missing '" + sourceInventoryName + "'";
+                        ? Fmt(LogisticsHoldClauses.CompactNamedSourceMissingStoredPart, name)
+                        : Fmt(LogisticsHoldClauses.CompactNamedSourceMissingNamedPart,
+                            name, sourceInventoryName);
                 }
                 if (string.IsNullOrEmpty(shortToken))
-                    return name + " short of cargo";
+                    return Fmt(LogisticsHoldClauses.CompactNamedSourceShortOfCargo, name);
                 return shortfall > 0.0
-                    ? name + " short " + FormatShortfallAmount(shortfall) + " " + shortToken
-                    : name + " out of " + shortToken;
+                    ? Fmt(LogisticsHoldClauses.CompactNamedSourceShortOfResource,
+                        name, FormatShortfallAmount(shortfall), shortToken)
+                    : Fmt(LogisticsHoldClauses.CompactNamedSourceOutOfResource, name, shortToken);
             }
             string stateName = TryStripPrefix(token, "inventory-state:");
             if (stateName != null)
             {
                 return stateName.Length == 0
-                    ? "stored part state differs at origin"
-                    : "'" + stateName + "' state differs at origin";
+                    ? LogisticsHoldClauses.CompactOriginStoredPartStateDiffers
+                    : Fmt(LogisticsHoldClauses.CompactOriginNamedStoredPartStateDiffers, stateName);
             }
             string inventoryName = TryStripPrefix(token, "inventory:");
             if (inventoryName != null)
             {
                 return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
-                    ? "origin missing a stored part"
-                    : "origin missing '" + inventoryName + "'";
+                    ? LogisticsHoldClauses.CompactOriginMissingStoredPart
+                    : Fmt(LogisticsHoldClauses.CompactOriginMissingNamedStoredPart, inventoryName);
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
             {
-                return "origin vessel lost";
+                return LogisticsHoldClauses.CompactOriginVesselLost;
             }
             if (string.IsNullOrEmpty(token))
-                return "origin short of cargo";
+                return LogisticsHoldClauses.CompactOriginShortOfCargo;
             return shortfall > 0.0
-                ? "origin short " + FormatShortfallAmount(shortfall) + " " + token
-                : "origin out of " + token;
+                ? Fmt(LogisticsHoldClauses.CompactOriginShortOfResource,
+                    FormatShortfallAmount(shortfall), token)
+                : Fmt(LogisticsHoldClauses.CompactOriginOutOfResource, token);
         }
 
         /// <summary>
@@ -519,9 +511,20 @@ namespace Parsek
         private static string Fallback(
             RouteDispatchEvaluator.EligibilityFailureKind kind, string detail)
         {
-            return string.Format(CultureInfo.InvariantCulture,
-                "route is blocked ({0}: {1})",
+            return Fmt(LogisticsHoldClauses.BlockedUnknownKind,
                 kind, string.IsNullOrEmpty(detail) ? "<none>" : detail);
+        }
+
+        /// <summary>
+        /// The one substitution site for every clause in
+        /// <see cref="LogisticsHoldClauses"/>. InvariantCulture because two
+        /// clauses carry numeric holes (the whole-unit funds shortfall, and the
+        /// already-invariant <see cref="FormatShortfallAmount"/> string) and the
+        /// xUnit host runs under the OS culture.
+        /// </summary>
+        private static string Fmt(string clause, params object[] args)
+        {
+            return string.Format(CultureInfo.InvariantCulture, clause, args);
         }
 
         private static string StripPrefix(string token, string prefix)
@@ -596,11 +599,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(summary))
                 return null;
             if (ageSeconds < 0.0)
-                return "Last delivery was partial: " + summary;
+                return Fmt(LogisticsHoldClauses.PartialDeliveryLine, summary);
             string age = LogisticsWindowUI.FormatDuration(ageSeconds);
             if (age == "-")
-                return "Last delivery was partial: " + summary;
-            return "Last delivery was partial: " + summary + " (" + age + " ago)";
+                return Fmt(LogisticsHoldClauses.PartialDeliveryLine, summary);
+            return Fmt(LogisticsHoldClauses.PartialDeliveryLineWithAge, summary, age);
         }
     }
 }

@@ -8700,6 +8700,77 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "authoring time (2026-09-15) - the seven PNGs and "
                                        "seven dumps ARE the deliverable - so the tag "
                                        "names the cadence decision only.",
+        # THE STATE-COVERAGE WAVE, 2026-09-21 (GUI-13..GUI-23). Eleven lanes authored off
+        # a read-only audit that enumerated every visibly distinct state of the 14 IMGUI
+        # windows and measured which the census had photographed. All eleven are
+        # `tier=operator` by CADENCE for the same reason every census lane before them is:
+        # the deliverable is a set of PNGs plus `.gui.json` control-tree dumps that a human
+        # or a supervising agent reads, and a cadence tier would spend a KSP boot per lane
+        # per night producing pictures nobody asked for that night. None owes a human
+        # CALL; what each owes is its first flight and then the ordinary promotion
+        # decision. They are grouped here rather than one comment each because the reason
+        # is identical across all eleven and the per-lane reading lives in each spec's own
+        # header and in `docs/dev/autotest-status.md`, the single status authority.
+        #
+        # ALL ELEVEN FLEW 2026-09-21 and every one's FINAL verdict is PASS on attempt 1
+        # (twenty runs in all: 18 PASS + 2 PARSEK-FAIL, both of them GUI-16's own
+        # log-contract regex casing rather than a product failure, fixed in that spec).
+        # So what each entry below still names is the ordinary CADENCE-PROMOTION call and
+        # nothing else - the first flight each one owed is spent.
+        #
+        # The last four are a different SHAPE from the first seven and it is worth naming:
+        # GUI-20..GUI-23 are CLONES of the RVR-8 / RVR-10 / RVR-13 / RVR-17 driver chains
+        # with a census capture tail appended, and they deliberately carry NO
+        # `[expectations.routes]` block. The ORIGINALS keep that gating; the clones exist to
+        # photograph the Logistics window while a hold is live, and dropping the block is
+        # what lets them append the extra `TimeJump` that ages a hold into its
+        # `(checked N ago)` form without reding a cycle-count window.
+        "GUI-13-census-logistics-candidates.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2021, attempt 1, 73 s); its Candidates-section PNGs ARE the deliverable and they are on disk. Owed: the ordinary promotion call.",
+        "GUI-14-census-settings-and-facility.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2042, attempt 1, 61 s; run _2033 found a failed capture, which was relabelled and the min-size step moved). Owed: the ordinary promotion call.",
+        "GUI-15-census-career-contracts.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2028, attempt 1, 55 s). Owed: the ordinary promotion call.",
+        "GUI-16-census-gloops-states.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2050, attempt 1, 61 s). The reading it owed is IN: GL-1's open derivation answered committed=true points=15 on this host, so the spec moved off its authored 0..1 range and now pins count = {min = 1, max = 1}. Its two earlier runs (_2035, _2045) read PARSEK-FAIL on this lane's OWN regex casing, not on the product. Owed: the ordinary promotion call.",
+        "GUI-17-census-missions-loop-mun.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2053, attempt 1, 54 s). Owed: the ordinary promotion call.",
+        "GUI-18-census-missions-loop-duna.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (run _2056, attempt 1, 55 s); the reading it owed came back as the TRANSFER form, ~2.1y (Duna transfer). Owed: the ordinary promotion call.",
+        "GUI-19-census-timeline-supersede.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-21 (runs _2103 and, after the PR review renamed a second capture, _2207 at 73 s); its first flight _2059 REFUTED the lane's own premise - the Timeline grey row is duplicate-credit, not a supersede and not a tombstone - and two captures were relabelled. Owed: the ordinary promotion call.",
+        "GUI-20-census-logistics-hold-second-cycle.toml":
+                                       "tier=operator by CADENCE (capture host); an RVR-8 driver clone with a capture tail and no [expectations.routes] block. FLOWN PASS 2026-09-21 (run _2122, attempt 1, 57 s); budget cut to the 900 s every census lane uses. Owed: the ordinary promotion call.",
+        "GUI-21-census-logistics-hold-origin-empty.toml":
+                                       "tier=operator by CADENCE (capture host); an RVR-10 driver clone with a capture tail and no [expectations.routes] block. FLOWN PASS 2026-09-21 (run _2113, attempt 1, 58 s); budget cut to the 900 s every census lane uses. Owed: the ordinary promotion call.",
+        "GUI-22-census-logistics-hold-destination-full.toml":
+                                       "tier=operator by CADENCE (capture host); an RVR-13 driver clone with a capture tail and no [expectations.routes] block. FLOWN PASS 2026-09-21 (run _2117, attempt 1, 53 s); budget cut to the 900 s every census lane uses. Owed: the ordinary promotion call.",
+        "GUI-23-census-logistics-hold-funds-short.toml":
+                                       "tier=operator by CADENCE (capture host); an RVR-17 driver clone with a capture tail and no [expectations.routes] block. FLOWN PASS 2026-09-21 (run _2119, attempt 1, 55 s); budget cut to the 900 s every census lane uses. Owed: the ordinary promotion call.",
+        # THE SEAM-OP WAVE, 2026-09-22 (GUI-24..GUI-27). Four lanes authored against the
+        # automation-only seam operations PR #1734 added (`op=state`, `op=sort`,
+        # `op=select`, `op=edit`, `op=run await=false`, the three Logistics raise rows and
+        # the `RouteCommand` link / cadence actions), each photographing window states
+        # nothing in the census could reach before. All four are `tier=operator` by the
+        # CADENCE reason every census lane before them carries: the deliverable is a set of
+        # PNGs plus `.gui.json` control-tree dumps that a human or a supervising agent
+        # reads, and a cadence tier would spend a KSP boot per lane per night producing
+        # pictures nobody asked for that night. None owes a human CALL.
+        #
+        # THREE OF THE FOUR ADDITIONALLY WRITE STATE A SAVE WOULD KEEP - the two archive
+        # flags, `op=select`'s two Mission fields, the recording rename a rival arm commits,
+        # and the route link / cadence - so each runs on the throwaway staged copy and NO
+        # FIXTURE IS EVER HARVESTED FROM THESE RUNS. That is a lane rule recorded here as
+        # well as in each spec's header, because it is the one thing a future re-harvest
+        # could silently violate.
+        "GUI-24-census-timeline-filters.toml":
+                                       "tier=operator by CADENCE (capture host) AND by MECHANISM: it stages the operator-local `c1-gui`, so no other machine can fly it. FLOWN PASS 2026-09-22 (run _2327, attempt 1, 62 s, 8 PNG + 8 dumps). Its first flight _2252 was also PASS (88 s) but carried two Career captures that photographed no fold - the `Pending in timeline` fold needs a DIVERGING career, not a long one - so those two steps were dropped and _2327 is the record. Owed: the ordinary promotion call.",
+        "GUI-25-census-missions-state-sort-edit.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2316, attempt 1, 66 s, 11 PNG + 10 dumps). Three earlier runs are not the record: _2254 and _2255 read INVALID(driver-verdict-mismatch) on this lane's own `edit-not-drawn` (a recording inside a grouped display block, which `op=expand key=all` cannot open), and _2258 PASSED every contract with its dialog PNG hidden behind the full-width Logistics window. Owed: the ordinary promotion call.",
+        "GUI-26-census-createroute-and-running-batch.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2305, attempt 1, 59 s, 2 PNG + 1 dump). Its first flight _2300 PASSED every contract with BOTH captures wrong (the modal hidden behind the Logistics window, and the runner photographed idle because the TrajectoryMath batch finished in 149 ms). The accepted run's PNG is the product of the running-batch label; the dump beside it was written 16 ms before BATCH_COMPLETE and is timing-dependent. Owed: the ordinary promotion call.",
+        "GUI-27-census-missions-include.toml":
+                                       "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2304, attempt 1, 58 s, 3 PNG + 3 dumps) - the only lane of the wave whose FIRST flight is its record. Owed: the ordinary promotion call.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -12444,7 +12515,14 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # verdict was INVALID on an unrelated step, which is why the inventory row stays
         # in bucket B). Neither number in the assertion below moves either way: this cell
         # counts declarations, not lanes.
-        self.assertIn("**113 categories / %d declarations**" % stated_decls, body,
+        # 113 -> 114 with `GuiMock` (2026-09-22, P1 of the GUI state gallery): five
+        # SPACECENTER cells proving the suppression-plus-draw path, which is the one thing
+        # no headless cell can reach. Its own category for the standing reason, and it
+        # ships UNDRIVEN on purpose - P1 has no lane, so claiming the row from an
+        # unrelated census lane would be a tally nobody measured. This assertion counts
+        # DECLARATIONS and CATEGORIES, so both numbers moved.
+        self.assertIn("**%d categories / %d declarations**"
+                      % (len(self.rows), stated_decls), body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
@@ -15073,6 +15151,250 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             2, {"op": "find", "window": "settings", "text": "Close", "ctrl": "button",
                 "index": "2"}))
 
+    # ---- op=mock: the GUI state gallery primitive (P1) ----
+
+    def test_the_mock_op_vocabularies_mirror_the_c_sharp_tables(self):
+        """Reads OUTSIDE harness/. THREE tables have to agree with the C#: the op token,
+        the nine refusal reasons, and the two arg keys. Each is mirrored rather than
+        derived for the reason every closed-arg row is: a token renamed on one side alone
+        validates as legal here and is a typed REJECTED after a whole KSP boot.
+
+        The refusal set is read off the C# reason CONSTS as a SET, so this cell fails on a
+        token ADDED there and not here as well as on a rename - which a per-token
+        assertIn could not."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiMock.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# mock half moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+
+        self.assertIn("mock", hlib.UIACTION_OP_VALUES)
+        cs_reasons = set(re.findall(r'Reason = "([a-z-]+)"', stripped))
+        self.assertEqual(set(hlib.UIACTION_MOCK_REFUSALS), cs_reasons,
+                         "hlib.UIACTION_MOCK_REFUSALS %r vs the C# reason consts %r"
+                         % (sorted(hlib.UIACTION_MOCK_REFUSALS), sorted(cs_reasons)))
+        self.assertIn('MockStateArg = "%s"' % hlib.UIACTION_MOCK_STATE_KEY, stripped)
+        self.assertIn('DescribeArg = "%s"' % hlib.UIACTION_DESCRIBE_KEY, stripped)
+        self.assertIn('ClearToken = "%s"' % hlib.UIACTION_MOCK_CLEAR_TOKEN, stripped)
+        op_path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                               "TestCommandUiAction.cs")
+        with open(op_path, encoding="utf-8-sig") as fh:
+            self.assertIn('MockOpToken = "mock"', fh.read())
+
+    def test_the_mockable_windows_mirror_the_c_sharp_supported_set(self):
+        """Reads OUTSIDE harness/. `op=mock` on a window with no injection seam answers
+        mock-window-unsupported after a whole boot, so the validator refuses it here -
+        which is only worth doing while the two sets agree. Derived from the C# array's
+        comment-free initializer, resolving each GuiMockSession constant to its VALUE so a
+        renamed constant reds instead of silently dropping a row."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "UI", "Gallery", "GuiMockCatalogue.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# catalogue moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+        at = stripped.find("SupportedWindows =")
+        self.assertGreater(at, 0, "SupportedWindows initializer not found")
+        end = stripped.find("};", at)
+        self.assertGreater(end, at)
+        body = stripped[at:end]
+
+        session_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "Gallery",
+                                    "GuiMockSession.cs")
+        with open(session_path, encoding="utf-8-sig") as fh:
+            session = fh.read()
+        constants = dict(re.findall(
+            r'internal const string (\w+Window) = "([a-z]+)"', session))
+        cs_windows = [constants[name]
+                      for name in re.findall(r"GuiMockSession\.(\w+Window)", body)
+                      if name in constants]
+        self.assertEqual(list(hlib.UIACTION_MOCKABLE_WINDOWS), cs_windows,
+                         "hlib.UIACTION_MOCKABLE_WINDOWS %r vs the C# SupportedWindows %r "
+                         "(ORDER included - the refusal message names the set in this "
+                         "order)"
+                         % (list(hlib.UIACTION_MOCKABLE_WINDOWS), cs_windows))
+        for window in hlib.UIACTION_MOCKABLE_WINDOWS:
+            self.assertIn(window, hlib.UIACTION_WINDOW_VALUES)
+
+    def test_the_mock_op_is_absent_from_the_ops_needing_a_window(self):
+        """Stated rather than implied, because the absence is a DESIGN decision with a
+        different reason from the other four: `describe=true` reports the whole catalogue
+        and names no window, so an unconditional requirement would refuse that form
+        outright. The apply and clear forms still require one - checked by the per-op
+        branch, whose cells follow."""
+        self.assertIn("mock", hlib.UIACTION_OP_VALUES)
+        self.assertNotIn("mock", hlib.UIACTION_OPS_NEEDING_WINDOW)
+
+    def test_uiaction_mock_requires_a_state_or_describe_and_refuses_both(self):
+        errors = hlib.validate_ui_action_step(0, {"op": "mock"})
+        self.assertTrue(any("mock-arg-missing" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "mock", "window": "kerbals",
+                "mockState": "kerbals.roster.lost", "describe": "true"})
+        self.assertTrue(any("opposite things" in e for e in errors), errors)
+
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "mock", "describe": "true"}))
+
+    def test_uiaction_mock_apply_requires_a_mockable_window_matching_the_state(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "mock", "mockState": "kerbals.roster.lost"})
+        self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "mock", "window": "timeline",
+                "mockState": "timeline.entry.superseded"})
+        self.assertTrue(any("mock-window-unsupported" in e for e in errors), errors)
+
+        errors = hlib.validate_ui_action_step(
+            2, {"op": "mock", "window": "kerbals",
+                "mockState": "career.banner.divergent"})
+        self.assertTrue(any("mock-state-window-mismatch" in e for e in errors), errors)
+
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "mock", "window": "kerbals",
+                "mockState": "kerbals.roster.lost"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            4, {"op": "mock", "window": "kerbals", "mockState": "none"}))
+
+    def test_uiaction_mock_args_are_flagged_on_other_ops(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "kerbals", "mockState": "kerbals.roster.lost"})
+        self.assertTrue(any("only op=mock reads it" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "open", "window": "kerbals", "describe": "true"})
+        self.assertTrue(any("only op=mock reads it" in e for e in errors), errors)
+
+    def test_uiaction_describe_is_a_closed_boolean_and_mockstate_is_not(self):
+        self.assertEqual(("UiAction", hlib.UIACTION_DESCRIBE_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.UIACTION_DESCRIBE_KEY])
+        self.assertEqual(("true", "false"), hlib.UIACTION_DESCRIBE_VALUES)
+        self.assertNotIn(hlib.UIACTION_MOCK_STATE_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
+        self.assertNotIn(hlib.UIACTION_MOCK_STATE_KEY, hlib.UIACTION_STATE_VALUES)
+
+    def test_no_committed_spec_uses_op_mock_until_the_mirror_reads_the_mock_block(self):
+        """THE GATE that keeps a mocked capture from lying on the mirror page.
+
+        A mocked capture carries its provenance INSIDE the artifact (a `mock` block in its
+        `.gui.json`), and `harness/tools/gui_tree_view.py` reads it today. The MIRROR does
+        not yet: it derives a capture's dataset from the lane's `fixture.saveTemplate`, and
+        a gallery lane HAS one (it needs a loaded game) - so until the mirror learns the
+        block, a mocked capture files under a REAL fixture's name and CAN pair against a
+        real capture in Compare. That is the one thing that page must not do.
+
+        So no committed spec may drive `op=mock` yet. WHAT LIFTS THIS CELL: the mirror's
+        `scan_shots_dir` reading the `mock` block and setting `fixture = "mock"` plus the
+        `mocked` capture key (the P2 half, being built on branch `mirror-gallery-p2`). When
+        that lands, replace the body with the positive assertion - a gallery lane's
+        captures file under `fixture=mock` - rather than deleting the cell."""
+        mirror = os.path.join(HARNESS_ROOT, "tools", "gui_mirror.py")
+        self.assertTrue(os.path.isfile(mirror),
+                        "the mirror generator moved; this gate is vacuous: %s" % mirror)
+        with open(mirror, encoding="utf-8") as fh:
+            mirror_src = fh.read()
+        mirror_reads_mock = ('"mock"' in mirror_src and "stateId" in mirror_src)
+
+        offenders = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            for index, step in enumerate(
+                    (spec.get("driver", {}) or {}).get("steps", []) or []):
+                step = step or {}
+                if step.get("cmd") != "UiAction":
+                    continue
+                if str((step.get("args", {}) or {}).get("op")) != "mock":
+                    continue
+                offenders.append("%s step %d" % (name, index))
+
+        if mirror_reads_mock:
+            # The mirror half landed: this cell has done its job and the assertion below
+            # inverts - a gallery lane is now expected to exist and to file under `mock`.
+            # Kept as a marker rather than deleted so the transition is deliberate.
+            return
+
+        self.assertEqual(
+            [], offenders,
+            "a committed spec drives UiAction op=mock while harness/tools/gui_mirror.py "
+            "still files captures by fixture.saveTemplate. Until the mirror reads the "
+            "dump's `mock` block (P2, branch mirror-gallery-p2), a mocked capture would "
+            "appear under a REAL fixture's name and could pair against a real capture in "
+            "Compare - the one lie that page must not tell. Offending steps: %s"
+            % ", ".join(offenders))
+
+    def test_the_save_refusal_under_a_live_mock_scope_mirrors_the_c_sharp_const(self):
+        """Reads OUTSIDE harness/. Three verbs answer this refusal - `SaveGame`,
+        `LoadGame` and `RunTests` - and the rule is uniform on purpose: a lane clears its
+        mock scope before anything that saves or loads. It is LANE HYGIENE rather than a
+        data guard (nothing injected is read by a save path), which is exactly why it has
+        to be spelled the same on both sides: a lane reads the token, not the reasoning."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandSaveGame.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# SaveGame half moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+        self.assertIn('RefusedGuiMockReason = "%s"' % hlib.SAVEGAME_REFUSED_GUI_MOCK_REASON,
+                      stripped)
+
+        # And all three verbs really do read it, derived from the addon's comment-stripped
+        # source so a removed guard reds here rather than in a lane.
+        addon = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                             "ParsekTestCommandAddon.cs")
+        with open(addon, encoding="utf-8-sig") as fh:
+            addon_src = "\n".join(
+                line for line in fh.read().splitlines()
+                if not line.strip().startswith("//")
+                and not line.strip().startswith("///"))
+        # TWO reads per verb - the Warn line and the response message - so three verbs is
+        # six. Counted rather than pattern-matched per verb because the guard bodies are
+        # deliberately identical, and the count is what a deleted guard moves.
+        self.assertEqual(
+            6, addon_src.count("TestCommandSaveGame.RefusedGuiMockReason"),
+            "the gui-mock refusal is read %d time(s) in the addon; SaveGame, LoadGame and "
+            "RunTests must each refuse while a scope is live (twice each: the log line and "
+            "the response), or the lane-hygiene rule is three special cases instead of a "
+            "rule"
+            % addon_src.count("TestCommandSaveGame.RefusedGuiMockReason"))
+        for verb in ("savegame refused reason=", "loadgame refused reason=",
+                     "runtests refused reason="):
+            self.assertIn(verb + '" + TestCommandSaveGame.RefusedGuiMockReason',
+                          addon_src,
+                          "no %s guard reads the gui-mock refusal" % verb.split()[0])
+
+    def test_the_harvest_cap_fits_a_gallery_run(self):
+        """P1b, the single highest-leverage number in the gallery design.
+
+        A capture PAIR is TWO files - both `.png` and `.gui.json` are harvested suffixes -
+        so the old 64-file cap harvested at most 32 STATES and dropped the rest into
+        `skipped_over_cap`, reported as artifacts.screenshotsSkipped and easy to miss.
+        Every current lane reads 0 skipped because GUI-1's 45 files sit just under it,
+        which is exactly why nothing noticed the ceiling.
+
+        Pinned here so a later edit cannot quietly walk it back, with the STATE arithmetic
+        spelled out rather than the raw number asserted alone."""
+        self.assertEqual(1024, hlib.ARTIFACT_MAX_SCREENSHOTS)
+        states_per_run = hlib.ARTIFACT_MAX_SCREENSHOTS // 2
+        self.assertGreaterEqual(
+            states_per_run, 400,
+            "the gallery targets ~400 states in ONE boot and a capture pair is two "
+            "files; %d files harvests only %d states"
+            % (hlib.ARTIFACT_MAX_SCREENSHOTS, states_per_run))
+        self.assertEqual(768 * 1024 * 1024, hlib.ARTIFACT_MAX_SCREENSHOT_BYTES)
+        self.assertGreater(hlib.ARTIFACT_MAX_SCREENSHOT_BYTES, 257 * 1024 * 1024)
+        self.assertEqual(2 * 1024 * 1024 * 1024, hlib.ARTIFACT_SHOTS_MAX_TOTAL_BYTES)
+        self.assertIn(".png", hlib.ARTIFACT_SHOTS_SUFFIXES)
+        self.assertIn(".gui.json", hlib.ARTIFACT_SHOTS_SUFFIXES)
+
     def test_uiaction_find_args_are_flagged_on_other_ops(self):
         errors = hlib.validate_ui_action_step(
             0, {"op": "open", "window": "settings", "text": "Close"})
@@ -16305,6 +16627,12 @@ class AnalyzerReportOnlyModeTests(unittest.TestCase):
         # decides it.
         "GUI-1-census-ksc.toml",
         "GUI-2-census-flight.toml",
+        # GUI-24, 2026-09-22 (wave 6). THE SAME HOST and therefore the same row, for the
+        # same measured reason: it stages `fixtures/local-saves/c1-gui` because the
+        # Timeline's source toggles, archive filter and scroll offset only produce a
+        # DIFFERENT picture over a dense entry list, and that density is the operator's
+        # career. Nothing about this lane's subject touches a recording invariant.
+        "GUI-24-census-timeline-filters.toml",
     }
 
     def test_no_other_committed_spec_turns_the_analyzer_row_off(self):
