@@ -48,6 +48,13 @@ Open residue:
    Left as is: a mode-dependent tooltip is a second copy for one sentence.
 3. Items 9-11 of the review were not approved (merge Strategies into Contracts, a Tech
    tab, re-fly change history) and are not filed as work.
+4. GUI-6 still opens the Career window through the seam in its Sandbox flight
+   (`play-career-contracts-sandbox-flight-advanced`), a state a player can no longer reach
+   now that Sandbox hides the launcher. The capture is harmless (the Sandbox banner still
+   draws) and was not re-flown on this branch; drop the step the next time GUI-6 is edited.
+5. Minimum width: at 520x320 the Contracts title column shrinks to 119 px and clips, while
+   Accepted (145) and Deadline (220, sized for `Y12, D426, 05:17 (overdue 99d)`) keep
+   their widths. Accepted: the title reads in full once the window is widened.
 
 ## LISTHANDLES-CHAINS-DIGEST-SCOPE: the chains digest hashes each chain's links only as a COUNT, and covers only the kept (future, non-terminated) chains [FILED 2026-09-22 from the #1761 review. OPEN; a follow-up, deliberately not fixed in that PR]
 
