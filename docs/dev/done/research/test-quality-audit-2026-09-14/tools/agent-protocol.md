@@ -13,15 +13,15 @@ tests, never edit production or test code, never touch `Source/Parsek.Tests` fil
 ## Inputs
 
 - The batch ids assigned to you, each with a manifest at
-  `docs/dev/research/test-quality-audit-2026-09-14/work/manifests/<batch_id>.json`.
+  `docs/dev/done/research/test-quality-audit-2026-09-14/work/manifests/<batch_id>.json`.
   The manifest lists the files, method ranges and the exact methods you must return rows for.
-- The frozen rubric: `docs/dev/research/test-quality-audit-2026-09-14/rubric.md`. Read it first.
+- The frozen rubric: `docs/dev/done/research/test-quality-audit-2026-09-14/rubric.md`. Read it first.
 - Primary SUT sources on demand under `Source/Parsek` (read only the parts you need; budget: at most
   one production file of excerpts per pass).
 
 ## Output
 
-For EACH batch, write `docs/dev/research/test-quality-audit-2026-09-14/findings/<batch_id>.jsonl`
+For EACH batch, write `docs/dev/done/research/test-quality-audit-2026-09-14/findings/<batch_id>.jsonl`
 with one JSON object per line, exactly these shapes:
 
 Method row (one per method listed in the manifest, no more, no fewer):
@@ -59,9 +59,9 @@ Coverage candidate row (optional):
 
 Run the linter for each of your batches and fix every ERR it reports:
 
-python docs/dev/research/test-quality-audit-2026-09-14/tools/lint_fragments.py \
-  --manifests docs/dev/research/test-quality-audit-2026-09-14/work/manifests \
-  --fragments docs/dev/research/test-quality-audit-2026-09-14/findings \
+python docs/dev/done/research/test-quality-audit-2026-09-14/tools/lint_fragments.py \
+  --manifests docs/dev/done/research/test-quality-audit-2026-09-14/work/manifests \
+  --fragments docs/dev/done/research/test-quality-audit-2026-09-14/findings \
   --batch <id> --batch <id2>
 
 Paste the PASS lines into your summary. A batch whose fragment FAILs lint is not done.

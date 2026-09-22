@@ -1,7 +1,7 @@
 # test-quality-audit-2026-09-14 - research directory layout
 
 Baseline `4aedb0a1a`. Headline document: `docs/dev/test-quality-audit-2026-09-14.md` (its appendix
-carries the full file map). Plan and phase status line: `docs/dev/plans/test-quality-audit.md`.
+carries the full file map). Plan and phase status line: `docs/dev/done/plans/test-quality-audit.md`.
 
 Committed, top level:
 
