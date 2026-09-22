@@ -261,7 +261,8 @@ namespace Parsek
                     candidateNames.Add(rowName);
             }
 
-            var marks = BuildApplicantMarks(candidateNames, ResolveReservationKind, ResolveReservationSlotOwner);
+            var marks = BuildApplicantMarks(candidateNames, ResolveReservationKind,
+                ResolveReservationSlotOwner, ResolveReservationIsPermanentLoss);
             marks = SuppressFutureHiredApplicantsAlreadyInLiveRoster(marks, CollectActiveCrewOrTouristNames());
             int reservedActive = CountApplicantMarks(marks, ApplicantOverlayKind.ReservedActive);
             int reservedRetired = CountApplicantMarks(marks, ApplicantOverlayKind.ReservedRetired);
@@ -432,6 +433,19 @@ namespace Parsek
             Func<string, KerbalReservationKind> reservationKindResolver,
             Func<string, string> reservationSlotOwnerResolver)
         {
+            return BuildApplicantMarks(kerbalNames, reservationKindResolver,
+                reservationSlotOwnerResolver, null);
+        }
+
+        /// <param name="permanentLossResolver">True for a kerbal whose reservation is
+        /// PERMANENT (a committed flight killed him), so his badge reads the Kerbals
+        /// window's <c>Lost</c> rather than <c>Reserved</c>. Null reads as "no loss".</param>
+        internal static Dictionary<string, ApplicantOverlayMark> BuildApplicantMarks(
+            IEnumerable<string> kerbalNames,
+            Func<string, KerbalReservationKind> reservationKindResolver,
+            Func<string, string> reservationSlotOwnerResolver,
+            Func<string, bool> permanentLossResolver)
+        {
             var result = new Dictionary<string, ApplicantOverlayMark>(StringComparer.Ordinal);
             if (kerbalNames == null)
                 return result;
@@ -473,7 +487,9 @@ namespace Parsek
                         Kind = ApplicantOverlayKind.ReservedActive,
                         UT = -1.0,
                         RecordingId = null,
-                        Tooltip = BuildReservedActiveTooltip(name, reservationSlotOwnerResolver)
+                        Tooltip = permanentLossResolver != null && permanentLossResolver(name)
+                            ? LostOverlayTooltip
+                            : BuildReservedActiveTooltip(name, reservationSlotOwnerResolver)
                     };
                     continue;
                 }
@@ -486,7 +502,7 @@ namespace Parsek
                         Kind = ApplicantOverlayKind.ReservedRetired,
                         UT = -1.0,
                         RecordingId = null,
-                        Tooltip = "Retired stand-in (managed by Parsek)"
+                        Tooltip = RetiredStandInOverlayTooltip
                     };
                 }
             }
@@ -611,16 +627,37 @@ namespace Parsek
             };
         }
 
-        private static string BuildReservedActiveTooltip(
+        /// <summary>The retired-stand-in badge's tooltip: the Kerbals window's
+        /// <c>Retired</c> status, qualified the way the overlay needs (the stock list does
+        /// not say the kerbal is a stand-in).</summary>
+        internal const string RetiredStandInOverlayTooltip = "Retired stand-in (Parsek)";
+
+        /// <summary>The badge's tooltip for a kerbal a committed flight killed: the Kerbals
+        /// window's <c>Lost</c> status. <c>GetReservationKind</c> answers ReservedActive for
+        /// a permanent reservation too, so without this the badge read "Reserved" on a kerbal
+        /// the window calls Lost.</summary>
+        internal const string LostOverlayTooltip = "Lost on a committed flight (Parsek)";
+
+        /// <summary>
+        /// The reserved badge's tooltip, in the Kerbals window's vocabulary (the
+        /// 2026-09-22 review, recommendation 9): <c>Reserved</c> for a slot owner, and
+        /// <c>Reserved for &lt;owner&gt;</c> only for a stand-in reserved in SOMEONE
+        /// ELSE's slot. The old form read "Reserved by Parsek for slot 'Jebediah Kerman'"
+        /// on Jebediah himself - the self-reference the window's own status cell had
+        /// already dropped.
+        /// </summary>
+        internal static string BuildReservedActiveTooltip(
             string name,
             Func<string, string> reservationSlotOwnerResolver)
         {
             string slotOwner = reservationSlotOwnerResolver != null
                 ? reservationSlotOwnerResolver(name)
                 : null;
-            return string.IsNullOrEmpty(slotOwner)
-                ? "Reserved by Parsek for a committed crew slot"
-                : "Reserved by Parsek for slot '" + slotOwner + "'";
+            bool forSomeoneElse = !string.IsNullOrEmpty(slotOwner)
+                && !string.Equals(slotOwner, name, StringComparison.Ordinal);
+            return forSomeoneElse
+                ? "Reserved for " + slotOwner + " - held by a committed flight (Parsek)"
+                : "Reserved - held by a committed flight (Parsek)";
         }
 
         private static Dictionary<string, EventOverlayMark> BuildEventMarks(
@@ -852,6 +889,17 @@ namespace Parsek
         {
             return LedgerOrchestrator.Kerbals?.GetReservationKind(name)
                 ?? KerbalReservationKind.NotManaged;
+        }
+
+        private static bool ResolveReservationIsPermanentLoss(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            var reservations = LedgerOrchestrator.Kerbals?.Reservations;
+            KerbalsModule.KerbalReservation reservation;
+            return reservations != null
+                   && reservations.TryGetValue(name, out reservation)
+                   && reservation != null
+                   && reservation.IsPermanent;
         }
 
         private static string ResolveReservationSlotOwner(string name)

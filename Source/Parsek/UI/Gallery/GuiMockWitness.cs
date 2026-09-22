@@ -145,10 +145,10 @@ namespace Parsek.UI.Gallery
                 {
                     if (row.Status != want) continue;
                     // The STATUS cell is what the state is about, and for Lost / Reserved
-                    // the dated Since cell only exists because the real builder resolved
-                    // the flight that created the hold.
+                    // its hover text only exists because the real builder resolved the
+                    // flight that created the loss or the hold.
                     Add(into, row.StatusText);
-                    Add(into, row.SinceText);
+                    Add(into, row.StatusTooltipText);
                     return;
                 }
                 return;
@@ -160,16 +160,11 @@ namespace Parsek.UI.Gallery
                 if (!TryParseEnum(out want, member)) return;
                 foreach (KerbalsPresentation.RosterRow row in AllRosterRows(vm))
                 {
-                    if (row.Chain == null) continue;
-                    for (int c = 0; c < row.Chain.Count; c++)
-                    {
-                        if (row.Chain[c].Status != want) continue;
-                        // A chain line is drawn by its OWN formatter rather than by a row
-                        // cell, so that is what must be witnessed.
-                        Add(into, KerbalsWindowUI.FormatRosterChainMemberText(
-                            row.Chain[c], isLast: c == row.Chain.Count - 1));
-                        return;
-                    }
+                    if (!row.MemberStatus.HasValue || row.MemberStatus.Value != want) continue;
+                    // A stand-in row nested under its owner is told apart by its Name cell
+                    // (the tree glyph), so that is what must be witnessed.
+                    Add(into, KerbalsWindowUI.FormatRosterNameCell(row));
+                    return;
                 }
                 return;
             }
@@ -189,8 +184,7 @@ namespace Parsek.UI.Gallery
                         for (int r = 0; r < rows.Count; r++)
                         {
                             if (rows[r].EndState != want) continue;
-                            Add(into, rows[r].MissionText);
-                            Add(into, rows[r].CrewNoteText);
+                            Add(into, rows[r].MissionCellText);
                             return;
                         }
                     }
@@ -377,12 +371,13 @@ namespace Parsek.UI.Gallery
                     }
                     return;
                 case "RosterRow.Chain":
+                    // Two or more stand-in rows under one owner: the MID-branch glyph only
+                    // a chain that deep draws.
                     if (tab == FlightsTab) return;
                     foreach (KerbalsPresentation.RosterRow row in AllRosterRows(vm))
                     {
-                        if (row.Chain == null || row.Chain.Count < 2) continue;
-                        Add(into, KerbalsWindowUI.FormatRosterChainMemberText(
-                            row.Chain[row.Chain.Count - 1], isLast: true));
+                        if (row.Depth < 1 || row.IsLastInSlot) continue;
+                        Add(into, KerbalsWindowUI.FormatRosterNameCell(row));
                         return;
                     }
                     return;
@@ -402,8 +397,8 @@ namespace Parsek.UI.Gallery
                     if (tab != FlightsTab) return;
                     foreach (KerbalsPresentation.FlightRow row in AllFlightRows(vm))
                     {
-                        if (row.CrewNoteText == KerbalsPresentation.EmptyCell) continue;
-                        Add(into, row.CrewNoteText);
+                        if (string.IsNullOrEmpty(row.StandInName)) continue;
+                        Add(into, row.MissionCellText);
                         return;
                     }
                     return;
@@ -541,10 +536,7 @@ namespace Parsek.UI.Gallery
                     List<KerbalsPresentation.FlightRow> rows = groups[g].Rows;
                     if (rows == null) continue;
                     for (int r = 0; r < rows.Count && into.Count < MaxWitnesses; r++)
-                    {
-                        Add(into, rows[r].MissionText);
-                        Add(into, rows[r].CrewNoteText);
-                    }
+                        Add(into, rows[r].MissionCellText);
                 }
                 return;
             }
@@ -560,8 +552,8 @@ namespace Parsek.UI.Gallery
             for (int i = 0; i < rows.Count && into.Count < MaxWitnesses; i++)
             {
                 // StatusText and LastFlightText are drawn verbatim as their own cells
-                // (DrawRosterRow); the Name cell is prefixed by a fold arrow or two
-                // spaces, so it is deliberately not used here.
+                // (DrawRosterRow). The Name cell is not used: it is the one cell every
+                // real roster shares with a mocked one (the stock kerbal names).
                 Add(into, rows[i].StatusText);
                 Add(into, rows[i].LastFlightText);
             }

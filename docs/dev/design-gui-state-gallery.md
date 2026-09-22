@@ -464,7 +464,7 @@ Runs `Restore`, clears the session, logs. Then the window's own invalidation is 
 | --- | --- | --- |
 | E1 | `op=mock` on a window with no seam yet | `mock-window-unsupported`, message names the supported set. Phases add windows; the refusal names what this build has. |
 | E2 | Two mocks at once | `mock-refused-session-live`. One at a time: two windows' suppressions interacting is a state nobody can reason about, and the gallery has no need for it. |
-| E3 | Complexity switch while a mock is live | allowed only if the state does not pin a mode; `op=complexity` is already refused during a Gloops recording (`ParsekTestCommandAddon.UiAction.cs:748-759`) and the session is orthogonal to it. Switching to Basic force-closes gated windows (`ParsekUI.BuildGatedWindowCloseSet:530-571`), so a Basic capture of Kerbals or Career is not a state (audit section 3 proves 6 of 9 such index rows are unreachable) and the catalogue must not declare one. |
+| E3 | Complexity switch while a mock is live | allowed only if the state does not pin a mode; `op=complexity` is already refused during a Gloops recording (`ParsekTestCommandAddon.UiAction.cs:748-759`) and the session is orthogonal to it. Switching to Basic force-closes gated windows (`ParsekUI.BuildGatedWindowCloseSet:530-571`), so a Basic capture of Career is not a state (audit section 3 proves 6 of 9 such index rows are unreachable) and the catalogue must not declare one. Kerbals left the close set on 2026-09-22 (it draws in Basic), so its Basic capture IS a state. |
 | E4 | The window self-closes under the mock | Spawn Control does this on zero candidates (`SpawnControlUI.cs:142-153`). A catalogue state for that window must supply a non-empty list; the read-back catches the rest as `mock-not-applied`. |
 | E5 | A stock `GameEvent` fires mid-mock | the suppression holds (7.4). The event still reaches the real subsystems; only the window's cache rebuild is deferred. |
 | E6 | Scene change mid-mock | session cleared on `onGameSceneLoadRequested`; any in-flight `GalleryRun` stops and reports `failed` for the interrupted state. |
@@ -739,9 +739,11 @@ therefore per-intent: the applier checks it for apply and clear, and the harness
 Section 7.1 gave each state an optional `Mode` field. The shipped form is a refusal instead:
 `mock-refused-mode`, checked against the PRODUCTION visibility predicate
 (`GuiMockCatalogue.IsMockableInMode`, which consults the surface-level gate the mode switch
-itself uses). Basic hides the Kerbals and Career State launchers AND the mode switch
-force-closes both, so a Basic apply would photograph a window no player can open - which the
-coverage audit already classifies as UNREACHABLE rather than uncaptured.
+itself uses). Basic hides the Career State launcher AND the mode switch force-closes it, so a
+Basic apply would photograph a window no player can open - which the coverage audit already
+classifies as UNREACHABLE rather than uncaptured. (Kerbals was refused the same way until the
+2026-09-22 owner re-ruling made it draw in Basic; the predicate followed on its own, which is
+the point of consulting it rather than a per-state pin.)
 
 A per-state pin would have been the weaker answer: it puts the decision on 46 declarations
 instead of on the one predicate that already owns it, and a new state could still get it
