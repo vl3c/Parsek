@@ -2687,7 +2687,7 @@ class NotesInThePageTests(unittest.TestCase):
         self.assertEqual(self.model["noteVerdicts"], list(gmi.NOTE_VERDICTS))
 
     def test_both_a_state_view_and_a_compare_row_get_a_field(self):
-        self.assertIn("note.appendChild(notesBox(stateCtx(cap)));", self.html)
+        self.assertIn("host.appendChild(notesBox(stateCtx(cap)));", self.html)
         self.assertIn("sec.appendChild(notesBox(pairCtx(r.info)));", self.html)
 
     def test_the_key_is_the_run_pair_and_the_five_facets(self):
@@ -2715,13 +2715,17 @@ class NotesInThePageTests(unittest.TestCase):
                       self.html)
         self.assertIn("Copy the blob out before you close the tab.", self.html)
 
-    def test_the_export_offers_both_formats_and_both_scopes(self):
+    def test_the_export_offers_both_formats_over_every_note(self):
         self.assertIn("function notesBlob(scope){", self.html)
         self.assertIn("function notesMarkdown(blob){", self.html)
-        self.assertIn("'this window only'", self.html)
-        self.assertIn("'all windows'", self.html)
         self.assertIn("'JSON blob'", self.html)
         self.assertIn("'markdown table'", self.html)
+        # Copy all is the whole store: the panel asks for no scope.
+        body = self.html[self.html.index("function paintNotesPanel(){"):]
+        body = body[:body.index("\n}")]
+        self.assertIn("var blob = notesBlob('');", body)
+        self.assertIn("'Copy all'", body)
+        self.assertIn("scope: scope || 'all windows'", self.html)
 
     def test_the_clipboard_has_a_visible_fallback(self):
         self.assertIn("navigator.clipboard.writeText", self.html)
@@ -2797,8 +2801,153 @@ class FocusDeepLinkTests(unittest.TestCase):
         self.assertIn("var sc = parseInt(q.scroll, 10);", bare)
 
     def test_everything_new_on_the_page_is_hidden_in_bare_mode(self):
-        for sel in ("#stagehead", "#statenote", "#notesPanel", "#focusbar"):
+        for sel in ("#stagehead", "#statenote", "#notesPanel", "#status", "#top"):
             self.assertIn("body.bare " + sel, gmi.BARE_CSS)
+
+    def test_the_address_bar_is_kept_in_step_with_the_view(self):
+        # The printed link field is gone; the address bar IS the link, written
+        # on every selection and guarded, since a viewer sandbox may refuse it.
+        body = self.html[self.html.index("function syncHash(){"):]
+        body = body[:body.index("\n}")]
+        self.assertIn("window.history.replaceState(null, '', focusLink());", body)
+        self.assertIn("try {", body)
+        self.assertIn("catch (e)", body)
+        sel = self.html[self.html.index("function select(cap, exact){"):]
+        sel = sel[:sel.index("\n}")]
+        self.assertIn("syncHash();", sel)
+        self.assertNotIn("focusbar", self.html)
+        self.assertNotIn("paintFocus", self.html)
+
+    def test_the_link_names_the_exact_capture_and_scopes_only_on_request(self):
+        self.assertIn("'&cap=' + encodeURIComponent(S.capture)", self.html)
+        self.assertIn("if (q.focus === '1') S.focus = q.win;", self.html)
+        self.assertIn("if (byId[q.cap] && byId[q.cap].window === q.win){", self.html)
+
+
+class SimplifiedChromeTests(unittest.TestCase):
+    """The explore -> choose -> note -> export flow: statistics in one place, a
+    top bar with only what that flow needs, readable rail rows, and a notes
+    panel that lists, deletes, clears and copies.
+
+    The page is built at runtime, so what is pinned is that the page SHIPS the
+    handlers, in the same style as the rest of this file."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.model = gmi.build_model([make_shots(self.root)],
+                                     make_scenarios(self.root), with_photos=False)
+        self.html = gmi.render_html(self.model)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _fn(self, head):
+        body = self.html[self.html.index(head):]
+        return body[:body.index("\n}")]
+
+    def _top(self):
+        top = self.html[self.html.index('<div id="top">'):]
+        return top[:top.index('<div id="wrap">')]
+
+    def test_the_statistics_live_in_the_rail_header_only(self):
+        top = self._top()
+        for word in ("captures", "fixtures", "distinct"):
+            self.assertNotIn(word, top, "the top bar repeats the statistics")
+        self.assertIn("' distinct states)'", self.html)
+
+    def test_the_top_bar_keeps_the_flow_and_folds_the_preferences(self):
+        top = self._top()
+        for bid in ("btnMirror", "btnCompare", "btnPhoto", "btnNotes"):
+            self.assertIn('id="%s"' % bid, top)
+        opts = top[top.index('<details id="opts">'):]
+        for bid in ('id="fixture"', 'id="btnMode"', 'id="btnForeign"'):
+            self.assertIn(bid, opts, "%s is not behind the options fold" % bid)
+        self.assertNotIn("cmpbtn", self.html)
+
+    def test_the_notes_button_counts_the_saved_notes(self):
+        self.assertIn("b.textContent = 'Notes (' + Object.keys(NOTES).length + ')';",
+                      self.html)
+        self.assertIn("paintNotesCount();", self._fn("function saveNotes(){"))
+
+    def test_one_note_can_be_deleted(self):
+        body = self._fn("function deleteNote(key){")
+        self.assertIn("delete NOTES[key];", body)
+        self.assertIn("saveNotes();", body)
+        self.assertIn("afterNotesChange();", body)
+        panel = self._fn("function paintNotesPanel(){")
+        self.assertIn("x.onclick = function(ev){ ev.stopPropagation(); deleteNote(r.key); };",
+                      panel)
+
+    def test_clear_all_asks_first_and_a_refused_prompt_clears_nothing(self):
+        body = self._fn("function clearAllNotes(){")
+        self.assertIn("window.confirm(", body)
+        self.assertIn("catch (e) { yes = false; }", body)
+        self.assertLess(body.index("if (!yes) return false;"),
+                        body.index("delete NOTES[k];"))
+        self.assertIn("saveNotes();", body)
+        self.assertIn("clr.onclick = function(){ clearAllNotes(); };",
+                      self._fn("function paintNotesPanel(){"))
+
+    def test_a_listed_note_jumps_to_its_own_capture(self):
+        body = self._fn("function jumpToNote(r){")
+        self.assertIn("var cap = byId[r.afterId] || byId[r.beforeId];", body)
+        self.assertIn("select(cap, true);", body)
+        self.assertIn("which this page has no capture of.", body)
+        self.assertIn("li.onclick = function(){ jumpToNote(r); };",
+                      self._fn("function paintNotesPanel(){"))
+
+    def test_import_sits_behind_a_fold(self):
+        panel = self._fn("function paintNotesPanel(){")
+        self.assertIn("is.textContent = 'import...';", panel)
+        self.assertIn("var ta = document.createElement('textarea');", panel)
+
+    def test_the_notes_box_is_a_textarea_that_saves_as_it_is_typed(self):
+        body = self.html[self.html.index("function notesBox(ctx){"):]
+        body = body[:body.index("function refreshStateNote(")]
+        self.assertIn("document.createElement('textarea')", body)
+        self.assertIn("timer = setTimeout(commit, 500);", body)
+        self.assertIn("inp.onblur = function(){ if (dirty) commit(); };", body)
+        # a save repaints the rail's dots in place and never rebuilds the rail,
+        # which would detach a row the reader is in the middle of clicking
+        self.assertIn("paintNoteDots();", body)
+        self.assertNotIn("buildRail()", body)
+
+    def test_rail_rows_read_as_words_not_placeholders(self):
+        self.assertIn("function stateLabel(win, tab, state, mode){", self.html)
+        self.assertIn("(state || '').replace(/-/g, ' ')", self.html)
+        self.assertIn("function modeWord(m){", self.html)
+        rail = self._fn("function buildRail(){")
+        self.assertIn("stateLabel(w.token, c.tab, c.state, c.mode)", rail)
+        self.assertNotIn("c.tab || '-'", rail)
+        # the dataset moved into the row's tooltip
+        self.assertIn("sr.title = 'dataset ' + c.fixture", rail)
+
+    def test_stale_rows_fold_behind_one_link_per_window(self):
+        rail = self._fn("function buildRail(){")
+        self.assertIn("if (c.hoverEmpty || c.supersededBy) fold(sr, c.id === S.capture);",
+                      rail)
+        self.assertIn("fold(sr, false);", rail)
+        self.assertIn("'show ' + folded + ' hidden'", rail)
+        self.assertIn("if (!showAll && !isSel){ sr.classList.add('hidden'); folded++; }",
+                      rail)
+
+    def test_a_noted_state_is_marked_in_the_rail(self):
+        rail = self._fn("function buildRail(){")
+        self.assertIn("sr.dataset.nk = railNoteKey(w.token, c.tab, c.state, c.mode);",
+                      rail)
+        self.assertIn("if (noted[sr.dataset.nk]) sr.classList.add('noted');", rail)
+        self.assertIn("#rail .noted .dot{background:var(--ok)}", self.html)
+
+    def test_the_status_line_is_empty_unless_something_fell_back(self):
+        sel = self._fn("function select(cap, exact){")
+        self.assertIn("} else { status(''); }", sel)
+        self.assertIn("if (fell.length && !exact){", sel)
+        self.assertIn("#status{font-size:11px;color:var(--dim);height:16px", self.html)
+
+    def test_the_hover_strip_keeps_its_fixed_height_and_the_notes_follow_it(self):
+        self.assertIn("height:48px;box-sizing:content-box;overflow-y:auto;", self.html)
+        after = self.html[self.html.index('<div class="echo" id="echo"></div>'):]
+        self.assertTrue(after.split("\n")[1].startswith('<div id="statenote">'))
 
 
 if __name__ == "__main__":
