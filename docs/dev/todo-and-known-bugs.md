@@ -146,9 +146,13 @@ asked the spawn gate about the first run.
 
 **Fix:** one first-run seam per scene, both on the pure
 `GhostPlaybackLogic.ShouldAttemptLoopFirstRunSpawn` (looping, spawn gate allows, real UT
-past the recording's own EndUT, not yet attempted): the flight engine queues ONE spawn-only
-completion (`TryFireLoopFirstRunSpawn`, no ghost state, the hidden-completion shape) and the
-Space Center calls the ordinary `TrySpawnAtRecordingEnd` once (`TryLoopFirstRunSpawnKsc`).
+past the recording's own EndUT and its chain's effective end, not yet attempted): the
+flight engine queues ONE spawn-only completion (`TryQueueLoopFirstRunSpawn`, no ghost
+state, the hidden-completion shape, marked `LoopFirstRun` so a player watching the loop
+stays in watch mode instead of being switched to the new vessel) and the Space Center
+calls the ordinary `TrySpawnAtRecordingEnd` once (`TryLoopFirstRunSpawnKsc`; a hidden,
+playback-disabled looping recording takes the same first-run spawn there, as it already
+did in flight).
 Every other gate is the normal one (VesselSpawned, the #573 rewind block, the chain rules,
 snapshot / terminal checks), so later cycles stay ghost-only and a strip re-arms exactly one
 spawn. The replay-scope (BUG-B) gate is split by purpose in
@@ -156,7 +160,9 @@ spawn. The replay-scope (BUG-B) gate is split by purpose in
 first-run SPAWN is gated like any recording's, in flight and in the Tracking Station handoff
 (which already spawned loop members, but had exempted them from the scope gate). Unit tests:
 `LoopFirstRunSpawnTests` (loop off, armed before / after the first run, historical, rewind
-with and without a strip, reload, a blocked spawn across cycles).
+with and without a strip, reload, a blocked spawn across cycles) plus direct cells on the
+engine seam (one marked completion across cycles, none for a non-looping trajectory, re-arm
+before the recording, the chain effective end) and the watch guard.
 
 **Live proof:** `LF-2-loop-armed-rewind-first-run-real`, reading `2026-09-23_1551`, armed
 `2026-09-23_1554`, negative control `2026-09-23_1556` (two seeds, red on exactly both); `LF-1-loop-first-run-real` re-flown green at `2026-09-23_1558`.

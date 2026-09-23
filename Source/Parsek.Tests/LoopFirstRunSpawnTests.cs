@@ -113,6 +113,112 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Engine seam (GhostPlaybackEngine.TryQueueLoopFirstRunSpawn)
+
+        private static TrajectoryPlaybackFlags SpawnableFlags(double chainEndUT = 2000)
+        {
+            return new TrajectoryPlaybackFlags
+            {
+                needsSpawn = true,
+                chainEndUT = chainEndUT,
+                recordingId = "lf-rec",
+            };
+        }
+
+        private static int QueueFrames(GhostPlaybackEngine engine, MockTrajectory traj,
+            TrajectoryPlaybackFlags flags, params double[] uts)
+        {
+            int queued = 0;
+            for (int k = 0; k < uts.Length; k++)
+            {
+                var ctx = new FrameContext { currentUT = uts[k], warpRate = 1f };
+                if (engine.TryQueueLoopFirstRunSpawn(0, traj, flags, ctx,
+                        GhostPlaybackEngine.ResolveGhostActivationStartUT(traj), hasPointData: true))
+                    queued++;
+            }
+            return queued;
+        }
+
+        [Fact]
+        public void EngineSeam_LoopingTrajectory_QueuesOneMarkedSpawnOnlyCompletion()
+        {
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = new MockTrajectory().WithTimeRange(1000, 2000).WithLoop();
+
+            Assert.Equal(1, QueueFrames(engine, traj, SpawnableFlags(),
+                1500, 2000, 2000.5, 2400, 3100, 3800, 4500));
+
+            var queued = engine.PendingCompletedEventsForTesting;
+            Assert.Single(queued);
+            Assert.True(queued[0].LoopFirstRun);
+            Assert.False(queued[0].GhostWasActive);
+            Assert.Null(queued[0].State);
+            Assert.True(queued[0].PastEffectiveEnd);
+        }
+
+        [Fact]
+        public void EngineSeam_NonLoopingTrajectory_LeavesTheOrdinaryCompletion()
+        {
+            // Mirror direction: a non-looping trajectory must not get a second completion.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = new MockTrajectory().WithTimeRange(1000, 2000);
+
+            Assert.Equal(0, QueueFrames(engine, traj, SpawnableFlags(), 2000.5, 2400));
+            Assert.Empty(engine.PendingCompletedEventsForTesting);
+        }
+
+        [Fact]
+        public void EngineSeam_PlayheadBeforeRecording_RearmsTheLatch()
+        {
+            // A rewind drops the playhead before the recording: the next first run fires again
+            // (the policy's VesselSpawned gate decides whether a vessel actually results).
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = new MockTrajectory().WithTimeRange(1000, 2000).WithLoop();
+
+            Assert.Equal(1, QueueFrames(engine, traj, SpawnableFlags(), 2000.5, 2600));
+            Assert.Equal(1, QueueFrames(engine, traj, SpawnableFlags(), 900, 1500, 2000.5, 2600));
+        }
+
+        [Fact]
+        public void EngineSeam_NotSpawnableOrMidChain_QueuesNothing()
+        {
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = new MockTrajectory().WithTimeRange(1000, 2000).WithLoop();
+            var notDue = SpawnableFlags();
+            notDue.needsSpawn = false;
+            var midChain = SpawnableFlags();
+            midChain.isMidChain = true;
+
+            Assert.Equal(0, QueueFrames(engine, traj, notDue, 2000.5, 2600));
+            Assert.Equal(0, QueueFrames(engine, traj, midChain, 2000.5, 2600));
+        }
+
+        [Fact]
+        public void EngineSeam_WaitsForTheChainEffectiveEnd()
+        {
+            // A side-branch leaf whose chain's branch 0 ends later: the policy spawns only past
+            // the effective end, so the one-shot latch must not be spent before it.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = new MockTrajectory().WithTimeRange(1000, 2000).WithLoop();
+
+            Assert.Equal(0, QueueFrames(engine, traj, SpawnableFlags(chainEndUT: 2500), 2000.5, 2400));
+            Assert.Equal(1, QueueFrames(engine, traj, SpawnableFlags(chainEndUT: 2500), 2500.5));
+            Assert.True(engine.PendingCompletedEventsForTesting[0].PastEffectiveEnd);
+        }
+
+        [Fact]
+        public void IsWatchedCompletion_LoopFirstRunNeverEndsTheWatchedGhost()
+        {
+            var ordinary = new PlaybackCompletedEvent { Index = 3 };
+            var loopFirstRun = new PlaybackCompletedEvent { Index = 3, LoopFirstRun = true };
+
+            Assert.True(ParsekPlaybackPolicy.IsWatchedCompletion(3, ordinary));
+            Assert.False(ParsekPlaybackPolicy.IsWatchedCompletion(3, loopFirstRun));
+            Assert.False(ParsekPlaybackPolicy.IsWatchedCompletion(4, ordinary));
+        }
+
+        #endregion
+
         #region Lifecycle model
 
         /// <summary>

@@ -561,14 +561,24 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Whether a completion ends the ghost the player is watching. A loop first-run
+        /// completion never does: the looping ghost keeps cycling, so its spawn must not exit
+        /// watch mode or switch the player to the spawned vessel.
+        /// </summary>
+        internal static bool IsWatchedCompletion(int watchedRecordingIndex, PlaybackCompletedEvent evt)
+        {
+            return evt != null && !evt.LoopFirstRun && watchedRecordingIndex == evt.Index;
+        }
+
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)
         {
-            bool isWatched = host.WatchedRecordingIndex == evt.Index;
+            bool isWatched = IsWatchedCompletion(host.WatchedRecordingIndex, evt);
 
             ParsekLog.Verbose("Policy",
                 $"PlaybackCompleted index={evt.Index} vessel={evt.Trajectory?.VesselName} " +
                 $"ghostWasActive={evt.GhostWasActive} pastEffectiveEnd={evt.PastEffectiveEnd} " +
-                $"needsSpawn={evt.Flags.needsSpawn} isMidChain={evt.Flags.isMidChain} watched={isWatched}");
+                $"needsSpawn={evt.Flags.needsSpawn} isMidChain={evt.Flags.isMidChain} watched={isWatched} loopFirstRun={evt.LoopFirstRun}");
 
             // Mid-chain segments: hold ghost at final position
             if (evt.Flags.isMidChain && !evt.PastEffectiveEnd)

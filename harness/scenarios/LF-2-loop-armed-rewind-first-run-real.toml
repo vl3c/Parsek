@@ -26,7 +26,7 @@ id = "LF-2-loop-armed-rewind-first-run-real"
 # dispatchers, and each rewind drives one of them:
 #   rewind #1 is saved at the Space Center at once (UT is still ~15 s before launch) and
 #     reloaded into FLIGHT, where a TimeJump carries UT past EndUT: the flight engine's
-#     `TryFireLoopFirstRunSpawn` fires ([Engine] `Loop first-run spawn:`) and the policy
+#     `TryQueueLoopFirstRunSpawn` fires ([Engine] `Loop first-run spawn:`) and the policy
 #     takes it with `needsSpawn=True`. A PAD terminal cannot materialize in flight: the
 #     KSC exclusion zone (#170) blocks every spawn within 50 m of the pad, loop or not
 #     (a non-looping pad recording gets the same block), so this leg witnesses that the

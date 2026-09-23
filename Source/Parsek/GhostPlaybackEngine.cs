@@ -184,7 +184,7 @@ namespace Parsek
         // DestroyAllGhosts (via ParsekFlight cleanup path), so completedEventFired
         // is guaranteed to be empty when playback restarts after a rewind.
         private readonly HashSet<int> completedEventFired = new HashSet<int>();
-        // One-shot latch for the loop first-run spawn (TryFireLoopFirstRunSpawn). Kept apart
+        // One-shot latch for the loop first-run spawn (TryQueueLoopFirstRunSpawn). Kept apart
         // from completedEventFired because a loop member's ghost is destroyed and rebuilt every
         // cycle, and every DestroyGhost clears completedEventFired. Cleared only when the
         // playhead returns before the recording (a rewind), on full teardown and never per cycle.
@@ -1227,11 +1227,18 @@ namespace Parsek
 
                 double activationStartUT = ResolveGhostActivationStartUT(traj);
 
+                // === Loop first run is real ===
+                // Both loop dispatches below `continue` before the past-end completion, so a
+                // looping index would otherwise never spawn its terminal vessel. Its first run
+                // (the recording's own UT window) is the real run: queue the one spawn-only
+                // completion here (and re-arm it while the playhead is before the recording),
+                // then let the loop render as usual.
+                TryQueueLoopFirstRunSpawn(i, traj, f, ctx, activationStartUT, hasPointData);
+
                 if (ctx.currentUT < activationStartUT)
                 {
                     completedEventFired.Remove(i);
                     earlyDestroyedDebrisCompleted.Remove(i);
-                    loopFirstRunSpawnFired.Remove(i);
                     GhostRenderTrace.EmitGuardSkip(
                         traj, i, ctx.currentUT, "before-activation-start-ut");
                     if (ghostActive)
@@ -1246,14 +1253,6 @@ namespace Parsek
                 bool inRange = ctx.currentUT <= traj.EndUT;
                 bool pastEnd = ctx.currentUT > traj.EndUT;
                 bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
-
-                // === Loop first run is real ===
-                // Both loop dispatches below `continue` before the past-end completion, so a
-                // looping index would otherwise never spawn its terminal vessel. Its first run
-                // (the recording's own UT window) is the real run: fire the one spawn-only
-                // completion here, then let the loop render as usual.
-                if (currentLoopUnits.IsMember(i) || ShouldLoopPlayback(traj))
-                    TryFireLoopFirstRunSpawn(i, traj, f, ctx, hasPointData);
 
                 // === Mission loop unit interception (Phase D2) ===
                 // If this index is a member of a Mission loop unit, it is driven by the unit's
@@ -3679,23 +3678,34 @@ namespace Parsek
 
         /// <summary>
         /// Loop first-run spawn: when a looping index's real playhead crosses the recording's
-        /// own EndUT and the ordinary spawn gate allows it (<c>needsSpawn</c>, which already
-        /// folds VesselSpawned, the replay-scope history gate and the chain rules), queue ONE
-        /// spawn-only completion. The event carries no ghost state (GhostWasActive=false), the
-        /// same shape as the hidden past-end completion, so the policy spawns the vessel and
-        /// touches no loop ghost. A mid-chain segment is left to its chain tip. See
+        /// own end (and its chain's effective end, where the policy's spawn is gated) and the
+        /// ordinary spawn gate allows it (<c>needsSpawn</c>, which already folds VesselSpawned,
+        /// the replay-scope history gate and the chain rules), queue ONE spawn-only completion.
+        /// The event carries no ghost state (GhostWasActive=false, the hidden past-end
+        /// completion's shape) and is marked <c>LoopFirstRun</c>, so the policy spawns the
+        /// vessel and leaves the cycling loop ghost and any watch session alone. A mid-chain
+        /// segment is left to its chain tip. The one-shot latch re-arms while the playhead is
+        /// before the recording (a rewind). Runs for every index; a non-looping index returns
+        /// false and keeps the ordinary past-end completion. See
         /// <see cref="GhostPlaybackLogic.ShouldAttemptLoopFirstRunSpawn"/>.
         /// </summary>
-        private void TryFireLoopFirstRunSpawn(int i, IPlaybackTrajectory traj,
-            TrajectoryPlaybackFlags f, FrameContext ctx, bool hasPointData)
+        internal bool TryQueueLoopFirstRunSpawn(int i, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags f, FrameContext ctx, double activationStartUT, bool hasPointData)
         {
+            if (ctx.currentUT < activationStartUT)
+            {
+                loopFirstRunSpawnFired.Remove(i);
+                return false;
+            }
+
+            bool loopDriven = currentLoopUnits.IsMember(i) || ShouldLoopPlayback(traj);
             if (!GhostPlaybackLogic.ShouldAttemptLoopFirstRunSpawn(
-                    loopDriven: true,
+                    loopDriven: loopDriven,
                     spawnEligible: f.needsSpawn && !f.isMidChain,
                     currentUT: ctx.currentUT,
-                    recordingEndUT: traj.EndUT,
+                    recordingEndUT: Math.Max(traj.EndUT, f.chainEndUT),
                     alreadyAttempted: loopFirstRunSpawnFired.Contains(i)))
-                return;
+                return false;
 
             loopFirstRunSpawnFired.Add(i);
             ParsekLog.Info("Engine",
@@ -3713,9 +3723,14 @@ namespace Parsek
                 GhostWasActive = false,
                 PastEffectiveEnd = ctx.currentUT > f.chainEndUT,
                 LastPoint = hasPointData ? traj.Points[traj.Points.Count - 1] : default,
-                CurrentUT = ctx.currentUT
+                CurrentUT = ctx.currentUT,
+                LoopFirstRun = true
             });
+            return true;
         }
+
+        /// <summary>Completion events queued this frame and not yet delivered. Tests only.</summary>
+        internal IReadOnlyList<PlaybackCompletedEvent> PendingCompletedEventsForTesting => deferredCompletedEvents;
 
         /// <summary>
         /// Handles past-end ghost: positions at final point, triggers explosion if destroyed,

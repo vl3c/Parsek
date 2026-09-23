@@ -273,6 +273,13 @@ namespace Parsek
 
         /// <summary>The current UT when playback completed.</summary>
         public double CurrentUT;
+
+        /// <summary>
+        /// True for the spawn-only completion a looping recording fires when its first run
+        /// ends (GhostPlaybackEngine.TryQueueLoopFirstRunSpawn). The loop ghost keeps cycling,
+        /// so the policy spawns the vessel but does not treat the watched ghost as finished.
+        /// </summary>
+        public bool LoopFirstRun;
     }
 
     /// <summary>

@@ -336,10 +336,11 @@ namespace Parsek
 
                 // BUG-B: maintain the replay-scope latch every frame and decide whether
                 // this committed recording is purely historical (the player progressed
-                // past it in normal forward time and never rewound to replay it). Used
-                // only by the non-looping render/spawn branches below; looping +
-                // mission-unit replays (explicit live opt-in) run through their own
-                // branches and never consult this flag. The active re-fly session is
+                // past it in normal forward time and never rewound to replay it). Gates
+                // the non-looping render/spawn branches below and every recording's
+                // terminal SPAWN, including a looping one's first run
+                // (TryLoopFirstRunSpawnKsc); looping + mission-unit RENDERS (explicit live
+                // opt-in) run through their own branches and ignore it. The active re-fly session is
                 // exempt. Orbital recordings whose extrapolated tail extends past the
                 // live UT would otherwise draw a duplicate ghost of the player's
                 // still-live vessel at the Space Center.
@@ -406,7 +407,8 @@ namespace Parsek
                             i,
                             "playback-disabled-past-end",
                             loggedPlaybackDisabledPastEndSpawnAttempts);
-                        TrySpawnAtRecordingEnd(i, rec);
+                        // A hidden looping recording's spawn is still its first run's.
+                        TrySpawnAtRecordingEnd(i, rec, loopFirstRun: rec.LoopPlayback);
                     }
                     continue;
                 }
@@ -1905,7 +1907,7 @@ namespace Parsek
 
         /// <summary>
         /// Loop first-run spawn at the Space Center (the flight engine's
-        /// <c>TryFireLoopFirstRunSpawn</c>): when a looping recording's real playhead crosses
+        /// <c>TryQueueLoopFirstRunSpawn</c>): when a looping recording's real playhead crosses
         /// its own EndUT, attempt its terminal spawn once through the ordinary
         /// <see cref="TrySpawnAtRecordingEnd"/>, which applies <c>ShouldSpawnAtKscEnd</c>
         /// (VesselSpawned, chain rules including "chain looping", the #573 rewind block).
