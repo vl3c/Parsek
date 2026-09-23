@@ -30,17 +30,21 @@ namespace Parsek.Tests
         private readonly List<string> deletedRpIds = new List<string>();
         private readonly string tempDir;
         private readonly GameScenes previousScene;
+        private readonly bool priorStoreSuppress;
 
         public RewindPointSurvivesRewindTests()
         {
+            priorStoreSuppress = RecordingStore.SuppressLogging;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
-            RecordingStore.SuppressLogging = true;
+            RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             RewindContext.ResetForTesting();
+            RevertInterceptor.ResetTestOverrides();
+            ReFlyRevertDialog.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             RewindInvokeContext.Clear();
@@ -78,6 +82,9 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();
+            RevertInterceptor.ResetTestOverrides();
+            ReFlyRevertDialog.ResetForTesting();
+            RecordingStore.SuppressLogging = priorStoreSuppress;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
 
@@ -438,6 +445,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Retry_RpInTheFuture_RefusedBeforeTheSessionIsTornDown()
+        {
+            // Retry clears the marker before StartInvoke re-runs CanInvoke, so the
+            // future gate must answer first or a refusal strands the player with no
+            // session. Mirror: the clock at the RP retries as before.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_retry",
+                TreeId = "tree_retry",
+                ActiveReFlyRecordingId = "rec_prov",
+                OriginChildRecordingId = "rec_origin",
+                RewindPointId = "rp_retry",
+                InvokedUT = 50.0,
+            };
+            var rp = Rp("rp_retry", 110.0, Slot(0, "rec_origin"));
+            var scenario = InstallScenario(rp);
+            scenario.ActiveReFlySessionMarker = marker;
+            int invoked = 0;
+            RevertInterceptor.RewindInvokeStartForTesting = (r, s) => invoked++;
+
+            RewindInvoker.NowUtProviderForTesting = () => 50.0;
+            RevertInterceptor.RetryHandler(marker);
+
+            Assert.Equal(0, invoked);
+            Assert.Same(marker, scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][ReFlySession]")
+                && l.Contains("RetryHandler: rp=rp_retry ut=110 is in the future of nowUT=50")
+                && l.Contains("session sess=sess_retry kept"));
+            Assert.DoesNotContain(logLines, l => l.Contains("End reason=retry"));
+
+            RewindInvoker.NowUtProviderForTesting = () => 110.0;
+            RevertInterceptor.RetryHandler(marker);
+
+            Assert.Equal(1, invoked);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+        }
+
+        [Fact]
         public void TestSeamRefusal_NamesTheFutureGate()
         {
             Assert.Equal("refly-gate " + RewindInvoker.FutureRewindPointReason,
@@ -450,8 +496,66 @@ namespace Parsek.Tests
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            return File.ReadAllText(Path.Combine(root, "Source", "Parsek", relative))
-                .Replace("\r\n", "\n");
+            return StripComments(File.ReadAllText(Path.Combine(root, "Source", "Parsek", relative))
+                .Replace("\r\n", "\n"));
+        }
+
+        /// <summary>
+        /// Drops // and /* */ comments (string literals kept intact) so a needle that
+        /// survives only inside a comment cannot satisfy a source-order gate.
+        /// </summary>
+        private static string StripComments(string src)
+        {
+            var sb = new System.Text.StringBuilder(src.Length);
+            int i = 0;
+            while (i < src.Length)
+            {
+                char c = src[i];
+                if (c == '"')
+                {
+                    bool verbatim = i > 0 && src[i - 1] == '@';
+                    sb.Append(c);
+                    i++;
+                    while (i < src.Length)
+                    {
+                        char d = src[i];
+                        sb.Append(d);
+                        i++;
+                        if (!verbatim && d == '\\' && i < src.Length) { sb.Append(src[i]); i++; continue; }
+                        if (d == '"')
+                        {
+                            if (verbatim && i < src.Length && src[i] == '"') { sb.Append('"'); i++; continue; }
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if (c == '/' && i + 1 < src.Length && src[i + 1] == '/')
+                {
+                    while (i < src.Length && src[i] != '\n') i++;
+                    continue;
+                }
+                if (c == '/' && i + 1 < src.Length && src[i + 1] == '*')
+                {
+                    int end = src.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    i = end < 0 ? src.Length : end + 2;
+                    continue;
+                }
+                sb.Append(c);
+                i++;
+            }
+            return sb.ToString();
+        }
+
+        [Fact]
+        public void StripComments_DropsCommentedNeedles_KeepsCodeAndStrings()
+        {
+            string src = "a(); // ReinstallX(this);\n/* CaptureY( */ b(\"// kept\");";
+            string stripped = StripComments(src);
+            Assert.DoesNotContain("ReinstallX", stripped);
+            Assert.DoesNotContain("CaptureY", stripped);
+            Assert.Contains("a();", stripped);
+            Assert.Contains("b(\"// kept\");", stripped);
         }
 
         private static string MethodBody(string source, string declaration)

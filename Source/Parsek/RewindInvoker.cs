@@ -181,6 +181,16 @@ namespace Parsek
             return rewindPointUT - nowUT > RewindPointFutureToleranceSeconds;
         }
 
+        /// <summary>
+        /// The future-RP gate against the live clock, for a caller that must decide
+        /// BEFORE it tears state down (RevertInterceptor.RetryHandler).
+        /// </summary>
+        internal static bool IsRewindPointInFutureNow(RewindPoint rp, out double nowUT)
+        {
+            nowUT = ResolveNowUTForCanInvoke();
+            return rp != null && IsRewindPointInFuture(rp.UT, nowUT);
+        }
+
         private static double ResolveNowUTForCanInvoke()
         {
             var hook = NowUtProviderForTesting;

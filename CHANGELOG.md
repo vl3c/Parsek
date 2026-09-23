@@ -894,9 +894,10 @@ _(unreleased — entries accumulate here per commit)_
   could predate the split (the point vanished, its quicksave file left behind on disk) or
   predate a later cleanup (a point already removed came back with no quicksave). Rewind
   points now survive a Rewind to Launch (and Warp to game start) exactly as they were, the
-  same way the recordings do. A rewind point the rewind has put in your future stays in
+  same way the recordings do. A rewind point that lies in your future (after a Rewind to
+  Launch, or after a Re-Fly took the clock back past a later mission's split) stays in
   Unfinished Flights, but its Fly button is disabled until the game clock reaches the moment
-  of the split again; its tooltip says so. Re-fly checks this on every route, including the
+  of that split again; its tooltip says so. Re-fly checks this on every route, including the
   confirmation and the Retry from Rewind Point option.
 
 - **A launch Parsek refuses to attach to a resumed committed tree no longer leaves an idle

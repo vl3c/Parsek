@@ -5863,8 +5863,9 @@ namespace Parsek
             if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
             {
                 rewindCarriedRewindPoints = null;
-                ParsekLog.Info("Rewind",
-                    $"{label}: no live scenario RP list to carry across the rewind load");
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"{label}: no live scenario RP list to carry across the rewind load");
                 return;
             }
 
@@ -5874,9 +5875,10 @@ namespace Parsek
                 if (scenario.RewindPoints[i] != null)
                     rewindCarriedRewindPoints.Add(scenario.RewindPoints[i]);
             }
-            ParsekLog.Info("Rewind",
-                $"{label}: carrying {rewindCarriedRewindPoints.Count} rewind point(s) across the rewind load " +
-                $"[{FormatRewindPointIds(rewindCarriedRewindPoints)}]");
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"{label}: carrying {rewindCarriedRewindPoints.Count} rewind point(s) across the rewind load " +
+                    $"[{FormatRewindPointIds(rewindCarriedRewindPoints)}]");
         }
 
         /// <summary>Drops a captured RP list that no rewind OnLoad will consume.</summary>
@@ -5884,9 +5886,10 @@ namespace Parsek
         {
             if (rewindCarriedRewindPoints == null)
                 return;
-            ParsekLog.Info("Rewind",
-                $"Dropped {rewindCarriedRewindPoints.Count} carried rewind point(s) without reinstalling them " +
-                $"(reason={reason})");
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Dropped {rewindCarriedRewindPoints.Count} carried rewind point(s) without reinstalling them " +
+                    $"(reason={reason})");
             rewindCarriedRewindPoints = null;
         }
 
@@ -5968,10 +5971,11 @@ namespace Parsek
             int loadedCount = scenario.RewindPoints?.Count ?? 0;
             scenario.RewindPoints = MergeCarriedRewindPoints(
                 carried, scenario.RewindPoints, out int restored, out int staleDropped);
-            ParsekLog.Info("Rewind",
-                $"RewindPoints carried across rewind: installed={scenario.RewindPoints.Count} " +
-                $"loadedFromSave={loadedCount} restored={restored} staleDropped={staleDropped} " +
-                $"[{FormatRewindPointIds(scenario.RewindPoints)}]");
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"RewindPoints carried across rewind: installed={scenario.RewindPoints.Count} " +
+                    $"loadedFromSave={loadedCount} restored={restored} staleDropped={staleDropped} " +
+                    $"[{FormatRewindPointIds(scenario.RewindPoints)}]");
             return scenario.RewindPoints.Count;
         }
 

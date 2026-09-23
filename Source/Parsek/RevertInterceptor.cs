@@ -258,6 +258,21 @@ namespace Parsek
                 return;
             }
 
+            // The future-RP gate (StartInvoke's CanInvoke) runs only after the session
+            // below is torn down, so a refusal there would strand the player with no
+            // session and no re-fly. Check it first, while the session is still intact.
+            // Production cannot reach this (an RP quicksave is written after the RP stamps
+            // its UT, so a session starts at or after it); injected fixtures can.
+            if (RewindInvoker.IsRewindPointInFutureNow(rp, out double nowUT))
+            {
+                ParsekLog.Warn(SessionTag,
+                    $"RetryHandler: rp={rpId} ut={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"is in the future of nowUT={nowUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"- refusing retry, session sess={oldSessionId} kept");
+                ReFlyRevertDialog.ClearLock();
+                return;
+            }
+
             ParsekLog.Info(SessionTag,
                 $"End reason=retry sess={oldSessionId} rp={rpId} slot={slot.SlotIndex} target={target}");
 

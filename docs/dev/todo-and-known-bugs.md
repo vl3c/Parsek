@@ -46,7 +46,14 @@ the list now keeps them referenced. The reaper rule is unchanged (an RP still re
 slot is closed). The gate is one more `RewindInvoker.CanInvoke` precondition
 (`IsRewindPointInFuture`, 1 ms save round-trip slack, exactly-at allowed, an unknown clock
 leaves it open), so the Recordings table, the Timeline, StartInvoke's confirm-time re-check,
-the Retry handler and the `InvokeRewind` seam verb all see it. The reason
+the Retry handler and the `InvokeRewind` seam verb all see it. SCOPE: the gate is the ruling's
+general form - ANY RP later than the clock, not only one a Rewind-to-Launch moved into the
+future. A Re-Fly that takes the clock back past another mission's split disables that split's
+Fly until the clock reaches it again (it was enabled before). The Retry handler checks the
+gate BEFORE it clears the session (`RewindInvoker.IsRewindPointInFutureNow`, Warn
+`RetryHandler: rp=... is in the future ... session sess=... kept`), since a refusal inside
+StartInvoke would come after the marker is gone; production cannot reach it (an RP quicksave
+is written after the RP stamps its UT), injected fixtures can. The reason
 (`FutureRewindPointReason`) reaches the player only as the disabled Fly button's existing
 tooltip, budgeted by `TooltipEchoBudgetTests`. MergeState is untouched by the rewind, so a
 slot stays CommittedProvisional with its RP present (before the fix GS-4 left open
@@ -62,11 +69,29 @@ derived `max = 0`. GS-7's comment and the roadmap item are corrected.
 
 **Live proof.** PENDING at the time of writing; recorded below when flown.
 
-**Residue.** The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
+**Residue.** See RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT below for the other staged
+lists this fix does not carry. The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
 host save's UT, which is 60 s BEFORE the RP UT, so a fixture re-fly runs with the clock before
 its own RP. Nothing on the committed lanes calls CanInvoke inside a fixture session, but a
 Retry from Rewind Point there would read the gate; production RP quicksaves are written after
 the RP stamps its UT and never have this shape.
+
+## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. OPEN]
+
+`LoadRewindStagingState` rebuilds RECORDING_SUPERSEDES, RECORDING_REWIND_RETIREMENTS,
+LEDGER_TOMBSTONES and the merge journal from the same OnLoad node, and on a plain rewind that
+node is persistent.sfs as last written (`SpaceCenterMain.Start` reloads it), not the in-memory
+state the rewind otherwise keeps. RP-SURVIVES-REWIND-TO-LAUNCH carries only the RP list. A
+Re-Fly merge in ANOTHER tree after the last persistent write would lose its supersede rows and
+tombstones on the next Rewind-to-Launch, while its RP now survives from memory. Not measured
+live; derived from the mechanism. Fix direction: carry every staged list the same way (the
+supersede re-apply `ReapplyRewindSupersedeDropAfterLoad` would then run on the carried list).
+
+Related open question (UNVERIFIED): `DropSupersedesRewoundOutOfExistence` drops the owner
+tree's non-canon supersede rows whose forks start after the rewind UT. An RP that survives
+because one sibling is still open could then list the un-superseded origin of an already
+re-flown slot again, next to the fork's ghost. Needs a trace of slot-open resolution after the
+drop, or a lane (re-fly one slot without sealing, rewind to launch, read the slots).
 
 
 ## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
