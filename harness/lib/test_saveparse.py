@@ -907,6 +907,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # It is not recording state, no gate reads it, and the five zero-counts
         # asserted below all hold over it, so it is deliberately NOT stripped.
         "logi-cargo-pad": True,
+        # pad-runway-pair: logi-cargo-pad plus a clone of rover-route-recorded's
+        # `rover fuel 0` on the runway, derived by build_pad_runway_pair.py (the EX-1
+        # host). It inherits logi-cargo-pad's node verbatim, so True for the same reason.
+        "pad-runway-pair": True,
     }
 
     # RECORDED-STATE fixtures (harvest --keep-parsek): produced saves whose
