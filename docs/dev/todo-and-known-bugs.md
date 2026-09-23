@@ -64,11 +64,14 @@ before the flight retires. (e) Not changed: the merge dialog (`MergeDialog.CanPe
 still counts a pad-ending leaf as spawnable, so it does not pre-announce the retirement; the
 recording is settled at EndUT.
 
-**Lanes (never flown on this change).** EX-1 is now the retirement witness and no longer
+**Lanes (live-proven 2026-09-23).** EX-1 is now the retirement witness and no longer
 claims D18 `ghost-extension-past-endut` (so the stale-cleanup fix below keeps its unit cells
 but loses its live witness); LF-1 and LF-2 move their subject to `pad-runway-pair`'s runway
-rover (59.7 m from the runway threshold) through a spec-only focus road. Every new token is
-unverified until the supervisor's reading runs.
+rover (59.7 m from the runway threshold) through a spec-only focus road. Readings on DLL
+sha256 `3970c939...` (`0fea2d1df`): EX-1 `2026-09-23_1810`, LF-1 `_1812`, LF-2 `_1814`, each
+PASS attempt 1 with every token as written; EX-1 armed `_1820` PASS on the fix-up DLL sha256
+`756a9ce6...` (`746e6c48e`), negative control `_1822` red on exactly its one seed. LF-1 / LF-2
+were not re-flown on the fix-up DLL (the fix-ups do not touch a subject outside the zone).
 
 ## D18-GHOST-EXTENSION-SINGLE-POINT-HOST: `ghost-extension-past-endut` has no host lane since the pad hold became a retirement [FILED 2026-09-23 with KSC-PAD-END-OF-FLIGHT-RETIREMENT. OPEN]
 

@@ -23,11 +23,12 @@ id = "LF-1-loop-first-run-real"
 # asteroid is index 1 and the pad Rig index 2, focused at boot). ACT 0 focuses it with a
 # spec-only road: LoadGame boots on the Rig, ExitToSpaceCenter, and a Space Center
 # SaveGame + LoadGame lands in FLIGHT on index 0 (a Space Center save carries
-# `activeVessel = 0`, measured on this very fixture by EX-1). NEVER FLOWN ON THIS
-# SUBJECT: every token naming `rover fuel 0`, the ACT 0 road and the two-vessel census are
-# unverified until the reading run. The mechanism tokens (the spawn path, the loop
-# guard) are the ones read off `2026-09-22_2350` on the Rig; the respawn situation is
-# regexed (`sit=[A-Z]+`) because the rover's snapshot situation was not measured.
+# `activeVessel = 0`, measured on this very fixture by EX-1). LIVE-PROVEN ON THIS
+# SUBJECT: reading `2026-09-23_1812` PASS attempt 1 (DLL sha256 `3970c939...`, commit
+# `0fea2d1df`) measured the ACT 0 road, the rover tokens and the two-vessel census; zero
+# `Spawn RETIRED`, exactly one `Vessel spawned for` (the rover). Not re-flown on the
+# review fix-up DLL (`746e6c48e`), whose changes do not touch a subject outside the zone.
+# The respawn situation stays regexed (`sit=[A-Z]+`).
 #
 # WHY THE LOOP IS ARMED AFTER THE REWIND. This lane is the LOOP-OFF rewind witness: it
 # rewinds with the loop off, lets the re-cross materialize the vessel once, then arms the
@@ -59,7 +60,7 @@ id = "LF-1-loop-first-run-real"
 #       each loop cycle - and a back-referenced regex pins the post-spawn pid unchanged.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D18 loop-first-run-is-real: produce a single-recording non-chain Landed subject in-run on pad-runway-pair's runway rover (rover fuel 0, 59.7 m from the runway threshold, outside the KSC exclusion zone that now retires a flight ending on the pad or runway threshold), focused through a Space Center save + reload (StartRecording, StopRecording, CommitTree), Rewind-to-Launch it (the vessel is stripped), let 1x KSC time re-cross EndUT so the vessel re-spawns exactly once, reload into FLIGHT, arm the mission loop through the Missions window and run three StartLoopPlayback cycles. The loop-off rewind witness; the loop-armed rewind is LF-2. LIVE-PROVEN 2026-09-22 on the logi-cargo-pad pad probe (reading _2350, armed _2353, negative control _2355); MOVED to the runway rover 2026-09-23 by the KSC retirement ruling and NEVER FLOWN on it. The recording's spawnedPid is folded into MISSIONMARK lines at every stage, and the produced save must hold exactly one real vessel behind the spawn (saveparse spawnedVessels + vesselNames)."
+description = "D18 loop-first-run-is-real: produce a single-recording non-chain Landed subject in-run on pad-runway-pair's runway rover (rover fuel 0, 59.7 m from the runway threshold, outside the KSC exclusion zone that now retires a flight ending on the pad or runway threshold), focused through a Space Center save + reload (StartRecording, StopRecording, CommitTree), Rewind-to-Launch it (the vessel is stripped), let 1x KSC time re-cross EndUT so the vessel re-spawns exactly once, reload into FLIGHT, arm the mission loop through the Missions window and run three StartLoopPlayback cycles. The loop-off rewind witness; the loop-armed rewind is LF-2. LIVE-PROVEN 2026-09-22 on the logi-cargo-pad pad probe (reading _2350, armed _2353, negative control _2355); MOVED to the runway rover 2026-09-23 by the KSC retirement ruling; LIVE-PROVEN on it by reading 2026-09-23_1812. The recording's spawnedPid is folded into MISSIONMARK lines at every stage, and the produced save must hold exactly one real vessel behind the spawn (saveparse spawnedVessels + vesselNames)."
 instanceProfile = "stock-minimal"
 tags = ["LF-1", "D18", "loop-playback", "rewind-to-launch", "spawn", "first-run-is-real",
         "R10", "runtime-handles"]
@@ -78,7 +79,7 @@ steps = [
   { cmd = "DiscardTree", expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
-  # ACT 0 (2026-09-23, UNVERIFIED): focus the runway rover. The boot focuses the pad Rig
+  # ACT 0 (2026-09-23, measured `_1812`): focus the runway rover. The boot focuses the pad Rig
   # (activeVessel = 2); a Space Center save carries activeVessel = 0 = `rover fuel 0`.
   { cmd = "ExitToSpaceCenter", expect = "OK", budget = 120 },
   { cmd = "SaveGame", args = { name = "lf1-rover-focus" }, expect = "OK", budget = 120 },
@@ -286,7 +287,7 @@ count = { min = 1, max = 1 }
 # every facet below measured exactly): trees 1, committedTrees 1, recordings 1, Landed 1,
 # spawnedVessels 1, vesselNames {Logi Cargo Rig: 1}. SUBJECT MOVED 2026-09-23: the
 # census now expects the re-spawned rover plus the untouched pad Rig (a real vessel of
-# the fixture, outside the tree) - UNVERIFIED until the reading run.
+# the fixture, outside the tree) - measured by `2026-09-23_1812`.
 [expectations.recordings.structure]
 gating         = true
 trees          = { min = 1, max = 1 }
@@ -297,7 +298,7 @@ spawnedVessels = 1
 vesselNames    = { "rover fuel 0" = 1, "Logi Cargo Rig" = 1 }
 
 # Read off `2026-09-22_2350` on the pad subject; the vessel name, the respawn situation
-# (regexed) and the retirement guard are UNVERIFIED on the rover until the reading run.
+# (regexed) and the retirement guard held on the rover in `2026-09-23_1812`.
 [expectations.logContracts]
 required  = [
   "Recording started",
