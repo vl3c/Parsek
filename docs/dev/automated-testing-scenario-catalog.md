@@ -110,7 +110,8 @@ report; headline values only here.
   vessel claiming, ghost conversion of quicksave vessels after rewind,
   intermediate spawn suppression along a chain, chain-tip spawn preserving
   the ORIGINAL vessel PID, cross-tree chain linking, ghost extension past
-  EndUT while blocked, background-event claims (12.9.6), chain terminated
+  EndUT (the bounded 5 s hold: KSC exclusion zone, single-point recording,
+  failed spawn; ruled 2026-09-23), background-event claims (12.9.6), chain terminated
   by destruction/recovery (12.9.1/12.9.8), chain state re-derived (never
   persisted - determinism across consecutive loads, 20.2), relative-state
   time jump observables (14.5-14.7: positions/velocities/attitudes

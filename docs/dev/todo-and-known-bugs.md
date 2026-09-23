@@ -62,7 +62,15 @@ list of the exact mismatch strings (or token regexes) the bug produces; a run de
 when its mismatch set equals that list, and anything extra stays PARSEK-FAIL. First consumer:
 `EX-1-ghost-extension-past-endut` (its two defect assertions).
 
-## D18-GHOST-EXTENSION-DESIGN-VS-CODE: a vessel blocking a spawn never extends the ghost past EndUT on the non-chain path, so `ghost-extension-past-endut` exists only for the KSC exclusion zone and a failed spawn [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). OPEN; OPERATOR DESIGN QUESTION, not a defect]
+## ~~D18-GHOST-EXTENSION-DESIGN-VS-CODE: a vessel blocking a spawn never extends the ghost past EndUT on the non-chain path, so `ghost-extension-past-endut` exists only for the KSC exclusion zone and a failed spawn~~ [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). RULED 2026-09-23: keep the code; design rewritten to match]
+
+**RULED 2026-09-23: keep the code; design rewritten to match.** The operator kept the
+code's behaviour (recover a same-name blocker, else walk back at once, else abandon; hold the
+ghost only for the KSC exclusion zone, a single-point recording or a failed spawn, retrying
+every 1 s for up to 5 s). `docs/parsek-flight-recorder-design.md` sections 13.2, 13.5 and
+13.7 now describe that, and the catalog's D18 `ghost-extension-past-endut` wording is
+narrowed to the bounded hold. The same-frame destroy of the held ghost stays open as
+D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME.
 
 **What the design promises.** `docs/parsek-flight-recorder-design.md` section 13.2 routes
 a blocked spawn to "block spawn, start ghost extension"; section 13.5 ("Ghost Extension")
