@@ -17,6 +17,12 @@ _(unreleased — entries accumulate here per commit)_
   ghost is removed in the same frame. The lane checks for the ghost to stay and is marked as
   an expected failure until that is fixed. Its host save, `pad-runway-pair`, is built by a
   script from two existing test saves.
+- **Automated testing: a lane proves a looped recording leaves exactly one real vessel.**
+  `LF-1-loop-first-run-real` records a pad probe in the run, rewinds it to launch (which removes
+  the vessel), lets the Space Center clock pass the recording's end so the vessel comes back
+  exactly once, then loops the mission three times. The recording keeps the same spawned vessel
+  id at every stage, and the produced save holds one vessel of that name. The save-parse verifier
+  gains a vessel census for this (`spawnedVessels`, `vesselNames`).
 - **Automated testing: the command seam can read back the flight scene's ghost chains.**
   `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
   recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this

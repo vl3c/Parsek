@@ -10640,6 +10640,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Landed 1). An expectedFail lane (subkind expectation), so a
                        # structure red is NOT demoted: it stays PARSEK-FAIL.
                        "EX-1-ghost-extension-past-endut.toml",
+                       # LF-1: `structure` armed 2026-09-23 off its reading run
+                       # `2026-09-22_2350` (trees / committedTrees / recordings 1,
+                       # Landed 1, and the new vessel census: spawnedVessels 1,
+                       # vesselNames {Logi Cargo Rig: 1}).
+                       "LF-1-loop-first-run-real.toml",
                        # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
                        # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and
                        # the merged-main confirmation - plus its own negative control
