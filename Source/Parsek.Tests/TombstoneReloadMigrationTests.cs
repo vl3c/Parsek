@@ -409,7 +409,7 @@ namespace Parsek.Tests
         // ---------------------------------------------------------------------------
 
         private static Recording BuildTwoEnvironmentCrewedRecording(string id, string treeId,
-            bool endStatesPopulated)
+            bool endStatesPopulated, bool crewSurvives = false)
         {
             var rec = new Recording
             {
@@ -418,7 +418,7 @@ namespace Parsek.Tests
                 TreeId = treeId,
                 VesselPersistentId = 42,
                 MergeState = MergeState.Immutable,
-                TerminalStateValue = TerminalState.Destroyed,
+                TerminalStateValue = crewSurvives ? TerminalState.Recovered : TerminalState.Destroyed,
                 RecordingFormatVersion = 0,
             };
             double[] atmoUTs = { 8.0, 14.0, 20.0 };
@@ -448,10 +448,11 @@ namespace Parsek.Tests
             rec.GhostVisualSnapshot = snapshot;
             if (endStatesPopulated)
             {
+                KerbalEndState fate = crewSurvives ? KerbalEndState.Recovered : KerbalEndState.Dead;
                 rec.CrewEndStates = new Dictionary<string, KerbalEndState>
                 {
-                    ["Bill Kerman"] = KerbalEndState.Dead,
-                    ["Bob Kerman"] = KerbalEndState.Dead,
+                    ["Bill Kerman"] = fate,
+                    ["Bob Kerman"] = fate,
                 };
                 rec.CrewEndStatesResolved = true;
             }
@@ -560,16 +561,49 @@ namespace Parsek.Tests
                 "dead after reload: " + Describe(AllEffectiveDeathRows()));
         }
 
-        // KNOWN GAP, filed as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT:
-        // when NO load separates the optimizer split from the re-fly, the ledger rows the
-        // commit filed for the whole flight are still tagged to the first segment (the
-        // optimizer split retags no ledger rows, and the load runs MigrateKerbalAssignments
-        // BEFORE the optimization pass). The re-fly of the second segment finds no row to
-        // retag or tombstone, the first segment's whole-flight Dead row stays live, and
-        // after the reload the TIP derives a fresh untombstoned Dead. Needs a design
-        // decision (retag at the optimizer split, or re-derive after it), so it is skipped
-        // rather than guessed.
-        [Fact(Skip = "Known gap: OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT")]
+        // ---------------------------------------------------------------------------
+        // OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT.
+        // Trigger 1: the optimizer split of an already-derived recording retagged no
+        // ledger rows, so a re-fly of the second segment before any load found no row
+        // on it to tombstone. Fixed by the split pass's step-2.9 mirror retag
+        // (Ledger.RetagActionsForSplitSecondHalf).
+        // Trigger 2: the load-time optimizer split a SUPERSEDED TIP, and the fresh-id
+        // half escaped the supersede relation. Fixed by skipping superseded recordings
+        // in FindSplitCandidatesForOptimizer.
+        // ---------------------------------------------------------------------------
+
+        private static List<string> KerbalAssignmentIds()
+        {
+            return Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment)
+                .Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal).ToList();
+        }
+
+        private static void AssertNoOrphanRows()
+        {
+            var live = new HashSet<string>(RecordingStore.CommittedRecordings.Select(r => r.RecordingId));
+            var orphans = Ledger.Actions.Where(a => !string.IsNullOrEmpty(a.RecordingId)
+                && !live.Contains(a.RecordingId)).ToList();
+            Assert.True(orphans.Count == 0, "rows tagged to a recording no longer committed: "
+                + string.Join("; ", orphans.Select(a => a.Type + " " + a.ActionId + " rec=" + a.RecordingId)));
+        }
+
+        private static GameAction AddFundsEarning(string recordingId, double ut)
+        {
+            var row = new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                UT = ut,
+                RecordingId = recordingId,
+                FundsAwarded = 100f,
+            };
+            Ledger.AddAction(row);
+            return row;
+        }
+
+        // MUTATION NOTE: removing the RetagActionsForSplitSecondHalf call in
+        // RunOptimizationSplitPass reds this cell (the Dead row stays on segment 1,
+        // outside the re-fly closure).
+        [Fact]
         public void OptimizerSplitOfPopulatedRecording_ReFlyBeforeAnyReload_CrewNotDead()
         {
             var rec = BuildTwoEnvironmentCrewedRecording("rec_full", "tree_o", endStatesPopulated: true);
@@ -581,9 +615,337 @@ namespace Parsek.Tests
             ReFlyAndTombstone(seg2, "tree_o", 34.0, out tipId);
             Assert.True(AllEffectiveDeathRows().Count == 0,
                 "dead before reload: " + Describe(AllEffectiveDeathRows()));
+
             Migrate();
             Assert.True(AllEffectiveDeathRows().Count == 0,
                 "dead after reload: " + Describe(AllEffectiveDeathRows()));
+            var idsAfterFirst = KerbalAssignmentIds();
+
+            Migrate(); // a second load changes nothing
+            Assert.Empty(AllEffectiveDeathRows());
+            Assert.Equal(idsAfterFirst, KerbalAssignmentIds());
+            AssertNoOrphanRows();
+        }
+
+        [Fact]
+        public void OptimizerSplit_RetagsRowsByAttributionUT_KeepsActionIds()
+        {
+            var rec = BuildTwoEnvironmentCrewedRecording("rec_tag", "tree_t", endStatesPopulated: true);
+            InstallInTree(rec, "tree_t");
+            Migrate();
+            var deathIds = Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment)
+                .Select(a => a.ActionId).ToList();
+            Assert.Equal(2, deathIds.Count);
+            var early = AddFundsEarning("rec_tag", 10.0);
+            var late = AddFundsEarning("rec_tag", 40.0);
+            var atCut = AddFundsEarning("rec_tag", 20.0);
+
+            logLines.Clear();
+            RecordingStore.RunOptimizationPass();
+            var list = RecordingStore.CommittedRecordings;
+            Assert.Equal(2, list.Count);
+            string seg1 = list[0].RecordingId;
+            string seg2 = list[1].RecordingId;
+            Assert.Equal("rec_tag", seg1);
+
+            // Death rows are screened by their death (EndUT 53), so they follow the
+            // terminal to segment 2 with their ActionIds unchanged.
+            foreach (string id in deathIds)
+                Assert.Equal(seg2, Ledger.Actions.Single(a => a.ActionId == id).RecordingId);
+            Assert.Equal(seg1, early.RecordingId);
+            Assert.Equal(seg2, late.RecordingId);
+            Assert.Equal(seg2, atCut.RecordingId); // >= splitUT, same sense as step 2.9
+            Assert.Contains(logLines, l => l.Contains("[Ledger]")
+                && l.Contains("RetagActionsForSplitSecondHalf") && l.Contains("retagged=4")
+                && l.Contains("deathIntervalsByEndUT=2"));
+            AssertNoOrphanRows();
+        }
+
+        // The paired KerbalDeath reputation penalty (stamped at the recording's end)
+        // travels with the death, so a re-fly of segment 2 retires both.
+        [Fact]
+        public void OptimizerSplit_DeathRepPenaltyFollowsTheDeath_ReFlyRetiresBoth()
+        {
+            var rec = BuildTwoEnvironmentCrewedRecording("rec_rep", "tree_rp", endStatesPopulated: true);
+            InstallInTree(rec, "tree_rp");
+            Migrate();
+            var penalty = new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = 53.0,
+                RecordingId = "rec_rep",
+                NominalPenalty = 10f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+            };
+            Ledger.AddAction(penalty);
+
+            RecordingStore.RunOptimizationPass();
+            string seg2 = RecordingStore.CommittedRecordings[1].RecordingId;
+            Assert.Equal(seg2, penalty.RecordingId);
+
+            string tipId;
+            ReFlyAndTombstone(seg2, "tree_rp", 34.0, out tipId);
+            Assert.Empty(AllEffectiveDeathRows());
+            Assert.DoesNotContain(EffectiveState.ComputeELS(), a => a.ActionId == penalty.ActionId);
+        }
+
+        // Mirror: alive crew. The non-death row is screened by its boarding UT, so it
+        // stays on segment 1 (its id is kept, its content becomes the handoff); segment
+        // 2 derives its own row at the next load. Nothing dies, nothing orphans, and a
+        // second load is stable.
+        [Fact]
+        public void OptimizerSplit_AliveCrew_RowStaysOnFirstSegment_TwoReloadsStable()
+        {
+            var rec = BuildTwoEnvironmentCrewedRecording("rec_alive", "tree_a",
+                endStatesPopulated: true, crewSurvives: true);
+            InstallInTree(rec, "tree_a");
+            Migrate();
+            var billBefore = Ledger.Actions.Single(a => a.Type == GameActionType.KerbalAssignment
+                && a.KerbalName == "Bill Kerman");
+            Assert.Equal(KerbalEndState.Recovered, billBefore.KerbalEndStateField);
+            string billId = billBefore.ActionId;
+
+            RecordingStore.RunOptimizationPass();
+            var list = RecordingStore.CommittedRecordings;
+            Assert.Equal(2, list.Count);
+            Assert.Equal("rec_alive", Ledger.Actions.Single(a => a.ActionId == billId).RecordingId);
+
+            Migrate();
+            Assert.Empty(AllEffectiveDeathRows());
+            Assert.Equal("rec_alive", Ledger.Actions.Single(a => a.ActionId == billId).RecordingId);
+            foreach (var seg in list)
+            {
+                var rows = Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment
+                    && a.RecordingId == seg.RecordingId).ToList();
+                Assert.Equal(2, rows.Count);
+                Assert.All(rows, a => Assert.Equal(KerbalEndState.Recovered, a.KerbalEndStateField));
+            }
+            var idsAfterFirst = KerbalAssignmentIds();
+            Migrate();
+            Assert.Equal(idsAfterFirst, KerbalAssignmentIds());
+            AssertNoOrphanRows();
+        }
+
+        // Mirror: a crewless recording. No crew rows before or after; the generic retag
+        // still moves its other rows by UT.
+        [Fact]
+        public void OptimizerSplit_CrewlessRecording_FilesNoCrewRows_RetagsOtherRows()
+        {
+            var rec = BuildTwoEnvironmentCrewedRecording("rec_nocrew", "tree_nc", endStatesPopulated: false);
+            rec.GhostVisualSnapshot = new ConfigNode("VESSEL");
+            rec.GhostVisualSnapshot.AddNode("PART");
+            rec.CrewEndStatesResolved = true;
+            InstallInTree(rec, "tree_nc");
+            Migrate();
+            var late = AddFundsEarning("rec_nocrew", 45.0);
+
+            RecordingStore.RunOptimizationPass();
+            string seg2 = RecordingStore.CommittedRecordings[1].RecordingId;
+            Assert.Equal(seg2, late.RecordingId);
+            Migrate();
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.KerbalAssignment);
+            AssertNoOrphanRows();
+        }
+
+        // Mirror, the merge direction: split, then merge the halves back (the optimizer
+        // merge pass absorbs segment 2, which now carries the death rows), then the same
+        // pass re-splits. The merge must retag the absorbed recording's rows onto the
+        // target, or they are orphaned and the next load's Reconcile prunes them.
+        // MUTATION NOTE: restricting the merge retag to an absorbed tree ROOT (the old
+        // behavior) reds this cell.
+        [Fact]
+        public void OptimizerSplit_ThenMergeBack_ThenResplit_RowsFollowAndNothingOrphans()
+        {
+            var rec = BuildTwoEnvironmentCrewedRecording("rec_rt", "tree_rt", endStatesPopulated: true);
+            InstallInTree(rec, "tree_rt");
+            Migrate();
+            var deathIds = Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment)
+                .Select(a => a.ActionId).ToList();
+            RecordingStore.RunOptimizationPass();
+            Migrate(); // segment 1 derives its Recovered handoff rows
+            var list = RecordingStore.CommittedRecordings;
+            Assert.Equal(2, list.Count);
+            string firstSecondId = list[1].RecordingId;
+
+            // Make the halves mergeable: same phase and body.
+            list[1].SegmentPhase = list[0].SegmentPhase;
+            list[1].SegmentBodyName = list[0].SegmentBodyName;
+            Assert.True(RecordingOptimizer.CanAutoMerge(list[0], list[1]));
+
+            logLines.Clear();
+            RecordingStore.RunOptimizationPass();
+            Assert.Contains(logLines, l => l.Contains("Optimization pass: merged 1 segment pair(s)"));
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == firstSecondId);
+            AssertNoOrphanRows();
+            var tip = RecordingStore.CommittedRecordings.Last();
+            foreach (string id in deathIds)
+                Assert.Equal(tip.RecordingId, Ledger.Actions.Single(a => a.ActionId == id).RecordingId);
+
+            Migrate();
+            AssertNoOrphanRows();
+            var dead = AllEffectiveDeathRows();
+            Assert.Equal(2, dead.Count);
+            Assert.All(dead, a => Assert.Equal(tip.RecordingId, a.RecordingId));
+            Assert.Equal(deathIds.OrderBy(x => x, StringComparer.Ordinal),
+                dead.Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal));
+        }
+
+        // Mirror, a merge that LASTS (no re-split): the target then holds its own
+        // Recovered handoff row and the absorbed Dead row for each kerbal. The next
+        // load re-derives one Dead row, which must inherit the DEATH's id. The ledger
+        // order here happens to put the death first, so the order-independent witness
+        // of the same-fate preference is the pure cell below.
+        [Fact]
+        public void OptimizerSplit_ThenLastingMerge_ReloadKeepsTheDeathId()
+        {
+            var rec = BuildTwoEnvironmentCrewedRecording("rec_lm", "tree_lm", endStatesPopulated: true);
+            InstallInTree(rec, "tree_lm");
+            Migrate();
+            var deathIds = Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment)
+                .Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal).ToList();
+            RecordingStore.RunOptimizationPass();
+            Migrate();
+            var list = RecordingStore.CommittedRecordings;
+            Assert.Equal(2, list.Count);
+
+            // Same phase, body and environment: the merge sticks, nothing re-splits.
+            list[1].SegmentPhase = list[0].SegmentPhase;
+            list[1].SegmentBodyName = list[0].SegmentBodyName;
+            for (int i = 0; i < list[1].TrackSections.Count; i++)
+            {
+                var sec = list[1].TrackSections[i];
+                sec.environment = SegmentEnvironment.Atmospheric;
+                list[1].TrackSections[i] = sec;
+            }
+            RecordingStore.RunOptimizationPass();
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal(4, Ledger.Actions.Count(a => a.Type == GameActionType.KerbalAssignment
+                && a.RecordingId == "rec_lm"));
+
+            Migrate();
+            AssertNoOrphanRows();
+            var dead = AllEffectiveDeathRows();
+            Assert.Equal(deathIds, dead.Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal).ToList());
+            Assert.Equal(2, Ledger.Actions.Count(a => a.Type == GameActionType.KerbalAssignment));
+        }
+
+        [Fact]
+        public void InheritKerbalAssignmentActionIds_PrefersTheSameFate_OverLedgerOrder()
+        {
+            var handoff = new GameAction
+            {
+                Type = GameActionType.KerbalAssignment, RecordingId = "r", KerbalName = "Bill Kerman",
+                KerbalEndStateField = KerbalEndState.Recovered, ActionId = "act_handoff",
+            };
+            var death = new GameAction
+            {
+                Type = GameActionType.KerbalAssignment, RecordingId = "r", KerbalName = "Bill Kerman",
+                KerbalEndStateField = KerbalEndState.Dead, ActionId = "act_death",
+            };
+            var want = new GameAction
+            {
+                Type = GameActionType.KerbalAssignment, RecordingId = "r", KerbalName = "Bill Kerman",
+                KerbalEndStateField = KerbalEndState.Dead,
+            };
+            int fresh;
+            int inherited = LedgerOrchestrator.InheritKerbalAssignmentActionIds(
+                new List<GameAction> { handoff, death }, new List<GameAction> { want }, out fresh);
+            Assert.Equal(1, inherited);
+            Assert.Equal(0, fresh);
+            Assert.Equal("act_death", want.ActionId);
+
+            // No same-fate partner: the first same-name row in order, as before.
+            var wantAboard = new GameAction
+            {
+                Type = GameActionType.KerbalAssignment, RecordingId = "r", KerbalName = "Bill Kerman",
+                KerbalEndStateField = KerbalEndState.Aboard,
+            };
+            LedgerOrchestrator.InheritKerbalAssignmentActionIds(
+                new List<GameAction> { handoff, death }, new List<GameAction> { wantAboard }, out fresh);
+            Assert.Equal("act_handoff", wantAboard.ActionId);
+        }
+
+        private static ParsekScenario InstallSupersedeScenario(string oldId, string newId)
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_test", OldRecordingId = oldId, NewRecordingId = newId, UT = 34.0,
+                    },
+                },
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            EffectiveState.ResetCachesForTesting();
+            return scenario;
+        }
+
+        [Fact]
+        public void FindSplitCandidates_SkipsSupersededRecording_KeepsTheOther()
+        {
+            var kept = BuildTwoEnvironmentCrewedRecording("rec_kept", "tree_k", endStatesPopulated: false);
+            var gone = BuildTwoEnvironmentCrewedRecording("rec_gone", "tree_g", endStatesPopulated: false);
+            var list = new List<Recording> { gone, kept };
+
+            // Without a relation both are candidates.
+            var both = RecordingOptimizer.FindSplitCandidatesForOptimizer(list);
+            Assert.Equal(new[] { 0, 1 }, both.Select(c => c.Item1).OrderBy(i => i).ToArray());
+
+            InstallSupersedeScenario("rec_gone", "rec_fork");
+            logLines.Clear();
+            var only = RecordingOptimizer.FindSplitCandidatesForOptimizer(list);
+            Assert.Single(only);
+            Assert.Equal(1, only[0].Item1);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("skipped 1 superseded recording(s)"));
+        }
+
+        // Trigger 2: a RP split's TIP is superseded; the next load's optimization pass
+        // must not split it. A fresh-id half would name no supersede relation, so it
+        // would re-enter ERS (the retired flight's tail plays again) and, without the
+        // retag, carry the death a second reload re-derives untombstoned.
+        // MUTATION NOTE: removing the superseded skip reds the ERS / split-count asserts.
+        [Fact]
+        public void ReFlySplitTip_IsSuperseded_LoadTimeOptimizerDoesNotSplitIt_TwoReloads()
+        {
+            var origin = BuildTwoEnvironmentCrewedRecording("rec_t2", "tree_t2", endStatesPopulated: true);
+            InstallInTree(origin, "tree_t2");
+            Migrate();
+
+            // Re-fly with the rewind point inside the atmospheric section: TIP keeps the
+            // Atmospheric -> ExoBallistic boundary at 20, a split candidate on its own.
+            string tipId;
+            var scenario = ReFlyAndTombstone("rec_t2", "tree_t2", 14.0, out tipId);
+            scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_t2", OldRecordingId = tipId, NewRecordingId = "rec_fork", UT = 14.0,
+            });
+            scenario.ActiveReFlySessionMarker = null; // the merge cleared it
+            EffectiveState.ResetCachesForTesting();
+            Assert.Empty(AllEffectiveDeathRows());
+            var tip = RecordingStore.CommittedRecordings.Single(r => r.RecordingId == tipId);
+            Assert.True(tip.TrackSections.Count >= 2);
+
+            // Reload 1: migrate, then the load-time optimization pass.
+            Migrate();
+            logLines.Clear();
+            RecordingStore.RunOptimizationPass();
+            EffectiveState.ResetCachesForTesting();
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count); // HEAD + TIP, TIP not split
+            Assert.Contains(logLines, l => l.Contains("skipped 1 superseded recording(s)"));
+            Assert.DoesNotContain(EffectiveState.ComputeERS(), r => r.RecordingId != "rec_t2");
+            Assert.Empty(AllEffectiveDeathRows());
+
+            // Reload 2.
+            Migrate();
+            Assert.Empty(AllEffectiveDeathRows());
+            var ids = new HashSet<string>(Ledger.Actions.Select(a => a.ActionId));
+            Assert.All(scenario.LedgerTombstones, t => Assert.Contains(t.ActionId, ids));
+            AssertNoOrphanRows();
         }
     }
 }
