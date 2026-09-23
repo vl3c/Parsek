@@ -47,7 +47,10 @@ id = "KB-1-ksc-building-repair-ledger"
 # on this spec's own pin (it expected a post-load recalc the lane never runs; re-pinned to
 # the reload-time skip); 2026-09-23_2030 PASS attempt 1. The re-pinned contract, replayed
 # against the 2018 log, reds on both the skip pin and the no-patcher-demolish pin, and
-# against 2028 is clean. Still a reading run: an armed re-flight and a negative control
+# against 2028 is clean. Re-review follow-up (no live patch inside OnLoad at all, skip
+# reason "scene load in progress"; this pin re-derived for it): 2026-09-23_2047 PASS
+# attempt 1, every reload logging the skip before "[ScenarioDestructibles]: Loading".
+# Still a reading run: an armed re-flight and a negative control
 # are owed before any block here is armed.
 tier = "daily"
 description = "Career at the KSC: collapse one Tracking Station building through the seam, repair the facility through the menu's own RepairFacility call, save and cold-reload; the ledger holds exactly one FacilityDestruction and one FacilityRepair whose cost equals the StructureRepair funds debit, with no reconciliation warning and no patcher flicker."

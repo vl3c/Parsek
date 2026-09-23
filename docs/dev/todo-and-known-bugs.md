@@ -892,8 +892,8 @@ flight warp-start facility patch (`ParsekFlight.OnTimeWarpRateChanged`) now runs
 `DiscardEconomyPreservationTests.Rehome_BuildingCollapse_*`.
 
 Live verification: `KB-1-ksc-building-repair-ledger` PASS `2026-09-23_1928` (reading run),
-and after the review fix PASS `2026-09-23_2030` with a save + cold reload while the building
-is down (see the patch-contract paragraph above for the `2026-09-23_2018` finding).
+after the review fix PASS `2026-09-23_2030` with a save + cold reload while the building
+is down, and after the re-review follow-up (no patch inside OnLoad) PASS `2026-09-23_2047` (see the patch-contract paragraph above for the `2026-09-23_2018` finding).
 Two new `KscAction` kinds drive it: `demolish-building` (`DestructibleBuilding.Demolish()`) and
 `repair-facility` (`SpaceCenterBuilding.RepairFacility(true)`), both deferring
 `structures-settling` while a building animates. The collected KSP.log shows both new patches
