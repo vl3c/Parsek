@@ -3577,7 +3577,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         self.assertEqual(
             {"trees": 0, "committedTrees": 0, "recordings": 0,
              "terminalStates": {}, "branchPoints": {},
-             "duplicateRecordingIds": [], "ghostChainNodes": 0},
+             "duplicateRecordingIds": [], "ghostChainNodes": 0,
+             # The vessel census is NOT a Parsek surface: the host save's own craft
+             # counts, and no committed recording means no spawned vessel.
+             "spawnedVessels": 0, "vesselNames": {"mk1-capsule": 1}},
             obs["recordings"]["structure"])
 
     def test_no_committed_fixture_persists_ghost_chain_state(self):
@@ -3613,6 +3616,77 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         self.assertEqual(saveparse.STATUS_FAIL, r.status)
         self.assertEqual(("recordings.structure.ghostChainNodes 3 > max 0",),
                          r.mismatches)
+
+
+class VesselCensusFacetTests(unittest.TestCase):
+    """The loop-first-run-is-real census (D18): `spawnedVessels` counts FLIGHTSTATE
+    vessels behind COMMITTED recordings' spawnedPid, `vesselNames` counts every
+    non-SpaceObject vessel by name."""
+
+    @staticmethod
+    def _save(spawned_pid, tree_marker, vessels):
+        lines = ["GAME", "{", "\tFLIGHTSTATE", "\t{"]
+        for name, vtype, pid in vessels:
+            lines += ["\t\tVESSEL", "\t\t{", "\t\t\tname = %s" % name,
+                      "\t\t\ttype = %s" % vtype, "\t\t\tpersistentId = %d" % pid,
+                      "\t\t}"]
+        lines += ["\t}", "\tSCENARIO", "\t{", "\t\tname = ParsekScenario",
+                  "\t\tRECORDING_TREE", "\t\t{", "\t\t\tid = t1"]
+        if tree_marker:
+            lines.append("\t\t\t%s = True" % tree_marker)
+        lines += ["\t\t\tRECORDING", "\t\t\t{", "\t\t\t\trecordingId = r1",
+                  "\t\t\t\tspawnedPid = %d" % spawned_pid, "\t\t\t}",
+                  "\t\t}", "\t}", "}", ""]
+        return "\n".join(lines)
+
+    def test_one_real_vessel_behind_the_spawn(self):
+        snap = saveparse.parse_parsek_scenario(self._save(
+            42, None, [("Ast. ABC-123", "SpaceObject", 7), ("Rig", "Probe", 42)]))
+        self.assertTrue(snap.parsed, snap.error)
+        obs = saveparse.observed_structure_facets(snap)["recordings"]["structure"]
+        self.assertEqual(1, obs["spawnedVessels"])
+        self.assertEqual({"Rig": 1}, obs["vesselNames"])
+
+    def test_duplicate_under_a_fresh_pid_reds_only_the_name_window(self):
+        # The second copy took a new pid: the recording points at it, the old copy
+        # is an orphan. The pid facet still reads 1; the name census reads 2.
+        snap = saveparse.parse_parsek_scenario(self._save(
+            43, None, [("Rig", "Probe", 42), ("Rig", "Probe", 43)]))
+        exp = {"recordings": {"structure": {
+            "gating": True, "spawnedVessels": 1, "vesselNames": {"Rig": 1}}}}
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            exp["recordings"]["structure"]))
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.structure.vesselNames.Rig 2 != 1",), r.mismatches)
+
+    def test_stripped_and_never_respawned_reads_zero(self):
+        snap = saveparse.parse_parsek_scenario(self._save(42, None, []))
+        obs = saveparse.observed_structure_facets(snap)["recordings"]["structure"]
+        self.assertEqual(0, obs["spawnedVessels"])
+        r = saveparse.evaluate_save_structure(
+            {"recordings": {"structure": {"gating": True, "spawnedVessels": 1,
+                                          "vesselNames": {"Rig": 1}}}}, snap)
+        self.assertEqual(("recordings.structure.spawnedVessels 0 != 1",
+                          "recordings.structure.vesselNames.Rig 0 != 1"), r.mismatches)
+
+    def test_only_committed_trees_and_nonzero_pids_count(self):
+        # An ACTIVE (in-flight) tree's recording is not a committed spawn, and a
+        # spawnedPid of 0 means "not spawned", never "the vessel with pid 0".
+        active = saveparse.parse_parsek_scenario(self._save(
+            42, "isActive", [("Rig", "Probe", 42)]))
+        self.assertEqual(0, saveparse.spawned_vessel_count(active))
+        unspawned = saveparse.parse_parsek_scenario(self._save(
+            0, None, [("Rig", "Probe", 0)]))
+        self.assertEqual(0, saveparse.spawned_vessel_count(unspawned))
+
+    def test_vessel_names_shape_is_validated(self):
+        self.assertTrue(saveparse.validate_structure_expectations(
+            {"vesselNames": 1}))
+        self.assertTrue(saveparse.validate_structure_expectations(
+            {"vesselNames": {"Rig": "one"}}))
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            {"vesselNames": {"Logi Cargo Rig": {"min": 1, "max": 1}}}))
 
 
 class SpecSurfaceValidationTests(unittest.TestCase):

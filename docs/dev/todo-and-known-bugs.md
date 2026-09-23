@@ -15,6 +15,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS: a Rewind-to-Launch while the mission loop is armed would strip the real vessel and nothing re-spawns it [FILED 2026-09-23 from the #1771 review. OPEN; OPERATOR QUESTION, not yet driven]
+
+The catalog's D18 `loop-first-run-is-real` cell (`automated-testing-scenario-catalog.md`,
+the D18 list and the B8 additional assertion) asks for a rewind re-cross WITH the loop in
+play: "after 3 loop cycles plus one rewind re-cross of the spawn window, exactly ONE real
+vessel". A mission-loop member never reaches the terminal spawn: `GhostPlaybackEngine`
+routes it to `UpdateUnitMemberPlayback` and `continue`s before `HandlePastEndGhost`
+(~1253-1259), and `ParsekKSC.UpdateUnitMemberKsc` says the looping Mission "never fires the
+terminal-spawn". So a Rewind-to-Launch that strips the vessel while the loop is armed
+should leave ZERO real vessels until the loop is disarmed (reasoned from source, not flown).
+
+**Question for the operator:** is zero vessels after a loop-armed rewind intended (a
+looping mission is a replay, not a timeline), or a defect (the first run should still be
+real)? `LF-1-loop-first-run-real` claims the cell with the narrowed scope "rewind, then
+loop" meanwhile. A loop-armed variant of LF-1 (MissionConfig before InvokeRewindToLaunch)
+would measure it in one flight.
+
+## MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT: the seam's MissionConfig refuses a tree committed earlier in the same game session until the Missions window has drawn once [FILED 2026-09-23 from LF-1's first two readings. OPEN; seam ergonomics, low priority]
+
+`LF-1-loop-first-run-real` commits a tree in-run (`CommitTree`), later reloads a save through
+`LoadGame`, and then calls `MissionConfig tree=<that tree>`. Both first readings
+(`2026-09-22_2345` attempt 2, `_2348`) answered `missionconfig error reason=unknown-tree`: the log reads
+`[Mission] Loaded 0 mission(s)`, so no default Mission existed. `MissionStore.EnsureDefaultsForTrees`
+runs from the Missions window's draw and from `ParsekScenario.OnLoad`'s mission phase, and
+the OnLoad call did not seed it on this load path (not traced further). The lane now opens the Missions window before `MissionConfig` (GUI-17's
+sequence), which is also what a player does. Fix direction if it matters: have `MissionConfigImpl`
+(and `StartLoopPlayback`) call the same idempotent `EnsureDefaultsForTrees` before resolving the
+tree, exactly as `MissionsWindowUI`'s GoTo path already does ("Calling the same idempotent static
+the draw and ParsekScenario.OnLoad both call is not a second seam").
+
 ## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
 
 Done on the branch (owner-approved review items 1-8): house dates with a relative deadline
