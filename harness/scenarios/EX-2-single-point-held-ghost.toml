@@ -8,6 +8,13 @@ id = "EX-2-single-point-held-ghost"
 # D18-GHOST-EXTENSION-SINGLE-POINT-HOST; replaces EX-1's claim, which the KSC retirement
 # ruling (2026-09-23) removed.
 #
+# LIVE-PROVEN 2026-09-24 on automation DLL sha256 `bbfc81c5...` (origin/main build, no C#
+# change): armed `2026-09-23_2110` PASS attempt 1 (blocked by `Kerbal X Probe` at 70 m,
+# held, kept, `held=5.0s`, `destroyed (held-spawn-timeout)`, after-hold mark pid 0
+# spawned-false, the post-timeout retry at block=7/150); negative control `_2113` PARSEK-FAIL
+# on exactly its one seeded forbidden token (the timeout line), reverted. Readings `_2054` /
+# `_2103` PARSEK-FAILed on fixture geometry (FIXTURE GEOMETRY below).
+#
 # WHAT HOLDS A GHOST PAST EndUT ON THIS PATH (source, 2026-09-23):
 # `ParsekPlaybackPolicy.HandlePlaybackCompleted` writes "Ghost held pending spawn retry:"
 # only when the spawn call returns with `VesselSpawned` still false AND the ghost was live
@@ -309,9 +316,9 @@ required  = [
   "Ghost #[0-9]+ \"Single Point Holder\" destroyed \\(held-spawn-timeout\\)",
   # The four in order, one match.
   "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\"[\\s\\S]*?kept \\(held by the policy\\)[\\s\\S]*?Held ghost timed out: #[0-9]+ \"Single Point Holder\" id=\\S+ held=5\\.[0-9]s[\\s\\S]*?\"Single Point Holder\" destroyed \\(held-spawn-timeout\\)",
-  # No vessel in the session (pid 0). READING: spawned-true would be the post-timeout
-  # retry abandoning at MaxCollisionBlocks; pinned off the next reading.
-  "MISSIONMARK label=ex2-after-hold-count-1-pid-0-spawned-(true|false) ",
+  # No vessel in the session: pid 0, not settled (`2026-09-23_2110`: the post-timeout
+  # retry stops at block=7/150, far from the MaxCollisionBlocks abandon).
+  "MISSIONMARK label=ex2-after-hold-count-1-pid-0-spawned-false ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

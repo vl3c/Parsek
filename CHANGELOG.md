@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane watches a ghost wait past its end for a blocked spawn.**
+  `EX-2-single-point-held-ghost` injects a one-point recording that ends in orbit on top of
+  another loaded vessel. At the recording's end the spawn is blocked and, with only one
+  point, cannot step back to a clear spot, so the ghost stays visible for the 5 second retry
+  window and is then removed without a vessel. The lane takes over the ghost-extension
+  coverage cell from EX-1. Its first runs also found that a ghost's map-view placeholder can
+  collide with a real vessel it sits on (filed, not fixed here).
 - **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
   mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
   flies the existing station-interceptor rendezvous and docking, and then tries a stock
