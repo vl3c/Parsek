@@ -224,7 +224,7 @@ namespace Parsek
         // vessel with the recording's pid exists AND is the same launch (its Vessel.id matches the
         // recording's RecordedVesselGuid, or either guid is unknown -> pid-only fallback). A relaunch
         // of the same craft reuses the baked pid but carries a different launch guid, so it is rejected.
-        internal static bool MaterializedSourceVesselExists(Recording rec)
+        internal static bool MaterializedSourceVesselExists(Recording rec, bool logAdoptionRejection = true)
         {
             if (rec == null)
                 return false;
@@ -252,7 +252,7 @@ namespace Parsek
                 return false;
 
             bool sameLaunch = VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, sourcePid, liveGuid);
-            if (!sameLaunch)
+            if (!sameLaunch && logAdoptionRejection)
                 ParsekLog.Info("Spawner",
                     $"Adoption rejected: live vessel pid={sourcePid} is a different launch than recording " +
                     $"'{rec.RecordingId ?? rec.VesselName ?? "(unknown)"}' (recorded guid={rec.RecordedVesselGuid ?? "(none)"}, " +
@@ -2137,13 +2137,37 @@ namespace Parsek
             out double lon,
             out double alt)
         {
+            return SelectSpawnCoordinates(
+                rec, lastPt, out endpointBodyName, out lat, out lon, out alt,
+                out _, out _, out _);
+        }
+
+        /// <summary>
+        /// <see cref="SelectSpawnCoordinates(Recording, TrajectoryPoint?, out string, out double, out double, out double)"/>
+        /// that also returns the resolved trajectory endpoint (the recording endpoint,
+        /// else <paramref name="lastPt"/>) whichever source won, so a caller can check the
+        /// snapshot position against where the trajectory actually ended.
+        /// </summary>
+        internal static SpawnCoordinateSource SelectSpawnCoordinates(
+            Recording rec,
+            TrajectoryPoint? lastPt,
+            out string endpointBodyName,
+            out double lat,
+            out double lon,
+            out double alt,
+            out bool haveEndpoint,
+            out double endpointLat,
+            out double endpointLon)
+        {
             lat = 0; lon = 0; alt = 0;
             endpointBodyName = null;
+            haveEndpoint = false;
+            endpointLat = 0;
+            endpointLon = 0;
             if (rec == null)
                 return SpawnCoordinateSource.None;
 
-            bool haveEndpoint = false;
-            double endpointLat = 0, endpointLon = 0, endpointAlt = 0;
+            double endpointAlt = 0;
             if (lastPt.HasValue)
             {
                 endpointBodyName = lastPt.Value.bodyName;
@@ -2229,13 +2253,21 @@ namespace Parsek
         /// <summary>
         /// Recording-level form of <see cref="SpawnCollisionDetector.DecideKscEndOfFlightRetirement"/>:
         /// resolves the effective terminal, the EVA flag, the spawn position
-        /// (<see cref="SelectSpawnCoordinates"/>, i.e. where the vessel would be placed)
-        /// and the endpoint body (<see cref="RecordingEndpointResolver.TryGetPreferredEndpointBodyName"/>,
+        /// (<see cref="SelectSpawnCoordinates(Recording, TrajectoryPoint?, out string, out double, out double, out double, out bool, out double, out double)"/>,
+        /// i.e. where the vessel would be placed), the resolved trajectory endpoint, and the
+        /// endpoint body (<see cref="RecordingEndpointResolver.TryGetPreferredEndpointBodyName"/>,
         /// the body the flight spawn uses, else the endpoint's own body) and asks the
-        /// predicate. Silent, never mutates. The body registry is read through
+        /// predicate. The spawn side and the crew side (<see cref="IsKscRetiredFinalFlight"/>)
+        /// both call this, so they read the same position: when the trajectory endpoint lies
+        /// in a KSC circle and the in-memory vessel snapshot was dropped, the snapshot is
+        /// re-hydrated from its sidecar exactly as the spawn gate does (non-debris surface
+        /// terminals only), because a snapshot-sourced position must agree with the endpoint
+        /// before the flight retires (a stale snapshot on the pad of a flight that ended
+        /// elsewhere is not retired). An endpoint outside both circles answers "not retired"
+        /// without touching the disk. The body registry is read through
         /// <see cref="TryResolveBodyByName"/> (test seam <see cref="BodyResolverForTesting"/>);
         /// when the registry or a KSP-only resolver is unavailable the answer is "not
-        /// retired", which keeps today's behaviour (spawn, crew stays reserved).
+        /// retired", which keeps today's behaviour (spawn, crew stays reserved). Silent.
         /// </summary>
         internal static KscRetirementDecision EvaluateKscEndOfFlightRetirement(Recording rec)
         {
@@ -2258,8 +2290,9 @@ namespace Parsek
                     : null;
                 SpawnCoordinateSource source = SelectSpawnCoordinates(
                     rec, lastPt, out string endpointBodyName,
-                    out double lat, out double lon, out _);
-                if (source == SpawnCoordinateSource.None)
+                    out double lat, out double lon, out _,
+                    out bool haveEndpoint, out double endpointLat, out double endpointLon);
+                if (source == SpawnCoordinateSource.None && !haveEndpoint)
                     return decision;
 
                 string bodyName;
@@ -2270,12 +2303,38 @@ namespace Parsek
                     || !TryResolveBodyByName(bodyName, out CelestialBody body)
                     || object.ReferenceEquals(body, null))
                     return decision;
+                if (!body.isHomeWorld)
+                    return decision;
+
+                // A known endpoint outside both circles settles it: whatever the snapshot
+                // says, the flight did not END on KSC infrastructure.
+                if (haveEndpoint
+                    && SpawnCollisionDetector.ClassifyKscExclusionZone(
+                        endpointLat, endpointLon, body.Radius,
+                        SpawnCollisionDetector.DefaultKscExclusionRadiusMeters) == KscExclusionZone.None)
+                    return decision;
+
+                // The spawn gate re-hydrates a dropped snapshot before it spawns; do the same
+                // here so the crew side reads the snapshot position the spawn will use.
+                if (rec.VesselSnapshot == null && !rec.IsDebris
+                    && RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec))
+                {
+                    source = SelectSpawnCoordinates(
+                        rec, lastPt, out endpointBodyName,
+                        out lat, out lon, out _,
+                        out haveEndpoint, out endpointLat, out endpointLon);
+                }
+                if (source == SpawnCoordinateSource.None)
+                    return decision;
 
                 decision.Latitude = lat;
                 decision.Longitude = lon;
                 decision.BodyName = bodyName;
                 decision.Zone = SpawnCollisionDetector.DecideKscEndOfFlightRetirement(
-                    terminal, isEva, body.isHomeWorld, lat, lon, body.Radius);
+                    terminal, isEva, body.isHomeWorld, lat, lon, body.Radius,
+                    positionIsSnapshot: source == SpawnCoordinateSource.Snapshot,
+                    endpointLatitude: haveEndpoint ? endpointLat : double.NaN,
+                    endpointLongitude: haveEndpoint ? endpointLon : double.NaN);
                 return decision;
             }
             catch (Exception ex)
@@ -2365,7 +2424,12 @@ namespace Parsek
         /// materialized as a real vessel (spawned or adopted, pid != 0) is not retired,
         /// and neither is one whose recorded launch still exists in the save (the real
         /// counterpart still sits on the pad; the spawn path would adopt it rather than
-        /// retire it).
+        /// retire it). When the spawn side has already settled the recording as a KSC
+        /// retirement (<see cref="IsSettledAsKscRetirement"/>) that answer is taken as is.
+        /// Both sides evaluate the position through <see cref="EvaluateKscEndOfFlightRetirement"/>,
+        /// which re-hydrates a dropped snapshot the same way the spawn gate does. Silent:
+        /// the live-counterpart probe does not log a relaunch rejection (this runs on every
+        /// ledger recalculation).
         /// </summary>
         internal static bool IsKscRetiredFinalFlight(Recording rec)
         {
@@ -2373,11 +2437,13 @@ namespace Parsek
                 return false;
             if (rec.SpawnedVesselPersistentId != 0)
                 return false;
+            if (IsSettledAsKscRetirement(rec))
+                return true;
             if (!EvaluateKscEndOfFlightRetirement(rec).Retire)
                 return false;
             if (!GhostPlaybackLogic.IsFinalSpawnSegment(rec))
                 return false;
-            if (MaterializedSourceVesselExists(rec))
+            if (MaterializedSourceVesselExists(rec, logAdoptionRejection: false))
                 return false;
             return true;
         }

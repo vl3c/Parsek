@@ -1021,7 +1021,9 @@ _(unreleased — entries accumulate here per commit)_
   from the moment the recording ends, as if the vessel had been recovered, with no recovery
   funds and nothing new added to the career record. Only the final stop counts: a vessel that
   sat on the pad and then drove or flew somewhere else, in the same recording or a later
-  segment, is unaffected, and so is a plane that stops halfway down the runway. A vessel that
+  segment, is unaffected (even if its saved vessel state still shows it on the pad), and so is
+  a plane that stops halfway down the runway. This also applies when a time jump carries the
+  clock past the end of such a flight. A vessel that
   still physically exists in your save (for example because you never left it) is kept as it
   is. Rewinding to before the end brings the rule back into play the next time the clock
   passes it.

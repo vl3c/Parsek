@@ -49,6 +49,21 @@ final-segment notion, `GhostPlaybackLogic.IsFinalSpawnSegment`; a materialized o
 real counterpart is excluded). Tests: `KscPadRetirementTests`. Design: flight-recorder 13.1 /
 13.5, game-actions 9.3.
 
+**Review fix-ups (same branch).** (a) The time-jump chain-tip spawn
+(`TimeJumpManager.SpawnCrossedChainTips`) now treats a retired tip as settled: its key is
+returned for removal and `VesselGhoster.ReleaseChainRetiredAtKsc` removes the chain's map
+ghost (shared with the flight path); before, the retired chain stayed in the active set with
+its map / Tracking Station ghost. (b) The crew side reads the spawn side's position: a settled
+retirement is taken as is, and `EvaluateKscEndOfFlightRetirement` re-hydrates a dropped
+snapshot like the spawn gate (only when the endpoint is in a circle). (c) The crew side's
+live-counterpart probe is silent (`MaterializedSourceVesselExists(rec, logAdoptionRejection:
+false)`), so a relaunched craft no longer logs an adoption rejection per ledger walk.
+(d) Operator edge-case ruling "parked for a while, then moved: no conflict": a
+snapshot-sourced position must agree with the resolved trajectory endpoint (both in a circle)
+before the flight retires. (e) Not changed: the merge dialog (`MergeDialog.CanPersistVessel`)
+still counts a pad-ending leaf as spawnable, so it does not pre-announce the retirement; the
+recording is settled at EndUT.
+
 **Lanes (never flown on this change).** EX-1 is now the retirement witness and no longer
 claims D18 `ghost-extension-past-endut` (so the stale-cleanup fix below keeps its unit cells
 but loses its live witness); LF-1 and LF-2 move their subject to `pad-runway-pair`'s runway

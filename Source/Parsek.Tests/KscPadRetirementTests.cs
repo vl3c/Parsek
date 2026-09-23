@@ -18,6 +18,7 @@ namespace Parsek.Tests
     public class KscPadRetirementTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private string tempSaveRoot;
 
         private const double KerbinRadius = 600000.0;
         private const string Jeb = "Jebediah Kerman";
@@ -65,6 +66,11 @@ namespace Parsek.Tests
         {
             VesselSpawner.BodyResolverForTesting = null;
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
+            RecordingPaths.SaveRootOverrideForTesting = null;
+            if (tempSaveRoot != null && System.IO.Directory.Exists(tempSaveRoot))
+            {
+                try { System.IO.Directory.Delete(tempSaveRoot, true); } catch (System.IO.IOException) { }
+            }
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -152,6 +158,22 @@ namespace Parsek.Tests
             rec.Points.Add(Point(endUT, endLat, endLon, body));
             return rec;
         }
+
+        /// <summary>
+        /// A landed recording whose vessel snapshot sits at (snapLat, snapLon) while its
+        /// trajectory ENDS at (endLat, endLon): the stale start-of-flight snapshot shape.
+        /// </summary>
+        private static Recording MakeStaleSnapshot(
+            string id, double snapLat, double snapLon, double endLat, double endLon)
+        {
+            var rec = MakeParked(id, endLat, endLon);
+            rec.VesselSnapshot = Snapshot(snapLat, snapLon, "LANDED");
+            rec.GhostVisualSnapshot = rec.VesselSnapshot;
+            return rec;
+        }
+
+        private static readonly double OffPadLat =
+            SpawnCollisionDetector.KscPadLatitude + MetersToDegrees(400.0);
 
         private static Recording MakeOnPad(string id, params string[] crew)
             => MakeParked(id,
@@ -741,6 +763,250 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(450.0, "ksc-retire-test");
             Assert.True(double.IsPositiveInfinity(Kerbals.Reservations[Jeb].ReservedUntilUT));
+        }
+
+        // ------------------------------------------------------------------
+        // Review fix-ups: stale snapshot, shared hydration, silent probe, chains
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Predicate_SnapshotOnPadButEndpointOffPad_IsNotRetired()
+        {
+            Assert.Equal(KscExclusionZone.None,
+                SpawnCollisionDetector.DecideKscEndOfFlightRetirement(
+                    TerminalState.Landed, false, true,
+                    SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude,
+                    KerbinRadius,
+                    positionIsSnapshot: true,
+                    endpointLatitude: OffPadLat,
+                    endpointLongitude: SpawnCollisionDetector.KscPadLongitude));
+        }
+
+        [Fact]
+        public void Predicate_SnapshotAndEndpointBothOnPad_Retires()
+        {
+            Assert.Equal(KscExclusionZone.Pad,
+                SpawnCollisionDetector.DecideKscEndOfFlightRetirement(
+                    TerminalState.Landed, false, true,
+                    SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude,
+                    KerbinRadius,
+                    positionIsSnapshot: true,
+                    endpointLatitude: SpawnCollisionDetector.KscPadLatitude + MetersToDegrees(10.0),
+                    endpointLongitude: SpawnCollisionDetector.KscPadLongitude));
+        }
+
+        [Fact]
+        public void Predicate_SnapshotOnPadWithNoKnownEndpoint_Retires()
+        {
+            Assert.Equal(KscExclusionZone.Pad,
+                SpawnCollisionDetector.DecideKscEndOfFlightRetirement(
+                    TerminalState.Landed, false, true,
+                    SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude,
+                    KerbinRadius, positionIsSnapshot: true));
+        }
+
+        [Fact]
+        public void Evaluate_StaleSnapshotOnPadFlightEndedElsewhere_IsNotRetired_BothSides()
+        {
+            // "Parked for a while, then moved: no conflict." The snapshot was taken on the
+            // pad, the trajectory ends 400 m away.
+            var rec = MakeStaleSnapshot("rec-stale-snapshot",
+                SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude,
+                OffPadLat, SpawnCollisionDetector.KscPadLongitude);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            Assert.False(VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire);
+            Assert.False(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 0));
+            Assert.False(VesselSpawner.IsKscRetiredFinalFlight(rec));
+        }
+
+        [Fact]
+        public void Evaluate_SnapshotAndTrajectoryBothEndOnPad_Retires_BothSides()
+        {
+            var rec = MakeStaleSnapshot("rec-both-on-pad",
+                SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude,
+                SpawnCollisionDetector.KscPadLatitude + MetersToDegrees(5.0),
+                SpawnCollisionDetector.KscPadLongitude);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            Assert.True(VesselSpawner.IsKscRetiredFinalFlight(rec));
+            Assert.True(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 0));
+        }
+
+        private void WriteVesselSidecar(string recordingId, ConfigNode snapshot)
+        {
+            tempSaveRoot = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "parsek-ksc-retire-" + Guid.NewGuid().ToString("N"));
+            RecordingPaths.SaveRootOverrideForTesting = tempSaveRoot;
+            string path = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildVesselSnapshotRelativePath(recordingId));
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+            RecordingStore.WriteSnapshotSidecarForTesting(path, snapshot);
+        }
+
+        [Fact]
+        public void CrewSide_DroppedSnapshot_ReadsTheSidecarPositionTheSpawnWillUse()
+        {
+            // The disagreement the review found: the trajectory ends on the pad, but the
+            // durable snapshot (the position the spawn uses after re-hydrating) sits 400 m
+            // away. Without re-hydration the crew side read the endpoint and freed the crew
+            // of a vessel that will spawn.
+            var rec = MakeParked("rec-dropped-snapshot",
+                SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude,
+                crew: new[] { Jeb });
+            WriteVesselSidecar(rec.RecordingId,
+                Snapshot(OffPadLat, SpawnCollisionDetector.KscPadLongitude, "LANDED", Jeb));
+            rec.VesselSnapshot = null;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            Assert.False(VesselSpawner.IsKscRetiredFinalFlight(rec));
+            Assert.NotNull(rec.VesselSnapshot); // re-hydrated, as the spawn gate would
+        }
+
+        [Fact]
+        public void CrewSide_DroppedSnapshotOnThePad_StillRetires()
+        {
+            var rec = MakeOnPad("rec-dropped-pad-snapshot", Jeb);
+            WriteVesselSidecar(rec.RecordingId,
+                Snapshot(SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude,
+                    "LANDED", Jeb));
+            rec.VesselSnapshot = null;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            Assert.True(VesselSpawner.IsKscRetiredFinalFlight(rec));
+        }
+
+        [Fact]
+        public void CrewSide_EndpointOffPad_NeverTouchesTheSidecar()
+        {
+            var rec = MakeParked("rec-no-disk", MidRunwayLat, MidRunwayLon, crew: new[] { Jeb });
+            rec.VesselSnapshot = null;
+            // A save root with no sidecar: a hydration attempt would poison the cache flag.
+            tempSaveRoot = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "parsek-ksc-retire-" + Guid.NewGuid().ToString("N"));
+            RecordingPaths.SaveRootOverrideForTesting = tempSaveRoot;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            Assert.False(VesselSpawner.IsKscRetiredFinalFlight(rec));
+            Assert.False(rec.VesselSnapshotHydrationFailed);
+        }
+
+        [Fact]
+        public void CrewSide_SettledSpawnSideRetirement_IsTakenAsIs()
+        {
+            var rec = MakeOnPad("rec-settled", Jeb);
+            rec.VesselPersistentId = 4321u;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            Assert.True(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 0));
+
+            // Even a later same-pid real vessel does not undo what the spawn side settled.
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 4321u);
+            Assert.True(VesselSpawner.IsKscRetiredFinalFlight(rec));
+        }
+
+        [Fact]
+        public void CrewSide_RelaunchOfTheSameCraft_IsSilentAndStillRetires()
+        {
+            // The live vessel shares the craft-baked pid but is a different launch: not a
+            // real counterpart, and the crew predicate must not log the adoption rejection
+            // on every ledger walk.
+            var rec = MakeOnPad("rec-relaunched-craft", Jeb);
+            rec.VesselPersistentId = 2468u;
+            rec.RecordedVesselGuid = "11111111111111111111111111111111";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 2468u);
+            VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(
+                pid => "22222222222222222222222222222222");
+
+            Assert.True(VesselSpawner.IsKscRetiredFinalFlight(rec));
+            Assert.DoesNotContain(logLines, l => l.Contains("Adoption rejected"));
+        }
+
+        private static GhostChain PadChain(uint pid, string tipRecId)
+        {
+            return new GhostChain
+            {
+                OriginalVesselPid = pid,
+                SpawnUT = 150.0,
+                GhostStartUT = 50.0,
+                TipRecordingId = tipRecId,
+                TipTreeId = "tree-" + pid,
+            };
+        }
+
+        [Fact]
+        public void ChainTip_OnThePad_IsRetiredByTheGhoster()
+        {
+            var tip = MakeOnPad("rec-chain-tip-pad");
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+            var chain = PadChain(900u, tip.RecordingId);
+
+            uint pid = new VesselGhoster().SpawnAtChainTip(chain);
+
+            Assert.Equal(0u, pid);
+            Assert.True(tip.VesselSpawned);
+            Assert.True(VesselGhoster.IsChainTipSettledAsKscRetirement(chain));
+            Assert.Contains(logLines, l => l.Contains("Spawn RETIRED for #-1 (Pad Rig)"));
+        }
+
+        [Fact]
+        public void ChainTip_Released_LogsAndLeavesNoMapGhost()
+        {
+            var chain = PadChain(901u, "rec-released");
+            VesselGhoster.ReleaseChainRetiredAtKsc(chain, "unit");
+            Assert.Contains(logLines, l => l.Contains("[Ghoster]")
+                && l.Contains("Chain tip retired at KSC (unit): originalPid=901 tip=rec-released mapGhostRemoved=False"));
+        }
+
+        [Fact]
+        public void TimeJump_CrossedPadChainTip_IsRetiredAndItsChainSettled()
+        {
+            var tip = MakeOnPad("rec-jump-tip-pad");
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+            var chains = new Dictionary<uint, GhostChain> { { 902u, PadChain(902u, tip.RecordingId) } };
+
+            var keys = TimeJumpManager.SpawnCrossedChainTips(
+                chains, new VesselGhoster(), 100.0, 300.0, out int retired);
+
+            Assert.Equal(new List<uint> { 902u }, keys);
+            Assert.Equal(1, retired);
+            Assert.Single(chains); // not mutated (#79): the caller removes the key
+            Assert.True(tip.VesselSpawned);
+            Assert.Contains(logLines, l => l.Contains("Chain tip retired at KSC (time-jump): originalPid=902"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Chain tip spawned during jump"));
+        }
+
+        [Fact]
+        public void TimeJump_CrossedMidRunwayChainTip_IsNotCountedAsRetired()
+        {
+            var tip = MakeParked("rec-jump-tip-runway", MidRunwayLat, MidRunwayLon);
+            tip.VesselSnapshot = null; // the ghoster stops at "no VesselSnapshot": no spawn, no retirement
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+            var chains = new Dictionary<uint, GhostChain> { { 903u, PadChain(903u, tip.RecordingId) } };
+
+            var keys = TimeJumpManager.SpawnCrossedChainTips(
+                chains, new VesselGhoster(), 100.0, 300.0, out int retired);
+
+            Assert.Empty(keys);
+            Assert.Equal(0, retired);
+            Assert.DoesNotContain(logLines, l => l.Contains("Chain tip retired at KSC"));
+        }
+
+        [Fact]
+        public void Flight_RetireChainAtKsc_DropsTheChainFromTheActiveSet()
+        {
+            var rec = MakeOnPad("rec-flight-chain");
+            var chain = PadChain(904u, rec.RecordingId);
+            var host = MakeHost();
+            var active = new Dictionary<uint, GhostChain> { { 904u, chain } };
+            typeof(ParsekFlight).GetField("activeGhostChains", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(host, active);
+
+            typeof(ParsekFlight).GetMethod("RetireChainAtKsc", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(host, new object[] { chain, rec, 7 });
+
+            Assert.Empty(active);
+            Assert.Contains(logLines, l => l.Contains("Chain tip retired at KSC (flight #7 \"Pad Rig\"): originalPid=904"));
         }
 
         [Fact]

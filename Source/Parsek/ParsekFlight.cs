@@ -18240,9 +18240,8 @@ namespace Parsek
         private void RetireChainAtKsc(GhostChain chain, Recording rec, int index)
         {
             activeGhostChains.Remove(chain.OriginalVesselPid);
-            GhostMapPresence.RemoveGhostVessel(chain.OriginalVesselPid, "chain-tip-ksc-retired");
-            ParsekLog.Info("Flight",
-                $"Chain tip retired at KSC: #{index} \"{rec.VesselName}\" originalPid={chain.OriginalVesselPid} - chain closed without a vessel");
+            VesselGhoster.ReleaseChainRetiredAtKsc(
+                chain, $"flight #{index} \"{rec.VesselName}\"");
         }
 
         /// <summary>Called by policy when a mid-chain segment ends while watched.</summary>

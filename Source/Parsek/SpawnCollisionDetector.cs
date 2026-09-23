@@ -279,6 +279,13 @@ namespace Parsek
         /// is the FINAL segment of its flight is the caller's gate: the spawn entry points
         /// reach this only for a spawn-eligible final segment, and the crew rule applies
         /// <see cref="GhostPlaybackLogic.IsFinalSpawnSegment"/> first.</para>
+        ///
+        /// <para>Parked for a while, then moved (operator edge-case ruling 2026-09-23): when
+        /// the position is the vessel snapshot's (<paramref name="positionIsSnapshot"/>) and
+        /// the recording's resolved trajectory endpoint is known, the endpoint must ALSO lie
+        /// in a circle. A stale start-of-flight snapshot on the pad of a flight whose
+        /// trajectory ended elsewhere is not retired. A NaN endpoint means none is known,
+        /// and the snapshot position decides alone.</para>
         /// </summary>
         internal static KscExclusionZone DecideKscEndOfFlightRetirement(
             TerminalState? effectiveTerminal,
@@ -286,14 +293,26 @@ namespace Parsek
             bool bodyIsHomeWorld,
             double latitude,
             double longitude,
-            double bodyRadius)
+            double bodyRadius,
+            bool positionIsSnapshot = false,
+            double endpointLatitude = double.NaN,
+            double endpointLongitude = double.NaN)
         {
             if (isEva || !bodyIsHomeWorld)
                 return KscExclusionZone.None;
             if (!VesselSpawner.IsSurfaceTerminal(effectiveTerminal))
                 return KscExclusionZone.None;
-            return ClassifyKscExclusionZone(
+            KscExclusionZone zone = ClassifyKscExclusionZone(
                 latitude, longitude, bodyRadius, DefaultKscExclusionRadiusMeters);
+            if (zone == KscExclusionZone.None)
+                return zone;
+            if (positionIsSnapshot
+                && !double.IsNaN(endpointLatitude) && !double.IsNaN(endpointLongitude)
+                && ClassifyKscExclusionZone(
+                    endpointLatitude, endpointLongitude, bodyRadius,
+                    DefaultKscExclusionRadiusMeters) == KscExclusionZone.None)
+                return KscExclusionZone.None;
+            return zone;
         }
 
         /// <summary>
