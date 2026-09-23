@@ -1130,12 +1130,16 @@ Recording reaches EndUT
     -> Yes: suppress spawn, continue ghost chain
     -> No: proceed to spawn
   -> Is spawn blocked by collision?
-    -> Overlap: block spawn, start ghost extension
+    -> Same-name blocker: recover it, proceed (#112)
+    -> Other blocker: walk back to a clear point at once, proceed (Section 13.7)
+    -> Walkback exhausted: abandon the spawn
     -> Clear: proceed
   -> Is this a surface spawn?
     -> Apply terrain correction
   -> Spawn vessel (preserving PID for chain-tip spawns)
 ```
+
+A blocking vessel never holds the ghost on its own: it is recovered, walked around or the spawn is abandoned. The bounded ghost hold of Section 13.5 covers only the KSC exclusion zone, a single-point recording and a failed spawn.
 
 ### 13.3 PID Preservation
 
@@ -1155,15 +1159,21 @@ The spawn system uses two thresholds:
 
 ### 13.5 Ghost Extension
 
-When spawn is blocked, the ghost continues past the recording's end time. The recording's final orbital elements are used to propagate the ghost's position via Keplerian orbit math (or surface-stationary persistence). No recorded trajectory data is needed — the ghost coasts naturally on rails.
+Operator ruling 2026-09-23: this section describes the code's behaviour; the earlier indefinite-extension design was retired.
 
-Each physics frame while blocked, Parsek rechecks bounding box overlap at the ghost's current propagated position. When overlap clears (the player moves their vessel away), the real vessel spawns at the ghost's current propagated position at the current UT. This is physically correct: the spawned vessel is exactly where a real vessel on that orbit would be at the current time.
+A blocked non-chain spawn does not normally extend the ghost. The collision check resolves the block at once: a same-name blocker is recovered (#112), any other blocker triggers trajectory walkback to a clear earlier point (Section 13.7), and an exhausted walkback abandons the spawn. In all three cases the spawn is settled, so the ghost ends at the recording's end time as usual.
 
-**Surface case:** Same logic but simpler. Ghost stays at surface coordinates. No orbital propagation needed. Player drives their rover away from the base's footprint, spawn fires.
+The ghost is held past the recording's end time only when the spawn stays unsettled, in three cases:
 
-**SOI transitions:** If the ghost's recorded trajectory crosses SOI boundaries (e.g., Kerbin orbit to Mun orbit), the orbital propagation must switch reference bodies at recorded SOI checkpoint boundaries. The checkpoint system (Section 8.3) captures SOI transitions, providing the orbital elements in the new reference body's frame.
+- **KSC exclusion zone (#170):** a landed home-world spawn within 50 m of the launch pad or runway is refused.
+- **Single-point recording:** an overlap on a recording with one trajectory point, where no walkback is possible.
+- **Failed spawn:** the spawn itself fails outright.
 
-If the player never moves, the ghost persists indefinitely. The warning stays on screen. During time warp both ghost and real vessel are non-physical so no conflict exists, but on warp exit the check runs again.
+The hold is bounded. The ghost stays visible for up to 5 seconds while Parsek retries the spawn every 1 second (`HeldGhostRetryIntervalSeconds = 1`, `HeldGhostTimeoutSeconds = 5`). A retry that succeeds spawns the vessel and releases the ghost. On timeout the ghost is destroyed without a spawn, and the recording stays unspawned for the rest of the scene.
+
+**Time warp:** a completion during warp defers the spawn (Section 13.8) through the same hold.
+
+**Chain tips:** the chain path's spawn-blocked visual extension is tracked separately (todo D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP).
 
 ### 13.6 Terrain Correction
 
@@ -1183,9 +1193,9 @@ Ghost extension applies here too. If the bounding box check blocks the spawn, th
 
 The standard spawn collision system assumes the player can move to clear the overlap. This fails when the blocking vessel is immovable infrastructure (surface base, ground-anchored station).
 
-**Resolution:** After a timeout (5 seconds of persistent overlap with no blocking vessel movement), walk backward along the spawning ghost's recorded trajectory frame-by-frame, checking bounding box overlap at each position. Spawn at the latest non-overlapping position. Recompute orbital elements (or surface coordinates) for the new spawn position. The result: the rover materializes a few meters back from where it originally parked — as if the base grew and the parking spot is now occupied.
+**Resolution:** As soon as the overlap is detected (and a same-name blocker has not been recovered, #112), walk backward along the spawning ghost's recorded trajectory frame-by-frame, checking bounding box overlap at each position. Spawn at the latest non-overlapping position. Recompute orbital elements (or surface coordinates) for the new spawn position. The result: the rover materializes a few meters back from where it originally parked, as if the base grew and the parking spot is now occupied.
 
-**Fallback:** If the entire trajectory overlaps (blocking vessel grew to cover the full approach path), show a manual placement UI within a configurable radius. This should be rare — it requires the blocking vessel to have grown enough to cover the entire approach path.
+**Fallback:** If the entire trajectory overlaps (blocking vessel grew to cover the full approach path), the spawn is abandoned: the recording is marked spawned-and-abandoned and no vessel appears. There is no manual placement UI (operator ruling 2026-09-23). This should be rare: it requires the blocking vessel to have grown enough to cover the entire approach path. A single-point recording cannot walk back at all and takes the bounded hold of Section 13.5 instead.
 
 ### 13.8 Spawn Queue and Time Warp
 
