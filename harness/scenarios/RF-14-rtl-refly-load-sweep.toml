@@ -1,0 +1,192 @@
+schema = 1
+id = "RF-14-rtl-refly-load-sweep"
+# =====================================================================================
+# GHOST-REPLAY TIER B ITEM 7: REWIND-TO-LAUNCH x RE-FLY, AND THE LOAD-TIME SWEEP LIVE.
+#
+# THE PLAYER STORY. Fly a staged Kerbal X (the core comes off with its own probe core, so
+# the split authors a RewindPoint with two open slots), commit, decide the whole flight
+# was wrong and Rewind-to-LAUNCH it. Since PR #1788 the RewindPoint SURVIVES that rewind
+# and its slots stay in Unfinished Flights, but the Re-Fly is refused until the clock
+# reaches the split again. So: sit on the pad in a watcher while the first flight replays
+# past the split, then Re-Fly the core's slot, quicksave in the middle of that re-fly,
+# quickload it, and merge. That F5/F9 is the load the sweep has to get right: the save
+# carries a live ReFlySessionMarker AND the session's NotCommitted provisional, and
+# `LoadTimeSweep.Run` must validate the marker (six durable fields, one of which,
+# RewindPointId, now names a point that exists only because the rewind carried it
+# across) and SPARE the provisional instead of discarding it as a zombie.
+#
+# WHICH SWEEP BEHAVIOUR THIS CELL MEANS, and why not the others. The sweep has three
+# decisions a player can meet: (1) marker validation + the spare set (a live session
+# survives a reload), (2) the zombie discard (a NotCommitted provisional with no valid
+# marker), (3) the session-provisional RP discard (a CreatingSessionId-scoped RP whose
+# session is gone). Only (1) is player-reachable in the Rewind-to-Launch x Re-Fly
+# interplay, and that was re-derived rather than assumed:
+#   - A Rewind-to-Launch cannot interrupt a live Re-Fly. The re-fly recorder is live for
+#     the whole session, `RecordingStore.CanRewind` refuses "Stop recording before
+#     rewinding", and no player-facing control stops a recorder (the only
+#     `ParsekFlight.StopRecording()` callers are the seam verbs). So (2) via "rewind
+#     mid-re-fly" would be a seam-manufactured state, and this lane does not drive it.
+#   - The rewind's own OnLoad never runs the sweep: `HandleRewindOnLoad` returns early
+#     from `ParsekScenario.OnLoad`, ahead of the `load-time-sweep` phase, after clearing
+#     any loaded marker (`ClearActiveReFlyMarkerForPlainRewind`).
+#   - Flight-authored staging RPs carry no CreatingSessionId, so (3) never selects them
+#     (`Keeping session-prov rp=... with no session scope`).
+# CI-3 already drives the same F5/F9 on a recorded fixture and logs the same two lines,
+# unclaimed; what this lane adds is the rewind in front of it, and the backreference
+# below that ties the marker's rp= to the point the rewind carried.
+#
+# THE HOST IS GS-4's, verbatim: `kx_rewind_watch` on `gs1-two-stage-pad` with the same
+# three mission params. GS-4 measured the whole first half (`2026-09-23_2012`): the core
+# split authors `RewindPoint begin: ... slots=2 ... focusSlot=0 ut=118.82`, CommitTree
+# promotes BOTH slots CommittedProvisional (slot 0 the pod stack, slot 1 `Kerbal X
+# Probe`), the rewind reads `RewindPoints carried across rewind: installed=1
+# loadedFromSave=0 restored=1`, and the watcher's playback wait walks the clock to
+# commitUT+30, past the split. So the Re-Fly after the mission needs no TimeJump.
+#
+# STATUS: NEVER FLOWN. Every token below is DERIVED from source and from GS-4 / CI-3
+# logs; the reading run re-pins them.
+# =====================================================================================
+tier = "operator"
+description = "Ghost-replay Tier B item 7, Rewind-to-Launch x Re-Fly: fly GS-4's staged Kerbal X so the core split authors a two-slot RewindPoint, commit, Rewind-to-Launch (the point survives, PR #1788), let the watcher's replay carry the clock past the split, Re-Fly the core's slot off the carried point, then quicksave and quickload in the middle of that re-fly and pin that LoadTimeSweep validated the live marker against the carried point and spared the session's provisional, before the merge concludes it with no zombie left."
+instanceProfile = "stock-minimal"
+tags = ["RF-14", "rewind", "rewind-to-launch", "refly", "load-time-sweep", "quicksave",
+        "quickload", "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# GS-4's host and GS-4's reasons (see that spec): the forge pad save, whose Ships/VAB
+# carries the Kerbal X the mission flies and the Jumping Flea it launches as the watcher.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in [driver], ABOVE the [driver.missionParams] header.
+#
+# ACT 1 (the mission, GS-4 byte for byte): fly, commit, Rewind-to-Launch, watcher on the
+#   pad, replay walked past commitUT. `autoMerge=true` and `autoRecordOnLaunch=true` are
+#   GS-4's load-bearing settings; the mission turns auto-record OFF before the watcher.
+#   `ghostRenderTracing` is left out: this lane asserts nothing about ghost meshes.
+# ACT 2 (the re-fly off the carried point): read the point back through a LABELLED
+#   enumeration and re-fly slot 1 (`Kerbal X Probe`, unmanned, the slot CI-3 re-flies
+#   on the same craft). `StopRecording` is idempotent hygiene: the watcher is unrecorded.
+# ACT 3 (the F5/F9): SaveGame quicksave, then LoadGame of it through RF-3/A1's opt-in
+#   `allowLiveRecorder=refly` (S4.4's and CI-3's exact pair). That load's OnLoad runs
+#   the sweep with the session live - the subject.
+# ACT 4: merge. The conclusion's scene exit runs one more sweep with the marker gone,
+#   which must find nothing NotCommitted left to discard.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
+  # --- ACT 2: re-fly the core's slot off the point the rewind carried -------------------
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
+  # --- ACT 3: F5 / F9 in the middle of the re-fly ----------------------------------------
+  { cmd = "SaveGame",          args = { name = "quicksave" },                            expect = "OK" },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
+  # --- ACT 4: conclude --------------------------------------------------------------------
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+# GS-4's three names, and nothing else: every other key takes the machine default GS-4
+# flies on, so ACT 1 is the flight GS-4 has measured green.
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+watcherCraftName = "Jumping Flea"
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run (RH-1's claim-is-not-gate ground). What the run is
+# built to earn: D9 `load-time-sweep` off the two sweep lines in ACT 3, and re-claims of
+# `rewind-to-launch` / `rewind-to-separation` (no count moves).
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# GS-4's measured 8 (pod stack + 6 booster debris + the core child) plus whatever the
+# re-fly's merge adds (a fork of the core's slot). A reading measures the real count.
+count = { min = 8, max = 12 }
+
+[expectations.logContracts]
+# ORDERED AS THE MECHANISM RUNS.
+#
+# PRECONDITION (GS-4's measured lines): the split authors a two-slot point, the commit
+# opens slot 1, the rewind carries the point across its reload.
+#
+# THE CARRIED POINT IS THE ONE RE-FLOWN AND THE ONE VALIDATED (backreference). \1 is the
+# rp id the carry-over line names; the StartInvoke line and the sweep's marker line must
+# both name the same id. A run that re-flew some other point, or whose marker validated
+# against a point the save re-read rather than the carried one, cannot satisfy it.
+#
+# THE SUBJECT, two lines of `LoadTimeSweep.Run`, both on the F9's OnLoad:
+#   `Marker valid sess=... rp=...`  (Info, ReFlySession) - printed only on the branch
+#       where `MarkerValidator.Validate` passed on a NON-null marker; a null marker takes
+#       neither branch, an invalid one prints `Marker invalid field=`.
+#   `[LoadSweep] Marker valid=True; spare=1 discarded=0` - the summary: the session's
+#       provisional was put in the spare set and NOTHING was discarded. Without the
+#       valid marker the same provisional is `MergeState.NotCommitted` with no spare
+#       entry, i.e. exactly the zombie the discard pass removes (`discarded=1`).
+#
+# THE CONCLUSION: the merge ends the session (either conclusion route is clean).
+required = [
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  "CommitTree promoted rec=\\S+ vessel='Kerbal X Probe' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  "Rewind-to-Launch initiated to UT",
+  "RewindPoints carried across rewind: installed=1 ",
+  "invokerewindtolaunch complete rec=",
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "RewindPoints carried across rewind: installed=1 [^\\r\\n]*\\[(rp_[0-9a-f]{32})@[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=\\1 slot=1[\\s\\S]*?Marker valid sess=\\S+ tree=\\S+ active=\\S+ origin=\\S+ rp=\\1 ",
+  "Invocation complete",
+  "loadgame start save=\\S+ name=quicksave [^\\r\\n]*allowLiveRecorder=refly recorderLive=true",
+  "\\[LoadSweep\\] Marker valid=True; spare=1 discarded=0 ",
+  "(outcome=concluded-no-supersede|End reason=merged sess=)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The F9 must not END the session (S4.4's question, answered there: it does not).
+  "End reason=treeDiscarded",
+  # No marker in this run may fail validation: the only marker is the live session's.
+  "Marker invalid field=",
+  # NO ZOMBIE ANYWHERE IN THE RUN. Every sweep line must say discarded=0: a nonzero count
+  # on the F9 means the spare set missed the provisional, and on the post-merge load it
+  # means the conclusion left a NotCommitted recording behind.
+  "\\[LoadSweep\\] Marker valid=(?:True|False); spare=[0-9]+ discarded=[1-9]",
+  # The re-fly must not have been refused by the future gate: the watcher's replay is
+  # what carries the clock past the split, and a refusal here means it did not.
+  "refly-gate This separation is in your future",
+]
+
+# REPORT-ONLY until the reading run. DERIVED:
+#   rewindPoints  1: the merge closes slot 1 only; slot 0 (the pod stack) stays open, so
+#                 the reaper keeps the point.
+#   supersedeRows the core re-flies for the seconds between InvokeRewind and the merge,
+#                 so the provisional carries a trajectory and the merge appends at least
+#                 one row. If the conclusion is `concluded-no-supersede` this reads 0 and
+#                 the window is re-pinned, not the product.
+#   tombstones    nobody dies: the re-flown core is unmanned and the pod never lands.
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# GS-4's 2400 (boot + LoadGame 300 + mission 1600 + margin) plus the post-mission steps
+# at run.py's pricing: StopRecording 120 + ListHandles 120 + InvokeRewind 660 + SaveGame
+# 120 + LoadGame 660 + AnswerMergeDialog 180 + RecordingState 120 = 1980. 4400 clears it.
+budgetSeconds = 4400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

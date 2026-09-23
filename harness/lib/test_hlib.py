@@ -9697,6 +9697,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "Reading 2026-09-23_1524, armed _1527 PASS, negative control _1533 red on "
             "a pre-#1770 DLL. Discharged: cadence promotion is the only step left, a "
             "human call",
+        "RF-14-rtl-refly-load-sweep.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-24 as ghost-replay "
+            "Tier B item 7 (Rewind-to-Launch x Re-Fly): GS-4's flight, then a re-fly off "
+            "the point the rewind carried and a mid-re-fly F5/F9 that LoadTimeSweep must "
+            "validate and spare. Owes flights, not a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
