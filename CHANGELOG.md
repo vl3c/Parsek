@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane undocks a recorded pair and docks it back together.**
+  `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs
+  off and re-docks the halves with the MechJeb docking autopilot (the new `d5_redock`
+  mission), and checks that the dock's two parents are both recordings of the one flight:
+  the one being flown and the half the undock left recording in the background. Its first
+  flight found the one-parent dock defect listed under Fixed.
 - **Automated testing: a lane replays a loop anchored to a live vessel.**
   `RL-1-relative-loop-live-anchor` injects one looped recording that plays relative to the
   rover on the runway of the `pad-runway-pair` save (the new `relative-loop` injection
@@ -914,6 +920,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Docking two halves of one recorded flight back together now records both of them.**
+  Undock a pair Parsek is recording and dock it again: when the vessel you were flying kept
+  its identity through the dock, Parsek recorded the dock as if only that vessel had taken
+  part. The other half's recording kept running as if it were still in orbit, showed up as
+  an unfinished flight to re-fly, and the commit tried to spawn a vessel that no longer
+  existed. Parsek now takes the docking partner straight from the dock event, so both halves
+  end as docked and the docked vessel's recording starts from both.
 - **A Rewind to Launch no longer loses (or brings back) the re-fly points of the flight.**
   A split that leaves an unfinished sibling keeps a rewind point, shown as the Fly button in
   Unfinished Flights. Whether it survived a Rewind to Launch used to depend on which scenes

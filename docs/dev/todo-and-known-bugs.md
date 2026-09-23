@@ -15,6 +15,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT: re-docking two vessels of one recorded flight kept only one of them as the dock's parent when the vessel being flown was the one that survived the dock~~ [FILED 2026-09-24 off SD-1's reading run `2026-09-23_2140`. FIXED 2026-09-24 on branch `d5-samedock`]
+
+**What the player saw.** Undock a docked pair that Parsek is recording, then dock the two
+halves back together. When the vessel being flown kept its identity through the dock (KSP made
+it the survivor, the usual case when it is the heavier or crewed side), Parsek recorded the dock
+as if only that vessel had taken part. The other half's recording was never closed as docked: it
+kept running until the commit, was saved as a vessel still in orbit, was offered as an
+unfinished flight to re-fly, and the commit then tried to spawn it and logged a spawn death,
+because the vessel it describes no longer exists.
+
+**Root cause.** `ParsekFlight.OnPartCouple`'s TARGET branch (the recorder's own vessel is the
+merged survivor) found the absorbed partner with `FindAbsorbedDockPartnerPid`, which only accepts a
+`BackgroundMap` member whose vessel is already gone, reparented, or partless. `onPartCouple` fires
+BEFORE KSP merges the two vessels, so the partner still exists with all its parts and the heuristic
+answered 0 (`dock merge pending (merged=3620499050, absorbed=0, isTarget=True)`), although the couple
+event itself names the partner (`partnerPidFromEvent=2009145679`) and that pid was a `BackgroundMap`
+member of the same tree. `HandleTreeDockMerge` then looked up only the absorbed pid (0) and the
+merged pid (the active vessel, never in the map), so `CreateMergeBranch` got one parent. The
+INITIATOR branch (the recorder's vessel is absorbed) was unaffected: its partner is the merged
+survivor, which the merged-pid lookup finds. That is also why the pre-#1780 BDOCK-2 accident
+produced a two-parent dock: the fresh launch was the initiator.
+
+**Fix.** The new pure `ParsekFlight.ResolveTargetSideAbsorbedPid` prefers the couple event's
+partner when it is a member of the active tree's `BackgroundMap`, and falls back to the old
+heuristic otherwise; the TARGET branch logs `OnPartCouple target-side absorbed partner: ...`.
+Mirror walk: the initiator branch, the retroactive branch (initiator-only), a cross-tree partner
+and a vessel that is not in the tree (partner outside the map, heuristic kept), and the undock
+path are unchanged. Guarded by `DockPartnerResolverTests.TargetAbsorbed_*` (the precedence cells
+red with the fix reverted; a source gate pins the call site). Live proof: SD-1's pre-fix reading
+run reds on exactly the two-parent token and the single-parent forbid; the first flight on the fix
+(`2026-09-23_2210`) and the armed re-flight (`2026-09-23_2213`) are green, the latter with the
+save's terminal split (Docked 4 / Orbiting 8, pre-fix 3 / 9) gating.
+
 ## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
 
 **Ruling.** A rewind point ALWAYS survives a Rewind-to-Launch. Its slots stay in Unfinished
@@ -17401,6 +17434,9 @@ register (2026-09-11)" item C4; no decision needed.
   TTL; armed re-flight `_2004` PASS; negative control offline over both logs. It also produced two report-only
   findings: D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED and D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME.
 - D5 is 11 of 12 (`dock-merge-same-tree` left); coverage 198 of 250.
+- `dock-merge-same-tree`: CLAIMED 2026-09-24 on `SD-1-same-tree-redock` (the second-dock save's
+  docked pair undocked and re-docked in one flight). Its first flight found and the same PR fixed
+  TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT. D5 is 12 of 12; coverage 200 of 250.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**

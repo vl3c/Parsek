@@ -6444,6 +6444,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure helper: the absorbed partner of a TARGET-side dock (our recorder's vessel
+        /// survives as the merged vessel). The couple event names the partner directly
+        /// (<paramref name="partnerPidFromEvent"/>); when that pid is a member of the active
+        /// tree's <c>BackgroundMap</c> it is the absorbed same-tree vessel. onPartCouple fires
+        /// BEFORE KSP merges the two vessels, so the partner still exists with all its parts
+        /// and <see cref="FindAbsorbedDockPartnerPid"/>'s post-couple shape test cannot see
+        /// it; that heuristic answer (<paramref name="heuristicAbsorbedPid"/>) is kept only as
+        /// the fallback. A partner outside the map (a foreign or cross-tree vessel) leaves
+        /// the heuristic answer untouched, so those docks stay single-parent as before.
+        /// </summary>
+        internal static uint ResolveTargetSideAbsorbedPid(
+            uint heuristicAbsorbedPid,
+            uint partnerPidFromEvent,
+            uint mergedPid,
+            ICollection<uint> backgroundMapPids)
+        {
+            if (partnerPidFromEvent != 0
+                && partnerPidFromEvent != mergedPid
+                && backgroundMapPids != null
+                && backgroundMapPids.Contains(partnerPidFromEvent))
+            {
+                return partnerPidFromEvent;
+            }
+            return heuristicAbsorbedPid;
+        }
+
+        /// <summary>
         /// When we are the dock target (our PID unchanged), finds the PID of the vessel
         /// that was absorbed into us. Scans BackgroundMap for a vessel that is no longer
         /// a separate entity (its Vessel object is gone or merged into ours).
@@ -11321,11 +11348,24 @@ namespace Parsek
                 {
                     bool isTarget = (recorder.RecordingVesselId == mergedPid);
                     uint absorbedPid;
+                    uint fromPid = data.from?.vessel != null ? data.from.vessel.persistentId : 0u;
+                    uint toPid = data.to?.vessel != null ? data.to.vessel.persistentId : 0u;
+                    uint partnerPidFromEvent = ResolveDockPartnerPidFromEvent(
+                        fromPid, toPid, recorder.RecordingVesselId);
 
                     if (isTarget)
                     {
-                        // We are the TARGET -- find the absorbed partner (Fix 2: pass Vessel)
-                        absorbedPid = FindAbsorbedDockPartnerPid(mergedPid, data.to.vessel);
+                        // We are the TARGET -- find the absorbed partner. The couple event's
+                        // partner wins when it is a BackgroundMap member of this tree.
+                        uint heuristicAbsorbedPid =
+                            FindAbsorbedDockPartnerPid(mergedPid, data.to.vessel);
+                        absorbedPid = ResolveTargetSideAbsorbedPid(
+                            heuristicAbsorbedPid, partnerPidFromEvent, mergedPid,
+                            activeTree.BackgroundMap.Keys);
+                        ParsekLog.Verbose("Flight",
+                            $"OnPartCouple target-side absorbed partner: absorbedPid={absorbedPid} " +
+                            $"heuristicPid={heuristicAbsorbedPid} partnerPidFromEvent={partnerPidFromEvent} " +
+                            $"partnerInBackgroundMap={activeTree.BackgroundMap.ContainsKey(partnerPidFromEvent)}");
                     }
                     else
                     {
@@ -11348,10 +11388,6 @@ namespace Parsek
                     // Both paths trust real evidence; the stricter "must have prior
                     // recording" gate from the first iteration was over-conservative
                     // for the destination-loaded-from-save workflow.
-                    uint fromPid = data.from?.vessel != null ? data.from.vessel.persistentId : 0u;
-                    uint toPid = data.to?.vessel != null ? data.to.vessel.persistentId : 0u;
-                    uint partnerPidFromEvent = ResolveDockPartnerPidFromEvent(
-                        fromPid, toPid, recorder.RecordingVesselId);
                     bool partnerSnapshotCaptured = pendingDockPartnerSnapshot != null
                         && pendingDockPartnerSnapshotPid == partnerPidFromEvent
                         && partnerPidFromEvent != 0u;

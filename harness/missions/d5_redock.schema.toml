@@ -1,0 +1,63 @@
+# Declared param schema for mission d5_redock (D5 `dock-merge-same-tree`: a docked
+# pair recorded in one tree is undocked and re-docked in the same flight). run.py
+# parses this with tomllib and injects it as validate_spec's `mission_schemas`
+# argument. Only DECLARED params are checked. The dock keys are bdock_dock_transfer's
+# own (the DOCK phase delegates to mlib.bdock_decide).
+
+[params.craftName]
+required = true
+type = "string"
+
+# RD-START give-up: the booted pair must read Docked with a readable vessel count.
+[params.startTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.undockTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# RD-BACKOFF dwell: long enough for the ejected ports to leave Disengage.
+[params.backoffSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.settleSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.dockSpeedMetersPerSec]
+required = true
+type = "number"
+min = 0.0
+
+[params.dockTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.dockNoProgressSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# RD-START dwell before the undock (the scene-entry recorder restore runs first).
+[params.startSettleSeconds]
+required = false
+type = "number"
+min = 0.0
