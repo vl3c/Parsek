@@ -873,6 +873,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A launch Parsek refuses to attach to a resumed committed tree no longer leaves an idle
+  copy of that tree parked behind it.** When a craft is launched from flight (by a mod such as
+  kRPC; stock KSP always launches through the editor or the Space Center) and Parsek declines
+  to record it into the tree of the vessel the scene opened on, that tree was left waiting as
+  an unfinished stash: the already-committed history plus whatever Parsek had recorded since
+  resuming it after the load. It could then surface as a merge dialog offering to re-commit
+  recordings that were already committed, a later stash replaced it with only a log warning,
+  and one shape of it could be put back on the launched craft after a quicksave and quickload.
+  Now, when that copy recorded nothing meaningful after the load (the vessel just sat or
+  coasted for up to a minute: no staging, docking, burn, new branch or new recording), it is
+  discarded on the spot, as the merge dialog's Discard would do. The committed mission and its
+  files are kept as they were, and only those idle seconds go. A copy that did record
+  something meaningful, and a tree that was never committed, are kept as before.
 - **The Timeline names the contract on every contract row, and the facility on every
   facility row.** A contract's completion, failure or cancellation used to read
   `Complete: unknown +4375 funds`, because only the accept action stored the contract's
