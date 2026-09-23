@@ -12,6 +12,7 @@ This file (`.claude/CLAUDE.md`) is canonical. The repo-root `AGENTS.md` (read na
 - **Docs move with the code, per commit** (see "Documentation updates" below).
 - **No new player-facing UI surfaces** (windows, popups, badge counters, persistent "issues" panels). When information seems to need surfacing, the only options are extra wording in an EXISTING hover tooltip (budgeted by `TooltipEchoBudgetTests`), a one-shot `ParsekLog.ScreenMessage` for an EVENT that actually changed something (never for a standing condition, never for a no-op), or nothing - and nothing is the preferred answer. Establish what stock KSP and Parsek already tell the player before proposing either.
 - **House style for docs and comments: plain ASCII, no em dashes, no emoji.** Comments explain constraints, not history.
+- **Keep going between steps.** When the next step needs no input from Vlad, take it and put status notes in the same message as the action. Stop and ask only when you cannot continue without him, or before anything destructive or outward-facing (flights, provisioning, force-push, deleting data).
 
 ## Build & test
 
@@ -109,6 +110,8 @@ When a reviewer flags fixes on an open PR, re-review only the follow-up changes 
 
 Review effort goes to mechanical, reproducible proof (mutation-testing a gate, reading a collected log, driving a real code path) over more opinion. Vlad is the only human developer: "no human has read this diff" is the normal operating condition, not a caveat to raise.
 
+A reviewer brief asks for merge-blocking problems only: for each, the file and line, why it is wrong, and how to show it fails.
+
 ## Multi-agent workflows & token discipline
 
 Default to lean, targeted work. Favor the smallest set of agents that produces a correct answer. Do not fan out broadly or stack redundant verification passes unless the task genuinely needs it (large migration, repo-wide audit, multi-subsystem read). For ordinary tasks, work inline or use one or two direct agents, not a workflow.
@@ -117,6 +120,7 @@ Default to lean, targeted work. Favor the smallest set of agents that produces a
 - The Workflow tool's concurrent-agent cap is `min(16, cpu cores - 2)` per workflow and is NOT configurable (no env var, `settings.json` key, or CLI flag). Bound fan-out by shaping the script: process items in batches of N via `parallel()`.
 - Reserve heavy patterns (multi-vote, adversarial verify, loop-until-dry, large finder pools) for explicit "thorough"/"audit" requests.
 - Program-wide claims need a program-wide grep: before writing "no lane does X" / "every arrival reads Y", grep the other specs for the literal that would contradict it and cite what the grep returned. A claim about N lanes needs N data points, or scope the sentence to the subset by name.
+- Check a subagent's evidence (the grep, the log line, the test output) before accepting its conclusion.
 - Treat in-source comments as hypotheses, never evidence: a scope claim ("this only happens on path X") is re-derived from the full caller set, and guards that derive a set from source walk the AST, never regex over source text (comments read as code and fail GREEN). Spec TOML headers quote key lines verbatim in comments, so anchor edits to the uncommented assignment and re-grep the live value before flying.
 - A fix derived from a discovered asymmetry (edge direction, carrier/non-carrier, fail-open/fail-closed, encode/decode) must be checked in the mirror direction before it is accepted.
 
