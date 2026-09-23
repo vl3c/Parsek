@@ -438,6 +438,21 @@ class RecordingRow:
     # None = the key was ABSENT or unparseable; that must never collapse to 0
     # (see `observed_points_facets`, which counts it separately as `unparsed`).
     point_count: Optional[int] = None
+    # `spawnedPid` (RecordingTreeRecordCodec's write of SpawnedVesselPersistentId):
+    # the persistentId of the REAL vessel the recording materialized or adopted.
+    # The codec omits nothing here, but a hand-written or pre-codec node may, so
+    # None = absent / unparseable and 0 = "not spawned" stay distinct.
+    spawned_pid: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class FlightVesselRow:
+    """One ``GAME > FLIGHTSTATE > VESSEL`` node: the real-vessel census the
+    loop-first-run-is-real facets read (a recording's spawn must leave exactly
+    one real vessel behind, however many loop cycles and rewinds ran)."""
+    name: str
+    vessel_type: str
+    persistent_id: Optional[int]
 
 
 @dataclass(frozen=True)
@@ -590,6 +605,9 @@ class ParsekSaveSnapshot:
     # today: ghost chains are re-derived from the committed trees on every flight
     # scene load and never persisted. The count is the TRIPWIRE for that contract.
     ghost_chain_nodes: int = 0
+    # Every FLIGHTSTATE VESSEL in the save (not only Parsek's). Empty on a save
+    # with no FLIGHTSTATE node.
+    flight_vessels: Tuple[FlightVesselRow, ...] = ()
 
     @property
     def recordings(self) -> Tuple[RecordingRow, ...]:
@@ -652,7 +670,25 @@ def _parse_recording(node: SfsNode) -> RecordingRow:
         parent_anchor_recording_id=node.value("parentAnchorRecordingId"),
         schema_generation=_parse_int(node.value("recordingSchemaGeneration")),
         point_count=_parse_int(node.value("pointCount")),
+        spawned_pid=_parse_int(node.value("spawnedPid")),
     )
+
+
+# FLIGHTSTATE vessel types the `vesselNames` census leaves out: the host save's
+# asteroids and comets carry per-run generated names, so counting them would pin a
+# window on nothing Parsek controls.
+VESSEL_NAME_CENSUS_EXCLUDED_TYPES: Tuple[str, ...] = ("SpaceObject",)
+
+
+def _parse_flight_vessels(root: SfsNode) -> Tuple[FlightVesselRow, ...]:
+    game = root.first("GAME")
+    fs = game.first("FLIGHTSTATE") if game is not None else None
+    if fs is None:
+        return ()
+    return tuple(FlightVesselRow(name=v.value("name") or "",
+                                 vessel_type=v.value("type") or "",
+                                 persistent_id=_parse_int(v.value("persistentId")))
+                 for v in fs.nodes_named("VESSEL"))
 
 
 def _parse_branch_point(node: SfsNode) -> BranchPointRow:
@@ -766,7 +802,8 @@ def parse_parsek_scenario(text: Optional[str]) -> ParsekSaveSnapshot:
 
     scenarios = _find_parsek_scenarios(res.root)
     if not scenarios:
-        return ParsekSaveSnapshot(parsed=True, error="", scenario_found=False)
+        return ParsekSaveSnapshot(parsed=True, error="", scenario_found=False,
+                                  flight_vessels=_parse_flight_vessels(res.root))
     if len(scenarios) > 1:
         return ParsekSaveSnapshot(
             parsed=False,
@@ -841,7 +878,29 @@ def parse_parsek_scenario(text: Optional[str]) -> ParsekSaveSnapshot:
                                       if dismissed is not None else ()),
         prompted_candidate_tree_ids=(tuple(prompted.values_named("treeId"))
                                      if prompted is not None else ()),
-        ghost_chain_nodes=_count_ghost_chain_nodes(sc))
+        ghost_chain_nodes=_count_ghost_chain_nodes(sc),
+        flight_vessels=_parse_flight_vessels(res.root))
+
+
+def spawned_vessel_count(snapshot: ParsekSaveSnapshot) -> int:
+    """FLIGHTSTATE vessels whose persistentId is the nonzero ``spawnedPid`` of a
+    COMMITTED recording. A spawned or adopted recording must leave exactly one such
+    vessel; zero means the real vessel is gone (stripped and never re-spawned)."""
+    pids = {r.spawned_pid for t in snapshot.trees if t.is_committed
+            for r in t.recordings if r.spawned_pid}
+    return sum(1 for v in snapshot.flight_vessels if v.persistent_id in pids)
+
+
+def vessel_name_counts(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
+    """FLIGHTSTATE vessels per name, SpaceObjects excluded. Catches the duplicate
+    a pid facet cannot: a second spawn under a FRESH pid leaves the recording's
+    spawnedPid on the new copy and the old copy an orphan of the same name."""
+    counts: Dict[str, int] = {}
+    for v in snapshot.flight_vessels:
+        if v.vessel_type in VESSEL_NAME_CENSUS_EXCLUDED_TYPES:
+            continue
+        counts[v.name] = counts.get(v.name, 0) + 1
+    return counts
 
 
 def duplicate_recording_ids(snapshot: ParsekSaveSnapshot) -> Tuple[str, ...]:
@@ -1221,6 +1280,10 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
                 "duplicateRecordingIds": list(duplicate_recording_ids(snapshot)),
                 # The no-persisted-chain-state tripwire (GHOST_CHAIN_NODE_NAMES).
                 "ghostChainNodes": snapshot.ghost_chain_nodes,
+                # The loop-first-run-is-real census (D18): real vessels behind
+                # committed spawns, and every non-SpaceObject vessel by name.
+                "spawnedVessels": spawned_vessel_count(snapshot),
+                "vesselNames": vessel_name_counts(snapshot),
             },
             # Gate 12: the recorded-POINTS distribution, sibling of `structure`
             # and independently armable. Recorded UNCONDITIONALLY, which is how
@@ -1250,10 +1313,11 @@ REWIND_BLOCK_KEYS: Tuple[str, ...] = (
 STRUCTURE_BLOCK = "structure"  # nested under [expectations.recordings]
 STRUCTURE_BLOCK_KEYS: Tuple[str, ...] = (
     GATING_KEY, "trees", "committedTrees", "recordings",
-    "terminalStates", "branchPoints", "ghostChainNodes")
+    "terminalStates", "branchPoints", "ghostChainNodes", "spawnedVessels",
+    "vesselNames")
 # The structure block's scalar (single-window) facets.
 STRUCTURE_SCALAR_KEYS: Tuple[str, ...] = (
-    "trees", "committedTrees", "recordings", "ghostChainNodes")
+    "trees", "committedTrees", "recordings", "ghostChainNodes", "spawnedVessels")
 
 # Gate 12. A SIBLING of `structure`, not a key inside it, and deliberately so:
 # gating is PER-BLOCK (see SaveStructureResult / adversarial-review finding 3),
@@ -1417,7 +1481,7 @@ def validate_structure_expectations(block: Any) -> List[str]:
     errs.extend(_validate_gating("expectations.recordings.structure", block))
     errs.extend(_validate_armed_empty(
         "expectations.recordings.structure", block,
-        STRUCTURE_SCALAR_KEYS + ("terminalStates", "branchPoints")))
+        STRUCTURE_SCALAR_KEYS + ("terminalStates", "branchPoints", "vesselNames")))
     errs.extend(_validate_armed_unreddable(
         "expectations.recordings.structure", block, STRUCTURE_SCALAR_KEYS))
     for key in STRUCTURE_SCALAR_KEYS:
@@ -1439,6 +1503,15 @@ def validate_structure_expectations(block: Any) -> List[str]:
                         % (prefix, unknown, list(names)))
         for name, window in sub.items():
             if name in names:
+                errs.extend(_validate_window("%s.%s" % (prefix, name), window))
+    if "vesselNames" in block:
+        # Free-form names (a vessel name is not an enum), the routes body-group shape.
+        sub = block["vesselNames"]
+        prefix = "expectations.recordings.structure.vesselNames"
+        if not isinstance(sub, dict):
+            errs.append("%s: must be a table of { \"<vessel name>\" = <window> }" % prefix)
+        else:
+            for name, window in sub.items():
                 errs.extend(_validate_window("%s.%s" % (prefix, name), window))
     return errs
 
@@ -1762,7 +1835,7 @@ def evaluate_save_structure(
                 if key in structure_spec:
                     _check_window("recordings.structure.%s" % key,
                                   structure_spec[key], measured[key], out)
-            for group in ("terminalStates", "branchPoints"):
+            for group in ("terminalStates", "branchPoints", "vesselNames"):
                 sub = structure_spec.get(group)
                 if not isinstance(sub, dict):
                     continue

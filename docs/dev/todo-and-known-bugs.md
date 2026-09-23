@@ -15,6 +15,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT: the seam's MissionConfig refuses a tree committed earlier in the same game session until the Missions window has drawn once [FILED 2026-09-23 from LF-1's first two readings. OPEN; seam ergonomics, low priority]
+
+`LF-1-loop-first-run-real` commits a tree in-run (`CommitTree`), later reloads a save through
+`LoadGame`, and then calls `MissionConfig tree=<that tree>`. Both first readings
+(`2026-09-22_2345` attempt 2, `_2348`) answered `missionconfig error reason=unknown-tree`: the log reads
+`[Mission] Loaded 0 mission(s)`, so no default Mission existed. `MissionStore.EnsureDefaultsForTrees`
+runs from the Missions window's draw and from `ParsekScenario.OnLoad`'s mission phase, and
+the OnLoad call did not seed it on this load path (not traced further). The lane now opens the Missions window before `MissionConfig` (GUI-17's
+sequence), which is also what a player does. Fix direction if it matters: have `MissionConfigImpl`
+(and `StartLoopPlayback`) call the same idempotent `EnsureDefaultsForTrees` before resolving the
+tree, exactly as `MissionsWindowUI`'s GoTo path already does ("Calling the same idempotent static
+the draw and ParsekScenario.OnLoad both call is not a second seam").
+
 ## LISTHANDLES-CHAINS-DIGEST-SCOPE: the chains digest hashes each chain's links only as a COUNT, and covers only the kept (future, non-terminated) chains [FILED 2026-09-22 from the #1761 review. OPEN; a follow-up, deliberately not fixed in that PR]
 
 `TestCommandListHandles.ChainsDigest` hashes `pid|links|tip|spawnUT(R)|terminated;` per

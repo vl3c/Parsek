@@ -1,0 +1,313 @@
+schema = 1
+id = "LF-1-loop-first-run-real"
+# -------------------------------------------------------------------------------------
+# D18 `loop-first-run-is-real` (catalog section 2, the B8 additional assertion): after
+# loop cycles plus one rewind re-cross of the spawn window, exactly ONE real vessel with
+# the recording's spawn pid exists.
+#
+# WHY THIS SUBJECT. No committed recorded fixture can be rewound to launch: every
+# harvest prunes `Parsek/Saves` and clears the `rewindSave = parsek_rw_*` hint (H58's
+# note), and the only fixtures with RewindPoints (bdock-recorded, refly-autopilot-recorded)
+# carry no spawnable non-chain leaf. So the lane PRODUCES its subject in-run, H58's road:
+# StartRecording on the pad probe of `logi-cargo-pad` (a crewless Probe, so no crew
+# reservation rides the re-spawn), StopRecording, CommitTree. The subject is a
+# single-recording, NON-CHAIN tree with a Landed terminal, which is the shape the #573
+# rewind lift (`standalone = string.IsNullOrEmpty(rec.ChainId)`) and the spawn gates
+# (`"chain looping"`) both need.
+#
+# WHY THE LOOP IS ARMED AFTER THE REWIND, NOT BEFORE. Mission loops never fire a
+# terminal spawn: a loop-unit member is intercepted ABOVE the past-end completion in
+# both the flight engine (`GhostPlaybackEngine` Phase D2, `UpdateUnitMemberPlayback` then
+# `continue`) and at KSC (`ParsekKSC` "Phase E parity", `UpdateUnitMemberKsc`, whose doc
+# says the looping Mission "never fires the terminal-spawn"). The real vessel of a looped
+# mission is therefore the one it already has, and a strip while the loop is armed would
+# leave nothing to re-spawn it. The lane rewinds with the loop OFF, lets the re-cross
+# materialize the vessel once, then arms the loop and runs three cycles over it. The
+# per-frame spawn decision still runs for the member every frame, so each cycle meets the
+# silent `already spawned (VesselSpawned=true)` guard (GhostPlaybackLogic
+# `ShouldSpawnAtRecordingEnd`), counted in the rate-limited `Spawn suppressed:` summary.
+#
+# SCOPE OF THE LOOP CYCLES, STATED. The reload after the KSC re-spawn reads a save the
+# Space Center wrote, which carries `activeVessel = 0` (measured), so FLIGHT focuses the
+# host asteroid at index 0, not the Rig: the loop ghost sits in the `Beyond` zone (never
+# drawn) through all three cycles. The claim does not need it drawn - the spawn decision
+# runs per recording every frame in `ParsekFlight`'s flag pass, render zone or not, and
+# the summary line pinned below is that pass. A lane that also wants the cycles DRAWN over
+# the pad can reuse PR-E's `pad-runway-pair` (a runway rover at index 0).
+# The Missions window is opened before MissionConfig because its draw seeds the default
+# mission of a tree committed mid-session (reading 1 refused `unknown-tree` without it;
+# GUI-17's opening sequence).
+#
+# THE WITNESSES. The guard logs nothing per decision, so the claim rests on:
+#   (1) the produced save: `spawnedVessels` (FLIGHTSTATE vessels behind a committed
+#       recording's spawnedPid) and `vesselNames` (every non-SpaceObject vessel by name,
+#       which catches a second copy under a FRESH pid that the pid facet cannot);
+#   (2) `ListHandles kind=committed` captures folded into MISSIONMARK lines through the
+#       R10 `${label.field}` substitution, so the log carries the recording's spawnedPid
+#       at commit, after the rewind, after the KSC re-spawn, after the reload and after
+#       each loop cycle - and a back-referenced regex pins the post-spawn pid unchanged.
+# -------------------------------------------------------------------------------------
+tier = "nightly"
+description = "D18 loop-first-run-is-real: produce a single-recording non-chain Landed subject in-run on logi-cargo-pad (StartRecording, StopRecording, CommitTree), Rewind-to-Launch it (the vessel is stripped), let 1x KSC time re-cross EndUT so the vessel re-spawns exactly once, reload into FLIGHT (a Space Center save focuses index 0, the host asteroid, so the loop ghost is never drawn; the spawn decision runs regardless), arm the mission loop through the Missions window and run three StartLoopPlayback cycles. LIVE-PROVEN 2026-09-22: reading _2350 PASS, armed _2353 PASS, negative control _2355 red on exactly its two seeds. The recording's spawnedPid is folded into MISSIONMARK lines at every stage, and the produced save must hold exactly one real vessel behind the spawn (saveparse spawnedVessels + vesselNames)."
+instanceProfile = "stock-minimal"
+tags = ["LF-1", "D18", "loop-playback", "rewind-to-launch", "spawn", "first-run-is-real",
+        "R10", "runtime-handles"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/logi-cargo-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- ACT 1: produce the subject in-run (H58's road) and commit it ---------------
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "StartRecording", expect = "OK", budget = 180 },
+  # A few seconds of pad time so the loop unit's span clears MinLoopDurationSeconds.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "CommitTree", expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-commit-count-${c0.count}-pid-${c0.rec0spawnedPid}-spawned-${c0.rec0spawned}" }, expect = "OK" },
+  # --- ACT 2: rewind to launch; the vessel is stripped, the re-cross re-spawns it --
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-rewound-count-${c1.count}-pid-${c1.rec0spawnedPid}-spawned-${c1.rec0spawned}" }, expect = "OK" },
+  # KSC pacing: nothing advances the clock at the Space Center, so ~0.25 s inert
+  # steps let 1x game time carry UT past EndUT (lead 15 s + the span).
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscwait" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-kscspawn-count-${c2.count}-pid-${c2.rec0spawnedPid}-spawned-${c2.rec0spawned}" }, expect = "OK" },
+  # --- ACT 3: back to FLIGHT on the re-spawned vessel, then three loop cycles -----
+  { cmd = "SaveGame", args = { name = "lf1-respawned" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "lf1-respawned" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c3", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-reload-count-${c3.count}-pid-${c3.rec0spawnedPid}-spawned-${c3.rec0spawned}" }, expect = "OK" },
+  # The player arms a loop in the Missions window, and its draw is what seeds the
+  # default mission of a tree committed mid-session (reading run 1: MissionConfig
+  # refused unknown-tree after the in-session reload). GUI-17's opening sequence.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "${c0.rec0tree}", loop = "true" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "${c0.rec0tree}" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { deltaSeconds = "60" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "l1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-loop1-count-${l1.count}-pid-${l1.rec0spawnedPid}-spawned-${l1.rec0spawned}" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "${c0.rec0tree}" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { deltaSeconds = "60" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "l2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-loop2-count-${l2.count}-pid-${l2.rec0spawnedPid}-spawned-${l2.rec0spawned}" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "${c0.rec0tree}" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { deltaSeconds = "60" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "l3", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lf1-loop3-count-${l3.count}-pid-${l3.rec0spawnedPid}-spawned-${l3.rec0spawned}" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+D18 = ["loop-first-run-is-real"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+# ARMED 2026-09-23 off reading run `2026-09-22_2350` (PASS attempt 1, wall ~3 min,
+# every facet below measured exactly): trees 1, committedTrees 1, recordings 1, Landed 1,
+# spawnedVessels 1, vesselNames {Logi Cargo Rig: 1}.
+[expectations.recordings.structure]
+gating         = true
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Landed = { min = 1, max = 1 } }
+spawnedVessels = 1
+vesselNames    = { "Logi Cargo Rig" = 1 }
+
+# Every token below was read off the reading run's KSP.log.
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  # The commit ADOPTS the live Rig: its own pid, spawned=true (the first run is real).
+  "MISSIONMARK label=lf1-commit-count-1-pid-[1-9][0-9]*-spawned-true ",
+  "invokerewindtolaunch complete rec=",
+  # The strip reset the recording's spawn state.
+  "MISSIONMARK label=lf1-rewound-count-1-pid-0-spawned-false ",
+  # The #573 lift for a standalone (non-chain) rewind target with no live same-craft vessel.
+  "same-recording spawn suppression lifted for standalone rewind target rec=\\S+ vessel=\"Logi Cargo Rig\"",
+  # THE CLAIM: exactly one re-spawn, and the recording keeps that vessel's pid through the
+  # reload and all three loop cycles.
+  "Vessel respawned \\(sit=PRELAUNCH, pid=([0-9]+)\\)[\\s\\S]*MISSIONMARK label=lf1-kscspawn-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf1-reload-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf1-loop1-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf1-loop2-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf1-loop3-count-1-pid-\\1-spawned-true ",
+  "Vessel spawned for #[0-9]+ \"Logi Cargo Rig\" pid=",
+  "missionconfig applied: mission='Logi Cargo Rig' tree=\\S+ loop=True .*unitBuilt=True",
+  "startloopplayback complete:[\\s\\S]*startloopplayback complete:[\\s\\S]*startloopplayback complete:",
+  # The loop cycles meet the silent already-spawned guard (the rate-limited summary).
+  "startloopplayback complete:[\\s\\S]*Spawn suppressed: 1 recording\\(s\\) \\| already spawned \\(VesselSpawned=true\\)=1",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # A SECOND real spawn anywhere in the run, by either spawn path.
+  "(?:Vessel respawned|SpawnAtPosition: vessel spawned)[\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned)",
+  "Spawn ABANDONED",
+  "missionconfig error",
+  "startloopplayback rejected",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
