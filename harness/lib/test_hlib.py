@@ -10638,6 +10638,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `2026-09-23_2021` on the pre-fix DLL red on exactly
                        # `rewind.rewindPoints 0 < min 1` plus the carry-over token.
                        "GS-4-kerbalx-rewind-watch.toml",
+                       # RF-14: `rewind` armed 2026-09-24 off its reading run
+                       # `2026-09-23_2147` (rewindPoints 1, supersedeRows 1, tombstones 0):
+                       # the point the Rewind-to-Launch carried, one fork row from the
+                       # re-fly merge, nobody dead.
+                       "RF-14-rtl-refly-load-sweep.toml",
                        # RF-12S: `rewind` armed 2026-09-22 off its after-reading
                        # `2026-09-22_1931` (supersedeRows 5, tombstones 12); the main-DLL
                        # before-reading `_1928` read tombstones 10, so the floor is the
