@@ -383,9 +383,11 @@ class RewindSaveHintStripTests(unittest.TestCase):
 
     def test_the_committed_quicksave_is_what_the_clear_produces(self):
         # Rebuild the source shape of the one quicksave that was hand-edited
-        # (restore the pruned name into the two cleared values; the produced-save
-        # snapshot differs from the committed file on exactly those two lines)
-        # and require the clear to reproduce the committed bytes.
+        # (restore the pruned name into the two cleared values) and require the
+        # clear to reproduce the committed bytes. The run's real source
+        # (`2026-09-23_1704` snapshot) is the same text with KSP's CRLF endings;
+        # the hand edit wrote it back as LF, so a re-harvest, which keeps line
+        # endings, would commit this one file as CRLF. Equal modulo EOL.
         path = os.path.join(os.path.dirname(_HERE), "fixtures", "saves",
                             "bdock-second-dock-recorded", "Parsek", "RewindPoints",
                             "rp_91b25a0c8e904a02a9d40deeb07e1a53.sfs")
@@ -405,7 +407,16 @@ class RewindSaveHintStripTests(unittest.TestCase):
 
     # -- the filesystem half, through harvest() itself -----------------------
 
-    def _make_recorded_save(self, root, rp_text):
+    def _tempdir(self):
+        import shutil
+        import tempfile
+        path = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, path, True)
+        return path
+
+    def _make_recorded_save(self, rp_text, rp_name="rp_1.sfs",
+                            sfs_tail="\t\trewindSave = parsek_rw_ab12\n"):
+        root = self._tempdir()
         rec = os.path.join(root, "Parsek", "Recordings")
         os.makedirs(rec)
         with open(os.path.join(rec, "abc.prec"), "w") as fh:
@@ -416,32 +427,37 @@ class RewindSaveHintStripTests(unittest.TestCase):
             fh.write("payload")
         rps = os.path.join(root, "Parsek", "RewindPoints")
         os.makedirs(rps)
-        with open(os.path.join(rps, "rp_1.sfs"), "wb") as fh:
+        with open(os.path.join(rps, rp_name), "wb") as fh:
             fh.write(rp_text.encode("latin-1"))
         with open(os.path.join(root, "persistent.sfs"), "w") as fh:
-            fh.write(SFS + "RECORDING_STUB { id = abc }\n"
-                     "\t\trewindSave = parsek_rw_ab12\n")
+            fh.write(SFS + "RECORDING_STUB { id = abc }\n" + sfs_tail)
+        return root
 
-    def _harvest(self, save, force=False):
-        import tempfile
-        out_root = tempfile.mkdtemp()
+    def _harvest(self, save, force=False, keep_parsek=True, sentinel=False,
+                 out_root=None):
+        """Harvest into a temp fixtures root. `sentinel=True` pre-creates the
+        target holding one file, so a test can see whether a refusal left an
+        existing fixture intact."""
+        out_root = out_root or self._tempdir()
+        target = os.path.join(out_root, "fx")
+        if sentinel:
+            os.makedirs(target)
+            with open(os.path.join(target, "SENTINEL"), "w") as fh:
+                fh.write("the existing committed fixture")
         orig = harvest._FIXTURES_SAVES
         harvest._FIXTURES_SAVES = out_root
         try:
             harvest.harvest(save, "fx", "fx", force=force,
-                            expected_situations=(), keep_parsek=True)
+                            expected_situations=(), keep_parsek=keep_parsek)
         finally:
             harvest._FIXTURES_SAVES = orig
-        return os.path.join(out_root, "fx")
+        return target
 
     def test_keep_parsek_clears_the_quicksave_and_prunes_the_payload(self):
-        import tempfile
-        save = tempfile.mkdtemp()
         rp = ("PARSEK_ACTIVE_TREE\r\n{\r\n\tresumeRewindSave = parsek_rw_ab12\r\n"
               "\tname = caf\xe9\r\n\tRECORDING\r\n\t{\r\n"
               "\t\trewindSave = parsek_rw_ab12\r\n\t}\r\n}\r\n")
-        self._make_recorded_save(save, rp)
-        target = self._harvest(save)
+        target = self._harvest(self._make_recorded_save(rp))
         with open(os.path.join(target, "Parsek", "RewindPoints", "rp_1.sfs"),
                   "rb") as fh:
             got = fh.read()
@@ -451,10 +467,42 @@ class RewindSaveHintStripTests(unittest.TestCase):
         with open(os.path.join(target, "persistent.sfs")) as fh:
             self.assertNotIn("parsek_rw_", fh.read())
 
+    def test_every_file_in_the_directory_is_cleared_not_only_sfs(self):
+        # The corpus cell scans every file under RewindPoints, so the harvest does.
+        target = self._harvest(self._make_recorded_save(
+            "\trewindSave = parsek_rw_ab12\n", rp_name="rp_1.sfs.tmp"))
+        with open(os.path.join(target, "Parsek", "RewindPoints", "rp_1.sfs.tmp")) as fh:
+            self.assertEqual("\trewindSave = \n", fh.read())
+
     def test_an_unclearable_quicksave_reference_refuses_before_writing(self):
-        import tempfile
-        save = tempfile.mkdtemp()
-        self._make_recorded_save(save, "\tnote = see parsek_rw_ab12\n")
+        save = self._make_recorded_save("\tnote = see parsek_rw_ab12\n")
+        out_root = self._tempdir()
         with self.assertRaises(SystemExit) as ctx:
-            self._harvest(save)
+            self._harvest(save, sentinel=True, out_root=out_root)
         self.assertIn("rp_1.sfs:1: note = see parsek_rw_ab12", str(ctx.exception))
+        self.assertEqual(["SENTINEL"], os.listdir(os.path.join(out_root, "fx")),
+                         "a refusal must leave the existing fixture untouched")
+
+    def test_an_unclearable_persistent_reference_refuses_in_default_mode(self):
+        save = self._make_recorded_save(
+            "\trewindSave = \n", sfs_tail="\tnote = see parsek_rw_ab12\n")
+        with self.assertRaises(SystemExit) as ctx:
+            self._harvest(save, keep_parsek=False)
+        self.assertIn("persistent.sfs:", str(ctx.exception))
+        self.assertIn("note = see parsek_rw_ab12", str(ctx.exception))
+
+    def test_default_mode_ignores_the_pruned_quicksaves(self):
+        # Without --keep-parsek the whole Parsek dir is pruned, so an odd
+        # reference inside a quicksave never reaches the fixture and is no reason
+        # to refuse.
+        target = self._harvest(self._make_recorded_save(
+            "\tnote = see parsek_rw_ab12\n"), keep_parsek=False)
+        self.assertFalse(os.path.isdir(os.path.join(target, "Parsek")))
+
+    def test_force_writes_through_the_refusal(self):
+        target = self._harvest(self._make_recorded_save(
+            "\tnote = see parsek_rw_ab12\n\trewindSave = parsek_rw_ab12\n"),
+            force=True)
+        with open(os.path.join(target, "Parsek", "RewindPoints", "rp_1.sfs")) as fh:
+            self.assertEqual("\tnote = see parsek_rw_ab12\n\trewindSave = \n",
+                             fh.read())

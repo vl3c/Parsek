@@ -3718,8 +3718,8 @@ _(unreleased — entries accumulate here per commit)_
   them only in `persistent.sfs`, and only the `rewindSave` key. A rewind-point quicksave
   embeds its own copy of Parsek's save data, so `bdock-second-dock-recorded` needed a hand
   edit to clear `resumeRewindSave` and `rewindSave` in one of its quicksaves. The harvest
-  now clears every `<key> = parsek_rw_<id>` value in `persistent.sfs` and in each
-  `Parsek/RewindPoints/*.sfs`, keeping the keys and every other byte of those files. It
+  now clears every `<key> = parsek_rw_<id>` value in `persistent.sfs` and in every
+  file under `Parsek/RewindPoints`, keeping the keys and every other byte of those files. It
   refuses before writing when a `parsek_rw_` name appears in any other form. A
   re-harvest of that fixture's source save differs from the committed files only in the
   line endings of the one quicksave that was edited by hand.

@@ -195,12 +195,14 @@ def strip_rewind_save_hints(text: str):
 
 
 def rewind_point_quicksaves(save_dir: str):
-    """Paths of `<save_dir>/Parsek/RewindPoints/*.sfs`, sorted; [] when absent."""
+    """Every file directly under `<save_dir>/Parsek/RewindPoints`, sorted; []
+    when absent. Every file, not just `*.sfs`: the corpus cell scans the whole
+    directory, so a stray file the harvest skipped would red it after commit."""
     rp_dir = os.path.join(save_dir, "Parsek", "RewindPoints")
     if not os.path.isdir(rp_dir):
         return []
     return sorted(os.path.join(rp_dir, n) for n in os.listdir(rp_dir)
-                  if n.endswith(".sfs") and os.path.isfile(os.path.join(rp_dir, n)))
+                  if os.path.isfile(os.path.join(rp_dir, n)))
 
 
 def strip_rewind_point_hints(save_dir: str, write: bool):

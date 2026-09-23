@@ -4984,7 +4984,7 @@ HARVEST SIDE CLOSED 2026-09-23. The fix above cleaned committed fixtures by hand
 harvester still cleared only `rewindSave` in `persistent.sfs`, so the next harvest that
 produced a RewindPoint reproduced the gap: `bdock-second-dock-recorded` (PR #1768) needed
 the same hand edit to `rp_91b25a0c...sfs`. `harvest_bdock_station.py` now clears every
-`<key> = parsek_rw_<id>` value in `persistent.sfs` AND in each `Parsek/RewindPoints/*.sfs`
+`<key> = parsek_rw_<id>` value in `persistent.sfs` AND in every file under `Parsek/RewindPoints`
 (value-only, every other byte kept), and refuses before writing on a `parsek_rw_` name in any
 other shape. The product-side claim above re-checked on that run: its produced-save snapshot
 (`2026-09-23_1704_BDOCK-2-second-dock-harvest_save`) carries `Parsek/Saves/parsek_rw_456043.sfs`,
