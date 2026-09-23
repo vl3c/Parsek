@@ -114,6 +114,9 @@ namespace Parsek
                 recNode.AddValue("sidecarEpoch", rec.SidecarEpoch.ToString(ic));
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", ic));
+            // Sparse: Sec is the load default, so only a non-Sec unit is written.
+            if (rec.LoopTimeUnit != LoopTimeUnit.Sec)
+                recNode.AddValue("loopTimeUnit", rec.LoopTimeUnit.ToString());
             if (!double.IsNaN(rec.LoopStartUT))
                 recNode.AddValue("loopStartUT", rec.LoopStartUT.ToString("R", ic));
             if (!double.IsNaN(rec.LoopEndUT))
@@ -643,6 +646,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Parses the sparse <c>loopTimeUnit</c> key. Only an exact defined member name is
+        /// accepted (the writer emits names); a numeric, combined or unknown value keeps
+        /// <paramref name="current"/> and logs one warning.
+        /// </summary>
+        internal static LoopTimeUnit ParseLoopTimeUnitOr(ConfigNode node, LoopTimeUnit current, string recordingId)
+        {
+            string s = node.GetValue("loopTimeUnit");
+            if (s == null)
+                return current;
+            if (Enum.TryParse(s, false, out LoopTimeUnit parsed)
+                && Enum.IsDefined(typeof(LoopTimeUnit), parsed)
+                && string.Equals(parsed.ToString(), s, StringComparison.Ordinal))
+                return parsed;
+            ParsekLog.Warn("Codec",
+                $"LoadRecordingFrom: recording {recordingId ?? "<no-id>"} has unrecognized " +
+                $"loopTimeUnit='{s}'; keeping {current}");
+            return current;
+        }
+
+        /// <summary>
         /// Loads playback settings (format version, ghost geometry version, loop,
         /// playback enabled), EVA child linkage, and chain linkage from a RECORDING
         /// ConfigNode into the given Recording.
@@ -665,6 +688,8 @@ namespace Parsek
             rec.LoopEndUT = ParseDoubleOr(recNode, "loopEndUT", rec.LoopEndUT);
 
             rec.LoopIntervalSeconds = ParseDoubleOr(recNode, "loopIntervalSeconds", rec.LoopIntervalSeconds);
+
+            rec.LoopTimeUnit = ParseLoopTimeUnitOr(recNode, rec.LoopTimeUnit, rec.RecordingId);
 
             rec.LoopAnchorVesselId = ParseUintOr(recNode, "loopAnchorPid", rec.LoopAnchorVesselId);
 
