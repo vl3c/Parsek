@@ -115,7 +115,13 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 200 of 250 registry cells (was 199 of 250 before EX-2 re-claimed `ghost-extension-past-endut` on the single-point collision hold on 2026-09-24, 198 of 250 before RL-1 claimed D3 `relative-loop` on 2026-09-23, 196 of 250 before GS-10 / GS-11 claimed D5 `staging-debris-ttl` and `staging-debris-promotion` on 2026-09-23, 195 of 250 before CI-4 claimed `cross-tree-chain-linking` on 2026-09-23, 196 of 250 before the KSC end-of-flight retirement ruling moved EX-1 off `ghost-extension-past-endut` on 2026-09-23, 195 of 250 before the held-ghost fix PR claimed `ghost-extension-past-endut` on EX-1 on 2026-09-23, 194 of 250 before the D18 spawn-in-run wave's PR-C claimed `loop-first-run-is-real` on LF-1 on 2026-09-23, 192 of 250 before the D18 spawn-in-run wave's PR-B claimed `ghost-conversion-quicksave` and `chain-state-rederived` on CI-3 on 2026-09-22, 190 of 250 before PR-A claimed `intermediate-spawn-suppression` and the destroyed half of `chain-terminated-destruction-recovery` on V26T on 2026-09-22, 189 of 250 before register item C2 claimed D3 `boundary-seam` on LT-2 on 2026-09-22, 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
+### Coverage: 201 of 250 registry cells (was 200 of 250 before RF-14 claimed D9 `load-time-sweep` on 2026-09-24, 199 of 250 before EX-2 re-claimed `ghost-extension-past-endut` on the single-point collision hold on 2026-09-24, 198 of 250 before RL-1 claimed D3 `relative-loop` on 2026-09-23, 196 of 250 before GS-10 / GS-11 claimed D5 `staging-debris-ttl` and `staging-debris-promotion` on 2026-09-23, 195 of 250 before CI-4 claimed `cross-tree-chain-linking` on 2026-09-23, 196 of 250 before the KSC end-of-flight retirement ruling moved EX-1 off `ghost-extension-past-endut` on 2026-09-23, 195 of 250 before the held-ghost fix PR claimed `ghost-extension-past-endut` on EX-1 on 2026-09-23, 194 of 250 before the D18 spawn-in-run wave's PR-C claimed `loop-first-run-is-real` on LF-1 on 2026-09-23, 192 of 250 before the D18 spawn-in-run wave's PR-B claimed `ghost-conversion-quicksave` and `chain-state-rederived` on CI-3 on 2026-09-22, 190 of 250 before PR-A claimed `intermediate-spawn-suppression` and the destroyed half of `chain-terminated-destruction-recovery` on V26T on 2026-09-22, 189 of 250 before register item C2 claimed D3 `boundary-seam` on LT-2 on 2026-09-22, 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
+
+RE-DERIVED 2026-09-24 on `tierb-rtl-refly` (ghost-replay Tier B item 7) after merging `origin/main`
+(with #1791 and #1792): the one-liner below prints `299 specs 201 of 250`.
+`RF-14-rtl-refly-load-sweep` claims D9 `load-time-sweep`; the denominator does not move. D9 is
+18 of 18.
+
 RE-DERIVED 2026-09-24 on `ghost-ext-single-point` after merging `origin/main` (with #1790):
 the one-liner below prints `298 specs 200 of 250`. The D18 cell `ghost-extension-past-endut` rides `EX-2-single-point-held-ghost`, scoped
 to the single-point collision hold; the denominator does not move. D18 is 11 of 12;
@@ -327,8 +333,8 @@ this table:
 | D18 | re-fly / interaction | 12 | 8 | 10 |
 | | | **248** | **64** | **134** |
 
-The cells still uncovered in four dimensions worth naming: D9 is down to
-`load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
+The cells still uncovered in four dimensions worth naming: D9 WAS down to
+`load-time-sweep` alone (claimed 2026-09-24 by RF-14, so D9 is now fully covered); D10 to `harvest-provenance` (this same commit adds the
 `docked-depot-origin` claim to `H57-route-start-docked-origin-landed`, which both
 this file and `autotest-status.md` had recorded as claimed on 2026-09-02 while the
 spec's `[dimensionsCovered]` still said nothing - `compute_coverage` read it as
@@ -355,7 +361,7 @@ with what closing the rest takes:
 |---|---|---:|---|
 | D8 | ledger / career | 18 / 18 | Done. |
 | D4 | track sections / optimizer | 13 / 13 | Done. `persistence-graze-suppression` was ADDED and claimed 2026-09-15 (register B1) on LT-2, off the `Split summary ... grazeForward=2 grazeBackward=2 ...` token: optimizer step 7, distinct from step 5's `surface-graze-suppression`. The claim-gap wave (A1) put a cell-level gating token on all six residue cells and claimed every one. On 2026-09-10: `tail-trim` (LT-2, armed `2026-09-10_1957`, control `_2000`), `split-at-ut` (R7c, armed `_2007`, control `_2009`) and `env-body-split` (RF-9, claim-only off its already-required split tokens, armed re-flight `_2050`). On 2026-09-11, the make-up round: `hysteresis` and `surface-graze-suppression` on RF-1 (EnvironmentDetector's debounced `Environment transition ... (debounce=3.0s)` and the Optimizer `Split summary ... surfaceGrazeForward=1 surfaceGrazeBackward=1 ...`; the first armed re-flight `_2011` red on a UT literal, re-pinned from bytes per RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK, then armed `2026-09-11_0138` with controls `_0142` / `_0147`), and `seed-event-split` on RF-9 (its four seed tokens, armed `_2050`, control `2026-09-11_0151`). |
-| D9 | rewind / re-fly | 17 / 18 | `rewind-to-launch-repeat` was ADDED and claimed 2026-09-15 (register B2) on GS-9, off its two existing backreference tokens, control discharged offline. `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
+| D9 | rewind / re-fly | 18 / 18 | `rewind-to-launch-repeat` was ADDED and claimed 2026-09-15 (register B2) on GS-9, off its two existing backreference tokens, control discharged offline. `load-time-sweep` CLAIMED 2026-09-24 on RF-14 (ghost-replay Tier B item 7): a mid-re-fly F5/F9 after a Rewind-to-Launch, off the sweep's `Marker valid sess=` + `[LoadSweep] Marker valid=True; spare=1 discarded=0` lines. Scope: marker validation + spare set; the zombie / invalid-marker / session-RP discards stay unit-level (not player-reachable in this interplay). |
 | D10 | logistics / routes | 23 / 24 | `harvest-provenance` only; an operator ore-drill flight (supply-route hand-off). |
 | D1 | recording lifecycle | 15 / 18 | `manual-gloops`, `commit-abort` (needs its definition), `sub-2-point-drop` (B4: ruled yes with the constraint that Gloops code stays untouched, on branch `gloops-seam-verbs`; todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): the Tier D authoring pass, register item 8. `stop-on-switch` has LEFT this residue: renamed `switch-backgrounds-recording` 2026-09-15 (register B3) and CLAIMED by `CI-1-eva-switch-bg-member`. `switch-segment-noop-discard` CLAIMED 2026-09-11 by `S0.12-switch-noop-discard` (negative control `2026-09-11_0044`). |
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
@@ -438,7 +444,7 @@ below is HISTORY: R3 closed by flight on 2026-07-29 (S4.1 and S1.5 both green
 unattended on their own rows, see R3), S4.1's `[expectations.rewind]` block was
 armed 2026-07-31, and the R7 / S4.x / GS-6 / CL-3 lanes since then carry the
 dimension, so D9 is **1 of 17 uncovered** (`load-time-sweep`, a unit-level
-sweep no lane drives) rather than 15 of 16 unproven.
+sweep no lane drives) rather than 15 of 16 unproven. (2026-09-24: RF-14 claimed it; D9 is 18 of 18.)
 
 D9 is worse than its 8-uncovered row suggests. Seven further D9 cells are "covered"
 only by `S1.5-rewind-loop` and `S4.1-rewind-merge`, both `tier = "operator"`, both
@@ -507,7 +513,7 @@ Pointers only; each lane's outcome is in its `autotest-status.md` row.
    2026-09-23 on GS-10 / GS-11. Still open: the reentry-FX replay half and the GS-6 residues (D).
 4. Ghost-replay Tier B items 6-9. Closed by the wave (#1673): items 8 (GS-9) and 9 (GS-4's
    `unityExceptions` armed, W1 left report-only). Item 9 left the GS-4 ceiling question (B8)
-   and exposed the scanner gap (C1). Items 6 and 7 are carried forward (D).
+   and exposed the scanner gap (C1). Items 6 and 7 were carried forward (D); item 7 closed 2026-09-24 on RF-14.
 5. Ghost-replay Tier C: untouched (D).
 6. Loop-render residue. Closed by the wave (#1672): V20K and the criterion (b) control debt.
    G8, G5 and G9 are carried forward (D).
@@ -739,8 +745,8 @@ One line each; the definition lives at the pointer.
 - **Vanished-RewindPoint design call** (ghost-replay Tier B item 6): costs nothing, and there
   are two measured shapes to rule on (GS-4 reaps the RP; GS-7's crash keeps it). "The
   ghost-replay coverage program" -> Tier B.
-- **Rewind-to-launch x Re-Fly** (Tier B item 7): the lane for D9 `load-time-sweep`, that
-  dimension's last uncovered cell. Same section.
+- ~~**Rewind-to-launch x Re-Fly** (Tier B item 7)~~: DONE 2026-09-24, `RF-14-rtl-refly-load-sweep`
+  claims D9 `load-time-sweep`, the dimension's last uncovered cell. Same section.
 - **Ghost-replay Tier C as one arc**: ghostlife v2 (item 10), then loop-cycle rendering on
   the GS-4 subject (item 12: D6 `loop-period-modes`, `self-overlap`,
   `overlap-expiry-soft-caps`), with the replay-parity evaluator (item 11) alongside. Same
@@ -1264,7 +1270,7 @@ reserved set mapped almost one to one onto the largest uncovered dimensions:
 | ~~`RouteCommand`~~ | D10 (12 uncovered then, 1 on 2026-09-07). PROMOTED 2026-08-30 alongside `SealSlot`; the RVR-1..RVR-20 wave rode it |
 | ~~`MissionConfig`~~ | D11 loop behaviour (10 uncovered then, 6 on 2026-09-07). PROMOTED by the arrival-validation lane (the second strict promotion after R12's) |
 | ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch` (claimed 2026-09-08 by CI-1 and GS-3; `switch-segment-noop-discard` claimed 2026-09-11 by `S0.12-switch-noop-discard`, the click with no live recording). The D18 `committed-interaction-claiming` this row once listed is a ghost-chain cell the verb never reached; CI-2 claims it through a rewind. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
-| `CrashAfterJournalPhase` | D9 `merge-journal`, `load-time-sweep` |
+| `CrashAfterJournalPhase` | D9 `merge-journal`, `load-time-sweep` (discard half; marker/spare half claimed by RF-14) |
 | `RunInvariantReport` | analyzer-in-scene |
 
 Two further capability gaps, both verified:
@@ -1512,7 +1518,8 @@ crew-transfer action, and no inventory-part action in the mission action vocabul
 - No in-game test found for: ~~D6 `zone-transitions`~~ (CLAIMED 2026-09-08 by
   `GS-8-kerbalx-zone-round-trip` from a flown replay's production lines, no test
   needed), D4 `tail-trim`, ~~D5 `staging-debris-promotion`~~ (CLAIMED 2026-09-23 by
-  `GS-11-kerbalx-debris-promotion` from a flown switch, no test needed), D9 `load-time-sweep`, D2
+  `GS-11-kerbalx-debris-promotion` from a flown switch, no test needed), ~~D9 `load-time-sweep`~~
+  (CLAIMED 2026-09-24 by `RF-14-rtl-refly-load-sweep` from a flown F5/F9, no test needed), D2
   `density-presets`. Each of the rest needs a new in-game test written against an
   existing seam.
 - D5 `dock-merge-same-tree` needs a two-port single-launch craft (new fixture + new
@@ -2490,7 +2497,8 @@ D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 - D1 `manual-gloops`: new seam verb or new in-game test.
 - D1 `commit-abort`: needs a definition first.
 - New in-game tests against existing seams: D6 `zone-transitions`, D4 `tail-trim`,
-  ~~D5 `staging-debris-promotion`~~ (CLAIMED 2026-09-23, GS-11), D9 `load-time-sweep`, D2 `density-presets`.
+  ~~D5 `staging-debris-promotion`~~ (CLAIMED 2026-09-23, GS-11), ~~D9 `load-time-sweep`~~ (CLAIMED
+  2026-09-24, RF-14), D2 `density-presets`.
 - D5 `dock-merge-same-tree`: two-port single-launch craft, new fixture + mission.
 - D7 `inventory-place-remove`, D10 `inventory-cargo`: inventory craft + an inventory
   action in the mission vocabulary.
@@ -4321,12 +4329,26 @@ first spawn frame (hold-then-retry, never a single eager ask).
    again. The rewind now carries the in-memory RP list across the reload, and
    `RewindInvoker.CanInvoke` refuses an RP in the player's future. GS-4 pins
    rewindPoints {1,1}, ARMED; S4.1 flies the gate (refused, jump, allowed).
-7. **Rewind-to-launch x Re-Fly interplay.** Rewind-to-launch on a tree
-   carrying supersede rows exercises `DropSupersedesRewoundOutOfExistence`
-   and D9 `load-time-sweep` (the dimension's one UNCOVERED cell) live -
-   both currently unit-level only. The verb hands the raw HEAD root by
-   measured design (splitter Step12); this lane is where that contract gets
-   its flight.
+7. ~~**Rewind-to-launch x Re-Fly interplay.**~~ DONE 2026-09-24,
+   `RF-14-rtl-refly-load-sweep` (reading `2026-09-23_2147`, armed `2026-09-23_2200`
+   PASS, negative control offline). The item as first written mixed two
+   things: the supersede rollback (`DropSupersedesRewoundOutOfExistence`) had
+   already flown on RF-4 (a Rewind-to-Launch over a sealed fork, 2026-09-09),
+   and the rewind's own OnLoad never runs `LoadTimeSweep` at all
+   (`HandleRewindOnLoad` returns early, after clearing any loaded marker). The
+   interplay a player can actually reach is the OTHER order: Rewind-to-Launch,
+   the RP carried across it (PR #1788), the watcher's replay past the split,
+   a Re-Fly off the carried point, then F5/F9 in the middle of that re-fly.
+   That load's sweep validated the live marker (its rp= tied by backreference
+   to the carried point) and spared the provisional
+   (`[LoadSweep] Marker valid=True; spare=1 discarded=0`), the recorder resumed
+   on that session, and the merge concluded it with no zombie discarded
+   anywhere in the run. D9 `load-time-sweep` claimed; D9 is 18 of 18, on the
+   marker-validation + spare-set half. The discard branches are not driven:
+   the session-scoped RP discard IS reachable (staging during a re-fly authors
+   a session-scoped RP, which the sweep drops only after a lost or crashed
+   marker), and one code path may reach a Rewind-to-Launch mid-re-fly (todo
+   REFLY-DESTROYED-THEN-RTL-MID-SESSION, filed, not flown).
 8. **Repeat-rewind idempotence.** Rewind, watch to completion, rewind AGAIN
    from the same committed tree. Cheap; proves the `parsek_rw_*` quicksave
    lifecycle is reusable rather than one-shot.

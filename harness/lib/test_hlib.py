@@ -9697,6 +9697,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "Reading 2026-09-23_1524, armed _1527 PASS, negative control _1533 red on "
             "a pre-#1770 DLL. Discharged: cadence promotion is the only step left, a "
             "human call",
+        "RF-14-rtl-refly-load-sweep.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-24 as ghost-replay "
+            "Tier B item 7 (Rewind-to-Launch x Re-Fly): GS-4's flight, then a re-fly off "
+            "the point the rewind carried and a mid-re-fly F5/F9 that LoadTimeSweep must "
+            "validate and spare. Reading 2026-09-23_2147, armed 2026-09-23_2200 PASS, "
+            "negative control offline. Discharged: cadence promotion is the only step "
+            "left, a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -10633,6 +10640,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `2026-09-23_2021` on the pre-fix DLL red on exactly
                        # `rewind.rewindPoints 0 < min 1` plus the carry-over token.
                        "GS-4-kerbalx-rewind-watch.toml",
+                       # RF-14: `rewind` armed 2026-09-24 off its reading run
+                       # `2026-09-23_2147` (rewindPoints 1, supersedeRows 1, tombstones 0):
+                       # the point the Rewind-to-Launch carried, one fork row from the
+                       # re-fly merge, nobody dead.
+                       "RF-14-rtl-refly-load-sweep.toml",
                        # RF-12S: `rewind` armed 2026-09-22 off its after-reading
                        # `2026-09-22_1931` (supersedeRows 5, tombstones 12); the main-DLL
                        # before-reading `_1928` read tombstones 10, so the floor is the

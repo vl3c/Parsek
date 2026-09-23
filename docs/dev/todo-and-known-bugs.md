@@ -15,6 +15,67 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TIERB-7-RTL-X-REFLY-LOAD-SWEEP: ghost-replay Tier B item 7, the lane for D9 `load-time-sweep`~~ [DONE 2026-09-24 on branch `tierb-rtl-refly`]
+
+`RF-14-rtl-refly-load-sweep` flies GS-4's Kerbal X, Rewind-to-Launches it, re-flies the
+core's slot off the RewindPoint the rewind carried (PR #1788), then quicksaves and
+quickloads in the middle of that re-fly. The quickload's `LoadTimeSweep` validated the
+live marker against the carried point and spared the session's provisional
+(`[LoadSweep] Marker valid=True; spare=1 discarded=0`), the recorder resumed on that
+session, and the merge concluded it with no zombie discarded anywhere. Reading
+`2026-09-23_2147` (one timing token: the F5 came before the re-fly recorder binds at
+OnFlightReady, so the lane now idles ~3 s first), armed `2026-09-23_2200` PASS with the
+`rewind` block armed, negative control offline over `_2200`. D9 `load-time-sweep`
+claimed (coverage 201 of 250 after merging main, D9 18 of 18). No product defect.
+
+Scope, so the claim is not overread: the cell is claimed on the sweep's marker-validation
+and spare-set half. The other branches are not driven by RF-14, and two of them are
+reachable in other shapes (corrected 2026-09-24 in the #1793 review): staging DURING a
+re-fly authors a session-scoped RP (`RewindPointAuthor` stamps `CreatingSessionId =
+ActiveReFlySessionMarker?.SessionId`), which the sweep spares while the marker is valid,
+a conclusion un-scopes (`MergeJournalOrchestrator.TagRpsForReap`, the merge-dialog
+discard), and the sweep discards only after a lost or crashed marker; and a
+Rewind-to-Launch mid-re-fly may be reachable through the path filed below as
+REFLY-DESTROYED-THEN-RTL-MID-SESSION. The rewind's own OnLoad returns before the sweep
+runs. Also noted: CI-3 already produced the same two sweep lines on its F5/F9, unclaimed.
+
+## REFLY-DESTROYED-THEN-RTL-MID-SESSION: a Rewind-to-Launch may be reachable during a live Re-Fly once the re-flown vessel is destroyed [FILED 2026-09-24 from the #1793 review. OPEN; CODE-DERIVED, NOT FLOWN]
+
+The normal guard: while the re-fly recorder is live, `RecordingStore.CanRewind` refuses
+"Stop recording before rewinding" (the Recordings table passes `flight.IsRecording`,
+`RecordingsTableUI.cs`), and no player control stops a recorder. The path that reads as an
+exception, traced in source only:
+
+1. The re-flown vessel is destroyed. `FlightRecorder` sets `VesselDestroyedDuringRecording`
+   but keeps `IsRecording = true`, so the guard still holds at this point.
+2. `ParsekFlight`'s destruction handler schedules `ShowPostDestructionTreeMergeDialog`.
+   If every leaf is terminal (or only debris blocks), it finalizes the tree and
+   `StashPendingTree`s it, and `HasPendingTree` then refuses the rewind ("Merge or discard
+   pending tree first"). If a non-debris leaf is still alive,
+   `ClassifyPostDestructionMergeResolution` returns `AbortAndKeepRecording`: no stash.
+3. If KSP then hands focus to another vessel, `HandleVesselSwitchDuringRecording` takes
+   `TransitionToBackground`, and the switch-complete handler flushes the recorder to the
+   background and sets `recorder = null`. `IsRecording` is now false, no tree is pending,
+   and `InitiateRewind` refuses only an in-flight merge journal. Nothing checks the live
+   `ReFlySessionMarker`. The Rewind button would then be enabled mid-session.
+
+What the sweep would then do, also code-derived: the rewind's OnLoad takes
+`HandleRewindOnLoad`, which clears the marker (`ClearActiveReFlyMarkerForPlainRewind`,
+"cleared stale active Re-Fly marker during plain rewind") and returns before
+`LoadTimeSweep` runs. The session's provisional was added to the committed list as
+`NotCommitted` (`RecordingStore.AddProvisional`), and a rewind keeps in-memory recordings,
+so unless the scene change's tree finalization disposes of it (not traced), the next
+non-rewind OnLoad's sweep finds a NotCommitted recording with no marker and discards it
+as a zombie (`[LoadSweep] ... discarded=1`). A session-scoped RP authored during that
+re-fly would be discarded by the same pass. In gameplay terms: rewinding a whole flight to
+launch after the re-flown stage crashed silently abandons that re-fly; whether that is the
+wanted outcome, or the rewind should be refused or offer the re-fly merge first, is an
+operator question.
+
+To confirm: a lane that re-flies a slot while a sibling leaf is still flying, crashes the
+re-flown vessel, lets focus move, then tries `InvokeRewindToLaunch` (the seam's own
+dispatch guard refuses a live recorder, so it reads the same predicate).
+
 ## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
 
 **Ruling.** A rewind point ALWAYS survives a Rewind-to-Launch. Its slots stay in Unfinished

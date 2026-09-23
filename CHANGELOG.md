@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane re-flies a stage after a Rewind-to-Launch and quickloads in
+  the middle of it.** `RF-14-rtl-refly-load-sweep` flies the staged Kerbal X, rewinds the
+  whole flight to launch, waits on the pad until the clock passes the stage separation
+  again, re-flies the dropped core from the kept rewind point, then quicksaves and
+  quickloads mid-re-fly and merges. It checks that the load keeps the re-fly session alive
+  (the rewind point it names is the one the rewind kept, and the in-progress re-fly is not
+  thrown away) and that nothing is left behind after the merge. No problems found.
 - **Timeline: a Career view with contract, strategy, facility, milestone and tech
   filters, and a two-row filter area.** The first row holds the views (Overview, Details,
   Rewind/FF, Re-Fly, Career) and a Time button whose label names the active time range
