@@ -9585,6 +9585,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline (CI-2's host and reason): the D18 "
             "ghost-conversion-quicksave and chain-state-rederived cells, a rewind plus a "
             "mid-re-fly SaveGame/LoadGame round trip over a harvested docking fixture",
+        "CI-4-cross-tree-chain-pooled.toml":
+            "operator by the reading-run discipline (CI-3's host family and reason): the "
+            "D18 cross-tree-chain-linking cell, a rewind into the second-dock harvest "
+            "and a chains readback; no human call owed",
         # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-10, authored 2026-09-08 and 2026-09-09).
         # All eleven
         # are `operator` by the READING-RUN discipline and none owes a human call.
