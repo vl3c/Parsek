@@ -327,6 +327,7 @@ namespace Parsek
 
             int demolishedCount = 0;
             int repairedCount = 0;
+            int settlingCount = 0;
             int matchedCount = 0;
             int noMatchCount = 0;
 
@@ -348,14 +349,23 @@ namespace Parsek
                         defaultFacilityIdsSaveFolder = null;
                     }
 
-                    if (state.Destroyed && !db.IsDestroyed)
+                    DestructionPatchAction patchAction =
+                        ResolveDestructionPatch(state.Destroyed, db.IsIntact, db.IsDestroyed);
+                    if (patchAction == DestructionPatchAction.Settling)
+                    {
+                        // Mid-collapse or mid-repair: stock's own animation is already
+                        // taking it where it is going, and Demolish() / Repair() would both
+                        // return early. Touching it here only logged a patch that did nothing.
+                        settlingCount++;
+                    }
+                    else if (patchAction == DestructionPatchAction.Demolish)
                     {
                         db.Demolish();
                         demolishedCount++;
                         ParsekLog.Verbose(Tag,
                             $"PatchDestructionState: demolished '{db.id}'");
                     }
-                    else if (!state.Destroyed && db.IsDestroyed)
+                    else if (patchAction == DestructionPatchAction.Repair)
                     {
                         db.Repair();
                         repairedCount++;
@@ -372,10 +382,31 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"PatchDestructionState: demolished={demolishedCount.ToString(IC)}, " +
                 $"repaired={repairedCount.ToString(IC)}, " +
+                $"settling={settlingCount.ToString(IC)}, " +
                 $"matched={matchedCount.ToString(IC)}, " +
                 $"noMatch={noMatchCount.ToString(IC)}, " +
                 $"buildings={buildingById.Count}, " +
                 $"facilities={allFacilities.Count}");
+        }
+
+        internal enum DestructionPatchAction { None, Demolish, Repair, Settling }
+
+        /// <summary>
+        /// Pure decision for one building in <see cref="PatchDestructionState"/>. A building
+        /// that is neither intact nor destroyed is between states (stock's collapse or repair
+        /// animation is running) and is left alone; otherwise demolish an intact building the
+        /// walk says is destroyed, and repair a destroyed one the walk says is intact.
+        /// </summary>
+        internal static DestructionPatchAction ResolveDestructionPatch(
+            bool targetDestroyed, bool isIntact, bool isDestroyed)
+        {
+            if (!isIntact && !isDestroyed)
+                return DestructionPatchAction.Settling;
+            if (targetDestroyed && isIntact)
+                return DestructionPatchAction.Demolish;
+            if (!targetDestroyed && isDestroyed)
+                return DestructionPatchAction.Repair;
+            return DestructionPatchAction.None;
         }
 
         internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(

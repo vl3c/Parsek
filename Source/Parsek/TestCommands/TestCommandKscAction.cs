@@ -13,6 +13,14 @@ namespace Parsek.TestCommands
         HireKerbal,
         DismissKerbal,
 
+        /// <summary>Collapse one KSC building (<c>DestructibleBuilding.Demolish()</c>), the
+        /// same call a crash's <c>AddDamage</c> makes.</summary>
+        DemolishBuilding,
+
+        /// <summary>Repair a facility's destroyed buildings through the KSC menu's own
+        /// call, <c>SpaceCenterBuilding.RepairFacility(true)</c> (funds deducted).</summary>
+        RepairFacility,
+
         /// <summary>An unrecognized <c>action</c> arg (REJECTED unknown-action).</summary>
         Unknown,
     }
@@ -33,14 +41,16 @@ namespace Parsek.TestCommands
         /// <summary>Reject reason when <see cref="Accepted"/> is false: unknown-action /
         /// missing-arg / unknown-tech-node / node-already-unlocked / insufficient-science /
         /// unknown-facility / facility-at-max / insufficient-funds / unknown-kerbal /
-        /// kerbal-not-applicant / kerbal-not-dismissable / kerbal-parsek-managed.</summary>
+        /// kerbal-not-applicant / kerbal-not-dismissable / kerbal-parsek-managed /
+        /// unknown-building / building-already-down / facility-intact.</summary>
         public string RejectReason;
 
         public KscActionKind Kind;
         public string Target;
 
         /// <summary>The seam-declared manifest kind the harness attaches (M-B2):
-        /// tech-unlock / facility-upgrade / kerbal-hire / kerbal-dismiss.</summary>
+        /// tech-unlock / facility-upgrade / kerbal-hire / kerbal-dismiss /
+        /// facility-destruction / facility-repair.</summary>
         public string ManifestKind;
     }
 
@@ -58,7 +68,9 @@ namespace Parsek.TestCommands
         /// kerbal exists in the roster).</summary>
         public bool TargetResolves;
 
-        /// <summary>research: node already researched; upgrade: facility already at max level.</summary>
+        /// <summary>research: node already researched; upgrade: facility already at max level;
+        /// demolish: the building is not intact (down, or mid-collapse / mid-repair); repair:
+        /// no building of the facility is destroyed.</summary>
         public bool AlreadyApplied;
 
         /// <summary>hire: the resolved kerbal is in the applicant pool.</summary>
@@ -93,6 +105,8 @@ namespace Parsek.TestCommands
                 case "upgrade-facility": return KscActionKind.UpgradeFacility;
                 case "hire-kerbal": return KscActionKind.HireKerbal;
                 case "dismiss-kerbal": return KscActionKind.DismissKerbal;
+                case "demolish-building": return KscActionKind.DemolishBuilding;
+                case "repair-facility": return KscActionKind.RepairFacility;
                 default: return KscActionKind.Unknown;
             }
         }
@@ -107,6 +121,8 @@ namespace Parsek.TestCommands
                 case KscActionKind.UpgradeFacility: return "facility-upgrade";
                 case KscActionKind.HireKerbal: return "kerbal-hire";
                 case KscActionKind.DismissKerbal: return "kerbal-dismiss";
+                case KscActionKind.DemolishBuilding: return "facility-destruction";
+                case KscActionKind.RepairFacility: return "facility-repair";
                 default: return string.Empty;
             }
         }
@@ -168,6 +184,15 @@ namespace Parsek.TestCommands
                     if (inputs.IsParsekManaged) { d.RejectReason = "kerbal-parsek-managed"; return d; }
                     if (!inputs.IsDismissable) { d.RejectReason = "kerbal-not-dismissable"; return d; }
                     break;
+
+                case KscActionKind.DemolishBuilding:
+                    if (inputs.AlreadyApplied) { d.RejectReason = "building-already-down"; return d; }
+                    break;
+
+                case KscActionKind.RepairFacility:
+                    if (inputs.AlreadyApplied) { d.RejectReason = "facility-intact"; return d; }
+                    if (inputs.CostAmount > inputs.AvailableAmount) { d.RejectReason = "insufficient-funds"; return d; }
+                    break;
             }
 
             d.Accepted = true;
@@ -179,7 +204,9 @@ namespace Parsek.TestCommands
             switch (kind)
             {
                 case KscActionKind.ResearchNode: return "unknown-tech-node";
-                case KscActionKind.UpgradeFacility: return "unknown-facility";
+                case KscActionKind.UpgradeFacility:
+                case KscActionKind.RepairFacility: return "unknown-facility";
+                case KscActionKind.DemolishBuilding: return "unknown-building";
                 case KscActionKind.HireKerbal:
                 case KscActionKind.DismissKerbal: return "unknown-kerbal";
                 default: return "unknown-target";
@@ -220,7 +247,8 @@ namespace Parsek.TestCommands
         /// accept the real stock method is invoked and its EFFECT confirmed before OK; a
         /// guard-blocked call (no observed effect) is REJECTED <c>blocked-committed</c>.
         /// </summary>
-        internal static KscActionExecOutcome Execute(string action, string node, string facility, string kerbal)
+        internal static KscActionExecOutcome Execute(
+            string action, string node, string facility, string kerbal, string building = null)
         {
             KscActionKind kind = ParseKind(action);
             switch (kind)
@@ -229,6 +257,8 @@ namespace Parsek.TestCommands
                 case KscActionKind.UpgradeFacility: return ExecuteUpgradeFacility(facility);
                 case KscActionKind.HireKerbal: return ExecuteHireKerbal(kerbal);
                 case KscActionKind.DismissKerbal: return ExecuteDismissKerbal(kerbal);
+                case KscActionKind.DemolishBuilding: return ExecuteDemolishBuilding(building);
+                case KscActionKind.RepairFacility: return ExecuteRepairFacility(facility);
                 default:
                     ParsekLog.Warn(Tag, "kscaction refused action=" + (action ?? string.Empty) + " reason=unknown-action target=");
                     return KscActionExecOutcome.Reject("unknown-action");
@@ -466,6 +496,177 @@ namespace Parsek.TestCommands
                 object v = GetUpgradeCostMethod.Invoke(building, null);
                 return v is float f ? f : (v is double dd ? dd : 0.0);
             }
+            catch { return 0.0; }
+        }
+
+        /// <summary>
+        /// Pure: resolve a building arg against the live DestructibleBuilding ids: an exact
+        /// match, else the single id ending in <c>"/" + arg</c> (so a spec can name
+        /// <c>ksp_pad_waterTower</c> without the level-specific mesh path). Null when nothing
+        /// or more than one id matches.
+        /// </summary>
+        internal static string ResolveBuildingId(IEnumerable<string> liveIds, string arg)
+        {
+            if (liveIds == null || string.IsNullOrEmpty(arg))
+                return null;
+            string suffixMatch = null;
+            int suffixMatches = 0;
+            foreach (string id in liveIds)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                if (id == arg) return id;
+                if (id.EndsWith("/" + arg, System.StringComparison.Ordinal))
+                {
+                    suffixMatch = id;
+                    suffixMatches++;
+                }
+            }
+            return suffixMatches == 1 ? suffixMatch : null;
+        }
+
+        /// <summary>
+        /// Pure: whether any live KSC building is between states. After
+        /// <c>Demolish()</c> a building reads not-intact and not-destroyed until its collapse
+        /// animation completes; after <c>Repair()</c> the same pair holds until the repair
+        /// animation completes. The demolish / repair sub-actions defer on it: stock repairs
+        /// only a building whose <c>IsDestroyed</c> is set, and a save taken mid-animation
+        /// persists <c>intact = False</c> for a building that is being repaired. Each pair is
+        /// (IsIntact, IsDestroyed).
+        /// </summary>
+        internal static bool AnyStructureSettling(IEnumerable<KeyValuePair<bool, bool>> intactDestroyedPairs)
+        {
+            if (intactDestroyedPairs == null) return false;
+            foreach (var p in intactDestroyedPairs)
+            {
+                if (!p.Key && !p.Value) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Live read of <see cref="AnyStructureSettling"/> over the scene's buildings.</summary>
+        internal static bool LiveStructuresSettling()
+        {
+            DestructibleBuilding[] all;
+            try { all = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>(); }
+            catch { return false; }
+            if (all == null) return false;
+            var pairs = new List<KeyValuePair<bool, bool>>(all.Length);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] != null)
+                    pairs.Add(new KeyValuePair<bool, bool>(all[i].IsIntact, all[i].IsDestroyed));
+            }
+            return AnyStructureSettling(pairs);
+        }
+
+        private static KscActionExecOutcome ExecuteDemolishBuilding(string buildingArg)
+        {
+            const string action = "demolish-building";
+            bool argPresent = !string.IsNullOrEmpty(buildingArg);
+
+            DestructibleBuilding[] all = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
+            DestructibleBuilding db = null;
+            if (argPresent && all != null)
+            {
+                string id = ResolveBuildingId(all.Where(b => b != null).Select(b => b.id), buildingArg);
+                if (id != null)
+                    db = all.FirstOrDefault(b => b != null && b.id == id);
+            }
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = db != null,
+                AlreadyApplied = db != null && !db.IsIntact,
+            };
+
+            KscActionDecision d = Decide(action, buildingArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, buildingArg, d.RejectReason);
+
+            try { db.Demolish(); }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction demolish-building Demolish threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            // Confirm: Demolish() clears intact synchronously (destroyed follows when the
+            // collapse animation completes).
+            if (db.IsIntact)
+                return Refuse(action, buildingArg, "blocked-committed");
+
+            LogApplied(action, db.id, d.ManifestKind, "intact=false");
+            return KscActionExecOutcome.Ok(OkPayload(action, db.id, "intact", "false"));
+        }
+
+        private static KscActionExecOutcome ExecuteRepairFacility(string facility)
+        {
+            const string action = "repair-facility";
+            bool argPresent = !string.IsNullOrEmpty(facility);
+
+            SpaceCenterBuilding building = argPresent ? ResolveBuilding(facility) : null;
+            int destroyedBefore = building != null ? CountDestroyed(building) : 0;
+            double cost = building != null ? SafeRepairCost(building) : 0.0;
+            double funds = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = building != null,
+                AlreadyApplied = destroyedBefore == 0,
+                CostAmount = cost,
+                AvailableAmount = funds,
+                CostIsFunds = true,
+            };
+
+            KscActionDecision d = Decide(action, facility, inputs);
+            if (!d.Accepted)
+                return Refuse(action, facility, d.RejectReason);
+
+            // The KSC context menu's own call: RepairFacility(Funding.Instance != null). It
+            // runs the CanAfford gate, the StructureRepair debit, then Repair() per building,
+            // and FacilityRepairScopePatch wraps it exactly as it wraps the menu's call.
+            double fundsBefore = funds;
+            try { building.RepairFacility(Funding.Instance != null); }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction repair-facility RepairFacility threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            int destroyedAfter = CountDestroyed(building);
+            if (destroyedAfter >= destroyedBefore)
+                return Refuse(action, facility, "blocked-committed");
+
+            double fundsAfter = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
+            string observed = string.Format(CultureInfo.InvariantCulture,
+                "repaired={0} cost={1} fundsDelta={2} funds={3}",
+                (destroyedBefore - destroyedAfter).ToString(CultureInfo.InvariantCulture),
+                // Float, the precision stock computes the cost in, so the value reads the
+                // same as the ledger row's FacilityCost.
+                ((float)cost).ToString("R", CultureInfo.InvariantCulture),
+                ((float)(fundsAfter - fundsBefore)).ToString("R", CultureInfo.InvariantCulture),
+                fundsAfter.ToString("R", CultureInfo.InvariantCulture));
+            LogApplied(action, facility, d.ManifestKind, observed);
+            var payload = OkPayload(action, facility, "repairCost", cost.ToString("R", CultureInfo.InvariantCulture));
+            payload.Add(new KeyValuePair<string, string>("fundsAfter", fundsAfter.ToString("R", CultureInfo.InvariantCulture)));
+            return KscActionExecOutcome.Ok(payload);
+        }
+
+        private static int CountDestroyed(SpaceCenterBuilding building)
+        {
+            if (building == null || building.destructibles == null) return 0;
+            int n = 0;
+            for (int i = 0; i < building.destructibles.Length; i++)
+            {
+                var db = building.destructibles[i];
+                if (db != null && db.IsDestroyed) n++;
+            }
+            return n;
+        }
+
+        private static double SafeRepairCost(SpaceCenterBuilding building)
+        {
+            try { return System.Math.Abs(building.GetRepairsCost()); }
             catch { return 0.0; }
         }
 

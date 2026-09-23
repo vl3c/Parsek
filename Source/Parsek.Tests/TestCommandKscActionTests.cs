@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Parsek.TestCommands;
 using Xunit;
 
@@ -28,6 +29,72 @@ namespace Parsek.Tests
 
             Assert.Equal(KscActionKind.DismissKerbal, TestCommandKscAction.ParseKind("dismiss-kerbal"));
             Assert.Equal("kerbal-dismiss", TestCommandKscAction.ManifestKindFor(KscActionKind.DismissKerbal));
+        }
+
+        [Fact]
+        public void ParseKind_And_ManifestKind_BuildingSubActions()
+        {
+            Assert.Equal(KscActionKind.DemolishBuilding, TestCommandKscAction.ParseKind("demolish-building"));
+            Assert.Equal("facility-destruction", TestCommandKscAction.ManifestKindFor(KscActionKind.DemolishBuilding));
+            Assert.Equal(KscActionKind.RepairFacility, TestCommandKscAction.ParseKind("repair-facility"));
+            Assert.Equal("facility-repair", TestCommandKscAction.ManifestKindFor(KscActionKind.RepairFacility));
+        }
+
+        [Fact]
+        public void Decide_Demolish_RefusalsAndAccept()
+        {
+            Assert.Equal("unknown-building", TestCommandKscAction.Decide("demolish-building", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = false }).RejectReason);
+            Assert.Equal("building-already-down", TestCommandKscAction.Decide("demolish-building", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, AlreadyApplied = true }).RejectReason);
+            var ok = TestCommandKscAction.Decide("demolish-building", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true });
+            Assert.True(ok.Accepted);
+            Assert.Equal("facility-destruction", ok.ManifestKind);
+        }
+
+        [Fact]
+        public void Decide_Repair_RefusalsAndAccept()
+        {
+            Assert.Equal("unknown-facility", TestCommandKscAction.Decide("repair-facility", "f",
+                new KscActionInputs { ArgPresent = true, TargetResolves = false }).RejectReason);
+            Assert.Equal("facility-intact", TestCommandKscAction.Decide("repair-facility", "f",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, AlreadyApplied = true }).RejectReason);
+            Assert.Equal("insufficient-funds", TestCommandKscAction.Decide("repair-facility", "f",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, CostAmount = 100, AvailableAmount = 50 }).RejectReason);
+            Assert.True(TestCommandKscAction.Decide("repair-facility", "f",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, CostAmount = 50, AvailableAmount = 50 }).Accepted);
+        }
+
+        [Fact]
+        public void ResolveBuildingId_ExactThenUniqueSuffix()
+        {
+            var ids = new[]
+            {
+                "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_waterTower",
+                "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank",
+                "SpaceCenter/Runway/Facility/a/Tank",
+                "SpaceCenter/VehicleAssemblyBuilding/Facility/Tank",
+            };
+            Assert.Equal(ids[0], TestCommandKscAction.ResolveBuildingId(ids, "ksp_pad_waterTower"));
+            Assert.Equal(ids[1], TestCommandKscAction.ResolveBuildingId(ids, ids[1]));
+            // Ambiguous suffix and a partial segment both resolve to nothing.
+            Assert.Null(TestCommandKscAction.ResolveBuildingId(ids, "Tank"));
+            Assert.Null(TestCommandKscAction.ResolveBuildingId(ids, "waterTower"));
+            Assert.Null(TestCommandKscAction.ResolveBuildingId(ids, ""));
+            Assert.Null(TestCommandKscAction.ResolveBuildingId(null, "x"));
+        }
+
+        [Fact]
+        public void AnyStructureSettling_OnlyTheBetweenStatesPair()
+        {
+            // (IsIntact, IsDestroyed): intact, destroyed, and mid-animation.
+            var intact = new KeyValuePair<bool, bool>(true, false);
+            var down = new KeyValuePair<bool, bool>(false, true);
+            var moving = new KeyValuePair<bool, bool>(false, false);
+            Assert.False(TestCommandKscAction.AnyStructureSettling(new[] { intact, down }));
+            Assert.True(TestCommandKscAction.AnyStructureSettling(new[] { intact, moving }));
+            Assert.False(TestCommandKscAction.AnyStructureSettling(null));
         }
 
         [Theory]

@@ -1,0 +1,112 @@
+schema = 1
+id = "KB-1-ksc-building-repair-ledger"
+# =====================================================================================
+# KSC BUILDING COLLAPSE + REPAIR REACH THE LEDGER (todo KSC-BUILDING-DESTROY-REPAIR-
+# NEVER-REACH-LEDGER, PR #1784).
+#
+# WHAT IT PROVES, each pinned below:
+#   1. Both new Harmony patches reached their stock targets in this session
+#      (ParsekHarmony logs one line per applied patch class).
+#   2. A collapse at the KSC (no recording live) is recorded AT ITS OWN MOMENT from
+#      stock's OnKSCStructureCollapsing and written straight to the ledger as ONE
+#      FacilityDestruction row.
+#   3. A repair through SpaceCenterBuilding.RepairFacility(true) - the KSC context
+#      menu's own call - opens the repair scope, records ONE FacilityRepair row whose
+#      cost equals the building's share, and that cost equals the funds stock deducted
+#      (FundsChanged(StructureRepair)); the ledger's funds walk charges the same amount.
+#   4. No KSC-reconciliation warning (the batch sums the rows against the one debit).
+#   5. No flicker: after the repair no recalc demolishes or repairs the building, and
+#      the patcher leaves the mid-collapse / mid-repair building alone.
+#   6. A save + cold reload keeps the building intact, adds no duplicate row, and the
+#      patcher does not have to repair it.
+#
+# THE STEP SHAPE. demolish-building / repair-facility both DEFER `structures-settling`
+# while any KSC building is between states (Demolish() clears `intact` at once; the
+# building reads destroyed only when the collapse animation lands, and stock repairs only
+# a destroyed building). So the repair step waits for the collapse by itself, and the
+# SECOND repair-facility step waits for the repair animation and then refuses
+# `facility-intact` - which is also the "exactly one repair" probe. The last
+# repair-facility step, after the reload, refuses `facility-intact` again: the building
+# came back intact from the save.
+#
+# NEVER FLOWN when written: every pin below is an interim reading of the code, not of a
+# log. Re-derive against the first collected KSP.log before arming anything stricter.
+tier = "daily"
+description = "Career at the KSC: collapse one Launchpad building through the seam, repair the facility through the menu's own RepairFacility call, save and cold-reload; the ledger holds exactly one FacilityDestruction and one FacilityRepair whose cost equals the StructureRepair funds debit, with no reconciliation warning and no patcher flicker."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "facilities", "KB-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-ksc"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "KscAction",  args = { action = "demolish-building", building = "ksp_pad_waterTower" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/LaunchPad" }, expect = "OK", budget = 60 },
+  # Waits out the repair animation, then refuses: nothing left to repair.
+  { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/LaunchPad" }, expect = "REJECTED", budget = 60 },
+  { cmd = "SaveGame",   args = { name = "persistent" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  # After the cold reload the building is still intact.
+  { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/LaunchPad" }, expect = "REJECTED", budget = 60 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit",   expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["facilities", "funds", "orchestrator", "ksp-state-patcher"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # 1. Both patches applied.
+  "Harmony patch applied: FacilityRepairScopePatch targets=1",
+  "Harmony patch applied: FacilityResetStructuresPatch targets=1",
+  # 2. The collapse, recorded from the stock event and written as a direct KSC row.
+  "Game state: BuildingDestroyed '\\S*/ksp_pad_waterTower' cost=0 tag='' source=event-collapsing",
+  "KSC spending recorded: type=FacilityDestruction, UT=[0-9.]+, key=\\S*/ksp_pad_waterTower",
+  "kscaction action=demolish-building target=\\S*/ksp_pad_waterTower applied=true manifestKind=facility-destruction",
+  # 3. The repair: scope opened by the patch, the row's cost, the funds debit and the
+  #    seam's own before/after read all agree, and the ledger's funds walk charges it.
+  "FacilityRepair scope open: facility='\\S*LaunchPad' destroyedBuildings=1 ",
+  "Game state: FundsChanged -[0-9]+ \\(StructureRepair\\)",
+  "Game state: BuildingRepaired '\\S*/ksp_pad_waterTower' cost=([0-9.]+) tag='' source=event-repairing[\\s\\S]*kscaction action=repair-facility target=SpaceCenter/LaunchPad applied=true manifestKind=facility-repair observedAfter=repaired=1 cost=\\1 fundsDelta=-\\1 ",
+  "KSC spending recorded: type=FacilityRepair, UT=[0-9.]+, key=\\S*/ksp_pad_waterTower",
+  "FacilityRepair: -[1-9][0-9.]*, facilityId=\\S*/ksp_pad_waterTower",
+  # The two later repair-facility steps are the refusal, not a second repair.
+  "kscaction refused action=repair-facility reason=facility-intact",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # 4. The batch reconciles against the single StructureRepair debit.
+  "KSC reconciliation \\(funds\\)",
+  # 5 + 6. No flicker, no duplicate rows, no patcher repair after the reload.
+  "PatchDestructionState: (demolished|repaired) '\\S*/ksp_pad_waterTower'",
+  "KSC spending recorded: type=FacilityRepair[^\\n]*[\\s\\S]*KSC spending recorded: type=FacilityRepair",
+  "KSC spending recorded: type=FacilityDestruction[^\\n]*[\\s\\S]*KSC spending recorded: type=FacilityDestruction",
+  "Game state: BuildingRepaired[^\\n]*source=poll",
+  "Game state: BuildingDestroyed[^\\n]*source=poll",
+  "kscaction refused action=(demolish-building|repair-facility) reason=(unknown-|blocked-committed|insufficient-funds|building-already-down)",
+]
+
+[runtime]
+# LoadGame ~300 twice + three 60 s KscAction budgets + SaveGame, under 900.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

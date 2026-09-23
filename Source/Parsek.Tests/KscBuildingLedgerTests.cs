@@ -463,6 +463,22 @@ namespace Parsek.Tests
             Assert.Equal(9876.25f, back.FacilityCost);
         }
 
+        [Theory]
+        // (targetDestroyed, isIntact, isDestroyed) -> action
+        [InlineData(true, true, false, "Demolish")]
+        [InlineData(false, false, true, "Repair")]
+        [InlineData(true, false, true, "None")]
+        [InlineData(false, true, false, "None")]
+        // Mid-collapse / mid-repair: stock's animation owns it, never re-patched.
+        [InlineData(true, false, false, "Settling")]
+        [InlineData(false, false, false, "Settling")]
+        public void ResolveDestructionPatch_LeavesAnimatingBuildingsAlone(
+            bool targetDestroyed, bool isIntact, bool isDestroyed, string expected)
+        {
+            Assert.Equal(expected, FacilityStatePatcher.ResolveDestructionPatch(
+                targetDestroyed, isIntact, isDestroyed).ToString());
+        }
+
         // ================================================================
         // Harmony targets: a stock rename must red here, not at runtime
         // ================================================================

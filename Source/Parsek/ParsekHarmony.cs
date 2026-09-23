@@ -58,8 +58,12 @@ namespace Parsek
             {
                 try
                 {
-                    harmony.CreateClassProcessor(patchType).Patch();
+                    var replacements = harmony.CreateClassProcessor(patchType).Patch();
                     applied++;
+                    // One line per patch class, so a lane can prove a given patch really
+                    // reached its stock target in this session (not just that it compiled).
+                    ParsekLog.Verbose("Harmony", $"Harmony patch applied: {patchType.Name} " +
+                        $"targets={(replacements != null ? replacements.Count : 0)}");
                 }
                 catch (Exception ex)
                 {
