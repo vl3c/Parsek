@@ -26,6 +26,17 @@ namespace Parsek.Tests.Generators
     /// vessel is loaded later by <c>Vessel.Update</c>'s distance check (gated on
     /// <c>FlightGlobals.ready</c>), after the subscription.</para>
     ///
+    /// <para><b>Production shape: a recorded anchor as well as a live one.</b> The recorder never
+    /// writes a RELATIVE section without <c>anchorRecordingId</c> (it forces the section back to
+    /// Absolute on <c>anchor-recording-id-missing</c>), and the flight engine's zone distance
+    /// (<c>ParsekFlight.TryResolvePlaybackWorldPosition</c>) resolves a RELATIVE section through
+    /// that RECORDED anchor. A loop section without one reads as unresolved distance, is hidden
+    /// by the zone LOD before any positioning, and the live-PID loop positioner never runs
+    /// (measured, RL-1 attempt <c>2026-09-23_2034</c>). So the tree also carries
+    /// <see cref="AnchorTrackRecordingId"/>: a stationary Absolute track of the rover at its
+    /// landed position covering the whole loop, and both loop sections name it. The zone distance
+    /// comes from that recorded track; the placement still comes from the live vessel.</para>
+    ///
     /// <para><b>Shape.</b> Two RELATIVE sections of equal length, both anchored to
     /// <see cref="AnchorPid"/>: section A holds the anchor-local offset (0,0,0), so the placed ghost
     /// must sit EXACTLY on the live anchor's transform; section B holds (0,
@@ -41,6 +52,11 @@ namespace Parsek.Tests.Generators
         internal const string RecordingId = "relloopanchor00000000000000000d3";
         internal const string VesselName = "Relative Loop Anchor Probe";
         internal const string GroupName = "Synthetic-RelativeLoop";
+
+        /// <summary>The recorded anchor: a stationary Absolute track of the rover.</summary>
+        internal const string AnchorTrackRecordingId = "relloopanchortrack00000000000d3a";
+        internal const string AnchorTrackVesselName = "Relative Loop Anchor Track";
+        internal const uint AnchorTrackGhostPartPid = 100000u;
 
         /// <summary><c>rover fuel 0</c>, VESSEL index 0 of <c>pad-runway-pair</c>.</summary>
         internal const uint AnchorPid = 95298807u;
@@ -98,10 +114,12 @@ namespace Parsek.Tests.Generators
 
             builder.AddTrackSection(
                 SegmentEnvironment.Atmospheric, ReferenceFrame.Relative, TrackSectionSource.Active,
-                t0, tMid, frames: sectionA, anchorVesselId: AnchorPid, sampleRateHz: 0.2f);
+                t0, tMid, frames: sectionA, anchorVesselId: AnchorPid, sampleRateHz: 0.2f,
+                anchorRecordingId: AnchorTrackRecordingId);
             builder.AddTrackSection(
                 SegmentEnvironment.Atmospheric, ReferenceFrame.Relative, TrackSectionSource.Active,
-                tMid, tEnd, frames: sectionB, anchorVesselId: AnchorPid, sampleRateHz: 0.2f);
+                tMid, tEnd, frames: sectionB, anchorVesselId: AnchorPid, sampleRateHz: 0.2f,
+                anchorRecordingId: AnchorTrackRecordingId);
 
             var snap = VesselSnapshotBuilder.ProbeShip(VesselName, GhostPartPid)
                 .AsLanded(AnchorLatitude, AnchorLongitude, AnchorAltitude)
@@ -110,9 +128,58 @@ namespace Parsek.Tests.Generators
             return builder;
         }
 
+        /// <summary>
+        /// The recorded anchor: the rover standing still at its landed position from one second
+        /// before the loop starts to one second after it ends, one SurfaceMobile Absolute section
+        /// (a SurfaceStationary tail is "boring" and the optimizer could trim it until it no
+        /// longer covers the loop).
+        /// </summary>
+        internal static RecordingBuilder BuildAnchorTrackRecording(double saveUT)
+        {
+            double t0 = StartUTFor(saveUT) - 1.0;
+            double tEnd = StartUTFor(saveUT) + LoopSeconds + 1.0;
+            var frames = new List<TrajectoryPoint>();
+            int steps = (int)Math.Ceiling((tEnd - t0) / 5.0);
+            for (int i = 0; i <= steps; i++)
+            {
+                double ut = Math.Min(tEnd, t0 + i * 5.0);
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = ut,
+                    latitude = AnchorLatitude,
+                    longitude = AnchorLongitude,
+                    altitude = AnchorAltitude,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = AnchorBodyName,
+                    recordedGroundClearance = double.NaN,
+                });
+            }
+
+            var builder = new RecordingBuilder(AnchorTrackVesselName)
+                .WithRecordingId(AnchorTrackRecordingId)
+                .WithRecordingGroup(GroupName)
+                .WithSegmentBodyName(AnchorBodyName);
+            foreach (TrajectoryPoint p in frames)
+                builder.AddPoint(p.ut, p.latitude, p.longitude, p.altitude, p.bodyName);
+            builder.AddTrackSection(
+                SegmentEnvironment.SurfaceMobile, ReferenceFrame.Absolute, TrackSectionSource.Active,
+                t0, tEnd, frames: frames, sampleRateHz: 0.2f);
+
+            var snap = VesselSnapshotBuilder.ProbeShip(AnchorTrackVesselName, AnchorTrackGhostPartPid)
+                .AsLanded(AnchorLatitude, AnchorLongitude, AnchorAltitude)
+                .Build();
+            builder.WithGhostVisualSnapshot(snap);
+            return builder;
+        }
+
         internal static void PopulateWriter(ScenarioWriter writer, double saveUT)
         {
-            writer.AddRecordingAsTree(BuildRecording(saveUT));
+            writer.AddRecordingsAsTree(new[]
+            {
+                BuildRecording(saveUT),
+                BuildAnchorTrackRecording(saveUT),
+            });
         }
 
         private static TrajectoryPoint Offset(double ut, double dy)

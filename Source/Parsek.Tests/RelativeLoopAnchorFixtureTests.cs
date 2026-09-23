@@ -82,14 +82,24 @@ namespace Parsek.Tests
         public void The_tree_writer_carries_the_loop_anchor_into_the_serialized_tree()
         {
             RecordingTree tree = ScenarioWriter.MaterializeTree(
-                new[] { RelativeLoopAnchorFixture.BuildRecording(SaveUT) }, null);
+                new[]
+                {
+                    RelativeLoopAnchorFixture.BuildRecording(SaveUT),
+                    RelativeLoopAnchorFixture.BuildAnchorTrackRecording(SaveUT),
+                }, null);
+            Assert.Equal(2, tree.Recordings.Count);
+            Assert.Equal(0u, tree.Recordings[RelativeLoopAnchorFixture.AnchorTrackRecordingId]
+                .LoopAnchorVesselId);
             Recording rec = tree.Recordings[RelativeLoopAnchorFixture.RecordingId];
             Assert.Equal(RelativeLoopAnchorFixture.AnchorPid, rec.LoopAnchorVesselId);
             Assert.Equal(RelativeLoopAnchorFixture.AnchorBodyName, rec.LoopAnchorBodyName);
 
             var treeNode = new ConfigNode("RECORDING_TREE");
             tree.Save(treeNode);
-            ConfigNode recNode = treeNode.GetNode("RECORDING");
+            ConfigNode recNode = null;
+            foreach (ConfigNode n in treeNode.GetNodes("RECORDING"))
+                if (n.GetValue("recordingId") == RelativeLoopAnchorFixture.RecordingId)
+                    recNode = n;
             Assert.NotNull(recNode);
             Assert.Equal(
                 RelativeLoopAnchorFixture.AnchorPid.ToString(CultureInfo.InvariantCulture),
@@ -138,8 +148,8 @@ namespace Parsek.Tests
                 Assert.Equal(ReferenceFrame.Relative, s.referenceFrame);
                 Assert.Equal(SegmentEnvironment.Atmospheric, s.environment);
                 Assert.Equal(RelativeLoopAnchorFixture.AnchorPid, s.anchorVesselId);
-                Assert.True(string.IsNullOrEmpty(s.anchorRecordingId),
-                    "the live-PID loop contract carries no recorded anchor");
+                // Production-shaped: the recorder never writes a RELATIVE section without it.
+                Assert.Equal(RelativeLoopAnchorFixture.AnchorTrackRecordingId, s.anchorRecordingId);
                 double expectedDy = i == 0 ? 0.0 : RelativeLoopAnchorFixture.SectionBOffsetY;
                 Assert.Equal(3, s.frames.Count);
                 foreach (TrajectoryPoint p in s.frames)
@@ -169,12 +179,41 @@ namespace Parsek.Tests
                     RelativeLoopAnchorFixture.RecordingId);
                 Assert.True(System.IO.File.Exists(rec + ".prec"));
                 Assert.True(System.IO.File.Exists(rec + "_ghost.craft"));
+                Assert.True(System.IO.File.Exists(System.IO.Path.Combine(dir, "Parsek", "Recordings",
+                    RelativeLoopAnchorFixture.AnchorTrackRecordingId + ".prec")));
             }
             finally
             {
                 if (System.IO.Directory.Exists(dir))
                     System.IO.Directory.Delete(dir, true);
             }
+        }
+
+        [Fact]
+        public void The_anchor_track_is_a_stationary_absolute_track_covering_the_whole_loop()
+        {
+            RecordingBuilder builder = RelativeLoopAnchorFixture.BuildAnchorTrackRecording(SaveUT);
+            var rec = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(builder.BuildV3Metadata(), rec);
+            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+
+            Assert.False(rec.LoopPlayback);
+            Assert.Equal(0u, rec.LoopAnchorVesselId);
+            Assert.Single(rec.TrackSections);
+            TrackSection s = rec.TrackSections[0];
+            Assert.Equal(ReferenceFrame.Absolute, s.referenceFrame);
+            Assert.False(GhostPlaybackLogic.IsBoringEnvironment(s.environment),
+                "a boring tail could be trimmed until it stops covering the loop");
+            double loopStart = RelativeLoopAnchorFixture.StartUTFor(SaveUT);
+            Assert.True(s.startUT < loopStart);
+            Assert.True(s.endUT > loopStart + RelativeLoopAnchorFixture.LoopSeconds);
+            foreach (TrajectoryPoint p in s.frames)
+            {
+                Assert.Equal(RelativeLoopAnchorFixture.AnchorLatitude, p.latitude);
+                Assert.Equal(RelativeLoopAnchorFixture.AnchorLongitude, p.longitude);
+                Assert.Equal(RelativeLoopAnchorFixture.AnchorAltitude, p.altitude);
+            }
+            Assert.Null(builder.GetVesselSnapshot());
         }
 
         [Fact]

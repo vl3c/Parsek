@@ -13,7 +13,13 @@ id = "RL-1-relative-loop-live-anchor"
 # RecordingBuilder.WithLoopAnchorVesselId): two RELATIVE sections of 10 s, both anchored to
 # pid 95298807, section A at anchor-local offset (0,0,0), section B at (0,20,0), loop period
 # 20 s = duration (single-ghost path), ghost-only (nothing to spawn). It ends 2 s before the
-# save's UT, so the loop is already running when the scene loads.
+# save's UT, so the loop is already running when the scene loads. Production-shaped, the
+# sections ALSO name a recorded anchor (`anchorRecordingId`): the tree carries a stationary
+# Absolute track of the rover covering the loop. The recorder never writes a RELATIVE section
+# without one, and the flight engine's zone distance resolves a RELATIVE section through it:
+# without it (attempt `2026-09-23_2034`) the distance read unresolved, the zone LOD hid the
+# ghost before any positioning (`loop hidden by distance LOD at unresolved`), and the live-PID
+# loop positioner never ran although both anchor-load lines printed.
 #
 # THE ANCHOR IS THE NON-ACTIVE RUNWAY ROVER, deliberately. Host `pad-runway-pair`: focus is
 # `Logi Cargo Rig` on the pad, the anchor is `rover fuel 0` (pid 95298807) on the runway
@@ -65,7 +71,21 @@ steps = [
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
-  # ~85 s of 1x flight time (the save loads at UT 25.26): about four 20 s loop cycles
+  # Settle before the warp: reading attempt `2026-09-23_2040` sent WarpToUT 17 ms before
+  # `Unpacking Logi Cargo Rig` and was refused `warp-locked` (~0.25 s per inert step).
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # ~80 s of 1x flight time (the save loads at UT 25.26): about four 20 s loop cycles
   # after the rover loads, so four B -> A wraps open four section-A trace windows.
   { cmd = "WarpToUT",   args = { ut = "110", maxRate = "1" }, expect = "OK", budget = 300 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
@@ -80,8 +100,8 @@ D3 = ["relative-loop"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Exactly the one injected recording; the count is `.prec` sidecars.
-count = { min = 1, max = 1 }
+# The two injected recordings (the loop and its recorded anchor track); `.prec` sidecars.
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [
@@ -95,7 +115,7 @@ required = [
   "RELATIVE playback: contract=anchor-local version=1 dx=0\\.00 dy=20\\.00 dz=0\\.00 \\|offset\\|=20\\.00m anchor=95298807 source=live",
   # PLACEMENT: section A's ghost output == the live anchor position (backreference \\1).
   "phase=RelativeResolver rec=\\S+ recId=relloopanchor00000000000000000d3 ghostIndex=[0-9]+ frame=[0-9]+ currentUT=\\S+ playbackUT=\\S+ resolver=loop-relative-position reason=resolved success=true anchorPid=95298807 anchorRec=<none> source=live anchorPos=(\\([^)]*\\)) anchorRot=\\([^)]*\\) localOffset=\\(0\\.00,0\\.00,0\\.00\\) output=\\1",
-  "MISSIONMARK label=rl1-after-dwell-count-1 ",
+  "MISSIONMARK label=rl1-after-dwell-count-2 ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -105,6 +125,10 @@ forbidden = [
   "resolver=loop-relative-position reason=anchor-unresolved-retired",
   "Anchor vessel unloaded: pid=95298807",
   "ShouldSpawnLoopedGhost: rec 'Relative Loop Anchor Probe' anchor vessel body mismatch",
+  # The recorded anchor must resolve (the zone distance reads it; attempt `2026-09-23_2034`).
+  "RELATIVE section missing anchorRecordingId: recordingId=relloopanchor",
+  "recorded-relative-unresolved: reason=[^ ]+ recordingId=relloopanchor",
+  "loop hidden by distance LOD at unresolved",
 ]
 
 [runtime]
