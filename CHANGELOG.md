@@ -922,8 +922,11 @@ _(unreleased — entries accumulate here per commit)_
   Facilities tab as `repaired <date>` and does not count as done before its date. The
   Timeline shows one row per facility event, not one per building (a Runway repair touches up to
   ten), with the repair's total cost. The Career and Timeline rows are not doubled by the older event list either.
-  When Parsek matches the buildings to the career history, it now leaves a building that is
-  still collapsing or being repaired alone instead of calling stock on it for nothing.
+  Parsek changes a building only when the career history, up to the current moment, says
+  something the building contradicts: a collapse or repair dated later in the timeline (after
+  a revert or a rewind) is not applied early, a building the history says nothing about is
+  never touched, a building that is still collapsing or being repaired is left alone, and
+  nothing is changed while a flight is being recorded or waiting to be merged.
 - **The Timeline names the contract on every contract row, and the facility on every
   facility row.** A contract's completion, failure or cancellation used to read
   `Complete: unknown +4375 funds`, because only the accept action stored the contract's

@@ -13372,9 +13372,9 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # landed above it. The raise site itself is unchanged both times.
         self.assertIn("Source/Parsek/MapRenderProbe.cs:1079",
                       self.raised.get("icon-teleport", []))
-        # 158 -> 168 (2026-09-23) when the destructible-building skip landed above it
+        # 158 -> 168 -> 177 (2026-09-23) when the destructible-building skip landed above it
         # in PatchFacilities. The raise site itself is unchanged.
-        self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:168",
+        self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:177",
                       self.raised.get("ledger-vs-truth", []))
         # The LedgerTrace `resource` argument is also hyphenated on two call sites;
         # positional resolution must not mistake it for a reason.

@@ -1980,6 +1980,8 @@ Ghost vessels whose recordings include launches during the destroyed window stil
 
 On warp exit, Parsek patches KSP's actual facility state to match the derived state at the current UT (see section 5.2).
 
+**Live building patch contract (as built).** Facility LEVELS are patched from the walk. Building destroyed / intact state is not: a walk with no UT cutoff (commit, scene load, a cold load before the clock is ready, warp start) contains rows dated after now. `FacilityStatePatcher.PatchLiveDestructionState` instead folds the effective ledger, per DestructibleBuilding, to the last FacilityDestruction / FacilityRepair row at or before live UT, and acts only where that row contradicts the live building: demolish an intact building whose last row is a destruction, repair a destroyed one whose last row is a repair. A building with no row at or before now is never touched (nothing is restored from the absence of a row: stock's own state travels with every save, rewind and revert, and the ledger cannot tell a building stock restored from one it should restore), a building mid-collapse or mid-repair is left to stock's animation, and nothing is patched while a flight is recording, its tree is uncommitted or pending (that flight's collapses are not in the ledger yet), or before the universe clock is ready.
+
 ### 10.5 Derived facility level
 
 The facility level at any UT is derivable by walking the action history: start at default level (1), apply upgrades, destructions, and repairs in order. During warp, this drives the visual state. On warp exit, the full recalculation produces the final derived level, which is patched into KSP's state.

@@ -40,8 +40,10 @@ namespace Parsek
             {
                 foreach (var db in destructibles)
                 {
-                    if (db != null && !string.IsNullOrEmpty(db.id))
-                        lastBuildingIntact[db.id] = !db.IsDestroyed;
+                    bool intact;
+                    if (db != null && !string.IsNullOrEmpty(db.id)
+                        && TryReadSettledIntact(db.IsIntact, db.IsDestroyed, out intact))
+                        lastBuildingIntact[db.id] = intact;
                 }
             }
 
@@ -274,6 +276,20 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Pure: the one intact test the cache seed, the poll and the event handlers share.
+        /// A settled building is intact when stock's <c>IsIntact</c> is set. A building between
+        /// states (<c>!IsIntact &amp;&amp; !IsDestroyed</c>: collapsing after <c>Demolish()</c>,
+        /// or repairing after <c>Repair()</c>) has no settled value, returns false, and is
+        /// neither seeded nor compared - its collapse / repair event already cached the state
+        /// it is heading to, so a poll mid-animation cannot read a spurious transition.
+        /// </summary>
+        internal static bool TryReadSettledIntact(bool isIntact, bool isDestroyed, out bool intact)
+        {
+            intact = isIntact;
+            return isIntact || isDestroyed;
+        }
+
         internal void PollFacilityState()
         {
             double ut = Planetarium.GetUniversalTime();
@@ -340,7 +356,9 @@ namespace Parsek
                     if (db == null || string.IsNullOrEmpty(db.id)) continue;
 
                     buildingsChecked++;
-                    bool currentIntact = !db.IsDestroyed;
+                    bool currentIntact;
+                    if (!TryReadSettledIntact(db.IsIntact, db.IsDestroyed, out currentIntact))
+                        continue; // mid-animation: its event already set the cache
                     bool cachedIntact;
 
                     if (lastBuildingIntact.TryGetValue(db.id, out cachedIntact)

@@ -819,8 +819,20 @@ on every partial sum) and one recalc runs. A `ResetStructures` prefix/postfix re
 buildings an upgrade repairs for free (cost 0). The poll routes through the same core.
 `BuildingDestroyed` joins the irreversible events a non-rewind discard re-homes as an
 untagged row. `FacilityStatePatcher.PatchFacilities` no longer counts a building id as a
-level-lookup miss, and `PatchDestructionState` clears a tombstoned building's one-shot
-intact default once it has patched it. Career window: its live "now" read is unchanged; its
+level-lookup miss. The live building patch no longer takes the walk's destroyed flag (a walk
+with no cutoff - commit, a not-ready cold load, scene loads, warp start - includes FUTURE
+rows, so it would have demolished a building a reverted-then-merged flight destroys later,
+or repaired one whose repair is still ahead after a rewind; review of PR #1784):
+`PatchLiveDestructionState` folds the effective ledger per building to the last destruction
+/ repair row AT OR BEFORE LIVE UT (`ComputeBuildingDestroyedAtUt`) and acts only where that
+row contradicts the live building (`ResolveLiveDestructionPatch`: no row means never touched,
+so nothing is "restored" from absence - stock state travels with every save, rewind and
+revert; a building mid-collapse / mid-repair is left alone). It does not act while a flight
+is recording, its tree is uncommitted or a tree is pending, or before the clock is ready
+(`ResolveDestructionPatchSkipReason`); that gate also covers the warp-start patch. A
+tombstoned destruction therefore schedules no intact default for its building. The cache
+seed, the poll and the event handlers share one intact test (`TryReadSettledIntact`: a
+building between states has no value and is neither seeded nor compared). Career window: its live "now" read is unchanged; its
 walk already projected a future `FacilityRepair`, which a rewound career can now hold (new
 gallery state `career.facilities.repaired-in-timeline`). The Timeline folds a facility's
 per-building rows of one event into one row with the summed cost
@@ -17534,7 +17546,7 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `decision-vs-truth` | yes | `MapRenderProbe.cs:689` |
 | `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:709` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
-| `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:168` |
+| `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:177` |
 | `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1079` |
 | `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1160` |
 | `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:544` |

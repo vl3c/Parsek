@@ -24,8 +24,11 @@ id = "KB-1-ksc-building-repair-ledger"
 #   4. No KSC-reconciliation warning (the batch sums the rows against the one debit).
 #   5. No flicker: after the repair no recalc demolishes or repairs the building, and
 #      the patcher leaves the mid-collapse / mid-repair building alone.
-#   6. A save + cold reload keeps the building intact, adds no duplicate row, and the
-#      patcher does not have to repair it.
+#   6. A save + cold reload WHILE the building is down keeps it down (the repair after it
+#      repairs exactly one building) with no duplicate row; a second save + cold reload
+#      after the repair keeps it intact; the live building patch touches it neither time.
+#      The patch reads the ledger AT LIVE UT (FacilityStatePatcher.PatchLiveDestructionState)
+#      and is pinned agreeing with stock (matched=1, no demolish / repair).
 #
 # THE STEP SHAPE. demolish-building / repair-facility both DEFER `structures-settling`
 # while any KSC building is between states (Demolish() clears `intact` at once; the
@@ -58,6 +61,11 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "KscAction",  args = { action = "demolish-building", building = "OuterDish" }, expect = "OK", budget = 60 },
+  # Save + cold reload WHILE the dish is down: it must come back destroyed (the repair
+  # below then repairs exactly one building) with no second destruction row, and the live
+  # building patch must not touch it.
+  { cmd = "SaveGame",   args = { name = "persistent" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
   { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
   # Waits out the repair animation, then refuses: nothing left to repair.
   { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/TrackingStation" }, expect = "REJECTED", budget = 60 },
@@ -100,6 +108,9 @@ required = [
   "FacilityRepair: -[1-9][0-9.]*, facilityId=\\S*/OuterDish",
   # The two later repair-facility steps are the refusal, not a second repair.
   "kscaction refused action=repair-facility reason=facility-intact",
+  # The live building patch folds the ledger AT LIVE UT and agrees with stock (matched the
+  # one ledger building, changed nothing) once the clock is ready after a reload.
+  "PatchDestructionState: demolished=0, repaired=0, settling=0, matched=1, noMatch=0, buildings=[0-9]+, ledgerBuildings=1, liveUT=[1-9]",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -111,7 +122,7 @@ forbidden = [
   "KSC spending recorded: type=FacilityDestruction[^\\n]*[\\s\\S]*KSC spending recorded: type=FacilityDestruction",
   "Game state: BuildingRepaired[^\\n]*source=poll",
   "Game state: BuildingDestroyed[^\\n]*source=poll",
-  "kscaction refused action=(demolish-building|repair-facility) reason=(unknown-|blocked-committed|insufficient-funds|building-already-down)",
+  "kscaction refused action=(demolish-building|repair-facility) reason=(unknown-|blocked-committed|insufficient-funds|building-already-down|demolish-not-applied|repair-not-applied)",
 ]
 
 [runtime]

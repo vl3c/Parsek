@@ -1507,9 +1507,10 @@ namespace Parsek
         /// Destruction patch behavior lives in <see cref="FacilityStatePatcher.PatchDestructionState"/>.
         /// </summary>
         internal static void PatchDestructionState(
-            System.Collections.Generic.IReadOnlyDictionary<string, FacilitiesModule.FacilityState> allFacilities)
+            System.Collections.Generic.IReadOnlyDictionary<string, bool> ledgerDestroyedAtUt,
+            double liveUt)
         {
-            FacilityStatePatcher.PatchDestructionState(allFacilities);
+            FacilityStatePatcher.PatchDestructionState(ledgerDestroyedAtUt, liveUt);
         }
 
         /// <summary>

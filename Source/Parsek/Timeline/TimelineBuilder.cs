@@ -663,10 +663,16 @@ namespace Parsek
                         action.UT,
                         action.ContractId);
 
-                // A KSC building's collapse / repair is captured as a BuildingDestroyed /
-                // BuildingRepaired event at the same UT and key as its ledger row, and the
-                // event is swept into a committed milestone like any other; the ledger row
-                // is the one the Timeline shows.
+                // A facility upgrade and a KSC building's collapse / repair are captured as a
+                // FacilityUpgraded / BuildingDestroyed / BuildingRepaired event at the same UT
+                // and key as their ledger row, and the event is swept into a committed
+                // milestone like any other; the ledger row is the one the Timeline shows.
+                case GameActionType.FacilityUpgrade:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.FacilityUpgraded,
+                        action.UT,
+                        action.FacilityId);
+
                 case GameActionType.FacilityDestruction:
                     return EncodeLegacyDuplicateKey(
                         GameStateEventType.BuildingDestroyed,

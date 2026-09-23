@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Parsek
 {
@@ -93,6 +94,14 @@ namespace Parsek
                 if (IsDestructibleBuildingId(facilityId))
                 {
                     buildingEntryCount++;
+                    // A tombstoned destruction / repair schedules a one-shot default for its
+                    // building id too; buildings have no default to restore (see
+                    // PatchLiveDestructionState), so the entry is dropped here.
+                    if (defaultFacilityIdsOnNextPatch.Remove(facilityId) &&
+                        defaultFacilityIdsOnNextPatch.Count == 0)
+                    {
+                        defaultFacilityIdsSaveFolder = null;
+                    }
                     continue;
                 }
 
@@ -207,12 +216,134 @@ namespace Parsek
             if (buildingEntryCount > 0)
                 ParsekLog.VerboseRateLimited(Tag, "patch-facilities-building-entries",
                     $"PatchFacilities: {buildingEntryCount.ToString(IC)} destructible-building " +
-                    "entr(ies) left to PatchDestructionState (no level)");
+                    "entr(ies) skipped by the level patch (no level)");
 
-            // Patch destruction state via DestructibleBuilding components.
-            // Collect all destructibles once (expensive FindObjectsOfType call),
-            // then match against facility states that have destruction data.
-            PatchDestructionState(allFacilities);
+            // Building destroyed / intact state is NOT taken from this walk: see
+            // PatchLiveDestructionState for why and what it reads instead.
+            PatchLiveDestructionState();
+        }
+
+        /// <summary>
+        /// Patches live KSC buildings from the ledger's building state AT LIVE UT.
+        ///
+        /// <para>The contract. A walk can run with no UT cutoff (commit, a cold load before
+        /// the clock is ready, scene loads, the warp-start visual patch), and its
+        /// FacilitiesModule state then includes destruction / repair rows dated after now -
+        /// applying that to a live building would knock down a building a reverted flight
+        /// only destroys later in the timeline, or repair one whose repair is still in the
+        /// future after a rewind. So this reads the effective ledger (ELS) directly and folds,
+        /// per building, the LAST FacilityDestruction / FacilityRepair row at or before live
+        /// UT (<see cref="ComputeBuildingDestroyedAtUt"/>), independent of the walk's
+        /// cutoff.</para>
+        ///
+        /// <para>It acts only when that row CONTRADICTS the live building
+        /// (<see cref="ResolveLiveDestructionPatch"/>). A building with no row at or before
+        /// now is never touched: stock state travels with every save, rewind and revert, and
+        /// the ledger cannot tell a building stock restored (a revert, a quicksave) from one it
+        /// should restore. Nothing is "restored" from the absence of a row, which is also why a
+        /// tombstoned destruction schedules no default for its building.</para>
+        ///
+        /// <para>It does not act at all while a flight is recording or its tree is pending
+        /// (<see cref="ResolveDestructionPatchSkipReason"/>): that flight's collapses are
+        /// tagged and not in the ledger yet, so the ledger's last row can be stale in either
+        /// direction. Nor before the universe clock is ready (UT &lt;= 0 on a cold load).</para>
+        /// </summary>
+        internal static void PatchLiveDestructionState()
+        {
+            if (KspStatePatcher.SuppressUnityCallsForTesting)
+            {
+                VerboseStablePatchState("patch-skip|destruction|test-suppression", "suppressed",
+                    "PatchDestructionState: SuppressUnityCallsForTesting - skipping");
+                return;
+            }
+
+            double liveUt = ReadLiveUniversalTime();
+            string skipReason = ResolveDestructionPatchSkipReason(
+                GameStateRecorder.HasLiveRecorder(),
+                GameStateRecorder.HasActiveUncommittedTree(),
+                RecordingStore.HasPendingTree,
+                liveUt);
+            if (skipReason != null)
+            {
+                VerboseStablePatchState("patch-skip|destruction|gate", skipReason,
+                    $"PatchDestructionState: skipped ({skipReason})");
+                return;
+            }
+
+            PatchDestructionState(ComputeBuildingDestroyedAtUt(EffectiveState.ComputeELS(), liveUt), liveUt);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double ReadLiveUniversalTime()
+        {
+            try { return Planetarium.GetUniversalTime(); }
+            catch (System.Exception) { return 0.0; }
+        }
+
+        /// <summary>
+        /// Pure: why the live building patch must not act now, or null when it may. A flight
+        /// that is recording, or whose tree is still uncommitted / pending, owns collapses the
+        /// ledger has not received; a clock at or below zero is a cold load that has not
+        /// read the save's UT yet.
+        /// </summary>
+        internal static string ResolveDestructionPatchSkipReason(
+            bool hasLiveRecorder, bool hasActiveUncommittedTree, bool hasPendingTree, double liveUt)
+        {
+            if (hasLiveRecorder) return "live recorder active";
+            if (hasActiveUncommittedTree) return "active uncommitted flight tree";
+            if (hasPendingTree) return "pending tree";
+            if (!(liveUt > 0.0)) return "universe clock not ready";
+            return null;
+        }
+
+        /// <summary>
+        /// Pure: per DestructibleBuilding id, whether the ledger says it is destroyed at
+        /// <paramref name="liveUt"/> - the kind of its LAST FacilityDestruction /
+        /// FacilityRepair row with <c>UT &lt;= liveUt</c>, ordered by UT, then sequence, then
+        /// list position. A building with no such row is absent from the result.
+        /// </summary>
+        internal static Dictionary<string, bool> ComputeBuildingDestroyedAtUt(
+            IReadOnlyList<GameAction> effectiveActions, double liveUt)
+        {
+            var result = new Dictionary<string, bool>(System.StringComparer.Ordinal);
+            if (effectiveActions == null)
+                return result;
+
+            var rows = new List<KeyValuePair<int, GameAction>>();
+            for (int i = 0; i < effectiveActions.Count; i++)
+            {
+                GameAction a = effectiveActions[i];
+                if (a == null || string.IsNullOrEmpty(a.FacilityId)) continue;
+                if (a.Type != GameActionType.FacilityDestruction && a.Type != GameActionType.FacilityRepair)
+                    continue;
+                if (a.UT > liveUt) continue;
+                rows.Add(new KeyValuePair<int, GameAction>(i, a));
+            }
+            rows.Sort((x, y) =>
+            {
+                int c = x.Value.UT.CompareTo(y.Value.UT);
+                if (c != 0) return c;
+                c = x.Value.Sequence.CompareTo(y.Value.Sequence);
+                return c != 0 ? c : x.Key.CompareTo(y.Key);
+            });
+            for (int i = 0; i < rows.Count; i++)
+                result[rows[i].Value.FacilityId] = rows[i].Value.Type == GameActionType.FacilityDestruction;
+            return result;
+        }
+
+        /// <summary>
+        /// Pure decision for one live building. <paramref name="ledgerDestroyedAtUt"/> is the
+        /// ledger's state at live UT, or null when the ledger has no row for the building at
+        /// or before now (never acted on). A building between states (stock's collapse or
+        /// repair animation running) is left alone. Otherwise demolish an intact building the
+        /// ledger says is destroyed, and repair a destroyed one the ledger says was repaired.
+        /// </summary>
+        internal static DestructionPatchAction ResolveLiveDestructionPatch(
+            bool? ledgerDestroyedAtUt, bool isIntact, bool isDestroyed)
+        {
+            if (!ledgerDestroyedAtUt.HasValue)
+                return DestructionPatchAction.None;
+            return ResolveDestructionPatch(ledgerDestroyedAtUt.Value, isIntact, isDestroyed);
         }
 
         /// <summary>
@@ -280,14 +411,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Patches DestructibleBuilding components to match the module's destroyed/intact state.
-        /// Collects all DestructibleBuilding objects once, then iterates facilities to find matches.
-        /// Uses exact ID matching between FacilityId and DestructibleBuilding.id.
-        /// No-op if no DestructibleBuilding objects are found (e.g. not in KSC scene).
+        /// Patches DestructibleBuilding components to the ledger's building state at live UT
+        /// (<paramref name="ledgerDestroyedAtUt"/>, from <see cref="ComputeBuildingDestroyedAtUt"/>),
+        /// acting only where it contradicts the live building. Collects all DestructibleBuilding
+        /// objects once and matches by exact id. No-op if none are found (not in a scene with
+        /// KSC buildings).
         /// </summary>
         internal static void PatchDestructionState(
-            IReadOnlyDictionary<string, FacilitiesModule.FacilityState> allFacilities)
+            IReadOnlyDictionary<string, bool> ledgerDestroyedAtUt, double liveUt = 0.0)
         {
+            if (ledgerDestroyedAtUt == null)
+                ledgerDestroyedAtUt = new Dictionary<string, bool>();
             if (KspStatePatcher.SuppressUnityCallsForTesting)
             {
                 VerboseStablePatchState("patch-skip|destruction|test-suppression", "suppressed",
@@ -331,26 +465,17 @@ namespace Parsek
             int matchedCount = 0;
             int noMatchCount = 0;
 
-            foreach (var kvp in allFacilities)
+            foreach (var kvp in ledgerDestroyedAtUt)
             {
                 string facilityId = kvp.Key;
-                var state = kvp.Value;
 
                 DestructibleBuilding db;
                 if (buildingById.TryGetValue(facilityId, out db))
                 {
                     matchedCount++;
-                    // A tombstoned destruction schedules a one-shot intact default for its
-                    // building id; the level loop never clears a building id (it has no
-                    // level), so clear it here once the building has been patched.
-                    if (defaultFacilityIdsOnNextPatch.Remove(facilityId) &&
-                        defaultFacilityIdsOnNextPatch.Count == 0)
-                    {
-                        defaultFacilityIdsSaveFolder = null;
-                    }
 
                     DestructionPatchAction patchAction =
-                        ResolveDestructionPatch(state.Destroyed, db.IsIntact, db.IsDestroyed);
+                        ResolveLiveDestructionPatch(kvp.Value, db.IsIntact, db.IsDestroyed);
                     if (patchAction == DestructionPatchAction.Settling)
                     {
                         // Mid-collapse or mid-repair: stock's own animation is already
@@ -362,15 +487,17 @@ namespace Parsek
                     {
                         db.Demolish();
                         demolishedCount++;
-                        ParsekLog.Verbose(Tag,
-                            $"PatchDestructionState: demolished '{db.id}'");
+                        ParsekLog.Info(Tag,
+                            $"PatchDestructionState: demolished '{db.id}' (ledger: destroyed at or " +
+                            $"before UT {liveUt.ToString("F1", IC)})");
                     }
                     else if (patchAction == DestructionPatchAction.Repair)
                     {
                         db.Repair();
                         repairedCount++;
-                        ParsekLog.Verbose(Tag,
-                            $"PatchDestructionState: repaired '{db.id}'");
+                        ParsekLog.Info(Tag,
+                            $"PatchDestructionState: repaired '{db.id}' (ledger: repaired at or " +
+                            $"before UT {liveUt.ToString("F1", IC)})");
                     }
                 }
                 else
@@ -379,23 +506,29 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Info(Tag,
+            string summary =
                 $"PatchDestructionState: demolished={demolishedCount.ToString(IC)}, " +
                 $"repaired={repairedCount.ToString(IC)}, " +
                 $"settling={settlingCount.ToString(IC)}, " +
                 $"matched={matchedCount.ToString(IC)}, " +
                 $"noMatch={noMatchCount.ToString(IC)}, " +
                 $"buildings={buildingById.Count}, " +
-                $"facilities={allFacilities.Count}");
+                $"ledgerBuildings={ledgerDestroyedAtUt.Count}, " +
+                $"liveUT={liveUt.ToString("F1", IC)}";
+            if (demolishedCount + repairedCount > 0)
+                ParsekLog.Info(Tag, summary);
+            else
+                ParsekLog.Verbose(Tag, summary);
         }
 
         internal enum DestructionPatchAction { None, Demolish, Repair, Settling }
 
         /// <summary>
-        /// Pure decision for one building in <see cref="PatchDestructionState"/>. A building
+        /// Pure decision for one building given a KNOWN target state (see
+        /// <see cref="ResolveLiveDestructionPatch"/> for the null-safe live form). A building
         /// that is neither intact nor destroyed is between states (stock's collapse or repair
         /// animation is running) and is left alone; otherwise demolish an intact building the
-        /// walk says is destroyed, and repair a destroyed one the walk says is intact.
+        /// target says is destroyed, and repair a destroyed one the target says is intact.
         /// </summary>
         internal static DestructionPatchAction ResolveDestructionPatch(
             bool targetDestroyed, bool isIntact, bool isDestroyed)

@@ -42,7 +42,8 @@ namespace Parsek.TestCommands
         /// missing-arg / unknown-tech-node / node-already-unlocked / insufficient-science /
         /// unknown-facility / facility-at-max / insufficient-funds / unknown-kerbal /
         /// kerbal-not-applicant / kerbal-not-dismissable / kerbal-parsek-managed /
-        /// unknown-building / building-already-down / facility-intact.</summary>
+        /// unknown-building / building-already-down / facility-intact. The building applier adds
+        /// demolish-not-applied / repair-not-applied when stock's call left no effect.</summary>
         public string RejectReason;
 
         public KscActionKind Kind;
@@ -593,7 +594,7 @@ namespace Parsek.TestCommands
             // Confirm: Demolish() clears intact synchronously (destroyed follows when the
             // collapse animation completes).
             if (db.IsIntact)
-                return Refuse(action, buildingArg, "blocked-committed");
+                return Refuse(action, buildingArg, "demolish-not-applied");
 
             LogApplied(action, db.id, d.ManifestKind, "intact=false");
             return KscActionExecOutcome.Ok(OkPayload(action, db.id, "intact", "false"));
@@ -635,7 +636,7 @@ namespace Parsek.TestCommands
 
             int destroyedAfter = CountDestroyed(building);
             if (destroyedAfter >= destroyedBefore)
-                return Refuse(action, facility, "blocked-committed");
+                return Refuse(action, facility, "repair-not-applied");
 
             double fundsAfter = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
             string observed = string.Format(CultureInfo.InvariantCulture,

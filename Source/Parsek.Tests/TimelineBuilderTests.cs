@@ -708,6 +708,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FacilityUpgradeRow_ItsLegacyEventTwinIsNotShownTwice()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 300.5, Type = GameActionType.FacilityUpgrade,
+                    FacilityId = "SpaceCenter/TrackingStation", ToLevel = 2, Effective = true },
+            };
+            var milestone = new Milestone
+            {
+                Committed = true,
+                Epoch = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent { ut = 300.5, eventType = GameStateEventType.FacilityUpgraded,
+                        key = "SpaceCenter/TrackingStation", valueBefore = 0f, valueAfter = 0.5f },
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(), actions, new List<Milestone> { milestone }, _ => true, Game.Modes.CAREER);
+
+            var row = Assert.Single(result);
+            Assert.Equal(TimelineSource.GameAction, row.Source);
+        }
+
+        [Fact]
         public void FacilityBuildingRows_SeparateEvents_StaySeparate()
         {
             var actions = new List<GameAction>
