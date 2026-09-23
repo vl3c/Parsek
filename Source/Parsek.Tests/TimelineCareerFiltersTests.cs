@@ -578,6 +578,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ScrollToRecording_LeavesACareerViewForOverview()
+        {
+            var window = new TimelineWindowUI(null);
+            window.TierFilterModeIndexForTesting = (int)TimelineWindowUI.TimelineTierFilterMode.Milestones;
+            window.ScrollToRecording("rec-1");
+            Assert.True(window.IsOpen);
+            Assert.Equal((int)TimelineWindowUI.TimelineTierFilterMode.Overview,
+                window.TierFilterModeIndexForTesting);
+            Assert.Contains(logLines, l => l.Contains("[Timeline]")
+                && l.Contains("recordingId=rec-1") && l.Contains("leftCareerView=True"));
+        }
+
+        [Fact]
+        public void ScrollToRecording_KeepsANonCareerView()
+        {
+            var window = new TimelineWindowUI(null);
+            window.TierFilterModeIndexForTesting = (int)TimelineWindowUI.TimelineTierFilterMode.Details;
+            window.ScrollToRecording("rec-1");
+            Assert.Equal((int)TimelineWindowUI.TimelineTierFilterMode.Details,
+                window.TierFilterModeIndexForTesting);
+        }
+
+        [Fact]
+        public void ForCareerSubject_FoldsARawFacilityBuildingId()
+        {
+            var target = TimelineWindowUI.TimelineScrollTarget.ForCareerSubject(
+                TimelineCareerCategory.Facilities, "SpaceCenter/LaunchPad/Facility/LaunchPadMedium");
+            var folded = TimelineWindowUI.TimelineScrollTarget.ForCareerSubject(
+                TimelineCareerCategory.Facilities,
+                FacilityDisplayNames.FacilityIdForBuilding("SpaceCenter/LaunchPad/Facility/LaunchPadMedium"));
+            Assert.Equal(folded.Describe(), target.Describe());
+        }
+
+        [Fact]
         public void ScrollToCareerSubject_HiddenCategoryKeepsTheView()
         {
             var window = new TimelineWindowUI(null);

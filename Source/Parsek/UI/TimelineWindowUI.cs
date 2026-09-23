@@ -320,7 +320,12 @@ namespace Parsek
 
             internal static TimelineScrollTarget ForCareerSubject(
                 TimelineCareerCategory category, string subjectId)
-                => new TimelineScrollTarget(null, category, subjectId);
+                => new TimelineScrollTarget(null, category,
+                    // Facility rows carry the folded facility id; a caller holding a raw
+                    // building id (SpaceCenter/LaunchPad/Facility/...) must still match.
+                    category == TimelineCareerCategory.Facilities && !string.IsNullOrEmpty(subjectId)
+                        ? FacilityDisplayNames.FacilityIdForBuilding(subjectId)
+                        : subjectId);
 
             internal bool Matches(TimelineEntry entry)
             {
@@ -544,10 +549,15 @@ namespace Parsek
             bool windowWasOpen = showTimelineWindow;
             if (!windowWasOpen)
                 showTimelineWindow = true;
+            // A RecordingStart row has no career category, so a Career view would filter
+            // the target out; fall back to Overview, which always shows it.
+            bool leftCareerView = IsCareerCategoryView(tierFilterMode);
+            if (leftCareerView)
+                SelectView(TimelineTierFilterMode.Overview);
             pendingScrollTarget = TimelineScrollTarget.ForRecording(recordingId);
             ParsekLog.Verbose("Timeline",
                 $"Cross-link: scroll requested for recordingId={recordingId} "
-                + $"(windowWasOpen={windowWasOpen})");
+                + $"(windowWasOpen={windowWasOpen}, leftCareerView={leftCareerView})");
         }
 
         /// <summary>
