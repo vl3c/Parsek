@@ -857,6 +857,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A ghost whose vessel cannot spawn yet now stays visible while Parsek retries.** When a
+  recording ended inside the launch pad or runway exclusion zone, or its spawn failed,
+  Parsek logged that it would keep the ghost at its final position for the 5 second retry
+  window, but the playback engine had already removed the ghost in the same frame: its
+  past-end cleanup ran before the spawn policy had heard that the recording finished, so it
+  saw a ghost nobody was holding. The cleanup for a slot that has just finished now waits
+  until the policy has received that event (still in the same frame), so a held ghost is
+  kept until the spawn succeeds or the hold times out, and a ghost nobody holds is still
+  cleaned up at once. The same applies to the hold while a spawn waits for time warp to end.
+  The policy's log line now says when there is no ghost left to keep visible.
 - **A kerbal whose committed flight ended with his recovery is free again once game time
   passes that recovery.** A Recovered flight's crew reservation was meant to last from the
   start of time until the recovery (design 9.3), but nothing ever compared it with the

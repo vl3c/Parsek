@@ -77,6 +77,19 @@ namespace Parsek
         internal const float HeldGhostTimeoutSeconds = 5.0f;
         internal const float HeldGhostRetryIntervalSeconds = 1.0f;
 
+        /// <summary>
+        /// Log wording for a hold: whether the engine still has a ghost to keep visible. The
+        /// hold is registered either way (it drives the spawn retries), but the log must not
+        /// claim a visible ghost the engine no longer has.
+        /// </summary>
+        internal static string DescribeHeldGhostVisibility(bool engineHasGhost)
+        {
+            return engineHasGhost
+                ? "ghost stays visible"
+                : "no ghost to keep visible (retrying the spawn only)";
+        }
+
+
         internal ParsekPlaybackPolicy(GhostPlaybackEngine engine, ParsekFlight host)
         {
             this.engine = engine ?? throw new ArgumentNullException(nameof(engine));
@@ -638,7 +651,7 @@ namespace Parsek
                         };
                         ParsekLog.Info("Policy",
                             $"Ghost held during warp-deferred spawn: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
-                            $"id={evt.Flags.recordingId}");
+                            $"id={evt.Flags.recordingId} - {DescribeHeldGhostVisibility(engine.HasGhost(evt.Index))}");
                     }
 
                     ParsekLog.Info("Policy",
@@ -679,7 +692,8 @@ namespace Parsek
                                 };
                             ParsekLog.Info("Policy",
                                 $"Ghost held pending spawn retry: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
-                                $"id={evt.Flags.recordingId} — spawn blocked, ghost stays visible");
+                                $"id={evt.Flags.recordingId} - spawn blocked, " +
+                                DescribeHeldGhostVisibility(engine.HasGhost(evt.Index)));
                             return; // Do not destroy the ghost
                         }
                     }

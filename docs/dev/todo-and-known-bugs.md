@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. OPEN; product defect, to be fixed in its OWN PR (engine lifecycle code, needs its own review); EX-1 is its expectedFail witness]
+## ~~D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT~~ [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. FIXED 2026-09-23 on branch `held-ghost-fix`; EX-1 is its live witness]
 
 **Observed** (`EX-1-ghost-extension-past-endut`, reading `2026-09-23_0000`, KSP.log, one
 frame, 03:02:05.928-.937):
@@ -49,6 +49,30 @@ already removed the ghost, so the code disagrees with the design and with itself
 still pending in `deferredCompletedEvents` this frame (or the policy's hold decision has to
 be made before the cleanup runs). A unit cell can drive the engine loop with a fake policy
 that holds on completion and assert the ghost survives the frame. EX-1 is the live witness.
+
+**Fix (2026-09-23).** `GhostPlaybackEngine.ApplyStalePastEndCleanupStep` (the loop's stale
+step) keeps its held check first, so a slot the policy already holds (pending spawn, watched)
+behaves as before; a non-held slot whose completion is still queued
+(`FindPendingCompletedEvent`) is no longer destroyed there but recorded and re-decided by
+`RunStalePastEndCleanupsAfterCompletionDelivery`, which runs right after
+`FireDeferredFrameEvents` in the same frame. That pass leaves a slot alone when the policy
+destroyed or replaced its ghost (state reference check, which also covers an index shift
+during delivery), keeps it when the policy now holds it, and otherwise runs the unchanged
+stale cleanup (chain bridge-hold, else `stale past-end ghost (no longer held)`), so a ghost
+nobody holds is still cleaned up in the frame it completes and the chain-head timing is
+unchanged. The pure rule is `DecideStalePastEndCleanup` (held -> keep, pending -> defer, else
+destroy). An unwatched completion the policy does not hold now ends
+`destroyed (playback completed)` (the policy's own destroy) instead of
+`stale past-end ghost (no longer held)`; S1.9 already accepts both reasons, and the other
+lanes that mention the old reason do so in comments only. The policy's two hold lines
+(`Ghost held pending spawn retry` / `Ghost held during warp-deferred spawn`) now say
+"ghost stays visible" only when the engine still has the ghost
+(`ParsekPlaybackPolicy.DescribeHeldGhostVisibility`). Unit cells:
+`StalePastEndCleanupDeferralTests` (pure decision; engine frame tail with a fake policy that
+holds / leaves / destroys; the mirror direction of an already-delivered stale ghost; the real
+policy's 5 s timeout destroying a held ghost). Mutation: forcing
+`completionPendingDelivery: false` in the loop step reds the hold cell and both post-pass
+cells.
 
 **Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
 
