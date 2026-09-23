@@ -4748,9 +4748,57 @@ into the orbit row whenever the burn gave up before the cut, `serialize_mission_
 instead of the named MISSION-ASSERT-FAIL. Non-finite values are now written as null
 (`RfoGiveUpSerializesTests`); `_2333` and `_2337` report the named verdict.
 
-## OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. OPEN, needs a design decision]
+## ~~OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT~~: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. FIXED 2026-09-23 on branch `optimizer-split-crew`]
 
-MEASURED HEADLESSLY by the skipped
+FIXED (branch `optimizer-split-crew`). Both triggers measured headlessly first, on main:
+trigger 1 left `Dead 8..53` live on the first segment after the re-fly of the second;
+trigger 2 split the superseded TIP (3 recordings instead of 2), the fresh-id half TIP2 was
+IN ERS (the retired flight's tail would play again), and after the second reload both
+deaths came back on TIP2 (`Dead 20..53`). Three changes, each mutation-checked:
+
+- RETAG IN THE SPLIT PASS (closes trigger 1, and trigger 2's death on its own).
+  `RunOptimizationSplitPass` calls `Ledger.RetagActionsForSplitSecondHalf`, whose predicate
+  IS `RecordingTreeSplitter.ShouldRetagLedgerActionToTip` (the Re-Fly split's step 2.9): a
+  row tagged to the first half whose attribution UT is `>= splitUT` moves to the second,
+  keeping its ActionId. A death row is screened by its EndUT, so it follows the terminal and
+  the end states `MoveCrewEndStatesToSecondHalf` moves; a non-death crew row stays with its
+  boarding UT. Every recording-scoped type moves, not only crew rows: tombstoning covers
+  them all (`TombstoneEligibility.IsSupersedeTombstoneEligible`), so the death's paired
+  KerbalDeath reputation penalty, stamped at the recording's end, travels with the death
+  and a re-fly of the second segment retires both. Row content is left to the next load's
+  `MigrateKerbalAssignments`, which re-derives it under the same ids (ruling a1), exactly
+  as it does after a Re-Fly split. Why retag and not re-derive at the split: a1 pairs by
+  (recording, kerbal), so re-deriving would leave the death's ActionId on the first half's
+  Recovered row and give the second half's Dead a fresh id; the retag keeps the id with the
+  fate, the same identity the Re-Fly split keeps. Why not
+  "re-derive after the load-time pass": the in-session splits (every tree / chain commit
+  runs the pass over the WHOLE committed list) would stay open.
+- NEVER SPLIT A SUPERSEDED RECORDING (closes trigger 2 at its root).
+  `FindSplitCandidatesForOptimizer` skips any recording `EffectiveState.IsSupersededByRelation`
+  names. Answer to the design question: a superseded recording should never be
+  optimizer-split. The supersede relation names it by RecordingId (rewind design 3.5
+  invariants 2-3, and `fix-supersede-identity-scope.md`'s premise that every reader keys on
+  ids), so a fresh-id half is named by no relation and re-enters ERS; the recording is not
+  played, so a split buys nothing; and it is the mirror of `CanAutoMerge`'s supersede
+  guard, which already refuses to merge one. Rewind-RETIRED recordings need no such skip:
+  retirement cascades to higher-index chain members sharing `ChainId` +
+  `ProvisionalForRpId`, both of which the split copies.
+- THE MERGE DIRECTION. The optimizer merge pass retagged the absorbed recording's rows only
+  when the absorbed recording was the tree ROOT, so any other absorbed segment's rows were
+  orphaned and the next load's `Ledger.Reconcile` pruned them, ActionId and all (measured
+  on main: a split, a load and a merge back left both crew rows on a deleted id). With the
+  split now moving rows onto later segments this matters more; every absorbed recording's
+  rows now move to the target (`RetagLedgerActionsAfterOptimizationMerge`).
+
+Tests (`TombstoneReloadMigrationTests`): the formerly skipped cell, un-skipped, plus two
+reloads; a retag-by-attribution-UT cell (death rows, before / at / after the cut); the
+paired rep penalty; alive crew (row stays, ids stable over two reloads); crewless; a split,
+merge back and re-split through the real pass; superseded vs non-superseded candidates;
+trigger 2 end to end over two reloads. Reverting the split retag reds 5 cells, the merge
+retag 1, the superseded skip 2. The committed-list index contract is untouched: the
+retags change ledger tags only, and the skip removes candidates.
+
+MEASURED HEADLESSLY (history) by the then-skipped
 `TombstoneReloadMigrationTests.OptimizerSplitOfPopulatedRecording_ReFlyBeforeAnyReload_CrewNotDead`.
 The shape: a committed crewed flight whose crew rows were already derived (Dead for the
 whole flight) is split later by `RecordingStore.RunOptimizationSplitPass` - e.g. a re-fly
@@ -4865,7 +4913,7 @@ FIXED (branch `tombstone-reload`):
   separates the optimizer split from the re-fly is fixed
   (`OptimizerSplitOfPopulatedRecording_ReloadThenReFlyOfSecondSegment_CrewNotDead`). The
   shape with NO load in between is NOT, for a different reason (ledger rows, not end
-  states), filed above as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT.
+  states), filed above as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT (since fixed).
 - `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
   is un-skipped and green, with mirror cells for two reloads, a re-commit of TIP, a merge
   that does not split, a mid-split rollback and a crewless recording; mutation-checked
