@@ -22,7 +22,8 @@ The machine runs ONE automation KSP at a time.
   a session worktree under `.claude/worktrees/` derives the wrong umbrella —
   it reads a nonexistent lock (concluding "free" while a sibling really holds
   it) and resolves no instance. Move to a sibling worktree first.
-- Check for a live `KSP_x64.exe` (`tasklist /FI "IMAGENAME eq KSP_x64.exe"`) —
+- Check for a live `KSP_x64.exe` (`MSYS_NO_PATHCONV=1 tasklist /FI "IMAGENAME eq KSP_x64.exe"`;
+  without the prefix Git Bash rewrites `/FI` into a path and tasklist errors out) —
   an interactive game session blocks a run too (one GPU).
 
 If either is busy: **report the holder (pid, worktree, selection, since) and
