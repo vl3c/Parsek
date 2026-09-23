@@ -56,8 +56,8 @@ its `activeTree.BackgroundMap.Keys` argument). Live proof: SD-1's pre-fix readin
 exactly the two-parent token and the single-parent forbid; the first flight on the fix
 (`2026-09-23_2210`) and the armed re-flight (`2026-09-23_2213`) are green, the latter with the
 save's terminal split (Docked 4 / Orbiting 8, pre-fix 3 / 9) gating. Both flew the first cut of
-the fix (heuristic kept as a fallback, which answered 0 there); the review's heuristic removal
-changes no outcome on that path and was not re-flown.
+the fix (heuristic kept as a fallback, which answered 0 there); the final head `2927c4460` re-flew
+as `2026-09-23_2236`, PASS attempt 1 with the same two-parent merge.
 
 ## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
 

@@ -109,7 +109,8 @@ required = [
   # survives as the merged vessel and the couple event's partner - a BackgroundMap
   # member - becomes the absorbed side. Re-shaped 2026-09-24 by the #1794 review, which
   # dropped the post-couple heuristic and its `heuristicPid=` field from the line; the
-  # flown runs `_2210` / `_2213` printed `heuristicPid=0` between these two fields.
+  # runs `_2210` / `_2213` printed `heuristicPid=0` between these two fields; the re-shaped
+  # token matched live on `2026-09-23_2236` (head `2927c4460`, PASS attempt 1).
   "OnPartCouple target-side absorbed partner: absorbedPid=([0-9]+) partnerPidFromEvent=\\1 partnerInBackgroundMap=True",
   "onPartCouple \\(tree\\): dock merge pending \\(merged=3620499050, absorbed=[1-9][0-9]*, isTarget=True\\)",
 ]
