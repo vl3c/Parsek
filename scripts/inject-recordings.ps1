@@ -21,6 +21,7 @@ $injectFilterByPreset = @{
     "looped-interplanetary" = "InjectLoopedInterplanetary"
     "part-showcase"         = "InjectPartShowcase"
     "pending-limbo-tree"    = "InjectPendingLimboTree"
+    "single-point-hold"     = "InjectSinglePointHold"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -34,6 +35,7 @@ $defaultSaveByPreset = @{
     "looped-interplanetary" = "looped-interplanetary-fixture"
     "part-showcase"         = "part-showcase-fixture"
     "pending-limbo-tree"    = "pending-limbo-tree-fixture"
+    "single-point-hold"     = "single-point-hold-fixture"
 }
 
 $ErrorActionPreference = "Stop"

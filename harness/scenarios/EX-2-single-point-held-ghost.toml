@@ -1,0 +1,317 @@
+schema = 1
+id = "EX-2-single-point-held-ghost"
+# -------------------------------------------------------------------------------------
+# D18 `ghost-extension-past-endut` (catalog section 2: "ghost extension past EndUT while
+# blocked"; design `docs/parsek-flight-recorder-design.md` 13.2 / 13.5 / 13.7), SCOPED TO
+# THE SINGLE-POINT COLLISION HOLD: the non-chain path on which a ghost outlives EndUT
+# because its end-of-playback spawn is blocked and cannot walk back. Todo
+# D18-GHOST-EXTENSION-SINGLE-POINT-HOST; replaces EX-1's claim, which the KSC retirement
+# ruling (2026-09-23) removed.
+#
+# WHAT HOLDS A GHOST PAST EndUT ON THIS PATH (source, 2026-09-23):
+# `ParsekPlaybackPolicy.HandlePlaybackCompleted` writes "Ghost held pending spawn retry:"
+# only when the spawn call returns with `VesselSpawned` still false AND the ghost was live
+# at completion (`GhostWasActive`). `VesselSpawner.CheckSpawnCollisions` leaves
+# `VesselSpawned` false only on its single-point branch ("(single-point trajectory) - will
+# retry next frame"); a recording with two or more points walks back instead, and an
+# exhausted walkback abandons with `VesselSpawned = true`, which is never held. A
+# point-ONLY one-point recording is never live (ghost activation starts at its only point,
+# which is also EndUT), so the host shape is one flat point PLUS an orbit tail: the
+# background on-rails shape. `RetryHeldGhostSpawns` retries every 1 s and gives up at 5 s
+# ("Held ghost timed out: ... destroying ghost without spawn"); the release destroys the
+# ghost with reason `held-spawn-timeout`.
+#
+# THE ROAD. `eva2-lko-crewed` (the focused 28-part `Kerbal X` in LKO, and a separate
+# `Kerbal X Probe` coasting about 16 m away) plus the `single-point-hold` injected preset
+# (`SyntheticRecordingTests.SinglePointOrbitalHold`): one committed single-recording tree,
+# `Single Point Holder`, with ONE point at the save UT on the probe's saved position, a
+# 20 s orbit tail on the probe's own ORBIT elements, an Orbiting terminal carrying that
+# orbit, and a one-part probe snapshot. After the load, 1x time carries the ghost (drawn
+# from the orbit tail, beside the probe) through EndUT; the spawn propagates the terminal
+# orbit onto the probe, and the probe (loaded, not the active vessel, a different name so
+# no #112 recovery) blocks it on the single-point branch. The policy holds the live ghost,
+# retries and times out. LKO is far from the KSC exclusion circles, so the #1783
+# retirement cannot intercept it.
+# -------------------------------------------------------------------------------------
+tier = "nightly"
+description = "D18 ghost-extension-past-endut, SCOPED TO THE SINGLE-POINT COLLISION HOLD (design 13.5): an injected one-point recording with an orbit tail (single-point-hold preset) ends on eva2-lko-crewed's loaded, non-active Kerbal X Probe in LKO. At EndUT the spawn is collision-blocked on the single-point branch (no walkback possible), ParsekPlaybackPolicy holds the live ghost, retries every 1 s and times out at 5 s, and the release destroys the ghost with held-spawn-timeout. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout) and no vessel spawns."
+instanceProfile = "stock-minimal"
+tags = ["EX-2", "D18", "held-ghost", "spawn-blocked", "single-point",
+        "injected-recordings", "R10", "runtime-handles"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "single-point-hold"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "ex2-loaded-count-${c0.count}-pid-${c0.rec0spawnedPid}-spawned-${c0.rec0spawned}" }, expect = "OK" },
+  # 1x flight time: the 20 s orbit tail, EndUT, the 5 s hold and its timeout. About
+  # 0.25 s per inert step.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "ex2-after-hold-count-${c1.count}-pid-${c1.rec0spawnedPid}-spawned-${c1.rec0spawned}" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+D18 = ["ghost-extension-past-endut"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+# REPORT-ONLY until the reading run: the injected shape must survive the load (one
+# committed tree, one recording, Orbiting, and still ONE flat point).
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 1 } }
+
+[expectations.recordings.points]
+total   = { min = 1, max = 1 }
+largest = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required  = [
+  "MISSIONMARK label=ex2-loaded-count-1-pid-0-spawned-false ",
+  "PlaybackCompleted index=[0-9]+ vessel=Single Point Holder ghostWasActive=True pastEffectiveEnd=True needsSpawn=True",
+  # The single-point branch of CheckSpawnCollisions, blocked by the probe.
+  "Spawn blocked for #[0-9]+ \\(Single Point Holder\\): overlaps 'Kerbal X Probe' at [0-9]+m \\(single-point trajectory\\)",
+  "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\" id=single-point-hold-rec - spawn blocked, ghost stays visible",
+  "Stale past-end cleanup after completion delivery: ghost #[0-9]+ \"Single Point Holder\" kept \\(held by the policy\\)",
+  "Held ghost timed out: #[0-9]+ \"Single Point Holder\" id=single-point-hold-rec held=5\\.[0-9]s",
+  "Ghost #[0-9]+ \"Single Point Holder\" destroyed \\(held-spawn-timeout\\)",
+  # The four in order, one match.
+  "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\"[\\s\\S]*?kept \\(held by the policy\\)[\\s\\S]*?Held ghost timed out: #[0-9]+ \"Single Point Holder\" id=\\S+ held=5\\.[0-9]s[\\s\\S]*?\"Single Point Holder\" destroyed \\(held-spawn-timeout\\)",
+  # The vessel never spawned in the session.
+  "MISSIONMARK label=ex2-after-hold-count-1-pid-0-spawned-false ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Held ghost spawn succeeded on retry",
+  "Vessel spawned for #[0-9]+ \"Single Point Holder\"",
+  "Vessel respawned",
+  "Spawn RETIRED for #[0-9]+ \\(Single Point Holder\\)",
+  "walkback rewrote spawn position for #[0-9]+ \\(Single Point Holder\\)",
+  "Duplicate blocker detected for #[0-9]+ \\(Single Point Holder\\)",
+  "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\" [^\\r\\n]*no ghost to keep visible",
+  # REGRESSION (D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME): the stale
+  # past-end cleanup must not destroy the held ghost before the hold times out.
+  "Ghost #[0-9]+ \"Single Point Holder\" destroyed \\(stale past-end ghost \\(no longer held\\)\\)[\\s\\S]*?Held ghost timed out: #[0-9]+ \"Single Point Holder\"",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"

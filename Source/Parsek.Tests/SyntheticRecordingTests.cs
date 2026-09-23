@@ -7021,6 +7021,225 @@ namespace Parsek.Tests
             }
         }
 
+        /// <summary>
+        /// The <c>single-point-hold</c> fixture's host: <c>harness/fixtures/saves/eva2-lko-crewed</c>,
+        /// whose <c>Kerbal X Probe</c> (persistentId 2614652043) coasts about 16 m from the
+        /// focused <c>Kerbal X</c> in LKO. These are that probe's saved <c>lat</c> / <c>lon</c> /
+        /// <c>alt</c> and <c>ORBIT</c> node, verbatim, at the save's own UT
+        /// (<see cref="SinglePointHoldSaveUT"/>, which is also the orbit's EPH).
+        /// </summary>
+        internal const double SinglePointHoldSaveUT = 421.193416442782;
+        internal const double SinglePointHoldProbeLat = -0.080617814295024959;
+        internal const double SinglePointHoldProbeLon = -28.896605991822462;
+        internal const double SinglePointHoldProbeAlt = 101774.99340352404;
+        internal const double SinglePointHoldProbeSma = 699708.45530144661;
+        internal const double SinglePointHoldProbeEcc = 0.0095837474865322;
+        internal const double SinglePointHoldProbeInc = 0.083914572868543175;
+        internal const double SinglePointHoldProbeLpe = 177.66401089976026;
+        internal const double SinglePointHoldProbeLan = 142.01712445106614;
+        internal const double SinglePointHoldProbeMna = 1.8747254586706035;
+        internal const string SinglePointHoldVesselName = "Single Point Holder";
+        internal const string SinglePointHoldRecordingId = "single-point-hold-rec";
+
+        /// <summary>Seconds of orbit tail after the single point: the ghost's live window.</summary>
+        internal const double SinglePointHoldWindowSeconds = 20.0;
+
+        /// <summary>
+        /// A ONE-POINT recording whose Orbiting end sits on the loaded, non-active
+        /// <c>Kerbal X Probe</c>: the shape that holds a ghost past EndUT on the non-chain
+        /// path (design <c>docs/parsek-flight-recorder-design.md</c> 13.5; todo
+        /// D18-GHOST-EXTENSION-SINGLE-POINT-HOST).
+        ///
+        /// <para>
+        /// Each piece is load-bearing (re-derived from source, not from comments):
+        /// ONE flat point, so <c>VesselSpawner.CheckSpawnCollisions</c> cannot walk back
+        /// (walkback needs <c>Points.Count &gt; 1</c>, and an exhausted walkback ABANDONS with
+        /// <c>VesselSpawned = true</c>, which the policy reads as settled and never holds) and
+        /// takes the single-point retry path instead, leaving <c>VesselSpawned</c> false.
+        /// An ORBIT TAIL after that point, because ghost activation starts at the first
+        /// playable payload sample: a point-only one-point recording has StartUT == EndUT, is
+        /// never live, and <c>HandlePlaybackCompleted</c> holds only a ghost that was live
+        /// (<c>GhostWasActive</c>). Past the point the engine positions the ghost from the
+        /// orbit tail (<c>TryFindOrbitTailPlaybackSegment</c>), so it stays beside the probe,
+        /// inside the focused vessel's visual zone.
+        /// An ORBITING terminal carrying the recorded terminal orbit, so the spawn propagates
+        /// the probe's own orbit to the current UT (<c>ShouldUseRecordedTerminalOrbitSpawnState</c>)
+        /// and the collision box lands on the probe whenever EndUT is crossed.
+        /// The probe, not the focused ship, is the blocker: a non-EVA spawn skips the active
+        /// vessel in <c>CheckOverlapAgainstLoadedVessels</c>. The names differ, so the #112
+        /// duplicate-blocker recovery leaves the probe alone.
+        /// </para>
+        /// </summary>
+        internal static RecordingBuilder SinglePointOrbitalHold(double baseUT)
+        {
+            double t = baseUT;
+            var b = new RecordingBuilder(SinglePointHoldVesselName)
+                .WithRecordingId(SinglePointHoldRecordingId);
+            b.AddPoint(t, SinglePointHoldProbeLat, SinglePointHoldProbeLon, SinglePointHoldProbeAlt);
+            b.AddOrbitSegment(t, t + SinglePointHoldWindowSeconds,
+                inc: SinglePointHoldProbeInc, ecc: SinglePointHoldProbeEcc,
+                sma: SinglePointHoldProbeSma, lan: SinglePointHoldProbeLan,
+                argPe: SinglePointHoldProbeLpe, mna: SinglePointHoldProbeMna,
+                epoch: SinglePointHoldSaveUT);
+            b.WithTerminalState((int)TerminalState.Orbiting);
+            b.WithTerminalOrbit("Kerbin", SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
+                SinglePointHoldProbeInc, SinglePointHoldProbeLan, SinglePointHoldProbeLpe,
+                SinglePointHoldProbeMna, SinglePointHoldSaveUT);
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip(SinglePointHoldVesselName, pid: 71000001)
+                    .AsOrbiting(SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
+                        SinglePointHoldProbeInc, lan: SinglePointHoldProbeLan,
+                        argPe: SinglePointHoldProbeLpe, mna: SinglePointHoldProbeMna,
+                        epoch: SinglePointHoldSaveUT));
+            return b;
+        }
+
+        [Fact]
+        public void SinglePointOrbitalHold_MaterializesTheHoldShape()
+        {
+            // The tree record carries the metadata (terminal orbit, snapshot); the
+            // trajectory travels in the sidecar, so load it the production way.
+            RecordingBuilder builder = SinglePointOrbitalHold(SinglePointHoldSaveUT);
+            RecordingTree tree = ScenarioWriter.MaterializeTree(new[] { builder });
+            Recording rec = tree.Recordings[SinglePointHoldRecordingId];
+            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+
+            Assert.Single(rec.Points);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(SinglePointHoldSaveUT, rec.Points[0].ut);
+            Assert.Equal(SinglePointHoldSaveUT + SinglePointHoldWindowSeconds, rec.EndUT);
+            // A live window: activation is the point, EndUT the orbit tail's end, and the
+            // engine positions the ghost from that tail up to EndUT.
+            Assert.True(rec.TryGetGhostActivationStartUT(out double activationUT));
+            Assert.Equal(SinglePointHoldSaveUT, activationUT);
+            Assert.True(GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
+                rec, SinglePointHoldSaveUT + SinglePointHoldWindowSeconds, out _, out _));
+            Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+            Assert.Equal(SinglePointHoldProbeSma, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(SinglePointHoldSaveUT, rec.TerminalOrbitEpoch);
+            Assert.NotNull(rec.VesselSnapshot);
+        }
+
+        [Fact]
+        public void SinglePointOrbitalHold_SidecarRoundTripKeepsOnePoint()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            string dir = Path.Combine(Path.GetTempPath(), "parsek-sp-hold-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var writer = new ScenarioWriter().WithV3Format();
+                writer.AddRecordingAsTree(SinglePointOrbitalHold(SinglePointHoldSaveUT));
+                try
+                {
+                    writer.WriteSidecarFiles(dir);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    throw new InvalidOperationException(
+                        ex.Message + "\n" + string.Join("\n", logLines), ex);
+                }
+
+                string recDir = Path.Combine(dir, "Parsek", "Recordings");
+                var loaded = new Recording { RecordingId = SinglePointHoldRecordingId };
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    loaded,
+                    Path.Combine(recDir, SinglePointHoldRecordingId + ".prec"),
+                    Path.Combine(recDir, SinglePointHoldRecordingId + "_vessel.craft"),
+                    Path.Combine(recDir, SinglePointHoldRecordingId + "_ghost.craft")));
+                Assert.Single(loaded.Points);
+                Assert.Single(loaded.OrbitSegments);
+                Assert.Equal(SinglePointHoldSaveUT + SinglePointHoldWindowSeconds, loaded.EndUT);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                if (Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="SinglePointOrbitalHold"/> (the <c>single-point-hold</c>
+        /// preset behind <c>EX-2-single-point-held-ghost</c>): one committed
+        /// single-recording tree, no RewindPoint sidecar. Same env contract and guarded
+        /// purge as every sibling injector. The recording is authored against
+        /// <c>eva2-lko-crewed</c>'s probe, so a target save at any other UT is refused
+        /// rather than injected with a point the probe is not at.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("single-point-hold-fixture")]
+        public void InjectSinglePointHold()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "single-point-hold-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
+
+            double baseUT = ReadUTFromSave(targetPath);
+            Assert.True(Math.Abs(baseUT - SinglePointHoldSaveUT) < 1e-3,
+                "single-point-hold is authored against eva2-lko-crewed (UT="
+                + SinglePointHoldSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                + "); target save UT is "
+                + baseUT.ToString("R", CultureInfo.InvariantCulture));
+
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            var writer = new ScenarioWriter().WithV3Format();
+            writer.AddRecordingAsTree(SinglePointOrbitalHold(baseUT));
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = " + SinglePointHoldVesselName, content);
+                    Assert.Contains(SinglePointHoldRecordingId, content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+        }
+
         [Trait("Category", "Manual")]
         [InjectTargetFact("test career")]
         public void InjectAllRecordings()

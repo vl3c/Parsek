@@ -151,7 +151,20 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # RewindPoint, so no RP sidecar. Consumers:
                                         # S0.9-automerge-pending-limbo-cold-load,
                                         # S0.10-automerge-limbo-warm-exit.
-                                        "pending-limbo-tree")
+                                        "pending-limbo-tree",
+                                        # single-point-hold: ONE committed
+                                        # one-point recording (plus an orbit
+                                        # tail) whose Orbiting end sits on
+                                        # eva2-lko-crewed's loaded, non-active
+                                        # Kerbal X Probe, so its end-of-playback
+                                        # spawn is collision-blocked with no
+                                        # walkback and the ghost is held past
+                                        # EndUT. `--filter
+                                        # InjectSinglePointHold`; the injector
+                                        # refuses a target save at another UT.
+                                        # No RP. Consumer:
+                                        # EX-2-single-point-held-ghost.
+                                        "single-point-hold")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
