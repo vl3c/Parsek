@@ -538,6 +538,19 @@ more right-aligned action buttons. Row colour is one of six cached styles (`:126
 strikethrough when `!IsEffective`, dim when future, blue when `IsPlayerAction`, else green /
 red / white.
 
+Row text for career rows: a contract row (Accept / Complete / Fail / Cancel) names the
+contract - its own `ContractTitle`, else the title of the same contract's accept in the ELS
+(`GameActionDisplay.BuildContractAcceptIndex`), else the humanized contract type, else
+`Contract <first id block>` (an accept outside the ledger: pre-Parsek or tombstoned). A
+facility row names the facility through `FacilityDisplayNames.ResolveBuildingDisplayName`,
+the Career window's resolver, so a building-level destructible id reads as its facility
+(`Launchpad destroyed`). The three source toggles route rows by
+`TimelineWindowUI.ResolveSourceToggle`: every recording-sourced row (crew deaths included) is
+Recordings; a ledger or legacy row is Actions when `TimelineEntryDisplay.IsPlayerAction`,
+else Events (milestones, contract completions and failures, earnings, recoveries,
+destructions). The toggle tooltips are consts pinned to that routing by
+`TimelineCareerNamesTests`.
+
 Four mutually exclusive tier views (`TimelineTierFilterMode`, `:33-39`, default `Overview`):
 
 | mode | row predicate | effect on the three source toggles |
@@ -723,7 +736,8 @@ committing recording), so a past `FacilityDestruction` would read as destroyed f
 ledger supplies only what the recorded future does after live UT: a destruction in a
 committed flight reads `destroyed <date>`, dated when the facility as a whole goes down. Both
 sources key a building by its DestructibleBuilding id (`SpaceCenter/LaunchPad/Facility/...`),
-mapped to its facility row by `FacilityIdForBuilding`. Every cell's text (dates, rewards,
+mapped to its facility row by `FacilityDisplayNames.FacilityIdForBuilding` (`UI/FacilityDisplayNames.cs`, shared with
+the Timeline's facility rows). Every cell's text (dates, rewards,
 banner, section bars) is formatted once per rebuild, and the rebuild runs once per game
 minute (the compact date's finest unit), or once per second while a deadline is within two
 minutes of now and its tail reads in seconds.

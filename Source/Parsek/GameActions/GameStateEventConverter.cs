@@ -833,6 +833,20 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// The contract title a ContractCompleted / Failed / Cancelled event's detail carries
+        /// (<c>title=...;</c>, written by the recorder since the outcome events existed), or
+        /// null when absent or empty. Stored on the outcome action so its Timeline row names
+        /// the contract even when the accept is not in the ledger (a contract accepted
+        /// before Parsek was installed). Additive: older rows without it still resolve by
+        /// contract id (<see cref="GameActionDisplay.BuildContractAcceptIndex"/>).
+        /// </summary>
+        internal static string ExtractOutcomeContractTitle(string detail)
+        {
+            string title = ExtractDetail(detail, "title");
+            return string.IsNullOrEmpty(title) ? null : title;
+        }
+
         /// <summary>ContractCompleted -> ContractComplete (contractId=key, rewards from detail).</summary>
         private static GameAction ConvertContractCompleted(GameStateEvent evt, string recordingId)
         {
@@ -862,6 +876,7 @@ namespace Parsek
                 Type = GameActionType.ContractComplete,
                 RecordingId = recordingId,
                 ContractId = evt.key,
+                ContractTitle = ExtractOutcomeContractTitle(evt.detail),
                 FundsReward = fundsReward,
                 RepReward = repReward,
                 ScienceReward = sciReward
@@ -888,6 +903,7 @@ namespace Parsek
                 Type = GameActionType.ContractFail,
                 RecordingId = recordingId,
                 ContractId = evt.key,
+                ContractTitle = ExtractOutcomeContractTitle(evt.detail),
                 FundsPenalty = fundsPenalty,
                 RepPenalty = repPenalty
             };
@@ -913,6 +929,7 @@ namespace Parsek
                 Type = GameActionType.ContractCancel,
                 RecordingId = recordingId,
                 ContractId = evt.key,
+                ContractTitle = ExtractOutcomeContractTitle(evt.detail),
                 FundsPenalty = fundsPenalty,
                 RepPenalty = repPenalty
             };

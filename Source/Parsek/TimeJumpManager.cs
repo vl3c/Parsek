@@ -372,8 +372,10 @@ namespace Parsek
                 // Recompute orbital elements at the new epoch from the pre-jump state vectors.
                 ApplyEpochShifts(capturedStates, targetUT);
 
-                // Step 4: Process crossed chain tips — spawn real vessels
-                var spawnedChainKeys = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
+                // Step 4: Process crossed chain tips — spawn real vessels (a tip whose
+                // flight ended in the KSC exclusion zone is retired and its chain closed)
+                var spawnedChainKeys = SpawnCrossedChainTips(
+                    chains, ghoster, t0, targetUT, out int retiredChainCount);
 
                 // Remove spawned chains from caller's dict (#79 — SpawnCrossedChainTips
                 // returns chain keys and no longer mutates the dict directly)
@@ -392,8 +394,8 @@ namespace Parsek
 
                 ParsekLog.Info(Tag,
                     string.Format(ic,
-                        "Time jump complete: {0} vessels spawned, {1} ghosts remaining",
-                        spawnedChainKeys.Count, remainingGhosts));
+                        "Time jump complete: {0} vessels spawned, {1} chain tip(s) retired at KSC, {2} ghosts remaining",
+                        spawnedChainKeys.Count - retiredChainCount, retiredChainCount, remainingGhosts));
             }
             finally
             {
@@ -632,15 +634,32 @@ namespace Parsek
 
         /// <summary>
         /// Spawns real vessels for all chain tips crossed during a time jump.
-        /// Returns the original-vessel PID keys for successfully spawned chains
-        /// (caller is responsible for removing them from the chains dictionary).
-        /// Does NOT mutate the input chains dict (#79).
+        /// Returns the original-vessel PID keys for settled chains: successfully spawned
+        /// ones, and ones whose tip was retired at KSC (operator ruling 2026-09-23; the
+        /// tip's flight ended parked in the KSC exclusion zone, so there is no vessel and
+        /// the chain's map ghost is removed here). The caller is responsible for removing
+        /// them from the chains dictionary. Does NOT mutate the input chains dict (#79).
         /// </summary>
         internal static List<uint> SpawnCrossedChainTips(
             Dictionary<uint, GhostChain> chains,
             VesselGhoster ghoster,
             double t0, double targetUT)
         {
+            return SpawnCrossedChainTips(chains, ghoster, t0, targetUT, out _);
+        }
+
+        /// <summary>
+        /// <see cref="SpawnCrossedChainTips(Dictionary{uint, GhostChain}, VesselGhoster, double, double)"/>
+        /// that also reports how many of the returned keys are KSC retirements rather
+        /// than spawns.
+        /// </summary>
+        internal static List<uint> SpawnCrossedChainTips(
+            Dictionary<uint, GhostChain> chains,
+            VesselGhoster ghoster,
+            double t0, double targetUT,
+            out int retiredCount)
+        {
+            retiredCount = 0;
             var crossed = FindCrossedChainTips(chains, t0, targetUT);
             var spawnedChainKeys = new List<uint>();
 
@@ -665,6 +684,12 @@ namespace Parsek
                             string.Format(ic,
                                 "Chain tip spawned during jump: vessel={0} spawnedPid={1}",
                                 chain.OriginalVesselPid, spawnedPid));
+                    }
+                    else if (VesselGhoster.IsChainTipSettledAsKscRetirement(chain))
+                    {
+                        spawnedChainKeys.Add(chain.OriginalVesselPid);
+                        retiredCount++;
+                        VesselGhoster.ReleaseChainRetiredAtKsc(chain, "time-jump");
                     }
                     else if (chain.SpawnBlocked)
                     {

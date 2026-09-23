@@ -670,7 +670,7 @@ namespace Parsek
                                 break;
                             }
                             FacilityAcc f = GetOrAddFacility(
-                                facilityStateTerm, FacilityIdForBuilding(a.FacilityId));
+                                facilityStateTerm, FacilityDisplayNames.FacilityIdForBuilding(a.FacilityId));
                             f.Level = a.ToLevel;
                             f.LevelUT = a.UT;
                         }
@@ -857,24 +857,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// The facility a ledger facility id belongs to. An upgrade carries the facility's
-        /// own id (<c>SpaceCenter/LaunchPad</c>), a destruction or repair the id of ONE of
-        /// its destructible buildings (<c>SpaceCenter/LaunchPad/Facility/&lt;part&gt;</c>),
-        /// so both are reduced to the segment after <c>SpaceCenter/</c>. A bare id
-        /// (<c>LaunchPad</c>) is already a facility id.
-        /// </summary>
-        internal static string FacilityIdForBuilding(string buildingId)
-        {
-            if (string.IsNullOrEmpty(buildingId)) return "";
-            const string prefix = "SpaceCenter/";
-            string rest = buildingId.StartsWith(prefix, StringComparison.Ordinal)
-                ? buildingId.Substring(prefix.Length)
-                : buildingId;
-            int slash = rest.IndexOf('/');
-            return slash < 0 ? rest : rest.Substring(0, slash);
-        }
-
         private static FacilityAcc GetOrAddFacility(
             Dictionary<string, FacilityAcc> map, string facilityId)
         {
@@ -905,7 +887,7 @@ namespace Parsek
                 foreach (string building in liveDestroyedBuildingIds)
                 {
                     if (string.IsNullOrEmpty(building)) continue;
-                    string fid = FacilityIdForBuilding(building);
+                    string fid = FacilityDisplayNames.FacilityIdForBuilding(building);
                     GetOrAddFacility(current, fid).DestroyedBuildings.Add(building);
                     GetOrAddFacility(terminal, fid).DestroyedBuildings.Add(building);
                 }
@@ -915,7 +897,7 @@ namespace Parsek
             {
                 GameAction a = futureBuildingChanges[i];
                 string building = a.FacilityId ?? "";
-                FacilityAcc f = GetOrAddFacility(terminal, FacilityIdForBuilding(building));
+                FacilityAcc f = GetOrAddFacility(terminal, FacilityDisplayNames.FacilityIdForBuilding(building));
                 bool wasDestroyed = f.Destroyed;
                 if (a.Type == GameActionType.FacilityDestruction)
                     f.DestroyedBuildings.Add(building);
@@ -1137,7 +1119,7 @@ namespace Parsek
                     facilitiesVM.Rows.Add(new FacilityRow
                     {
                         FacilityId = fid,
-                        DisplayTitle = ResolveFacilityDisplayName(fid),
+                        DisplayTitle = FacilityDisplayNames.ResolveFacilityDisplayName(fid),
                         CurrentLevel = cur.Level,
                         CurrentDestroyed = cur.Destroyed,
                         ProjectedLevel = term.Level,
@@ -1648,89 +1630,6 @@ namespace Parsek
             ParsekLog.Verbose("UI",
                 $"CareerStateWindow: live destroyed-building read buildings={table.Count} live={live} persisted={persisted} destroyed={destroyed.Count}");
             return destroyed;
-        }
-
-        /// <summary>
-        /// Test seam for the stock facility display-name lookup. When non-null, Build()
-        /// calls it instead of <c>ScenarioUpgradeableFacilities.GetFacilityName</c>.
-        /// </summary>
-        internal static Func<string, string> FacilityNameLookupForTesting;
-
-        // Stock names resolved once per facility id. Only successful lookups are cached,
-        // so a lookup attempted before KSP's Localizer is up is retried on the next build.
-        private static readonly Dictionary<string, string> facilityNameCache =
-            new Dictionary<string, string>(StringComparer.Ordinal);
-
-        /// <summary>
-        /// The facility's display name: stock's own localized name
-        /// (<c>ScenarioUpgradeableFacilities.GetFacilityName</c>, e.g. "Research and
-        /// Development", "Launchpad") when KSP can answer, else the humanized id.
-        /// </summary>
-        internal static string ResolveFacilityDisplayName(string facilityId)
-        {
-            if (string.IsNullOrEmpty(facilityId)) return facilityId;
-            var lookup = FacilityNameLookupForTesting;
-            string stock;
-            if (lookup != null)
-            {
-                stock = lookup(facilityId);
-            }
-            else
-            {
-                if (facilityNameCache.TryGetValue(facilityId, out string cached))
-                    return cached;
-                stock = LookupStockFacilityName(facilityId);
-                if (IsUsableStockName(stock))
-                    facilityNameCache[facilityId] = stock;
-            }
-            return IsUsableStockName(stock) ? stock : HumanizeFacilityId(facilityId);
-        }
-
-        private static bool IsUsableStockName(string name)
-        {
-            // An unresolved localization tag comes back verbatim ("#autoLOC_6001646").
-            return !string.IsNullOrEmpty(name) && name[0] != '#';
-        }
-
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static string LookupStockFacilityName(string facilityId)
-        {
-            try
-            {
-                return LookupStockFacilityNameCore(facilityId);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.VerboseRateLimited("UI",
-                    "CareerStateWindow.facilityNameThrew",
-                    $"CareerStateWindow: facility name lookup threw id={facilityId} ex={ex.GetType().Name}");
-                return null;
-            }
-        }
-
-        // Separate NoInlining core: mono resolves a KSP type's failing initializer when it
-        // JITs the CALLING method, so the call that can throw headlessly sits one frame
-        // below the try/catch that handles it.
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static string LookupStockFacilityNameCore(string facilityId)
-        {
-            SpaceCenterFacility facility;
-            if (!Enum.TryParse(facilityId, false, out facility)) return null;
-            return ScenarioUpgradeableFacilities.GetFacilityName(facility);
-        }
-
-        /// <summary>
-        /// Fallback facility name when stock cannot answer (headless tests, an unknown
-        /// id): PascalCase split, with the conjunction lowercased the way stock writes it
-        /// ("ResearchAndDevelopment" -> "Research and Development").
-        /// </summary>
-        internal static string HumanizeFacilityId(string facilityId)
-        {
-            string spaced = SpaceBeforeCapitals(facilityId);
-            if (string.IsNullOrEmpty(spaced)) return spaced;
-            return spaced.Replace(" And ", " and ");
         }
 
         // ================================================================
