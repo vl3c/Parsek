@@ -6761,6 +6761,101 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Injects the RELATIVE-LOOP corpus (the <c>relative-loop</c> preset behind
+        /// <c>RL-1-relative-loop-live-anchor</c>, the D3 <c>relative-loop</c> claim): ONE looped
+        /// recording whose RELATIVE sections are anchored to a LIVE vessel through
+        /// <see cref="Recording.LoopAnchorVesselId"/>. See <see cref="RelativeLoopAnchorFixture"/>
+        /// for why the anchor is <c>pad-runway-pair</c>'s non-active runway rover.
+        ///
+        /// <para>
+        /// Same env contract and guarded purge as the sibling injectors
+        /// (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE / _CLEAN_START), with its own default save
+        /// name so a bare full-suite run no-ops here. The recording is timed off the target
+        /// save's own UT (it ends <see cref="RelativeLoopAnchorFixture.EndBeforeSaveSeconds"/>
+        /// before it), and the fact refuses a target that does not carry the anchor vessel: the
+        /// anchor pid is baked into the fixture, so on any other save the lane would boot a
+        /// ghost whose anchor never loads. No RP sidecar (run.py RP_SIDECAR_BY_PRESET maps the
+        /// preset to None).
+        /// </para>
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("relative-loop-fixture")]
+        public void InjectRelativeLoopAnchor()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "relative-loop-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
+
+            string anchorToken = "persistentId = "
+                + RelativeLoopAnchorFixture.AnchorPid.ToString(CultureInfo.InvariantCulture);
+            Assert.True(File.ReadAllText(targetPath).Contains(anchorToken),
+                "relative-loop preset needs a host save carrying the anchor vessel '"
+                + RelativeLoopAnchorFixture.AnchorVesselName + "' (" + anchorToken
+                + "), i.e. pad-runway-pair: " + targetPath);
+
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            double saveUT = ReadUTFromSave(targetPath);
+            var writer = new ScenarioWriter().WithV3Format();
+            RelativeLoopAnchorFixture.PopulateWriter(writer, saveUT);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = " + RelativeLoopAnchorFixture.VesselName, content);
+                    Assert.Contains(RelativeLoopAnchorFixture.RecordingId, content);
+                    Assert.Contains(
+                        "loopAnchorPid = "
+                        + RelativeLoopAnchorFixture.AnchorPid.ToString(CultureInfo.InvariantCulture),
+                        content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+        }
+
+        /// <summary>
         /// Injects ONLY the part-showcase corpus (the <c>part-showcase</c> preset behind
         /// <c>S1.9-part-showcase-render</c>): every auto-generated
         /// "Part Showcase - &lt;part&gt;" row and nothing else - no flight recordings, no

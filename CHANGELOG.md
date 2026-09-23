@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane replays a loop anchored to a live vessel.**
+  `RL-1-relative-loop-live-anchor` injects one looped recording that plays relative to the
+  rover on the runway of the `pad-runway-pair` save (the new `relative-loop` injection
+  preset, built with the new `RecordingBuilder.WithLoopAnchorVesselId`). It checks that the
+  rover's arrival switches the loop on and that the ghost is placed from the rover's live
+  position (not a recorded one) for both of its recorded offsets. It found that a loop anchored to the vessel being flown would never
+  play, because that vessel finishes loading before Parsek starts listening, and that the
+  distance used to decide whether such a ghost is drawn comes from the anchor's recorded
+  track rather than the live vessel; nothing sets such an anchor today, so both are filed
+  rather than fixed.
 - **Automated testing: two lanes cover what happens to dropped boosters.**
   `GS-10-kerbalx-debris-ttl` flies the Kerbal X crash lane with the throttle held off from the
   last booster drop, so the stack falls back beside its boosters and Parsek stops recording

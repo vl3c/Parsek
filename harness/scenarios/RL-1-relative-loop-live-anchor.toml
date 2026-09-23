@@ -1,0 +1,144 @@
+schema = 1
+id = "RL-1-relative-loop-live-anchor"
+# -------------------------------------------------------------------------------------
+# D3 `relative-loop`: a LOOP-ANCHORED RELATIVE recording replayed by the PRODUCTION
+# live-PID loop positioner against a LIVE anchor vessel (roadmap register 2026-09-11,
+# item C5; todo D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL).
+#
+# WHY SYNTHETIC. Production sets `Recording.LoopAnchorVesselId` only at load, from the
+# `loopAnchorPid` key (RecordingTreeRecordCodec.LoadRecordingPlaybackAndLinkage); no
+# recorder path writes it, so no flown lane reaches this playback path. The
+# `relative-loop` injection preset authors the one recording
+# (Source/Parsek.Tests/Generators/RelativeLoopAnchorFixture.cs, via the new
+# RecordingBuilder.WithLoopAnchorVesselId): two RELATIVE sections of 10 s, both anchored to
+# pid 95298807, section A at anchor-local offset (0,0,0), section B at (0,20,0), loop period
+# 20 s = duration (single-ghost path), ghost-only (nothing to spawn). It ends 2 s before the
+# save's UT, so the loop is already running when the scene loads. Production-shaped, the
+# sections ALSO name a recorded anchor (`anchorRecordingId`): the tree carries a stationary
+# Absolute track of the rover covering the loop. The recorder never writes a RELATIVE section
+# without one, and the flight engine's zone distance resolves a RELATIVE section through it:
+# without it (attempt `2026-09-23_2034`) the distance read unresolved, the zone LOD hid the
+# ghost before any positioning (`loop hidden by distance LOD at unresolved`), and the live-PID
+# loop positioner never ran although both anchor-load lines printed.
+#
+# THE ANCHOR IS THE NON-ACTIVE RUNWAY ROVER, deliberately. Host `pad-runway-pair`: focus is
+# `Logi Cargo Rig` on the pad, the anchor is `rover fuel 0` (pid 95298807) on the runway
+# ~1.8 km away. The engine skips a loop-anchored ghost until the anchor pid is in
+# `loadedAnchorVessels`, whose only production writer is ParsekFlight.OnVesselLoaded
+# (GameEvents.onVesselLoaded). The ACTIVE vessel loads inside FlightDriver.Start
+# (FlightGlobals.SetActiveVessel -> Vessel.MakeActive -> Vessel.Load, decompiled), before
+# ParsekFlight.Start subscribes, so an active-vessel anchor would never be marked loaded on
+# a scene load. A nearby vessel loads later, from Vessel.Update's distance check once
+# FlightGlobals.ready (measured on EX-1 `2026-09-23_2124`: `[rover fuel 0]: landed -
+# waiting for ground contact` prints 160 ms AFTER `Parsek Flight loaded.`).
+#
+# WHAT IS GATED (every literal verified against its C# producer):
+#   - GhostPlaybackLogic.ShouldSpawnLoopedGhost's `anchor pid=... valid` line and
+#     ParsekFlight.OnVesselLoaded's `Anchor vessel loaded:` line: the anchor-load contract.
+#   - ParsekFlight.PositionLoopGhost's one-shot `Anchor-relative loop playback started:`
+#     line: the engine routed the ghost through the live-PID loop positioner
+#     (GhostPlaybackLogic.ShouldUseLoopAnchor), not the recorded-anchor path.
+#   - InterpolateAndPositionLoopRelative's `RELATIVE playback: ... source=live` line for
+#     BOTH authored offsets: it prints only after `ghost.transform.position` was set from
+#     TryResolveLoopLiveAnchorPose (the live anchor's transform), never from a recorded
+#     trajectory.
+#   - THE PLACEMENT FACET: the GhostRenderTrace `RelativeResolver resolver=
+#     loop-relative-position reason=resolved ... source=live anchorPos=X ...
+#     localOffset=(0.00,0.00,0.00) output=X` line, matched with a regex BACKREFERENCE: at
+#     zero offset the resolver output equals the live anchor pose (source=live gated). The
+#     output is ResolveRelativePlaybackPosition(anchorPos, rot, 0,0,0) printed beside
+#     anchorPos, so the equality is arithmetic (pinned headlessly by
+#     RelativeLoopAnchorFixtureTests); what the line gates is that the loop-relative
+#     resolver ran against the LIVE anchor. The recorded anchor track the sections name is a
+#     separate ProbeShip ghost, not the rover's own recording; it only feeds the zone distance. A section-change window opens at every B -> A loop
+#     wrap, so every cycle traces section A. Needs `ghostRenderTracing`, armed below.
+#
+# NOT CLAIMED: D14 (this is a synthetic-recording lane), D16 (the sidecar is the injector's).
+# -------------------------------------------------------------------------------------
+tier = "nightly"
+description = "D3 relative-loop: inject one loop-anchored RELATIVE recording (LoopAnchorVesselId = pad-runway-pair's non-active runway rover) and gate the production live-PID loop path end to end: the anchor-load lines, the anchor-relative loop positioner, source=live offset application for both authored offsets, and a placement facet: at zero offset the loop-relative resolver output equals the live anchor pose (source=live gated)."
+instanceProfile = "stock-minimal"
+tags = ["RL-1", "relative-loop", "loop-anchor", "live-anchor", "synthetic", "C5"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/pad-runway-pair"
+injectedRecordings = "relative-loop"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree",   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  # Settle before the warp: reading attempt `2026-09-23_2040` sent WarpToUT 17 ms before
+  # `Unpacking Logi Cargo Rig` and was refused `warp-locked` (~0.25 s per inert step).
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # ~80 s of 1x flight time (the save loads at UT 25.26): about four 20 s loop cycles
+  # after the rover loads, so four B -> A wraps open four section-A trace windows.
+  { cmd = "WarpToUT",   args = { ut = "110", maxRate = "1" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "rl1-after-dwell-count-${c0.count}" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D3 = ["relative-loop"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The two injected recordings (the loop and its recorded anchor track); `.prec` sidecars.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # The anchor-load contract (ParsekFlight.OnVesselLoaded -> ShouldSpawnLoopedGhost).
+  "ShouldSpawnLoopedGhost: rec 'Relative Loop Anchor Probe' anchor pid=95298807 valid, returning true",
+  "Anchor vessel loaded: pid=95298807, rec #[0-9]+ 'Relative Loop Anchor Probe' phase cycle=[0-9]+ loopUT=[0-9.]+ paused=False",
+  # The live-PID loop positioner (ParsekFlight.PositionLoopGhost, one-shot Info).
+  "Anchor-relative loop playback started: recording #[0-9]+ \"Relative Loop Anchor Probe\" anchorPid=95298807 contract=anchor-local version=1 sectionUT=\\[",
+  # Both authored offsets applied against the LIVE anchor (InterpolateAndPositionLoopRelative).
+  "RELATIVE playback: contract=anchor-local version=1 dx=0\\.00 dy=0\\.00 dz=0\\.00 \\|offset\\|=0\\.00m anchor=95298807 source=live",
+  "RELATIVE playback: contract=anchor-local version=1 dx=0\\.00 dy=20\\.00 dz=0\\.00 \\|offset\\|=20\\.00m anchor=95298807 source=live",
+  # PLACEMENT: at zero offset the resolver output equals the live anchor pose, source=live (backreference \\1).
+  "phase=RelativeResolver rec=\\S+ recId=relloopanchor00000000000000000d3 ghostIndex=[0-9]+ frame=[0-9]+ currentUT=\\S+ playbackUT=\\S+ resolver=loop-relative-position reason=resolved success=true anchorPid=95298807 anchorRec=<none> source=live anchorPos=(\\([^)]*\\)) anchorRot=\\([^)]*\\) localOffset=\\(0\\.00,0\\.00,0\\.00\\) output=\\1",
+  "MISSIONMARK label=rl1-after-dwell-count-2 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The loop flag must survive the load-time sanitizer.
+  "SanitizeNonLoopableLoopPlayback: cleared",
+  # Once loaded, the anchor must keep resolving live for the whole dwell.
+  "resolver=loop-relative-position reason=anchor-unresolved-retired",
+  "Anchor vessel unloaded: pid=95298807",
+  "ShouldSpawnLoopedGhost: rec 'Relative Loop Anchor Probe' anchor vessel body mismatch",
+  # The recorded anchor must resolve (the zone distance reads it; attempt `2026-09-23_2034`).
+  "RELATIVE section missing anchorRecordingId: recordingId=relloopanchor",
+  "recorded-relative-unresolved: reason=[^ ]+ recordingId=relloopanchor",
+  "loop hidden by distance LOD at unresolved",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

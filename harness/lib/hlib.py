@@ -151,7 +151,19 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # RewindPoint, so no RP sidecar. Consumers:
                                         # S0.9-automerge-pending-limbo-cold-load,
                                         # S0.10-automerge-limbo-warm-exit.
-                                        "pending-limbo-tree")
+                                        "pending-limbo-tree",
+                                        # relative-loop: ONE looped recording whose
+                                        # RELATIVE sections are anchored to a LIVE
+                                        # vessel through LoopAnchorVesselId (the
+                                        # live-PID loop contract; production only
+                                        # sets it at load, from `loopAnchorPid`).
+                                        # The anchor pid is baked in: pad-runway-
+                                        # pair's non-active runway rover, and the
+                                        # injector refuses any other host.
+                                        # `--filter InjectRelativeLoopAnchor`. No
+                                        # RewindPoint. Consumer:
+                                        # RL-1-relative-loop-live-anchor.
+                                        "relative-loop")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
