@@ -94,7 +94,15 @@ list of the exact mismatch strings (or token regexes) the bug produces; a run de
 when its mismatch set equals that list, and anything extra stays PARSEK-FAIL. First consumer:
 `EX-1-ghost-extension-past-endut` (its two defect assertions).
 
-## D18-GHOST-EXTENSION-DESIGN-VS-CODE: a vessel blocking a spawn never extends the ghost past EndUT on the non-chain path, so `ghost-extension-past-endut` exists only for the KSC exclusion zone and a failed spawn [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). OPEN; OPERATOR DESIGN QUESTION, not a defect]
+## ~~D18-GHOST-EXTENSION-DESIGN-VS-CODE: a vessel blocking a spawn never extends the ghost past EndUT on the non-chain path, so `ghost-extension-past-endut` exists only for the KSC exclusion zone and a failed spawn~~ [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). RULED 2026-09-23: keep the code; design rewritten to match]
+
+**RULED 2026-09-23: keep the code; design rewritten to match.** The operator kept the
+code's behaviour (recover a same-name blocker, else walk back at once, else abandon; hold the
+ghost only for the KSC exclusion zone, a single-point recording or a failed spawn, retrying
+every 1 s for up to 5 s). `docs/parsek-flight-recorder-design.md` sections 13.2, 13.5 and
+13.7 now describe that, and the catalog's D18 `ghost-extension-past-endut` wording is
+narrowed to the bounded hold. The same-frame destroy of the held ghost stays open as
+D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME.
 
 **What the design promises.** `docs/parsek-flight-recorder-design.md` section 13.2 routes
 a blocked spawn to "block spawn, start ghost extension"; section 13.5 ("Ghost Extension")
@@ -330,7 +338,13 @@ DOWNLOAD. The rotted MechJeb2 URL is left as pinned. The pin comment names the C
 archive.org mirror to use if the URL ever has to be replaced for a machine with no
 seeded cache.
 
-## LOOP-TIME-UNIT-NOT-PERSISTED: a recording's loop period unit is not saved, so Auto (and Min / Hour) revert to Sec on reload [FILED 2026-09-22 off the recording-metadata test retarget (branch `retarget-recording-metadata-tests`). A PRODUCT serialization gap. OPEN]
+## ~~LOOP-TIME-UNIT-NOT-PERSISTED: a recording's loop period unit is not saved, so Auto (and Min / Hour) revert to Sec on reload~~ [FILED 2026-09-22 off the recording-metadata test retarget (branch `retarget-recording-metadata-tests`). A PRODUCT serialization gap. FIXED 2026-09-23]
+
+**Fix (2026-09-23).** `RecordingTreeRecordCodec.SaveLoopAndPlaybackSettings` writes
+`loopTimeUnit` sparsely (Sec omitted) and `ParseLoopTimeUnitOr` reads it back, accepting only an
+exact defined member name and keeping Sec with one `[Codec]` warning otherwise; additive, no
+schema generation bump. The two `AutoLoopTests` round trips are unskipped, with new cells for the
+written name, malformed values and a `RecordingBuilder.WithLoopTimeUnit` node.
 
 **Finding.** `Recording.LoopTimeUnit` is player-set (the Recordings table's unit button
 cycles sec / min / hr / auto, `RecordingsTableUI.cs`) and `ParsekFlight` commits Gloops
@@ -349,7 +363,7 @@ recording moved into a tree, and it was deleted as test-only by the retarget. Th
 never had the key. `Mission.LoopTimeUnit` is a separate field and is persisted
 (`Mission.cs`).
 
-**Fix (not done).** In `RecordingTreeRecordCodec`, write `loopTimeUnit` sparsely (omit Sec)
+**Original fix plan.** In `RecordingTreeRecordCodec`, write `loopTimeUnit` sparsely (omit Sec)
 in `SaveLoopAndPlaybackSettings` and parse it with `Enum.TryParse` in the load mirror. This is
 additive, so no schema generation bump. Then unskip
 `AutoLoopTests.LoopTimeUnit_SaveLoad_RoundTrip_Auto` / `_Hour`, which already drive the

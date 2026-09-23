@@ -868,6 +868,15 @@ _(unreleased — entries accumulate here per commit)_
   kept until the spawn succeeds or the hold times out, and a ghost nobody holds is still
   cleaned up at once. The same applies to the hold while a spawn waits for time warp to end.
   The policy's log line now says when there is no ghost left to keep visible.
+- **A recording's loop period unit now survives a save and reload.** The unit chosen with
+  the Recordings table's unit button (sec, min, hr or auto) was never saved, so every reload
+  set it back to seconds. A Gloops recording, which starts on auto, then lost its place in the
+  shared auto launch queue and looped on a seconds period instead: its stored 0 seconds,
+  either raised to the 5-second minimum with a warning or repaired on load to the
+  recording's own length. The unit is now saved with the recording (only when it is
+  not seconds) and read back on load; an unreadable value falls back to seconds with one
+  warning in the log. Existing saves load unchanged and keep seconds until the unit is set
+  again.
 - **A kerbal whose committed flight ended with his recovery is free again once game time
   passes that recovery.** A Recovered flight's crew reservation was meant to last from the
   start of time until the recovery (design 9.3), but nothing ever compared it with the
