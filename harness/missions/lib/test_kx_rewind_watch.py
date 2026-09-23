@@ -1227,7 +1227,7 @@ class MapClosedBeforeTheWatchTests(unittest.TestCase):
     def test_map_exit_sits_between_the_open_and_the_watch(self):
         """The phase order IS the rule. MUTATION: move MAP-EXIT after WATCH and the
         map closes only once the watch camera has already driven under it."""
-        self.assertEqual(31, len(mlib.KXRW_PHASES))
+        self.assertEqual(34, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_MAP_VIEW) + 1, i(mlib.KXRW_MAP_EXIT))
@@ -1708,10 +1708,12 @@ class HappyPathTests(unittest.TestCase):
         # CoastExitProfileTests).
         opt_in = {mlib.KXRW_PART_SWEEP, mlib.KXRW_COAST_EXIT} \
             | set(mlib.KXRW_IMPACT_PHASES) \
-            | {mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST}
+            | {mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST} \
+            | {mlib.KXRW_PROMOTE_SWITCH, mlib.KXRW_PROMOTE_WAIT,
+               mlib.KXRW_PROMOTE_DISARM}
         self.assertEqual(set(mlib.KXRW_PHASES) - opt_in, set(st.phases_reached))
         self.assertEqual(set(), opt_in & set(st.phases_reached))
-        self.assertEqual(31, len(mlib.KXRW_PHASES))
+        self.assertEqual(34, len(mlib.KXRW_PHASES))
 
         rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict),
                                              st)
@@ -2711,11 +2713,12 @@ class ImpactProfileTests(unittest.TestCase):
         KXRW_POST_REWIND_PHASES is still the contiguous TAIL of KXRW_PHASES - the
         property the carve-out's own cell asserts. MUTATION: append them after
         DONE (or interleave them past REWIND) and that slice stops matching."""
-        self.assertEqual(31, len(mlib.KXRW_PHASES))
+        self.assertEqual(34, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(
-            (mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST,
+            (mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_PROMOTE_SWITCH,
+             mlib.KXRW_PROMOTE_WAIT, mlib.KXRW_PROMOTE_DISARM, mlib.KXRW_IMPACT_COAST,
              mlib.KXRW_IMPACT_SETTLE, mlib.KXRW_SC_EXIT, mlib.KXRW_SC_COMMITTED,
              mlib.KXRW_TEMP_LAUNCH, mlib.KXRW_TEMP_READY),
             mlib.KXRW_PHASES[i(mlib.KXRW_RECORDER_IDLE) + 1:i(mlib.KXRW_REWIND)])
@@ -3133,7 +3136,7 @@ class CoastExitProfileTests(unittest.TestCase):
         is still the contiguous TAIL of KXRW_PHASES - the property the carve-out's
         own cell asserts. MUTATION: append it after DONE and that slice stops
         matching."""
-        self.assertEqual(31, len(mlib.KXRW_PHASES))
+        self.assertEqual(34, len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_COAST) + 1, i(mlib.KXRW_COAST_EXIT))
         self.assertEqual(i(mlib.KXRW_COAST_EXIT) + 1, i(mlib.KXRW_PART_SWEEP))
@@ -3647,6 +3650,275 @@ class RepeatRewindTests(unittest.TestCase):
         self.assertEqual(2, mlib.kxrw_params_from_dict(
             {"rewindCycles": 2}).rewind_cycles)
 
+
+
+class CloseCutAndPromotionTests(unittest.TestCase):
+    """THE TWO D5 OPT-INS on top of `impactProfile`.
+
+    `impactCutAtLastBoosterDrop` moves the profile's divergence back to the LAST
+    booster drop (GS-7 round 1's close crash, the shape that printed `Debris TTL
+    expired` on 4 of 4 archived flights). `promoteDebrisVesselName` then switches
+    the active vessel to the just-dropped booster and OBSERVES the recorder live
+    again on the captured tree (D5 `staging-debris-promotion`)."""
+
+    CLOSE = {"impactProfile": True, "impactCutAtLastBoosterDrop": True,
+             "boosterStageCount": 1, "stageSettleFrames": 2}
+    DEBRIS = "Kerbal X Debris"
+
+    def _to_last_drop(self, **over):
+        """Fresh machine -> the frame the last booster drop clicks (the
+        ImpactProfileTests fixture, altitudes moving every frame)."""
+        pd = dict(self.CLOSE)
+        pd.update(over)
+        st = rolled_out(machine(**pd))
+        st, _ = mlib.kxrw_decide(st, snap(ut=0.0, altitude=0.0, throttle=0.0,
+                                          available_thrust=0.0))
+        st, _ = fly(st, ut=1.0, altitude=100.0)
+        st, _ = fly(st, ut=40.0, altitude=9000.0, available_thrust=FLAMED)
+        for ut, alt in ((40.5, 9100.0), (41.0, 9200.0)):
+            st, _ = fly(st, ut=ut, altitude=alt, throttle=0.0,
+                        available_thrust=FLAMED)
+        self.assertEqual(mlib.KXRW_BOOSTER_STAGE, st.phase)
+        return fly(st, ut=41.5, altitude=9300.0, throttle=0.0,
+                   available_thrust=FLAMED)
+
+    def _at_autorecord_off(self, **over):
+        st, _ = self._to_last_drop(**over)
+        st, acts = mlib.kxrw_decide(st, seam("tree0", "OK", (("tree", "t_kx"),),
+                                             ut=42.0, altitude=9350.0,
+                                             situation="FLYING"))
+        self.assertEqual(mlib.KXRW_IMPACT_AUTORECORD_OFF, st.phase)
+        return st, acts
+
+    def _at_promote_switch(self, **over):
+        over.setdefault("promoteDebrisVesselName", self.DEBRIS)
+        st, _ = self._at_autorecord_off(**over)
+        st, acts = mlib.kxrw_decide(st, seam("impautorec", "OK", (), ut=42.5,
+                                             altitude=9360.0, situation="FLYING",
+                                             vessel_name=CRAFT))
+        self.assertEqual(mlib.KXRW_PROMOTE_SWITCH, st.phase)
+        self.assertEqual([], acts)
+        return st
+
+    def _switched(self, **over):
+        """PROMOTE-SWITCH driven through its delay, the switch click and the
+        two-frame name read-back into PROMOTE-WAIT; returns (state, actions)."""
+        over.setdefault("promoteSwitchDelayFrames", 3)
+        st = self._at_promote_switch(**over)
+        alt, ut, acts = 9370.0, 43.0, []
+        clicks = []
+        for _ in range(3):
+            st, acts = mlib.kxrw_decide(st, snap(ut=ut, altitude=alt,
+                                                 situation="FLYING",
+                                                 vessel_name=CRAFT))
+            clicks += acts
+            ut, alt = ut + 0.5, alt - 5.0
+        self.assertEqual([mlib.ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL], kinds(clicks))
+        self.assertEqual(self.DEBRIS, clicks[0].text)
+        for _ in range(2):
+            st, acts = mlib.kxrw_decide(st, snap(ut=ut, altitude=alt,
+                                                 situation="FLYING",
+                                                 vessel_name=self.DEBRIS))
+            ut, alt = ut + 0.5, alt - 5.0
+        self.assertEqual(mlib.KXRW_PROMOTE_WAIT, st.phase)
+        return st, acts
+
+    # ---- the close cut -------------------------------------------------------
+
+    def test_the_close_cut_holds_the_throttle_and_reads_the_tree_at_the_last_drop(self):
+        """MUTATION: throttle back up here (the far profile's branch) and the
+        stack climbs away from its boosters, which then leave the physics bubble
+        instead of outliving their TTL."""
+        st, acts = self._to_last_drop()
+        self.assertEqual(mlib.KXRW_TREE_STATE, st.phase)
+        self.assertNotIn(mlib.ACTION_SET_THROTTLE, kinds(acts))
+        self.assertEqual([mlib.ACTION_ACTIVATE_STAGE, mlib.ACTION_AP_DISENGAGE,
+                          mlib.ACTION_PARSEK_SEAM_COMMAND], kinds(acts))
+        self.assertEqual("RecordingState", acts[-1].seam_verb)
+        self.assertTrue(st.impact_cut_commanded)
+        self.assertTrue(st.impact_cut_throttle_observed)
+        self.assertEqual(41.5, st.impact_cut_ut)
+        self.assertNotIn(mlib.KXRW_CORE_CUT, st.phases_reached)
+
+    def test_without_promotion_the_close_cut_falls_straight_into_impact_coast(self):
+        st, _ = self._at_autorecord_off()
+        st, acts = mlib.kxrw_decide(st, seam("impautorec", "OK", (), ut=42.5,
+                                             altitude=9360.0, situation="FLYING"))
+        self.assertEqual(mlib.KXRW_IMPACT_COAST, st.phase)
+        self.assertEqual([], acts)
+
+    def test_the_close_cut_substitutes_the_core_row_in_place(self):
+        st, _ = self._to_last_drop()
+        pp = mlib.kxrw_params_from_dict(params(**self.CLOSE))
+        rows = mlib.evaluate_kxrw_assertions([], pp, st)
+        names = [r.name for r in rows]
+        self.assertEqual(8, len(rows))
+        self.assertIn("stackCutAtLastBoosterDrop", names)
+        self.assertNotIn("coreDiscardedWithEnginesOff", names)
+        self.assertEqual(0, names.index("stackCutAtLastBoosterDrop"))
+        self.assertTrue(rows[0].met)
+        # And the far profile keeps its own row.
+        far = mlib.kxrw_params_from_dict(params(impactProfile=True))
+        self.assertEqual("coreDiscardedWithEnginesOff",
+                         mlib.evaluate_kxrw_assertions([], far, st)[0].name)
+
+    def test_the_cut_row_fails_on_an_unobserved_zero(self):
+        st, _ = self._to_last_drop()
+        st = dataclasses.replace(st, impact_cut_throttle_observed=False)
+        pp = mlib.kxrw_params_from_dict(params(**self.CLOSE))
+        self.assertFalse(mlib.evaluate_kxrw_assertions([], pp, st)[0].met)
+
+    def test_the_conflicts_are_refused_on_the_first_frame(self):
+        conflict = mlib.kxrw_close_cut_conflict
+        pf = mlib.kxrw_params_from_dict
+        self.assertEqual("", conflict(pf(params())))
+        self.assertEqual("", conflict(pf(params(**self.CLOSE))))
+        self.assertIn("requires impactProfile", conflict(pf(params(
+            impactCutAtLastBoosterDrop=True))))
+        self.assertIn("boosterStageCount >= 1", conflict(pf(params(
+            impactProfile=True, impactCutAtLastBoosterDrop=True,
+            boosterStageCount=0))))
+        self.assertIn("requires impactCutAtLastBoosterDrop", conflict(pf(params(
+            impactProfile=True, promoteDebrisVesselName=self.DEBRIS))))
+        st = machine(impactCutAtLastBoosterDrop=True)
+        st, acts = mlib.kxrw_decide(st, snap(ut=0.0, situation="PRE_LAUNCH"))
+        self.assertTrue(st.done)
+        self.assertEqual([], acts)
+        self.assertIn("requires impactProfile", st.flake_reason)
+
+    # ---- the promotion switch ------------------------------------------------
+
+    def test_the_switch_waits_out_its_delay_then_clicks_once(self):
+        """MUTATION: switch on the first frame and the booster may not be
+        background-tracked yet - Parsek then starts a FRESH recording, which is not
+        the cell."""
+        st = self._at_promote_switch(promoteSwitchDelayFrames=3)
+        for k in range(2):
+            st, acts = mlib.kxrw_decide(st, snap(ut=43.0 + k, altitude=9000.0 - k,
+                                                 situation="FLYING",
+                                                 vessel_name=CRAFT))
+            self.assertEqual([], acts)
+        st, acts = mlib.kxrw_decide(st, snap(ut=45.0, altitude=8990.0,
+                                             situation="FLYING", vessel_name=CRAFT))
+        self.assertEqual([mlib.ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL], kinds(acts))
+        st, acts = mlib.kxrw_decide(st, snap(ut=45.5, altitude=8980.0,
+                                             situation="FLYING", vessel_name=CRAFT))
+        self.assertEqual([], acts)
+        self.assertTrue(st.promote_switch_commanded)
+
+    def test_the_switch_is_observed_by_name_before_probing(self):
+        st, acts = self._switched()
+        self.assertTrue(st.promote_switch_observed)
+        self.assertEqual(["RecordingState"], [a.seam_verb for a in acts])
+        self.assertEqual("promote0", acts[0].seam_tag)
+
+    def test_a_switch_that_never_lands_flakes_by_name(self):
+        st = self._at_promote_switch(promoteSwitchDelayFrames=1, promoteFrames=3)
+        ut, alt = 43.0, 9000.0
+        for _ in range(8):
+            st, _ = mlib.kxrw_decide(st, snap(ut=ut, altitude=alt,
+                                              situation="FLYING", vessel_name=CRAFT))
+            ut, alt = ut + 0.5, alt - 5.0
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertIn("never read 'Kerbal X Debris'", st.flake_reason)
+
+    def test_a_live_recorder_on_the_captured_tree_is_the_promotion(self):
+        st, _ = self._switched()
+        st, acts = mlib.kxrw_decide(st, seam("promote0", "OK",
+                                             (("recording", "false"),
+                                              ("tree", "t_kx")),
+                                             ut=46.0, altitude=9000.0,
+                                             situation="FLYING",
+                                             vessel_name=self.DEBRIS))
+        self.assertEqual(mlib.KXRW_PROMOTE_WAIT, st.phase)
+        self.assertEqual("promote1", acts[0].seam_tag)
+        st, acts = mlib.kxrw_decide(st, seam("promote1", "OK",
+                                             (("recording", "true"),
+                                              ("tree", "t_kx")),
+                                             ut=46.5, altitude=8990.0,
+                                             situation="FLYING",
+                                             vessel_name=self.DEBRIS))
+        self.assertEqual(mlib.KXRW_PROMOTE_DISARM, st.phase)
+        self.assertTrue(st.promote_observed)
+        self.assertEqual("SetSetting", acts[0].seam_verb)
+        self.assertEqual((("name", "autoRecordOnFirstModificationAfterSwitch"),
+                          ("value", "false")), tuple(acts[0].seam_args))
+        st, acts = mlib.kxrw_decide(st, seam("promdisarm", "OK", (), ut=47.0,
+                                             altitude=8980.0, situation="FLYING",
+                                             vessel_name=self.DEBRIS))
+        self.assertEqual(mlib.KXRW_IMPACT_COAST, st.phase)
+        pp = mlib.kxrw_params_from_dict(params(
+            promoteDebrisVesselName=self.DEBRIS, **self.CLOSE))
+        rows = mlib.evaluate_kxrw_assertions([], pp, st)
+        self.assertEqual(9, len(rows))
+        row = rows[-1]
+        self.assertEqual("debrisSwitchPromoted", row.name)
+        self.assertTrue(row.met)
+        self.assertAlmostEqual(5.0, row.value)
+
+    def test_a_live_recorder_on_another_tree_is_refused(self):
+        """MUTATION: accept any `recording=true` and a fresh tree reads as a
+        promotion of the booster's background recording."""
+        st, _ = self._switched()
+        st, _ = mlib.kxrw_decide(st, seam("promote0", "OK",
+                                          (("recording", "true"),
+                                           ("tree", "t_other")),
+                                          ut=46.0, altitude=9000.0,
+                                          situation="FLYING",
+                                          vessel_name=self.DEBRIS))
+        self.assertTrue(st.done)
+        self.assertIn("not the captured 't_kx'", st.flake_reason)
+
+    def test_no_promotion_inside_the_bound_flakes_by_name(self):
+        st, _ = self._switched(promoteFrames=2)
+        ut, alt = 46.0, 9000.0
+        for k in range(4):
+            st, _ = mlib.kxrw_decide(st, seam("promote%d" % k, "OK",
+                                              (("recording", "false"),
+                                               ("tree", "t_kx")),
+                                              ut=ut, altitude=alt,
+                                              situation="FLYING",
+                                              vessel_name=self.DEBRIS))
+            ut, alt = ut + 0.5, alt - 5.0
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertIn("never read live", st.flake_reason)
+
+    def test_the_promotion_row_is_unmet_without_the_disarm(self):
+        st, _ = self._switched()
+        st = dataclasses.replace(st, promote_observed=True)
+        pp = mlib.kxrw_params_from_dict(params(
+            promoteDebrisVesselName=self.DEBRIS, **self.CLOSE))
+        self.assertFalse(mlib.evaluate_kxrw_assertions([], pp, st)[-1].met)
+
+    def test_the_new_wire_ids_collide_with_nothing(self):
+        tags = {mlib.KXRW_TAG_COMMIT, mlib.KXRW_TAG_STOP, mlib.KXRW_TAG_REWIND,
+                mlib.KXRW_TAG_AUTORECORD, mlib.KXRW_TAG_IMPACT_AUTORECORD,
+                mlib.KXRW_TAG_MAP, mlib.KXRW_TAG_MAP_EXIT, mlib.KXRW_TAG_SC_EXIT,
+                mlib.kxrw_sc_commit_probe_tag(0), mlib.kxrw_tree_probe_tag(0),
+                mlib.kxrw_idle_probe_tag(0), mlib.kxrw_watch_probe_tag(0),
+                mlib.KXRW_TAG_PROMOTE_DISARM, mlib.kxrw_promote_probe_tag(0)}
+        self.assertEqual(14, len(tags))
+        for ph in (mlib.KXRW_PROMOTE_SWITCH, mlib.KXRW_PROMOTE_WAIT,
+                   mlib.KXRW_PROMOTE_DISARM):
+            self.assertIn(ph, mlib.KXRW_FLIGHT_PHASES)
+            self.assertNotIn(ph, mlib.KXRW_VESSEL_LOST_EXPECTED_PHASES)
+
+    def test_pick_nearest_named(self):
+        pick = mlib.pick_nearest_named
+        cands = [("Kerbal X", 0.0, True),
+                 ("Kerbal X Debris", 4200.0, False),
+                 ("Kerbal X Debris", 12.5, False),
+                 ("Kerbal X Debris", float("nan"), False),
+                 ("Kerbal X Debris", 3.0, True)]
+        self.assertEqual(2, pick(cands, "Kerbal X Debris"))
+        self.assertIsNone(pick(cands, "Kerbal X Probe"))
+        self.assertIsNone(pick([("Kerbal X Debris", float("nan"), False)],
+                               "Kerbal X Debris"))
+        self.assertIsNone(pick([], "x"))
 
 if __name__ == "__main__":
     unittest.main()
