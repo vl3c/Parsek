@@ -73,6 +73,7 @@ namespace Parsek
             int patchedCount = 0;
             int skippedCount = 0;
             int notFoundCount = 0;
+            int buildingEntryCount = 0;
             // LedgerTrace: facilities have NO #1098 changed-set, so we accumulate the
             // changed ids locally (id:old->new) for Tier-B change lines + Tier-C
             // read-back below. Only populated when tracing is on. (This is the ONLY new
@@ -85,6 +86,15 @@ namespace Parsek
             {
                 string facilityId = kvp.Key;
                 var state = kvp.Value;
+
+                // A destruction / repair is keyed by one DestructibleBuilding's id, which has
+                // no level of its own: PatchDestructionState below owns it. Counting it as a
+                // level-lookup miss would print notFound on every recalc.
+                if (IsDestructibleBuildingId(facilityId))
+                {
+                    buildingEntryCount++;
+                    continue;
+                }
 
                 int targetLedgerLevel = state.Level;
                 int targetLevel = ToKspFacilityLevel(targetLedgerLevel);
@@ -194,10 +204,35 @@ namespace Parsek
                     $"PatchFacilities: nothing to patch (total={allFacilities.Count})");
             }
 
+            if (buildingEntryCount > 0)
+                ParsekLog.VerboseRateLimited(Tag, "patch-facilities-building-entries",
+                    $"PatchFacilities: {buildingEntryCount.ToString(IC)} destructible-building " +
+                    "entr(ies) left to PatchDestructionState (no level)");
+
             // Patch destruction state via DestructibleBuilding components.
             // Collect all destructibles once (expensive FindObjectsOfType call),
             // then match against facility states that have destruction data.
             PatchDestructionState(allFacilities);
+        }
+
+        /// <summary>
+        /// Pure: whether a ledger facility id names one DestructibleBuilding
+        /// (<c>SpaceCenter/LaunchPad/Facility/mainBuilding</c>, the key of a FacilityDestruction /
+        /// FacilityRepair) rather than an upgradeable facility (<c>SpaceCenter/LaunchPad</c>, the
+        /// key of a FacilityUpgrade). Stock's <c>ScenarioDestructibles.GetFacility</c> splits a
+        /// building id at its second '/', so two or more separators mean a building.
+        /// </summary>
+        internal static bool IsDestructibleBuildingId(string facilityId)
+        {
+            if (string.IsNullOrEmpty(facilityId))
+                return false;
+            int slashes = 0;
+            for (int i = 0; i < facilityId.Length; i++)
+            {
+                if (facilityId[i] == '/' && ++slashes >= 2)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -304,6 +339,14 @@ namespace Parsek
                 if (buildingById.TryGetValue(facilityId, out db))
                 {
                     matchedCount++;
+                    // A tombstoned destruction schedules a one-shot intact default for its
+                    // building id; the level loop never clears a building id (it has no
+                    // level), so clear it here once the building has been patched.
+                    if (defaultFacilityIdsOnNextPatch.Remove(facilityId) &&
+                        defaultFacilityIdsOnNextPatch.Count == 0)
+                    {
+                        defaultFacilityIdsSaveFolder = null;
+                    }
 
                     if (state.Destroyed && !db.IsDestroyed)
                     {

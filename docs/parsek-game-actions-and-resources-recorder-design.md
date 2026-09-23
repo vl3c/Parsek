@@ -1923,25 +1923,27 @@ Upgrading costs funds. Buildings can also be destroyed (player crashes into KSC)
 
 ```
 FacilityUpgrade (spending action)
-  ut:           double — frozen KSC time
-  sequence:     int — order within that UT
-  facilityId:   string — "LaunchPad" / "VehicleAssemblyBuilding" / etc.
-  toLevel:      int — target level (2 or 3)
-  facilityCost: float — funds spent (code field: FacilityCost)
+  ut:           double - frozen KSC time
+  sequence:     int - order within that UT
+  facilityId:   string - "LaunchPad" / "VehicleAssemblyBuilding" / etc.
+  toLevel:      int - target level (2 or 3)
+  facilityCost: float - funds spent (code field: FacilityCost)
 
-FacilityDestruction (recording-associated action)
-  ut:           double — when the building was destroyed during flight
-  recordingId:  string — the recording that caused the destruction
-  facilityId:   string
+FacilityDestruction (recording-associated action, or a direct KSC row)
+  ut:           double - when the building collapsed (stock OnKSCStructureCollapsing)
+  recordingId:  string - the recording live at the collapse; null when none was
+  facilityId:   string - the DestructibleBuilding id ("SpaceCenter/LaunchPad/Facility/<part>")
 
 FacilityRepair (spending action)
-  ut:           double — frozen KSC time (whenever the player repairs)
-  sequence:     int — order within that UT
-  facilityId:   string
-  facilityCost: float — funds spent (code field: FacilityCost)
+  ut:           double - frozen KSC time (stock OnKSCStructureRepairing)
+  sequence:     int - order within that UT
+  facilityId:   string - the DestructibleBuilding id
+  facilityCost: float - this building's share of the funds stock deducted (code field: FacilityCost)
 ```
 
-Upgrades and repairs are KSC spending actions (frozen UT, sequenced). Destruction is recording-associated — it happened during a specific flight. If that recording is removed by a KSP load, the destruction and any associated repair cost are pruned from the timeline.
+Upgrades and repairs are KSC spending actions (frozen UT, sequenced). A destruction during a recorded flight is recording-associated: it becomes a ledger row when that recording commits, is dropped with the recording on a revert discard, re-homed as a direct row on a non-revert discard (stock has already saved the building down), and retired by a Re-Fly that supersedes the flight. A destruction with no live recorder (before a flight's recording starts, or the KSC debug Demolish) is a direct row at its UT. A KSP load to before a direct row prunes it like any other KSC action; a Parsek rewind keeps it as a future row that the walk applies only once the clock passes it.
+
+Destruction and repair are keyed by the single DestructibleBuilding id; a facility is several buildings, and it is destroyed while any of them is. One stock repair (`SpaceCenterBuilding.RepairFacility`) repairs every destroyed building of the facility and deducts one `FundsChanged(StructureRepair)` total (`RepairCost` summed over the destroyed buildings, times `Career.FundsLossMultiplier`); Parsek writes one FacilityRepair per building carrying its share, as one batch, so the KSC reconciliation sums them against the single debit. That FundsChanged event is not converted to a funds row by any other path, so the repair row is the one place the spend is counted. Upgrading a destroyed facility repairs it for free (stock `ResetStructures`), recorded as zero-cost repair rows.
 
 ### 10.3 Funds accounting
 
@@ -1982,8 +1984,8 @@ The facility level at any UT is derivable by walking the action history: start a
 
 ### 10.6 Open questions
 
-- **Destruction detection:** How does Parsek detect building destruction during a recording? KSP fires events when buildings are hit, but the exact API for tracking destruction needs investigation. RESOLVED: `DestructibleBuilding.IsDestroyed` polling and `GameStateRecorder` event capture are implemented.
-- **Partial destruction:** Can individual buildings be destroyed independently, or does KSP group them? The schema assumes per-facility tracking.
+- **Destruction detection:** How does Parsek detect building destruction during a recording? RESOLVED: `GameStateFacilityRecorder` subscribes to the synchronous `GameEvents.OnKSCStructureCollapsing` / `OnKSCStructureRepairing` (fired inside `DestructibleBuilding.Demolish` / `Repair`), plus a Harmony scope on `SpaceCenterBuilding.RepairFacility` for the cost and a `ResetStructures` hook for the free repair inside an upgrade. The scene-load `IsDestroyed` poll remains a same-instance safety net only (a fresh recorder seeds its cache and polls in the same call).
+- **Partial destruction:** Can individual buildings be destroyed independently, or does KSP group them? RESOLVED: independently - each `DestructibleBuilding` collapses on its own, and the actions are keyed per building (see 10.2).
 - **CustomBarnKit interaction:** CustomBarnKit modifies facility costs and progression tiers. Does the ledger need to account for non-standard level counts or costs, or does it just record what KSP reports?
 
 ---

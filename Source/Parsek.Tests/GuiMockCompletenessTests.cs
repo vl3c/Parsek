@@ -137,14 +137,6 @@ namespace Parsek.Tests
                   "an empty Timeline-end cell; every row the recorded timeline leaves "
                   + "untouched already draws it" },
 
-                // A repair happens at the KSC, where no recording is running, so it is
-                // never tagged for a committing flight and never becomes a ledger action
-                // (todo KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER). The walk still
-                // applies one after live UT, but no career can hold one to draw.
-                { "GameActionType.FacilityRepair",
-                  "a KSC repair is never tagged with a recording, so no committed flight "
-                  + "carries a FacilityRepair; the destroyed state now is stock's live one" },
-
                 // Every GameActionType the Career VM walk does NOT branch on. The walk
                 // switches on ten; the rest are other subsystems' rows (recordings,
                 // kerbals, routes, science, funds, reputation) that this window never
@@ -202,6 +194,9 @@ namespace Parsek.Tests
                 { "FacilityRow.DestroyedInTimeline",
                   () => AnyCareer(vm => vm.Facilities.Rows.Any(
                       r => !r.CurrentDestroyed && r.ProjectedDestroyed)) },
+                { "FacilityRow.RepairedInTimeline",
+                  () => AnyCareer(vm => vm.Facilities.Rows.Any(
+                      r => r.CurrentDestroyed && !r.ProjectedDestroyed)) },
                 { "MilestoneRow.IsPendingCredit",
                   () => AnyCareer(vm => vm.Milestones.Rows.Any(r => r.IsPendingCredit)) },
                 { "MilestoneRow.ZeroReward",

@@ -450,12 +450,13 @@ namespace Parsek
         ///
         /// <para>A building's destroyed state NOW comes from
         /// <paramref name="liveDestroyedBuildingIds"/> (stock's ScenarioDestructibles,
-        /// read by the caller), never from the ledger: a building repaired at the KSC
-        /// reaches no ledger action, so a past FacilityDestruction would read as destroyed
-        /// forever. The ledger only supplies what the recorded future does after
-        /// <paramref name="liveUT"/> (a destruction in a committed flight, or a repair
-        /// action the ledger itself carries). Null means no live data: nothing is
-        /// destroyed now.</para>
+        /// read by the caller), never from the ledger: stock's state is what the player
+        /// sees and it travels with every save, rewind and revert, while a ledger row can
+        /// be missing for a destruction whose recording was discarded after a revert. The
+        /// ledger supplies what the recorded future does after <paramref name="liveUT"/>:
+        /// a destruction in a committed flight, and a repair made at the KSC after the
+        /// rewind point.
+        /// Null means no live data: nothing is destroyed now.</para>
         ///
         /// <para><paramref name="formatDate"/> formats every date cell once here
         /// (<see cref="FillDisplayText"/>); null falls back to raw UT.</para>
@@ -683,9 +684,9 @@ namespace Parsek
                             LogSkip(a.Type.ToString(), "Ineffective", a);
                             break;
                         }
-                        // The destroyed state NOW is stock's (liveDestroyedBuildingIds): a
-                        // KSC repair never reaches the ledger, so a past destruction here
-                        // says nothing about today.
+                        // The destroyed state NOW is stock's (liveDestroyedBuildingIds), so a
+                        // past destruction or repair here is not re-applied; a future one is
+                        // projected on top of it.
                         if (a.UT <= liveUT)
                             pastBuildingActionsIgnored++;
                         else

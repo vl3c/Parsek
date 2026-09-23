@@ -354,6 +354,15 @@ namespace Parsek
             // baseline. See GameStateFacilityRecorder.OnFacilityUpgrading.
             GameEvents.OnKSCFacilityUpgrading.Add(OnFacilityUpgrading);
 
+            // KSC building destruction / repair (event-driven, at the moment it happens).
+            // Both events fire synchronously inside DestructibleBuilding.Demolish / Repair;
+            // the later Collapsed / Repaired events wait on an animation coroutine. The
+            // ResetStructures hook catches the silent repair inside a facility upgrade.
+            // See GameStateFacilityRecorder.RecordBuildingTransition.
+            GameEvents.OnKSCStructureCollapsing.Add(OnStructureCollapsing);
+            GameEvents.OnKSCStructureRepairing.Add(OnStructureRepairing);
+            FacilityRepairCapture.StructuresReset += OnStructuresReset;
+
             // Initialize resource tracking from current state
             SeedResourceState();
 
@@ -408,6 +417,11 @@ namespace Parsek
 
             // Facility upgrades (event-driven)
             GameEvents.OnKSCFacilityUpgrading.Remove(OnFacilityUpgrading);
+
+            // KSC building destruction / repair
+            GameEvents.OnKSCStructureCollapsing.Remove(OnStructureCollapsing);
+            GameEvents.OnKSCStructureRepairing.Remove(OnStructureRepairing);
+            FacilityRepairCapture.StructuresReset -= OnStructuresReset;
 
             ParsekLog.Info("GameStateRecorder", "GameStateRecorder unsubscribed");
         }
@@ -988,6 +1002,34 @@ namespace Parsek
         private void OnFacilityUpgrading(Upgradeables.UpgradeableFacility fac, int newLevelIndex)
         {
             facilityRecorder.OnFacilityUpgrading(fac, newLevelIndex);
+        }
+
+        /// <summary>GameEvents.OnKSCStructureCollapsing handler (see GameStateFacilityRecorder).</summary>
+        private void OnStructureCollapsing(DestructibleBuilding db)
+        {
+            facilityRecorder.OnStructureCollapsing(db);
+        }
+
+        /// <summary>GameEvents.OnKSCStructureRepairing handler (see GameStateFacilityRecorder).</summary>
+        private void OnStructureRepairing(DestructibleBuilding db)
+        {
+            facilityRecorder.OnStructureRepairing(db);
+        }
+
+        /// <summary>FacilityRepairCapture.StructuresReset handler (see GameStateFacilityRecorder).</summary>
+        private void OnStructuresReset(IList<string> buildingIds)
+        {
+            facilityRecorder.OnStructuresReset(buildingIds);
+        }
+
+        /// <summary>
+        /// Test seam: records a building transition through the same path the stock events
+        /// use, with an explicit UT (the handlers read Planetarium, which is absent headless).
+        /// </summary>
+        internal bool RecordBuildingTransitionForTesting(
+            string buildingId, bool nowIntact, double ut, float repairCost, string source)
+        {
+            return facilityRecorder.RecordBuildingTransition(buildingId, nowIntact, ut, repairCost, source);
         }
 
         #endregion

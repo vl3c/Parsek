@@ -497,7 +497,7 @@ A subject for either needs a chain whose tip is still in the future when the sce
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
 RealSpawn / Recover verb pair.
 
-## KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action [FILED 2026-09-23 from the PR #1764 review; OPEN]
+## ~~KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action~~ [FILED 2026-09-23 from the PR #1764 review; FIXED 2026-09-23 on branch `ksc-facility-ledger`]
 
 `GameStateFacilityRecorder` forwards only `FacilityUpgraded` to the ledger
 (`LedgerOrchestrator.OnKscSpending`, both the event-driven path and the poll). Its poll
@@ -516,6 +516,93 @@ after live UT; `KspStatePatcher` has no destroyed / repair handling. So nothing 
 depends on it today. Fix direction, when wanted:
 forward `BuildingRepaired` like a KSC spending (untagged, with its cost), and decide whether
 a destruction outside a recording belongs in the ledger at all.
+
+**Found while fixing.** The poll was effectively dead for buildings and levels alike:
+`ParsekScenario.OnLoad` builds a fresh `GameStateRecorder`, seeds its cache from live state
+and polls in the same call, so the poll never sees a delta: of the 707 collected `KSP.log`
+files (`logs/` plus harness results), 696 carry the poll's pass line and none a
+`Game state: Building...` line. The ledger therefore held no destruction or repair
+rows at all, which is the only reason `FacilityStatePatcher.PatchDestructionState` (it DOES
+demolish / repair live buildings to match the walk) had never acted.
+
+Stock mechanics (decompiled KSP 1.12.5). `SpaceCenterBuilding.RepairFacility(bool
+deduceFunds)` (the KSC context menu passes `Funding.Instance != null`) checks affordability,
+calls `Funding.Instance.AddFunds(-|GetRepairsCost()|, TransactionReasons.StructureRepair)`,
+then `RepairStructures()` calls `DestructibleBuilding.Repair()` on every building of the
+facility; `Repair()` sets `destroyed = false` and fires `OnKSCStructureRepairing`
+synchronously per destroyed building (`OnKSCStructureRepaired` waits on the repair
+animation). `GetRepairsCost()` = sum of `RepairCost` over destroyed buildings x
+`Career.FundsLossMultiplier`. A collapse is `DestructibleBuilding.Demolish()` (from
+`AddDamage` when a crash beats the toughness, or the debug Demolish button): `intact = false`
+then `OnKSCStructureCollapsing` synchronously; `AddDamage` saves `persistent` right after.
+Stock charges no funds or reputation for a collapse (`GetCollapseReputationHit` has no
+caller). `UpgradeFacility` / `DowngradeFacility` call the private `ResetStructures()`, which
+resets every building to intact through `DestructibleBuilding.Reset()` with no event. The
+`FundsChanged(StructureRepair)` event is recorded but `GameStateEventConverter` converts no
+FundsChanged reason except the strategy carve-outs, so the repair funds reached no ledger row
+by any path: no double count, and until now the uplift guard held live funds instead.
+
+Whether a destruction can happen outside a recording: yes, rarely - a craft that collapses a
+pad building before its recording starts, a flight flown with no recorder, and the debug
+Demolish button at the KSC. The same gate as facility upgrades covers all of them.
+
+**Fix.** `GameStateFacilityRecorder` subscribes to `OnKSCStructureCollapsing` /
+`OnKSCStructureRepairing` and records each transition at its own UT through one core,
+`RecordBuildingTransition`: emit the `BuildingDestroyed` / `BuildingRepaired` event (tagged
+with the live recording, if any), keep the poll cache coherent, and forward an untagged event
+with no live recorder straight to the ledger (`ShouldForwardFacilityLedgerEvent`, the facility
+upgrade gate); a tagged one converts at commit as before. Events fired while Parsek's own
+patcher drives a building (`SuppressionGuard.ResourcesAndReplay`) are skipped. A Harmony scope
+on `RepairFacility` (`FacilityRepairCapture` + `Patches/FacilityRepairCapturePatches.cs`)
+splits stock's total into each destroyed building's `RepairCost x FundsLossMultiplier` (0
+when no funds are deducted), the repair row carries it in `FacilityCost`, and the facility's
+rows are written by the new `LedgerOrchestrator.OnKscSpendingBatch` so each row's KSC
+reconcile sums all of them against the one `StructureRepair` debit (one row at a time warns
+on every partial sum) and one recalc runs. A `ResetStructures` prefix/postfix reports the
+buildings an upgrade repairs for free (cost 0). The poll routes through the same core.
+`BuildingDestroyed` joins the irreversible events a non-rewind discard re-homes as an
+untagged row. `FacilityStatePatcher.PatchFacilities` no longer counts a building id as a
+level-lookup miss, and `PatchDestructionState` clears a tombstoned building's one-shot
+intact default once it has patched it. Career window: its live "now" read is unchanged; its
+walk already projected a future `FacilityRepair`, which a rewound career can now hold (new
+gallery state `career.facilities.repaired-in-timeline`). The Timeline folds a facility's
+per-building rows of one event into one row with the summed cost
+(`TimelineBuilder.CompactFacilityBuildingActions`; a Runway repair is up to ten rows). The
+flight warp-start facility patch (`ParsekFlight.OnTimeWarpRateChanged`) now runs inside
+`SuppressionGuard.ResourcesAndReplay` like `PatchAll`, so its `Demolish` / `Repair` /
+`SetLevel` never read back as player actions. Tests: `KscBuildingLedgerTests`,
+`TimelineBuilderTests.FacilityBuildingRows_*`,
+`DiscardEconomyPreservationTests.Rehome_BuildingCollapse_*`.
+
+Live verification: none flown. No committed lane collapses a KSC building (the
+`destroyed` words in `harness/scenarios` are vessels; CL-2's pod lands 11.9 km out) and no
+seam verb demolishes or repairs one. Smallest lane that would: two new
+`TestCommandKscAction` kinds, `demolish-building` (`DestructibleBuilding.Demolish()` on one
+LaunchPad building; the facility-wide `SpaceCenterBuilding.DemolishFacility` also works)
+and `repair-facility` (`SpaceCenterBuilding.RepairFacility(true)`, the menu's own call), and
+a KSC-scene spec on `career-earned-ksc`: demolish, wait for `IsDestroyed`, repair, then
+`[expectations.ledger]` pinning one `FacilityDestruction` and one `FacilityRepair` per
+destroyed building, the repair's funds delta equal to the `StructureRepair` debit, and no
+`KSC reconciliation` WARN.
+
+**Residual (open).** After a Parsek rewind to between a destruction and a KSC repair, the
+repair is a future row; if the player repairs again before its date, the walk charges both
+repairs (stock charged only the new one live). Facility upgrades avoid the same shape with
+the committed-upgrade block (`FacilityUpgradePatch`); repairs have no block. See
+KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
+
+## KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both [FILED 2026-09-23 on branch `ksc-facility-ledger`; OPEN]
+
+A KSC repair is an untagged spending row (`FacilityRepair`, cost in `FacilityCost`). A Parsek
+rewind to a UT between a building's destruction and that repair keeps the repair as a future
+row (`Ledger.Reconcile` with `preserveFutureTimelineActions`). The building is destroyed now,
+so the player can repair it again; the ledger then holds two repairs of one destruction and
+`FundsModule.ProcessFacilityCost` charges both, while stock charged only the new one. The
+second is a no-op for `FacilitiesModule` (repair of an intact building). Options: block a
+repair of a building whose destruction already has a committed future repair (the
+`FacilityUpgradePatch` shape, but it adds a blocked dialog), or charge a repair only when the
+walk finds its building destroyed (needs the facility state before `FundsModule` runs; today
+the facilities tier dispatches after the funds tier). Not reachable without a Parsek rewind.
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 

@@ -644,6 +644,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FacilityBuildingRows_OneRepairOfOneFacility_IsOneRowWithTheSummedCost()
+        {
+            // One stock RepairFacility writes a row per destroyed building at one UT; the
+            // player made one repair.
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 100, Type = GameActionType.FacilityDestruction,
+                    FacilityId = "SpaceCenter/Runway/Facility/a", RecordingId = "rec-1", Effective = true },
+                new GameAction { UT = 100.4, Type = GameActionType.FacilityDestruction,
+                    FacilityId = "SpaceCenter/Runway/Facility/b", RecordingId = "rec-1", Effective = true },
+                new GameAction { UT = 500, Type = GameActionType.FacilityRepair,
+                    FacilityId = "SpaceCenter/Runway/Facility/a", FacilityCost = 6000f, Effective = true },
+                new GameAction { UT = 500, Type = GameActionType.FacilityRepair,
+                    FacilityId = "SpaceCenter/Runway/Facility/b", FacilityCost = 4000f, Effective = true },
+                // A different facility at the same UT stays its own row.
+                new GameAction { UT = 500, Type = GameActionType.FacilityRepair,
+                    FacilityId = "SpaceCenter/LaunchPad/Facility/c", FacilityCost = 1000f, Effective = true },
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(), actions, new List<Milestone>(), _ => true, Game.Modes.CAREER);
+
+            Assert.Single(result, e => e.Type == TimelineEntryType.FacilityDestruction);
+            var repairs = result.Where(e => e.Type == TimelineEntryType.FacilityRepair).ToList();
+            Assert.Equal(2, repairs.Count);
+            Assert.Contains(repairs, e => e.DisplayText.Contains("-10000"));
+            Assert.Contains(repairs, e => e.DisplayText.Contains("-1000")
+                && !e.DisplayText.Contains("-10000"));
+            // The ledger's own rows keep their per-building cost.
+            Assert.Equal(6000f, actions[2].FacilityCost);
+            Assert.Contains(logLines, l => l.Contains("[Timeline]")
+                && l.Contains("Compacted 2 per-building facility"));
+        }
+
+        [Fact]
+        public void FacilityBuildingRows_SeparateEvents_StaySeparate()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 100, Type = GameActionType.FacilityDestruction,
+                    FacilityId = "SpaceCenter/Runway/Facility/a", Effective = true },
+                new GameAction { UT = 900, Type = GameActionType.FacilityDestruction,
+                    FacilityId = "SpaceCenter/Runway/Facility/b", Effective = true },
+                new GameAction { UT = 950, Type = GameActionType.FacilityDestruction,
+                    FacilityId = "SpaceCenter/Runway/Facility/c", RecordingId = "rec-2", Effective = true },
+            };
+
+            int compacted;
+            var folded = TimelineBuilder.CompactFacilityBuildingActions(actions, out compacted);
+
+            Assert.Equal(0, compacted);
+            Assert.Equal(3, folded.Count);
+        }
+
+        [Fact]
         public void KerbalHire_CareerMode_IsDetailsOnlyAndShowsFunds()
         {
             var actions = new List<GameAction>

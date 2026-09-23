@@ -871,6 +871,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **KSC building destructions and repairs are now part of the career history.** A building
+  repaired at the Space Center never became a ledger action: Parsek recorded it only at the
+  next scene change, with no cost and no owner, so nothing kept it. A building knocked down
+  while no recording was running was lost the same way. Both are now recorded the moment stock
+  fires them (`OnKSCStructureCollapsing` / `OnKSCStructureRepairing`), at that moment's UT. A
+  repair made at the Space Center is written straight to the ledger with what it cost - each
+  building's share of the one funds debit stock takes for the whole facility - so the funds
+  walk no longer misses that spend. A collapse during a recorded flight still belongs to that
+  flight and becomes a ledger action when the flight is committed; if the flight is discarded
+  without a reload, the collapse is kept, because stock keeps the building down. Upgrading a
+  destroyed facility, which stock repairs for free as part of the upgrade, now also records the
+  repair. After a rewind, a repair made later in the timeline shows in the Career window's
+  Facilities tab as `repaired <date>` and does not count as done before its date. The
+  Timeline shows one row per facility event, not one per building (a Runway repair touches up to
+  ten), with the repair's total cost.
 - **The Timeline names the contract on every contract row, and the facility on every
   facility row.** A contract's completion, failure or cancellation used to read
   `Complete: unknown +4375 funds`, because only the accept action stored the contract's
