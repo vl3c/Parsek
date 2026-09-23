@@ -1270,7 +1270,7 @@ reserved set mapped almost one to one onto the largest uncovered dimensions:
 | ~~`RouteCommand`~~ | D10 (12 uncovered then, 1 on 2026-09-07). PROMOTED 2026-08-30 alongside `SealSlot`; the RVR-1..RVR-20 wave rode it |
 | ~~`MissionConfig`~~ | D11 loop behaviour (10 uncovered then, 6 on 2026-09-07). PROMOTED by the arrival-validation lane (the second strict promotion after R12's) |
 | ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch` (claimed 2026-09-08 by CI-1 and GS-3; `switch-segment-noop-discard` claimed 2026-09-11 by `S0.12-switch-noop-discard`, the click with no live recording). The D18 `committed-interaction-claiming` this row once listed is a ghost-chain cell the verb never reached; CI-2 claims it through a rewind. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
-| `CrashAfterJournalPhase` | D9 `merge-journal`, `load-time-sweep` |
+| `CrashAfterJournalPhase` | D9 `merge-journal`, `load-time-sweep` (discard half; marker/spare half claimed by RF-14) |
 | `RunInvariantReport` | analyzer-in-scene |
 
 Two further capability gaps, both verified:
@@ -4343,10 +4343,12 @@ first spawn frame (hold-then-retry, never a single eager ask).
    to the carried point) and spared the provisional
    (`[LoadSweep] Marker valid=True; spare=1 discarded=0`), the recorder resumed
    on that session, and the merge concluded it with no zombie discarded
-   anywhere in the run. D9 `load-time-sweep` claimed; D9 is 18 of 18. The
-   zombie / invalid-marker / session-RP discard branches stay unit-level: a
-   Rewind-to-Launch cannot interrupt a live Re-Fly (its recorder is live and
-   no player control stops it), so none is reachable here.
+   anywhere in the run. D9 `load-time-sweep` claimed; D9 is 18 of 18, on the
+   marker-validation + spare-set half. The discard branches are not driven:
+   the session-scoped RP discard IS reachable (staging during a re-fly authors
+   a session-scoped RP, which the sweep drops only after a lost or crashed
+   marker), and one code path may reach a Rewind-to-Launch mid-re-fly (todo
+   REFLY-DESTROYED-THEN-RTL-MID-SESSION, filed, not flown).
 8. **Repeat-rewind idempotence.** Rewind, watch to completion, rewind AGAIN
    from the same committed tree. Cheap; proves the `parsek_rw_*` quicksave
    lifecycle is reusable rather than one-shot.

@@ -19,18 +19,27 @@ id = "RF-14-rtl-refly-load-sweep"
 # decisions a player can meet: (1) marker validation + the spare set (a live session
 # survives a reload), (2) the zombie discard (a NotCommitted provisional with no valid
 # marker), (3) the session-provisional RP discard (a CreatingSessionId-scoped RP whose
-# session is gone). Only (1) is player-reachable in the Rewind-to-Launch x Re-Fly
-# interplay, and that was re-derived rather than assumed:
-#   - A Rewind-to-Launch cannot interrupt a live Re-Fly. The re-fly recorder is live for
-#     the whole session, `RecordingStore.CanRewind` refuses "Stop recording before
-#     rewinding", and no player-facing control stops a recorder (the only
-#     `ParsekFlight.StopRecording()` callers are the seam verbs). So (2) via "rewind
-#     mid-re-fly" would be a seam-manufactured state, and this lane does not drive it.
+# session is gone). This lane claims (1) only. What was re-derived about the others
+# (corrected 2026-09-24 in review):
+#   - (3) IS reachable in ordinary play, just not by this lane. Staging DURING a re-fly
+#     authors a session-scoped RP (`RewindPointAuthor` stamps `CreatingSessionId =
+#     ActiveReFlySessionMarker?.SessionId`). While the marker is valid the sweep SPARES it
+#     (`AddSessionScopedEntriesToSpare`); a conclusion un-scopes it
+#     (`MergeJournalOrchestrator.TagRpsForReap`, the merge-dialog discard). The sweep
+#     discards it only after the marker was lost or invalidated, i.e. a crash or a load
+#     that dropped the session. RF-14 stages nothing during its re-fly, so its only RP is
+#     the unscoped flight-authored one (`Keeping session-prov rp=... with no session
+#     scope` when no session is live).
+#   - (2) via "Rewind-to-Launch mid-re-fly": while the re-fly recorder is live,
+#     `RecordingStore.CanRewind` refuses "Stop recording before rewinding", and no
+#     player-facing control stops a recorder (the only `ParsekFlight.StopRecording()`
+#     callers are the seam verbs). One code path reads as an exception and is filed, not
+#     flown: todo REFLY-DESTROYED-THEN-RTL-MID-SESSION (the re-flown vessel is destroyed
+#     while other leaves live, the recorder is backgrounded and nulled, and nothing then
+#     refuses the rewind).
 #   - The rewind's own OnLoad never runs the sweep: `HandleRewindOnLoad` returns early
 #     from `ParsekScenario.OnLoad`, ahead of the `load-time-sweep` phase, after clearing
 #     any loaded marker (`ClearActiveReFlyMarkerForPlainRewind`).
-#   - Flight-authored staging RPs carry no CreatingSessionId, so (3) never selects them
-#     (`Keeping session-prov rp=... with no session scope`).
 # CI-3 already drives the same F5/F9 on a recorded fixture and logs the same two lines,
 # unclaimed; what this lane adds is the rewind in front of it, and the backreference
 # below that ties the marker's rp= to the point the rewind carried.
@@ -58,8 +67,8 @@ id = "RF-14-rtl-refly-load-sweep"
 # `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-at-save`,
 # the state ReFlyProvisionalBinding documents as reachable from ordinary play). The
 # sweep's answer was the same. The lane is about an F5 in the MIDDLE of a re-fly, so the
-# driver now idles about three seconds of 1x time first (twelve inert RecordingState
-# steps, EX-1's idiom, ~0.25 s each) and keeps the recorderLive=true pin. CI-3's F9 came
+# driver now idles about six seconds of 1x time first (24 inert RecordingState
+# steps, EX-1's idiom, ~0.25 s each; 12 on the armed flight `_2200`, doubled in review) and keeps the recorderLive=true pin. CI-3's F9 came
 # ~1.1 s after its marker write and read true.
 #
 # LIVE-PROVEN 2026-09-24. ARMED RE-FLIGHT `2026-09-23_2200` (same DLL, spec at 80dccb2f5):
@@ -81,6 +90,9 @@ id = "RF-14-rtl-refly-load-sweep"
 #   and `rf14_rewind_negctl.py` over the produced save through
 #   saveparse.evaluate_save_structure: supersedeRows {0,0} FAIL `rewind.supersedeRows 1 >
 #   max 0`, rewindPoints {0,0} FAIL `rewind.rewindPoints 1 > max 0`, intact PASS.
+# RE-FLIGHT `2026-09-23_2223` after the review doubled the idle to 24 steps (DLL sha256
+# 82ed3f48, branch source with origin/main merged): PASS attempt 1, wall 350 s,
+# expectations 0 mismatches, saveParse rewind PASS (1 / 1 / 0), 9 recordings.
 # WHAT THE OFFLINE CONTROL DOES NOT PROVE: it exercises the evaluator against real
 # bytes, not a second product, so it cannot witness a product change between runs.
 # =====================================================================================
@@ -125,8 +137,21 @@ steps = [
   { cmd = "StopRecording",                                                               expect = "OK" },
   { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
   { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
-  # ~3 s of 1x time so the re-fly recorder binds (OnFlightReady) before the F5; see the
-  # reading-run note in the header.
+  # ~6 s of 1x time so the re-fly recorder binds (OnFlightReady, measured ~2 s after the
+  # marker write) before the F5, with margin; see the reading-run note in the header.
+  # Doubled from 12 steps in review 2026-09-24 (12 left ~1 s over the measured bind).
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "RecordingState",                                                              expect = "OK" },
@@ -163,10 +188,10 @@ watcherCraftName = "Jumping Flea"
 #   backreference to the point the rewind carried) and `[LoadSweep] Marker valid=True;
 #   spare=1 discarded=0` (the spare-set decision), plus the consequence token (the
 #   recorder resumes on that session's active recording). SCOPE, stated so nobody
-#   overreads it: this is the sweep's marker-validation + spare-set half, the half a
-#   player reaches. The zombie discard, the invalid-marker clear and the session-scoped RP
-#   discard stay unit-level (see the header for why none is reachable in this interplay),
-#   and the `discarded=[1-9]` forbid is what this lane says about them: none fired.
+#   overreads it: this is the sweep's marker-validation + spare-set half. The zombie
+#   discard, the invalid-marker clear and the session-scoped RP discard are not driven
+#   here (see the header: (3), and possibly one path to (2), are reachable in other
+#   shapes), and the `discarded=[1-9]` forbid is all this lane says about them: none fired.
 # `rewind-to-launch` <- "Rewind-to-Launch initiated to UT" + "invokerewindtolaunch
 #   complete rec=" (re-claim, GS-4's tokens).
 # `rewind-to-separation` <- the StartInvoke backreference + "Invocation complete"
@@ -255,9 +280,9 @@ tombstones    = { max = 0 }
 [runtime]
 # GS-4's 2400 (boot + LoadGame 300 + mission 1600 + margin) plus the post-mission steps
 # at run.py's pricing: StopRecording 120 + ListHandles 120 + InvokeRewind 660 + the idle
-# RecordingState x12 1440 + SaveGame 120 + LoadGame 660 + AnswerMergeDialog 180 +
-# RecordingState 120 = 3420. 5900 clears it. The reading run's whole wall was ~6 min.
-budgetSeconds = 5900
+# RecordingState x24 2880 + SaveGame 120 + LoadGame 660 + AnswerMergeDialog 180 +
+# RecordingState 120 = 4860. 7400 clears it. The armed run's whole wall was ~6 min.
+budgetSeconds = 7400
 
 [retry]
 policy = "once"
