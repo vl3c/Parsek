@@ -3675,6 +3675,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Re-labels a <see cref="PendingTreeState.LimboVesselSwitch"/> pending tree whose
+        /// pre-transition was undone (it has an active recording again) as a plain
+        /// <see cref="PendingTreeState.Limbo"/> stash. Returns false and changes nothing
+        /// unless the slot holds a LimboVesselSwitch tree with a non-empty
+        /// <c>ActiveRecordingId</c>.
+        /// </summary>
+        internal static bool ConvertPendingVesselSwitchStashToLimbo(string context)
+        {
+            if (pendingTree == null
+                || pendingTreeState != PendingTreeState.LimboVesselSwitch
+                || string.IsNullOrEmpty(pendingTree.ActiveRecordingId))
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"ConvertPendingVesselSwitchStashToLimbo skipped: tree=" +
+                    $"{pendingTree?.TreeName ?? "<none>"} state={pendingTreeState} " +
+                    $"activeRecId={pendingTree?.ActiveRecordingId ?? "<null>"} " +
+                    $"context={context ?? "<none>"}");
+                return false;
+            }
+            pendingTreeState = PendingTreeState.Limbo;
+            pendingTreeSerializedForSave = false;
+            ParsekLog.Info("RecordingStore",
+                $"Pending tree '{pendingTree.TreeName}' transitioned LimboVesselSwitch -> Limbo " +
+                $"(activeRecId={pendingTree.ActiveRecordingId}, context={context ?? "<none>"})");
+            return true;
+        }
+
+        /// <summary>
         /// Marks the pending tree's state as Finalized after the revert-detection dispatch
         /// has run FinalizeTreeRecordings on a previously-Limbo tree. Called by
         /// ParsekScenario.OnLoad on the Limbo + isRevert path before the auto-commit /
