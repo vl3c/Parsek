@@ -831,16 +831,21 @@ flight warp-start facility patch (`ParsekFlight.OnTimeWarpRateChanged`) now runs
 `TimelineBuilderTests.FacilityBuildingRows_*`,
 `DiscardEconomyPreservationTests.Rehome_BuildingCollapse_*`.
 
-Live verification: none flown. No committed lane collapses a KSC building (the
-`destroyed` words in `harness/scenarios` are vessels; CL-2's pod lands 11.9 km out) and no
-seam verb demolishes or repairs one. Smallest lane that would: two new
-`TestCommandKscAction` kinds, `demolish-building` (`DestructibleBuilding.Demolish()` on one
-LaunchPad building; the facility-wide `SpaceCenterBuilding.DemolishFacility` also works)
-and `repair-facility` (`SpaceCenterBuilding.RepairFacility(true)`, the menu's own call), and
-a KSC-scene spec on `career-earned-ksc`: demolish, wait for `IsDestroyed`, repair, then
-`[expectations.ledger]` pinning one `FacilityDestruction` and one `FacilityRepair` per
-destroyed building, the repair's funds delta equal to the `StructureRepair` debit, and no
-`KSC reconciliation` WARN.
+Live verification: `KB-1-ksc-building-repair-ledger` PASS `2026-09-23_1928` (reading run).
+Two new `KscAction` kinds drive it: `demolish-building` (`DestructibleBuilding.Demolish()`) and
+`repair-facility` (`SpaceCenterBuilding.RepairFacility(true)`), both deferring
+`structures-settling` while a building animates. The collected KSP.log shows both new patches
+applied, one direct `FacilityDestruction` at the collapse UT, `FundsChanged -4000 (StructureRepair)`
+then one `FacilityRepair` with cost 4000 charged once by the funds walk, no `KSC reconciliation`
+line, `PatchDestructionState ... settling=1` while the dish animated and `demolished=0,
+repaired=0` throughout, and the building intact after a save and cold reload; the produced
+ledger holds exactly one row of each. The flight found two more things, fixed on the branch:
+`PatchDestructionState` called `Demolish()` on a building that was mid-collapse (a no-op stock
+call logged as a demolish), now skipped through `ResolveDestructionPatch`; and the
+`BuildingDestroyed` / `BuildingRepaired` events are swept into committed milestones, so the
+Timeline showed each as a legacy row beside its ledger row, now deduplicated
+(`TimelineBuilder.GetLegacyDuplicateKey`). A committed `FacilityUpgraded` legacy event has no
+dedup key either; not checked here.
 
 **Residual (open).** After a Parsek rewind to between a destruction and a KSC repair, the
 repair is a future row; if the player repairs again before its date, the walk charges both

@@ -36,8 +36,11 @@ id = "KB-1-ksc-building-repair-ledger"
 # repair-facility step, after the reload, refuses `facility-intact` again: the building
 # came back intact from the save.
 #
-# NEVER FLOWN when written: every pin below is an interim reading of the code, not of a
-# log. Re-derive against the first collected KSP.log before arming anything stricter.
+# FIRST PASS 2026-09-23_1928 (reading run, attempt 1): every pin below matched the
+# collected KSP.log (repair cost 4000 = the StructureRepair debit = the funds-walk row;
+# PatchDestructionState read settling=1 while the dish animated, demolished=0 repaired=0
+# throughout). Still a reading run: an armed re-flight and a negative control are owed
+# before any block here is armed.
 tier = "daily"
 description = "Career at the KSC: collapse one Tracking Station building through the seam, repair the facility through the menu's own RepairFacility call, save and cold-reload; the ledger holds exactly one FacilityDestruction and one FacilityRepair whose cost equals the StructureRepair funds debit, with no reconciliation warning and no patcher flicker."
 instanceProfile = "stock-minimal"

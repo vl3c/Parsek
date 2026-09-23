@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane collapses and repairs a Space Center building.**
+  `KB-1-ksc-building-repair-ledger` knocks down the Tracking Station dish, repairs it through
+  the same call the Space Center menu makes, saves and reloads, and checks the log and the
+  saved ledger: one destruction and one repair, the repair costing exactly what stock took
+  from funds (4000), no reconciliation warning, and no repair or collapse driven by a
+  recalculation afterwards. The test command channel gains two Space Center actions for it,
+  `demolish-building` and `repair-facility`, which wait while a building is still collapsing
+  or being repaired.
 - **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
   mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
   flies the existing station-interceptor rendezvous and docking, and then tries a stock
@@ -913,7 +921,9 @@ _(unreleased — entries accumulate here per commit)_
   repair. After a rewind, a repair made later in the timeline shows in the Career window's
   Facilities tab as `repaired <date>` and does not count as done before its date. The
   Timeline shows one row per facility event, not one per building (a Runway repair touches up to
-  ten), with the repair's total cost.
+  ten), with the repair's total cost. The Career and Timeline rows are not doubled by the older event list either.
+  When Parsek matches the buildings to the career history, it now leaves a building that is
+  still collapsing or being repaired alone instead of calling stock on it for nothing.
 - **The Timeline names the contract on every contract row, and the facility on every
   facility row.** A contract's completion, failure or cancellation used to read
   `Complete: unknown +4375 funds`, because only the accept action stored the contract's
