@@ -2566,7 +2566,8 @@ UIACTION_PRESS_VALUES: Tuple[str, ...] = ("OK", "Cancel")
 # are expand-collapse, not a selector.
 UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
     "missions": ("missions", "recordings"),
-    "timeline": ("overview", "details", "rewindff", "refly"),
+    "timeline": ("overview", "details", "rewindff", "refly",
+                 "contracts", "strategies", "facilities", "milestones", "tech"),
     "kerbals": ("roster", "outcomes"),
     "career": ("contracts", "strategies", "facilities", "milestones"),
 }

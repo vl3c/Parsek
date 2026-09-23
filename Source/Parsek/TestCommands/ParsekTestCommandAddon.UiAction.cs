@@ -500,6 +500,23 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            if (spec.Name == TestCommandUiAction.TimelineWindow)
+            {
+                Game.Modes? gameMode = ReadCurrentGameModeForTimeline();
+                if (!TimelineWindowUI.IsViewIndexAvailableInMode(index, gameMode))
+                {
+                    string modeToken = TimelineCareerCategories.ModeToken(gameMode);
+                    string tabToken = TestCommandUiAction.TabTokenAt(spec, index) ?? string.Empty;
+                    ParsekLog.Warn(Tag, "uiaction rejected reason="
+                        + TestCommandUiAction.TabHiddenInGameModeReason
+                        + $" window={spec.Name} tab={tabToken} gameMode={modeToken}");
+                    SetExecResult("REJECTED", null,
+                        TestCommandUiAction.BuildTabHiddenInGameModeMessage(
+                            spec.Name, tabToken, modeToken));
+                    return;
+                }
+            }
+
             int before = handle.GetTab();
             bool already = before == index;
             if (!already)
@@ -528,6 +545,14 @@ namespace Parsek.TestCommands
                 + $"index={Int(index)} already={Bool(already)}");
             SetExecResult("OK",
                 TestCommandUiAction.BuildTabPayload(spec.Name, token, index, already), null);
+        }
+
+        /// <summary>The loaded game's mode, or null with no game (the Timeline's category
+        /// gate treats null as ungated, the same as its own draw).</summary>
+        private static Game.Modes? ReadCurrentGameModeForTimeline()
+        {
+            Game game = HighLogic.CurrentGame;
+            return game != null ? game.Mode : (Game.Modes?)null;
         }
 
         private void UiActionRectOp(ParsedCommand cmd, UiWindowHandle handle,

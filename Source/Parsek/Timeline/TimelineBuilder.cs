@@ -719,6 +719,8 @@ namespace Parsek
             int contractNamedFromAccept = 0;
             int contractNamedFromType = 0;
             int contractNamedFromId = 0;
+            // One counter per TimelineCareerCategory value (None included), summarised once.
+            var categoryCounts = new int[TimelineCareerCategories.Ordered.Length + 1];
             // Outcome rows converted before they carried their own title (and rows whose
             // title was never recorded) resolve it by contract id against the same
             // effective ledger's accept.
@@ -799,6 +801,9 @@ namespace Parsek
                     hireCostSuffixSuppressed++;
                 }
 
+                TimelineCareerCategory careerCategory = TimelineCareerCategories.Classify(action);
+                categoryCounts[(int)careerCategory]++;
+
                 entries.Add(new TimelineEntry
                 {
                     UT = action.UT,
@@ -814,7 +819,9 @@ namespace Parsek
                     MilestoneId = action.MilestoneId,
                     MilestoneFundsAwarded = action.MilestoneFundsAwarded,
                     MilestoneRepAwarded = action.MilestoneRepAwarded,
-                    MilestoneScienceAwarded = action.MilestoneScienceAwarded
+                    MilestoneScienceAwarded = action.MilestoneScienceAwarded,
+                    CareerCategory = careerCategory,
+                    CareerSubjectId = TimelineCareerCategories.ResolveSubjectId(action, careerCategory)
                 });
                 count++;
             }
@@ -845,6 +852,15 @@ namespace Parsek
                     $"Contract row names: rows={contractRows} fromAccept={contractNamedFromAccept} " +
                     $"fromType={contractNamedFromType} fromIdFallback={contractNamedFromId} " +
                     $"acceptIndex={contractAcceptIndex.Count}");
+
+            if (count > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Career categories: contracts={categoryCounts[(int)TimelineCareerCategory.Contracts]} " +
+                    $"strategies={categoryCounts[(int)TimelineCareerCategory.Strategies]} " +
+                    $"facilities={categoryCounts[(int)TimelineCareerCategory.Facilities]} " +
+                    $"milestones={categoryCounts[(int)TimelineCareerCategory.Milestones]} " +
+                    $"tech={categoryCounts[(int)TimelineCareerCategory.Tech]} " +
+                    $"none={categoryCounts[(int)TimelineCareerCategory.None]}");
 
             return count;
         }

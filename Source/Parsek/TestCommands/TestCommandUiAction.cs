@@ -446,6 +446,23 @@ namespace Parsek.TestCommands
         internal const string TabNotAppliedReason = "tab-not-applied";
 
         /// <summary>
+        /// PRE-CALL gate: the tab exists in the window's vocabulary but the loaded GAME
+        /// mode does not draw it - a Timeline career category outside Career mode
+        /// (Science shows Facilities, Milestones and Tech; Sandbox shows none). REJECTED
+        /// rather than written, because the Timeline's own draw falls back to a view the
+        /// mode shows and a census would photograph that under the category's label. The
+        /// message names the mode (<see cref="BuildTabHiddenInGameModeMessage"/>).
+        /// </summary>
+        internal const string TabHiddenInGameModeReason = "tab-hidden-in-game-mode";
+
+        /// <summary>The REJECTED message for <see cref="TabHiddenInGameModeReason"/>.</summary>
+        internal static string BuildTabHiddenInGameModeMessage(string window, string tab,
+                                                               string gameModeToken)
+            => TabHiddenInGameModeReason + " window=" + (window ?? string.Empty)
+               + " tab=" + (tab ?? string.Empty)
+               + " gameMode=" + (gameModeToken ?? string.Empty);
+
+        /// <summary>
         /// PRE-CALL gate for the three wave-6 write ops (<c>state</c>, <c>sort</c>,
         /// <c>edit</c>): the named window's own open flag is DOWN.
         ///
@@ -575,9 +592,14 @@ namespace Parsek.TestCommands
 
             // TimelineWindowUI. Its selector is not a GUILayout.Toolbar but a row of
             // filter buttons over TimelineTierFilterMode; treated as tabs here because it
-            // is the same thing for a census - four mutually exclusive views of one
-            // window, each of which has to be photographed.
-            NewSpec(TimelineWindow, true, true, "overview", "details", "rewindff", "refly"),
+            // is the same thing for a census - mutually exclusive views of one window, each
+            // of which has to be photographed. The five career categories are APPENDED
+            // after `refly` so every existing index and `op=tab` step keeps its meaning;
+            // "career" itself is a grouping button, not a view, so it has no token. A
+            // category the loaded game mode hides (Contracts / Strategies in Science mode,
+            // all five in Sandbox) is REJECTED TabHiddenInGameModeReason.
+            NewSpec(TimelineWindow, true, true, "overview", "details", "rewindff", "refly",
+                "contracts", "strategies", "facilities", "milestones", "tech"),
 
             NewSpec(KerbalsWindow, true, true, "roster", "outcomes"),
 

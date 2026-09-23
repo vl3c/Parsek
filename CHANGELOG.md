@@ -10,6 +10,28 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Timeline: a Career view with contract, strategy, facility, milestone and tech
+  filters, and a two-row filter area.** The first row holds the views (Overview, Details,
+  Rewind/FF, Re-Fly, Career) and a Time button whose label names the active time range
+  (`Time: All`, `Time: Last 7d`, `Time: Custom`); it lights up while a range is active, so a
+  shortened list always shows why. Clicking Time opens the range presets and the From / To
+  sliders (the separate Custom button is gone). The second row depends on the view: the
+  Recordings / Actions / Events / Archived toggles under Overview and Details, only
+  Archived under Rewind/FF and Re-Fly (the source toggles are hidden there instead of
+  greyed out), and under Career one button per category: Contracts (accepted, completed,
+  failed, cancelled), Strategies (activated, deactivated), Facilities (upgrades,
+  destructions, repairs), Milestones and Tech (tech unlocks only, never the science legs
+  of a strategy). A category shows every row of its kind from both Overview and Details,
+  past and future, and the time range still applies. Career remembers the last category
+  used. Science games show only Facilities, Milestones and Tech, and Sandbox has no Career
+  button. The window's minimum width is now 720 px so no filter row is cut off. Each row
+  now records its category and subject (contract, strategy, facility, milestone or tech
+  node), and the Timeline can scroll to a subject for a later link from the Career window.
+  The GUI census `op=tab` vocabulary gains `contracts`, `strategies`, `facilities`,
+  `milestones` and `tech` after `refly`; a category the loaded game mode hides answers
+  `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
+  Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
+  Tech views on its host and Milestones under a This Year range.
 - **Automated testing: a lane replays a loop anchored to a live vessel.**
   `RL-1-relative-loop-live-anchor` injects one looped recording that plays relative to the
   rover on the runway of the `pad-runway-pair` save (the new `relative-loop` injection

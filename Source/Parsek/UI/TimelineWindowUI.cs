@@ -30,12 +30,36 @@ namespace Parsek
             GoTo
         }
 
-        private enum TimelineTierFilterMode
+        /// <summary>
+        /// The one-at-a-time view of the list (filter row 1). The five career-category
+        /// members are the Career view, one category each, and are APPENDED after ReFly so
+        /// the index order stays 1:1 with the seam's timeline tab vocabulary
+        /// (<c>TestCommandUiAction</c>: overview, details, rewindff, refly, contracts,
+        /// strategies, facilities, milestones, tech).
+        /// </summary>
+        internal enum TimelineTierFilterMode
         {
             Overview,
             Details,
             RewindOrFastForward,
-            ReFly
+            ReFly,
+            Contracts,
+            Strategies,
+            Facilities,
+            Milestones,
+            Tech
+        }
+
+        /// <summary>What filter row 2 holds for the selected view.</summary>
+        internal enum TimelineContextRow
+        {
+            /// <summary>Overview / Details: Recordings, Actions, Events, Archived.</summary>
+            SourcesAndArchived,
+            /// <summary>Rewind/FF / Re-Fly: Archived only (the sources are forced or inert
+            /// there, so they are hidden rather than greyed).</summary>
+            ArchivedOnly,
+            /// <summary>Career: the category buttons the game mode shows.</summary>
+            Categories
         }
 
         private readonly ParsekUI parentUI;
@@ -104,7 +128,13 @@ namespace Parsek
         }
 
         private const float DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth;
-        internal const float MinWindowWidth = CareerStateWindowUI.MinWindowWidth;
+        // Both filter rows are six-cell grids (GetResponsiveButtonWidth). The widest cell
+        // label is the Time button's "Time: This Year" (15 characters), which needs about
+        // 110 px in the button style; six such cells plus the 28 px margin budget and
+        // 22 px window chrome is 710. At the old 520 floor the rows could not fit even at
+        // the 93 px cell floor (608 px), so GUILayout widened the window past its own drag
+        // minimum.
+        internal const float MinWindowWidth = 720f;
         internal const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
         private const float TimeColumnWidth = 160f;
@@ -112,8 +142,8 @@ namespace Parsek
         private const float RowActionButtonWidth = 40f;
         private const float GoToButtonWidth = 48f;
 
-        // Shared width for top filter/source/preset buttons: Overview, Details,
-        // Rewind/FF, Re-Fly, Recordings, Actions, Events, and time presets.
+        // Floor of the shared cell width for the top zone: the view row, the context row
+        // (sources, Archived or the career categories) and the Time fold's presets.
         // Every button in the Timeline's top zone uses the same width so the rows align.
         private const float FilterButtonWidth = 93f;
 
@@ -139,9 +169,14 @@ namespace Parsek
         // Filter state
         private TimelineTierFilterMode tierFilterMode = TimelineTierFilterMode.Overview;
 
+        // The category the Career button reopens. Written whenever a category view is
+        // selected (button, seam or cross-link), so returning to Career lands on it.
+        private TimelineCareerCategory lastCareerCategory = TimelineCareerCategory.Contracts;
+
         /// <summary>
         /// The tier filter selection as an INDEX into <c>TimelineTierFilterMode</c>'s
-        /// declaration order (Overview, Details, RewindOrFastForward, ReFly).
+        /// declaration order (Overview, Details, RewindOrFastForward, ReFly, then the five
+        /// career categories). A category index also becomes the remembered category.
         /// <para>An int rather than the enum so the enum itself stays private: the one
         /// consumer outside this class is the automation-only <c>UiAction op=tab</c> seam op,
         /// whose wire vocabulary is a string table it maps to an index, and widening the
@@ -156,10 +191,22 @@ namespace Parsek
             set
             {
                 if (value < (int)TimelineTierFilterMode.Overview
-                    || value > (int)TimelineTierFilterMode.ReFly)
+                    || value > (int)TimelineTierFilterMode.Tech)
                     return;
-                tierFilterMode = (TimelineTierFilterMode)value;
+                SelectView((TimelineTierFilterMode)value);
             }
+        }
+
+        /// <summary>The Career button's remembered category (for tests and the seam).</summary>
+        internal TimelineCareerCategory LastCareerCategoryForTesting => lastCareerCategory;
+
+        /// <summary>Selects a view; a category view also becomes the remembered category.</summary>
+        private void SelectView(TimelineTierFilterMode mode)
+        {
+            tierFilterMode = mode;
+            TimelineCareerCategory category = CategoryOfView(mode);
+            if (category != TimelineCareerCategory.None)
+                lastCareerCategory = category;
         }
 
         private bool showRecordingEntries = true;
@@ -167,7 +214,7 @@ namespace Parsek
         private bool showEventEntries = true;
 
         /// <summary>
-        /// The three source toggles, the Custom-range reveal and the entry list's scroll
+        /// The three source toggles, the Time fold and the entry list's scroll
         /// offset, readable and writable from outside the draw pass for the automation-only
         /// <c>UiAction op=state</c> seam op.
         ///
@@ -202,10 +249,13 @@ namespace Parsek
             set { showEventEntries = value; }
         }
 
+        /// <summary>Whether the Time fold (preset row plus From / To sliders) is open. The
+        /// seam's <c>customRange</c> key maps onto it: the sliders are visible exactly while
+        /// the fold is open.</summary>
         internal bool ShowCustomRangeForTesting
         {
-            get { return showCustomRange; }
-            set { showCustomRange = value; }
+            get { return timeFoldOpen; }
+            set { timeFoldOpen = value; }
         }
 
         /// <summary>The entry list's vertical scroll offset in pixels. Read back AFTER a
@@ -243,9 +293,53 @@ namespace Parsek
         internal void ApplyTimeRangePresetForTesting(string presetName, double currentUT)
             => ApplyTimeRangePreset(parentUI?.TimeRangeFilter, presetName, currentUT);
 
-        // Cross-link: tracks which recordingId was last set externally
-        // so we can scroll to it once
-        private string pendingScrollToRecordingId;
+        /// <summary>
+        /// A cross-link scroll target: a recording's RecordingStart row, or the first row
+        /// of a career subject (category + subject id, e.g. a contract's accept row).
+        /// </summary>
+        internal readonly struct TimelineScrollTarget
+        {
+            private TimelineScrollTarget(string recordingId,
+                TimelineCareerCategory category, string subjectId)
+            {
+                RecordingId = recordingId;
+                Category = category;
+                SubjectId = subjectId;
+            }
+
+            internal string RecordingId { get; }
+            internal TimelineCareerCategory Category { get; }
+            internal string SubjectId { get; }
+
+            internal bool IsEmpty =>
+                string.IsNullOrEmpty(RecordingId)
+                && (Category == TimelineCareerCategory.None || string.IsNullOrEmpty(SubjectId));
+
+            internal static TimelineScrollTarget ForRecording(string recordingId)
+                => new TimelineScrollTarget(recordingId, TimelineCareerCategory.None, null);
+
+            internal static TimelineScrollTarget ForCareerSubject(
+                TimelineCareerCategory category, string subjectId)
+                => new TimelineScrollTarget(null, category, subjectId);
+
+            internal bool Matches(TimelineEntry entry)
+            {
+                if (entry == null || IsEmpty) return false;
+                if (!string.IsNullOrEmpty(RecordingId))
+                    return entry.Type == TimelineEntryType.RecordingStart
+                        && entry.RecordingId == RecordingId;
+                return entry.CareerCategory == Category
+                    && string.Equals(entry.CareerSubjectId, SubjectId, StringComparison.Ordinal);
+            }
+
+            internal string Describe()
+                => !string.IsNullOrEmpty(RecordingId)
+                    ? "recordingId=" + RecordingId
+                    : "category=" + Category + " subject=" + (SubjectId ?? "");
+        }
+
+        // Cross-link: the target last set externally, consumed by the next draw.
+        private TimelineScrollTarget pendingScrollTarget;
 
         // Styles
         private GUIStyle timelineGrayStyle;
@@ -279,8 +373,9 @@ namespace Parsek
         private bool warpCachedLandsAtStart;
         private bool warpResolveDirty = true;
 
-        // Time-range filter UI state
-        private bool showCustomRange;
+        // Time-range filter UI state. The Time button in filter row 1 opens a fold holding
+        // the preset row and the From / To sliders.
+        private bool timeFoldOpen;
         private float sliderMin;
         private float sliderMax;
         private float sliderBoundMin;
@@ -449,10 +544,40 @@ namespace Parsek
             bool windowWasOpen = showTimelineWindow;
             if (!windowWasOpen)
                 showTimelineWindow = true;
-            pendingScrollToRecordingId = recordingId;
+            pendingScrollTarget = TimelineScrollTarget.ForRecording(recordingId);
             ParsekLog.Verbose("Timeline",
                 $"Cross-link: scroll requested for recordingId={recordingId} "
                 + $"(windowWasOpen={windowWasOpen})");
+        }
+
+        /// <summary>
+        /// The career cross-link target: opens the window, switches to the category's
+        /// Career view (so the row is not filtered out by the tier or source toggles) and
+        /// scrolls to the first visible row of that subject - for a contract, its accept
+        /// row, with the outcome row beneath it. The time range still applies: a subject
+        /// outside it logs as not found, the same as a stale recording id.
+        /// <para>A category the current game mode does not show (Contracts in Science
+        /// mode, anything in Sandbox) keeps the current view and logs why.</para>
+        /// </summary>
+        internal void ScrollToCareerSubject(TimelineCareerCategory category, string subjectId)
+            => ScrollToCareerSubject(category, subjectId, GetCurrentGameMode());
+
+        /// <summary>The same, with the game mode supplied (the headless-test entry point,
+        /// which must not read <c>HighLogic</c>).</summary>
+        internal void ScrollToCareerSubject(TimelineCareerCategory category, string subjectId,
+            Game.Modes? gameMode)
+        {
+            bool windowWasOpen = showTimelineWindow;
+            if (!windowWasOpen)
+                showTimelineWindow = true;
+            bool available = TimelineCareerCategories.IsAvailableInMode(category, gameMode);
+            if (available)
+                SelectView(ViewOfCategory(category));
+            pendingScrollTarget = TimelineScrollTarget.ForCareerSubject(category, subjectId);
+            ParsekLog.Verbose("Timeline",
+                $"Cross-link: scroll requested for category={category} subject={subjectId} "
+                + $"(windowWasOpen={windowWasOpen} viewSwitched={available} "
+                + $"gameMode={TimelineCareerCategories.ModeToken(gameMode)})");
         }
 
         /// <summary>
@@ -534,15 +659,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Shared button width used by every button in the top filter row (5 buttons)
-        /// and the time-range preset row (6 buttons). Computed each frame from the
-        /// current window width so both rows scale uniformly. The margin budget
-        /// (outer+inter-cell gaps at 2px per margin.left/right) is subtracted before
-        /// dividing by 6 so the preset row fills the available span exactly AND the
-        /// filter row's FlexibleSpace expands to exactly one button-plus-gap —
-        /// guaranteeing the Recordings/Actions/Events column centers sit directly
-        /// above This Year/All/Custom in the row below. Floored at FilterButtonWidth
-        /// so buttons never shrink below the minimum legibility width.
+        /// Shared button width used by every cell of the Timeline's top zone: the view row,
+        /// the context row and the Time fold's preset row, each a six-cell grid. Computed
+        /// each frame from the current window width so all rows scale uniformly and their
+        /// columns line up. The margin budget (outer + inter-cell gaps at 2px per
+        /// margin.left/right) is subtracted before dividing by 6 so a full row fills the
+        /// available span exactly. Floored at FilterButtonWidth so buttons never shrink
+        /// below the minimum legibility width.
         /// </summary>
         private float GetResponsiveButtonWidth()
         {
@@ -884,53 +1007,128 @@ namespace Parsek
         {
             GUILayout.Space(5);
 
-            // First-row buttons sit at fixed column positions matching the preset row
-            // below: Overview=col1, Details=col2, (empty col3), Recordings=col4,
-            // Actions=col5, Events=col6. The second row adds action filters directly
-            // under Overview/Details, so they read as mutually-exclusive tier presets
-            // instead of source toggles.
+            // Two six-cell rows on the shared GetResponsiveButtonWidth grid.
+            //   Row 1: the one-at-a-time view group (Overview, Details, Rewind/FF, Re-Fly,
+            //          Career) plus the Time fold button, whose label names the active range.
+            //   Row 2: the context row for the selected view (ResolveContextRow), ALWAYS
+            //          drawn and always one button tall, so switching views never moves the
+            //          list.
+            // Nothing here reads the UI complexity mode: Basic and Advanced draw the same
+            // controls. The Career cell reads the GAME mode (absent in Sandbox; Science
+            // shows only Facilities, Milestones and Tech).
             float btnW = GetResponsiveButtonWidth();
+            Game.Modes? gameMode = GetCurrentGameMode();
+            EnsureViewAvailableInMode(gameMode);
 
             GUILayout.BeginHorizontal();
+            DrawViewToggle(TimelineTierFilterMode.Overview,
+                new GUIContent("Overview",
+                    "Shows only the headline rows: launches, endings and career events."),
+                btnW);
+            DrawViewToggle(TimelineTierFilterMode.Details,
+                new GUIContent("Details",
+                    "Adds the fine-grained rows Overview hides, such as staging and docking."),
+                btnW);
+            DrawViewToggle(TimelineTierFilterMode.RewindOrFastForward,
+                new GUIContent("Rewind/FF",
+                    "Shows only the flights you can rewind to or fast-forward to."),
+                btnW);
+            DrawViewToggle(TimelineTierFilterMode.ReFly,
+                new GUIContent("Re-Fly",
+                    "Shows only the flights you can fly again or seal as final."),
+                btnW);
 
-            // Tier selector (columns 1-2).
-            bool overviewActive = tierFilterMode == TimelineTierFilterMode.Overview;
-            bool detailActive = tierFilterMode == TimelineTierFilterMode.Details;
-
-            if (GUILayout.Toggle(overviewActive,
-                    new GUIContent("Overview",
-                        "Shows only the headline rows: launches, endings and career events."),
-                    toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
+            if (ShouldDrawCareerViewButton(gameMode))
             {
-                tierFilterMode = TimelineTierFilterMode.Overview;
-                ParsekLog.Verbose("UI", "Timeline filter: Overview");
+                bool careerActive = IsCareerCategoryView(tierFilterMode);
+                if (GUILayout.Toggle(careerActive,
+                        new GUIContent("Career",
+                            "Shows one career subject at a time: contracts, strategies, facilities, milestones or tech."),
+                        toggleButtonStyle, GUILayout.Width(btnW)) && !careerActive)
+                {
+                    TimelineCareerCategory category =
+                        TimelineCareerCategories.ResolveRemembered(lastCareerCategory, gameMode);
+                    SelectView(ViewOfCategory(category));
+                    ParsekLog.Verbose("UI", $"Timeline filter: Career ({category})");
+                }
             }
-            if (GUILayout.Toggle(detailActive,
-                    new GUIContent("Details",
-                        "Adds the fine-grained rows Overview hides, such as staging and docking."),
-                    toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
+            else
             {
-                tierFilterMode = TimelineTierFilterMode.Details;
-                ParsekLog.Verbose("UI", "Timeline filter: Details");
+                // Sandbox: no Career cell. The Label-not-Space grid filler keeps Time in
+                // column 6 (a Label carries the margins a Space does not).
+                GUILayout.Label("", GUILayout.Width(btnW));
             }
 
-            // Empty column 3 — keeps source-group buttons at col 4/5/6. Must be a
-            // Label (not Space) so its margins participate in IMGUI's max-collapse
-            // rule the same way the preset row's Last 30d button does at col 3;
-            // GUILayout.Space doesn't carry a margin, so Space(btnW) would leave
-            // Recordings 8px left of This Year due to the missing margin gap.
-            GUILayout.Label("", GUILayout.Width(btnW));
+            DrawTimeFoldButton(btnW);
+            GUILayout.EndHorizontal();
 
             bool actionFilterMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward
                 || tierFilterMode == TimelineTierFilterMode.ReFly;
             if (actionFilterMode && !showRecordingEntries)
             {
+                // Rewind/FF and Re-Fly list only recording rows, so the (hidden) Recordings
+                // toggle is forced on while they are selected.
                 showRecordingEntries = true;
             }
 
-            // Source toggles (columns 4-6).
-            bool previousGuiEnabled = GUI.enabled;
-            GUI.enabled = !actionFilterMode;
+            GUILayout.BeginHorizontal();
+            switch (ResolveContextRow(tierFilterMode))
+            {
+                case TimelineContextRow.SourcesAndArchived:
+                    DrawSourceToggles(btnW);
+                    DrawArchivedToggle(btnW);
+                    break;
+                case TimelineContextRow.ArchivedOnly:
+                    DrawArchivedToggle(btnW);
+                    break;
+                default:
+                    DrawCategoryToggles(gameMode, btnW);
+                    break;
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>One cell of the view group: selects its view when clicked.</summary>
+        private void DrawViewToggle(TimelineTierFilterMode mode, GUIContent content, float btnW)
+        {
+            bool active = tierFilterMode == mode;
+            if (GUILayout.Toggle(active, content, toggleButtonStyle, GUILayout.Width(btnW))
+                && !active)
+            {
+                SelectView(mode);
+                if (mode == TimelineTierFilterMode.RewindOrFastForward
+                    || mode == TimelineTierFilterMode.ReFly)
+                    showRecordingEntries = true;
+                ParsekLog.Verbose("UI", $"Timeline filter: {content.text}");
+            }
+        }
+
+        /// <summary>
+        /// Row 1, column 6: opens and closes the Time fold (preset row plus From / To
+        /// sliders). The label names the active range (<see cref="FormatTimeButtonLabel"/>)
+        /// and the button draws lit while the fold is open OR a range is active, so a
+        /// narrowed list always shows why.
+        /// </summary>
+        private void DrawTimeFoldButton(float btnW)
+        {
+            TimeRangeFilterState filter = parentUI.TimeRangeFilter;
+            bool rangeActive = filter != null && filter.IsActive;
+            bool lit = IsTimeButtonLit(timeFoldOpen, rangeActive);
+            string label = FormatTimeButtonLabel(rangeActive, filter?.ActivePresetName);
+            bool clicked = GUILayout.Toggle(lit,
+                new GUIContent(label,
+                    "Shows the time-range presets and sliders; the label names the active range."),
+                toggleButtonStyle, GUILayout.Width(btnW)) != lit;
+            if (clicked)
+            {
+                timeFoldOpen = !timeFoldOpen;
+                ParsekLog.Verbose("UI",
+                    $"Time-range filter: fold {(timeFoldOpen ? "opened" : "closed")} ({label})");
+            }
+        }
+
+        private void DrawSourceToggles(float btnW)
+        {
             bool newShowRec = GUILayout.Toggle(showRecordingEntries,
                 new GUIContent("Recordings", RecordingsToggleTooltip),
                 toggleButtonStyle, GUILayout.Width(btnW));
@@ -947,7 +1145,6 @@ namespace Parsek
                 showActionEntries = newShowAct;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
-
             bool newShowEvt = GUILayout.Toggle(showEventEntries,
                 new GUIContent("Events", EventsToggleTooltip),
                 toggleButtonStyle, GUILayout.Width(btnW));
@@ -956,44 +1153,10 @@ namespace Parsek
                 showEventEntries = newShowEvt;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Events={showEventEntries}");
             }
-            GUI.enabled = previousGuiEnabled;
+        }
 
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            bool rewindOrFastForwardActive = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
-            if (GUILayout.Toggle(
-                    rewindOrFastForwardActive,
-                    new GUIContent("Rewind/FF",
-                        "Shows only the flights you can rewind to or fast-forward to."),
-                    toggleButtonStyle,
-                    GUILayout.Width(btnW)) &&
-                !rewindOrFastForwardActive)
-            {
-                tierFilterMode = TimelineTierFilterMode.RewindOrFastForward;
-                showRecordingEntries = true;
-                ParsekLog.Verbose("UI", "Timeline filter: Rewind/FF");
-            }
-
-            bool reFlyActive = tierFilterMode == TimelineTierFilterMode.ReFly;
-            if (GUILayout.Toggle(
-                    reFlyActive,
-                    new GUIContent("Re-Fly",
-                        "Shows only the flights you can fly again or seal as final."),
-                    toggleButtonStyle,
-                    GUILayout.Width(btnW)) &&
-                !reFlyActive)
-            {
-                tierFilterMode = TimelineTierFilterMode.ReFly;
-                showRecordingEntries = true;
-                ParsekLog.Verbose("UI", "Timeline filter: Re-Fly");
-            }
-
-            // Empty column 3, same Label-not-Space idiom as the first row, so the
-            // Archived toggle lands in column 4 directly under Recordings - it modifies
-            // the recording rows, and reads as a qualifier on that source toggle.
-            GUILayout.Label("", GUILayout.Width(btnW));
-
+        private void DrawArchivedToggle(float btnW)
+        {
             // Archive reveal. This is the ONLY control for the archive filter that Basic
             // mode can reach: the Recordings tab that owns the Archive checkbox is hidden
             // there, so without this an archived flight could never come back to the
@@ -1004,10 +1167,8 @@ namespace Parsek
                 showArchived,
                 // Tooltip names no window. The obvious wording ("archived in the
                 // Recordings tab") would point a Basic player at a tab their mode does
-                // not have - the same defect the proximity-alert and seal-guidance fixes
-                // just removed elsewhere. Mode-dependent text is permitted (design 9.1)
-                // but unnecessary here: wording that describes the ITEMS rather than the
-                // surface is correct in both modes and needs no mode read.
+                // not have. Wording that describes the ITEMS rather than the surface is
+                // correct in both modes and needs no mode read.
                 // No hard newlines: the help strip is a single wrapped line in this
                 // window, so a \n spends that line on whatever sits before it and
                 // clips the rest (TooltipEchoBudgetTests).
@@ -1023,8 +1184,164 @@ namespace Parsek
                     $"Timeline Archived toggle: showArchived={newShowArchived} " +
                     $"hideActive={GroupHierarchyStore.HideActive}");
             }
-            GUILayout.EndHorizontal();
         }
+
+        /// <summary>Row 2 of the Career view: one single-select button per category the
+        /// game mode shows, in <see cref="TimelineCareerCategories.Ordered"/> order.</summary>
+        private void DrawCategoryToggles(Game.Modes? gameMode, float btnW)
+        {
+            if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Contracts, gameMode))
+                DrawCategoryToggle(TimelineCareerCategory.Contracts,
+                    new GUIContent("Contracts",
+                        "Only contract rows: accepted, completed, failed and cancelled, past and future."),
+                    btnW);
+            if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Strategies, gameMode))
+                DrawCategoryToggle(TimelineCareerCategory.Strategies,
+                    new GUIContent("Strategies",
+                        "Only strategy rows: each strategy activated or deactivated, past and future."),
+                    btnW);
+            if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Facilities, gameMode))
+                DrawCategoryToggle(TimelineCareerCategory.Facilities,
+                    new GUIContent("Facilities",
+                        "Only facility rows: building upgrades, destructions and repairs, past and future."),
+                    btnW);
+            if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Milestones, gameMode))
+                DrawCategoryToggle(TimelineCareerCategory.Milestones,
+                    new GUIContent("Milestones",
+                        "Only milestone rows: every milestone and record credited, past and future."),
+                    btnW);
+            if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Tech, gameMode))
+                DrawCategoryToggle(TimelineCareerCategory.Tech,
+                    new GUIContent("Tech",
+                        "Only tech rows: each technology you unlocked, past and future."),
+                    btnW);
+        }
+
+        private void DrawCategoryToggle(TimelineCareerCategory category, GUIContent content, float btnW)
+        {
+            TimelineTierFilterMode view = ViewOfCategory(category);
+            bool active = tierFilterMode == view;
+            if (GUILayout.Toggle(active, content, toggleButtonStyle, GUILayout.Width(btnW))
+                && !active)
+            {
+                SelectView(view);
+                ParsekLog.Verbose("UI", $"Timeline filter: Career category {category}");
+            }
+        }
+
+        /// <summary>
+        /// Falls back when the selected category view does not exist in the loaded game's
+        /// mode (a Career save's Contracts view carried into a Science or Sandbox save): the
+        /// first category the mode shows, else Overview. Logged once per fallback.
+        /// </summary>
+        private void EnsureViewAvailableInMode(Game.Modes? gameMode)
+        {
+            TimelineTierFilterMode resolved =
+                ResolveViewForMode(tierFilterMode, gameMode, lastCareerCategory);
+            if (resolved == tierFilterMode) return;
+            ParsekLog.Info("UI",
+                $"Timeline filter: view {tierFilterMode} is not shown in game mode "
+                + $"{TimelineCareerCategories.ModeToken(gameMode)} - falling back to {resolved}");
+            tierFilterMode = resolved;
+        }
+
+        // ----- pure view decisions -----
+
+        /// <summary>The category a view shows, or None for the four non-career views.</summary>
+        internal static TimelineCareerCategory CategoryOfView(TimelineTierFilterMode mode)
+        {
+            switch (mode)
+            {
+                case TimelineTierFilterMode.Contracts: return TimelineCareerCategory.Contracts;
+                case TimelineTierFilterMode.Strategies: return TimelineCareerCategory.Strategies;
+                case TimelineTierFilterMode.Facilities: return TimelineCareerCategory.Facilities;
+                case TimelineTierFilterMode.Milestones: return TimelineCareerCategory.Milestones;
+                case TimelineTierFilterMode.Tech: return TimelineCareerCategory.Tech;
+                default: return TimelineCareerCategory.None;
+            }
+        }
+
+        /// <summary>The Career view of a category; Overview for None.</summary>
+        internal static TimelineTierFilterMode ViewOfCategory(TimelineCareerCategory category)
+        {
+            switch (category)
+            {
+                case TimelineCareerCategory.Contracts: return TimelineTierFilterMode.Contracts;
+                case TimelineCareerCategory.Strategies: return TimelineTierFilterMode.Strategies;
+                case TimelineCareerCategory.Facilities: return TimelineTierFilterMode.Facilities;
+                case TimelineCareerCategory.Milestones: return TimelineTierFilterMode.Milestones;
+                case TimelineCareerCategory.Tech: return TimelineTierFilterMode.Tech;
+                default: return TimelineTierFilterMode.Overview;
+            }
+        }
+
+        internal static bool IsCareerCategoryView(TimelineTierFilterMode mode)
+            => CategoryOfView(mode) != TimelineCareerCategory.None;
+
+        /// <summary>What filter row 2 draws for a view.</summary>
+        internal static TimelineContextRow ResolveContextRow(TimelineTierFilterMode mode)
+        {
+            if (IsCareerCategoryView(mode)) return TimelineContextRow.Categories;
+            if (mode == TimelineTierFilterMode.RewindOrFastForward
+                || mode == TimelineTierFilterMode.ReFly)
+                return TimelineContextRow.ArchivedOnly;
+            return TimelineContextRow.SourcesAndArchived;
+        }
+
+        /// <summary>Whether row 1 draws the Career cell: false in Sandbox and the mission
+        /// modes, where no career category exists.</summary>
+        internal static bool ShouldDrawCareerViewButton(Game.Modes? gameMode)
+            => TimelineCareerCategories.AnyAvailableInMode(gameMode);
+
+        /// <summary>Whether a view exists in a game mode: the four non-career views always,
+        /// a category view only where <see cref="TimelineCareerCategories.IsAvailableInMode"/>
+        /// says so.</summary>
+        internal static bool IsViewAvailableInMode(TimelineTierFilterMode mode, Game.Modes? gameMode)
+        {
+            TimelineCareerCategory category = CategoryOfView(mode);
+            return category == TimelineCareerCategory.None
+                || TimelineCareerCategories.IsAvailableInMode(category, gameMode);
+        }
+
+        /// <summary>The seam's form of <see cref="IsViewAvailableInMode"/>, over the tab
+        /// INDEX; an out-of-range index answers false.</summary>
+        internal static bool IsViewIndexAvailableInMode(int index, Game.Modes? gameMode)
+        {
+            if (index < (int)TimelineTierFilterMode.Overview || index > (int)TimelineTierFilterMode.Tech)
+                return false;
+            return IsViewAvailableInMode((TimelineTierFilterMode)index, gameMode);
+        }
+
+        /// <summary>The view to draw: the selected one when the mode shows it, else the
+        /// remembered category resolved for the mode, else Overview.</summary>
+        internal static TimelineTierFilterMode ResolveViewForMode(TimelineTierFilterMode mode,
+            Game.Modes? gameMode, TimelineCareerCategory lastCategory)
+        {
+            if (IsViewAvailableInMode(mode, gameMode)) return mode;
+            TimelineCareerCategory fallback =
+                TimelineCareerCategories.ResolveRemembered(lastCategory, gameMode);
+            return fallback == TimelineCareerCategory.None
+                ? TimelineTierFilterMode.Overview
+                : ViewOfCategory(fallback);
+        }
+
+        /// <summary>
+        /// The Time button's label: <c>Time: All</c> with no range, <c>Time: &lt;preset&gt;</c>
+        /// for a preset (<c>Time: Last 7d</c>, <c>Time: This Year</c>), <c>Time: Custom</c>
+        /// for a slider range.
+        /// </summary>
+        internal static string FormatTimeButtonLabel(bool rangeActive, string activePresetName)
+        {
+            if (!rangeActive) return "Time: " + TestCommands.TestCommandUiWindowState.PresetAllToken;
+            return string.IsNullOrEmpty(activePresetName)
+                ? "Time: Custom"
+                : "Time: " + activePresetName;
+        }
+
+        /// <summary>The Time button draws lit while its fold is open or a range is
+        /// active.</summary>
+        internal static bool IsTimeButtonLit(bool foldOpen, bool rangeActive)
+            => foldOpen || rangeActive;
 
         private void DrawTimeRangeFilterBar()
         {
@@ -1035,7 +1352,8 @@ namespace Parsek
             double currentUT = 0;
             try { currentUT = Planetarium.GetUniversalTime(); } catch { }
 
-            // Recompute slider bounds when timeline data changes
+            // Recompute slider bounds when timeline data changes. Runs with the fold shut
+            // too: a preset applied by the seam clamps against these bounds.
             if (!sliderBoundsInitialized || timelineDirty)
             {
                 TimeRangeFilterLogic.ComputeSliderBounds(committed, currentUT,
@@ -1059,10 +1377,12 @@ namespace Parsek
                 }
             }
 
+            if (!timeFoldOpen) return;
+
             bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
 
-            // Every preset button (including All and Custom) uses the same responsive
-            // width as the top filter row so both rows column-align and scale together.
+            // Every preset button (including All) uses the same responsive width as the
+            // filter rows above so the columns align and scale together.
             float btnW = GetResponsiveButtonWidth();
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
@@ -1100,70 +1420,53 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
             }
 
-            // "Custom" toggle at the end of the preset row — reveals the sliders underneath.
-            if (hasRange)
-            {
-                bool newShowCustom = GUILayout.Toggle(showCustomRange,
-                    new GUIContent("Custom",
-                        "Reveals sliders for picking your own start and end time."),
-                    toggleButtonStyle, GUILayout.Width(btnW));
-                if (newShowCustom != showCustomRange)
-                {
-                    showCustomRange = newShowCustom;
-                    ParsekLog.Verbose("UI",
-                        $"Time-range filter: custom sliders {(showCustomRange ? "shown" : "hidden")}");
-                }
-            }
-
             GUILayout.EndHorizontal();
 
+            // The From / To sliders draw whenever the fold is open and the data spans more
+            // than a second (there is no separate Custom reveal button).
             if (!hasRange) return;
 
-            // Custom range sliders (visible only when the "Custom" toggle is on).
-            if (showCustomRange)
+            // Active-range readout (only meaningful when the filter is set to a custom range, not a preset).
+            if (filter.IsActive && filter.ActivePresetName == null)
             {
-                // Active-range readout (only meaningful when the filter is set to a custom range, not a preset).
-                if (filter.IsActive && filter.ActivePresetName == null)
-                {
-                    string rangeLabel = TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
-                        + " \u2014 " + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? sliderBoundMax);
-                    GUILayout.Label(rangeLabel, timelineDimStyle);
-                }
+                string rangeLabel = TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
+                    + " \u2014 " + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? sliderBoundMax);
+                GUILayout.Label(rangeLabel, timelineDimStyle);
+            }
 
-                // From slider — slider gets a vertical nudge so the track aligns
-                // with the label baselines (IMGUI's default slider renders a few px
-                // higher than the adjacent labels in a horizontal row).
-                GUILayout.BeginHorizontal();
-                string fromLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMin);
-                GUILayout.Label("From:", GUILayout.Width(38));
-                GUILayout.BeginVertical();
-                GUILayout.Space(9f);
-                float newMin = GUILayout.HorizontalSlider(sliderMin, sliderBoundMin, sliderBoundMax);
-                GUILayout.EndVertical();
-                GUILayout.Label(fromLabel, GUILayout.Width(120));
-                GUILayout.EndHorizontal();
+            // From slider - slider gets a vertical nudge so the track aligns
+            // with the label baselines (IMGUI's default slider renders a few px
+            // higher than the adjacent labels in a horizontal row).
+            GUILayout.BeginHorizontal();
+            string fromLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMin);
+            GUILayout.Label("From:", GUILayout.Width(38));
+            GUILayout.BeginVertical();
+            GUILayout.Space(9f);
+            float newMin = GUILayout.HorizontalSlider(sliderMin, sliderBoundMin, sliderBoundMax);
+            GUILayout.EndVertical();
+            GUILayout.Label(fromLabel, GUILayout.Width(120));
+            GUILayout.EndHorizontal();
 
-                // To slider
-                GUILayout.BeginHorizontal();
-                string toLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMax);
-                GUILayout.Label("To:", GUILayout.Width(38));
-                GUILayout.BeginVertical();
-                GUILayout.Space(9f);
-                float newMax = GUILayout.HorizontalSlider(sliderMax, sliderBoundMin, sliderBoundMax);
-                GUILayout.EndVertical();
-                GUILayout.Label(toLabel, GUILayout.Width(120));
-                GUILayout.EndHorizontal();
+            // To slider
+            GUILayout.BeginHorizontal();
+            string toLabel = TimeRangeFilterLogic.FormatSliderLabel(sliderMax);
+            GUILayout.Label("To:", GUILayout.Width(38));
+            GUILayout.BeginVertical();
+            GUILayout.Space(9f);
+            float newMax = GUILayout.HorizontalSlider(sliderMax, sliderBoundMin, sliderBoundMax);
+            GUILayout.EndVertical();
+            GUILayout.Label(toLabel, GUILayout.Width(120));
+            GUILayout.EndHorizontal();
 
-                // Clamp so From <= To
-                if (newMin > newMax) newMin = newMax;
+            // Clamp so From <= To
+            if (newMin > newMax) newMin = newMax;
 
-                // Apply immediately on slider change
-                if (System.Math.Abs(newMin - sliderMin) > 0.5f || System.Math.Abs(newMax - sliderMax) > 0.5f)
-                {
-                    sliderMin = newMin;
-                    sliderMax = newMax;
-                    filter.SetRange(sliderMin, sliderMax);
-                }
+            // Apply immediately on slider change
+            if (System.Math.Abs(newMin - sliderMin) > 0.5f || System.Math.Abs(newMax - sliderMax) > 0.5f)
+            {
+                sliderMin = newMin;
+                sliderMax = newMax;
+                filter.SetRange(sliderMin, sliderMax);
             }
         }
 
@@ -1241,37 +1544,26 @@ namespace Parsek
 
             // Handle pending cross-link scroll: find the target row index
             // before entering the scroll view so we can set the scroll position
-            int scrollTargetRow = -1;
-            if (!string.IsNullOrEmpty(pendingScrollToRecordingId) && cachedTimeline != null)
+            if (!pendingScrollTarget.IsEmpty && cachedTimeline != null)
             {
-                int visibleRow = 0;
-                for (int i = 0; i < cachedTimeline.Count; i++)
-                {
-                    var e = cachedTimeline[i];
-                    if (!IsEntryVisible(e, currentUT)) continue;
-                    if (e.Type == TimelineEntryType.RecordingStart &&
-                        e.RecordingId == pendingScrollToRecordingId)
-                    {
-                        scrollTargetRow = visibleRow;
-                        break;
-                    }
-                    visibleRow++;
-                }
+                TimelineScrollTarget target = pendingScrollTarget;
+                int scrollTargetRow = FindScrollTargetRow(
+                    cachedTimeline, e => IsEntryVisible(e, currentUT), target);
                 if (scrollTargetRow >= 0)
                 {
                     timelineScrollPos.y = scrollTargetRow * ApproxRowHeight;
                     ParsekLog.Verbose("Timeline",
-                        $"Cross-link: scrolled to row {scrollTargetRow} for recordingId={pendingScrollToRecordingId}");
+                        $"Cross-link: scrolled to row {scrollTargetRow} for {target.Describe()}");
                 }
                 else
                 {
-                    // E14: stale id (recording purged, outside visibility filter, etc.).
-                    // Behavior unchanged — we still clear the pending id below — but
-                    // the click trail is no longer silent.
+                    // E14: stale id (recording purged, subject outside the time range or
+                    // visibility filter, etc.). The pending target is still cleared below,
+                    // but the click trail is not silent.
                     ParsekLog.Verbose("Timeline",
-                        $"Timeline scroll target not found: id={pendingScrollToRecordingId}");
+                        $"Timeline scroll target not found: {target.Describe()}");
                 }
-                pendingScrollToRecordingId = null;
+                pendingScrollTarget = default;
             }
 
             timelineScrollPos = GUILayout.BeginScrollView(timelineScrollPos, GUILayout.ExpandHeight(true));
@@ -1315,19 +1607,21 @@ namespace Parsek
 
         private bool IsEntryVisible(TimelineEntry entry, double currentUT)
         {
+            if (entry == null) return false;
+            bool actionable = true;
             if (tierFilterMode == TimelineTierFilterMode.RewindOrFastForward)
             {
                 var rec = FindRecordingById(entry.RecordingId);
                 bool canFastForward = false;
-                if (ShouldShowFastForwardButton(rec, entry != null && entry.UT > currentUT))
+                if (ShouldShowFastForwardButton(rec, entry.UT > currentUT))
                     canFastForward = CanFastForwardAtCurrentUT(rec, currentUT);
 
                 bool canRewind = false;
-                if (ShouldShowRewindButton(rec, entry != null && entry.UT > currentUT))
+                if (ShouldShowRewindButton(rec, entry.UT > currentUT))
                     canRewind = CanRewindWithResolvedSaveState(rec);
 
-                if (!HasActionableRewindOrFastForwardButton(entry, rec, currentUT, canFastForward, canRewind))
-                    return false;
+                actionable = HasActionableRewindOrFastForwardButton(
+                    entry, rec, currentUT, canFastForward, canRewind);
             }
             else if (tierFilterMode == TimelineTierFilterMode.ReFly)
             {
@@ -1337,33 +1631,89 @@ namespace Parsek
                 string routeReason;
                 var route = RecordingsTableUI.ResolveUnfinishedFlightRewindRoute(
                     rec, out rp, out slotListIndex, out routeReason);
-                if (!HasActionableFlyOrSealButton(entry, rec, route, rp, slotListIndex))
-                    return false;
-            }
-            else if (entry.Tier == SignificanceTier.T2 && tierFilterMode == TimelineTierFilterMode.Overview)
-            {
-                return false;
+                actionable = HasActionableFlyOrSealButton(entry, rec, route, rp, slotListIndex);
             }
 
-            switch (ResolveSourceToggle(entry.Source, entry.IsPlayerAction))
-            {
-                case TimelineSourceToggle.Recordings:
-                    if (!showRecordingEntries) return false;
-                    break;
-                case TimelineSourceToggle.Actions:
-                    if (!showActionEntries) return false;
-                    break;
-                case TimelineSourceToggle.Events:
-                    if (!showEventEntries) return false;
-                    break;
-            }
-
-            // Time-range filter
             var filter = parentUI.TimeRangeFilter;
-            if (filter.IsActive && !TimeRangeFilterLogic.IsUTInRange(entry.UT, filter.MinUT, filter.MaxUT))
-                return false;
+            bool rangeActive = filter != null && filter.IsActive;
+            return IsEntryVisibleInView(tierFilterMode, entry, actionable,
+                showRecordingEntries, showActionEntries, showEventEntries,
+                rangeActive ? filter.MinUT : null, rangeActive ? filter.MaxUT : null);
+        }
 
-            return true;
+        /// <summary>
+        /// Pure row filter for one view.
+        /// <list type="bullet">
+        /// <item>Overview: T1 rows only; Details: both tiers. Both apply the three source
+        /// toggles.</item>
+        /// <item>Rewind/FF and Re-Fly: only rows whose R / FF or Fly / Seal button is
+        /// actionable (<paramref name="actionableInActionView"/>, resolved by the caller
+        /// against live recordings), any tier, then the source toggles (Recordings is
+        /// forced on there).</item>
+        /// <item>A Career category: every row of that category, both tiers, player actions
+        /// and events alike; the source toggles are ignored.</item>
+        /// </list>
+        /// The time range applies in EVERY view, a category view included: a "Last N" range
+        /// ends at now and so hides the future rows, which the Time button's label names.
+        /// </summary>
+        internal static bool IsEntryVisibleInView(TimelineTierFilterMode mode, TimelineEntry entry,
+            bool actionableInActionView, bool showRecordings, bool showActions, bool showEvents,
+            double? rangeMinUT, double? rangeMaxUT)
+        {
+            if (entry == null) return false;
+
+            TimelineCareerCategory viewCategory = CategoryOfView(mode);
+            if (viewCategory != TimelineCareerCategory.None)
+            {
+                if (entry.CareerCategory != viewCategory) return false;
+            }
+            else
+            {
+                if (mode == TimelineTierFilterMode.RewindOrFastForward
+                    || mode == TimelineTierFilterMode.ReFly)
+                {
+                    if (!actionableInActionView) return false;
+                }
+                else if (entry.Tier == SignificanceTier.T2 && mode == TimelineTierFilterMode.Overview)
+                {
+                    return false;
+                }
+
+                switch (ResolveSourceToggle(entry.Source, entry.IsPlayerAction))
+                {
+                    case TimelineSourceToggle.Recordings:
+                        if (!showRecordings) return false;
+                        break;
+                    case TimelineSourceToggle.Actions:
+                        if (!showActions) return false;
+                        break;
+                    case TimelineSourceToggle.Events:
+                        if (!showEvents) return false;
+                        break;
+                }
+            }
+
+            return TimeRangeFilterLogic.IsUTInRange(entry.UT, rangeMinUT, rangeMaxUT);
+        }
+
+        /// <summary>
+        /// Pure: the index among VISIBLE rows of the first row the target matches, or -1.
+        /// The index is what the scroll offset is computed from, so hidden rows do not
+        /// count.
+        /// </summary>
+        internal static int FindScrollTargetRow(IReadOnlyList<TimelineEntry> entries,
+            Func<TimelineEntry, bool> isVisible, TimelineScrollTarget target)
+        {
+            if (entries == null || isVisible == null || target.IsEmpty) return -1;
+            int visibleRow = 0;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                TimelineEntry e = entries[i];
+                if (!isVisible(e)) continue;
+                if (target.Matches(e)) return visibleRow;
+                visibleRow++;
+            }
+            return -1;
         }
 
         private void DrawNowDivider(double currentUT)
