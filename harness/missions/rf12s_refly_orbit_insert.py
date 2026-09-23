@@ -9,6 +9,11 @@ with the re-fly recorder live. The spec's post-mission `AnswerMergeDialog merge`
 concludes the re-fly; the crew SURVIVE it, which is the shape the
 TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START ruling needs.
 
+RF-13 reuses the mission on a host that restores the stack low (29 km) and
+near-vertical, where no fixed pitch reaches orbit; its spec opts into the machine's
+pitch program (``raiseApoapsisMeters`` > 0): raise the apoapsis, coast with the
+throttle cut to near the apoapsis, then circularize on a vertical-speed pitch law.
+
 WHY ORBIT AND NOT A LANDING. That stack has no parachute and its Poodle cannot hold
 it up at sea level even with the tank empty, and a landing in flight stamps no
 terminal state anyway: the proving merge is the scene-exit one, where finalization

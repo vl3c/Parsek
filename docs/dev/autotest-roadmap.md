@@ -121,7 +121,7 @@ RE-DERIVED 2026-09-23 on `held-ghost-fix`: the one-liner below prints `289 specs
 250`. The new D18 cell rides `EX-1-ghost-extension-past-endut`, scoped to the KSC
 exclusion-zone hold; the denominator does not move. D18 is 10 of 12.
 
-RE-DERIVED 2026-09-23 on `loop-first-run-real` after merging `origin/main` (with #1776): the one-liner below prints `290 specs 196 of
+RE-DERIVED 2026-09-23 on `loop-first-run-real` after merging `origin/main` (with #1776 and #1777): the one-liner below prints `291 specs 196 of
 250`. `LF-2-loop-armed-rewind-first-run-real` is a second declarer of the D18
 `loop-first-run-is-real` cell (coveredBy=2), so the count does not move; what moves is the
 cell's scope, which LF-2 carries in full (the loop armed before the rewind) after the

@@ -1,0 +1,125 @@
+schema = 1
+id = "RF-13R-split-merge-cold-reload"
+# =====================================================================================
+# THE COLD-RELOAD HALF OF RF-13 (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT).
+#
+# WHY A SECOND LANE. RF-13's own post-merge `SaveGame` + `LoadGame` is an IN-SESSION
+# load: `initialLoadDone` stays true, the committed recordings and the ledger stay in
+# memory, and `LedgerOrchestrator.OnKspLoad` never runs, so `MigrateKerbalAssignments`
+# (where cause (a) of the defect lived) never re-derives a row. MEASURED on RF-13's
+# first flight with the pitch program, `2026-09-23_1503`: after the reload the walk read
+# `permanent=0` but no `MigrateKerbalAssignments` line exists anywhere in the log, and
+# the only token the run missed was the one requiring that re-derivation. A pre-fix DLL
+# would pass an in-session reload the same way, so it proves nothing about the fix.
+# A seam `LoadGame` of a different save folder, or a trip through the main menu, would
+# reset `initialLoadDone`, but no seam verb reaches the main menu and loading another
+# staged save would write to it. A NEW PROCESS is the honest cold load.
+#
+# THE HOST is `refly-split-crewed-merged`, harvested `--keep-parsek` from RF-13's
+# `2026-09-23_1503` produced save: the merged career right after the RP-split re-fly
+# (supersede 1, tombstones 2, HEAD 816a8822 with no terminal and cleared crew end
+# states, TIP 2e31fb1e superseded and Destroyed, the re-fly rec_92498045 Orbiting). Its
+# ledger still carries the RETAGGED TIP rows exactly as the merge left them: origin
+# `ut` / `startUT` 29.92 and `endUT` 325.9 against TIP's own 118.40..139.32 window, the
+# two rows the tombstones cover.
+#
+# THE DISCRIMINATOR is the cold load's Migrate: TIP's stored rows do not match TIP's
+# derivation, so Migrate re-derives them. On the fixed DLL the re-derived rows inherit
+# the tombstoned ActionIds (ruling a1), so the ELS rebuild still skips 2 tombstoned
+# rows and the walk reads no permanent reservation. On a pre-fix DLL they get fresh
+# ids, the tombstones orphan, and the deaths come back as permanent reservations.
+#
+# LIVE-PROVEN 2026-09-23. READING RUN `2026-09-23_1524` (fixed DLL, deployed hash
+# 1fa18b029522e6d8): every log token met - TIP `rows=2 inheritedActionIds=2
+# freshActionIds=0`, HEAD re-derived with 2 fresh ids (the Recovered handoff), ELS
+# `skippedTombstoned=2 tombstonesTotal=2`, `permanent=0` - and it read
+# PARSEK-FAIL(expectation) on one harness-authoring bound, `recordings.count 11 > max 10`
+# (the load-time optimizer split, see the count window). ARMED RE-FLIGHT `_1527` PASS
+# attempt 1, saveParse gating PASS. NEGATIVE CONTROL `_1533` on a DLL built from
+# 3b7f40903 (the parent of #1770's merge, deployed hash ffb4954a33023714, no
+# `InheritKerbalAssignmentActionIds` in the binary): PARSEK-FAIL(analyzer) on INV8
+# dangling-tombstone for both tombstones; the expectations verifier short-circuited,
+# and an offline replay of this contract over that run's KSP.log reds 4 of 5 required
+# tokens and hits 3 forbidden ones (`Orphan tombstone=` x2, ELS `skippedTombstoned=0`,
+# `PostWalk ... permanent=2`).
+# POST-#1775 RE-FLIGHT `2026-09-23_1612` (branch DLL with #1775 merged, hash
+# 4b8f75c34c6198e3), count pinned at 11 plus the two split tokens: PASS attempt 1.
+# =====================================================================================
+tier = "operator"
+description = "Cold-reload proof for TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a NEW process loads refly-split-crewed-merged (RF-13's merged career after an RP-split re-fly), so MigrateKerbalAssignments re-derives TIP's retagged death rows. The re-derived rows must inherit the tombstoned ActionIds and the crew must not read Dead."
+instanceProfile = "stock-minimal"
+tags = ["RF-13R", "rewind", "refly", "tombstone", "crew-loss", "reload", "cold-load",
+        "rp-split", "ledger", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-split-crewed-merged"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind  = "seam"
+# The first LoadGame of the process IS the cold load. SPACECENTER so no flight scene
+# promotes a recorder; verboseLogging is already True in the host's own settings, which
+# OnLoad applies before the ledger load (the per-recording Migrate line is Verbose).
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY: the claim is RF-13's, split across two processes.
+D14 = ["kerbin", "sandbox", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED 11 on the reading run `2026-09-23_1524` against the host's 10: the load-time
+# optimization pass (after Migrate) splits the re-fly rec_92498045 at its atmosphere
+# exit, UT 186.12, which the merge had deferred. Pinned exactly, and the 11th is PROVEN
+# to be that split by the two required split tokens below (a duplicate recording would
+# read 11 without them).
+count = { min = 11, max = 11 }
+
+[expectations.logContracts]
+required = [
+  "LedgerTombstones loaded: 2",
+  # THE RE-DERIVATION, and the id it keeps: TIP's two rows, both inherited.
+  "MigrateKerbalAssignments: re-derived recording '2e31fb1e46d34f8b92aacb9cff38507d' rows=2 inheritedActionIds=2 freshActionIds=0",
+  "MigrateKerbalAssignments: repaired [1-9][0-9]* recording\\(s\\) \\(oldRows=[0-9]+, newRows=[0-9]+, inheritedActionIds=[1-9]",
+  # The tombstones still cover the re-derived rows.
+  "\\[ELS\\] Rebuilt: [0-9]+ entries from [0-9]+ actions \\(skippedTombstoned=2 tombstonesTotal=2\\)",
+  "PostWalk summary: reservations=[0-9]+ permanent=0 ",
+  # THE 11TH RECORDING: the load-time split of the re-fly, and only that one.
+  # Producers: RecordingOptimizer.FindSplitCandidatesForOptimizer (Verbose) and
+  # RecordingStore.RunOptimizationSplitPass (Info).
+  "\\[Optimizer\\] Split candidate \\(PersistedPhaseChange\\): rec=rec_92498045bde0451ebb7a7a1038a0d06c sec=1 splitUT=186\\.12 prev=Atmospheric next=ExoBallistic",
+  "\\[RecordingStore\\] Optimization pass: split 1 recording\\(s\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The pre-fix load: a fresh-id row orphans the merge's tombstone.
+  "Orphan tombstone=",
+  "\\[ELS\\] Rebuilt: [0-9]+ entries from [0-9]+ actions \\(skippedTombstoned=[01] tombstonesTotal=2\\)",
+  "PostWalk summary: reservations=[0-9]+ permanent=[1-9]",
+  "endUT=INDEFINITE \\(Dead\\)",
+  "Optimization pass: split ([02-9]|[1-9][0-9]+) recording\\(s\\)",
+]
+
+[expectations.rewind]
+# ARMED 2026-09-23 off the reading run `2026-09-23_1524` (supersedeRows 1, tombstones 2,
+# the host's own counts): the load must not drop or add a row.
+gating        = true
+supersedeRows = { min = 1, max = 1 }
+tombstones    = { min = 2, max = 2 }
+
+[runtime]
+# LoadGame 660 + RecordingState 120 + FlushAndQuit 120 = 900. 1200 clears it.
+budgetSeconds = 1200
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

@@ -3374,6 +3374,42 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "de6ff31af7ad42368632789e5c9051b0"],
             "schemaGeneration": 4,
         },
+        # --- THE RP-SPLIT RE-FLY, MERGED -----------------------------------
+        # PROVENANCE: refly-split-crewed-merged <- RF-13-refly-split-crew-survives-
+        # reload, run 2026-09-23_1503 (deployed hash 1fa18b029522e6d8, the post-#1770
+        # DLL), --keep-parsek via harness/tools/harvest_bdock_station.py. The run
+        # merged and reloaded in-session; its one red token was the Migrate
+        # re-derivation an in-session load never runs, which RF-13R reads instead.
+        #
+        # THE SHAPE RF-13R NEEDS: refly-split-crewed-recorded after the RP-split
+        # re-fly merge. The origin pod 816a8822 is now HEAD (29.92..118.48, no
+        # terminal, crew end states cleared), TIP 2e31fb1e (118.40..139.32,
+        # Destroyed) is superseded by the re-fly rec_92498045 (Orbiting), and the
+        # ledger still carries TIP's two retagged Dead rows with the ORIGIN's
+        # ut / startUT 29.92 and endUT 325.9, the two rows the tombstones cover.
+        #   terminalStates Destroyed 8 (TIP, the probe core, six debris) +
+        #     Orbiting 1 (the re-fly); HEAD carries none.
+        #   supersedes 1, tombstones 2, rewind_points 1.
+        #   39 authoritative sidecars over 10 recordings.
+        "refly-split-crewed-merged": {
+            "trees": 1, "committedTrees": 1, "recordings": 10,
+            "supersedes": 1, "tombstones": 2, "rewind_points": 1,
+            "rewind_retirements": 0,
+            "terminalStates": {"Destroyed": 8, "Orbiting": 1},
+            "branchPoints": {"JointBreak": 5},
+            "minAuthoritativeSidecars": 39,
+            "recordingIds": ["276787aa79104008bc894ccf6aa893e3",
+                             "2e31fb1e46d34f8b92aacb9cff38507d",
+                             "64b38ddecc1143e38ed19bff96d96317",
+                             "6abe5ea7a1f14ec5a2666bd15d3f7352",
+                             "6b56fc72d1c14ed4b41d56bc5190cf93",
+                             "7b48a2b63a1048068135dadb61d0e460",
+                             "816a8822db4648e88b0c3d5b13c7e56d",
+                             "81e40b06ca9d4331b343a6b48284902a",
+                             "de6ff31af7ad42368632789e5c9051b0",
+                             "rec_92498045bde0451ebb7a7a1038a0d06c"],
+            "schemaGeneration": 4,
+        },
         "refly-a-recorded": {
             "trees": 1, "committedTrees": 1, "recordings": 10,
             "supersedes": 1, "tombstones": 0, "rewind_points": 0,

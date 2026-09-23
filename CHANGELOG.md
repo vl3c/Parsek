@@ -61,9 +61,15 @@ _(unreleased — entries accumulate here per commit)_
   crewed recording runs from launch through the rewind point to a death with no optimizer
   split. Its save is committed as the fixture `refly-split-crewed-recorded`. The proof lane
   `RF-13-refly-split-crew-survives-reload` re-flies that crew to orbit, merges, saves and
-  reloads. It is not green yet: from that host the upper stack cannot reach orbit
-  (tracked as RF-13-HOST-CANNOT-REACH-ORBIT). The orbit-insert mission now reports a
-  burn that runs dry by name instead of failing to write its result.
+  reloads. One fixed pitch could not reach orbit from that low host, so the orbit-insert
+  mission gained an optional two-burn program (raise the apoapsis, coast to it, then
+  circularize), and RF-13 now passes. Its reload stays inside one game session, which
+  never re-derives the ledger rows the fix is about, so a second lane,
+  `RF-13R-split-merge-cold-reload`, loads RF-13's merged save (committed as the fixture
+  `refly-split-crewed-merged`) in a fresh game process. There the re-derived death rows
+  keep their retired ids and the crew stay alive; on a build from before the fix the same
+  load brings both deaths back. The orbit-insert mission also reports a burn that runs
+  dry by name instead of failing to write its result.
 - **Automated testing: RF-12S proves the re-fly crew-recovery fix end to end.** The lane
   rewinds a recorded crewed flight to the moment after launch where its upper stack
   separated. It flies the restored stack to orbit with a new small mission, so the crew

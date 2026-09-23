@@ -9678,9 +9678,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RF-13-refly-split-crew-survives-reload.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-23 as the proof "
             "lane of TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a re-fly "
-            "merge that SPLITS the origin, then SaveGame + LoadGame. Four reading "
-            "attempts 2026-09-22 ran the burn dry short of orbit (host too low); "
-            "RF-13-HOST-CANNOT-REACH-ORBIT owns the re-harvest. Owes flights, not a "
+            "merge that SPLITS the origin, then SaveGame + LoadGame (in-session). "
+            "Reading 2026-09-23_1503 on the mission's pitch program, armed re-flight "
+            "_1528 PASS; the cold-reload half is RF-13R. Discharged: cadence "
+            "promotion is the only step left, a human call",
+        "RF-13R-split-merge-cold-reload.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-23 as the "
+            "cold-reload half of RF-13 (RF-13's own reload is in-session and never runs "
+            "MigrateKerbalAssignments): a new process loads refly-split-crewed-merged. "
+            "Reading 2026-09-23_1524, armed _1527 PASS, negative control _1533 red on "
+            "a pre-#1770 DLL. Discharged: cadence promotion is the only step left, a "
             "human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
@@ -10612,6 +10619,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # before-reading `_1928` read tombstones 10, so the floor is the
                        # save-side gate on the endUT ruling.
                        "RF-12S-refly-saves-pre-rewind-boarded-crew.toml",
+                       # RF-13 / RF-13R: `rewind` armed 2026-09-23 off their reading runs
+                       # `2026-09-23_1503` (RF-13) and `_1524` (RF-13R), both supersedeRows 1,
+                       # tombstones 2; RF-13R is the same save a new process re-reads.
+                       "RF-13-refly-split-crew-survives-reload.toml",
+                       "RF-13R-split-merge-cold-reload.toml",
                        # RF-11: `rewind` armed 2026-09-09 through the full cycle -
                        # reading run `2026-09-09_1631`, armed re-flight `_1659` on the
                        # same three numbers, negative control `_1700` (rewindPoints
