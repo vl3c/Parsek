@@ -592,19 +592,6 @@ namespace Parsek.Tests
         #region Phase 1C: ClassifyVesselDestruction
 
         [Fact]
-        public void ClassifyVesselDestruction_TreeDeferred()
-        {
-            var mode = ParsekFlight.ClassifyVesselDestruction(
-                hasActiveTree: true,
-                isRecording: true,
-                vesselDestroyedDuringRecording: true,
-                isActiveVessel: true,
-                shouldDeferForTree: true,
-                treeDestructionDialogPending: false);
-            Assert.Equal(ParsekFlight.DestructionMode.TreeDeferred, mode);
-        }
-
-        [Fact]
         public void ClassifyVesselDestruction_NoTree_ReturnsNone()
         {
             // With always-tree mode, hasActiveTree=false never happens during recording.

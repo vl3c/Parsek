@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index e44860ee4..a5221a5a5 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -2129,7 +2129,7 @@ namespace Parsek
+                 string.Format(ic, "has-orbit-data-rec|{0}", recId),
+                 BuildHasOrbitDataStateKey(body, sma, hasOrbit),
+                 string.Format(ic,
+-                    "HasOrbitData(Recording): rec={0} body={1} sma={2} result={3}",
++                    "HasOrbitData(Recording): rec={0} body={1} sma={2} hasOrbit={3}",
+                     recId,
+                     body,
+                     sma,

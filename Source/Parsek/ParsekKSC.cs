@@ -292,6 +292,11 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
             AdvanceCareerLedgerForKscUT(currentUT);
+            // Time passes here (KSC warp) with no scene change: a Recovered flight's crew
+            // hold that the clock has just reached is released by one recalculation.
+            // Two double comparisons per frame; the recalculation runs once per release.
+            LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(
+                currentUT, "ksc-reservation-release");
 
             // Reconcile already-spawned ghosts against the (possibly shrunk) committed
             // list before any early-out. kscGhosts / kscOverlapGhosts are keyed by

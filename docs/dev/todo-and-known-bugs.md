@@ -28,6 +28,51 @@ sequence), which is also what a player does. Fix direction if it matters: have `
 tree, exactly as `MissionsWindowUI`'s GoTo path already does ("Calling the same idempotent static
 the draw and ParsekScenario.OnLoad both call is not a second seam").
 
+## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
+
+Done on the branch (owner-approved review items 1-8): house dates with a relative deadline
+tail; expanding name column in every table; milestone titles via the Timeline humanizer and
+facility names from `ScenarioUpgradeableFacilities.GetFacilityName`; Science mode draws
+Milestones plus Facilities only while a building is destroyed (no Level column), Sandbox
+hides the launcher; the empty Status columns, the triple pending marker and the Facilities
+section bar are gone, the Contracts-tab and Facilities-Status tooltips are corrected; minimum
+height 320; a `Timeline end` column plus a now-vs-pending split on every tab except
+Facilities (whose Timeline-end column is its split). Found on the way and fixed in the same
+branch: a FacilityDestruction / FacilityRepair is keyed by the DestructibleBuilding id
+(`SpaceCenter/LaunchPad/Facility/...`), which the walk never mapped to its facility row;
+divergence ignored a closing-plus-pending pair whose counts cancel. After review (PR #1764):
+the destroyed state NOW comes from stock's `ScenarioDestructibles` (see
+KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER for why the ledger cannot answer it), the
+ledger only projects destructions after live UT, a facility's change date is its own
+intact-to-destroyed transition, every cell is formatted once per rebuild on a per-minute
+cadence, and a row active now that ends and restarts later keeps its own end date.
+
+Science-mode destruction, answered from decompiled KSP 1.12.5 (the owner's question):
+`ScenarioDestructibles` is registered with `ScenarioCreationOptions` 3198 (every mode, new
+and existing games), `DestructibleBuilding` returns before damage only when
+`HighLogic.CurrentGame.Parameters.Difficulty.IndestructibleFacilities` is set, and that field
+defaults to false and is set true only by the Easy difficulty preset. So buildings CAN be
+destroyed in a default Science game; the committed `fresh-science` fixture carries
+`IndestructibleFacilities = False`.
+
+Open residue:
+1. No census picture of a destroyed facility, a recorded contract failure, populated
+   strategies, the split layout with pending rows, or Science mode with a destroyed
+   building. The gallery catalogue covers each as a synthetic state; a real one needs a
+   rewound career fixture (same need as item 4 of GUI-CENSUS-WAVE6-RESIDUE-2026-09-22).
+2. The Career launcher's tooltip still reads "Contracts, strategies and buildings along
+   the timeline." in Science mode, where the window has neither contracts nor strategies.
+   Left as is: a mode-dependent tooltip is a second copy for one sentence.
+3. Items 9-11 of the review were not approved (merge Strategies into Contracts, a Tech
+   tab, re-fly change history) and are not filed as work.
+4. GUI-6 still opens the Career window through the seam in its Sandbox flight
+   (`play-career-contracts-sandbox-flight-advanced`), a state a player can no longer reach
+   now that Sandbox hides the launcher. The capture is harmless (the Sandbox banner still
+   draws) and was not re-flown on this branch; drop the step the next time GUI-6 is edited.
+5. Minimum width: at 520x320 the Contracts title column shrinks to 119 px and clips, while
+   Accepted (145) and Deadline (220, sized for `Y12, D426, 05:17 (overdue 99d)`) keep
+   their widths. Accepted: the title reads in full once the window is widened.
+
 ## LISTHANDLES-CHAINS-DIGEST-SCOPE: the chains digest hashes each chain's links only as a COUNT, and covers only the kept (future, non-terminated) chains [FILED 2026-09-22 from the #1761 review. OPEN; a follow-up, deliberately not fixed in that PR]
 
 `TestCommandListHandles.ChainsDigest` hashes `pid|links|tip|spawnUT(R)|terminated;` per
@@ -88,6 +133,26 @@ off the walker's `ResolveTermination: ... terminalState=Destroyed` and
 A subject for either needs a chain whose tip is still in the future when the scene loads
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
 RealSpawn / Recover verb pair.
+
+## KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action [FILED 2026-09-23 from the PR #1764 review; OPEN]
+
+`GameStateFacilityRecorder` forwards only `FacilityUpgraded` to the ledger
+(`LedgerOrchestrator.OnKscSpending`, both the event-driven path and the poll). Its poll
+emits `BuildingDestroyed` / `BuildingRepaired` game-state events but forwards neither, and it
+runs only on scene load (`GameStateRecorder`), so a repair at the KSC is seen at the next
+scene change, carries no recording id, and is never converted: commit-time conversion
+(`GameStateEventConverter`, `LedgerOrchestrator` commit path) only takes events tagged with
+the committing recording. A destruction reaches the ledger only when its event happens to be
+tagged with a recording that later commits. Whether the repair's funds cost reaches the
+funds walk by another path (a `FundsChanged` event with reason `StructureRepair`) was not
+checked here.
+
+Nothing reads the ledger's destroyed state except the Career window, which since PR #1764
+takes the state NOW from `ScenarioDestructibles` and uses the ledger only for destructions
+after live UT; `KspStatePatcher` has no destroyed / repair handling. So nothing visible
+depends on it today. Fix direction, when wanted:
+forward `BuildingRepaired` like a KSC spending (untagged, with its cost), and decide whether
+a destruction outside a recording belongs in the ledger at all.
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
@@ -825,7 +890,74 @@ windows are store-shaped (frame-keyed caches, index-into-the-live-list row ident
 belong to synthetic SAVE fixtures rather than an in-memory mock; and any such fixture work
 must splice onto a HARVESTED save per `SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE`.
 
-## KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME: a reservation from a committed flight stays in force after the flight's recorded end, including a Recovered flight's finite `ReservedUntilUT` [FILED 2026-09-22 off the Kerbals-window review (open question 1). BACKEND BEHAVIOUR, NOT CHANGED. OPEN for the owner to decide]
+## ~~KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME~~: a reservation from a committed flight stays in force after the flight's recorded end, including a Recovered flight's finite `ReservedUntilUT` [FILED 2026-09-22 off the Kerbals-window review (open question 1). OWNER DECISION 2026-09-23: option (b), the design is right and the code is the bug. FIXED 2026-09-23 on branch `kerbal-reservation-release`]
+
+**Fix (2026-09-23).** One predicate, `KerbalsModule.IsReservedAt(name, nowUT)` = a reservation
+exists AND it is in force at `nowUT` (`IsReservationActiveAt`: permanent, or open-ended `+inf`,
+or `nowUT < ReservedUntilUT`; the kerbal is free AT exactly the recovery UT, because the
+common live case is a commit run at that very clock). With NO readable clock the last
+authoritative decision stands for an unchanged hold, and a new or changed hold is held
+(`ResolveHoldWithUnknownClock`), so a clockless walk never re-holds a returned owner and makes
+the roster pass recreate his deleted stand-in (review follow-up, PR #1767). The walk
+captures its clock ONCE in `PrePass` (`ResolveWalkClockUT`: the loaded save's
+`flightState.universalTime` while `ParsekScenario.OnLoad` is on the stack, because Planetarium
+still reads the previous scene's clock there; else the walk's cutoff, unless it is a "walk
+everything" sentinel such as the Re-Fly post-invoke `double.MaxValue` (CL-4 run
+`2026-09-22_2143` measured `walkClockUT=1.8e308` before this rule); else the adjusted rewind
+UT while a rewind's clock adjustment is pending (`RecordingStore.RewindUTAdjustmentTargetUT`,
+captured when the adjustment is scheduled, because `RewindContext.EndRewind` zeroes
+`RewindAdjustedUT` in the same OnLoad); else live Planetarium; tests drive it through
+`KerbalsModule.LiveClockUTProviderForTesting` / `LoadedSaveUTProviderForTesting`), and
+`CrewReservationManager.RecomputeAfterCutoffWalk` now passes its cutoff through. A cutoff
+recalculation walks the kerbals module twice (the engine walk over the cutoff-filtered rows, then
+the whole-ledger recompute); the first is marked PROVISIONAL (`MarkNextWalkProvisional`,
+`provisional=True` on its PostWalk summary) and records no transitions, so two flights either
+side of a rewind point no longer log "released" / "re-reserved" on every recalculation. EVERY consumer
+routes through `IsReservedNow` (= `IsReservedAt` at the walk clock): `IsKerbalAvailable`,
+`ShouldFilterFromCrewDialog`, `IsManaged`, `GetReservationKind`, `GetActiveChainIndex` /
+`ResolveActiveChainIndex`, `ComputeRetiredSet`, `EnsureChainDepth`, and every `ApplyToRoster`
+step, including the `crewReplacements` swap map (so a returned owner is never swapped out of the
+craft he boards). The raw `Reservations` map is kept (the Kerbals window names the holding flight
+from it; the tombstone roster cleanup still preserves anyone a surviving flight names);
+`ActiveReservations` is the in-force view the window now reads. A released owner creates no slot
+and demands no chain depth, so the EXISTING displacement machinery does the return: an unused
+stand-in is deleted, a used one retired, the chain keeps its names; a rewind before the end
+re-reserves him, recreates the stand-in under the persisted name and reactivates a retired one.
+Re-evaluation: the existing recalculations (scene load, commit, rewind, flight warp exit) now
+judge against the clock; the KSC and Tracking Station `Update` and the crew-assignment dialog
+(`CrewAutoAssignPatch` prefix on `RefreshCrewLists`) call
+`LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue`, two double comparisons against
+`KerbalsModule.NextReservationReleaseUT` that run the ordinary current-timeline recalculation
+once per crossed release (never per frame: a triggered walk that cannot move the release
+stands down until another walk runs, while a later walk that puts the same release back - a
+rewind - re-arms it; it also stands down during OnLoad and a pending rewind adjustment). Logging: `Reservation released: '<name>' endUT=.. nowUT=..` and `Reservation
+re-reserved: ...` once per actual transition, `released=` / `walkClockUT=` / `nextReleaseUT=` on
+the PostWalk summary. `KerbalReservationReleaseTests` inverted (held before the end, free from
+it, re-reserved by a rewind before it, stand-in deleted / retired / recreated by name, the L3
+shape generating no stand-in, the due-check firing once). The window reads `Reserved until
+<date>` for a finite hold again, with the hover rule `Free again from <date>, when that flight
+ends.`; open-ended holds keep `ReservationHoldRule`. In FLIGHT there is no crossed-an-end check,
+so the cell can show a just-passed date until the next warp exit, commit or scene change.
+Dismissal stays BLOCKED for a returned owner (decided on review): `KerbalDismissalPatch` refuses
+`KerbalsModule.ShouldBlockDismissal` = managed OR named by any committed flight (the raw map),
+with the reason `This kerbal flew a committed flight on your timeline.`, because a sacked kerbal
+that committed flights still name (ghost crew, a rewind before his recovery that must re-reserve
+him) is a data hazard. Aboard (`+inf`) holds were UNCHANGED by this fix; a real-vessel
+recovery bounds them since KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL below.
+
+**Residual (not fixed): a trigger walk under KSP-patch deferral.** When the crossed-an-end check
+fires while `GetKspPatchDeferralReason` defers the patch (a live or pending tree), the walk
+updates the reservations and moves `NextReservationReleaseUT`, but `ApplyToRoster` (inside the
+non-deferred branch of `LedgerOrchestrator.RecalculateAndPatchCore`) does not run, so the
+released owner's stand-in and the `crewReplacements` swap map stay as they were and the check
+does not fire again. The stale state lasts only as long as the deferral: the tree resolution
+that ends it (merge / discard / commit) runs its own recalculation, which applies the roster.
+Re-firing the check while deferred would recalculate every frame for the whole deferral, and
+refreshing the swap map alone under deferral changes every deferred recalculation's contract,
+so neither was taken; revisit if a live log shows a released owner swapped out during a
+deferral.
+
+**The original filing, kept for the record.**
 
 **What is true (measured).** `KerbalReservationReleaseTests` commits one flight for
 Jebediah (start UT 100, end UT 300) and drives the REAL walk -
@@ -867,6 +999,146 @@ and deciding what a rewind to before the flight's end does to a kerbal the playe
 crewed. (b) is a behaviour change with rewind, stand-in retirement and swap consequences; if it
 is chosen, `KerbalReservationReleaseTests` inverts and the window's hover rule changes with it.
 
+## ~~KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL~~: a kerbal whose committed flight ends Aboard stays reserved forever, even after the vessel is recovered - and an ordinary in-flight "Recover" with auto-merge on ends every crewed flight Aboard [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, then MEASURED the same night on `L3-career-science-recover` run `2026-09-22_2132` (and read back into the 2026-09-02 L3 log). PRODUCT GAP against design 9.3 ("RECOVERED ... available after recovery"; STRANDED "stays open until a future recording rescues the kerbal"). FIXED 2026-09-23 on branch `kerbal-aboard-recovery` (the recovery half; see Residual)]
+
+**Fix (2026-09-23).** A real-vessel recovery now writes a ledger row, and the kerbals walk
+bounds the open-ended hold with it; the ledger stays the single source the reservation is
+derived from, so rewind and recompute stay derivable. New `GameActionType.KerbalRecovered = 34`
+(additive enum member, no schema bump; serialized as `kerbalName` / `kerbalRole` beside the
+common `ut` / `recordingId` / `seq` / `actionId`). Producer: `ParsekScenario.OnVesselRecovered`
+(after the existing terminal-state and funds legs; skipped for a ghost map vessel, during a
+rewind strip, and when `GameStateRecorder.SuppressCrewEvents` marks one of Parsek's own
+programmatic recoveries) reads the crew off the recovered `ProtoVessel` and calls
+`LedgerOrchestrator.OnRealVesselCrewRecovered`. That picks the owner recordings through the
+pure `CrewRecoveryReservationClose` (`GameActions/CrewRecoveryReservationClose.cs`): an ERS
+recording the vessel continues - a POSITIVE launch match
+(`VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch`: pid AND both guids known and
+equal, no pid-only fallback, because closing a hold RELEASES a kerbal and the pre-fix answer
+was to leave it alone) or a GENUINE Parsek spawn (`SpawnedVesselPersistentId` equal to the
+live pid and different from the craft pid) - that ended at or before the recovery, the
+latest-ending one per tree. The recovered names are reverse-mapped to reservation owners
+(`KerbalsModule.ReverseMapCrewNames`, as the assignment rows are), and one row per (owner,
+kerbal) is written only when that kerbal has an open-ended hold in scope (an ELS
+`KerbalAssignment` row, non-tourist, not a loop and not in a chain with a looping segment -
+the walk's own override, mirrored so the writer never logs a closure that changes nothing -
+end state Aboard or Unknown). Rows are deduped
+by `GetActionKey` = `recordingId|kerbalName` inside the 0.1 s window, logged once at Info as
+`Crew reservation closed by recovery: '<name>' recoveryUT=<ut> recordingId=<id> vessel='<v>'
+openHolds=<n>`, then `RecalculateAndPatchForLiveTimelineEvent(ut,
+"recovery-crew-reservation-close")` runs. Walk: `KerbalsModule.PrePass` collects the rows
+(`CollectRecoveryClosures`; they sort AFTER the assignment rows they close) and
+`ProcessAction` ends an Aboard / Unknown, non-permanent, non-looping-chain hold at the earliest
+row whose owner is committed and for which the pure `RecoveryClosesHold` answers true: the
+held flight is the owner itself or in the owner's tree, and ended at or before the recovery
+(1 s tolerance). So the L3 shape (Recovered HEAD + Aboard TIP of one launch) becomes UT 0 ->
+recovery UT and #1767's release frees him at once; a flight in ANOTHER tree keeps its hold
+(a kerbal stranded by another mission stays stranded, and a stand-in whose name reverse-maps
+to that owner cannot free him), a later flight keeps the max-end merge, a Dead row stays
+permanent, and a rewind to before the recovery holds him again because the row is a future
+row of the committed timeline (`CrewReservationManager.RecomputeFromEffectiveLedger` now
+feeds the type too). Supersede / tombstone: `TombstoneEligibility.IsSupersedeTombstoneEligible`
+retires the row with its owner recording (a re-fly that deletes the flight the recovered
+vessel continued also drops the closure), and `SupersedeCommit.IsWorldStateChangingRecordingAction`
+lists it as non-blocking. Not resource-impacting (`LedgerLoadMigration`,
+`KscActionExpectationClassifier`); the timeline shows it in the kerbal-assignment bucket as
+`Recovered: <name>`. Tests: `KerbalRecoveryReservationCloseTests` (the L3 shape end to end
+through the real ledger and walk, dedupe, rewind re-reserve, max-end with a later flight,
+another mission's stranding untouched, guid-mismatch and unknown-guid refusals, the spawned
+vessel, the stand-in reverse map, tombstoned-row reopening, and the pure scope / identity /
+row-building / collection decisions, serialization and dedup key), plus the enum-coverage
+tables in `LegacyTreeMigrationTests`, `SupersedeCommitTests`, `RecalculationFuzzer` and
+`LedgerStateFuzzerTests`. `KerbalReservationReleaseTests.AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold`
+still holds: a later Recovered flight in a different tree is not a recovery of the Aboard
+flight's vessel.
+
+**Live proof (2026-09-23, automation DLL verified to carry the new literals before each
+flight).** `L3-career-science-recover` run `2026-09-22_2325` PASS attempt 1: the commit walk
+still re-reserves Jeb (`Reservation re-reserved: 'Jebediah Kerman' endUT=INDEFINITE
+nowUT=347.2`, `Stand-in generated: 'Valdas Kerman'`), then the recovery writes `Crew
+reservation closed by recovery: 'Jebediah Kerman' recoveryUT=347.3
+recordingId=9dbe6297... vessel='Jumping Flea' openHolds=1`, the walk logs `Reservation
+bounded by recovery` and `Reservation released: 'Jebediah Kerman' endUT=347.3 nowUT=347.3`,
+and `Stand-in 'Valdas Kerman' displaced -> deleted (unused)`. No later walk re-reserves him;
+the produced save has Jeb `state = Available`, the stand-in only as a persisted chain name,
+and the `type = 34` row in `ledger.pgld`. `CL-4-refly-crew-standin` run `2026-09-22_2332`
+PASS attempt 1: the re-fly still generates its required stand-in (`Stand-in generated:
+'Caller Kerman' (Pilot) for slot 'Jebediah Kerman' depth 0`), and no recovery row is written.
+
+**Residual (not fixed).** (1) The spawned-vessel arm (a Parsek-spawned vessel recovered
+from the Tracking Station, or flown home through a switch continuation) is unit-proven
+only: it needs the Aboard flight's `SpawnedVesselPersistentId` to still name the live pid
+at recovery time, and no live lane flies that shape yet. (2) A legacy recording with no
+launch guid is never an owner (positive-match rule), so its crew keep the open-ended hold
+after a recovery; re-flying or deleting that flight still releases them. (3) A recovery
+never replays: after a rewind to before it, Parsek respawns the vessel at the recording's
+end, and the committed row still releases the crew at the ORIGINAL recovery UT whether or
+not the player recovers the respawned vessel again. The same holds for a quickload: the row
+carries a recording id, so `Ledger.Reconcile` keeps it past `maxUT` (the tagged "other"
+branch, `Ledger.cs` ~895-901), and an F9 to a save from before a Tracking Station recovery
+still frees the kerbal once the clock passes the old recovery UT. Impact is the stand-in
+deletion / retirement only; the contract is the one the #444 recovery-funds rows already
+have. (4) A cross-mission rescue is not closed: `RecoveryClosesHold` never reaches across
+trees, so if Jeb ended mission T aboard its vessel (`+inf`) and came home aboard mission U's
+vessel, U's recovery closes U's hold and T's stays open-ended (design 9.3's rescue case; not
+a regression; pinned as current behaviour by
+`CrossMissionRescue_ClosesOnlyTheRecoveredMissionsHold`). Fix idea: when the recovered name
+was NOT reverse-mapped from a stand-in (the kerbal himself is physically aboard), closing his
+held flights from ANY tree that ended by the recovery would be correct; the tree fence only
+exists for the stand-in case. (5) The tree scope is wider than the vessel's lineage: a
+surviving row closes any open-ended hold of the same kerbal in the same tree that ended by the
+recovery UT, including one from a branch the recovered vessel never carried him on. The risky
+shape needs a recovery during an uncommitted re-fly whose later commit adds such a hold to the
+tree; not proven live.
+
+**The common case (measured).** Stock's in-flight Recover requests the Space Center scene
+first and recovers the vessel there. Parsek finalizes the recording at the scene change
+(`FinalizeIndividualRecording ... with stable terminal state Landed (vessel.situation=LANDED,
+isSceneExit=True)`), stashes the pending tree, and with auto-merge on (the shipping value)
+commits it on the Space Center load. Stock's recovery then fires AFTER the commit
+(`[Research & Development]: +1 data on Recovery of a vessel` at 00:39:05.657 against the merge at
+00:39:05.2 on run `2026-09-22_2132`), so `UpdateRecordingsForTerminalEvent` finds no pending
+recording and the committed one keeps `Landed`. The optimizer's surface split then yields a HEAD
+[10..341.8] whose ghost-only chain hand-off reads Recovered and a TIP [341.8..347.7] ending Landed
+with Jebediah in its snapshot, i.e. Aboard. On the fixed DLL the first commit walk logs
+`Reservation released: 'Jebediah Kerman' endUT=341.8 nowUT=347.7`; the TIP's row lands one walk
+later, `Reservation extended: ... endUT->Infinity`, `Reservation re-reserved: 'Jebediah Kerman'
+endUT=INDEFINITE nowUT=347.7`, and `Stand-in generated: 'Rosted Kerman' (Pilot) for slot 'Jebediah
+Kerman' depth 0`. The re-flight on the branch's final DLL, `2026-09-22_2226` (PASS; the spec
+pins none of this), reads the same: `Reservation released: 'Jebediah Kerman' endUT=341.7
+nowUT=347.5`, then `Reservation re-reserved: ... endUT=INDEFINITE` and `Stand-in generated:
+'Kimmin Kerman'`. The 2026-09-02 L3 log shows the identical pair (`21eb7811...` Recovered at 342.3,
+then `8d487dc7...` aboard=1, `Reservation extended ... Infinity`). So the time-based release
+cannot help the everyday recovered flight until this ordering gap is closed.
+
+**What is true (read, and pinned by one xUnit cell).** An Aboard (or Unknown) end state maps to
+`ReservedUntilUT = +inf` (`Source/Parsek/KerbalsModule.cs:626`, `:637`), and reservations for one
+kerbal merge by MAX end (`KerbalsModule.cs:644`), so no later row can shorten an open-ended hold.
+Nothing re-stamps the Aboard row either: `ParsekScenario.OnVesselRecovered`
+(`Source/Parsek/ParsekScenario.cs:7766`) calls `UpdateRecordingsForTerminalEvent`, which only
+touches PENDING-tree recordings - "Committed recordings are never modified by terminal events"
+(`ParsekScenario.cs:7884`) - and the outside-flight recovery path only writes a
+`FundsEarning(Recovery)` row (`LedgerOrchestrator.OnVesselRecoveryFunds`, `LedgerOrchestrator.cs:5269`)
+plus `KerbalExperience` rows (`recovery-kerbal-xp`, `LedgerOrchestrator.cs:4990`), neither of which
+the kerbals walk reads as an end. So recovering the spawned real vessel from the Tracking Station
+returns the kerbal to Available in stock while Parsek keeps him reserved: filtered from the crew
+dialog, mapped to a stand-in in `crewReplacements`, `Reserved: aboard <vessel>` in the Kerbals
+window. Flying the spawned vessel home through a switch continuation does not help either: the
+continuation's Recovered row merges with the parent's `+inf` row by max.
+`KerbalReservationReleaseTests.AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold`
+pins the merge half.
+
+**Fix direction (as filed; the ledger-row candidate was taken, see Fix above).** For the common case: treat a recovery REQUESTED in flight
+(stock `onVesselRecoveryRequested`, which fires before the scene change) as the recording's
+Recovered terminal, or let `onVesselRecovered` re-stamp the just-committed tree's leaf when the
+guid-matched recording ended at the scene change that recovery caused. More generally, a rescue /
+recovery of the vessel a committed Aboard flight ended on is the design's "rescue recording
+provides endUT". Candidates: let a later Recovered row for
+the same kerbal and the same physical vessel (launch guid, `VesselLaunchIdentity`) close an
+earlier Aboard row instead of merging by max; or write a ledger row at a real-vessel recovery of
+a Parsek-spawned vessel (`SpawnedVesselPersistentId`, guid-gated) that bounds its crew's hold.
+Either changes reservation semantics across rewinds (a rewind to before the recovery must hold
+the kerbal again), so it needs its own design pass and live proof.
+
 ## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
 
 **What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
@@ -876,7 +1148,8 @@ the two things its row model could not answer off existing data.
    was removed by the Kerbals review round (it was mostly dashes, could read a future date
    after a rewind, and dated a mission by its end while the Flights tab dated it by its
    start). The loss date moved into the Lost status hover; a reservation names its flight
-   instead of a date (see KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME above).
+   instead of a date (see KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME above; since that fix a
+   finite Recovered hold reads its release date again, in the Status cell).
 
 2. **The "as &lt;stand-in&gt;" fallback is time-blind.** The primary source is per-flight
    truth - the recording's own raw crew, through the new
@@ -4257,7 +4530,7 @@ writes supersede rows, tombstones, and flips MergeState). Re-arming afterwards w
 later cells a marker pointing at an already-merged provisional. The precondition guard
 subsumes the problem.
 
-## TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS: two rare shapes the endUT death screen gets wrong [NOTED 2026-09-22 in #1759 review. OPEN, low]
+## TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS: two rare shapes the endUT death screen gets wrong [NOTED 2026-09-22 in #1759 review. RULED 2026-09-23: both ACCEPTED as known limitations; (1) is now logged]
 
 Both are documented on `TombstoneAttributionHelper.ComputeAttributionUT`.
 (1) FLOAT PRECISION. `GameAction.EndUT` is a float. Late in a career (UT around 2e7 s,
@@ -4273,6 +4546,20 @@ member Dead at the recording's end, so a kerbal who actually died BEFORE the rew
 vessel that flew on past it (e.g. killed on EVA, then the vessel crashed later) carries
 the end-of-recording EndUT and is now tombstoned. Rare, and the per-kerbal death instant
 is not recorded anywhere the screen could read.
+
+OPERATOR RULING 2026-09-23. (1) ACCEPT AND LOG: no serialized-field change. When a
+death-encoding row's float `EndUT` lies within one float step of the rewind cutoff
+(`TombstoneAttributionHelper.IsDeathEndUTWithinFloatStepOfCutoff`, step from
+`FloatStepAt`: 2 s at UT 2e7, about 4e-6 s at UT 34), `SupersedeCommit.CommitTombstones`
+logs `[WARN][LedgerSwap] PreRewindTombstoneGuard: death endUT within one float step of the
+cutoff ... floatStep=... -> kept|in scope`. WARN rather than INFO because it is a real
+ambiguity in a career outcome, and it cannot red a green lane: `validate-ksp-log`'s only
+WARN rule (WRN-001, `ParsekLogContractChecker`) flags a redundant `WARNING:` prefix, never
+a plain Warn. Pinned by `KerbalAssignmentIdentityTests.CommitTombstones_DeathWithinOneFloatStepOfCutoff_LogsWarn`
+and its no-warn mirror. (2) ACCEPTED KNOWN LIMITATION, no code: a kerbal killed BEFORE the
+rewind point on a vessel that flies on past it is tombstoned by the merge and returns
+alive. The rewind design doc (docs/dev/done/parsek-rewind-separation-design.md) has no
+known-limitations section, so this entry and the helper's doc comment are the record.
 
 ## ~~KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY~~: a re-fly's own crew rows are dropped as duplicates of an unrelated assignment row 0.1 s away [FOUND 2026-09-22 on RF-12S's after-reading. FIXED in the same PR (#1759)]
 
@@ -4311,7 +4598,70 @@ real commit path by
 the fixed DLL (`2026-09-22_2010`) read the provisional's `dedup=2` (was 4) and `2 reservations
 remain (permanent=0 temporary=2)` (was 0).
 
-## TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. OPEN, needs two design decisions]
+## RF-13-HOST-CANNOT-REACH-ORBIT: the RP-split re-fly lane never reaches its merge, because the host restores the crewed stack too low to burn to orbit [FOUND 2026-09-22 on RF-13's reading runs. OPEN, harness-only]
+
+`RF-13-refly-split-crew-survives-reload` is the live proof of the fix below: rewind
+`refly-split-crewed-recorded` slot 0, burn the restored crewed stack to orbit with
+`rf12s_refly_orbit_insert` so the crew SURVIVE, merge (a merge that SPLITS the origin
+at the rewind point), SaveGame + LoadGame, and assert no permanent reservation after the
+reload. The host (RF-13H, `2026-09-22_2315`) is right for the SPLIT: one crewed recording
+from launch through the RewindPoint to a death, no optimizer split. It is wrong for the
+BURN. GS-4's 60 km core gate leaves the stack at 29.1 km climbing near-vertically (vsurf
+711 m/s, ap 60.5 km), and every fixed pitch ran the X200-16 dry short of orbit:
+`2026-09-22_2319` + `_2322_a2` (pitch -5): dry at 62.7 km, pe 61.8 km, near-escape
+apoapsis; `_2333` (-10): pe 50.8 km; `_2337` (+5): pe 54.2 km. None reached
+`AnswerMergeDialog`, so the lane's tokens are unflown. Stopped at the flight cap (5 of ~8).
+
+The two constraints pull apart: the host's top stack must stay INSIDE the atmosphere
+after the discard (else the optimizer splits the pod at 70 km and the death lands on the
+second segment, which the rewind split never touches - RF-9's shape), and the re-fly
+needs enough energy at the rewind point to make orbit. Options, cheapest first:
+(1) re-harvest with the core gate just under the atmosphere (e.g. 68-69 km apoapsis) and
+re-read the burn, i.e. more energy at the RP for the same single-environment shape
+(a point-mass sweep calibrated on the four burns says marginal); (2) give
+`rf12s_refly_orbit_insert` a pitch program (steep, then flat) instead of one fixed pitch;
+(3) have the re-fly survive WITHOUT an orbit, which needs a craft with a parachute on the
+upper stack and a scene-exit merge that stamps Landed / Splashed. Cost after the
+re-harvest: a reading run, an armed run and a main-DLL negative control.
+
+ALSO FOUND AND FIXED on these runs: `mlib.evaluate_rfo_assertions` put NaN cut stamps
+into the orbit row whenever the burn gave up before the cut, `serialize_mission_result`
+(allow_nan=False) raised, and the harness read `<no-result>` / INVALID(driver stage)
+instead of the named MISSION-ASSERT-FAIL. Non-finite values are now written as null
+(`RfoGiveUpSerializesTests`); `_2333` and `_2337` report the named verdict.
+
+## OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. OPEN, needs a design decision]
+
+MEASURED HEADLESSLY by the skipped
+`TombstoneReloadMigrationTests.OptimizerSplitOfPopulatedRecording_ReFlyBeforeAnyReload_CrewNotDead`.
+The shape: a committed crewed flight whose crew rows were already derived (Dead for the
+whole flight) is split later by `RecordingStore.RunOptimizationSplitPass` - e.g. a re-fly
+provisional whose split was deferred at its own merge, or a load-time split. The split
+retags NO ledger rows, so the whole-flight Dead row stays tagged to the FIRST segment; the
+load runs `MigrateKerbalAssignments` (ledger-load phase) BEFORE the optimization pass, so
+the rows are not re-derived until the NEXT load. A re-fly of the SECOND segment in that
+window finds no row on it to retag or tombstone, the first segment's row (outside the
+closure) stays live, and the kerbal stays Dead; after the next load the TIP derives a
+fresh untombstoned Dead as well. With one load in between the shape is fixed by the
+Recovered-handoff move (entry below). Options: retag or re-derive KerbalAssignment rows for
+both halves inside the optimizer split pass, or run the kerbal-row re-derivation after the
+load-time optimization pass. Either is a ledger-timing decision, so it is filed rather
+than guessed.
+
+SECOND TRIGGER (found in the #1770 review, not yet measured): the RP-split TIP itself.
+On the first reload `MigrateKerbalAssignments` re-derives TIP's Dead row under the
+tombstoned id (ruling a1), and THEN the load-time optimization pass
+(`ParsekScenario.cs` ~4425, after the ledger-load phase) can split TIP again into TIP +
+TIP2: `FindSplitCandidatesForOptimizer` has no superseded filter, and the RP cut can
+expose a boundary the whole recording did not have (a plausible one is the graze rule
+(7) boundary, whose bracketing changes when the recording is cut).
+`MoveCrewEndStatesToSecondHalf` moves the Dead to TIP2, and on the second reload TIP2
+derives a fresh untombstoned Dead row, so the death resurrects. Candidate fixes:
+re-derive or retag KerbalAssignment rows inside the optimizer split pass (closes BOTH
+triggers), or skip superseded recordings as split candidates (cheap, closes only this
+one).
+
+## ~~TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT~~: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. RULED 2026-09-23 (a1 + the Recovered handoff). FIXED on branch `tombstone-reload`]
 
 MEASURED HEADLESSLY by `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
 (skipped, naming this entry). The shape: crew board at launch on a recording that spans
@@ -4350,6 +4700,61 @@ TWO INDEPENDENT CAUSES, each with its own decision:
     generation but needs a reservation rule and UI wording.
 Whatever is chosen must keep the guard/splitter mirror bit-identical (the retag key is
 `TombstoneAttributionHelper.ComputeAttributionUT`) and un-skip the test above.
+
+OPERATOR RULINGS 2026-09-23. (a) option a1: a row Migrate re-derives for the same
+(RecordingId, KerbalName) it replaces INHERITS the replaced row's ActionId (ActionIds are
+immutable and tombstones key on them, rewind design 5.6; the ledger is append-only). (b)
+the Recovered handoff: after the split, HEAD's CrewEndStates move to TIP and HEAD's end
+states and resolved flag are cleared, so the existing chain-handoff rule marks HEAD's crew
+Recovered (a finite reservation later segments extend). (3) first: test the analyst's lead
+that the optimizer's ordinary environment split leaves the same copied Dead on its first
+segment.
+
+FIXED (branch `tombstone-reload`):
+- (a) `LedgerOrchestrator.InheritKerbalAssignmentActionIds`, called by
+  `MigrateKerbalAssignments` before `ReplaceActionsForRecording`. Deterministic pairing: the
+  k-th desired row for a kerbal inherits the k-th stored row for that kerbal, each stored
+  row consumed once, so no two rows share an id; a desired row with no same-name partner
+  keeps a fresh id. ActionId CONSUMERS RE-DERIVED (every `ActionId` read in
+  `Source/Parsek`): tombstones and the ELS filter (the point of the change), `Inv8Ledger`
+  and `LoadTimeSweep`'s orphan-tombstone warn (a fresh id used to ORPHAN the tombstone:
+  both now stay clean), `TreeDiscardPurge`'s ActionId -> RecordingId index (the inherited
+  row keeps its recording), `ResurrectionRetirementEligibility` / `RewindInvoker` (collect
+  ids of rows present at invoke time; unaffected), the Funds / Reputation / Milestones
+  per-id log rate-limit keys and `LedgerRolloutAdoption` (other action types only),
+  `PostWalkActionReconciler` (log labels). Nothing depends on a fresh id at re-derivation.
+- COMMIT-SIDE MIRROR, found by the re-commit mirror test: every tree commit re-commits
+  every recording of the tree (`NotifyLedgerTreeCommitted`), and the retagged TIP row still
+  carries the origin's UT, so `DeduplicateAgainstLedger`'s 0.1 s window let a re-commit of
+  TIP file a second, fresh-id, untombstoned Dead row. KerbalAssignment dedup now matches on
+  its (RecordingId, KerbalName) key alone, the same identity a1 uses; every other type
+  keeps the UT window. Only one producer of KerbalAssignment exists
+  (`CreateKerbalAssignmentActions`).
+- (b) `RecordingOptimizer.MoveCrewEndStatesToSecondHalf`, called from
+  `TransferTerminalFieldsToSecondHalf`, i.e. for BOTH `SplitAtSection` callers (the RP
+  split via `SplitAtUT` and the optimizer split pass): (3) showed the optimizer path has
+  the same leftover, and end states are end-of-recording state that travels with the
+  terminal exactly like `MergeState` and `VesselSnapshot`. HEAD qualifies for the handoff
+  after the split: `ChainId` set (step 2.5 / `CopySplitIdentityFields`), `VesselSnapshot`
+  moved, terminal null. The fresh-commit order (optimize, then derive) moves nothing, so
+  the common path is unchanged. The merge direction needs no counterpart (`MergeInto`
+  stamps through `StampTerminalState`, whose invalidation seam re-infers). The split's
+  rollback restores both fields from the pre-split deep clone.
+- (3) MEASURED headlessly: an optimizer split of a recording whose end states were ALREADY
+  populated left the whole flight's Dead on the first segment, and a later re-fly of the
+  second segment could not retire it (outside the closure, endUT before the rewind), so
+  the kerbal stayed Dead BEFORE any reload. With the move, the shape where a load
+  separates the optimizer split from the re-fly is fixed
+  (`OptimizerSplitOfPopulatedRecording_ReloadThenReFlyOfSecondSegment_CrewNotDead`). The
+  shape with NO load in between is NOT, for a different reason (ledger rows, not end
+  states), filed above as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT.
+- `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
+  is un-skipped and green, with mirror cells for two reloads, a re-commit of TIP, a merge
+  that does not split, a mid-split rollback and a crewless recording; mutation-checked
+  (removing the inheritance, the dedup identity or the move reds 8 / 2 / 6 cells).
+- LIVE PROOF: the host was harvested (`refly-split-crewed-recorded` from RF-13H
+  `2026-09-22_2315`), but RF-13's re-fly burn never reached the merge; see
+  RF-13-HOST-CANNOT-REACH-ORBIT. The fix is proven headlessly only.
 
 ## ~~TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START~~: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09. RULED 2026-09-22: screen death intervals by `endUT`. FIXED on branch `tombstone-endut` and LIVE-PROVEN by RF-12S; two follow-ups filed above]
 
@@ -6840,7 +7245,7 @@ keeps its `dispatchWindowPeriod = 0` line and ROUTE nodes round-trip byte-identi
 **there is NO schema bump.** It is still reported into the M-A7 manifest's route record
 so a reading run can see what a save carries. Nothing in the logistics runtime ever read
 it. Pinned by `RouteCodecTests.Serialize_InterBodyRoute_StillWritesTheZeroPeriodLine_NoSchemaMove`
-and the pre-existing `Serialize_PreM5Route_ByteIdenticalBaseline`.
+and the pre-existing `Serialize_SingleStop_ByteIdenticalToBaseline`.
 
 Observability: one line per route-line BUILD,
 `Route scope: route=<8hex> origin=<body> destination=<body> scope=<...> basis=<...>`

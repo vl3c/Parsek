@@ -66,16 +66,6 @@ namespace Parsek.Tests
                 RouteHarvestCapture.EvaluateTransition(anyActive, windowOpen));
         }
 
-        // catches: a staged-away / destroyed drill never closing its window.
-        // The recorder counts Unity-null cache entries as INACTIVE, so the
-        // poll sees anyActive=false against an open window -> Close.
-        [Fact]
-        public void DestroyedConverter_InactiveScan_ClosesWindow()
-        {
-            Assert.Equal(HarvestActivityTransition.Close,
-                RouteHarvestCapture.EvaluateTransition(anyConverterActive: false, windowOpen: true));
-        }
-
         // ---------- Rails gate for the poll (plan D4) ----------
 
         // catches: the harvest poll opening/closing a window off a PACKED

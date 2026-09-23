@@ -23,39 +23,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Returns_True_When_ClosedBackgroundParent_Not_In_ActivePool()
-        {
-            // After a background split, CloseParentRecording sets
-            // ChildBranchPointId on the closed parent AND the surrounding
-            // flow swaps BackgroundMap[pid] to the continuation's id.
-            // The closed parent's RecordingId no longer matches the
-            // BackgroundMap entry (continuation owns it), and the closed
-            // parent isn't tree.ActiveRecordingId either — both
-            // active-pool checks miss, so the predicate returns true.
-            //
-            // The model "ChildBranchPointId set means closed" was fixed
-            // in the fourth review pass: that signal is also set on the
-            // ACTIVE focused recording during a focused breakup
-            // (ProcessBreakupEvent at ParsekFlight.cs:5427), where the
-            // recording keeps growing. So ChildBranchPointId-set is
-            // NOT sufficient evidence of closure — what closes a
-            // background parent is the BackgroundMap swap to the
-            // continuation, not the ChildBranchPointId stamp.
-            var tree = new RecordingTree { Id = "tree" };
-            var closedParent = new Recording
-            {
-                RecordingId = "closed-parent",
-                VesselPersistentId = 100u,
-                ChildBranchPointId = "bp-1",
-            };
-            tree.AddOrReplaceRecording(closedParent);
-            // Continuation owns the BackgroundMap entry now.
-            tree.BackgroundMap[100u] = "continuation-rec";
-
-            Assert.True(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(closedParent, tree));
-        }
-
-        [Fact]
         public void Returns_True_When_BackgroundMap_Has_Different_RecordingId_For_Vessel()
         {
             // Parent was superseded — BackgroundMap now points at a successor

@@ -126,18 +126,6 @@ namespace Parsek.Tests
         #region Integration
 
         [Fact]
-        public void EndToEnd_DebrisBoosterPattern_ZeroEventsTriggersAutoStart()
-        {
-            // Simulate a debris booster recording: one engine, no engine events at all
-            var events = new List<PartEvent>(); // empty — no seed events in debris recording
-
-            var engineKeys = GhostPlaybackLogic.BuildEngineEventKeySet(events);
-
-            // Zero engine events = pure debris pattern → Count==0 triggers auto-start
-            Assert.Empty(engineKeys);
-        }
-
-        [Fact]
         public void EndToEnd_MainVesselWithSeeds_EnginesNotOrphan()
         {
             // Simulate a main vessel recording: engines have EngineThrottle seed events

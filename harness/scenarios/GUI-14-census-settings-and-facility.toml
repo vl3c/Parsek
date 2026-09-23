@@ -48,7 +48,7 @@ tier = "operator"
 # which this host's zero-vessel `FLIGHTSTATE` gives by the `NoVesselSpaceCenter` route
 # with no `scene=` arg.
 #
-# THE MIN-SIZE CAPTURE. `CareerStateWindowUI` declares a 520x200 drag floor, and at
+# THE MIN-SIZE CAPTURE. `CareerStateWindowUI` declares a 520x320 drag floor (520x200 before the 2026-09-22 round-3 rebuild), and at
 # 520 px a four-fixed-column table (the Milestones one totals 90 + 200 + 320 + 70 =
 # 680 px) CANNOT fit while IMGUI does not reflow - so the window's own minimum is a size
 # at which its own tables are clipped, and no picture proved it. It is taken on
@@ -196,7 +196,7 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "fc-career-milestones-postupgrade-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "fc-career-milestones-postupgrade-advanced" }, expect = "OK" },
 
-  # AND AT THE WINDOW'S OWN DRAG FLOOR, ON THE POPULATED TAB. 520x200 is the declared
+  # AND AT THE WINDOW'S OWN DRAG FLOOR, ON THE POPULATED TAB. 520x320 is the declared
   # minimum and IMGUI does not reflow, so the point of this capture is a table whose
   # fixed columns cannot fit it. FACILITIES, not Milestones: the first flight took it on
   # Milestones, which on this host is one empty-state label - it clips nothing and the
@@ -204,7 +204,7 @@ steps = [
   # size axes are floors in the read-back, so a window that refuses to shrink reports the
   # size it kept rather than erroring.
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "520", h = "200" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "520", h = "320" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-minsize-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-minsize-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },

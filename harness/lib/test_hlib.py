@@ -9670,6 +9670,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "lane of the endUT tombstone ruling. Flies a before-reading on a main DLL "
             "(where its discriminating tokens must red) and an after-reading plus an "
             "armed run on the fixed DLL. Owes flights, not a human call",
+        "RF-13H-crewed-crash-refly-host.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-23 as the host "
+            "producer for RF-13 (a crewed recording from launch through the rewind "
+            "point to a death, no optimizer split), harvested as "
+            "refly-split-crewed-recorded. Owes a flight, not a human call",
+        "RF-13-refly-split-crew-survives-reload.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-23 as the proof "
+            "lane of TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a re-fly "
+            "merge that SPLITS the origin, then SaveGame + LoadGame. Four reading "
+            "attempts 2026-09-22 ran the burn dry short of orbit (host too low); "
+            "RF-13-HOST-CANNOT-REACH-ORBIT owns the re-harvest. Owes flights, not a "
+            "human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",

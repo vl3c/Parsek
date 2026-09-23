@@ -819,35 +819,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Captured_LandedPartner_IsSurfaceTrue()
-        {
-            // FAILS IF: a LANDED depot partner does not produce a surface-typed
-            // descriptor: the origin endpoint would then never reach the surface
-            // proximity rebuild fallback in RouteEndpointResolver.
-            ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<DockSeamPairCandidate>
-            {
-                Candidate(100, 9001, (int)Vessel.Situations.LANDED,
-                    "Mun", 12.0, -45.0, 612.0),
-            };
-
-            RouteProofCapture.BuildStartRouteOriginProof(
-                activeVesselSituation: (int)Vessel.Situations.LANDED,
-                activeVesselIsEva: false,
-                candidates: candidates,
-                settledDockSeamsScanned: candidates.Count,
-                snapshot: snapshot,
-                isGloopsMode: false,
-                vesselContext: TestVesselContext,
-                recordingVesselId: TestRecordingVesselId,
-                out RouteOriginProof proof,
-                out List<uint> _);
-
-            Assert.NotNull(proof);
-            Assert.True(proof.StartDockedOriginIsSurface);
-        }
-
-        [Fact]
         public void Captured_OrbitalPartner_IsSurfaceFalse()
         {
             // FAILS IF: an ORBITING station partner is misclassified as a surface

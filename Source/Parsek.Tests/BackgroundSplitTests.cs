@@ -144,22 +144,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildBackgroundSplitBranchData_SingleDebrisChild_IsMarkedAsDebris()
-        {
-            var newVessels = new List<(uint pid, string name, bool hasController)>
-            {
-                (300, "Booster", false)
-            };
-
-            var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
-                "parent_rec", "tree_1", 750.0, BranchPointType.JointBreak,
-                100, newVessels);
-
-            Assert.Single(children);
-            Assert.True(children[0].IsDebris);
-        }
-
-        [Fact]
         public void BuildBackgroundSplitBranchData_ControlledChild_IsNotDebris()
         {
             var newVessels = new List<(uint pid, string name, bool hasController)>

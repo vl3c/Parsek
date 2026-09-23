@@ -277,44 +277,5 @@ namespace Parsek.Tests
             Assert.False(anyNewVesselHasController);
         }
 
-        [Fact]
-        public void Bug362_TerminalCrashFragments_DebrisSplitRegression()
-        {
-            // Integration mirror of the KSP.log evidence from
-            // logs/2026-04-14_1954_kerbal-x-f5f9-fix-verify:
-            //   - recordedPid 123  (synthetic "Kerbal X")
-            //   - fragment pid 456 (parachuteLarge, uncontrolled)
-            //   - fragment pid 789 (HeatShield2,   uncontrolled)
-            // Before the fix, decoupleCreatedVessels iteration dropped both entries
-            // because their destroyed GameObjects compared equal to null, giving
-            // newVesselPids.Count == 0 and the classifier returned WithinSegment.
-            // The PID-based helper must restore the correct DebrisSplit outcome.
-            const uint recordedPid = 123u;
-            var decoupleControllerStatus = new Dictionary<uint, bool>
-            {
-                { 456u, false }, // parachuteLarge
-                { 789u, false }  // HeatShield2
-            };
-            var backgroundMap = new Dictionary<uint, string>();
-            var newVesselPids = new List<uint>();
-            var newVesselHasController = new Dictionary<uint, bool>();
-
-            SegmentBoundaryLogic.CollectSynchronouslyCapturedNewVesselPids(
-                recordedPid,
-                decoupleControllerStatus,
-                backgroundMap,
-                newVesselPids,
-                newVesselHasController,
-                out bool anyNewVesselHasController);
-
-            Assert.Equal(2, newVesselPids.Count);
-            Assert.Contains(456u, newVesselPids);
-            Assert.Contains(789u, newVesselPids);
-            Assert.False(anyNewVesselHasController);
-
-            var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
-                recordedPid, newVesselPids, anyNewVesselHasController);
-            Assert.Equal(JointBreakResult.DebrisSplit, classification);
-        }
     }
 }

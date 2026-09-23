@@ -40,6 +40,15 @@ _(unreleased — entries accumulate here per commit)_
   `chain-terminated-destruction-recovery`. Proven by an armed re-flight and a negative control. The recovery half, and a seam verb pair to
   spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
   Harness-only; no game code changed.
+- **Automated testing: a re-fly host whose merge splits the original recording, and the
+  lane that will fly it.** `RF-13H-crewed-crash-refly-host` flies a crewed Kerbal X whose
+  core comes off inside the atmosphere and whose upper stack is left to crash, so one
+  crewed recording runs from launch through the rewind point to a death with no optimizer
+  split. Its save is committed as the fixture `refly-split-crewed-recorded`. The proof lane
+  `RF-13-refly-split-crew-survives-reload` re-flies that crew to orbit, merges, saves and
+  reloads. It is not green yet: from that host the upper stack cannot reach orbit
+  (tracked as RF-13-HOST-CANNOT-REACH-ORBIT). The orbit-insert mission now reports a
+  burn that runs dry by name instead of failing to write its result.
 - **Automated testing: RF-12S proves the re-fly crew-recovery fix end to end.** The lane
   rewinds a recorded crewed flight to the moment after launch where its upper stack
   separated. It flies the restored stack to orbit with a new small mission, so the crew
@@ -57,6 +66,27 @@ _(unreleased — entries accumulate here per commit)_
   cached file every time, replaces one that does not match, and adds every verified
   download to the cache. `provision.py --seed-cache-from <dir>` fills the cache from zips
   another worktree already has, with no network. Harness-only; no game code changed.
+
+- **Tests: the audit's Low T2 (duplicate) and T6 (organization) registers are closed.**
+  175 duplicate cells are removed: 35 proven mechanically (every statement is also in the
+  twin) and 140 approved by a side-by-side review that checked each production claim in
+  source. 21 rows are kept because the review found unique coverage, 2 data-driven theory
+  duplicates are kept, 1 row is held, and 24 cosmetic Theory folds are declined because a
+  fold gains no failure mode. Eight rows whose cell asserted something its twin did not
+  were finished one at a time. In six, the unique assertion moved into the twin and the
+  cell is gone: the rollback keeps the origin instance itself, the background part-die
+  line names its handler, the self-rewind path fires no defensive Warn, every RCS showcase
+  entry starts at the recording start, the orbit-data line carries `result=True`, and the
+  unknown segment-event type logs a warning. One cell was a strict subset of its twin and
+  is simply removed. One is kept and renamed, because only its arrange reaches the
+  `rsr_legacyrestore_` relation id, which it now asserts. Each new assertion is proven by
+  a mutant that turns its cell red, where the old twin or cell passed. For the five T6 rows, the
+  section-dump triage tool and the seven synthetic-recording injectors now report as
+  skipped when their save is absent, where before they passed without asserting anything.
+  xUnit 2.4 has no runtime skip, so a thrown `SkipException` reports as a failure. The
+  check therefore sits on the test attribute. A dead fixture helper and a dead ternary
+  are deleted (the codec theory is renamed to the one path its two rows cover), and a
+  misnamed test region is renamed. No production behavior changed.
 
 - **Tests: recording-metadata round-trips now run through the codec that saved games use.**
   40 cells in ten test classes saved and loaded recordings through
@@ -159,6 +189,7 @@ _(unreleased — entries accumulate here per commit)_
   `maxParsekFrames` and is used only where that one cannot be armed. Harness-only; no game
   code changed.
 
+- **Dev: the GUI mirror's rail reads in tab order, names tabs by their newest capture, and retires states a lane stopped producing.** Each window's rail rows are ordered by the generator: grouped by tab in the window's own tab-bar order (with a thin header per tab), and within a tab from the least drawn capture to the most by the node count of the window's own tree, Basic before Advanced on a tie, then the label. A tab is named everywhere the page names it by the NEWEST capture carrying its token, so the Kerbals tabs read "Roster" / "Flights" instead of the retired "Roster State" / "Mission Outcomes" (a note's exported `tab` stays the token). A capture is RETIRED when a newer complete run of the same scenario (a PASS result JSON with captures, or where no result is readable a run that photographed the same window) no longer contains its key or label; a failed run retires nothing. Retired rows are treated like superseded ones: never a window's default capture, folded behind "show N hidden", badged "no longer captured by S since R", and left out of the state counts; the index gains `retiredCaptureCount` / `retiredKeyCount`. On the current census corpus this retires one capture, the Kerbals owner chain from GUI-11's 2026-09-15_1744 run (`harness/tools/gui_mirror.py`, `docs/dev/design-gui-mirror.md`).
 - **Dev: the GUI mirror is simplified to explore, choose, note, export.** The page statistics live only in the rail header; the top bar keeps Mirror / Compare, the photo toggle and a "Notes (N)" button, with the dataset, mode and other-mods preferences folded under "options". The main column shows one header line per state (window, tab, state and Basic / Advanced in words, dataset and run in small print, help behind a "?"), a status line that stays empty unless a click or fallback has something to say, and the notes box (verdict plus a textarea that saves as you type) directly under the hover strip, which keeps a fixed height so the notes row no longer jumps. The focus bar is gone: the address bar is kept in step as `#win=...&cap=...` (`&focus=1` scopes the rail; `#cap=...&bare=1` is unchanged). The Notes panel lists every saved note (click to jump, x to delete), copies all of them as JSON or markdown, clears all after a confirm, and folds import away. Rail rows read as words ("tooltip logistics - Advanced"), carry the dataset in their tooltip, mark a noted state with a dot, and fold no-hover, superseded and never-captured rows behind one "show N hidden" link per window; the per-window "cmp" button is gone since Compare follows the selected window. Storage keys and the `parsek-gui-mirror-notes/1` export schema are unchanged (`harness/tools/gui_mirror.py`).
 - **Automated testing: the optimizer's boundary-seam rule now has a deterministic live
   witness.** When a loaded background vessel goes on rails with nothing left to play, the
@@ -819,6 +850,38 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal whose committed flight ended with his recovery is free again once game time
+  passes that recovery.** A Recovered flight's crew reservation was meant to last from the
+  start of time until the recovery (design 9.3), but nothing ever compared it with the
+  clock, so the kerbal stayed hidden from the crew dialog forever and a stand-in was
+  generated for him even when the flight was committed after he was already home. Every
+  reservation check now asks whether the hold is in force at the current game time; the
+  kerbal is free from the recovery instant on. When he returns, an unused stand-in is
+  deleted and one who flew a committed flight is retired, as the design describes, and the
+  returning kerbal is not swapped out of a craft he boards. Rewinding to before the
+  recovery reserves him again, brings back the same stand-in name, and reactivates a
+  retired stand-in. Loads judge the hold against the loaded save's own time. Time passing
+  in the Space Center or the Tracking Station, and the crew dialog opening, trigger one
+  recalculation when a recovery time is crossed. The Kerbals window again shows
+  `Reserved until <date>` for such a hold, and its hover says when he is free (in flight
+  the window catches up at the next time warp exit or scene change). A returned kerbal
+  still cannot be dismissed from the Astronaut Complex while a committed flight names
+  him, since a rewind may need him again. Kerbals
+  whose flight ends with them still aboard a vessel stay reserved with no end date until
+  that vessel is recovered (next entry).
+- **Recovering a vessel frees the kerbals aboard it, including after the in-flight Recover
+  button.** With auto-merge on (the shipping setting), Recover in flight commits the flight
+  at the scene change, just before the game recovers the vessel, so the committed flight
+  ended with the crew still aboard and they stayed reserved forever, hidden from the crew
+  dialog and replaced by a stand-in. The same happened when a vessel Parsek had put back
+  at the end of a flight was recovered later from the Tracking Station. Now a recovery of
+  the real vessel that continues a committed flight (the same launch, or the vessel Parsek
+  spawned from that flight) records that its crew came home at that moment, and their
+  reservation ends there: they are free at once, an unused stand-in is deleted and a used
+  one retired, and rewinding to before the recovery reserves them again. A kerbal left
+  aboard a vessel that is never recovered stays reserved, a kerbal stranded by a different
+  mission is not freed by it, and a later flight that names the kerbal keeps him reserved
+  until it ends. A re-fly that replaces the recovered flight takes the record back with it.
 - **A re-fly that saves crew who boarded before the rewind point now brings them back.**
   When a flight's crew boarded at launch, the rewind point came later in the same flight,
   and the original flight then killed them, merging a re-fly kept them Dead. The death
@@ -830,12 +893,28 @@ _(unreleased — entries accumulate here per commit)_
   Every other ledger row keeps its old placement. A re-fly that kills the crew again
   records its own death under the re-fly's recording, which the merge never touches;
   with the dedup fix below that now also holds when the same slot is re-flown more than
-  once. The fix holds in-session, and
-  after a reload on saves where the merge did not split the original recording at the
-  rewind point. It does not yet survive a reload in the common case: the first re-fly of
-  a crewed slot whose recording started at launch splits that recording, and the next
-  load restores the Dead rows. That is no worse than before this fix; it is tracked as
-  TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT.
+  once. The fix holds in-session and, with the entry below, after a reload. Two rare
+  shapes are accepted limits (TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS): late in a career a
+  death within about one float step of the rewind point may land on the wrong side (now
+  logged as a warning), and a kerbal killed before the rewind point on a vessel that
+  flew on past it returns alive.
+
+- **The crew a re-fly saved no longer die again on the next load.** The common re-fly
+  shape (crew boarded at launch, the rewind point later in the same flight) splits the
+  original recording in two at the rewind point, and loading the save then brought the
+  retired deaths back, for both halves. Two causes, both fixed. The load-time rebuild of
+  crew rows gave each rebuilt row a new identity, so the merge's retirement, which is
+  keyed on that identity, no longer covered it; a rebuilt row now keeps the identity of
+  the row it replaces for the same flight and kerbal. And the split left the whole
+  flight's crew fates (Dead) on the first half; they now move to the second half with the
+  flight's ending, and the first half's crew read as handed on to the next segment, the
+  same finite reservation any chain segment gets. The same move applies when the
+  recording optimizer later splits a recording whose crew fates were already worked out.
+  Committing a flight again no longer adds a second crew row for the same kerbal next to
+  a retired one. The fix applies to re-fly merges made with this build: a save whose merge
+  was made by an older build keeps the first half's Dead crew fates and is not repaired. One narrower shape stays open (OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT):
+  an optimizer split of an already-committed flight followed by a re-fly of its later
+  part with no load in between.
 
 - **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
   The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart
@@ -865,6 +944,33 @@ _(unreleased — entries accumulate here per commit)_
   changes, because there the two answers were already the same.
 
 ### Changed
+
+- **The Career window shows dates, says what the recorded timeline does to each row, and
+  only draws the tabs a game mode has.** Every Universal Time cell (banner, Accepted,
+  Deadline, Activated, Credited) is now the compact KSP date the Kerbals and Timeline windows
+  use, never raw seconds; a deadline also shows how far away it is, `(in 12d)`, or
+  `(overdue 3d)` in amber. The empty `Status` columns are replaced by a `Timeline end` column
+  that appears only when the recorded future changes a row: `completes Y1, D40`,
+  `FAILS Y1, D40` (amber, since a failure costs funds and reputation), `cancelled`,
+  `deactivates`, `upgrades to L2`, `destroyed`. A contract or strategy that is active now,
+  ends later and starts again after that says when the current one ends. Contracts, Strategies and now
+  Milestones all split into "now" and a foldable `Pending in timeline` group, which also
+  lists contracts and strategies the recorded future both starts and ends (those were on no
+  row before). Pending rows are no longer triple-marked (amber + `(pending)` + group
+  header); the group header is the marker and amber is kept for warnings. The name column
+  of every table stretches, so contract titles stop wrapping and the header bar spans the
+  table. Milestone names read `Kerbin - Science` (was `Kerbin/ Science`) and facility names
+  come from stock (`Research and Development`, `Launchpad`). In Science mode the window
+  drops the Contracts and Strategies tabs and the building levels (stock treats every
+  building as fully upgraded there; the window showed `L1`), keeping Milestones plus a
+  Facilities tab only while a building is destroyed or a committed flight destroys one. In
+  Sandbox the `Career` launcher is hidden. Whether a building is destroyed now is read from
+  the game's own building state, not the ledger: the ledger never hears of a repair at the
+  KSC, so reading it would have shown a repaired building as destroyed forever. The ledger
+  only adds a destruction a committed flight makes later, dated when the facility as a
+  whole goes down. The Facilities section bar that repeated the tab name is
+  gone, two tooltips that described the wrong thing are corrected, and the minimum window
+  height is 320 px (at 200 px no row was visible).
 
 - **The Kerbals window tells the truth about reservations, groups stand-ins under the kerbal
   they cover, and is now available in Basic mode.** A kerbal held by a committed flight used

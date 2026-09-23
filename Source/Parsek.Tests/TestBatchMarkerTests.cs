@@ -145,23 +145,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RoundTrip_ParsekSnapshotDir_PresentSurvives()
-        {
-            var marker = new TestBatchMarker
-            {
-                ProcessSessionId = "proc-1",
-                PersistentBackupPath = "/saves/x-persistent.bak",
-                ParsekSnapshotDir = "/saves/MyCareer/x-parsek",
-                SaveFolder = "MyCareer",
-            };
-            var parent = new ConfigNode("PARENT");
-            marker.SaveInto(parent);
-
-            var loaded = TestBatchMarker.LoadFrom(parent.GetNode(TestBatchMarker.NodeName));
-            Assert.Equal("/saves/MyCareer/x-parsek", loaded.ParsekSnapshotDir);
-        }
-
-        [Fact]
         public void RoundTrip_ParsekSnapshotDir_DiskOnlyAbsent_RoundTripsNull()
         {
             // DiskOnly mode takes no Parsek sidecar snapshot, so the field is null;

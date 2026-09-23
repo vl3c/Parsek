@@ -117,7 +117,8 @@ these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 195 of 250 registry cells (was 194 of 250 before the D18 spawn-in-run wave's PR-C claimed `loop-first-run-is-real` on LF-1 on 2026-09-23, 192 of 250 before the D18 spawn-in-run wave's PR-B claimed `ghost-conversion-quicksave` and `chain-state-rederived` on CI-3 on 2026-09-22, 190 of 250 before PR-A claimed `intermediate-spawn-suppression` and the destroyed half of `chain-terminated-destruction-recovery` on V26T on 2026-09-22, 189 of 250 before register item C2 claimed D3 `boundary-seam` on LT-2 on 2026-09-22, 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
 
-RE-DERIVED 2026-09-23 on `d18-loop-first-run`: the one-liner below prints `286 specs 195 of
+RE-DERIVED 2026-09-23 on `d18-loop-first-run` after merging `origin/main` (with #1770): the
+one-liner below prints `288 specs 195 of
 250`. The new D18 cell rides `LF-1-loop-first-run-real`; the denominator does not move. D18
 is 9 of 12.
 

@@ -99,6 +99,15 @@ namespace Parsek.Tests
                 MethodMarker = "internal static CareerStateViewModel Build(",
                 Why = "the VM walk's branches ARE the Career window's row variants",
             },
+            new GuardedEnum
+            {
+                EnumType = typeof(CareerStateWindowUI.TimelineEndKind),
+                ShortName = "TimelineEndKind",
+                RelativePath = "UI/CareerStateWindowUI.cs",
+                MethodMarker = "internal static string FormatTimelineEnd(",
+                Why = "the Career Timeline-end cell words each recorded outcome differently, "
+                      + "and a failure is drawn in the alert colour",
+            },
         };
 
         /// <summary>
@@ -121,6 +130,20 @@ namespace Parsek.Tests
                 { "ChainMemberStatus.Unknown",
                   "BuildChainMembers emits only Retired / Active / Displaced, so no "
                   + "recording can produce an Unknown chain member" },
+
+                // None is the absence of an outcome: the Timeline-end cell is empty (and
+                // the column is not drawn at all while every row of a tab is None).
+                { "TimelineEndKind.None",
+                  "an empty Timeline-end cell; every row the recorded timeline leaves "
+                  + "untouched already draws it" },
+
+                // A repair happens at the KSC, where no recording is running, so it is
+                // never tagged for a committing flight and never becomes a ledger action
+                // (todo KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER). The walk still
+                // applies one after live UT, but no career can hold one to draw.
+                { "GameActionType.FacilityRepair",
+                  "a KSC repair is never tagged with a recording, so no committed flight "
+                  + "carries a FacilityRepair; the destroyed state now is stock's live one" },
 
                 // Every GameActionType the Career VM walk does NOT branch on. The walk
                 // switches on ten; the rest are other subsystems' rows (recordings,
@@ -176,9 +199,9 @@ namespace Parsek.Tests
                 { "FacilityRow.CurrentDestroyed",
                   () => AnyCareer(vm => vm.Facilities.Rows.Any(
                       r => r.CurrentDestroyed && r.ProjectedDestroyed)) },
-                { "FacilityRow.RepairPending",
+                { "FacilityRow.DestroyedInTimeline",
                   () => AnyCareer(vm => vm.Facilities.Rows.Any(
-                      r => r.CurrentDestroyed && !r.ProjectedDestroyed)) },
+                      r => !r.CurrentDestroyed && r.ProjectedDestroyed)) },
                 { "MilestoneRow.IsPendingCredit",
                   () => AnyCareer(vm => vm.Milestones.Rows.Any(r => r.IsPendingCredit)) },
                 { "MilestoneRow.ZeroReward",

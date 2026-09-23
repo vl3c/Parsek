@@ -112,7 +112,11 @@ PER CAPTURE and newest-first: this capture's own text for its own tab, then the
 same dataset and mode, then the same dataset, then anywhere. Resolving it once
 globally and first-seen let a pre-rename heading from an older epoch win for every
 dataset - the rebuilt Kerbals window rendered "Roster State" / "Mission Outcomes"
-over a frame that reads "Roster" / "Flights".
+over a frame that reads "Roster" / "Flights". The window's own tab list - the
+name the rail, the state header, Compare and the status lines give a tab - follows
+the same rule: the NEWEST capture carrying the token names it (by capture time,
+then run id), never the first one scanned. A note's exported `tab` stays the
+token, which is what the seam and a re-flown lane still agree on.
 
 **The selected cell is marked by the RECORDED INDEX when the dump carries one, and by
 TOKEN otherwise.** Comparing NAMES is what lost the marker entirely once a name went stale:
@@ -286,6 +290,23 @@ anywhere else (a launcher, a tab, the Compare view) unfolds its own window on th
 way in, and the folded set is remembered in `localStorage` as a per-viewer
 convenience - every access guarded, because a private window or cleared site data
 can make the accessor throw and the rail has to come up anyway.
+
+### The rail's order
+
+Each window's rows are ordered by the generator (`rail_rows`, shipped as the
+model's `railRows`), never by the page, so a regeneration cannot shuffle them.
+There is one row per (tab, state, mode), and it is the CURRENT capture of that
+state where one exists. Rows are grouped by tab, tabs in the window's own tab-bar
+order (`tab_order`: the seam's `uiaction tab ... index=N`, else the pushed-in cell
+`si` of the window's own grid in the capture filed under that tab); a capture with
+no tab but a grid showing a known cell joins that cell's group, one with neither
+leads the list (the window as it opens), and a tab with no known index follows the
+known ones. Within a tab the rows run from the least drawn to the most - the node
+count of the subject window's own tree (every Parsek root where the seam's rect
+names none) - so reading down a tab shows the window filling in. Basic comes
+before Advanced on a tie, then the label, so the order is total. A window with
+more than one group gets a thin header per tab, named by the tab's display name,
+which folds away with its rows when all of them are hidden.
 
 ## 6. The three photo modes
 
@@ -906,7 +927,7 @@ which the "every bare rule is scoped to the bare class" cell keeps mechanical.
 
 ## 17. Retiring false coverage
 
-Three rules, none of which names a label. A label typed into the generator is a
+Four rules, none of which names a label. A label typed into the generator is a
 label that rots, and the state audit's own finding was that the mirror was
 reporting 230 captures over 134 distinct labels with 8 of them photographing
 nothing.
@@ -962,3 +983,21 @@ empty branch, or `b1-missions-recordings-live-advanced`, which shows an empty ta
 The seam log says which window and tab were open; it says nothing about what the
 rows in them read. Judging that would mean typing the word `empty` into the
 generator, which is the one thing this page may not do.
+
+**(d) RETIRED: the state's own lane no longer produces it.** (a) needs a later
+capture of the SAME key, so a state a re-flown lane simply stopped photographing
+stayed the current picture forever - the Kerbals "owner chain" from GUI-11's
+2026-09-15_1744 run, absent from the rebuilt window's 2026-09-22_2004 run. A capture
+of scenario S at run R is retired (`mark_retired`) when a NEWER run of S that can
+speak for the lane reproduced neither its key nor its label. Only a complete run
+speaks: run.py's result JSON beside the shots directory with a PASS verdict and
+at least one capture, or - where no result is readable - a run that photographed
+the same window. A run that failed or went INVALID never retires anything, since a
+lane that died half way lacks captures for a reason that is not the product. A
+state a later run photographed again is not retired, the retirement is dated from
+the first witnessing run, and a superseded capture is not also retired. A retired
+capture is treated like the other stale rows: `pick` leaves it out (so it is never
+a window's default), the rail greys it and folds it behind the window's "show N
+hidden" link, it is badged "no longer captured by S since R", and its key drops
+out of the window's state counts. On the gen9 corpus it retires exactly one
+capture, that owner chain.

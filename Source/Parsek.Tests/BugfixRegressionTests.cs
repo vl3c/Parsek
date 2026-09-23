@@ -319,15 +319,6 @@ namespace Parsek.Tests
             Assert.False(IsUsableOrbitSegment(double.PositiveInfinity));
         }
 
-        [Fact]
-        public void OldBodyRadiusThreshold_WouldRejectValidSuborbitalSma()
-        {
-            double sma = 512941;
-            double oldThreshold = 600000 * 0.9;
-
-            Assert.True(sma < oldThreshold);
-            Assert.True(IsUsableOrbitSegment(sma));
-        }
     }
 
     #endregion

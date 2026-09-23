@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RewindInvoker.cs b/Source/Parsek/RewindInvoker.cs
+index ad7f0e20d..09274f642 100644
+--- a/Source/Parsek/RewindInvoker.cs
++++ b/Source/Parsek/RewindInvoker.cs
+@@ -2216,6 +2216,8 @@ namespace Parsek
+                 if (provisional != null)
+                 {
+                     RecordingStore.RemoveCommittedInternal(provisional);
++                    if (originChild != null && RecordingStore.RemoveCommittedInternal(originChild))
++                        RecordingStore.AddCommittedInternal(Recording.DeepClone(originChild));
+                     if (addedToPendingTree && pendingTreeForFork != null)
+                         DetachForkFromTreeForRollback(pendingTreeForFork, provisional);
+                 }

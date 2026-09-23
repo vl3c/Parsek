@@ -645,22 +645,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Decide_RewindScenario_AnchorAliveStillResolves()
-        {
-            // Negative test: after the rewind, the recording's anchor vessel
-            // is alive in the post-rewind FlightGlobals (e.g. a station that
-            // pre-existed the rewind point). Decide must return Resolved so
-            // playback proceeds normally and no spurious retirement WARN is
-            // emitted.
-            var liveVessels = new HashSet<uint> { 100u, 200u, 42u };
-            var outcome = RelativeAnchorResolution.Decide(
-                anchorPid: 42u,
-                resolver: pid => liveVessels.Contains(pid));
-
-            Assert.Equal(RelativeAnchorResolution.Outcome.Resolved, outcome);
-        }
-
-        [Fact]
         public void Decide_RewindScenario_AnchorErasedReturnsRetired_NoFreezePath()
         {
             // Repro for bug B: the anchor pid was destroyed in a Re-Fly

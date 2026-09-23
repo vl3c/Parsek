@@ -578,24 +578,6 @@ namespace Parsek.Tests
             Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates["Bill Kerman"]);
         }
 
-        [Fact]
-        public void PopulateCrewEndStates_NoEvaCrewName_SkipsEmptyCrew()
-        {
-            var rec = new Recording
-            {
-                RecordingId = "no-eva",
-                VesselName = "Mystery Ship",
-                // No EvaCrewName, no crew in snapshot
-                GhostVisualSnapshot = new ConfigNode("VESSEL"),
-            };
-
-            KerbalsModule.PopulateCrewEndStates(rec);
-
-            Assert.Null(rec.CrewEndStates);
-            Assert.True(rec.CrewEndStatesResolved);
-            Assert.Contains(logLines, l => l.Contains("no crew in ghost snapshot"));
-        }
-
         private static ConfigNode MakeSnapshotWithCrew(params string[] crewNames)
         {
             var vessel = new ConfigNode("VESSEL");

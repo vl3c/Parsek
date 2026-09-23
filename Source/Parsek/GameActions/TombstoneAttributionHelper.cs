@@ -129,7 +129,10 @@ namespace Parsek
         /// bit-identical. (2) A Destroyed terminal marks every START crew member Dead at
         /// the recording's end, so a kerbal who actually died BEFORE the rewind on a vessel
         /// that flew on past it carries an end-of-recording EndUT and is now tombstoned.
-        /// Both are rare; neither changes the mirror.
+        /// Both are rare; neither changes the mirror. Both are ACCEPTED (ruling of
+        /// 2026-09-23): (1) is logged by <c>SupersedeCommit.CommitTombstones</c> through
+        /// <see cref="IsDeathEndUTWithinFloatStepOfCutoff"/>, (2) is a documented known
+        /// limitation with no code.
         /// </para>
         /// </summary>
         internal static double ComputeAttributionUT(GameAction action)
@@ -151,6 +154,39 @@ namespace Parsek
                 && action.Type == GameActionType.KerbalAssignment
                 && action.KerbalEndStateField == KerbalEndState.Dead
                 && !float.IsNaN(action.EndUT);
+        }
+
+        /// <summary>
+        /// TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS limit (1), accepted and logged per the
+        /// 2026-09-23 ruling: true iff <paramref name="action"/> is a death-encoding
+        /// interval whose float <see cref="GameAction.EndUT"/> lies within one float step
+        /// (the spacing of single-precision values at the cutoff's magnitude) of
+        /// <paramref name="rewindCutoffUT"/>. Inside that band the float cannot say which
+        /// side of the rewind the death was on, so the screen's answer may be the
+        /// rounding's rather than the flight's. Callers log it; the screen is unchanged.
+        /// </summary>
+        internal static bool IsDeathEndUTWithinFloatStepOfCutoff(
+            GameAction action, double rewindCutoffUT, out double floatStep)
+        {
+            floatStep = FloatStepAt(rewindCutoffUT);
+            if (!IsDeathEncodingInterval(action)) return false;
+            if (double.IsNaN(rewindCutoffUT) || double.IsNaN(floatStep)) return false;
+            return System.Math.Abs((double)action.EndUT - rewindCutoffUT) <= floatStep;
+        }
+
+        /// <summary>
+        /// The gap between the single-precision value nearest <paramref name="ut"/> and the
+        /// next representable one above it (2 s at UT 2e7, about 4e-6 s at UT 34). NaN for a
+        /// non-finite input.
+        /// </summary>
+        internal static double FloatStepAt(double ut)
+        {
+            if (double.IsNaN(ut) || double.IsInfinity(ut)) return double.NaN;
+            float f = (float)System.Math.Abs(ut);
+            if (float.IsInfinity(f)) return double.NaN;
+            int bits = System.BitConverter.ToInt32(System.BitConverter.GetBytes(f), 0);
+            float next = System.BitConverter.ToSingle(System.BitConverter.GetBytes(bits + 1), 0);
+            return (double)next - (double)f;
         }
     }
 }

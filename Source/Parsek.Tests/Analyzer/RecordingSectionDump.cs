@@ -21,7 +21,7 @@ namespace Parsek.Tests.Analyzer
     //   PARSEK_DUMP_RECORDING (optional) - recording id to focus; unset = summarize all
     //   PARSEK_DUMP_RESULTS   (optional) - directory the dump file is written to
     //
-    // SKIPS CLEANLY when PARSEK_DUMP_SAVE is unset so it never runs in the normal CI
+    // Reports as SKIPPED when PARSEK_DUMP_SAVE is unset so it never runs in the normal CI
     // pass. Output goes to the xUnit test log (ITestOutputHelper) AND to a
     // <resultsDir>/<recordingId|all>.sectiondump.txt file for later inspection.
     //
@@ -54,13 +54,28 @@ namespace Parsek.Tests.Analyzer
 
         private static CelestialBody Resolver(string name) => TestBodyRegistry.CreateBody(name);
 
-        [Fact]
+        /// <summary>
+        /// Skips the dump at discovery when PARSEK_DUMP_SAVE is unset, so a normal suite
+        /// run reports it as skipped instead of a pass that asserted nothing. xUnit 2.4
+        /// has no runtime skip (a thrown SkipException reports as a failure), so the
+        /// check lives on the attribute, which is built after the environment is set.
+        /// </summary>
+        internal sealed class DumpSaveFactAttribute : FactAttribute
+        {
+            public DumpSaveFactAttribute()
+            {
+                if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PARSEK_DUMP_SAVE")))
+                    Skip = "Manual triage tool: set PARSEK_DUMP_SAVE to a save directory to run it";
+            }
+        }
+
+        [DumpSaveFact]
         [Trait("Category", "Manual")]
         public void Manual_DumpRecordingSections()
         {
             string saveDir = Environment.GetEnvironmentVariable("PARSEK_DUMP_SAVE");
-            if (string.IsNullOrEmpty(saveDir))
-                return; // env unset -> skip cleanly (CI-safe)
+            Assert.False(string.IsNullOrEmpty(saveDir),
+                "PARSEK_DUMP_SAVE must be set (the attribute skips the tool otherwise)");
 
             string focusId = Environment.GetEnvironmentVariable("PARSEK_DUMP_RECORDING");
 

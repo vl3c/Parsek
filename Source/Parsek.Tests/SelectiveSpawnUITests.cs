@@ -118,16 +118,6 @@ namespace Parsek.Tests
                 relativeSpeed: 2.0, maxRelativeSpeed: 2.0));
         }
 
-        [Fact]
-        public void IsSpawnCandidate_ZeroRelativeSpeed_True()
-        {
-            Assert.True(SelectiveSpawnUI.IsSpawnCandidate(
-                endUT: 200, currentUT: 100,
-                needsSpawn: true, chainSuppressed: false,
-                distance: 200, proximityRadius: 250,
-                relativeSpeed: 0.0, maxRelativeSpeed: 2.0));
-        }
-
         // ── ComputeRelativeSpeed ──
 
         [Fact]

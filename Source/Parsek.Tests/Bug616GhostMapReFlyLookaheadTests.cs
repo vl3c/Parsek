@@ -72,44 +72,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void UnrelatedRelativeAnchorAllowed_EvenWhenAnchorIsActiveReFlyTarget()
-        {
-            var marker = InPlaceMarker("rec-booster");
-            var committed = CommittedWith(
-                ("rec-capsule", 2708531065u),
-                ("rec-booster", ActivePid),
-                ("rec-station", 9999999u));
-            RecordingTree tree = TreeWithDecouple(
-                "rec-capsule",
-                "rec-booster",
-                ActivePid);
-            tree.Recordings["rec-station"] = new Recording
-            {
-                RecordingId = "rec-station",
-                TreeId = TreeId,
-                VesselPersistentId = 9999999u
-            };
-            var trees = new List<RecordingTree> { tree };
-            Recording traj = TrajectoryWithAbsolutePrefixThenRelative(
-                "rec-station",
-                ActivePid);
-
-            bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFlyAtCreateTime(
-                marker,
-                resolutionBranch: "absolute",
-                resolutionAnchorPid: 0u,
-                traj: traj,
-                currentUT: 120.0,
-                victimRecordingId: "rec-station",
-                committedRecordings: committed,
-                committedTrees: trees,
-                out string reason);
-
-            Assert.False(suppressed);
-            Assert.Contains("lookahead-disabled-recorded-anchor-chain", reason);
-        }
-
-        [Fact]
         public void PendingTreeActiveReFlySearch_NoLongerDrivesCreateLookahead()
         {
             var marker = InPlaceMarker("rec-booster");

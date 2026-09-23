@@ -138,25 +138,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Cascade_TransitiveChain_HidesGrandchildren()
-        {
-            // rec_parent -> rec_child -> rec_grandchild.
-            // grandchild's ParentAnchorRecordingId points at child, not parent;
-            // fixed-point closure adds child first, then grandchild.
-            var parent = Rec("rec_parent");
-            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
-            var grandchild = Rec("rec_grandchild", parentAnchorRecordingId: "rec_child");
-            var recordings = new List<Recording> { parent, child, grandchild };
-            var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
-
-            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
-
-            Assert.Contains("rec_parent", retired);
-            Assert.Contains("rec_child", retired);
-            Assert.Contains("rec_grandchild", retired);
-        }
-
-        [Fact]
         public void Cascade_DepthFourChain_HidesAllDescendants()
         {
             // P -> c1 -> c2 -> c3 (depth 4). Pins that the fixed-point
@@ -456,27 +437,6 @@ namespace Parsek.Tests
                 l.Contains("[ERS]")
                 && l.Contains("Rewind-retirement cascade")
                 && l.Contains("chainContinuationAdded=1"));
-        }
-
-        [Fact]
-        public void ChainCascade_PlaytestShape_HidesDuplicateProbeForkContinuation()
-        {
-            // Playtest 2026-05-20: "Kerbal X Probe" rendered as two ghosts after a
-            // rolled-back Re-Fly. Fork chain 2856611e = rec_e0f42b57 (idx 0, HEAD,
-            // retired) -> 982d6dee (idx 1, TIP, synthetic orbit tail). The restored
-            // original 49538b60 lives on chain 59a82c8e. Pre-fix, 982d6dee escaped
-            // retirement and rendered alongside 49538b60.
-            var forkHead = RecChain("rec_e0f42b57", "2856611e", 0, provisionalForRpId: "rp_addf577");
-            var forkTip = RecChain("982d6dee", "2856611e", 1, provisionalForRpId: "rp_addf577");
-            var restoredOriginal = RecChain("49538b60", "59a82c8e", 1);
-            var recordings = new List<Recording> { forkHead, forkTip, restoredOriginal };
-            var retirements = new List<RecordingRewindRetirement> { Retire("rec_e0f42b57", "49538b60") };
-
-            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
-
-            Assert.Contains("rec_e0f42b57", retired);
-            Assert.Contains("982d6dee", retired);
-            Assert.DoesNotContain("49538b60", retired);
         }
 
         // =====================================================================

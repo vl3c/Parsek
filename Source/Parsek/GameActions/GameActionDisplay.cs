@@ -99,6 +99,9 @@ namespace Parsek
                 case GameActionType.KerbalRescue:
                     return "Rescue: " + (action.KerbalName ?? "unknown");
 
+                case GameActionType.KerbalRecovered:
+                    return "Recovered: " + (action.KerbalName ?? "unknown");
+
                 case GameActionType.KerbalStandIn:
                     return string.Format("Stand-in: {0} for {1}",
                         action.KerbalName ?? "unknown", action.ReplacesKerbal ?? "unknown");

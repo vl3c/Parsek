@@ -443,38 +443,6 @@ namespace Parsek.Tests
             Assert.Equal(5, csm.ActiveChainNextIndex);
         }
 
-        [Fact]
-        public void ClearAll_AfterPartialClears_StillResetsEverything()
-        {
-            var csm = new ChainSegmentManager();
-            PopulateAllFields(csm);
-
-            // Partial clears first
-            csm.ClearChainIdentity();
-            csm.StopContinuation("partial");
-
-            // Re-populate to prove ClearAll handles already-cleared fields
-            PopulateAllFields(csm);
-            csm.ClearAll();
-
-            Assert.Null(csm.ActiveChainId);
-            Assert.Equal(0, csm.ActiveChainNextIndex);
-            Assert.Null(csm.ActiveChainPrevId);
-            Assert.Null(csm.ActiveChainCrewName);
-            Assert.False(csm.PendingContinuation);
-            Assert.False(csm.PendingIsBoarding);
-            Assert.Null(csm.PendingEvaName);
-            Assert.Null(csm.PendingBoundaryAnchor);
-            Assert.Equal(0u, csm.ContinuationVesselPid);
-            Assert.Equal(-1, csm.ContinuationRecordingIdx);
-            Assert.Equal(Vector3.zero, csm.ContinuationLastVelocity);
-            Assert.Equal(-1.0, csm.ContinuationLastUT);
-            Assert.Equal(0u, csm.UndockContinuationPid);
-            Assert.Equal(-1, csm.UndockContinuationRecIdx);
-            Assert.Equal(Vector3.zero, csm.UndockContinuationLastVel);
-            Assert.Equal(-1.0, csm.UndockContinuationLastUT);
-        }
-
         #endregion
 
         #region ClearAll vs StopContinuation default values

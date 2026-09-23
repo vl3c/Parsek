@@ -49,20 +49,6 @@ namespace Parsek.Tests
             Assert.Equal(double.MaxValue, result.distance);
         }
 
-        [Fact]
-        public void FindNearestAnchor_NoVessels_ReturnsZeroPidAndMaxDistance()
-        {
-            // Alias test: explicit "no vessels" wording
-            var result = AnchorDetector.FindNearestAnchor(
-                42u,
-                new Vector3d(100, 200, 300),
-                new List<(uint, Vector3d)>(),
-                new HashSet<uint>());
-
-            Assert.Equal(0u, result.anchorPid);
-            Assert.Equal(double.MaxValue, result.distance);
-        }
-
         #endregion
 
         #region FindNearestAnchor -- Single vessel

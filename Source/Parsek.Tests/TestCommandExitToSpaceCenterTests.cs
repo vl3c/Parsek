@@ -55,20 +55,6 @@ namespace Parsek.Tests
                     pendingTreeVariant: DialogVariant.None));
         }
 
-        [Fact]
-        public void Gate_PendingTreeUnderAutoMerge_Proceeds()
-        {
-            // THE CL-1 SHAPE. The active recorded vessel was destroyed, so the tree is
-            // stashed as PENDING and activeTree is null; under autoMerge the pending
-            // variant is None, the exit passes through, and the destination scene's OnLoad
-            // auto-commits. This is precisely the transition that had no seam verb.
-            Assert.Equal(ExitGateDecision.Proceed,
-                TestCommandExitToSpaceCenter.DecideExitGate(
-                    hasActiveTree: false, switchSegmentSessionArmed: false,
-                    activeTreeVariant: DialogVariant.None,
-                    pendingTreeVariant: DialogVariant.None));
-        }
-
         // ----- Every wedging state, one cell per DialogVariant per branch. -----
 
         [Theory]

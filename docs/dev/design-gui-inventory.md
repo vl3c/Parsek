@@ -661,33 +661,81 @@ Nothing in it writes to contracts, strategies, facilities or milestones.
 Hosts: `ParsekFlight.cs:2135`, `ParsekKSC.cs:257`. Basic-HIDDEN (`ParsekUI.cs:906`,
 `UI/UiComplexityMode.cs:182`), force-closed on the switch (`ParsekUI.cs:492-497`).
 
-Structure: a one-line mode banner (`:1401`, three forms - `Career mode - UT n` with an optional
-`  (timeline ends at UT n)` divergence suffix, `Science mode - contracts and strategies
-unavailable`, `Sandbox mode - career state is not tracked`), a four-entry tab toolbar, a scroll
-view, the SINGLE-line echo strip, `Close`. A null-game fallback (`:1319-1333`) replaces the
-entire body with one label plus `Close`.
+Structure (rebuilt 2026-09-22, career window round 3): a one-line mode banner
+(`FormatModeBanner`, three forms - `Career mode - <date>` with an optional
+`  (timeline ends <date>)` divergence suffix, `Science mode - no contracts, strategies or
+building levels`, `Sandbox mode - career state is not tracked`), a tab toolbar over the tabs
+the mode draws (`VisibleTabsFor`), a scroll view, the SINGLE-line echo strip, `Close`. A
+null-game fallback replaces the entire body with one label plus `Close`. Every date is the
+house compact KSP date (`TimelineWindowUI.FormatTimelineEntryTimeLabel`, the formatter the
+Kerbals window uses), never raw UT seconds. Minimum size 520x320 (was 520x200, which left a
+20 px scroll body with no row in it).
 
-| tab | columns (header = row width const) | sort | section header |
+Tabs per game mode:
+- Career: all four.
+- Science: Milestones, plus Facilities only while a building is destroyed now or at the
+  timeline end, with a `State` column instead of `Level`. Contracts and Strategies do not
+  exist in Science mode, and stock registers no `ScenarioUpgradeableFacilities` in a Science
+  save (`ScenarioCreationOptions` 1056 = new Career + new Mission games), so
+  `GetFacilityLevel` answers 1.0 = fully upgraded and the old nine `L1` rows were wrong.
+  Buildings CAN be destroyed there: `ScenarioDestructibles` is registered with 3198 (every
+  mode, new and existing), and `DestructibleBuilding` skips damage only when
+  `Difficulty.IndestructibleFacilities` is set, which defaults to false and is true only in
+  the Easy preset (decompiled KSP 1.12.5; `fresh-science` carries `False`). A single visible
+  tab draws no toolbar.
+- Sandbox and the mission modes: no tabs, just the banner. The main-window `Career`
+  launcher is hidden in these modes (`CareerStateWindowUI.ModeOffersLauncher`).
+
+Tab indices stay logical (0 contracts .. 3 milestones) so the seam's `op=tab` vocabulary is
+unchanged; a write to a tab the mode does not draw is coerced by `SelectedTabForTesting` and
+reads back `tab-not-applied`.
+
+| tab | columns (name column EXPANDS in header and rows; the rest are fixed) | sort | section header |
 |---|---|---|---|
-| Contracts | `Contract` 240, `Accepted UT` 90, `Deadline UT` 90, `Status` 70 | `AcceptUT` then id (`:1017`) | `Mission Control L{n} - slots a/b now, c/d at timeline end` (`:1442`) |
-| Strategies | `Strategy` 220, `Activated UT` 90, `Flow` 140, `Status` 70 | `ActivateUT` then id (`:1024`) | `Administration L{n} - slots ...` (`:1548`) |
-| Facilities | `Facility` 200, `Level` 120, `Status` 180 | NONE - fixed `FACILITY_DISPLAY_ORDER` (`:133-144`), all nine always shown | the bare word `Facilities` (`:1647`) |
-| Milestones | `Credited UT` 90, `Milestone` 200, `Rewards` 180, `Status` 70 | `CreditedUT` then id (`:1031`) | `Milestones (n credited / m at timeline end)` (`:1699`) |
+| Contracts | `Contract` (expand), `Accepted` 145, `Deadline` 220, `Timeline end` 240 | `AcceptUT` then id | `Mission Control L{n} - slots a/b now, c/d at timeline end` |
+| Strategies | `Strategy` (expand), `Activated` 145, `Flow` 230, `Timeline end` 240 | `ActivateUT` then id | `Administration L{n} - slots ...` |
+| Facilities | `Facility` (expand), `Level` / `State` 120, `Timeline end` 240 | NONE - fixed `FACILITY_DISPLAY_ORDER` | none (the old bar repeated the tab name) |
+| Milestones | `Milestone` (expand), `Credited` 145, `Rewards` 320 | `CreditedUT` then id | `Milestones (n credited / m at timeline end)` |
 
-Contracts and Strategies each have two layouts chosen by a row-equality predicate (`:1446`,
-`:1552`): COLLAPSED `Active (n)`, or SPLIT `Active now (n)` plus a `Pending in timeline (n)`
-disclosure. Facilities is the only tab with no pending group and no Science-mode branch -
-facilities and milestones ARE tracked in Science mode (`ModeHasVisibleTimelineState` `:972`),
-contracts and strategies are CAREER-only (`:952`, `:957`). `ColW_PendingTag` (70, `:86`) is
-shared by three tabs even though it is declared under the Contracts comment block.
+`Timeline end` is drawn only when some row of the tab has an outcome, and says what the
+recorded future does to the row: `completes <date>`, `FAILS <date>` (alert amber),
+`cancelled <date>`, `deactivates <date>`, `upgrades to L2, <date>`, `destroyed <date>`,
+`repaired <date>`. It replaced the `Status` column (`(pending)` / `(closing)` / `(destroyed)`,
+empty on every census row). `Deadline` is the date plus a relative tail, `(in 12d)` or
+`(overdue 3d)` in amber. Facility `Level` reads `L2` or `L2 (destroyed)`.
 
-Pictures: `ksc-career-contracts-advanced` (17 nodes, zero rows),
+Every tab but Facilities has the same now-vs-pending split: COLLAPSED `Active (n)` /
+`Credited (n)` when the recorded timeline adds nothing, else `Active now (n)` / `Credited
+now (n)` plus a `Pending in timeline (n)` disclosure (fold keys `Contracts.Pending`,
+`Strategies.Pending`, `Milestones.Pending`; seam wire values `pending:contracts` /
+`strategies` / `milestones`). The Contracts and Strategies pending groups list EVERY future
+accept / activation, including ones the timeline also closes (those were on no row before).
+Pending rows are not coloured - the group header is their one marker; amber is kept for
+cells that need attention (overdue deadline, recorded failure, destroyed building).
+Titles: milestones use the Timeline's humanizer (`Kerbin - Science`, not `Kerbin/ Science`);
+facilities use stock's localized name (`ScenarioUpgradeableFacilities.GetFacilityName`:
+`Research and Development`, `Launchpad`, `Administration Building`), falling back to the
+humanized id. Whether a building is destroyed NOW comes from stock, not the ledger:
+`ScenarioDestructibles.protoDestructibles` (a live building's `IsIntact`, else the persisted
+`intact` value; filled in every scene the scenario runs in), read once per view-model
+rebuild. The ledger never learns of a KSC repair (and of no destruction without a
+committing recording), so a past `FacilityDestruction` would read as destroyed forever. The
+ledger supplies only what the recorded future does after live UT: a destruction in a
+committed flight reads `destroyed <date>`, dated when the facility as a whole goes down. Both
+sources key a building by its DestructibleBuilding id (`SpaceCenter/LaunchPad/Facility/...`),
+mapped to its facility row by `FacilityIdForBuilding`. Every cell's text (dates, rewards,
+banner, section bars) is formatted once per rebuild, and the rebuild runs once per game
+minute (the compact date's finest unit), or once per second while a deadline is within two
+minutes of now and its tail reads in seconds.
+
+Pictures before round 3: `ksc-career-contracts-advanced` (17 nodes, zero rows),
 `ksc-career-strategies-advanced` (17, zero rows), `ksc-career-facilities-advanced` (50, all
 nine rows at L1 with an empty Status column), `ksc-career-milestones-advanced` (143, 25
-credited rows - the best-populated capture in the whole census, and the one that exposes the
-`Rewards` overflow named in section 6). No picture: the split layout and its pending rows,
-`(closing)`, `--` deadlines, populated strategies, upgraded or destroyed facilities, pending
-milestones, the divergence suffix, Science or Sandbox mode, the null-game fallback.
+credited rows). Round-3 re-flights: see the todo entry
+`CAREER-WINDOW-ROUND3-2026-09-22`. Still no census picture: the split layout with real
+pending rows, a recorded failure, populated strategies, a destroyed facility, the divergence
+suffix, and Science mode with a destroyed building (the gallery catalogue in
+`UI/Gallery/GuiMockCareerStates.cs` covers each of these as a synthetic state).
 
 ### 3.6 Parsek - Logistics
 
@@ -1621,12 +1669,12 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 | `Docked with <partner>` in the Start event cell; chapter header rows; `Docked partner:` rows | `bdock-recorded` (or `bdock-station-craft` + `bdock-station-pad`, or `bdock-forge-base`) | none; all three draw with no click | GUI-4 `bd-missions-missions-expanded-advanced` / `bd-missions-recordings-expanded-advanced` |
 | Vessel-row Fly / Seal | `refly-a-recorded` | none | UNCLAIMED. `refly-a-recorded` is a fourth `saveTemplate` and therefore a seventh lane; GUI-4's `bdock-recorded` corpus has RewindPoints but its rows are not the Unfinished-Flights shape this needs |
 | Kerbals reserved / active owner statuses | `eva2-lko-crewed` | none | UNCLAIMED. `eva2-lko-crewed` is a fifth `saveTemplate`. GUI-5 shoots both Kerbals tabs on a career with a real roster, which is the row below this one rather than this one |
-| Kerbals and Career empty states | `fresh-career` | none | GUI-8 `fs-kerbals-outcomes-empty-advanced` and the four `fs-career-*-science-advanced` captures, on `fresh-science` rather than `fresh-career` - see the science row below |
+| Kerbals and Career empty states | `fresh-career` | none | GUI-8 `fs-kerbals-outcomes-empty-advanced` and (since round 3, when Science mode stopped drawing the Contracts / Strategies / Facilities tabs) the one `fs-career-milestones-science-advanced` capture, on `fresh-science` rather than `fresh-career` - see the science row below |
 | Missions empty state, Recordings `No recordings.` | `fresh-sandbox` or `fresh-career` | none | GUI-8 `fs-missions-missions-empty-advanced` / `fs-missions-recordings-empty-advanced` |
 | Career Contracts SPLIT layout, `Pending in timeline`, the banner divergence suffix | `career-contract-pad` | none; the pending group defaults EXPANDED | UNCLAIMED, AND THE ROW'S OWN PREMISE WAS WRONG - corrected 2026-09-11 off the reading run. `career-earned-ksc`'s nine `CONTRACT` nodes are all `state = Offered`; the tab's `CurrentRows` come from the ACTIVE (accepted) snapshot (`UI/CareerStateWindowUI.cs:690-723`), so `cek-career-contracts-advanced` reads `Active (0)` / `(no active contracts)` under a `Mission Control L1 - slots 0/2 now, 0/2 at timeline end` header. NO committed fixture carries an ACCEPTED contract, so BOTH the populated list and the SPLIT layout now want `career-contract-pad` or a new fixture |
 | Career Strategies populated (the `Flow` cell) | ~~`strategy-career`~~ - WRONG, corrected 2026-09-11 off the save's bytes: its `STRATEGIES` node is EMPTY by construction (the fixture seeds `rep = 25` so `L3`'s in-game cell can ACTIVATE a strategy at run time, and that cell's `finally` restores the pool). NO committed fixture carries a live `STRATEGY` node | a NEW fixture | IMPOSSIBLE AS WRITTEN - see the corrected fixture cell. GUI-5 `cek-career-strategies-empty-advanced` and GUI-8 `fs-career-strategies-science-advanced` shoot the two EMPTY forms instead, both labelled as such |
 | Career Facilities upgraded rows | ~~`career-earned-ksc`~~ - WRONG, corrected 2026-09-11 off the save's bytes: all ten of its `ScenarioUpgradeableFacilities` entries read `lvl = 0`. That fixture is EARNED in its POOLS (funds 536558, sci 111.6, rep 2.0) and in its milestones, not in its buildings or its contracts | a NEW fixture | IMPOSSIBLE AS WRITTEN - see the corrected fixture cell. GUI-5 `cek-career-facilities-level0-advanced` shoots the all-level-0 form, labelled as such. WHAT THE PICTURE SHOWS, so the label is not misread: nine facility rows all reading `L1`, because the save's `lvl = 0` is the FIRST level and the window prints it one-based. The label names the save value, the picture names the display value, and they agree |
-| Career Science-mode and Sandbox-mode banners and empty states | `fresh-science`, `fresh-sandbox` | none; the science lane alone buys four otherwise-dark code paths | GUI-8's four `fs-career-*-science-advanced` captures (science), and GUI-6 `play-career-contracts-sandbox-flight-advanced` (sandbox, in flight). A sandbox banner at the KSC is unclaimed |
+| Career Science-mode and Sandbox-mode banners and empty states | `fresh-science`, `fresh-sandbox` | none; the science lane alone buys four otherwise-dark code paths | GUI-8's `fs-career-milestones-science-advanced` (science; the other three science tabs no longer exist), and GUI-6 `play-career-contracts-sandbox-flight-advanced` (sandbox, in flight, opened by the seam: the launcher itself is hidden in Sandbox since round 3). A sandbox banner at the KSC is unclaimed |
 | Timeline `R` greyed | any recorded fixture | capture with a pending tree, or delete one `RewindPoints/<id>.sfs` from the staged save | UNCLAIMED. Wants a STAGED save edit (delete one `RewindPoints/<id>.sfs`), which no lane does today - the harness stages a fixture verbatim |
 | Timeline `FF` and the countdown time label | an `injectedRecordings` preset whose recording `StartUT` is ahead of the save UT | one capture buys both | UNCLAIMED. Wants a preset whose recording `StartUT` is ahead of the save clock; `part-showcase` starts at UT 50 and GUI-6 jumps PAST it to 55, so its Timeline is behind rather than ahead |
 | Timeline `Archived` ON and the `[archived]` row suffix | a staged save with one archived recording and `HideActive=false` | none | UNCLAIMED. Wants a staged save with an archived recording and `HideActive=false`, which no committed fixture carries |

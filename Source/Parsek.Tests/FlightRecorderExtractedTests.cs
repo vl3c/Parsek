@@ -960,31 +960,6 @@ namespace Parsek.Tests
         #region DecideOnVesselSwitch — always-tree invariants (#271)
 
         [Fact]
-        public void DecideOnVesselSwitch_AlwaysTree_TargetNotInBackground_ReturnsTransitionToBackground()
-        {
-            // With always-tree mode, activeTree is always non-null during recording.
-            // Switching to an untracked vessel should return TransitionToBackground (not Stop,
-            // which was removed in #271 phase 2).
-            var tree = new RecordingTree
-            {
-                Id = "tree_271",
-                TreeName = "Always Tree Test",
-                RootRecordingId = "root",
-                ActiveRecordingId = "active"
-            };
-            tree.Recordings["active"] = new Recording
-            {
-                RecordingId = "active",
-                VesselName = "Active Vessel",
-                VesselPersistentId = 100
-            };
-            // BackgroundMap is empty — target vessel 500 is not tracked
-            var result = FlightRecorder.DecideOnVesselSwitch(
-                100, 500, currentIsEva: false, recordingStartedAsEva: false, activeTree: tree);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
-        }
-
-        [Fact]
         public void DecideOnVesselSwitch_SafetyFallback_NullTree_ReturnsTransitionToBackground()
         {
             // Safety fallback: with always-tree mode, activeTree should never be null during

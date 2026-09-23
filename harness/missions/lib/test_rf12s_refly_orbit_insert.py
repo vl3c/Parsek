@@ -234,5 +234,20 @@ class RfoSchemaAndShellTests(unittest.TestCase):
                                  or line.startswith("from krpc"))
 
 
+class RfoGiveUpSerializesTests(unittest.TestCase):
+    # MEASURED 2026-09-22_2319 (RF-13 reading run 1): a propellant give-up before the
+    # cut left NaN cut stamps in the orbit row, serialize_mission_result (allow_nan=False)
+    # raised, and the harness read `<no-result>` instead of the named verdict.
+    def test_flameout_rows_serialize_without_nan(self):
+        st = burning()
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=250000.0))
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=0.0, periapsis=61000.0))
+        rows = mlib.evaluate_rfo_assertions([], st.params, st)
+        import json
+        for row in rows:
+            json.dumps(row.to_dict(), allow_nan=False)
+        self.assertIsNone(rows[2].value)
+
+
 if __name__ == "__main__":
     unittest.main()

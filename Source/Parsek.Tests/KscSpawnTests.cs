@@ -134,18 +134,6 @@ namespace Parsek.Tests
             Assert.Equal("", reason);
         }
 
-        [Fact]
-        public void ShouldSpawnAtKscEnd_EligibleRecording_NoChain_ReturnsTrue()
-        {
-            var rec = MakeEligibleRecording();
-            rec.ChainId = null;
-
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1);
-
-            Assert.True(needsSpawn);
-            Assert.Equal("", reason);
-        }
-
         #endregion
 
         #region ShouldSpawnAtKscEnd — suppressed cases
@@ -459,24 +447,6 @@ namespace Parsek.Tests
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(midRec, midRec.EndUT + 1);
             Assert.False(needsSpawn);
             Assert.Contains("intermediate chain segment", reason);
-        }
-
-        [Fact]
-        public void ShouldSpawnAtKscEnd_ChainTip_ReturnsTrue()
-        {
-            var midRec = MakeEligibleRecording("rec-mid", "ChainVessel");
-            midRec.ChainId = "chain-1";
-            midRec.ChainIndex = 0;
-
-            var tipRec = MakeEligibleRecording("rec-tip", "ChainVessel");
-            tipRec.ChainId = "chain-1";
-            tipRec.ChainIndex = 1;
-
-            RecordingStore.AddRecordingWithTreeForTesting(midRec);
-            RecordingStore.AddRecordingWithTreeForTesting(tipRec);
-
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
-            Assert.True(needsSpawn);
         }
 
         #endregion

@@ -1300,34 +1300,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeDiscard_JournalActive_RefusesAndDoesNotClobberJournal()
-        {
-            // Same scenario via the void overload (post-load deferred path).
-            var rec = MakeRecording("rec-journal-discard-void", "tree-journal-discard-void", 100.0, 200.0);
-            var tree = MakeTree("tree-journal-discard-void", "rec-journal-discard-void", rec);
-            RecordingStore.StashPendingTree(tree);
-
-            var scenario = new ParsekScenario
-            {
-                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
-                LedgerTombstones = new List<LedgerTombstone>(),
-                RewindPoints = new List<RewindPoint>(),
-                ActiveMergeJournal = new MergeJournal
-                {
-                    JournalId = "journal_test_void",
-                    SessionId = "sess_test_void",
-                    Phase = MergeJournal.Phases.Supersede,
-                },
-            };
-            ParsekScenario.SetInstanceForTesting(scenario);
-
-            MergeDialog.MergeDiscard(tree);
-
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.NotNull(scenario.ActiveMergeJournal);
-        }
-
-        [Fact]
         public void TryDiscardActiveReFlyAttempt_JournalActive_RefusesAndReturnsFalse()
         {
             // Direct call (test bypass / future caller). The MergeDiscard

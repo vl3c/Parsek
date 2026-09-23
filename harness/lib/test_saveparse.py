@@ -3337,6 +3337,39 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "rec_c54a110cecb542e5b848e4e9d7fbd920"],
             "schemaGeneration": 4,
         },
+        # --- THE RP-SPLIT RE-FLY HOST -----------------------------------------
+        # PROVENANCE: refly-split-crewed-recorded <- RF-13H-crewed-crash-refly-host,
+        # run 2026-09-22_2315, PASS attempt 1 (deployed hash 6af1ed6e88155367),
+        # --keep-parsek via harness/tools/harvest_bdock_station.py.
+        #
+        # THE SHAPE RF-13 NEEDS and no other fixture has: ONE crewed recording
+        # (pod 816a8822, Bill + Bob, launch UT 29.92 through the RewindPoint at
+        # 118.48 to a predicted impact, explicitEndUT 325.91, 425 points) that the
+        # optimizer did NOT split (the stack never left the atmosphere), so a
+        # re-fly merge of slot 0 splits it at the rewind point. Its CrewEndStates
+        # and both ledger KerbalAssignment rows are Dead (29.92..325.91).
+        #   terminalStates Destroyed 8: the pod and the probe core (both extrapolated
+        #     to impact) and six booster-drop debris.
+        #   rewind_points 1 (slots: 0 = pod 816a8822, 1 = probe 6abe5ea7), no
+        #     supersedes and no tombstones: the fixture has never been re-flown.
+        #   32 authoritative sidecars over 8 recordings.
+        "refly-split-crewed-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 8,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 1,
+            "rewind_retirements": 0,
+            "terminalStates": {"Destroyed": 8},
+            "branchPoints": {"JointBreak": 5},
+            "minAuthoritativeSidecars": 32,
+            "recordingIds": ["276787aa79104008bc894ccf6aa893e3",
+                             "64b38ddecc1143e38ed19bff96d96317",
+                             "6abe5ea7a1f14ec5a2666bd15d3f7352",
+                             "6b56fc72d1c14ed4b41d56bc5190cf93",
+                             "7b48a2b63a1048068135dadb61d0e460",
+                             "816a8822db4648e88b0c3d5b13c7e56d",
+                             "81e40b06ca9d4331b343a6b48284902a",
+                             "de6ff31af7ad42368632789e5c9051b0"],
+            "schemaGeneration": 4,
+        },
         "refly-a-recorded": {
             "trees": 1, "committedTrees": 1, "recordings": 10,
             "supersedes": 1, "tombstones": 0, "rewind_points": 0,

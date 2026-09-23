@@ -230,32 +230,6 @@ namespace Parsek.Tests.Rendering
         // --- L7: Info Pipeline-Sidecar on lazy compute (annotation absent) ---
 
         [Fact]
-        public void L7_LazyCompute_LogsFileMissingReason()
-        {
-            // What makes it fail: missing-file path doesn't surface the
-            // distinct reason → can't differentiate a fresh recording from
-            // a recording whose .pann was deleted.
-            //
-            // L7 split (design doc §19.2 Sidecar table): the absent-file path
-            // emits BOTH a Pipeline-Sidecar Info line ("Pannotations missing →
-            // lazy compute scheduled", asserted in
-            // L7_PannotationsMissing_LogsLazyComputeScheduled below) AND the
-            // existing Pipeline-Smoothing "Lazy compute" Info line asserted
-            // here. The two serve distinct concerns — sidecar I/O state vs
-            // smoothing-stage recompute — and were collapsed into a single log
-            // site during initial implementation; the split restores §19.2's
-            // documented contract.
-            var rec = MakeRecording("rec-L7");
-            string pannPath = Path.Combine(tempDir, "rec-L7.pann");
-
-            SmoothingPipeline.LoadOrCompute(rec, pannPath);
-
-            Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Smoothing]")
-                && l.Contains("Lazy compute")
-                && l.Contains("reason=file-missing"));
-        }
-
-        [Fact]
         public void L7_PannotationsMissing_LogsLazyComputeScheduled()
         {
             // What makes it fail: the Pipeline-Sidecar half of L7 ("Node

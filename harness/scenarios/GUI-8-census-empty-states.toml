@@ -94,6 +94,13 @@ tier = "operator"
 #     mode.`, the nine-row Facilities table (all `L1`, the one tab that is NOT empty in
 #     science mode), and `Milestones (0 credited / 0 at timeline end)` with
 #     `  (no milestones credited)`.
+#     SUPERSEDED 2026-09-22 (career window round 3): Science mode now draws only the tabs
+#     that carry data. Contracts and Strategies do not exist there, and stock treats every
+#     building as fully upgraded in a Science save (no ScenarioUpgradeableFacilities), so
+#     the nine `L1` rows were wrong; Facilities appears only while a building is destroyed.
+#     On this fresh save that leaves Milestones alone (no tab bar at all), and a
+#     `tab=contracts` / `strategies` / `facilities` write now reads back `tab-not-applied`,
+#     so the lane photographs the one tab that exists.
 # `op=dialog` answered `open=false count=0`, and the cold-boot note this header records held
 # (the windows drew against a scenario that was created rather than loaded).
 #
@@ -162,22 +169,13 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "fs-kerbals-outcomes-empty-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
 
-  # --- Career State, all four tabs, under the SCIENCE-mode banner ---
-  # The four otherwise-dark code paths section 6.1 names. A science-mode save has no funds
-  # and no reputation, so each tab draws a mode-specific banner or a mode-specific empty
-  # form rather than the career one, and none of the four has a picture.
+  # --- Career State under the SCIENCE-mode banner ---
+  # Science mode draws only the tabs that carry data: Milestones, plus Facilities while a
+  # building is destroyed (none is on this fresh save). So the window shows Milestones
+  # with no tab bar, under `Science mode - no contracts, strategies or building levels`.
   { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fs-career-contracts-science-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fs-career-contracts-science-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fs-career-strategies-science-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fs-career-strategies-science-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fs-career-facilities-science-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fs-career-facilities-science-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "fs-career-milestones-science-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "fs-career-milestones-science-advanced" }, expect = "OK" },
@@ -248,9 +246,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-timeline-overview-empty-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-kerbals-roster-fresh-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-kerbals-outcomes-empty-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-contracts-science-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-strategies-science-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-facilities-science-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-milestones-science-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-logistics-empty-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-main-basic .*patched=17/17",

@@ -50,18 +50,6 @@ namespace Parsek.Tests
             Assert.Equal(string.Empty, TooltipEchoBox.ResolveCapturedText(null, ""));
         }
 
-        [Fact]
-        public void ResolveCapturedText_IsPureAndRepeatable()
-        {
-            // Read live on every pass, so the same inputs must resolve identically no
-            // matter which IMGUI event is asking.
-            const string tip = "Hovering any cell shows its help text here";
-            Assert.Equal(
-                TooltipEchoBox.ResolveCapturedText(null, tip),
-                TooltipEchoBox.ResolveCapturedText(null, tip));
-            Assert.Equal(tip, TooltipEchoBox.ResolveCapturedText(null, tip));
-        }
-
         // ------------------------------------------------------------------
         // Strip height (one or two lines)
         // ------------------------------------------------------------------

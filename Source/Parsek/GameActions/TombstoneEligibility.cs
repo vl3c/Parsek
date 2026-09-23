@@ -94,6 +94,11 @@ namespace Parsek
                 // put that branch's XP back on the next recalc - re-earning experience for
                 // a flight the merge deleted.
                 case GameActionType.KerbalExperience:
+                // KerbalRecovered: the recovery closed a hold of the owner recording's
+                // tree. A re-fly that supersedes the owner deletes the flight the recovered
+                // vessel continued, so the closure must go with it; the default would
+                // PRESERVE it and keep ending holds of a flight that no longer exists.
+                case GameActionType.KerbalRecovered:
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityDestruction:
                 case GameActionType.FacilityRepair:

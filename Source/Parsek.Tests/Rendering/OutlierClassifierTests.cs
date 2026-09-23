@@ -160,21 +160,6 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void OutlierClassifier_BubbleRadius_NormalDeltaNotRejected()
-        {
-            // 0.05° lon delta → ~524 m on Kerbin. Under 2500 m cap.
-            var frames = new List<TrajectoryPoint>();
-            for (int i = 0; i < 6; i++)
-                frames.Add(MakePoint(100 + i, 0.01 * i, 0.05 * i, 80000 + 100 * i));
-            var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frames);
-            var rec = MakeRecording("rec-norm", sec);
-            CelestialBody capturedKerbin = fakeKerbin;
-            OutlierFlags flags = OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default,
-                name => name == "Kerbin" ? capturedKerbin : null);
-            Assert.Equal(0, flags.RejectedCount);
-        }
-
-        [Fact]
         public void OutlierClassifier_BubbleRadius_SparseFastAscentNotRejected()
         {
             // Regression for s18 upper-stage false positives: these samples

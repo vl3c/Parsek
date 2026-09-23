@@ -270,20 +270,6 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(nearMisses);
         }
 
-        // catches: an eligible tree (whether or not a route already owns it) wrongly
-        // showing as "not eligible". Near-miss derivation skips ALL eligible trees, so
-        // promotion is structurally irrelevant (DeriveNearMisses takes no route list).
-        [Fact]
-        public void DeriveNearMisses_EligiblePromoted_NotANearMiss()
-        {
-            RecordingTree tree = BuildEligibleTree("t-promoted"); // source recording id == "mid"
-
-            var nearMisses = RouteCandidateFinder.DeriveNearMisses(
-                new List<RecordingTree> { tree });
-
-            Assert.Empty(nearMisses);
-        }
-
         [Fact]
         public void DeriveNearMisses_NoTrees_ReturnsEmpty()
         {

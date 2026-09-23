@@ -68,15 +68,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TagForkInitialSegmentPhase_NullProvisional_IsNoOp()
-        {
-            // Defensive: never throw on null inputs.
-            RewindInvoker.TagForkInitialSegmentPhase(
-                provisional: null, liveVessel: null, sessionId: "sess_test");
-            // No assertion — surviving the call without throwing is the contract.
-        }
-
-        [Fact]
         public void TagForkInitialSegmentPhase_NullLiveVessel_LogsVerbose_LeavesFieldsEmpty()
         {
             var provisional = new Recording { RecordingId = "fork-rec" };

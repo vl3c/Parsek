@@ -852,7 +852,13 @@ namespace Parsek.Tests
 
             Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
             Assert.Equal(900.0, kerbals.Reservations["Jeb"].ReservedUntilUT);
-            Assert.False(kerbals.Slots["Jeb"].OwnerPermanentlyGone);
+            // The cutoff (1000) is past the surviving flight's recovery (900), so Jeb is
+            // back in his own seat: no slot is demanded for him, and certainly not a
+            // permanently-gone one.
+            KerbalsModule.KerbalSlot jebSlot;
+            Assert.False(kerbals.Slots.TryGetValue("Jeb", out jebSlot)
+                && jebSlot.OwnerPermanentlyGone);
+            Assert.True(kerbals.IsKerbalAvailable("Jeb"));
 
             RecalculationEngine.Recalculate(actions);
 

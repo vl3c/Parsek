@@ -1044,30 +1044,6 @@ namespace Parsek.Tests
         #region Environment transition via hysteresis
 
         [Fact]
-        public void EnvironmentTransition_ProducesConsecutiveSections()
-        {
-            // Simulate what OnPhysicsFrame does when hysteresis confirms a transition:
-            // close current, start new
-            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 100.0);
-
-            // Simulate transition at UT=150
-            recorder.CloseCurrentTrackSection(150.0);
-            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, 150.0);
-
-            // Simulate another transition at UT=200
-            recorder.CloseCurrentTrackSection(200.0);
-            recorder.StartNewTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, 200.0);
-
-            // Final close (recording stops)
-            recorder.CloseCurrentTrackSection(250.0);
-
-            Assert.Equal(3, recorder.TrackSections.Count);
-            Assert.Equal(SegmentEnvironment.Atmospheric, recorder.TrackSections[0].environment);
-            Assert.Equal(SegmentEnvironment.ExoBallistic, recorder.TrackSections[1].environment);
-            Assert.Equal(SegmentEnvironment.ExoPropulsive, recorder.TrackSections[2].environment);
-        }
-
-        [Fact]
         public void EnvironmentTransition_LogsBothStartAndCloseForEachSection()
         {
             logLines.Clear();
