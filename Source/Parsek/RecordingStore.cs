@@ -3675,12 +3675,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Marks the pending tree's state as Finalized after the revert-detection dispatch
-        /// has run FinalizeTreeRecordings on a previously-Limbo tree. Called by
-        /// ParsekScenario.OnLoad on the Limbo + isRevert path before the auto-commit /
-        /// merge dialog flow runs.
-        /// </summary>
-        /// <summary>
         /// Re-labels a <see cref="PendingTreeState.LimboVesselSwitch"/> pending tree whose
         /// pre-transition was undone (it has an active recording again) as a plain
         /// <see cref="PendingTreeState.Limbo"/> stash. Returns false and changes nothing
@@ -3708,6 +3702,12 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Marks the pending tree's state as Finalized after the revert-detection dispatch
+        /// has run FinalizeTreeRecordings on a previously-Limbo tree. Called by
+        /// ParsekScenario.OnLoad on the Limbo + isRevert path before the auto-commit /
+        /// merge dialog flow runs.
+        /// </summary>
         internal static void MarkPendingTreeFinalized()
         {
             if (pendingTree == null) return;
