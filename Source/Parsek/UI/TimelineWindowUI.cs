@@ -74,6 +74,35 @@ namespace Parsek
         /// </summary>
         internal const string WindowIdKey = "ParsekTimeline";
 
+        /// <summary>The three source toggles of the filter bar.</summary>
+        internal enum TimelineSourceToggle
+        {
+            Recordings,
+            Actions,
+            Events
+        }
+
+        // Each tooltip names the rows its toggle governs per ResolveSourceToggle: every
+        // recording-sourced row (a crew death included) is Recordings; a ledger or legacy
+        // row is Actions when TimelineEntryDisplay.IsPlayerAction says so, else Events
+        // (contract completions and failures included). Pinned by TimelineCareerNamesTests.
+        internal const string RecordingsToggleTooltip =
+            "Shows or hides rows from your recorded flights: launches, separations, spawns and crew deaths.";
+        internal const string ActionsToggleTooltip =
+            "Shows or hides your choices: builds, hires, tech, upgrades, repairs, strategies, contract accepts/cancels.";
+        internal const string EventsToggleTooltip =
+            "Shows or hides outcomes: milestones, completed or failed contracts, earnings, recoveries, destroyed buildings.";
+
+        /// <summary>
+        /// Which source toggle governs a row: recording rows by Recordings, ledger and
+        /// legacy rows by Actions when they are a player action, else by Events.
+        /// </summary>
+        internal static TimelineSourceToggle ResolveSourceToggle(TimelineSource source, bool isPlayerAction)
+        {
+            if (source == TimelineSource.Recording) return TimelineSourceToggle.Recordings;
+            return isPlayerAction ? TimelineSourceToggle.Actions : TimelineSourceToggle.Events;
+        }
+
         private const float DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth;
         internal const float MinWindowWidth = CareerStateWindowUI.MinWindowWidth;
         internal const float MinWindowHeight = 150f;
@@ -903,8 +932,7 @@ namespace Parsek
             bool previousGuiEnabled = GUI.enabled;
             GUI.enabled = !actionFilterMode;
             bool newShowRec = GUILayout.Toggle(showRecordingEntries,
-                new GUIContent("Recordings",
-                    "Shows or hides the rows that come from your recorded flights."),
+                new GUIContent("Recordings", RecordingsToggleTooltip),
                 toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
@@ -912,8 +940,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
             bool newShowAct = GUILayout.Toggle(showActionEntries,
-                new GUIContent("Actions",
-                    "Shows or hides career moves: funds, science, contracts, upgrades."),
+                new GUIContent("Actions", ActionsToggleTooltip),
                 toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
@@ -922,8 +949,7 @@ namespace Parsek
             }
 
             bool newShowEvt = GUILayout.Toggle(showEventEntries,
-                new GUIContent("Events",
-                    "Shows or hides in-flight happenings such as crew deaths and recoveries."),
+                new GUIContent("Events", EventsToggleTooltip),
                 toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowEvt != showEventEntries)
             {
@@ -1319,11 +1345,17 @@ namespace Parsek
                 return false;
             }
 
-            if (entry.Source == TimelineSource.Recording && !showRecordingEntries) return false;
-            if (entry.Source == TimelineSource.GameAction || entry.Source == TimelineSource.Legacy)
+            switch (ResolveSourceToggle(entry.Source, entry.IsPlayerAction))
             {
-                if (entry.IsPlayerAction && !showActionEntries) return false;
-                if (!entry.IsPlayerAction && !showEventEntries) return false;
+                case TimelineSourceToggle.Recordings:
+                    if (!showRecordingEntries) return false;
+                    break;
+                case TimelineSourceToggle.Actions:
+                    if (!showActionEntries) return false;
+                    break;
+                case TimelineSourceToggle.Events:
+                    if (!showEventEntries) return false;
+                    break;
             }
 
             // Time-range filter

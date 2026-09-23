@@ -643,7 +643,27 @@ namespace Parsek
                 bool isWarp = IsWarpActiveOverrideForTesting != null
                     ? IsWarpActiveOverrideForTesting()
                     : IsAnyWarpActiveFromGlobalsCore();
-                if (isWarp)
+                var committedForRetire = RecordingStore.CommittedRecordings;
+                if (isWarp
+                    && evt.Index >= 0 && evt.Index < committedForRetire.Count
+                    && !host.IsActiveGhostChainTipFromPolicy(committedForRetire[evt.Index])
+                    && VesselSpawner.TryRetireEndedFlightAtKsc(
+                        committedForRetire[evt.Index],
+                        evt.Index,
+                        requireNoMaterializedSource: true))
+                {
+                    // Operator ruling 2026-09-23: a flight that ended parked in the KSC
+                    // exclusion zone is retired, so there is nothing to defer and no ghost
+                    // to hold during warp; the settled recording falls through to the
+                    // ordinary ghost teardown below. A real counterpart that still exists
+                    // is left to the deferred path, which adopts it, and so is a ghost-chain
+                    // tip, whose chain path retires it and closes the chain. (Without warp the
+                    // retirement runs inside the spawn call, after its adoption check.)
+                    if (isWatched)
+                        host.ExitWatchModeFromPolicy();
+                    spawned = true;
+                }
+                else if (isWarp)
                 {
                     pendingSpawnRecordingIds.Add(evt.Flags.recordingId);
                     if (isWatched)

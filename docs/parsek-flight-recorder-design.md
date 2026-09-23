@@ -1116,9 +1116,12 @@ When a recording reaches its end UT, Parsek checks whether to spawn a real vesse
 
 - If the vessel doesn't exist in the game world, spawn it from the recording's snapshot.
 - If it already exists (from the quicksave), skip — the ghost just despawns.
+- If the flight ended parked in the KSC exclusion zone, retire it: no vessel (see below).
 - On revert, spawn state is reconciled after vessel stripping (see Section 13.11).
 
 Looping recordings spawn their vessel at the end of the **first** playthrough. Subsequent loop cycles are visual-only ghosts.
+
+**KSC end-of-flight retirement** (operator ruling 2026-09-23). A recording whose vessel ENDS its flight parked in the KSC exclusion zone has ended its flight and is retired: it never becomes a real vessel, in any scene (flight, Space Center, Tracking Station), and its ghost is not held for spawn retries. The zone is the two 50 m circles of #170, around the launch pad centre and the runway's west threshold (`SpawnCollisionDetector.DefaultKscExclusionRadiusMeters`); a plane stopped mid-runway is outside it and spawns normally. The predicate is `SpawnCollisionDetector.DecideKscEndOfFlightRetirement`: a non-EVA vessel, an effective terminal of Landed or Splashed (the stamped terminal state, or for an un-finalized recording its snapshot situation, where PRELAUNCH maps to Landed), on the home world, whose end position (the position the spawn would use: the vessel snapshot's lat/lon, or the trajectory endpoint for EVA and breakup-continuous recordings) lies inside a circle. When that position is the snapshot's, the recording's resolved trajectory endpoint must lie inside a circle too (operator edge-case ruling: parked for a while, then moved, is no conflict), so a stale start-of-flight snapshot on the pad of a flight that ended elsewhere is not retired; a dropped in-memory snapshot is re-hydrated from its sidecar before the decision, exactly as the spawn gate does, so the spawn side and the crew side read the same position. Only the FINAL stop of the whole flight counts: the rule applies exactly where an end-of-recording real spawn would otherwise be attempted (a spawn-eligible final segment, chain tip or tree leaf), so a vessel that sat on the pad and then drove or flew off, in the same recording or through a later chain or switch-continuation segment, is not retired, and neither is an intermediate chain link or a non-leaf segment that happens to end on the pad. Every end-of-recording spawn entry point (the flight completion and warp flush, tree leaves, the Space Center, the Tracking Station hand-off, and the chain-tip spawns in flight and during a time jump, which also close the retired chain and remove its map ghost) calls `VesselSpawner.TryRetireEndedFlightAtKsc` after its source-vessel adoption check (a real counterpart that still exists is adopted, never retired) and before any spawn route: it settles the recording as spawned with no vessel (`VesselSpawned` and `SpawnAbandoned` true, spawned pid 0, the same transient state an abandoned spawn uses, which a rewind or revert resets) and logs one Info line, `[Spawner] Spawn RETIRED for #N (Name): flight ended within KSC exclusion zone (pad|runway) - no vessel lat=... lon=... body=... terminal=... rec=...`. The kerbals aboard are freed at the recording's EndUT as if recovered (see `parsek-game-actions-and-resources-recorder-design.md` 9.3); no recovery funds and no ledger row.
 
 ### 13.2 Chain-Aware Spawn
 
@@ -1129,6 +1132,9 @@ Recording reaches EndUT
   -> Is this an intermediate chain link?
     -> Yes: suppress spawn, continue ghost chain
     -> No: proceed to spawn
+  -> Does the real vessel still exist? Yes: adopt it, no spawn
+  -> Did the flight end parked in the KSC exclusion zone?
+    -> Yes: retire it, no vessel, no hold (Section 13.1)
   -> Is spawn blocked by collision?
     -> Same-name blocker: recover it, proceed (#112)
     -> Other blocker: walk back to a clear point at once, proceed (Section 13.7)
@@ -1139,7 +1145,7 @@ Recording reaches EndUT
   -> Spawn vessel (preserving PID for chain-tip spawns)
 ```
 
-A blocking vessel never holds the ghost on its own: it is recovered, walked around or the spawn is abandoned. The bounded ghost hold of Section 13.5 covers only the KSC exclusion zone, a single-point recording and a failed spawn.
+A blocking vessel never holds the ghost on its own: it is recovered, walked around or the spawn is abandoned. The bounded ghost hold of Section 13.5 covers only a single-point recording and a failed spawn; a flight that ends in the KSC exclusion zone is retired, not held.
 
 ### 13.3 PID Preservation
 
@@ -1163,9 +1169,10 @@ Operator ruling 2026-09-23: this section describes the code's behaviour; the ear
 
 A blocked non-chain spawn does not normally extend the ghost. The collision check resolves the block at once: a same-name blocker is recovered (#112), any other blocker triggers trajectory walkback to a clear earlier point (Section 13.7), and an exhausted walkback abandons the spawn. In all three cases the spawn is settled, so the ghost ends at the recording's end time as usual.
 
-The ghost is held past the recording's end time only when the spawn stays unsettled, in three cases:
+**KSC exclusion zone: retirement, not a hold** (operator ruling 2026-09-23). A flight that ends parked within 50 m of the launch pad centre or the runway's west threshold is retired at the spawn call (Section 13.1): it is settled with no vessel, so the ghost ends at the recording's end time like any settled spawn. Nothing is held or retried, in flight or during time warp. Until the ruling the zone refused the spawn every frame (#170), which held the ghost for the 5 seconds below, and the Space Center spawned the vessel on the pad with no check at all; the #170 block is gone from the collision check.
 
-- **KSC exclusion zone (#170):** a landed home-world spawn within 50 m of the launch pad or runway is refused.
+The ghost is held past the recording's end time only when the spawn stays unsettled, in two cases:
+
 - **Single-point recording:** an overlap on a recording with one trajectory point, where no walkback is possible.
 - **Failed spawn:** the spawn itself fails outright.
 
@@ -1187,7 +1194,7 @@ For surface spawns, KSP's procedural terrain can shift by a few meters between s
 
 **Step 4 — Physics settling.** A brief physics settling period (a few frames) where landing legs and wheels interact naturally with terrain. This handles sub-meter errors below raycast resolution.
 
-The blocked-spawn resolution of Section 13.5 applies here too. A blocked surface spawn recovers a same-name blocker or walks back to a clear earlier surface point, and the raycast correction runs at the spawn position actually used. If the spawn is held (KSC exclusion zone, single-point recording, failed spawn), a retry within the 5-second hold uses the terrain height at that moment.
+The blocked-spawn resolution of Section 13.5 applies here too. A blocked surface spawn recovers a same-name blocker or walks back to a clear earlier surface point, and the raycast correction runs at the spawn position actually used. If the spawn is held (single-point recording, failed spawn), a retry within the 5-second hold uses the terrain height at that moment.
 
 ### 13.7 Trajectory Walkback
 
@@ -1205,7 +1212,7 @@ Spawn queue blocks re-entering time warp until all spawns within the current loa
 
 ### 13.9 Loaded vs Unloaded Spawning
 
-**Loaded spawn (vessel inside physics bubble):** Full sequence: ghost replacement, bounding box check, blocked-spawn resolution if blocked (recovery, walkback or abandonment, Section 13.5; the bounded 5-second hold only for the KSC exclusion zone, a single-point recording or a failed spawn), terrain raycast for surface, physics settling.
+**Loaded spawn (vessel inside physics bubble):** Full sequence: ghost replacement, KSC end-of-flight retirement (Section 13.1), bounding box check, blocked-spawn resolution if blocked (recovery, walkback or abandonment, Section 13.5; the bounded 5-second hold only for a single-point recording or a failed spawn), terrain raycast for surface, physics settling.
 
 **Unloaded spawn (vessel outside physics bubble):** Create a ProtoVessel entry in the save data at the correct orbital elements or surface coordinates. No Unity objects, no bounding box check. The vessel appears immediately in the tracking station and map view and propagates on rails like any normal unloaded vessel.
 

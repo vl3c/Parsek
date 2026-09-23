@@ -15,6 +15,77 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~KSC-PAD-END-OF-FLIGHT-RETIREMENT: a flight that ends parked in the KSC exclusion zone is over and never becomes a real vessel~~ [RULED 2026-09-23 (operator). DONE 2026-09-23 on branch `ksc-pad-retire`]
+
+**Ruling.** A recording whose vessel ENDS its flight parked in the KSC exclusion zone (the
+existing 50 m circles around the launch pad centre and the runway's west threshold, home
+world, non-EVA) has ended its flight and is RETIRED: it never turns into a real vessel in
+any scene (flight, Space Center, Tracking Station), and the ghost is not held for spawn
+retries. (1) Crew aboard are freed at the recording's EndUT as if recovered, with no
+recovery funds and no new ledger action. (2) The zone stays the two 50 m spots; a plane
+stopped mid-runway spawns normally. (3) Only the FINAL stop of the whole flight counts.
+
+**Before.** Only the flight path checked the zone: `VesselSpawner.CheckSpawnCollisions`
+blocked the spawn every frame (abandoning after 150), so the policy held the ghost for the
+5 s retry window, timed out and made one last refused attempt. The Space Center spawned the
+same vessel ON the pad with no check at all (LF-1 / LF-2 relied on it).
+
+**Fix.** One predicate, `SpawnCollisionDetector.DecideKscEndOfFlightRetirement` (non-EVA,
+effective terminal Landed / Splashed, home world, end position in a circle), a
+recording-level `VesselSpawner.EvaluateKscEndOfFlightRetirement` that reads the position the
+spawn would use, and `VesselSpawner.TryRetireEndedFlightAtKsc`, called by every end-of-recording
+spawn entry point after its adoption check: `SpawnOrRecoverIfTooClose` (flight standalone,
+Tracking Station hand-off, warp flush, held retry), `ParsekFlight.SpawnTreeLeaves`,
+`ParsekKSC.TrySpawnAtRecordingEnd`, `VesselGhoster.SpawnAtChainTip` / `TrySpawnBlockedChain`
+(the flight then closes the chain), and `ParsekPlaybackPolicy.HandlePlaybackCompleted`'s warp
+branch (no deferral, no warp hold). It settles the recording with `VesselSpawned` +
+`SpawnAbandoned` (pid 0; no new field) and logs `[Spawner] Spawn RETIRED for #N (Name): flight
+ended within KSC exclusion zone (pad|runway) - no vessel ...` once. The #170 block in
+`CheckSpawnCollisions` is removed (what could still reach it inside the zone is an orbit's
+sub-point, which the altitude-blind check wrongly blocked, and an un-finalized recording with
+no situation evidence). Crew: `KerbalsModule.PrePass` adds an in-memory closure at EndUT for
+the Aboard / Unknown rows of each `VesselSpawner.IsKscRetiredFinalFlight` recording (same
+final-segment notion, `GhostPlaybackLogic.IsFinalSpawnSegment`; a materialized or still-existing
+real counterpart is excluded). Tests: `KscPadRetirementTests`. Design: flight-recorder 13.1 /
+13.5, game-actions 9.3.
+
+**Review fix-ups (same branch).** (a) The time-jump chain-tip spawn
+(`TimeJumpManager.SpawnCrossedChainTips`) now treats a retired tip as settled: its key is
+returned for removal and `VesselGhoster.ReleaseChainRetiredAtKsc` removes the chain's map
+ghost (shared with the flight path); before, the retired chain stayed in the active set with
+its map / Tracking Station ghost. (b) The crew side reads the spawn side's position: a settled
+retirement is taken as is, and `EvaluateKscEndOfFlightRetirement` re-hydrates a dropped
+snapshot like the spawn gate (only when the endpoint is in a circle). (c) The crew side's
+live-counterpart probe is silent (`MaterializedSourceVesselExists(rec, logAdoptionRejection:
+false)`), so a relaunched craft no longer logs an adoption rejection per ledger walk.
+(d) Operator edge-case ruling "parked for a while, then moved: no conflict": a
+snapshot-sourced position must agree with the resolved trajectory endpoint (both in a circle)
+before the flight retires. (e) Not changed: the merge dialog (`MergeDialog.CanPersistVessel`)
+still counts a pad-ending leaf as spawnable, so it does not pre-announce the retirement; the
+recording is settled at EndUT.
+
+**Lanes (live-proven 2026-09-23).** EX-1 is now the retirement witness and no longer
+claims D18 `ghost-extension-past-endut` (so the stale-cleanup fix below keeps its unit cells
+but loses its live witness); LF-1 and LF-2 move their subject to `pad-runway-pair`'s runway
+rover (59.7 m from the runway threshold) through a spec-only focus road. Readings on DLL
+sha256 `3970c939...` (`0fea2d1df`): EX-1 `2026-09-23_1810`, LF-1 `_1812`, LF-2 `_1814`, each
+PASS attempt 1 with every token as written; EX-1 armed `_1820` PASS on the fix-up DLL sha256
+`756a9ce6...` (`746e6c48e`), negative control `_1822` red on exactly its one seed. LF-1 / LF-2
+were not re-flown on the fix-up DLL (the fix-ups do not touch a subject outside the zone).
+
+## D18-GHOST-EXTENSION-SINGLE-POINT-HOST: `ghost-extension-past-endut` has no host lane since the pad hold became a retirement [FILED 2026-09-23 with KSC-PAD-END-OF-FLIGHT-RETIREMENT. OPEN]
+
+The only non-chain paths that still hold a ghost past EndUT are a SINGLE-POINT recording whose
+endpoint overlaps a loaded vessel (no walkback is possible, so `CheckSpawnCollisions` reports
+blocked until `MaxCollisionBlocks`) and a spawn that fails outright (design 13.5). EX-1 rode
+the KSC exclusion-zone hold, which the ruling above removed, so the D18 cell is uncovered
+again (coverage 196 -> 195 of 250, D18 10 -> 9 of 12). Needed: a host where a one-point
+recording ends on top of a loaded vessel (an injected synthetic one-point recording parked on
+the focused vessel is the cheapest shape), asserting `Ghost held pending spawn retry`, the
+held-ghost keep line of the stale-cleanup fix, `Held ghost timed out ... held=5.[0-9]s` and
+`destroyed (held-spawn-timeout)`. That lane would also be the live witness of
+D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME again.
+
 ## ~~FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: a launch made from FLIGHT inside the first 60 frames of a flight scene recorded INTO the tree of the vessel the scene opened on (a committed tree's restore clone), and the commit rewrote that committed tree~~ [FILED 2026-09-23 off the D18 PR-D harvest (#1768, runs `2026-09-22_2157` / `_2239`). FIXED 2026-09-23. Harness-reachable only; not reachable in stock play]
 
 **Root cause.** Not the committed-tree restore and not `DecideOnVesselSwitch` (in-scene

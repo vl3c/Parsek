@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 
@@ -72,22 +73,14 @@ namespace Parsek
                 }
 
                 case GameActionType.ContractAccept:
-                    return "Accept: " + (action.ContractTitle ?? action.ContractType ?? "unknown");
-
                 case GameActionType.ContractComplete:
-                {
-                    string title = action.ContractTitle ?? action.ContractType ?? "unknown";
-                    string desc = "Complete: " + title;
-                    if (action.FundsReward != 0)
-                        desc += string.Format(IC, " +{0:0} funds", action.FundsReward);
-                    return desc;
-                }
-
                 case GameActionType.ContractFail:
-                    return "Fail: " + (action.ContractTitle ?? action.ContractType ?? "unknown");
-
                 case GameActionType.ContractCancel:
-                    return "Cancel: " + (action.ContractTitle ?? action.ContractType ?? "unknown");
+                {
+                    ContractNameSource ignored;
+                    return GetContractDescription(action,
+                        ResolveContractDisplayName(action, null, out ignored));
+                }
 
                 case GameActionType.KerbalAssignment:
                     return string.Format(IC, "{0} ({1})",
@@ -108,14 +101,16 @@ namespace Parsek
 
                 case GameActionType.FacilityUpgrade:
                     return string.Format(IC, "Upgrade {0} \u2192 Lv.{1} -{2:0}",
-                        action.FacilityId ?? "unknown", action.ToLevel, action.FacilityCost);
+                        FacilityDisplayNames.ResolveBuildingDisplayName(action.FacilityId),
+                        action.ToLevel, action.FacilityCost);
 
                 case GameActionType.FacilityDestruction:
-                    return (action.FacilityId ?? "unknown") + " destroyed";
+                    return FacilityDisplayNames.ResolveBuildingDisplayName(action.FacilityId) + " destroyed";
 
                 case GameActionType.FacilityRepair:
                     return string.Format(IC, "Repair {0} -{1:0}",
-                        action.FacilityId ?? "unknown", action.FacilityCost);
+                        FacilityDisplayNames.ResolveBuildingDisplayName(action.FacilityId),
+                        action.FacilityCost);
 
                 case GameActionType.StrategyActivate:
                     return string.Format(IC, "Activate: {0} ({1:P0} {2}\u2192{3})",
@@ -128,6 +123,139 @@ namespace Parsek
                 default:
                     return action.Type.ToString();
             }
+        }
+
+        /// <summary>Where a contract row's name came from (for the Timeline's summary log).</summary>
+        internal enum ContractNameSource
+        {
+            /// <summary>The action's own <see cref="GameAction.ContractTitle"/>.</summary>
+            OwnTitle,
+            /// <summary>The title of the same contract's accept action in the ledger passed in.</summary>
+            AcceptTitle,
+            /// <summary>No title anywhere; the contract type (own, else the accept's), humanized.</summary>
+            ContractType,
+            /// <summary>Only the contract id: its accept is outside the ledger (pre-Parsek or tombstoned).</summary>
+            IdFallback
+        }
+
+        /// <summary>
+        /// Contract id -> that contract's accept action, over the ledger the caller shows
+        /// (the Timeline passes <c>EffectiveState.ComputeELS()</c>, so a tombstoned accept
+        /// is absent and its outcome rows fall back). Ledger rows converted before outcome
+        /// actions carried their own title find their name here. An accept with a title
+        /// wins over one without.
+        /// </summary>
+        internal static Dictionary<string, GameAction> BuildContractAcceptIndex(
+            IReadOnlyList<GameAction> actions)
+        {
+            var index = new Dictionary<string, GameAction>(StringComparer.Ordinal);
+            if (actions == null) return index;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || a.Type != GameActionType.ContractAccept) continue;
+                if (string.IsNullOrEmpty(a.ContractId)) continue;
+                GameAction existing;
+                if (index.TryGetValue(a.ContractId, out existing)
+                    && !string.IsNullOrEmpty(existing.ContractTitle))
+                    continue;
+                index[a.ContractId] = a;
+            }
+            return index;
+        }
+
+        /// <summary>
+        /// The name a contract row shows, never "unknown": the action's own title, else
+        /// the title of the contract's accept in <paramref name="acceptIndex"/> (may be
+        /// null), else the humanized contract type, else <see cref="FormatContractIdFallback"/>.
+        /// </summary>
+        internal static string ResolveContractDisplayName(
+            GameAction action,
+            IReadOnlyDictionary<string, GameAction> acceptIndex,
+            out ContractNameSource source)
+        {
+            if (action != null && !string.IsNullOrEmpty(action.ContractTitle))
+            {
+                source = ContractNameSource.OwnTitle;
+                return action.ContractTitle;
+            }
+
+            GameAction accept = null;
+            if (action != null && acceptIndex != null && !string.IsNullOrEmpty(action.ContractId))
+                acceptIndex.TryGetValue(action.ContractId, out accept);
+
+            if (accept != null && !string.IsNullOrEmpty(accept.ContractTitle))
+            {
+                source = ContractNameSource.AcceptTitle;
+                return accept.ContractTitle;
+            }
+
+            string type = action != null && !string.IsNullOrEmpty(action.ContractType)
+                ? action.ContractType
+                : accept?.ContractType;
+            if (!string.IsNullOrEmpty(type))
+            {
+                source = ContractNameSource.ContractType;
+                // Stock class names already end in "Contract" (SatelliteContract), so the
+                // suffix is dropped before " contract" is appended once.
+                string baseType = type.EndsWith("Contract", StringComparison.Ordinal) && type.Length > "Contract".Length
+                    ? type.Substring(0, type.Length - "Contract".Length)
+                    : type;
+                return CareerStateWindowUI.SpaceBeforeCapitals(baseType) + " contract";
+            }
+
+            source = ContractNameSource.IdFallback;
+            return FormatContractIdFallback(action?.ContractId);
+        }
+
+        /// <summary>
+        /// Readable text for a contract known only by its id: <c>Contract 7a726c83</c> (the
+        /// first block of the stock GUID, enough to tell two contracts apart in one list).
+        /// </summary>
+        internal static string FormatContractIdFallback(string contractId)
+        {
+            if (string.IsNullOrEmpty(contractId)) return "Unnamed contract";
+            string shortId = contractId;
+            int dash = shortId.IndexOf('-');
+            if (dash > 0) shortId = shortId.Substring(0, dash);
+            if (shortId.Length > 8) shortId = shortId.Substring(0, 8);
+            return "Contract " + shortId;
+        }
+
+        /// <summary>Row text for the four contract action types, given the resolved name.</summary>
+        internal static string GetContractDescription(GameAction action, string displayName)
+        {
+            if (action == null) return "";
+            switch (action.Type)
+            {
+                case GameActionType.ContractAccept:
+                    return "Accept: " + displayName;
+
+                case GameActionType.ContractComplete:
+                {
+                    string desc = "Complete: " + displayName;
+                    if (action.FundsReward != 0)
+                        desc += string.Format(IC, " +{0:0} funds", action.FundsReward);
+                    return desc;
+                }
+
+                case GameActionType.ContractFail:
+                    return "Fail: " + displayName;
+
+                case GameActionType.ContractCancel:
+                    return "Cancel: " + displayName;
+
+                default:
+                    return displayName;
+            }
+        }
+
+        internal static bool IsContractActionType(GameActionType type)
+        {
+            return type == GameActionType.ContractAccept
+                || type == GameActionType.ContractComplete
+                || type == GameActionType.ContractFail
+                || type == GameActionType.ContractCancel;
         }
 
         internal static string GetKerbalHireDescription(GameAction action, Game.Modes? currentMode)
