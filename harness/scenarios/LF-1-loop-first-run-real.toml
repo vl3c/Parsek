@@ -22,10 +22,19 @@ id = "LF-1-loop-first-run-real"
 # says the looping Mission "never fires the terminal-spawn"). The real vessel of a looped
 # mission is therefore the one it already has, and a strip while the loop is armed would
 # leave nothing to re-spawn it. The lane rewinds with the loop OFF, lets the re-cross
-# materialize the vessel once, then arms the loop and runs three cycles over it. The
-# per-frame spawn decision still runs for the member every frame, so each cycle meets the
-# silent `already spawned (VesselSpawned=true)` guard (GhostPlaybackLogic
-# `ShouldSpawnAtRecordingEnd`), counted in the rate-limited `Spawn suppressed:` summary.
+# materialize the vessel once, then arms the loop and runs three cycles over it.
+#
+# CLAIM SCOPE: "REWIND, THEN LOOP". The discriminating half is the REWIND: strip to
+# pid 0, exactly one `Vessel respawned`, a stable spawnedPid afterwards, and the save
+# census. The loop cycles do NOT test the spawn gate: a mission-loop member goes to
+# `UpdateUnitMemberPlayback` and `continue`s before `HandlePastEndGhost`
+# (GhostPlaybackEngine.cs ~1253-1259), so a loop can never spawn and the count stays 1
+# whatever the gate says. They only show the pid survives them (the rate-limited
+# `Spawn suppressed: ... already spawned` summary is pinned at least once after a cycle).
+# The catalog's rewind re-cross WITH the loop in play is not driven: a loop-armed rewind
+# would leave nothing to re-spawn it (zero vessels), filed as the operator question
+# LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS in docs/dev/todo-and-known-bugs.md. The cell is
+# claimed with this narrowed scope, the V26T destroyed-half precedent.
 #
 # SCOPE OF THE LOOP CYCLES, STATED. The reload after the KSC re-spawn reads a save the
 # Space Center wrote, which carries `activeVessel = 0` (measured), so FLIGHT focuses the
@@ -48,7 +57,7 @@ id = "LF-1-loop-first-run-real"
 #       each loop cycle - and a back-referenced regex pins the post-spawn pid unchanged.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D18 loop-first-run-is-real: produce a single-recording non-chain Landed subject in-run on logi-cargo-pad (StartRecording, StopRecording, CommitTree), Rewind-to-Launch it (the vessel is stripped), let 1x KSC time re-cross EndUT so the vessel re-spawns exactly once, reload into FLIGHT (a Space Center save focuses index 0, the host asteroid, so the loop ghost is never drawn; the spawn decision runs regardless), arm the mission loop through the Missions window and run three StartLoopPlayback cycles. LIVE-PROVEN 2026-09-22: reading _2350 PASS, armed _2353 PASS, negative control _2355 red on exactly its two seeds. The recording's spawnedPid is folded into MISSIONMARK lines at every stage, and the produced save must hold exactly one real vessel behind the spawn (saveparse spawnedVessels + vesselNames)."
+description = "D18 loop-first-run-is-real: produce a single-recording non-chain Landed subject in-run on logi-cargo-pad (StartRecording, StopRecording, CommitTree), Rewind-to-Launch it (the vessel is stripped), let 1x KSC time re-cross EndUT so the vessel re-spawns exactly once, reload into FLIGHT (a Space Center save focuses index 0, the host asteroid, so the loop ghost is never drawn; the spawn decision runs regardless), arm the mission loop through the Missions window and run three StartLoopPlayback cycles. CLAIM SCOPE: rewind, then loop - the rewind half is what discriminates; loop members never reach the spawn path, so the cycles show only that the pid survives them. LIVE-PROVEN 2026-09-22: reading _2350 PASS, armed _2353 PASS, negative control _2355 red on exactly its two seeds. The recording's spawnedPid is folded into MISSIONMARK lines at every stage, and the produced save must hold exactly one real vessel behind the spawn (saveparse spawnedVessels + vesselNames)."
 instanceProfile = "stock-minimal"
 tags = ["LF-1", "D18", "loop-playback", "rewind-to-launch", "spawn", "first-run-is-real",
         "R10", "runtime-handles"]
@@ -291,7 +300,8 @@ required  = [
   "Vessel spawned for #[0-9]+ \"Logi Cargo Rig\" pid=",
   "missionconfig applied: mission='Logi Cargo Rig' tree=\\S+ loop=True .*unitBuilt=True",
   "startloopplayback complete:[\\s\\S]*startloopplayback complete:[\\s\\S]*startloopplayback complete:",
-  # The loop cycles meet the silent already-spawned guard (the rate-limited summary).
+  # At least one post-cycle frame meets the already-spawned guard (rate-limited summary;
+  # it proves one cycle, not each).
   "startloopplayback complete:[\\s\\S]*Spawn suppressed: 1 recording\\(s\\) \\| already spawned \\(VesselSpawned=true\\)=1",
 ]
 forbidden = [
