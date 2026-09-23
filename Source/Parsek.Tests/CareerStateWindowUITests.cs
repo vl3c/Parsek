@@ -1098,7 +1098,7 @@ namespace Parsek.Tests
         [InlineData(null, "")]
         public void FacilityIdForBuilding_ReducesABuildingIdToItsFacility(string buildingId, string expected)
         {
-            Assert.Equal(expected, CareerStateWindowUI.FacilityIdForBuilding(buildingId));
+            Assert.Equal(expected, FacilityDisplayNames.FacilityIdForBuilding(buildingId));
         }
 
         [Fact]
@@ -1174,7 +1174,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_FacilityNames_ComeFromTheStockLookup()
         {
-            CareerStateWindowUI.FacilityNameLookupForTesting =
+            FacilityDisplayNames.FacilityNameLookupForTesting =
                 id => id == "LaunchPad" ? "Launchpad" : null;
             try
             {
@@ -1190,22 +1190,22 @@ namespace Parsek.Tests
             }
             finally
             {
-                CareerStateWindowUI.FacilityNameLookupForTesting = null;
+                FacilityDisplayNames.FacilityNameLookupForTesting = null;
             }
         }
 
         [Fact]
         public void ResolveFacilityDisplayName_IgnoresAnUnresolvedLocalizationTag()
         {
-            CareerStateWindowUI.FacilityNameLookupForTesting = id => "#autoLOC_6001646";
+            FacilityDisplayNames.FacilityNameLookupForTesting = id => "#autoLOC_6001646";
             try
             {
                 Assert.Equal("Research and Development",
-                    CareerStateWindowUI.ResolveFacilityDisplayName("ResearchAndDevelopment"));
+                    FacilityDisplayNames.ResolveFacilityDisplayName("ResearchAndDevelopment"));
             }
             finally
             {
-                CareerStateWindowUI.FacilityNameLookupForTesting = null;
+                FacilityDisplayNames.FacilityNameLookupForTesting = null;
             }
         }
 
@@ -1215,7 +1215,7 @@ namespace Parsek.Tests
         [InlineData("MissionControl", "Mission Control")]
         public void HumanizeFacilityId_SplitsPascalCaseWithALowercaseAnd(string id, string expected)
         {
-            Assert.Equal(expected, CareerStateWindowUI.HumanizeFacilityId(id));
+            Assert.Equal(expected, FacilityDisplayNames.HumanizeFacilityId(id));
         }
 
         // ──────────────────────────────────────────────────────────────────

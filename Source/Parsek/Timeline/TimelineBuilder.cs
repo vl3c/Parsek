@@ -690,6 +690,14 @@ namespace Parsek
             int modeSeedSkipped = 0;
             int hireCostSuffixSuppressed = 0;
             int noopSpendSkipped = 0;
+            int contractRows = 0;
+            int contractNamedFromAccept = 0;
+            int contractNamedFromType = 0;
+            int contractNamedFromId = 0;
+            // Outcome rows converted before they carried their own title (and rows whose
+            // title was never recorded) resolve it by contract id against the same
+            // effective ledger's accept.
+            var contractAcceptIndex = GameActionDisplay.BuildContractAcceptIndex(ledgerActions);
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var action = ledgerActions[i];
@@ -740,7 +748,22 @@ namespace Parsek
                     continue;
                 }
 
-                string displayText = TimelineEntryDisplay.GetGameActionText(action, vesselName, currentMode);
+                string displayText;
+                if (GameActionDisplay.IsContractActionType(action.Type))
+                {
+                    GameActionDisplay.ContractNameSource nameSource;
+                    string contractName = GameActionDisplay.ResolveContractDisplayName(
+                        action, contractAcceptIndex, out nameSource);
+                    displayText = GameActionDisplay.GetContractDescription(action, contractName);
+                    contractRows++;
+                    if (nameSource == GameActionDisplay.ContractNameSource.AcceptTitle) contractNamedFromAccept++;
+                    else if (nameSource == GameActionDisplay.ContractNameSource.ContractType) contractNamedFromType++;
+                    else if (nameSource == GameActionDisplay.ContractNameSource.IdFallback) contractNamedFromId++;
+                }
+                else
+                {
+                    displayText = TimelineEntryDisplay.GetGameActionText(action, vesselName, currentMode);
+                }
                 if (action.Type == GameActionType.KerbalHire &&
                     action.HireCost > 0f &&
                     !GameActionDisplay.ShouldShowFundsForKerbalHire(action, currentMode))
@@ -783,6 +806,12 @@ namespace Parsek
             if (noopSpendSkipped > 0)
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {noopSpendSkipped} no-op (zero-funds) spending action(s)");
+
+            if (contractRows > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Contract row names: rows={contractRows} fromAccept={contractNamedFromAccept} " +
+                    $"fromType={contractNamedFromType} fromIdFallback={contractNamedFromId} " +
+                    $"acceptIndex={contractAcceptIndex.Count}");
 
             return count;
         }

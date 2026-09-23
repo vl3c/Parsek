@@ -1533,6 +1533,9 @@ namespace Parsek
         private void SerializeContractComplete(ConfigNode n)
         {
             if (ContractId != null) n.AddValue("contractId", ContractId);
+            // Optional, additive: rows written before outcome actions carried a title
+            // lack the key and resolve their name by contract id at display time.
+            if (ContractTitle != null) n.AddValue("contractTitle", ContractTitle);
             n.AddValue("fundsReward", FundsReward.ToString("R", IC));
             n.AddValue("repReward", RepReward.ToString("R", IC));
             n.AddValue("scienceReward", ScienceReward.ToString("R", IC));
@@ -1541,6 +1544,7 @@ namespace Parsek
         private static void DeserializeContractComplete(ConfigNode n, GameAction a)
         {
             a.ContractId = n.GetValue("contractId");
+            a.ContractTitle = n.GetValue("contractTitle");
             TryParseFloat(n, "fundsReward", out a.FundsReward);
             TryParseFloat(n, "repReward", out a.RepReward);
             TryParseFloat(n, "scienceReward", out a.ScienceReward);
@@ -1555,6 +1559,7 @@ namespace Parsek
         private void SerializeContractPenalty(ConfigNode n)
         {
             if (ContractId != null) n.AddValue("contractId", ContractId);
+            if (ContractTitle != null) n.AddValue("contractTitle", ContractTitle);
             n.AddValue("fundsPenalty", FundsPenalty.ToString("R", IC));
             n.AddValue("repPenalty", RepPenalty.ToString("R", IC));
         }
@@ -1562,6 +1567,7 @@ namespace Parsek
         private static void DeserializeContractPenalty(ConfigNode n, GameAction a)
         {
             a.ContractId = n.GetValue("contractId");
+            a.ContractTitle = n.GetValue("contractTitle");
             TryParseFloat(n, "fundsPenalty", out a.FundsPenalty);
             TryParseFloat(n, "repPenalty", out a.RepPenalty);
         }
