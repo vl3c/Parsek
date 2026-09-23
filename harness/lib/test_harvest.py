@@ -341,3 +341,120 @@ class OrphanSidecarTests(unittest.TestCase):
         # a defensive shape: a name yielding an empty id token is kept
         self.assertEqual([], harvest.orphan_sidecars([".prec", "_x.craft"],
                                                      self.SFS))
+
+
+class RewindSaveHintStripTests(unittest.TestCase):
+    """The rewind-save clear, over persistent.sfs AND the RewindPoint quicksaves.
+
+    The harvest prunes `Parsek/Saves` (the `parsek_rw_*.sfs` payload), so every
+    pointer to it must be cleared or the fixture commits a dangling reference
+    (`CommittedFixtureRewindSaveTests`). It used to clear only `rewindSave` in
+    persistent.sfs; `bdock-second-dock-recorded`'s quicksave then carried both
+    `resumeRewindSave` and `rewindSave` and needed a hand edit (PR #1768)."""
+
+    def test_both_product_keys_are_cleared_and_kept(self):
+        text = ("\t\t\tresumeRewindSave = parsek_rw_456043\n"
+                "\t\t\t\trewindSave = parsek_rw_456043\n")
+        out, cleared, left = harvest.strip_rewind_save_hints(text)
+        self.assertEqual("\t\t\tresumeRewindSave = \n\t\t\t\trewindSave = \n", out)
+        self.assertEqual(2, cleared)
+        self.assertEqual([], left)
+
+    def test_other_values_and_lookalike_keys_are_untouched(self):
+        text = ("\t\trewindSaveUT = 123.5\n\t\trewindSave = \n"
+                "\t\tname = parsek_rwx\n\t\tid = abc\n")
+        out, cleared, left = harvest.strip_rewind_save_hints(text)
+        self.assertEqual(text, out)
+        self.assertEqual(0, cleared)
+        self.assertEqual([], left)
+
+    def test_crlf_line_endings_survive_the_clear(self):
+        out, cleared, _ = harvest.strip_rewind_save_hints(
+            "a = 1\r\n\trewindSave = parsek_rw_ab12\r\nb = 2\r\n")
+        self.assertEqual("a = 1\r\n\trewindSave = \r\nb = 2\r\n", out)
+        self.assertEqual(1, cleared)
+
+    def test_a_reference_in_another_shape_is_reported_not_edited(self):
+        text = "\tnote = see parsek_rw_ab12 for details\n"
+        out, cleared, left = harvest.strip_rewind_save_hints(text)
+        self.assertEqual(text, out)
+        self.assertEqual(0, cleared)
+        self.assertEqual(["1: note = see parsek_rw_ab12 for details"], left)
+
+    def test_the_committed_quicksave_is_what_the_clear_produces(self):
+        # Rebuild the source shape of the one quicksave that was hand-edited
+        # (restore the pruned name into the two cleared values; the produced-save
+        # snapshot differs from the committed file on exactly those two lines)
+        # and require the clear to reproduce the committed bytes.
+        path = os.path.join(os.path.dirname(_HERE), "fixtures", "saves",
+                            "bdock-second-dock-recorded", "Parsek", "RewindPoints",
+                            "rp_91b25a0c8e904a02a9d40deeb07e1a53.sfs")
+        if not os.path.isfile(path):
+            self.skipTest("fixture absent: %s" % path)
+        with open(path, "rb") as fh:
+            committed = fh.read().decode("latin-1")
+        source = committed.replace("\t\t\tresumeRewindSave = \n",
+                                   "\t\t\tresumeRewindSave = parsek_rw_456043\n", 1)
+        source = source.replace("\t\t\t\trewindSave = \n",
+                                "\t\t\t\trewindSave = parsek_rw_456043\n", 1)
+        self.assertEqual(2, source.count("parsek_rw_456043"))
+        out, cleared, left = harvest.strip_rewind_save_hints(source)
+        self.assertEqual(2, cleared)
+        self.assertEqual([], left)
+        self.assertEqual(committed, out)
+
+    # -- the filesystem half, through harvest() itself -----------------------
+
+    def _make_recorded_save(self, root, rp_text):
+        rec = os.path.join(root, "Parsek", "Recordings")
+        os.makedirs(rec)
+        with open(os.path.join(rec, "abc.prec"), "w") as fh:
+            fh.write("payload")
+        saves = os.path.join(root, "Parsek", "Saves")
+        os.makedirs(saves)
+        with open(os.path.join(saves, "parsek_rw_ab12.sfs"), "w") as fh:
+            fh.write("payload")
+        rps = os.path.join(root, "Parsek", "RewindPoints")
+        os.makedirs(rps)
+        with open(os.path.join(rps, "rp_1.sfs"), "wb") as fh:
+            fh.write(rp_text.encode("latin-1"))
+        with open(os.path.join(root, "persistent.sfs"), "w") as fh:
+            fh.write(SFS + "RECORDING_STUB { id = abc }\n"
+                     "\t\trewindSave = parsek_rw_ab12\n")
+
+    def _harvest(self, save, force=False):
+        import tempfile
+        out_root = tempfile.mkdtemp()
+        orig = harvest._FIXTURES_SAVES
+        harvest._FIXTURES_SAVES = out_root
+        try:
+            harvest.harvest(save, "fx", "fx", force=force,
+                            expected_situations=(), keep_parsek=True)
+        finally:
+            harvest._FIXTURES_SAVES = orig
+        return os.path.join(out_root, "fx")
+
+    def test_keep_parsek_clears_the_quicksave_and_prunes_the_payload(self):
+        import tempfile
+        save = tempfile.mkdtemp()
+        rp = ("PARSEK_ACTIVE_TREE\r\n{\r\n\tresumeRewindSave = parsek_rw_ab12\r\n"
+              "\tname = caf\xe9\r\n\tRECORDING\r\n\t{\r\n"
+              "\t\trewindSave = parsek_rw_ab12\r\n\t}\r\n}\r\n")
+        self._make_recorded_save(save, rp)
+        target = self._harvest(save)
+        with open(os.path.join(target, "Parsek", "RewindPoints", "rp_1.sfs"),
+                  "rb") as fh:
+            got = fh.read()
+        want = rp.replace("parsek_rw_ab12", "").encode("latin-1")
+        self.assertEqual(want, got, "only the two values may change, byte for byte")
+        self.assertFalse(os.path.isdir(os.path.join(target, "Parsek", "Saves")))
+        with open(os.path.join(target, "persistent.sfs")) as fh:
+            self.assertNotIn("parsek_rw_", fh.read())
+
+    def test_an_unclearable_quicksave_reference_refuses_before_writing(self):
+        import tempfile
+        save = tempfile.mkdtemp()
+        self._make_recorded_save(save, "\tnote = see parsek_rw_ab12\n")
+        with self.assertRaises(SystemExit) as ctx:
+            self._harvest(save)
+        self.assertIn("rp_1.sfs:1: note = see parsek_rw_ab12", str(ctx.exception))

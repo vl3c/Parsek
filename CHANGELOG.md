@@ -3712,6 +3712,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Dev tooling: the fixture harvest clears rewind-save names inside rewind-point
+  quicksaves too.** `harness/tools/harvest_bdock_station.py` drops the saves that
+  Rewind-to-Launch uses (`Parsek/Saves/parsek_rw_*.sfs`) but cleared the names pointing at
+  them only in `persistent.sfs`, and only the `rewindSave` key. A rewind-point quicksave
+  embeds its own copy of Parsek's save data, so `bdock-second-dock-recorded` needed a hand
+  edit to clear `resumeRewindSave` and `rewindSave` in one of its quicksaves. The harvest
+  now clears every `<key> = parsek_rw_<id>` value in `persistent.sfs` and in each
+  `Parsek/RewindPoints/*.sfs`, keeping the keys and every other byte of those files. It
+  refuses before writing when a `parsek_rw_` name appears in any other form. A
+  re-harvest of that fixture's source save differs from the committed files only in the
+  line endings of the one quicksave that was edited by hand.
+
 - **Research: a structural study of `GhostMapPresence`.**
   `docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md` inventories the
   14k-line class (clusters, state footprint, callers, pure pool, tests and gates that pin
