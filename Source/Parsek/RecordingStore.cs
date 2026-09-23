@@ -4388,6 +4388,28 @@ namespace Parsek
             RefreshSaveAfterDiscard(saveFn, "quicksave", "quicksave.sfs", reason, discardedRecordingCount);
         }
 
+        /// <summary>
+        /// <see cref="RefreshSaveAndQuicksaveAfterDiscard"/> without the quicksave: for an
+        /// AUTOMATIC discard, where overwriting the player's quicksave.sfs with no player
+        /// action would destroy their F5 point. Same scene / game guards.
+        /// </summary>
+        internal static void RefreshPersistentSaveAfterDiscard(
+            string reason,
+            int discardedRecordingCount)
+        {
+            var saveFn = SaveGameForTesting ?? GamePersistence.SaveGame;
+            if (SaveGameForTesting == null)
+            {
+                if (HighLogic.LoadedScene == GameScenes.LOADING || HighLogic.CurrentGame == null)
+                {
+                    ParsekLog.Verbose("Quicksave",
+                        $"Discard persistent refresh skipped (LOADING scene or no CurrentGame): reason={reason}");
+                    return;
+                }
+            }
+            RefreshSaveAfterDiscard(saveFn, "persistent", "persistent.sfs", reason, discardedRecordingCount);
+        }
+
         private static void RefreshSaveAfterDiscard(
             System.Func<string, string, SaveMode, string> saveFn,
             string saveName,
@@ -5607,15 +5629,19 @@ namespace Parsek
         /// original is still the durable holder of its history.
         /// </summary>
         internal static bool HasCommittedTreeWithId(string treeId)
+            => FindCommittedTreeById(treeId) != null;
+
+        /// <summary>The committed tree with this id, or null.</summary>
+        internal static RecordingTree FindCommittedTreeById(string treeId)
         {
             if (string.IsNullOrEmpty(treeId))
-                return false;
+                return null;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 if (string.Equals(committedTrees[i]?.Id, treeId, StringComparison.Ordinal))
-                    return true;
+                    return committedTrees[i];
             }
-            return false;
+            return null;
         }
 
         // ==================================================================

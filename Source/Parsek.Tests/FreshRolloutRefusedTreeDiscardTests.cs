@@ -8,11 +8,12 @@ namespace Parsek.Tests
     /// <summary>
     /// FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME, operator ruling 2026-09-23: when a
     /// restore coroutine refuses to put the pending tree on the scene-entry fresh
-    /// rollout, a pending tree that is a RESUMED copy of a committed tree is discarded
-    /// through the merge dialog's Discard primitive. Committed history stays exactly as
-    /// committed (tree, recordings, sidecars, pre-cutoff events), only the resumed
-    /// seconds go, and nothing is left pending for a later stash to overwrite. A
-    /// genuinely new tree and a Re-Fly-owned tree keep today's behaviour.
+    /// rollout, a pending tree that is a RESUMED copy of a committed tree AND recorded
+    /// nothing meaningful after the load (a few idle seconds) is discarded through the
+    /// merge dialog's Discard steps. Committed history stays exactly as committed
+    /// (tree, recordings, sidecars, pre-cutoff events). A copy that recorded meaningful
+    /// content, a genuinely new tree, a Re-Fly-owned tree, a tree under an active merge
+    /// journal and a replaced slot keep today's behaviour.
     ///
     /// <para>The two refusal sites are Unity coroutines with no headless seam; both call
     /// <see cref="ParsekFlight.DisposeFreshRolloutRefusedPendingTree"/>, which the file
@@ -25,10 +26,11 @@ namespace Parsek.Tests
         private const string TreeId = "tree_station_8c677bba";
         private const string TipId = "rec_station_tip";
         private const string BgId = "rec_station_probe";
-        private const string ResumedOnlyId = "rec_resumed_debris";
+        private const string SegmentId = "rec_switch_segment";
 
         private readonly List<string> logLines = new List<string>();
         private readonly List<string> cleanupRoots = new List<string>();
+        private readonly List<string> savedNames = new List<string>();
         private string recordingsDir;
 
         public FreshRolloutRefusedTreeDiscardTests()
@@ -42,6 +44,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             LedgerOrchestrator.ResetForTesting();
             RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingStore.SaveGameForTesting = (name, folder, mode) => { savedNames.Add(name); return "ok"; };
             ParsekScenario.CurrentTimelineUTProviderForTesting = () => 300.0;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -61,6 +64,7 @@ namespace Parsek.Tests
                 }
                 catch { }
             }
+            RecordingStore.SaveGameForTesting = null;
             ParsekScenario.CurrentTimelineUTProviderForTesting = null;
             ParsekScenario.SetInstanceForTesting(null);
             RewindInvokeContext.Clear();
@@ -141,15 +145,21 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The resumed copy: a deep clone of the committed tree whose tip recorded a few
-        /// seconds after the load, plus a pending-only recording born in those seconds.
+        /// The idle resumed copy: a deep clone of the committed tree whose tip sat still for
+        /// about three seconds after the load (points 201..203, a stationary section).
         /// </summary>
-        private static RecordingTree MakeResumedCopy(RecordingTree committed)
+        private static RecordingTree MakeIdleResumedCopy(RecordingTree committed)
         {
             var clone = RecordingTree.DeepClone(committed);
-            clone.Recordings[TipId].Points.Add(new TrajectoryPoint { ut = 203.0 });
-            clone.Recordings[TipId].FilesDirty = true;
-            clone.AddOrReplaceRecording(MakeRec(ResumedOnlyId, TreeId, 555u, 201.0, 203.0));
+            var tip = clone.Recordings[TipId];
+            tip.Points.Add(new TrajectoryPoint { ut = 201.0 });
+            tip.Points.Add(new TrajectoryPoint { ut = 203.0 });
+            tip.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                startUT = 201.0, endUT = 203.0,
+            });
+            tip.FilesDirty = true;
             return clone;
         }
 
@@ -165,6 +175,21 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref e);
         }
 
+        private static ParsekScenario InstallScenario()
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            return scenario;
+        }
+
+        private static ParsekFlight.FreshRolloutRefusedTreeDisposition DisposeRefused(string site = "quickload-restore")
+            => ParsekFlight.DisposeFreshRolloutRefusedPendingTree(site, RecordingStore.PendingTree, 760196917u);
+
         // ---------------- pure classifier ----------------
 
         [Fact]
@@ -173,17 +198,22 @@ namespace Parsek.Tests
             var tree = new RecordingTree { Id = TreeId, TreeName = "Kerbal X" };
 
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.NoPendingTree,
-                ParsekFlight.ClassifyFreshRolloutRefusedTree(null, true, false));
+                ParsekFlight.ClassifyFreshRolloutRefusedTree(null, true, true, false, false, true));
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy,
-                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, true, false));
-            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepNotACommittedCopy,
-                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, false, false));
-            // Re-Fly ownership wins even over a committed id.
+                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, true, true, false, false, true));
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepSlotReplaced,
+                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, false, true, false, false, true));
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepReFlyOwned,
-                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, true, true));
+                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, true, true, true, false, true));
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepMergeJournalActive,
+                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, true, true, false, true, true));
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepNotACommittedCopy,
+                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, true, false, false, false, true));
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepMeaningfulPostLoadContent,
+                ParsekFlight.ClassifyFreshRolloutRefusedTree(tree, true, true, false, false, false));
             var noId = new RecordingTree { Id = null, TreeName = "x" };
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepNotACommittedCopy,
-                ParsekFlight.ClassifyFreshRolloutRefusedTree(noId, true, false));
+                ParsekFlight.ClassifyFreshRolloutRefusedTree(noId, true, true, false, false, true));
         }
 
         [Fact]
@@ -195,26 +225,114 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.HasCommittedTreeWithId(null));
         }
 
+        // ---------------- post-load content predicate ----------------
+
+        [Fact]
+        public void Tail_IdleSeconds_IsNoOp_WithSpanAndPoints()
+        {
+            var committed = CommitStationTree();
+            var r = RefusedResumedCopyTail.Evaluate(MakeIdleResumedCopy(committed), committed);
+            Assert.True(r.IsNoOp, r.KeepReason);
+            Assert.Equal(2, r.TailPointCount);
+            Assert.Equal(201.0, r.TailFromUT);
+            Assert.Equal(203.0, r.TailToUT);
+        }
+
+        [Fact]
+        public void Tail_UnchangedClone_IsNoOp_EvenWithDestroyedCommittedDebris()
+        {
+            // Committed history is never a "tail": a debris recording destroyed in the
+            // original flight must not make an unchanged clone look meaningful.
+            var committed = CommitStationTree();
+            var debris = MakeRec("rec_debris", TreeId, 42u, 120.0, 150.0);
+            debris.TerminalStateValue = TerminalState.Destroyed;
+            debris.VesselDestroyed = true;
+            committed.AddOrReplaceRecording(debris);
+            var r = RefusedResumedCopyTail.Evaluate(RecordingTree.DeepClone(committed), committed);
+            Assert.True(r.IsNoOp, r.KeepReason);
+            Assert.Equal(0, r.TailPointCount);
+            Assert.True(double.IsNaN(r.TailFromUT));
+        }
+
+        [Fact]
+        public void Tail_MeaningfulPartEvent_Keeps()
+        {
+            var committed = CommitStationTree();
+            var copy = MakeIdleResumedCopy(committed);
+            copy.Recordings[TipId].PartEvents.Add(new PartEvent
+            {
+                ut = 202.0, partPersistentId = 7u, eventType = PartEventType.Decoupled,
+            });
+            var r = RefusedResumedCopyTail.Evaluate(copy, committed);
+            Assert.False(r.IsNoOp);
+            Assert.StartsWith("meaningful-tail:" + TipId + ":part-event:Decoupled", r.KeepReason);
+        }
+
+        [Fact]
+        public void Tail_NonBoringSection_Keeps()
+        {
+            var committed = CommitStationTree();
+            var copy = MakeIdleResumedCopy(committed);
+            copy.Recordings[TipId].TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric, startUT = 203.0, endUT = 210.0,
+            });
+            var r = RefusedResumedCopyTail.Evaluate(copy, committed);
+            Assert.False(r.IsNoOp);
+            Assert.Contains("non-boring-section:Atmospheric", r.KeepReason);
+        }
+
+        [Fact]
+        public void Tail_LongIdleContinuation_Keeps()
+        {
+            var committed = CommitStationTree();
+            var copy = MakeIdleResumedCopy(committed);
+            copy.Recordings[TipId].Points.Add(new TrajectoryPoint { ut = 400.0 });
+            var r = RefusedResumedCopyTail.Evaluate(copy, committed);
+            Assert.False(r.IsNoOp);
+            Assert.StartsWith("long-tail:" + TipId, r.KeepReason);
+        }
+
+        [Fact]
+        public void Tail_FlownSwitchSegmentRecording_Keeps()
+        {
+            var committed = CommitStationTree();
+            var copy = MakeIdleResumedCopy(committed);
+            copy.AddOrReplaceRecording(MakeRec(SegmentId, TreeId, 555u, 201.0, 203.0));
+            var r = RefusedResumedCopyTail.Evaluate(copy, committed);
+            Assert.False(r.IsNoOp);
+            Assert.Equal("pending-only-recording:" + SegmentId, r.KeepReason);
+        }
+
+        [Fact]
+        public void Tail_NewBranchPoint_Keeps()
+        {
+            var committed = CommitStationTree();
+            var copy = MakeIdleResumedCopy(committed);
+            copy.BranchPoints.Add(new BranchPoint { Id = "bp_new", UT = 202.0, Type = BranchPointType.Undock });
+            var r = RefusedResumedCopyTail.Evaluate(copy, committed);
+            Assert.False(r.IsNoOp);
+            Assert.StartsWith("new-branch-point:bp_new", r.KeepReason);
+        }
+
         // ---------------- the discard ----------------
 
         [Fact]
-        public void ResumedCopy_QuickloadRefusal_IsDiscarded_CommittedHistoryUntouched()
+        public void IdleResumedCopy_QuickloadRefusal_IsDiscarded_CommittedHistoryUntouched()
         {
             StageSaveRoot();
             var committed = CommitStationTree();
             StageSidecars(TipId);
             StageSidecars(BgId);
-            StageSidecars(ResumedOnlyId);
             AddTechEvent(TipId, 150.0, "committedTech");
             AddTechEvent(TipId, 202.0, "resumedTech");
-            AddTechEvent(ResumedOnlyId, 202.5, "resumedOnlyTech");
             var committedTip = committed.Recordings[TipId];
             int committedTipPoints = committedTip.Points.Count;
 
-            RecordingStore.StashPendingTree(MakeResumedCopy(committed), PendingTreeState.Limbo);
+            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
             logLines.Clear();
 
-            var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", 760196917u);
+            var d = DisposeRefused();
 
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy, d);
             Assert.False(RecordingStore.HasPendingTree);
@@ -226,43 +344,161 @@ namespace Parsek.Tests
             Assert.Equal(committedTipPoints, committedTip.Points.Count);
             Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == TipId);
             Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == BgId);
-            // Committed sidecars survive; the resumed-only recording's files are gone.
+            // Committed sidecars survive.
             Assert.Equal(Suffixes.Length, CountSidecars(TipId));
             Assert.Equal(Suffixes.Length, CountSidecars(BgId));
-            Assert.Equal(0, CountSidecars(ResumedOnlyId));
-            // Committed-era event kept; the resumed seconds' events purged.
+            // Committed-era event kept; the resumed seconds' event purged.
             Assert.Contains(GameStateStore.Events, e => e.key == "committedTech");
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "resumedTech");
-            Assert.DoesNotContain(GameStateStore.Events, e => e.key == "resumedOnlyTech");
             // The restore attempt is released.
             Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            // Not serialized: no save refresh.
+            Assert.Empty(savedNames);
             Assert.Contains(logLines, l => l.Contains("[Flight]")
                 && l.Contains("Fresh-rollout refusal (quickload-restore): discarding resumed copy")
                 && l.Contains("id=" + TreeId)
-                && l.Contains("committedOverlap=2") && l.Contains("pendingOnly=1")
+                && l.Contains("droppedSpan=201.0..203.0 (2.0s)") && l.Contains("droppedPoints=2")
                 && l.Contains("restoreAttemptArmed=True") && l.Contains("refusedPid=760196917"));
         }
 
         [Fact]
-        public void ResumedCopy_OutsiderChainVesselSwitchStash_IsDiscarded()
+        public void MeaningfulResumedCopy_IsKeptPending_AndLogsWhy()
+        {
+            StageSaveRoot();
+            var committed = CommitStationTree();
+            var copy = MakeIdleResumedCopy(committed);
+            copy.AddOrReplaceRecording(MakeRec(SegmentId, TreeId, 555u, 201.0, 203.0));
+            StageSidecars(SegmentId);
+            RecordingStore.StashPendingTree(copy, PendingTreeState.Limbo);
+            logLines.Clear();
+
+            var d = DisposeRefused();
+
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepMeaningfulPostLoadContent, d);
+            Assert.Same(copy, RecordingStore.PendingTree);
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(Suffixes.Length, CountSidecars(SegmentId));
+            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("keeping resumed copy of committed tree")
+                && l.Contains("reason=pending-only-recording:" + SegmentId)
+                && l.Contains("left pending"));
+            Assert.DoesNotContain(logLines, l => l.Contains("discarding resumed copy"));
+        }
+
+        [Fact]
+        public void IdleOutsiderChainVesselSwitchCopy_IsDiscarded()
         {
             // Gap 1 of the todo: a LimboVesselSwitch stash with no active recording has no
-            // revertible pre-transition. As a resumed committed copy it is now discarded
-            // instead of lingering as a LimboVesselSwitch a later load would reinstall.
+            // revertible pre-transition. As an idle resumed committed copy it is now
+            // discarded instead of lingering as a LimboVesselSwitch a later load would reinstall.
             var committed = CommitStationTree();
             var copy = RecordingTree.DeepClone(committed);
             copy.ActiveRecordingId = null;
             RecordingStore.StashPendingTree(copy, PendingTreeState.LimboVesselSwitch);
             Assert.False(ParsekFlight.TryRevertPreTransitionForVesselSwitch(copy, out _));
 
-            var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("vessel-switch-restore", 42u);
+            var d = DisposeRefused("vessel-switch-restore");
 
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy, d);
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Same(committed, RecordingStore.CommittedTrees[0]);
             Assert.Contains(logLines, l =>
                 l.Contains("Fresh-rollout refusal (vessel-switch-restore): discarding resumed copy")
-                && l.Contains("state=LimboVesselSwitch"));
+                && l.Contains("state=LimboVesselSwitch") && l.Contains("droppedSpan=none"));
+        }
+
+        [Fact]
+        public void Discard_ClearsASwitchSegmentSessionBoundToTheTree()
+        {
+            var committed = CommitStationTree();
+            var scenario = InstallScenario();
+            scenario.ArmSwitchSegmentSession(new SwitchSegmentSession
+            {
+                SessionId = Guid.NewGuid(),
+                IntentId = Guid.NewGuid(),
+                EntryReason = SwitchSegmentEntryReason.MapSwitchTo,
+                TreeId = TreeId,
+                ActiveSegmentRecordingId = TipId,
+                SwitchUT = 201.0,
+                PreSessionBranchPointIds = new List<string>(),
+            });
+            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+
+            var d = DisposeRefused();
+
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy, d);
+            Assert.Null(scenario.ActiveSwitchSegmentSession);
+            Assert.Contains(logLines, l => l.Contains("[SwitchSegment]") && l.Contains("cleared:")
+                && l.Contains("fresh-rollout refusal discarded resumed committed copy tree=" + TreeId));
+        }
+
+        [Fact]
+        public void Discard_LeavesASessionForAnotherTreeAlone()
+        {
+            var committed = CommitStationTree();
+            var scenario = InstallScenario();
+            scenario.ArmSwitchSegmentSession(new SwitchSegmentSession
+            {
+                SessionId = Guid.NewGuid(),
+                IntentId = Guid.NewGuid(),
+                EntryReason = SwitchSegmentEntryReason.MapSwitchTo,
+                TreeId = "tree_other",
+                PreSessionBranchPointIds = new List<string>(),
+            });
+            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+
+            DisposeRefused();
+
+            Assert.NotNull(scenario.ActiveSwitchSegmentSession);
+        }
+
+        [Fact]
+        public void Discard_OfASerializedCopy_RefreshesPersistentOnly()
+        {
+            var committed = CommitStationTree();
+            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            RecordingStore.MarkPendingTreeSerializedForSave("test");
+
+            var d = DisposeRefused();
+
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy, d);
+            Assert.Equal(new[] { "persistent" }, savedNames.ToArray());
+            Assert.Contains(logLines, l => l.Contains("serialized=True"));
+        }
+
+        [Fact]
+        public void ActiveMergeJournal_KeepsTheCopy()
+        {
+            var committed = CommitStationTree();
+            var scenario = InstallScenario();
+            scenario.ActiveMergeJournal = new MergeJournal
+            {
+                JournalId = "journal_refused", SessionId = "sess", Phase = MergeJournal.Phases.Supersede,
+            };
+            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+
+            var d = DisposeRefused();
+
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepMergeJournalActive, d);
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Contains(logLines, l => l.Contains("merge journal journal_refused is active"));
+        }
+
+        [Fact]
+        public void ReplacedSlot_IsNeverDiscarded()
+        {
+            var committed = CommitStationTree();
+            var refused = MakeIdleResumedCopy(committed);
+            RecordingStore.StashPendingTree(refused, PendingTreeState.Limbo);
+            var replacement = MakeIdleResumedCopy(committed);
+            RecordingStore.StashPendingTree(replacement, PendingTreeState.Limbo);
+
+            var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", refused, 7u);
+
+            Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepSlotReplaced, d);
+            Assert.Same(replacement, RecordingStore.PendingTree);
+            Assert.Contains(logLines, l => l.Contains("[WARN][Flight]") && l.Contains("not the refused tree"));
         }
 
         [Fact]
@@ -279,13 +515,12 @@ namespace Parsek.Tests
             StageSidecars("rec_new");
             RecordingStore.StashPendingTree(fresh, PendingTreeState.Limbo);
 
-            var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", 7u);
+            var d = DisposeRefused();
 
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepNotACommittedCopy, d);
             Assert.Same(fresh, RecordingStore.PendingTree);
             Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
             Assert.Equal(Suffixes.Length, CountSidecars("rec_new"));
-            // The unrelated committed tree's restore attempt is not released.
             Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
             Assert.Contains(logLines, l => l.Contains("[Flight]")
                 && l.Contains("keeping pending tree 'Interceptor'")
@@ -300,11 +535,11 @@ namespace Parsek.Tests
             // (TryRestoreActiveTreeNode -> RemoveCommittedTreeById), leaving the pending
             // tree as the ONLY holder of that history. It must not be discarded.
             var committed = CommitStationTree();
-            var copy = MakeResumedCopy(committed);
+            var copy = MakeIdleResumedCopy(committed);
             Assert.True(RecordingStore.RemoveCommittedTreeById(TreeId, "test detach"));
             RecordingStore.StashPendingTree(copy, PendingTreeState.Limbo);
 
-            var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", 7u);
+            var d = DisposeRefused();
 
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepNotACommittedCopy, d);
             Assert.Same(copy, RecordingStore.PendingTree);
@@ -314,10 +549,10 @@ namespace Parsek.Tests
         public void ReFlyOwnedResumedCopy_IsKept()
         {
             var committed = CommitStationTree();
-            RecordingStore.StashPendingTree(MakeResumedCopy(committed), PendingTreeState.Limbo);
+            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
             RewindInvokeContext.Pending = true;
 
-            var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", 7u);
+            var d = DisposeRefused();
 
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepReFlyOwned, d);
             Assert.True(RecordingStore.HasPendingTree);
@@ -327,7 +562,7 @@ namespace Parsek.Tests
         [Fact]
         public void NoPendingTree_IsANoOp()
         {
-            var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", 7u);
+            var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", null, 7u);
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.NoPendingTree, d);
         }
 
@@ -337,11 +572,10 @@ namespace Parsek.Tests
         public void SaveLoad_AfterDiscard_LeavesNoPendingTree_AndKeepsTheCommittedNode()
         {
             var committed = CommitStationTree();
-            var copy = MakeResumedCopy(committed);
+            var copy = MakeIdleResumedCopy(committed);
             copy.Recordings[TipId].FilesDirty = false;
-            copy.Recordings[ResumedOnlyId].FilesDirty = false;
             RecordingStore.StashPendingTree(copy, PendingTreeState.Limbo);
-            ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", 7u);
+            DisposeRefused();
 
             var node = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(node);
@@ -363,9 +597,8 @@ namespace Parsek.Tests
             // Control for the cell above: the lingering copy the ruling removes is written
             // as an isActive node and reloads into the pending slot.
             var committed = CommitStationTree();
-            var copy = MakeResumedCopy(committed);
+            var copy = MakeIdleResumedCopy(committed);
             copy.Recordings[TipId].FilesDirty = false;
-            copy.Recordings[ResumedOnlyId].FilesDirty = false;
             RecordingStore.StashPendingTree(copy, PendingTreeState.Limbo);
 
             var node = new ConfigNode("PARSEK_SCENARIO");
@@ -378,8 +611,8 @@ namespace Parsek.Tests
         public void LaterStash_AfterDiscard_DoesNotWarnAboutOverwriting()
         {
             var committed = CommitStationTree();
-            RecordingStore.StashPendingTree(MakeResumedCopy(committed), PendingTreeState.Limbo);
-            ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", 7u);
+            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            DisposeRefused();
             logLines.Clear();
 
             var launch = new RecordingTree
@@ -396,8 +629,8 @@ namespace Parsek.Tests
         [Fact]
         public void LaterStash_OverAKeptNewTree_StillWarns()
         {
-            // The residual filed as FRESH-LAUNCH-REFUSED-NEW-TREE-PENDING: a genuinely new
-            // refused tree keeps today's behaviour, including the overwrite Warn.
+            // The residual filed as FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING: a kept refused
+            // tree keeps today's behaviour, including the overwrite Warn.
             var fresh = new RecordingTree
             {
                 Id = "tree_new_uncommitted", TreeName = "First Launch", RootRecordingId = "rec_new",
@@ -405,7 +638,7 @@ namespace Parsek.Tests
             };
             fresh.AddOrReplaceRecording(MakeRec("rec_new", "tree_new_uncommitted", 99u, 300.0, 310.0));
             RecordingStore.StashPendingTree(fresh, PendingTreeState.Limbo);
-            ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", 7u);
+            DisposeRefused();
             logLines.Clear();
 
             var launch = new RecordingTree { Id = "tree_launch", TreeName = "Second Launch" };
