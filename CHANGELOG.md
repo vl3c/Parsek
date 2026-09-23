@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: two lanes cover what happens to dropped boosters.**
+  `GS-10-kerbalx-debris-ttl` flies the Kerbal X crash lane with the throttle held off from the
+  last booster drop, so the stack falls back beside its boosters and Parsek stops recording
+  them when their 60 second debris timer runs out; the lane checks that those recordings end
+  by the timer and keep their ending in the saved flight. `GS-11-kerbalx-debris-promotion`
+  switches to a just-dropped booster while its timer runs and checks that Parsek turns its
+  background recording into the active one. The second lane found two small problems, noted
+  for later: the switched-to booster still reports its timer running out, and its recorded
+  distance from the launch site is far too large.
 - **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
   mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
   flies the existing station-interceptor rendezvous and docking, and then tries a stock

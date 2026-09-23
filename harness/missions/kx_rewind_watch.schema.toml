@@ -543,6 +543,45 @@ type = "int"
 min = 1
 max = 10000
 
+# THE CLOSE CUT (D5 `staging-debris-ttl`; OPTIONAL, omitted = the far crash). A
+# variant of `impactProfile` that diverges at the LAST booster drop instead of the
+# core discard: the throttle stays at the zero BOOSTER-CUT read, the AP lets go,
+# and the unpowered stack falls back near the pad - GS-7 round 1's shape, which
+# kept the dropped boosters inside the physics bubble past their 60 s debris TTL on
+# 4 of 4 archived flights. `coreDiscardedWithEnginesOff` is substituted in place by
+# `stackCutAtLastBoosterDrop`. Refused without `impactProfile` or with
+# `boosterStageCount` < 1.
+[params.impactCutAtLastBoosterDrop]
+required = false
+type = "bool"
+
+# THE DEBRIS-PROMOTION SWITCH (D5 `staging-debris-promotion`; OPTIONAL, "" = off).
+# The VESSEL name the dropped boosters read. After IMPACT-AUTORECORD-OFF the machine
+# waits `promoteSwitchDelayFrames`, switches kRPC's active vessel to the NEAREST
+# loaded vessel of this name (the pair just dropped), observes the name read back,
+# OBSERVES `RecordingState recording=true` on the captured tree, then disarms
+# `autoRecordOnFirstModificationAfterSwitch` before the fall. Adds ONE row,
+# `debrisSwitchPromoted`. Refused without `impactCutAtLastBoosterDrop`.
+[params.promoteDebrisVesselName]
+required = false
+type = "string"
+
+# Frames PROMOTE-SWITCH holds before switching: the staging split's debris children
+# must already be background-tracked, or Parsek starts a fresh recording instead of
+# promoting.
+[params.promoteSwitchDelayFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+# The bound on each of the two promotion readings (switch landed, recorder live).
+[params.promoteFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
 # IMPACT-AUTORECORD-OFF has NO knob of its own: it is bounded by
 # `autoRecordOffFrames` below. The two phases issue the identical one-frame
 # SetSetting verb, so a second key would be two names for one number and the one
