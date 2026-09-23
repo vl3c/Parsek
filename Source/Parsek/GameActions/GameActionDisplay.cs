@@ -196,7 +196,12 @@ namespace Parsek
             if (!string.IsNullOrEmpty(type))
             {
                 source = ContractNameSource.ContractType;
-                return CareerStateWindowUI.SpaceBeforeCapitals(type) + " contract";
+                // Stock class names already end in "Contract" (SatelliteContract), so the
+                // suffix is dropped before " contract" is appended once.
+                string baseType = type.EndsWith("Contract", StringComparison.Ordinal) && type.Length > "Contract".Length
+                    ? type.Substring(0, type.Length - "Contract".Length)
+                    : type;
+                return CareerStateWindowUI.SpaceBeforeCapitals(baseType) + " contract";
             }
 
             source = ContractNameSource.IdFallback;

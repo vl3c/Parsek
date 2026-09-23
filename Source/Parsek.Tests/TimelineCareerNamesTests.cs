@@ -176,6 +176,23 @@ namespace Parsek.Tests
             Assert.Equal(GameActionDisplay.ContractNameSource.IdFallback, source);
         }
 
+        [Theory]
+        [InlineData("SatelliteContract", "Satellite contract")]
+        [InlineData("ExploreBody", "Explore Body contract")]
+        [InlineData("Contract", "Contract contract")]
+        public void ResolveContractDisplayName_TypeFallbackDoesNotDoubleTheWordContract(string type, string expected)
+        {
+            var index = GameActionDisplay.BuildContractAcceptIndex(new List<GameAction>
+            {
+                Accept(id: "typed-only", title: null, type: type),
+            });
+            GameActionDisplay.ContractNameSource source;
+            Assert.Equal(expected,
+                GameActionDisplay.ResolveContractDisplayName(
+                    Outcome(GameActionType.ContractComplete, id: "typed-only"), index, out source));
+            Assert.Equal(GameActionDisplay.ContractNameSource.ContractType, source);
+        }
+
         [Fact]
         public void BuildContractAcceptIndex_PrefersATitledAcceptAndSkipsIdlessRows()
         {
