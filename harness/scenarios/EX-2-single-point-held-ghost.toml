@@ -30,7 +30,12 @@ id = "EX-2-single-point-held-ghost"
 # from the orbit tail, beside the probe) through EndUT; the spawn propagates the terminal
 # orbit onto the probe, and the probe (loaded, not the active vessel, a different name so
 # no #112 recovery) blocks it on the single-point branch. The policy holds the live ghost,
-# retries and times out. LKO is far from the KSC exclusion circles, so the #1783
+# retries and times out. The snapshot carries two outrigger parts 25 m out so the spawn
+# collision box (about 31 m half-extent) keeps the probe inside it for the whole 5 s
+# window: the propagated orbit tracks the probe's CoM 13-14 m from its reference and
+# drifts from the probe's physics orbit by about 0.6 m/s, and the first reading
+# (`2026-09-23_2054`, one-part box) grazed the Mainsail at 13.4 m, cleared on the 1 s
+# retry and spawned. LKO is far from the KSC exclusion circles, so the #1783
 # retirement cannot intercept it.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
@@ -293,13 +298,18 @@ required  = [
   "Ghost #[0-9]+ \"Single Point Holder\" destroyed \\(held-spawn-timeout\\)",
   # The four in order, one match.
   "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\"[\\s\\S]*?kept \\(held by the policy\\)[\\s\\S]*?Held ghost timed out: #[0-9]+ \"Single Point Holder\" id=\\S+ held=5\\.[0-9]s[\\s\\S]*?\"Single Point Holder\" destroyed \\(held-spawn-timeout\\)",
-  # The vessel never spawned in the session.
-  "MISSIONMARK label=ex2-after-hold-count-1-pid-0-spawned-false ",
+  # No vessel in the session (pid 0). READING: spawned-true would be the post-timeout
+  # retry abandoning at MaxCollisionBlocks; pinned off the next reading.
+  "MISSIONMARK label=ex2-after-hold-count-1-pid-0-spawned-(true|false) ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "Held ghost spawn succeeded on retry",
   "Vessel spawned for #[0-9]+ \"Single Point Holder\"",
+  # The orbital spawn route's own lines (both read off `2026-09-23_2054`, where the
+  # 1 s retry spawned the vessel).
+  "Spawning vessel: \"Single Point Holder\"",
+  "Orbital vessel spawn for #[0-9]+ \\(Single Point Holder\\)",
   "Vessel respawned",
   "Spawn RETIRED for #[0-9]+ \\(Single Point Holder\\)",
   "walkback rewrote spawn position for #[0-9]+ \\(Single Point Holder\\)",

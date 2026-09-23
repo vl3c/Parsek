@@ -7085,8 +7085,15 @@ namespace Parsek.Tests
             b.WithTerminalOrbit("Kerbin", SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
                 SinglePointHoldProbeInc, SinglePointHoldProbeLan, SinglePointHoldProbeLpe,
                 SinglePointHoldProbeMna, SinglePointHoldSaveUT);
+            // Two outrigger parts widen the spawn collision box to about 31 m half-extent
+            // (padding included). The propagated terminal orbit tracks the probe's CoM,
+            // 13-14 m from the probe's reference, and drifts from its physics orbit by
+            // about 0.6 m/s; a one-part box grazed the Mainsail and cleared on the 1 s
+            // retry (reading 2026-09-23_2054), so the hold never reached its timeout.
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.ProbeShip(SinglePointHoldVesselName, pid: 71000001)
+                    .AddPart("probeCoreSphere", position: "-25,-25,-25")
+                    .AddPart("probeCoreSphere", position: "25,25,25")
                     .AsOrbiting(SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
                         SinglePointHoldProbeInc, lan: SinglePointHoldProbeLan,
                         argPe: SinglePointHoldProbeLpe, mna: SinglePointHoldProbeMna,
@@ -7119,6 +7126,7 @@ namespace Parsek.Tests
             Assert.Equal(SinglePointHoldProbeSma, rec.TerminalOrbitSemiMajorAxis);
             Assert.Equal(SinglePointHoldSaveUT, rec.TerminalOrbitEpoch);
             Assert.NotNull(rec.VesselSnapshot);
+            Assert.True(SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot).extents.x >= 25f);
         }
 
         [Fact]
