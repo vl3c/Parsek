@@ -99,6 +99,15 @@ namespace Parsek
                 return false;
             }
 
+            // Operator ruling 2026-09-23: an RP survives a plain rewind, but one that
+            // lies in the player's future cannot be re-flown until the clock reaches it.
+            double nowUT = ResolveNowUTForCanInvoke();
+            if (IsRewindPointInFuture(rp.UT, nowUT))
+            {
+                reason = FutureRewindPointReason;
+                return false;
+            }
+
             if (string.IsNullOrEmpty(rp.QuicksaveFilename))
             {
                 reason = "Rewind point has no quicksave file";
@@ -137,6 +146,68 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Refusal reason for an RP whose UT is later than the current UT. It reaches the
+        /// player only as the disabled Fly button's existing hover tooltip (Recordings
+        /// table and Timeline), so it stays constant-length and inside the Timeline
+        /// window's single-line strip budget (<c>TooltipEchoBudgetTests</c>); the UTs go
+        /// to the log line instead.
+        /// </summary>
+        internal const string FutureRewindPointReason =
+            "This separation is in your future - Re-Fly opens once the clock reaches it";
+
+        /// <summary>
+        /// Slack for "the clock has reached the RP". The RP stamps its UT before its
+        /// quicksave is written, so loading that quicksave puts the clock at or after the
+        /// RP UT; the slack only absorbs the round-trip of a UT through a save file.
+        /// </summary>
+        internal const double RewindPointFutureToleranceSeconds = 0.001;
+
+        /// <summary>Test seam for the current UT the future-RP gate compares against.</summary>
+        internal static Func<double> NowUtProviderForTesting;
+
+        /// <summary>
+        /// Pure future-RP decision: true when <paramref name="rewindPointUT"/> is later than
+        /// <paramref name="nowUT"/> by more than <see cref="RewindPointFutureToleranceSeconds"/>.
+        /// Exactly at the RP UT is NOT the future. An unknown clock (NaN, no Planetarium)
+        /// cannot place the RP, so the gate stays open rather than blocking every RP; every
+        /// invokable scene (FLIGHT / SPACECENTER / TRACKSTATION) has a clock.
+        /// </summary>
+        internal static bool IsRewindPointInFuture(double rewindPointUT, double nowUT)
+        {
+            if (double.IsNaN(nowUT) || double.IsNaN(rewindPointUT)
+                || double.IsInfinity(nowUT) || double.IsInfinity(rewindPointUT))
+                return false;
+            return rewindPointUT - nowUT > RewindPointFutureToleranceSeconds;
+        }
+
+        /// <summary>
+        /// The future-RP gate against the live clock, for a caller that must decide
+        /// BEFORE it tears state down (RevertInterceptor.RetryHandler).
+        /// </summary>
+        internal static bool IsRewindPointInFutureNow(RewindPoint rp, out double nowUT)
+        {
+            nowUT = ResolveNowUTForCanInvoke();
+            return rp != null && IsRewindPointInFuture(rp.UT, nowUT);
+        }
+
+        private static double ResolveNowUTForCanInvoke()
+        {
+            var hook = NowUtProviderForTesting;
+            if (hook != null)
+                return hook();
+            try { return ReadPlanetariumUniversalTimeCore(); }
+            catch (Exception) { return double.NaN; }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadPlanetariumUniversalTimeCore()
+        {
+            if (Planetarium.fetch == null)
+                return double.NaN;
+            return Planetarium.GetUniversalTime();
+        }
+
         private static void LogCanInvokeDecision(RewindPoint rp, bool canInvoke, string reason)
         {
             string rpId = GetRewindPointIdForLog(rp);
@@ -161,6 +232,7 @@ namespace Parsek
                     ? $"CanInvoke: enabled rp={rpId} scene={SafeLoadedSceneForCanInvokeLog()} " +
                       $"quicksave='{quicksave}' path='{FormatCanInvokePath(absoluteQuicksave)}'"
                     : $"CanInvoke: disabled rp={rpId} reason='{normalizedReason}' " +
+                      $"rpUT={FormatUtForCanInvokeLog(rp?.UT)} nowUT={FormatUtForCanInvokeLog(ResolveNowUTForCanInvoke())} " +
                       $"scene={SafeLoadedSceneForCanInvokeLog()} corrupted={FormatNullableBool(rp?.Corrupted)} " +
                       $"quicksave='{quicksave}' path='{FormatCanInvokePath(absoluteQuicksave)}' " +
                       $"pendingInvoke={RewindInvokeContext.Pending} activeSession={FormatActiveSessionForCanInvokeLog()}");
@@ -176,6 +248,12 @@ namespace Parsek
         private static string FormatCanInvokePath(string path)
         {
             return string.IsNullOrEmpty(path) ? "<none>" : path;
+        }
+
+        private static string FormatUtForCanInvokeLog(double? ut)
+        {
+            if (!ut.HasValue) return "<null>";
+            return double.IsNaN(ut.Value) ? "<unknown>" : ut.Value.ToString("R", CultureInfo.InvariantCulture);
         }
 
         private static string FormatNullableBool(bool? value)

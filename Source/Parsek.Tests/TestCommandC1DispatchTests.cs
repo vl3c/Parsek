@@ -289,6 +289,34 @@ namespace Parsek.Tests
                 "career-not-ready");
         }
 
+        [Theory]
+        [InlineData("demolish-building building=ksp_pad_waterTower")]
+        [InlineData("repair-facility facility=LaunchPad")]
+        public void KscAction_BuildingSubActions_NeedSpaceCenter_AndSettledStructures(string args)
+        {
+            var away = new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true, AtSpaceCenter = false };
+            AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=KscAction action=" + args), away),
+                "not-at-space-center");
+
+            var settling = new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true,
+                AtSpaceCenter = true, KscStructuresSettling = true };
+            AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=KscAction action=" + args), settling),
+                "structures-settling");
+
+            var ready = new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true, AtSpaceCenter = true };
+            Assert.Equal(DispatchDecision.Execute,
+                TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=KscAction action=" + args), ready).Decision);
+        }
+
+        [Fact]
+        public void KscAction_UpgradeFacility_IgnoresSettlingStructures()
+        {
+            var st = new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true,
+                AtSpaceCenter = true, KscStructuresSettling = true };
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=KscAction action=upgrade-facility facility=VehicleAssemblyBuilding"), st).Decision);
+        }
+
         [Fact]
         public void KscAction_UpgradeFacility_AtSpaceCenter_Executes()
         {

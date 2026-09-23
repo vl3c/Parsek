@@ -214,6 +214,22 @@ namespace Parsek.Tests
             }
         }
 
+        // catches: the future-RP Re-Fly refusal growing past the narrower of the two
+        // windows whose disabled Fly button shows it as its tooltip (Timeline at 820 px,
+        // single line; the Recordings table is wider). It is a runtime reason, not a
+        // GUIContent literal, so the source scan above cannot see it.
+        [Fact]
+        public void FutureRewindPointReason_FitsTheTimelineStrip()
+        {
+            int budget = BudgetChars(820f, TooltipEchoBox.SingleLine);
+            string tip = RewindInvoker.FutureRewindPointReason;
+            Assert.DoesNotContain("\n", tip);
+            Assert.True(tip.Length <= budget,
+                string.Format("RewindInvoker.FutureRewindPointReason is {0} chars, over the {1}-char "
+                    + "single-line Timeline help-strip budget: \"{2}\"",
+                    tip.Length, budget, tip));
+        }
+
         // catches: the Supply-Run cost explanation growing past the Logistics strip.
         // The tooltip is CONSTANT LENGTH by contract - it embeds no funds amounts
         // (those live in the visible "Cost/run:" detail line and the candidate cell

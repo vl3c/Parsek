@@ -69,6 +69,25 @@ namespace Parsek.Tests
         // --- Helper-level coverage -------------------------------------------------
 
         [Fact]
+        public void Rehome_BuildingCollapse_BecomesDirectFacilityDestruction()
+        {
+            // A crash-collapse is saved by stock at once (AddDamage -> Demolish -> SaveGame),
+            // so a discard that reloads no quicksave leaves the building down: the ledger
+            // must keep the destruction, untagged, at the collapse UT.
+            const string building = "SpaceCenter/LaunchPad/Facility/mainBuilding";
+            AddTagged(TaggedEvent(GameStateEventType.BuildingDestroyed, building, 321.0, "rec-A"));
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                new HashSet<string> { "rec-A" }, "test");
+
+            var a = Ledger.Actions.SingleOrDefault(x =>
+                x.Type == GameActionType.FacilityDestruction && x.FacilityId == building);
+            Assert.NotNull(a);
+            Assert.Null(a.RecordingId);
+            Assert.Equal(321.0, a.UT);
+        }
+
+        [Fact]
         public void Rehome_ContractCompletion_BecomesDirectLedgerAction()
         {
             AddTagged(TaggedEvent(GameStateEventType.ContractCompleted, "guid-c", 200.0, "rec-A"));
@@ -285,12 +304,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsIrreversibleLiveGameplayEvent_OnlyTerminalContractsAndMilestones()
+        public void IsIrreversibleLiveGameplayEvent_OnlyTerminalContractsMilestonesAndBuildingCollapses()
         {
             Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.ContractCompleted));
             Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.ContractFailed));
             Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.ContractCancelled));
             Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.MilestoneAchieved));
+            Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.BuildingDestroyed));
+            Assert.False(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.BuildingRepaired));
             Assert.False(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.ContractAccepted));
             Assert.False(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.TechResearched));
             Assert.False(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.FundsChanged));

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -39,8 +40,10 @@ namespace Parsek
             {
                 foreach (var db in destructibles)
                 {
-                    if (db != null && !string.IsNullOrEmpty(db.id))
-                        lastBuildingIntact[db.id] = !db.IsDestroyed;
+                    bool intact;
+                    if (db != null && !string.IsNullOrEmpty(db.id)
+                        && TryReadSettledIntact(db.IsIntact, db.IsDestroyed, out intact))
+                        lastBuildingIntact[db.id] = intact;
                 }
             }
 
@@ -140,6 +143,153 @@ namespace Parsek
             return maxLevel > 0 ? (float)levelIndex / maxLevel : 0f;
         }
 
+        /// <summary>
+        /// GameEvents.OnKSCStructureCollapsing handler. Stock <c>DestructibleBuilding.Demolish()</c>
+        /// (reached from <c>AddDamage</c> when a crash exceeds the building's toughness, and
+        /// from the KSC context menu's debug Demolish) sets <c>intact = false</c> and fires
+        /// this synchronously, once per building; <c>OnKSCStructureCollapsed</c> follows only
+        /// after the collapse animation, from a coroutine a quit or scene change can cut short,
+        /// so the collapse is recorded here, at the moment it happens.
+        /// </summary>
+        internal void OnStructureCollapsing(DestructibleBuilding db)
+        {
+            if (db == null)
+                return;
+            RecordBuildingTransition(db.id, false, Planetarium.GetUniversalTime(), 0f, "event-collapsing");
+        }
+
+        /// <summary>
+        /// GameEvents.OnKSCStructureRepairing handler. Stock <c>DestructibleBuilding.Repair()</c>
+        /// sets <c>destroyed = false</c> and fires this synchronously for each building that
+        /// was destroyed; <c>OnKSCStructureRepaired</c> follows only after the repair
+        /// animation. The funds share comes from the <see cref="FacilityRepairCapture"/> scope
+        /// of the enclosing <c>SpaceCenterBuilding.RepairFacility</c> call (0 outside one).
+        /// </summary>
+        internal void OnStructureRepairing(DestructibleBuilding db)
+        {
+            if (db == null)
+                return;
+            RecordBuildingTransition(db.id, true, Planetarium.GetUniversalTime(),
+                FacilityRepairCapture.CostForBuilding(db.id), "event-repairing");
+        }
+
+        /// <summary>
+        /// <see cref="FacilityRepairCapture.StructuresReset"/> handler: buildings a facility
+        /// upgrade / downgrade reset to intact without any repair event. Cost 0 - the funds
+        /// are the StructureConstruction debit the FacilityUpgrade row carries.
+        /// </summary>
+        internal void OnStructuresReset(IList<string> buildingIds)
+        {
+            if (buildingIds == null)
+                return;
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < buildingIds.Count; i++)
+                RecordBuildingTransition(buildingIds[i], true, ut, 0f, "facility-level-reset");
+        }
+
+        /// <summary>
+        /// Pure: whether a building transition reported by stock should be recorded. False
+        /// for an empty id, and while Parsek itself is driving the building (the recalc's
+        /// <c>FacilityStatePatcher.PatchDestructionState</c> calls <c>Demolish()</c> /
+        /// <c>Repair()</c> inside <c>SuppressionGuard.ResourcesAndReplay</c>, which fires the
+        /// same events and must not read back as a player action).
+        /// </summary>
+        internal static bool ShouldRecordBuildingTransition(
+            bool isReplayingActions, bool suppressResourceEvents, string buildingId)
+        {
+            if (string.IsNullOrEmpty(buildingId))
+                return false;
+            return !isReplayingActions && !suppressResourceEvents;
+        }
+
+        /// <summary>
+        /// Pure: the game-state event for a building transition. A repair carries its funds
+        /// cost in <c>detail</c> (<c>cost=</c>, read by <c>ConvertBuildingRepaired</c>); a
+        /// destruction carries none (stock charges nothing for a collapse).
+        /// </summary>
+        internal static GameStateEvent CreateBuildingEvent(
+            string buildingId, bool nowIntact, double ut, float repairCost)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = nowIntact
+                    ? GameStateEventType.BuildingRepaired
+                    : GameStateEventType.BuildingDestroyed,
+                key = buildingId,
+                detail = nowIntact ? FacilityRepairCapture.BuildRepairDetail(repairCost) : null
+            };
+        }
+
+        /// <summary>
+        /// Records one building transition: emits the game-state event (tagged with the live
+        /// recording, if any), keeps the poll cache coherent, and forwards an UNTAGGED event
+        /// with no live recorder straight to the ledger - the same gate facility upgrades use
+        /// (<see cref="GameStateRecorder.ShouldForwardFacilityLedgerEvent"/>). A tagged event
+        /// becomes a ledger row when its recording commits (GameStateEventConverter). A repair
+        /// inside a <c>RepairFacility</c> scope is queued and written with its sibling
+        /// buildings in one batch when the scope closes.
+        /// Returns true when an event was emitted.
+        /// </summary>
+        internal bool RecordBuildingTransition(
+            string buildingId, bool nowIntact, double ut, float repairCost, string source)
+        {
+            if (!ShouldRecordBuildingTransition(
+                    GameStateRecorder.IsReplayingActions,
+                    GameStateRecorder.SuppressResourceEvents,
+                    buildingId))
+            {
+                // Keep the cache on the patched state so a later poll does not report a
+                // Parsek-driven Demolish / Repair as a player change.
+                if (!string.IsNullOrEmpty(buildingId))
+                    lastBuildingIntact[buildingId] = nowIntact;
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-building-transition",
+                    $"Suppressed building transition '{buildingId ?? "(null)"}' intact={nowIntact} " +
+                    $"source={source} (replay/resource suppression or empty id)", 5.0);
+                return false;
+            }
+
+            var evt = CreateBuildingEvent(buildingId, nowIntact, ut, repairCost);
+            owner.EmitFacilityEvent(ref evt, evt.eventType.ToString());
+            lastBuildingIntact[buildingId] = nowIntact;
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: {evt.eventType} '{buildingId}' " +
+                $"cost={(nowIntact ? repairCost : 0f).ToString("R", CultureInfo.InvariantCulture)} " +
+                $"tag='{evt.recordingId ?? ""}' source={source}");
+
+            if (!owner.ShouldForwardFacilityLedgerEvent(evt.recordingId))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Building transition '{buildingId}' owned by recording '{evt.recordingId ?? ""}' " +
+                    "(or a live recorder) - becomes a ledger row at commit");
+                return true;
+            }
+
+            if (nowIntact && FacilityRepairCapture.TryDeferForward(evt))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Building repair '{buildingId}' queued for the facility repair batch");
+                return true;
+            }
+
+            LedgerOrchestrator.OnKscSpending(evt);
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: the one intact test the cache seed, the poll and the event handlers share.
+        /// A settled building is intact when stock's <c>IsIntact</c> is set. A building between
+        /// states (<c>!IsIntact &amp;&amp; !IsDestroyed</c>: collapsing after <c>Demolish()</c>,
+        /// or repairing after <c>Repair()</c>) has no settled value, returns false, and is
+        /// neither seeded nor compared - its collapse / repair event already cached the state
+        /// it is heading to, so a poll mid-animation cannot read a spurious transition.
+        /// </summary>
+        internal static bool TryReadSettledIntact(bool isIntact, bool isDestroyed, out bool intact)
+        {
+            intact = isIntact;
+            return isIntact || isDestroyed;
+        }
+
         internal void PollFacilityState()
         {
             double ut = Planetarium.GetUniversalTime();
@@ -196,7 +346,8 @@ namespace Parsek
                 }
             }
 
-            // Check building intact states
+            // Check building intact states. The event handlers below keep lastBuildingIntact
+            // current, so a transition they already recorded is not reported twice here.
             var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
             if (destructibles != null)
             {
@@ -205,27 +356,18 @@ namespace Parsek
                     if (db == null || string.IsNullOrEmpty(db.id)) continue;
 
                     buildingsChecked++;
-                    bool currentIntact = !db.IsDestroyed;
+                    bool currentIntact;
+                    if (!TryReadSettledIntact(db.IsIntact, db.IsDestroyed, out currentIntact))
+                        continue; // mid-animation: its event already set the cache
                     bool cachedIntact;
 
-                    if (lastBuildingIntact.TryGetValue(db.id, out cachedIntact))
+                    if (lastBuildingIntact.TryGetValue(db.id, out cachedIntact)
+                        && currentIntact != cachedIntact)
                     {
-                        if (currentIntact != cachedIntact)
-                        {
-                            var eventType = currentIntact
-                                ? GameStateEventType.BuildingRepaired
-                                : GameStateEventType.BuildingDestroyed;
-
-                            var bldEvt = new GameStateEvent
-                            {
-                                ut = ut,
-                                eventType = eventType,
-                                key = db.id
-                            };
-                            owner.EmitFacilityEvent(ref bldEvt, eventType.ToString());
+                        // A transition no event reported: record it the same way, at the
+                        // poll's UT and with no known repair cost.
+                        if (RecordBuildingTransition(db.id, currentIntact, ut, 0f, "poll"))
                             eventsEmitted++;
-                            ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{db.id}'");
-                        }
                     }
 
                     lastBuildingIntact[db.id] = currentIntact;

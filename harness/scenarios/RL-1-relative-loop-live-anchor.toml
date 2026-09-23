@@ -44,16 +44,19 @@ id = "RL-1-relative-loop-live-anchor"
 #     trajectory.
 #   - THE PLACEMENT FACET: the GhostRenderTrace `RelativeResolver resolver=
 #     loop-relative-position reason=resolved ... source=live anchorPos=X ...
-#     localOffset=(0.00,0.00,0.00) output=X` line, matched with a regex BACKREFERENCE: in
-#     section A the placed ghost's world position is EXACTLY the live anchor's world
-#     position (the zero-offset premise is pinned headlessly by
-#     RelativeLoopAnchorFixtureTests). A section-change window opens at every B -> A loop
+#     localOffset=(0.00,0.00,0.00) output=X` line, matched with a regex BACKREFERENCE: at
+#     zero offset the resolver output equals the live anchor pose (source=live gated). The
+#     output is ResolveRelativePlaybackPosition(anchorPos, rot, 0,0,0) printed beside
+#     anchorPos, so the equality is arithmetic (pinned headlessly by
+#     RelativeLoopAnchorFixtureTests); what the line gates is that the loop-relative
+#     resolver ran against the LIVE anchor. The recorded anchor track the sections name is a
+#     separate ProbeShip ghost, not the rover's own recording; it only feeds the zone distance. A section-change window opens at every B -> A loop
 #     wrap, so every cycle traces section A. Needs `ghostRenderTracing`, armed below.
 #
 # NOT CLAIMED: D14 (this is a synthetic-recording lane), D16 (the sidecar is the injector's).
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D3 relative-loop: inject one loop-anchored RELATIVE recording (LoopAnchorVesselId = pad-runway-pair's non-active runway rover) and gate the production live-PID loop path end to end: the anchor-load lines, the anchor-relative loop positioner, source=live offset application for both authored offsets, and a placement facet proving the zero-offset ghost sits exactly on the live anchor's world position."
+description = "D3 relative-loop: inject one loop-anchored RELATIVE recording (LoopAnchorVesselId = pad-runway-pair's non-active runway rover) and gate the production live-PID loop path end to end: the anchor-load lines, the anchor-relative loop positioner, source=live offset application for both authored offsets, and a placement facet: at zero offset the loop-relative resolver output equals the live anchor pose (source=live gated)."
 instanceProfile = "stock-minimal"
 tags = ["RL-1", "relative-loop", "loop-anchor", "live-anchor", "synthetic", "C5"]
 
@@ -113,7 +116,7 @@ required = [
   # Both authored offsets applied against the LIVE anchor (InterpolateAndPositionLoopRelative).
   "RELATIVE playback: contract=anchor-local version=1 dx=0\\.00 dy=0\\.00 dz=0\\.00 \\|offset\\|=0\\.00m anchor=95298807 source=live",
   "RELATIVE playback: contract=anchor-local version=1 dx=0\\.00 dy=20\\.00 dz=0\\.00 \\|offset\\|=20\\.00m anchor=95298807 source=live",
-  # PLACEMENT: section A's ghost output == the live anchor position (backreference \\1).
+  # PLACEMENT: at zero offset the resolver output equals the live anchor pose, source=live (backreference \\1).
   "phase=RelativeResolver rec=\\S+ recId=relloopanchor00000000000000000d3 ghostIndex=[0-9]+ frame=[0-9]+ currentUT=\\S+ playbackUT=\\S+ resolver=loop-relative-position reason=resolved success=true anchorPid=95298807 anchorRec=<none> source=live anchorPos=(\\([^)]*\\)) anchorRot=\\([^)]*\\) localOffset=\\(0\\.00,0\\.00,0\\.00\\) output=\\1",
   "MISSIONMARK label=rl1-after-dwell-count-2 ",
 ]

@@ -130,22 +130,28 @@ namespace Parsek.UI.Gallery
                         "FacilityRow.HasUpcomingChange" },
                 () => Build(FacilitiesUpcoming())));
 
-            // Destroyed NOW is stock's state (ScenarioDestructibles), never the ledger's:
-            // a KSC repair reaches no ledger action. So the synthetic building is handed
-            // in as the live destroyed set, the way the window reads it.
+            // Destroyed NOW is stock's state (ScenarioDestructibles), never the ledger's,
+            // so the synthetic building is handed in as the live destroyed set, the way
+            // the window reads it.
             into.Add(New("career.facilities.destroyed", FacilitiesTab,
                 "A facility destroyed now (stock's live building state).",
                 new[] { "FacilityRow.CurrentDestroyed" },
                 () => Build(FacilitiesUpgraded(), LaunchPadBuilding)));
 
-            // What the ledger CAN say: a committed flight that destroys a building after
-            // live UT. A repair in the recorded future has no mock state: KSC repairs
-            // never reach the ledger, so no career holds one.
+            // What the ledger says about the recorded future: a committed flight that
+            // destroys a building after live UT, and a KSC repair after live UT (a
+            // repair made after the point the career was rewound to).
             into.Add(New("career.facilities.destroyed-in-timeline", FacilitiesTab,
                 "Intact now; a committed flight destroys it later: 'destroyed <date>'.",
                 new[] { "GameActionType.FacilityDestruction",
                         "FacilityRow.DestroyedInTimeline" },
                 () => Build(FacilitiesDestroyedInTimeline())));
+
+            into.Add(New("career.facilities.repaired-in-timeline", FacilitiesTab,
+                "Destroyed now; the recorded timeline repairs it later: 'repaired <date>'.",
+                new[] { "GameActionType.FacilityRepair",
+                        "FacilityRow.RepairedInTimeline" },
+                () => Build(FacilitiesRepairedInTimeline(), LaunchPadBuilding)));
 
             // ---------- Milestones ----------
 
@@ -268,6 +274,13 @@ namespace Parsek.UI.Gallery
             {
                 Type = GameActionType.FacilityDestruction, UT = ut,
                 FacilityId = facilityId, Effective = true,
+            };
+
+        private static GameAction Repair(string facilityId, double ut, float cost)
+            => new GameAction
+            {
+                Type = GameActionType.FacilityRepair, UT = ut,
+                FacilityId = facilityId, FacilityCost = cost, Effective = true,
             };
 
         private static GameAction Milestone(string id, double ut,
@@ -442,6 +455,16 @@ namespace Parsek.UI.Gallery
             var actions = FacilitiesUpgraded();
             // After live UT: a committed flight that takes the Launchpad down.
             actions.Add(Destroy(LaunchPadBuilding, 1_600_000.0));
+            return actions;
+        }
+
+        private static List<GameAction> FacilitiesRepairedInTimeline()
+        {
+            var actions = FacilitiesUpgraded();
+            // Before live UT: the flight that took the Launchpad down (the live set says it
+            // is still down). After live UT: the KSC repair the rewound career holds.
+            actions.Add(Destroy(LaunchPadBuilding, 400_000.0));
+            actions.Add(Repair(LaunchPadBuilding, 1_600_000.0, 12_750f));
             return actions;
         }
 

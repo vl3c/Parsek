@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using UnityEngine;
 
 namespace Parsek
@@ -4697,6 +4698,7 @@ namespace Parsek
             SceneEntryActiveVesselPid = 0;
             SceneEntryFreshRolloutVesselPid = 0;
             ClearRewindReplayTargetScope();
+            rewindCarriedRewindPoints = null;
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
             RewindUTAdjustmentTargetUT = double.NaN;
@@ -5332,6 +5334,7 @@ namespace Parsek
         {
             RewindContext.EndRewind();
             ClearRewindReplayTargetScope();
+            ClearRewindCarriedRewindPoints("rewind-flags-reset");
         }
 
         /// <summary>
@@ -5444,6 +5447,11 @@ namespace Parsek
             string messageLabel)
         {
             string tempCopyName = null;
+            // The OnLoad this load leads to does NOT read the rewind save's scenario node:
+            // SpaceCenterMain.Start reloads persistent.sfs from disk, so the RP list it
+            // restores is whatever the last persistent write held. Carry the in-memory
+            // list across instead (see ReinstallRewindCarriedRewindPointsAfterLoad).
+            CaptureRewindPointsForRewind(ParsekScenario.Instance, messageLabel);
             try
             {
                 string savesDir = Path.Combine(
@@ -5816,6 +5824,182 @@ namespace Parsek
                     $"Re-applied supersede drop after LoadScene: dropped {dropped} relation(s) "
                     + $"(rewindUT={RewindContext.RewindAdjustedUT:F1} owner='{owner.VesselName}')");
             return dropped;
+        }
+
+        // ==================================================================
+        // Rewind points carried across a plain rewind (operator ruling 2026-09-23)
+        // ==================================================================
+
+        /// <summary>
+        /// The in-memory <see cref="ParsekScenario.RewindPoints"/> list captured when a plain
+        /// rewind (Rewind-to-Launch or Warp-to-game-start) starts its load. Null when no
+        /// rewind is in flight.
+        ///
+        /// <para><b>Why it exists.</b> A rewind point always survives a plain rewind: its
+        /// slots stay in Unfinished Flights, and <see cref="RewindInvoker.CanInvoke"/> keeps
+        /// the Re-Fly disabled until the clock reaches the RP's UT again. The recordings the
+        /// slots point at are kept from memory across the rewind, but the RP list was not:
+        /// the rewind's scene load goes to the Space Center, whose
+        /// <c>SpaceCenterMain.Start</c> (KSP 1.12.5, decompiled) calls
+        /// <c>GamePersistence.LoadGame("persistent")</c> and loads THAT game, so
+        /// <c>ParsekScenario.OnLoad</c> rebuilt the list from whatever
+        /// <c>persistent.sfs</c> last held on disk. An RP created after the last persistent
+        /// write vanished (its quicksave file leaked on disk, since the reaper only walks
+        /// the list), an RP the reaper had already removed could come back, and which of the
+        /// two happened depended on the scenes the player had passed through.</para>
+        /// </summary>
+        private static List<RewindPoint> rewindCarriedRewindPoints;
+
+        /// <summary>True while a captured RP list is waiting for the rewind's OnLoad.</summary>
+        internal static bool HasRewindCarriedRewindPoints => rewindCarriedRewindPoints != null;
+
+        /// <summary>
+        /// Captures a shallow copy of the scenario's RP list for the rewind that is about to
+        /// load. A null scenario captures nothing, which leaves the post-load list to the
+        /// loaded save exactly as before.
+        /// </summary>
+        internal static void CaptureRewindPointsForRewind(ParsekScenario scenario, string label)
+        {
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+            {
+                rewindCarriedRewindPoints = null;
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"{label}: no live scenario RP list to carry across the rewind load");
+                return;
+            }
+
+            rewindCarriedRewindPoints = new List<RewindPoint>(scenario.RewindPoints.Count);
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                if (scenario.RewindPoints[i] != null)
+                    rewindCarriedRewindPoints.Add(scenario.RewindPoints[i]);
+            }
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"{label}: carrying {rewindCarriedRewindPoints.Count} rewind point(s) across the rewind load " +
+                    $"[{FormatRewindPointIds(rewindCarriedRewindPoints)}]");
+        }
+
+        /// <summary>Drops a captured RP list that no rewind OnLoad will consume.</summary>
+        internal static void ClearRewindCarriedRewindPoints(string reason)
+        {
+            if (rewindCarriedRewindPoints == null)
+                return;
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Dropped {rewindCarriedRewindPoints.Count} carried rewind point(s) without reinstalling them " +
+                    $"(reason={reason})");
+            rewindCarriedRewindPoints = null;
+        }
+
+        /// <summary>
+        /// Pure merge for the rewind OnLoad: the carried in-memory list is authoritative and
+        /// replaces the loaded one wholesale, the same way the rewind branch keeps the
+        /// in-memory recordings instead of the save's. The two counts only describe how far
+        /// the loaded save had drifted: <paramref name="restoredCount"/> carried RPs the save
+        /// lacked, <paramref name="staleDroppedCount"/> loaded RPs memory no longer holds.
+        /// </summary>
+        internal static List<RewindPoint> MergeCarriedRewindPoints(
+            IReadOnlyList<RewindPoint> carried,
+            IReadOnlyList<RewindPoint> loaded,
+            out int restoredCount,
+            out int staleDroppedCount)
+        {
+            var loadedIds = new HashSet<string>(StringComparer.Ordinal);
+            if (loaded != null)
+            {
+                for (int i = 0; i < loaded.Count; i++)
+                {
+                    if (loaded[i]?.RewindPointId != null)
+                        loadedIds.Add(loaded[i].RewindPointId);
+                }
+            }
+
+            var result = new List<RewindPoint>();
+            var carriedIds = new HashSet<string>(StringComparer.Ordinal);
+            restoredCount = 0;
+            if (carried != null)
+            {
+                for (int i = 0; i < carried.Count; i++)
+                {
+                    var rp = carried[i];
+                    if (rp == null) continue;
+                    result.Add(rp);
+                    if (rp.RewindPointId == null) continue;
+                    carriedIds.Add(rp.RewindPointId);
+                    if (!loadedIds.Contains(rp.RewindPointId))
+                        restoredCount++;
+                }
+            }
+
+            staleDroppedCount = 0;
+            foreach (string id in loadedIds)
+            {
+                if (!carriedIds.Contains(id))
+                    staleDroppedCount++;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Rewind OnLoad half of the RP carry-over: replaces the just-loaded
+        /// <see cref="ParsekScenario.RewindPoints"/> with the list captured when the rewind
+        /// started, then consumes the capture. Called from <c>ParsekScenario.OnLoad</c>
+        /// right after <c>LoadRewindStagingState</c>, next to
+        /// <see cref="ReapplyRewindSupersedeDropAfterLoad"/>. A load that is not a rewind
+        /// leaves the loaded list alone and drops any stranded capture. Returns the number
+        /// of RPs installed, or -1 when nothing was installed.
+        /// </summary>
+        internal static int ReinstallRewindCarriedRewindPointsAfterLoad(ParsekScenario scenario)
+        {
+            if (rewindCarriedRewindPoints == null)
+                return -1;
+            if (!RewindContext.IsRewinding)
+            {
+                ClearRewindCarriedRewindPoints("load-is-not-a-rewind");
+                return -1;
+            }
+            if (object.ReferenceEquals(null, scenario))
+            {
+                ClearRewindCarriedRewindPoints("no-scenario-at-rewind-load");
+                return -1;
+            }
+
+            var carried = rewindCarriedRewindPoints;
+            rewindCarriedRewindPoints = null;
+            int loadedCount = scenario.RewindPoints?.Count ?? 0;
+            scenario.RewindPoints = MergeCarriedRewindPoints(
+                carried, scenario.RewindPoints, out int restored, out int staleDropped);
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"RewindPoints carried across rewind: installed={scenario.RewindPoints.Count} " +
+                    $"loadedFromSave={loadedCount} restored={restored} staleDropped={staleDropped} " +
+                    $"[{FormatRewindPointIds(scenario.RewindPoints)}]");
+            return scenario.RewindPoints.Count;
+        }
+
+        private static string FormatRewindPointIds(IReadOnlyList<RewindPoint> rps)
+        {
+            if (rps == null || rps.Count == 0)
+                return "";
+            var sb = new StringBuilder();
+            int shown = 0;
+            for (int i = 0; i < rps.Count; i++)
+            {
+                if (rps[i] == null) continue;
+                if (shown == 8)
+                {
+                    sb.Append(", ...");
+                    break;
+                }
+                if (shown > 0) sb.Append(", ");
+                sb.Append(rps[i].RewindPointId ?? "<no-id>");
+                sb.Append("@ut=");
+                sb.Append(rps[i].UT.ToString("R", CultureInfo.InvariantCulture));
+                shown++;
+            }
+            return sb.ToString();
         }
 
         /// <summary>

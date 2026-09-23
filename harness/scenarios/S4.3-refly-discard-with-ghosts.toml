@@ -68,10 +68,17 @@ kind = "seam"
 # read are Verbose. The discard answer concludes the session in FLIGHT (the pre-transition
 # dialog), so the removals run with ParsekFlight alive and subscribed - which is the whole
 # point; RecordingState afterwards is a read-only probe of what the discard left.
+# THE CLOCK MUST REACH THE RP FIRST (operator ruling 2026-09-23). The injector places
+# the tree at the host save's UT with the split 60 s later, so after LoadGame the RP
+# lies in the player's future and CanInvoke refuses it (`refly-gate This separation is
+# in your future ...`). The TimeJump of 61 s puts the clock 1 s past the RP and still
+# ahead of every leaf's EndUT (the upper stage ends 40 s and the booster 55 s after the
+# split), so nothing materializes before the re-fly. S4.1 flies the refusal itself.
 steps = [
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",        args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
   { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
   { cmd = "AnswerMergeDialog", args = { choice = "discard" },                       expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                         expect = "OK" },
@@ -115,7 +122,8 @@ forbidden = [
 # S4.2's arithmetic minus the RunTests row: LoadGame 660 + SetSetting 60 x2 +
 # InvokeRewind 660 + AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60 = 1680;
 # +120 margin.
-budgetSeconds = 1800
+# +660 on 2026-09-23 for the TimeJump that brings the clock to the RP (a deferred verb).
+budgetSeconds = 2460
 
 [retry]
 policy = "once"

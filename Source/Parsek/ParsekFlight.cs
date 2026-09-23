@@ -11054,7 +11054,11 @@ namespace Parsek
                 warpStartUT = Planetarium.GetUniversalTime();
                 if (LedgerOrchestrator.IsInitialized)
                 {
-                    KspStatePatcher.PatchFacilities(LedgerOrchestrator.Facilities);
+                    // Same suppression PatchAll wraps it in: the patch's SetLevel /
+                    // Demolish / Repair fire the stock facility and building events, which
+                    // must not read back as player upgrades, collapses or repairs.
+                    using (SuppressionGuard.ResourcesAndReplay())
+                        KspStatePatcher.PatchFacilities(LedgerOrchestrator.Facilities);
                     ParsekLog.Info("WarpFacilities",
                         "Warp start at UT="
                         + warpStartUT.ToString("R", CultureInfo.InvariantCulture)

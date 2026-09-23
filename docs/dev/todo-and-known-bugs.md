@@ -15,6 +15,96 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
+
+**Ruling.** A rewind point ALWAYS survives a Rewind-to-Launch. Its slots stay in Unfinished
+Flights, but the Re-Fly (invoke) is enabled only once the current UT has passed the RP's UT
+again: an RP in the player's future cannot be invoked. (Roadmap Tier B item 6.)
+
+**The defect, pinned from the logs plus a decompile.** GS-4 (`2026-09-11_0102`) read
+`RewindPoints loaded: 0` after the rewind; GS-7 (`2026-09-08_2054`) read 1. Neither rewind
+save (`parsek_rw_*`) carries a REWIND_POINTS node, and no OnSave ran between the rewind's
+LoadGame and the OnLoad in either run. The OnLoad node is not the rewind save at all:
+`RecordingStore.ExecuteRewindSaveLoad` swaps in the rewind game and loads SPACECENTER, and
+`SpaceCenterMain.Start` (KSP 1.12.5, decompiled) calls `GamePersistence.LoadGame("persistent")`
+and loads THAT game (the second `[SceneLoadSpeedBoost] Save loaded from disk` line in both
+logs). So the RP list came from persistent.sfs as last written. GS-7 flew to the Space Center
+and back after the RP (`Game State Saved as persistent` at flight ready, 20:47:55), GS-4 wrote
+no persistent after its RP. Survival was scene-history carry-over; the earlier reading
+("the crash promoted the slots to CommittedProvisional") was wrong, GS-4's slots were
+promoted too (`reason=stableLeafUnconcluded`). RF-4 measured the other face: its seal reaped
+the RP (quicksave deleted), then the rewind read it back from an older persistent.sfs.
+
+**Fix.** `ExecuteRewindSaveLoad` (both plain-rewind entry points) captures the in-memory RP
+list before the load (`RecordingStore.CaptureRewindPointsForRewind`), and
+`ParsekScenario.OnLoad` reinstalls it right after `LoadRewindStagingState`
+(`ReinstallRewindCarriedRewindPointsAfterLoad`, gated on `RewindContext.IsRewinding`; logs
+`RewindPoints carried across rewind: installed= loadedFromSave= restored= staleDropped=`).
+Memory wins wholesale, like the recordings; `ResetRewindFlags` drops a capture no load will
+consume. Quicksave files needed nothing: the reaper and the sweeps only walk the list, and
+the list now keeps them referenced. The reaper rule is unchanged (an RP still reaps when every
+slot is closed). The gate is one more `RewindInvoker.CanInvoke` precondition
+(`IsRewindPointInFuture`, 1 ms save round-trip slack, exactly-at allowed, an unknown clock
+leaves it open), so the Recordings table, the Timeline, StartInvoke's confirm-time re-check,
+the Retry handler and the `InvokeRewind` seam verb all see it. SCOPE: the gate is the ruling's
+general form - ANY RP later than the clock, not only one a Rewind-to-Launch moved into the
+future. A Re-Fly that takes the clock back past another mission's split disables that split's
+Fly until the clock reaches it again (it was enabled before). The Retry handler checks the
+gate BEFORE it clears the session (`RewindInvoker.IsRewindPointInFutureNow`, Warn
+`RetryHandler: rp=... is in the future ... session sess=... kept`), since a refusal inside
+StartInvoke would come after the marker is gone; production cannot reach it (an RP quicksave
+is written after the RP stamps its UT), injected fixtures can. The reason
+(`FutureRewindPointReason`) reaches the player only as the disabled Fly button's existing
+tooltip, budgeted by `TooltipEchoBudgetTests`. MergeState is untouched by the rewind, so a
+slot stays CommittedProvisional with its RP present (before the fix GS-4 left open
+CommittedProvisional slots with no RP). `Inv9RewindPoint` reads the `parsek_rw_*` launch
+saves, not RPs, and is unaffected.
+
+**Specs.** GS-4 pins `rewindPoints = {1,1}` and gates the block (ARMED_ALLOWLIST), plus the
+required `RewindPoints carried across rewind: installed=1 ` token. S4.1-S4.4 injected their RP
+60 s after the host save's clock, which the gate now refuses: each gets a `TimeJump 61 s`
+first, and S4.1 flies the refusal itself (`InvokeRewind` REJECTED `refly-gate This separation
+is in your future ...`, jump, `InvokeRewind` OK). RF-4's report-only window goes back to its
+derived `max = 0`. GS-7's comment and the roadmap item are corrected.
+
+**Live proof** (stock-minimal; fix DLL sha256 c603a16e, pre-fix DLL from origin/main
+`6a17f1717` sha256 c956179b):
+- GS-4 ARMED `2026-09-23_2012`: PASS attempt 1, saveParse `rewindPoints=1` (armed block
+  green), log `RewindPoints loaded: 0` then `RewindPoints carried across rewind: installed=1
+  loadedFromSave=0 restored=1 staleDropped=0`, the next load `RewindPoints loaded: 1`.
+- GS-4 NEGATIVE CONTROL `2026-09-23_2021`, same spec on the pre-fix DLL: PARSEK-FAIL on
+  exactly `rewind.rewindPoints 0 < min 1` and the missing carry-over token.
+- S4.1 `2026-09-23_2038`: PASS attempt 1; the first `InvokeRewind` REJECTED
+  (`CanInvoke: disabled rp=rp_b9_root ... rpUT=81.16 nowUT=21.68`), the TimeJump, then
+  the original invoke and merge as before. The gate is thus live-proven both ways.
+- NOT flown: S4.2-S4.4 (the same TimeJump S4.1 proves) and RF-4 (report-only window).
+- GS-7 re-read: see the defect paragraph; its comment is corrected.
+
+**Residue.** See RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT below for the other staged
+lists this fix does not carry. The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
+host save's UT, which is 60 s BEFORE the RP UT, so a fixture re-fly runs with the clock before
+its own RP. Nothing on the committed lanes calls CanInvoke inside a fixture session, but a
+Retry from Rewind Point there would read the gate; production RP quicksaves are written after
+the RP stamps its UT and never have this shape.
+
+## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. OPEN]
+
+`LoadRewindStagingState` rebuilds RECORDING_SUPERSEDES, RECORDING_REWIND_RETIREMENTS,
+LEDGER_TOMBSTONES and the merge journal from the same OnLoad node, and on a plain rewind that
+node is persistent.sfs as last written (`SpaceCenterMain.Start` reloads it), not the in-memory
+state the rewind otherwise keeps. RP-SURVIVES-REWIND-TO-LAUNCH carries only the RP list. A
+Re-Fly merge in ANOTHER tree after the last persistent write would lose its supersede rows and
+tombstones on the next Rewind-to-Launch, while its RP now survives from memory. Not measured
+live; derived from the mechanism. Fix direction: carry every staged list the same way (the
+supersede re-apply `ReapplyRewindSupersedeDropAfterLoad` would then run on the carried list).
+
+Related open question (UNVERIFIED): `DropSupersedesRewoundOutOfExistence` drops the owner
+tree's non-canon supersede rows whose forks start after the rewind UT. An RP that survives
+because one sibling is still open could then list the un-superseded origin of an already
+re-flown slot again, next to the fork's ghost. Needs a trace of slot-open resolution after the
+drop, or a lane (re-fly one slot without sealing, rewind to launch, read the slots).
+
+
 ## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
 
 **STATUS 2026-09-23 (read this first; the original filing follows).**
@@ -790,7 +880,7 @@ A subject for either needs a chain whose tip is still in the future when the sce
 and ends Recovered or Destroyed: a rewind onto a fixture with such a chain, or the
 RealSpawn / Recover verb pair.
 
-## KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action [FILED 2026-09-23 from the PR #1764 review; OPEN]
+## ~~KSC-BUILDING-DESTROY-REPAIR-NEVER-REACH-LEDGER: a KSC building destroyed or repaired outside a committing recording never becomes a ledger action~~ [FILED 2026-09-23 from the PR #1764 review; FIXED 2026-09-23 on branch `ksc-facility-ledger`]
 
 `GameStateFacilityRecorder` forwards only `FacilityUpgraded` to the ledger
 (`LedgerOrchestrator.OnKscSpending`, both the event-driven path and the poll). Its poll
@@ -809,6 +899,124 @@ after live UT; `KspStatePatcher` has no destroyed / repair handling. So nothing 
 depends on it today. Fix direction, when wanted:
 forward `BuildingRepaired` like a KSC spending (untagged, with its cost), and decide whether
 a destruction outside a recording belongs in the ledger at all.
+
+**Found while fixing.** The poll was effectively dead for buildings and levels alike:
+`ParsekScenario.OnLoad` builds a fresh `GameStateRecorder`, seeds its cache from live state
+and polls in the same call, so the poll never sees a delta: of the 707 collected `KSP.log`
+files (`logs/` plus harness results), 696 carry the poll's pass line and none a
+`Game state: Building...` line. The ledger therefore held no destruction or repair
+rows at all, which is the only reason `FacilityStatePatcher.PatchDestructionState` (it DOES
+demolish / repair live buildings to match the walk) had never acted.
+
+Stock mechanics (decompiled KSP 1.12.5). `SpaceCenterBuilding.RepairFacility(bool
+deduceFunds)` (the KSC context menu passes `Funding.Instance != null`) checks affordability,
+calls `Funding.Instance.AddFunds(-|GetRepairsCost()|, TransactionReasons.StructureRepair)`,
+then `RepairStructures()` calls `DestructibleBuilding.Repair()` on every building of the
+facility; `Repair()` sets `destroyed = false` and fires `OnKSCStructureRepairing`
+synchronously per destroyed building (`OnKSCStructureRepaired` waits on the repair
+animation). `GetRepairsCost()` = sum of `RepairCost` over destroyed buildings x
+`Career.FundsLossMultiplier`. A collapse is `DestructibleBuilding.Demolish()` (from
+`AddDamage` when a crash beats the toughness, or the debug Demolish button): `intact = false`
+then `OnKSCStructureCollapsing` synchronously; `AddDamage` saves `persistent` right after.
+Stock charges no funds or reputation for a collapse (`GetCollapseReputationHit` has no
+caller). `UpgradeFacility` / `DowngradeFacility` call the private `ResetStructures()`, which
+resets every building to intact through `DestructibleBuilding.Reset()` with no event. The
+`FundsChanged(StructureRepair)` event is recorded but `GameStateEventConverter` converts no
+FundsChanged reason except the strategy carve-outs, so the repair funds reached no ledger row
+by any path: no double count, and until now the uplift guard held live funds instead.
+
+Whether a destruction can happen outside a recording: yes, rarely - a craft that collapses a
+pad building before its recording starts, a flight flown with no recorder, and the debug
+Demolish button at the KSC. The same gate as facility upgrades covers all of them.
+
+**Fix.** `GameStateFacilityRecorder` subscribes to `OnKSCStructureCollapsing` /
+`OnKSCStructureRepairing` and records each transition at its own UT through one core,
+`RecordBuildingTransition`: emit the `BuildingDestroyed` / `BuildingRepaired` event (tagged
+with the live recording, if any), keep the poll cache coherent, and forward an untagged event
+with no live recorder straight to the ledger (`ShouldForwardFacilityLedgerEvent`, the facility
+upgrade gate); a tagged one converts at commit as before. Events fired while Parsek's own
+patcher drives a building (`SuppressionGuard.ResourcesAndReplay`) are skipped. A Harmony scope
+on `RepairFacility` (`FacilityRepairCapture` + `Patches/FacilityRepairCapturePatches.cs`)
+splits stock's total into each destroyed building's `RepairCost x FundsLossMultiplier` (0
+when no funds are deducted), the repair row carries it in `FacilityCost`, and the facility's
+rows are written by the new `LedgerOrchestrator.OnKscSpendingBatch` so each row's KSC
+reconcile sums all of them against the one `StructureRepair` debit (one row at a time warns
+on every partial sum) and one recalc runs. A `ResetStructures` prefix/postfix reports the
+buildings an upgrade repairs for free (cost 0). The poll routes through the same core.
+`BuildingDestroyed` joins the irreversible events a non-rewind discard re-homes as an
+untagged row. `FacilityStatePatcher.PatchFacilities` no longer counts a building id as a
+level-lookup miss. The live building patch no longer takes the walk's destroyed flag (a walk
+with no cutoff - commit, a not-ready cold load, scene loads, warp start - includes FUTURE
+rows, so it would have demolished a building a reverted-then-merged flight destroys later,
+or repaired one whose repair is still ahead after a rewind; review of PR #1784):
+`PatchLiveDestructionState` folds the effective ledger per building to the last destruction
+/ repair row AT OR BEFORE LIVE UT (`ComputeBuildingDestroyedAtUt`) and acts only where that
+row contradicts the live building (`ResolveLiveDestructionPatch`: no row means never touched,
+so nothing is "restored" from absence - stock state travels with every save, rewind and
+revert; a building mid-collapse / mid-repair is left alone). It does not act while a flight
+is recording, its tree is uncommitted or a tree is pending, or before the clock is ready
+(`ResolveDestructionPatchSkipReason`); that gate also covers the warp-start patch. It does not
+act inside `ParsekScenario.OnLoad` either (skip reason `scene load in progress`): OnLoad runs
+before stock loads the save into the buildings and Planetarium still reports the PRE-load
+clock there. Consequence, accepted: after a scene-change load (which has no deferred seed
+recalc), a row that contradicts a live building waits for the next recalc - a KSC spend, a
+commit, a warp exit. It also skips a building not yet registered with the current
+`ScenarioDestructibles` (`FacilityStatePatcher.IsInstanceRegistered`), belt and braces for any
+recalc that lands between a scene load and stock's registration: KB-1's
+`2026-09-23_2018` flight (PARSEK-FAIL on the no-patcher-demolish pin) showed a scene load's
+Parsek `OnLoad` recalc running BEFORE stock loads the save into the buildings (the patch
+line, then `[ScenarioDestructibles]: Loading... 0 objects registered`), so the dish still
+read its default intact state and was demolished; the building really was down in the save,
+so the outcome matched, but a patch must never read a building stock has not loaded. A
+tombstoned destruction therefore schedules no intact default for its building. The cache
+seed, the poll and the event handlers share one intact test (`TryReadSettledIntact`: a
+building between states has no value and is neither seeded nor compared). Career window: its live "now" read is unchanged; its
+walk already projected a future `FacilityRepair`, which a rewound career can now hold (new
+gallery state `career.facilities.repaired-in-timeline`). The Timeline folds a facility's
+per-building rows of one event into one row with the summed cost
+(`TimelineBuilder.CompactFacilityBuildingActions`; a Runway repair is up to ten rows). The
+flight warp-start facility patch (`ParsekFlight.OnTimeWarpRateChanged`) now runs inside
+`SuppressionGuard.ResourcesAndReplay` like `PatchAll`, so its `Demolish` / `Repair` /
+`SetLevel` never read back as player actions. Tests: `KscBuildingLedgerTests`,
+`TimelineBuilderTests.FacilityBuildingRows_*`,
+`DiscardEconomyPreservationTests.Rehome_BuildingCollapse_*`.
+
+Live verification: `KB-1-ksc-building-repair-ledger` PASS `2026-09-23_1928` (reading run),
+after the review fix PASS `2026-09-23_2030` with a save + cold reload while the building
+is down, and after the re-review follow-up (no patch inside OnLoad) PASS `2026-09-23_2047` (see the patch-contract paragraph above for the `2026-09-23_2018` finding).
+Two new `KscAction` kinds drive it: `demolish-building` (`DestructibleBuilding.Demolish()`) and
+`repair-facility` (`SpaceCenterBuilding.RepairFacility(true)`), both deferring
+`structures-settling` while a building animates. The collected KSP.log shows both new patches
+applied, one direct `FacilityDestruction` at the collapse UT, `FundsChanged -4000 (StructureRepair)`
+then one `FacilityRepair` with cost 4000 charged once by the funds walk, no `KSC reconciliation`
+line, `PatchDestructionState ... settling=1` while the dish animated and `demolished=0,
+repaired=0` throughout, and the building intact after a save and cold reload; the produced
+ledger holds exactly one row of each. The flight found two more things, fixed on the branch:
+`PatchDestructionState` called `Demolish()` on a building that was mid-collapse (a no-op stock
+call logged as a demolish), now skipped through `ResolveDestructionPatch`; and the
+`BuildingDestroyed` / `BuildingRepaired` events are swept into committed milestones, so the
+Timeline showed each as a legacy row beside its ledger row, now deduplicated
+(`TimelineBuilder.GetLegacyDuplicateKey`). A committed `FacilityUpgraded` legacy event has no
+dedup key either; not checked here.
+
+**Residual (open).** After a Parsek rewind to between a destruction and a KSC repair, the
+repair is a future row; if the player repairs again before its date, the walk charges both
+repairs (stock charged only the new one live). Facility upgrades avoid the same shape with
+the committed-upgrade block (`FacilityUpgradePatch`); repairs have no block. See
+KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
+
+## KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both [FILED 2026-09-23 on branch `ksc-facility-ledger`; OPEN]
+
+A KSC repair is an untagged spending row (`FacilityRepair`, cost in `FacilityCost`). A Parsek
+rewind to a UT between a building's destruction and that repair keeps the repair as a future
+row (`Ledger.Reconcile` with `preserveFutureTimelineActions`). The building is destroyed now,
+so the player can repair it again; the ledger then holds two repairs of one destruction and
+`FundsModule.ProcessFacilityCost` charges both, while stock charged only the new one. The
+second is a no-op for `FacilitiesModule` (repair of an intact building). Options: block a
+repair of a building whose destruction already has a committed future repair (the
+`FacilityUpgradePatch` shape, but it adds a blocked dialog), or charge a repair only when the
+walk finds its building destroyed (needs the facility state before `FundsModule` runs; today
+the facilities tier dispatches after the funds tier). Not reachable without a Parsek rewind.
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
@@ -3973,7 +4181,7 @@ LT-2; then claim D3 `boundary-seam`.
 
 ## ~~D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL: no flown cell plays a loop-anchored Relative section through the production `LoopAnchorVesselId` path with the production positioner~~ [**CLOSED 2026-09-23 on branch `d3-relloop` (register item C5)**]
 
-**DONE 2026-09-23.** `RL-1-relative-loop-live-anchor` claims D3 `relative-loop` over the new `relative-loop` preset (`RecordingBuilder.WithLoopAnchorVesselId`, fact `InjectRelativeLoopAnchor`): reading `2026-09-23_2041`, armed `_2044`, negative control discharged offline. Two departures from the recommendation below, both forced by production: the anchor is `pad-runway-pair`'s NON-active runway rover (an active-vessel anchor is never marked loaded, todo LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED), and the tree carries a recorded anchor track (the zone distance resolves a RELATIVE section only through `anchorRecordingId`). The placement facet is a backreference: at the zero offset the traced ghost output equals the live anchor position.
+**DONE 2026-09-23.** `RL-1-relative-loop-live-anchor` claims D3 `relative-loop` over the new `relative-loop` preset (`RecordingBuilder.WithLoopAnchorVesselId`, fact `InjectRelativeLoopAnchor`): reading `2026-09-23_2041`, armed `_2044`, negative control discharged offline. Two departures from the recommendation below, both forced by production: the anchor is `pad-runway-pair`'s NON-active runway rover (an active-vessel anchor is never marked loaded, todo LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED), and the tree carries a recorded anchor track (the zone distance resolves a RELATIVE section only through `anchorRecordingId`). The placement facet is a backreference: at zero offset the loop-relative-position resolver output equals the live anchor pose (source=live gated); the output is `ResolveRelativePlaybackPosition(anchorPos, rot, 0,0,0)` printed beside `anchorPos`, so the equality is arithmetic and the gate is the live source. The recorded anchor the sections name is a separate ProbeShip ghost track at the rover's position, not the rover's own recording (pid 95298807); it only feeds the zone distance.
 
 Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect.
 
@@ -4015,7 +4223,7 @@ Filed 2026-09-23 by the D3 `relative-loop` lane (register item C5, branch `d3-re
 
 **Why latent.** Nothing a player does sets `LoopAnchorVesselId`: its only production writers are the clone copy (`Recording.cs:898`) and the load from the `loopAnchorPid` key (`RecordingTreeRecordCodec.cs:694`); no recorder path or UI control writes it (see D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL). So today the defect is reachable only through a hand-authored or synthetic `loopAnchorPid`. It becomes player-visible the moment any feature starts setting a loop anchor, and the natural anchor for "loop relative to my station / base" is often the vessel being flown.
 
-**A second, related shape (seen on RL-1's first attempt, `2026-09-23_2034`).** The flight engine's zone distance for a RELATIVE section (`ParsekFlight.TryResolvePlaybackWorldPosition` -> `TryResolveRelativeWorldPosition`) always resolves through the RECORDED anchor (`anchorRecordingId`), even when the recording is loop-anchored and will be PLACED from the live vessel. With no recorded anchor the distance reads `unresolved` (`double.MaxValue`), the zone LOD hides the ghost before positioning (`loop hidden by distance LOD at unresolved`) and the live-PID positioner never runs. The recorder never writes a RELATIVE section without `anchorRecordingId`, so the fixture now carries a recorded anchor track, but the mismatch remains for a moving anchor: the zone reads where the anchor WAS at loopUT while the ghost is placed where the anchor IS now, so a loop around an orbiting station could be hidden (or shown) by the wrong distance. RL-1's rover is stationary, so the two agree there.
+**A second, related shape (seen on RL-1's first attempt, `2026-09-23_2034`).** The flight engine's zone distance for a RELATIVE section (`ParsekFlight.TryResolvePlaybackWorldPosition` -> `TryResolveRelativeWorldPosition`) always resolves through the RECORDED anchor (`anchorRecordingId`), even when the recording is loop-anchored and will be PLACED from the live vessel. With no recorded anchor the distance reads `unresolved` (`double.MaxValue`), the zone LOD hides the ghost before positioning (`loop hidden by distance LOD at unresolved`) and the live-PID positioner never runs. The recorder never writes a RELATIVE section without `anchorRecordingId`, so the fixture now carries a recorded anchor track (a separate ProbeShip ghost recording at the rover's position, not the rover's own recording: it only feeds the zone distance), but the mismatch remains for a moving anchor: the zone reads where the anchor WAS at loopUT while the ghost is placed where the anchor IS now, so a loop around an orbiting station could be hidden (or shown) by the wrong distance. RL-1's rover is stationary, so the two agree there.
 
 **Fix direction (not taken).** Seed `loadedAnchorVessels` from the already-loaded vessels (at least `FlightGlobals.ActiveVessel`) when `ParsekFlight` starts or on `onFlightReady`, skipping ghost map vessels the same way `OnVesselLoaded` does. Needs a unit cell on the seeding decision and an RL-1 variant anchored to the active vessel as the live witness.
 
@@ -17521,7 +17729,7 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `decision-vs-truth` | yes | `MapRenderProbe.cs:689` |
 | `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:709` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
-| `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
+| `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:177` |
 | `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1079` |
 | `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1160` |
 | `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:544` |

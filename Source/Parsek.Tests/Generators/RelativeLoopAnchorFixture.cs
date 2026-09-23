@@ -33,13 +33,14 @@ namespace Parsek.Tests.Generators
     /// that RECORDED anchor. A loop section without one reads as unresolved distance, is hidden
     /// by the zone LOD before any positioning, and the live-PID loop positioner never runs
     /// (measured, RL-1 attempt <c>2026-09-23_2034</c>). So the tree also carries
-    /// <see cref="AnchorTrackRecordingId"/>: a stationary Absolute track of the rover at its
-    /// landed position covering the whole loop, and both loop sections name it. The zone distance
-    /// comes from that recorded track; the placement still comes from the live vessel.</para>
+    /// <see cref="AnchorTrackRecordingId"/>: a stationary Absolute track at the rover's landed
+    /// position covering the whole loop, and both loop sections name it. It is a SEPARATE ProbeShip
+    /// ghost recording, NOT the rover's own recording (pid 95298807 has none): it only feeds the zone
+    /// distance, and the placement still comes from the live vessel.</para>
     ///
     /// <para><b>Shape.</b> Two RELATIVE sections of equal length, both anchored to
-    /// <see cref="AnchorPid"/>: section A holds the anchor-local offset (0,0,0), so the placed ghost
-    /// must sit EXACTLY on the live anchor's transform; section B holds (0,
+    /// <see cref="AnchorPid"/>: section A holds the anchor-local offset (0,0,0), so the live resolver's
+    /// output equals the live anchor pose (arithmetic once the live source is used); section B holds (0,
     /// <see cref="SectionBOffsetY"/>,0), so the offset is also applied. The step is kept under
     /// <c>GhostRenderTrace.LargePoseDeltaMeters</c> (25 m) so the loop wrap raises no large-delta
     /// window. Environment is Atmospheric (not a "boring" environment), so neither the tail trim nor
@@ -129,7 +130,8 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
-        /// The recorded anchor: the rover standing still at its landed position from one second
+        /// The recorded anchor: a separate ProbeShip ghost recording (not the rover's own, which does
+        /// not exist) standing still at the rover's landed position from one second
         /// before the loop starts to one second after it ends, one SurfaceMobile Absolute section
         /// (a SurfaceStationary tail is "boring" and the optimizer could trim it until it no
         /// longer covers the loop).

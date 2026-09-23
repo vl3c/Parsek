@@ -237,9 +237,14 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #   Two OBSERVATIONS for the todo, neither gated here: the eight pruned stubs leave
 #   three sidecar files each on disk (the `count` note below), and the core-discard
 #   RewindPoint SURVIVES this rewind (saveParse rewindPoints=1, where GS-4 / GS-8 read
-#   0) because the crash promoted the tree's slots to CommittedProvisional
-#   (`CommitTree promoted rec=... reason=crashed to CommittedProvisional`) - a data
-#   point for roadmap Tier B item 6, the vanished-RewindPoint design call.
+#   0). CORRECTED 2026-09-23: NOT because the crash promoted the slots (GS-4's
+#   slots were promoted too, `reason=stableLeafUnconcluded`). The rewind's OnLoad
+#   reads persistent.sfs as last written (KSP's SpaceCenterMain.Start reloads it,
+#   not the rewind save, which carries no REWIND_POINTS node), and this profile's
+#   Space Center stop and flight re-entry wrote one after the RP (`Game State
+#   Saved as persistent` at flight ready) - survival was scene-history carry-over.
+#   Fixed under the operator ruling that an RP always survives a Rewind-to-Launch
+#   (todo RP-SURVIVES-REWIND-TO-LAUNCH): the rewind now carries the in-memory list.
 #   THE TOKENS RE-CUT OFF ROUNDS 1 AND 3 TOGETHER: the crash group keeps only what
 #   both shapes print (code fact 4); `Active vessel destroyed in tree mode`, the stash
 #   lines, the coalescer's `cause=CRASH` verdict and the `Vessel was destroyed during

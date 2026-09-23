@@ -118,7 +118,7 @@ these rather than editing them by memory; both numbers have moved many times.
 ### Coverage: 199 of 250 registry cells (was 198 of 250 before RL-1 claimed D3 `relative-loop` on 2026-09-23, 196 of 250 before GS-10 / GS-11 claimed D5 `staging-debris-ttl` and `staging-debris-promotion` on 2026-09-23, 195 of 250 before CI-4 claimed `cross-tree-chain-linking` on 2026-09-23, 196 of 250 before the KSC end-of-flight retirement ruling moved EX-1 off `ghost-extension-past-endut` on 2026-09-23, 195 of 250 before the held-ghost fix PR claimed `ghost-extension-past-endut` on EX-1 on 2026-09-23, 194 of 250 before the D18 spawn-in-run wave's PR-C claimed `loop-first-run-is-real` on LF-1 on 2026-09-23, 192 of 250 before the D18 spawn-in-run wave's PR-B claimed `ghost-conversion-quicksave` and `chain-state-rederived` on CI-3 on 2026-09-22, 190 of 250 before PR-A claimed `intermediate-spawn-suppression` and the destroyed half of `chain-terminated-destruction-recovery` on V26T on 2026-09-22, 189 of 250 before register item C2 claimed D3 `boundary-seam` on LT-2 on 2026-09-22, 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
 
 RE-DERIVED 2026-09-23 on `d3-relloop` (priority register C5) after merging `origin/main` (with
-#1789): the one-liner below prints `296 specs 199 of 250`. `RL-1-relative-loop-live-anchor`
+#1789 and #1788): the one-liner below prints `297 specs 199 of 250`. `RL-1-relative-loop-live-anchor`
 claims D3 `relative-loop`; the denominator does not move. D3 is 7 of 7.
 
 RE-DERIVED 2026-09-23 on `d5-debris` (priority register C4): the one-liner below prints `295
@@ -360,7 +360,7 @@ with what closing the rest takes:
 | D6 | playback / ghosts | 13 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
 | D5 | tree topology | 11 / 12 | `dock-merge-same-tree` (Tier 4). `staging-debris-ttl` and `staging-debris-promotion` were CLAIMED 2026-09-23 (priority register C4, branch `d5-debris`) on `GS-10-kerbalx-debris-ttl` (stability reading `2026-09-23_1941` / `_1947`, armed `_1959`, offline control) and `GS-11-kerbalx-debris-promotion` (reading `_1953`, armed re-flight, offline control), both on the kx machine's new close-cut opt-in. `bg-on-rails` was CLAIMED 2026-09-10 on LT-2, off the wave's one post-assert C# line `BgOnRailsNoEnvSectionsWitness` (armed `2026-09-10_1957`, control `_2002`). Its caveat: the cell seeds its state, injects its segments and passes a null vessel finder, so only the CheckpointAllVessels close path is production. `chain-continuation-switch` (CI-1) and `crash-coalescing` (GS-7) closed 2026-09-08. |
 | D12 | crew | 7 / 10 | `stand-ins` is CL-4's (Stage B closure, 2026-09-09, live-proven `2026-09-09_1815`; the registry pins the cell to a Parsek-GENERATED stand-in); `tombstone-rep-penalty` is CL-4's too since 2026-09-10, once the product change shipped (`LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions` files a `ReputationPenalty(KerbalDeath)` row at commit from the recording's captured `VesselLoss` event and the merge tail tombstones it with the death; token `Tombstoned ... Reputation=[1-9]`, facet `tombstones=2`); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
-| D3 | reference frames | 7 / 7 | Done. The claim-gap wave claimed two on 2026-09-10 (register item 3, part 0). `absolute` is on V27M, off its already-required KSC `branch=absolute` token (armed `2026-09-10_1748`, control `_1752`). `relative-anchored-nonloop` is on LT-2, off `SceneAndPatch`'s `ParsekKscRelativePlaybackUsesRecordedAnchor` post-assert probe line (armed `2026-09-10_1957`, control `_2005`; the positioner line is required as uncontrolled corroboration); that cell plays a Relative section through the production KSC positioner. H11's mapping is confirmed NO: its seven `Pipeline-Anchor` cells resolve through test seams, so they earn no D3 cell. The seams are `ResolverOverrideForTesting`, `PutAnchorForTesting` and the `RebuildFromMarker` test overload (RuntimeTests.cs:25157 / 25249 / 25749 / 25820 / 25893). `boundary-seam` is on LT-2 since 2026-09-22 (register item C2), off the production `Persisted no-payload on-rails boundary section: ... (seam=1)` line and the optimizer's `Split summary ... seamSkipped=1`, both driven by the new `Optimizer` cell `OnRailsBoundarySeam_SuppressesSplit_InGame` (reading `2026-09-22_1736`, armed re-flight `2026-09-22_1738`, negative control `2026-09-22_1739`). `relative-loop` is on RL-1 since 2026-09-23 (register item C5), off a synthetic loop-anchored recording on `pad-runway-pair` played by the production live-PID loop positioner, with a backreference placement facet (reading `2026-09-23_2041`, armed `_2044`, control offline). |
+| D3 | reference frames | 7 / 7 | Done. The claim-gap wave claimed two on 2026-09-10 (register item 3, part 0). `absolute` is on V27M, off its already-required KSC `branch=absolute` token (armed `2026-09-10_1748`, control `_1752`). `relative-anchored-nonloop` is on LT-2, off `SceneAndPatch`'s `ParsekKscRelativePlaybackUsesRecordedAnchor` post-assert probe line (armed `2026-09-10_1957`, control `_2005`; the positioner line is required as uncontrolled corroboration); that cell plays a Relative section through the production KSC positioner. H11's mapping is confirmed NO: its seven `Pipeline-Anchor` cells resolve through test seams, so they earn no D3 cell. The seams are `ResolverOverrideForTesting`, `PutAnchorForTesting` and the `RebuildFromMarker` test overload (RuntimeTests.cs:25157 / 25249 / 25749 / 25820 / 25893). `boundary-seam` is on LT-2 since 2026-09-22 (register item C2), off the production `Persisted no-payload on-rails boundary section: ... (seam=1)` line and the optimizer's `Split summary ... seamSkipped=1`, both driven by the new `Optimizer` cell `OnRailsBoundarySeam_SuppressesSplit_InGame` (reading `2026-09-22_1736`, armed re-flight `2026-09-22_1738`, negative control `2026-09-22_1739`). `relative-loop` is on RL-1 since 2026-09-23 (register item C5), off a synthetic loop-anchored recording on `pad-runway-pair` played by the production live-PID loop positioner, with a resolver-output-equals-live-anchor facet at zero offset, source=live gated (reading `2026-09-23_2041`, armed `_2044`, control offline). |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
 | D17 | mod compatibility | 3 / 6 | `better-time-warp` is CLAIMED since 2026-09-11 by `MC-3-better-time-warp` (an AIRLESS-body recording, because only there is the recovered warp limit consumed): reading `2026-09-10_2025` on outcome (A), armed re-flight `_2208`, negative control `_2213` (stock-minimal, red on exactly the zeroed-limit token); `making-history` is DEFINITION-blocked, not instance-blocked - Making History ships through the SquadExpansion junction on BOTH instances (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
@@ -890,8 +890,9 @@ remains is, in order:
    SIZED, not flown (two different lanes, see the item); the reentry-FX replay half
    (item 3) and the GS-6 residues (`chute-two-phase` / `chute-cut`, `bays`) stay
    filed where they are - none is a one-flight derivative of the GS-4 template.
-4. **Ghost-replay Tier B item 6, the vanished-RewindPoint design call**: costs
-   nothing and the roadmap says to take it early; then items 7-9 (rewind-to-launch
+4. **Ghost-replay Tier B item 6, the vanished-RewindPoint design call**: RULED and
+   FIXED 2026-09-23 (an RP always survives a Rewind-to-Launch, gated on the clock
+   reaching its UT; see the item); then items 7-9 (rewind-to-launch
    x Re-Fly, repeat-rewind idempotence, arming `unityExceptions` on GS-4 / W1 -
    the latter is also the first real move on known-gate 11, raw Unity exceptions
    unjudged). Items 8 and 9 LANDED 2026-09-10/11 (`ghost-replay-tier-b`): GS-9 is
@@ -4300,19 +4301,22 @@ first spawn frame (hold-then-retry, never a single eager ask).
 
 ### Tier B - the rewind system's own open questions
 
-6. **The vanished RewindPoint.** GS-4 OBSERVED (not gated) the core-discard
-   RP authored live (`slots=2 focusSlot=0`) and GONE after the rewind
-   (`ReapOrphanedRPs: remaining=0`, saveParse rewindPoints=0) - the rewind
-   lands before its branch point. DESIGN CALL FIRST: is a re-fly affordance
-   the player still deserves once the replay passes the branch point again,
-   or is rewound-out-of-existence the contract? Then a lane pins whichever
-   answer, the GS-1/GS-2 both-branches pattern.
-   DATA POINT 2026-09-08 (GS-7 `2026-09-08_1711`, report-only saveParse): on the
-   CRASH profile the same core-discard RP SURVIVES the rewind (rewindPoints=1)
-   because the crash promoted the tree's slots to CommittedProvisional
-   (`CommitTree promoted rec=... reason=crashed to CommittedProvisional`), so the
-   answer already differs by terminal kind; the design call has two measured
-   shapes to rule on, not one.
+6. ~~**The vanished RewindPoint.**~~ RULED + FIXED 2026-09-23 (todo
+   RP-SURVIVES-REWIND-TO-LAUNCH). GS-4 read the core-discard RP authored live
+   (`slots=2 focusSlot=0`) and GONE after the rewind (saveParse rewindPoints=0);
+   GS-7 read it SURVIVING (rewindPoints=1). The earlier reading of that split -
+   "the crash promoted the slots to CommittedProvisional" - was WRONG: GS-4's
+   slots were promoted too (`reason=stableLeafUnconcluded`). The real mechanism:
+   the rewind's scene load goes to the Space Center, whose
+   `SpaceCenterMain.Start` (decompiled) reloads persistent.sfs, so the OnLoad RP
+   list was whatever the last persistent write held - GS-7 wrote one at a flight
+   re-entry after the RP, GS-4 wrote none. Survival depended on scene history,
+   and RF-4 measured the other face (a reaped RP resurrected). OPERATOR RULING:
+   an RP ALWAYS survives a Rewind-to-Launch; its slots stay in Unfinished
+   Flights, and the Re-Fly is enabled only once the clock reaches the RP's UT
+   again. The rewind now carries the in-memory RP list across the reload, and
+   `RewindInvoker.CanInvoke` refuses an RP in the player's future. GS-4 pins
+   rewindPoints {1,1}, ARMED; S4.1 flies the gate (refused, jump, allowed).
 7. **Rewind-to-launch x Re-Fly interplay.** Rewind-to-launch on a tree
    carrying supersede rows exercises `DropSupersedesRewoundOutOfExistence`
    and D9 `load-time-sweep` (the dimension's one UNCOVERED cell) live -
