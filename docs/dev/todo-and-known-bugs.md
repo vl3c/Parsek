@@ -3971,9 +3971,11 @@ GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE in one C# PR: roadmap "Priority re
 **Fix (revised 2026-09-11).** That cell, flown reading -> armed -> one negative control on
 LT-2; then claim D3 `boundary-seam`.
 
-## D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL: no flown cell plays a loop-anchored Relative section through the production `LoopAnchorVesselId` path with the production positioner
+## ~~D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL: no flown cell plays a loop-anchored Relative section through the production `LoopAnchorVesselId` path with the production positioner~~ [**CLOSED 2026-09-23 on branch `d3-relloop` (register item C5)**]
 
-Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect. OPEN.
+**DONE 2026-09-23.** `RL-1-relative-loop-live-anchor` claims D3 `relative-loop` over the new `relative-loop` preset (`RecordingBuilder.WithLoopAnchorVesselId`, fact `InjectRelativeLoopAnchor`): reading `2026-09-23_2041`, armed `_2044`, negative control discharged offline. Two departures from the recommendation below, both forced by production: the anchor is `pad-runway-pair`'s NON-active runway rover (an active-vessel anchor is never marked loaded, todo LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED), and the tree carries a recorded anchor track (the zone distance resolves a RELATIVE section only through `anchorRecordingId`). The placement facet is a backreference: at the zero offset the traced ghost output equals the live anchor position.
+
+Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect.
 
 **What exists and why it does not count.**
 - The V13 loop-anchored debris cells (`GhostPlayback`, RuntimeTests.cs; the loop-anchor pid is stamped at :23124) position through `V13DebrisRuntimePositioner` (instantiated at :22732-:22974), a test `IGhostPositioner`.

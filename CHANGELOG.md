@@ -17,8 +17,10 @@ _(unreleased — entries accumulate here per commit)_
   rover's arrival switches the loop on, that the ghost is placed from the rover's live
   position for both of its recorded offsets, and that at a zero offset the ghost sits
   exactly on the rover. It found that a loop anchored to the vessel being flown would never
-  play, because that vessel finishes loading before Parsek starts listening; nothing sets
-  such an anchor today, so this is filed rather than fixed.
+  play, because that vessel finishes loading before Parsek starts listening, and that the
+  distance used to decide whether such a ghost is drawn comes from the anchor's recorded
+  track rather than the live vessel; nothing sets such an anchor today, so both are filed
+  rather than fixed.
 - **Automated testing: two lanes cover what happens to dropped boosters.**
   `GS-10-kerbalx-debris-ttl` flies the Kerbal X crash lane with the throttle held off from the
   last booster drop, so the stack falls back beside its boosters and Parsek stops recording
