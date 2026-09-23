@@ -251,7 +251,7 @@ That is already how the flag behaves everywhere except the Timeline. The Recordi
 - Revealed rows are marked `[archived]`, composed into the row's existing single description `Label` (never a second control, so the IMGUI control count is identical in the Layout and Repaint passes). Without the marker the player can see the rows are back but not which ones were archived, and so cannot tell what to un-archive.
 - Entries carry `TimelineEntry.IsArchivedRecording`, stamped by the collector over the entry range one recording contributed, rather than threaded through four `Try*Add` signatures.
 
-**Nothing here reads the mode.** The Timeline's row set is identical in Basic and Advanced; the mode symbol does not appear in `Source/Parsek/Timeline/` and the section 13.4 grep gate's allowlist is untouched. Basic reaches the toggle because the Timeline is a surface Basic keeps, not because the gate treats it specially.
+**Nothing here reads the mode.** The Timeline's row set is identical in Basic and Advanced; the mode symbol does not appear in `Source/Parsek/Timeline/` and the section 13.4 grep gate's allowlist is untouched. Basic reaches the toggle because the Timeline is a surface Basic keeps, not because the gate treats it specially. The same holds for the two-row filter area and its Career view (contracts, strategies, facilities, milestones, tech): identical controls in Basic and Advanced, gated only by the GAME mode (Science shows three categories, Sandbox none), which is the only way a Basic player can find milestone, facility or tech history, since the Career window is Advanced-only.
 
 **Rejected: have the Timeline ignore `Hidden` in Basic** (audit candidate a). Four reasons, any one sufficient:
 

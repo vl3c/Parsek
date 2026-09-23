@@ -29,7 +29,8 @@ tier = "operator"
 #     to have one, and the pair either side of the expansion is what a reviewer diffs;
 #   - all four Timeline filter modes over a corpus with three RewindPoints, so `Rewind/FF`
 #     and `Re-Fly` carry ROWS rather than an empty-state sentence;
-#   - the Timeline at its own MINIMUM SIZE (520x150, `TimelineWindowUI`'s floor). Section 7
+#   - the Timeline at its own MINIMUM SIZE (720x150 since the 2026-09-24 two-row filter
+#     area; 520x150 before, `TimelineWindowUI`'s floor). Section 7
 #     of the inventory lists that floor and nothing has ever drawn at it; a column set
 #     pinned wider than its own window is the class of defect the Milestones `Rewards`
 #     overflow belongs to, and the only way to see it is to command the floor;
@@ -118,7 +119,9 @@ tier = "operator"
 #
 # AND ONE READING THE MINIMUM-SIZE CAPTURE PRODUCED: the seam applied the commanded
 # 520x150 unclamped (`want=270,8,520,150 applied=270,8,520,150 clamped=false min=520,150`)
-# and the window DREW at `270,8,606,245`. `TimelineWindowUI`'s 520x150 is the resize-DRAG
+# and the window DREW at `270,8,606,245`, because its six-cell filter rows need 608 px.
+# The floor is now 720 (the widest Time label fits a cell there); until then the old
+# `TimelineWindowUI` 520x150 was the resize-DRAG
 # floor, not a size the window can occupy - GUILayout expands it to its content - so
 # `bd-timeline-refly-minsize-advanced` is the smallest the Re-Fly view actually renders at.
 description = "GUI census wave 2, the docked-corpus Missions host: photograph the Missions and Recordings tabs collapsed and fully expanded over a 19-sidecar two-tree dock harvest, all four Timeline filter modes with three live RewindPoints, the Timeline at its own minimum size, the Structure window on a mission and both group-picker titles."
@@ -192,11 +195,11 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "refly" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "bd-timeline-refly-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bd-timeline-refly-advanced" }, expect = "OK" },
-  # THE MINIMUM-SIZE RENDER. 520x150 is `TimelineWindowUI`'s own floor (inventory section
+  # THE MINIMUM-SIZE RENDER. 720x150 is `TimelineWindowUI`'s own floor (inventory section
   # 7), so `op=rect` applies it unclamped and the window draws at the smallest size a
   # resize drag can produce. The Re-Fly view is the one under it because it is the view
   # already selected; the subject is the LAYOUT at the floor, not the filter.
-  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "520", h = "150" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "720", h = "150" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "bd-timeline-refly-minsize-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bd-timeline-refly-minsize-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },

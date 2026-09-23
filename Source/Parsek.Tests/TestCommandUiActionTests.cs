@@ -243,7 +243,10 @@ namespace Parsek.Tests
             // One assertion per tabbed window rather than a count, for the same reason the
             // window list is pinned: a census names each tab in a step and in a label.
             Assert.Equal(new[] { "missions", "recordings" }, TabsOf("missions"));
-            Assert.Equal(new[] { "overview", "details", "rewindff", "refly" },
+            // The five career categories are appended after `refly`, so the first four
+            // indices (and every existing census step) keep their meaning.
+            Assert.Equal(new[] { "overview", "details", "rewindff", "refly",
+                                 "contracts", "strategies", "facilities", "milestones", "tech" },
                 TabsOf("timeline"));
             Assert.Equal(new[] { "roster", "outcomes" }, TabsOf("kerbals"));
             Assert.Equal(new[] { "contracts", "strategies", "facilities", "milestones" },
