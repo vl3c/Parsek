@@ -506,6 +506,18 @@ namespace Parsek
         private static bool vesselSwitchPending;
         private static int vesselSwitchPendingFrame = -1;
 
+        // FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: KSP fires onVesselSwitching for the
+        // scene's INITIAL focus while a flight scene is still starting up (after OnLoad,
+        // before onFlightReady; from=null on a cold boot, from=the previous scene's
+        // vessel after a FLIGHT->FLIGHT reload). That event is not a player switch, but
+        // it used to arm vesselSwitchPending, so any FLIGHT->FLIGHT scene change within
+        // VesselSwitchPendingMaxAgeFrames of scene entry (a mod-driven launch from
+        // FLIGHT, an F9 spam) read as a tracking-station switch. The flag now arms only
+        // once the current flight scene has reached onFlightReady. Cleared at every
+        // OnLoad (which runs before the new scene's initial focus); set by
+        // ParsekFlight.OnFlightReady.
+        private static bool flightSceneReadyForVesselSwitchFlag;
+
         /// <summary>
         /// Maximum age (in frames) for <see cref="vesselSwitchPending"/> to be
         /// considered "fresh" in OnLoad. Tracking-station vessel switches
@@ -574,6 +586,68 @@ namespace Parsek
             int age = currentFrame - pendingFrame;
             return age >= 0 && age <= maxAgeFrames;
         }
+
+        /// <summary>
+        /// The <c>onVesselSwitching</c> handler's decision and side effect, static so it is
+        /// testable headless. Arms <see cref="vesselSwitchPending"/> only when the current
+        /// flight scene already reached <c>onFlightReady</c>; the scene-entry initial focus
+        /// fires before that and is logged and ignored. Returns true when the flag armed.
+        /// </summary>
+        internal static bool TryArmVesselSwitchFlag(string fromName, string toName, int frame)
+        {
+            if (!flightSceneReadyForVesselSwitchFlag)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Vessel switch ignored: '{fromName}' -> '{toName}' fired before " +
+                    "onFlightReady (scene-entry initial focus, not a player switch) - " +
+                    $"vessel-switch flag not armed (frame={frame})");
+                return false;
+            }
+            vesselSwitchPending = true;
+            // Time.frameCount is monotonic across scene loads within a single
+            // KSP session (Unity only resets it on application restart, not on
+            // scene change), so the staleness check in OnLoad can rely on the
+            // difference between the stamp here and the frame count at
+            // scene-load time being a meaningful "frames elapsed" measurement.
+            vesselSwitchPendingFrame = frame;
+            ParsekLog.Info("Scenario",
+                $"Vessel switch detected: '{fromName}' → '{toName}' — " +
+                $"next FLIGHT→FLIGHT OnLoad within {VesselSwitchPendingMaxAgeFrames} frames " +
+                $"will skip revert strip/cleanup (frame={vesselSwitchPendingFrame})");
+            return true;
+        }
+
+        /// <summary>
+        /// Called from <c>ParsekFlight.OnFlightReady</c>: from here on an
+        /// <c>onVesselSwitching</c> event in this scene is a real focus change.
+        /// </summary>
+        internal static void NoteFlightSceneReadyForVesselSwitchFlag()
+        {
+            if (flightSceneReadyForVesselSwitchFlag)
+                return;
+            flightSceneReadyForVesselSwitchFlag = true;
+            ParsekLog.Verbose("Scenario",
+                "Vessel-switch flag armed for this flight scene (onFlightReady observed)");
+        }
+
+        internal static void ClearFlightSceneReadyForVesselSwitchFlag()
+        {
+            flightSceneReadyForVesselSwitchFlag = false;
+        }
+
+        internal static bool FlightSceneReadyForVesselSwitchFlagForTesting
+        {
+            get => flightSceneReadyForVesselSwitchFlag;
+            set => flightSceneReadyForVesselSwitchFlag = value;
+        }
+
+        internal static bool VesselSwitchPendingForTesting
+        {
+            get => vesselSwitchPending;
+            set { vesselSwitchPending = value; if (!value) vesselSwitchPendingFrame = -1; }
+        }
+
+        internal static int VesselSwitchPendingFrameForTesting => vesselSwitchPendingFrame;
 
         /// <summary>
         /// Live query for use during <c>OnSceneChangeRequested</c> (#266): returns true
@@ -3368,6 +3442,9 @@ namespace Parsek
             // a mis-placed row). Cleared in finally so an OnLoad exception
             // never leaves the guard stuck.
             onLoadInProgress = true;
+            // A new game state is loading: the scene-entry initial focus that follows
+            // must not arm the vessel-switch flag (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE).
+            ClearFlightSceneReadyForVesselSwitchFlag();
             try
             {
                 // Reset deferred dialog flag and clear input lock (dialog may have been
@@ -8125,17 +8202,7 @@ namespace Parsek
 
         private void OnVesselSwitching(Vessel from, Vessel to)
         {
-            vesselSwitchPending = true;
-            // Time.frameCount is monotonic across scene loads within a single
-            // KSP session (Unity only resets it on application restart, not on
-            // scene change), so the staleness check in OnLoad can rely on the
-            // difference between the stamp here and the frame count at
-            // scene-load time being a meaningful "frames elapsed" measurement.
-            vesselSwitchPendingFrame = UnityEngine.Time.frameCount;
-            ParsekLog.Info("Scenario",
-                $"Vessel switch detected: '{from?.vesselName}' → '{to?.vesselName}' — " +
-                $"next FLIGHT→FLIGHT OnLoad within {VesselSwitchPendingMaxAgeFrames} frames " +
-                $"will skip revert strip/cleanup (frame={vesselSwitchPendingFrame})");
+            TryArmVesselSwitchFlag(from?.vesselName, to?.vesselName, UnityEngine.Time.frameCount);
         }
 
         /// <summary>

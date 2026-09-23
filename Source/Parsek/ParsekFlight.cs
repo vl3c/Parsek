@@ -3094,8 +3094,12 @@ namespace Parsek
             {
                 // FLIGHT→FLIGHT: the player quickloaded, reverted, or vessel-switched
                 // into a scene reload. We can't fully tell which until OnLoad runs,
-                // but we CAN check the live vesselSwitchPending flag (set by KSP's
-                // onVesselSwitching event, which fires before OnSceneChangeRequested).
+                // but we CAN check the live vesselSwitchPending flag (set from KSP's
+                // onVesselSwitching event once the scene is flight-ready). CAVEAT: a far
+                // Switch-To does NOT set it - stock FlightGlobals.setActiveVessel fires
+                // onVesselSwitchingToUnloaded and returns into StartAndFocusVessel before
+                // onVesselSwitching - so a real far switch lands on the Limbo stash below
+                // (todo VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH).
                 //
                 // Bug #266: when this is a vessel switch, pre-transition the tree at
                 // stash time — flush the recorder, move the active recording's PID
@@ -12098,6 +12102,9 @@ namespace Parsek
         void OnFlightReady()
         {
             FlightReadyObserved = true;
+            // From here on an onVesselSwitching in this scene is a real focus change;
+            // the scene-entry initial focus fired before this point and was ignored.
+            ParsekScenario.NoteFlightSceneReadyForVesselSwitchFlag();
             Log("Flight ready. Checking for pending recordings...");
             RecorderStateLog.RecState("OnFlightReady", CaptureRecorderState());
 
@@ -14650,6 +14657,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure guard for <see cref="RestoreActiveTreeFromPendingForVesselSwitch"/>: true
+        /// when the new scene's active vessel is the scene-entry fresh rollout, which a
+        /// vessel-switch reload can never produce.
+        /// </summary>
+        internal static bool ShouldRefuseVesselSwitchRestoreForFreshRollout(
+            uint activeVesselPid, uint sceneEntryFreshRolloutPid)
+        {
+            return QuickloadResumeMatchGuard.IsFreshRolloutCandidate(
+                activeVesselPid, sceneEntryFreshRolloutPid);
+        }
+
+        /// <summary>
+        /// Undo <see cref="ApplyPreTransitionForVesselSwitch"/> on a stashed tree: put the
+        /// recording the stash moved into <c>BackgroundMap</c> back as
+        /// <c>ActiveRecordingId</c>, which leaves the tree in exactly the shape the plain
+        /// Limbo stash (<see cref="StashActiveTreeAsPendingLimbo"/>) produces. Used when the
+        /// vessel-switch restore refuses a fresh rollout, so the refused tree continues on
+        /// the name- and launch-guid-gated quickload-restore path instead of staying a
+        /// <c>LimboVesselSwitch</c> that a later load would reinstall on whatever vessel is
+        /// active. Returns false (tree untouched) when there is no in-memory record of the
+        /// move or the tree no longer matches it (outsider-chain stash, a tree reloaded
+        /// from disk, or a BackgroundMap entry that changed since).
+        /// </summary>
+        internal static bool TryRevertPreTransitionForVesselSwitch(
+            RecordingTree tree, out string restoredActiveRecordingId)
+        {
+            restoredActiveRecordingId = null;
+            if (tree == null || !string.IsNullOrEmpty(tree.ActiveRecordingId))
+                return false;
+            string recId = tree.VesselSwitchPreTransitionActiveRecordingId;
+            uint pid = tree.VesselSwitchPreTransitionVesselPid;
+            if (string.IsNullOrEmpty(recId) || pid == 0 || !tree.Recordings.ContainsKey(recId))
+                return false;
+            if (!tree.BackgroundMap.TryGetValue(pid, out string mapped) || mapped != recId)
+                return false;
+            tree.BackgroundMap.Remove(pid);
+            tree.ActiveRecordingId = recId;
+            tree.VesselSwitchPreTransitionActiveRecordingId = null;
+            tree.VesselSwitchPreTransitionVesselPid = 0;
+            restoredActiveRecordingId = recId;
+            return true;
+        }
+
+        /// <summary>
         /// Bug #266: vessel-switch restore coroutine. The pending tree was pre-transitioned
         /// at stash time (recorder flushed, old active recording moved into BackgroundMap,
         /// ActiveRecordingId nulled), so the restore is much simpler than the quickload
@@ -14692,6 +14743,48 @@ namespace Parsek
             while (UnityEngine.Time.time < deadline && FlightGlobals.ActiveVessel == null)
                 yield return null;
             bool waitTimedOut = FlightGlobals.ActiveVessel == null;
+
+            // FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: a vessel-switch reload never
+            // lands on a NEW_FROM_FILE / NEW_FROM_CRAFT_NODE rollout, so an active
+            // vessel that IS the scene-entry fresh rollout means this FLIGHT->FLIGHT
+            // reload was a new launch misread as a switch. Installing the stashed tree
+            // here would record the launch as a parentless root inside that tree (a
+            // committed tree's clone, when the stash came from a committed-tree
+            // restore) and author its later dock as a same-tree merge. Refuse, exactly
+            // as the quickload restore refuses a fresh rollout: the tree stays pending
+            // and the launch gets its own tree on its first auto-record.
+            var candidate = FlightGlobals.ActiveVessel;
+            if (candidate != null
+                && ShouldRefuseVesselSwitchRestoreForFreshRollout(
+                    candidate.persistentId, RecordingStore.SceneEntryFreshRolloutVesselPid))
+            {
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPendingForVesselSwitch: refusing to reinstall tree " +
+                    $"'{RecordingStore.PendingTree?.TreeName}' " +
+                    $"(id={RecordingStore.PendingTree?.Id ?? "<none>"}) for fresh-rollout vessel " +
+                    $"'{candidate.vesselName}' pid={candidate.persistentId} - a new launch is not a " +
+                    "vessel switch; leaving tree pending, the launch starts its own tree");
+                // Make the refusal durable: a LimboVesselSwitch tree is written as an
+                // isActive node and a later load would route it back here, where the
+                // fresh-rollout pid is no longer captured, and reinstall it on the
+                // launched craft. Undo the stash's pre-transition so the tree is a plain
+                // Limbo stash that the guid-gated quickload restore owns.
+                if (TryRevertPreTransitionForVesselSwitch(
+                        RecordingStore.PendingTree, out string restoredRecId))
+                {
+                    RecordingStore.ConvertPendingVesselSwitchStashToLimbo(
+                        "fresh-rollout refusal restored activeRecId=" + restoredRecId);
+                }
+                else
+                {
+                    ParsekLog.Warn("Flight",
+                        "RestoreActiveTreeFromPendingForVesselSwitch: refused tree has no " +
+                        "revertible pre-transition (outsider-chain stash or reloaded tree) - it " +
+                        "stays LimboVesselSwitch and is protected for this scene only " +
+                        "(todo FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME)");
+                }
+                yield break;
+            }
 
             // Pop the tree (non-destructive — preserves sidecar files) and install
             // as the live active tree.
@@ -15460,6 +15553,10 @@ namespace Parsek
                 tree.BackgroundMap[oldVesselPid] = oldActiveRecId;
                 moved = true;
             }
+            // In-memory record of the move, read only by
+            // TryRevertPreTransitionForVesselSwitch; never serialized.
+            tree.VesselSwitchPreTransitionActiveRecordingId = moved ? oldActiveRecId : null;
+            tree.VesselSwitchPreTransitionVesselPid = moved ? oldVesselPid : 0;
             tree.ActiveRecordingId = null;
             return moved;
         }

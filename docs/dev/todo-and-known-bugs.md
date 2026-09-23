@@ -86,6 +86,124 @@ held-ghost keep line of the stale-cleanup fix, `Held ghost timed out ... held=5.
 `destroyed (held-spawn-timeout)`. That lane would also be the live witness of
 D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME again.
 
+## ~~FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: a launch made from FLIGHT inside the first 60 frames of a flight scene recorded INTO the tree of the vessel the scene opened on (a committed tree's restore clone), and the commit rewrote that committed tree~~ [FILED 2026-09-23 off the D18 PR-D harvest (#1768, runs `2026-09-22_2157` / `_2239`). FIXED 2026-09-23. Harness-reachable only; not reachable in stock play]
+
+**Root cause.** Not the committed-tree restore and not `DecideOnVesselSwitch` (in-scene
+only, never on this path). KSP fires `onVesselSwitching` for the scene's INITIAL focus
+(after `ParsekScenario.OnLoad`, before `onFlightReady`: `'' -> 'Kerbal X'` on a cold
+boot, `'Kerbal X' -> 'Kerbal X'` after a FLIGHT->FLIGHT reload), and
+`ParsekScenario.OnVesselSwitching` armed `vesselSwitchPending` for
+`VesselSwitchPendingMaxAgeFrames = 60` from it. Both #1768 flights issued kRPC
+`launch_vessel` about 40 frames after scene entry (boot focus frame 7621, scene change
+2.3 s later at ~17 fps; `_2157` the same, frame 7447), so
+`FinalizeTreeOnSceneChangeCore` (`ParsekFlight.cs` `IsVesselSwitchPendingFresh`, about
+line 3113) took the #266 path `StashActiveTreeForVesselSwitch`. The stashed tree was the
+copy-on-write clone `TryRestoreCommittedTreeForSpawnedActiveVessel` had just made by
+promoting the Station's committed tip (RH-1's finding, designed behavior), and
+`RestoreActiveTreeFromPendingForVesselSwitch` reinstalled it "as outsider" on the
+NEW_FROM_FILE rollout, with no fresh-rollout check (the quickload restore
+`RestoreActiveTreeFromPending` has one, which is why BDOCK-1, whose launch came minutes
+after boot and so took the plain Limbo stash, got its own tree). The post-switch trigger
+then added the launch as a parentless root and the dock became a same-tree two-parent
+merge.
+
+**Reachability.** Stock KSP has no FLIGHT->FLIGHT fresh launch: VAB / SPH launch is
+EDITOR->FLIGHT and the Space Center launch is SPACECENTER->FLIGHT, and leaving FLIGHT for
+either commits the tree first. The three player walks (load at the Space Center with a
+committed vessel in orbit then launch; F9 in flight on a committed vessel then return to
+the Space Center and launch; Tracking Station Fly then return and launch) all cross a
+non-FLIGHT scene, so none reaches it. It needs a mod-driven launch from FLIGHT (kRPC)
+inside 60 frames of scene entry. The same spurious flag also classified an F9 pressed in
+that window as a switch.
+
+**Fix.** The arm step is `ParsekScenario.TryArmVesselSwitchFlag`, called by
+`OnVesselSwitching`: it arms only after the current flight scene reached `onFlightReady`
+(readiness cleared at the top of every `OnLoad`, set from `ParsekFlight.OnFlightReady`
+before any early return) and logs `Vessel switch ignored: ... fired before onFlightReady`
+for the initial focus. Mirror direction: no genuine far switch is lost, because a far
+Switch-To never armed the flag at all (stock `FlightGlobals.setActiveVessel` fires
+`onVesselSwitchingToUnloaded` and returns into `StartAndFocusVessel` before
+`onVesselSwitching`); the #266 stash was mostly reached through the very opening-focus
+arming removed here (see VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH). Defense in depth:
+`RestoreActiveTreeFromPendingForVesselSwitch` refuses a scene-entry fresh-rollout active
+vessel (`ShouldRefuseVesselSwitchRestoreForFreshRollout`) before it pops the tree, and makes
+the refusal durable: `TryRevertPreTransitionForVesselSwitch` puts the recording the stash
+moved into `BackgroundMap` back as `ActiveRecordingId` (from an in-memory memo
+`ApplyPreTransitionForVesselSwitch` now leaves on the tree) and
+`RecordingStore.ConvertPendingVesselSwitchStashToLimbo` re-labels the tree Limbo. It is
+then exactly a plain Limbo stash, so save -> load re-derives Limbo and the name- and
+launch-guid-gated quickload restore owns it instead of a `LimboVesselSwitch` reload that
+would reinstall it on the launched craft. Re-Fly adoption and switch continuations are
+untouched, and the `ReFlySessionMarker.ResolveInPlaceContinuationTarget` tree-id gate is
+unchanged.
+
+**Tests.** `FreshLaunchVesselSwitchGuardTests` (arm / ignore, readiness, revert, and
+declaration-anchored source-order gates over comment-blanked source for the OnLoad clear,
+the OnFlightReady arm, the `OnVesselSwitching` routing and the refusal-before-pop) plus
+three `PendingTreeSaveTests` cells (reverted stash: save -> load -> Limbo -> QuickloadRestore
+-> guid rejects the rollout; unreverted control: -> LimboVesselSwitch -> VesselSwitchRestore;
+convert refuses a tree with no active recording). Mutation check, each deletion reds: the
+TryArm readiness gate (TryArm_BeforeFlightReady, NoteFlightSceneReady_ThenClear); the
+OnLoad clear (SourceGate_OnLoadClears...); the OnFlightReady arm (SourceGate_OnFlightReady...);
+the coroutine refusal block and, separately, its revert + convert (SourceGate_SwitchRestore...);
+`OnVesselSwitching` setting the flag directly (SourceGate_OnVesselSwitchingRoutes...); the
+pre-transition memo (RevertPreTransition_Restores..., FreshRolloutRefusal_RevertedStash...);
+the Limbo conversion (FreshRolloutRefusal_RevertedStash...).
+
+**Live proof** (of the arm gate; the durable refusal is unit-proven only, since after the
+gate it has no flyable trigger): `BDOCK-2-second-dock-harvest` (the #1768 spec, flown on
+#1768's branch plus the first commit of this fix) run `2026-09-23_1704` PASS, wall 1,537 s:
+both initial focuses logged `Vessel switch ignored`, the launch stashed as plain Limbo, the
+quickload restore refused the fresh rollout, the launch recorded as NEW tree `ac9641d6`, the
+dock was `Tree merge created: type=Dock, ... parents=[8267c27c], child=... (pid=3620499050)`
+(single parent), and the commit added 9 recordings as a third tree (30 total, from 21). The
+committed docking tree `8c677bba` gained no root, no dock and no re-stamp; the only thing
+added to it is the second or so of Station trajectory that the boot-time resume recorded,
+exactly as for BDOCK-1's refused Limbo tree. The produced save is snapshotted under
+`Parsek-fresh-launch-proof/harness/results/2026-09-23_1704_BDOCK-2-second-dock-harvest_save`.
+
+**Left as is.** The boot-time committed-tree resume itself is designed behavior. The
+refused tree's remaining lifetime questions are FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME.
+
+## VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH: the #266 vessel-switch stash (`StashActiveTreeForVesselSwitch`) never fires for a real far Switch-To [FILED 2026-09-23 from the #1780 review. OPEN; a design follow-up, no player-visible regression]
+
+`FinalizeTreeOnSceneChangeCore` takes the #266 pre-transition stash only when
+`vesselSwitchPending` is fresh, and that flag is set from `onVesselSwitching`. Decompiled
+`FlightGlobals.setActiveVessel` (KSP 1.12.5): for an UNLOADED target it fires
+`GameEvents.onVesselSwitchingToUnloaded`, saves `persistent`, calls
+`FlightDriver.StartAndFocusVessel` and RETURNS, so `onVesselSwitching` never fires for a
+far switch. Before #1780 the stash was reached almost only through the scene-entry
+initial-focus arming (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE); after it, a real far
+switch takes the plain Limbo stash and the quickload restore, exactly as it always did
+(the pre-switch Case B dialog commits or discards the tree first in the stock-click path).
+Option if #266's "keep the mission across a far switch" behavior is wanted: subscribe to
+`onVesselSwitchingToUnloaded` as well; it fires in a flight-ready scene, so it would pass
+the new readiness gate. That revives a path that has effectively never run in play, so it
+needs its own design pass and a flight, not a one-line subscribe.
+
+## FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME: a tree refused for a fresh rollout stays in the pending slot for the rest of the flight [FILED 2026-09-23 from the #1780 review. OPEN; residue, not reachable after the arm gate]
+
+Two gaps remain after #1780 made the vessel-switch refusal durable:
+
+1. **Outsider-chain stash.** When the stashed tree had no active recording (the previous
+   scene was already in outsider state), there is nothing to revert, so the refused tree
+   stays `LimboVesselSwitch` (logged `refused tree has no revertible pre-transition`). It
+   is protected in the refusing scene only; after F5 then F9 its isActive node reloads as
+   `LimboVesselSwitch` and the vessel-switch restore would reinstall it on the launched
+   craft. Reaching it needs an outsider-state tree plus a fresh rollout plus an armed
+   switch flag inside 60 frames, which the arm gate leaves with no known trigger.
+2. **Later stash overwrite.** Any refused tree (this path, and the quickload restore's
+   existing fresh-rollout refusal that BDOCK-1 exercises) lingers as the pending tree. A
+   later `StashPendingTree` overwrites the slot with only a Warn
+   (`overwriting existing pending tree`). The committed original survives in the
+   committed store (the restore is copy-on-write, `ArmCommittedTreeRestoreAttempt`), so
+   what an overwrite drops is the resumed seconds, but this was not traced end to end.
+
+The clean resolution is a product choice between re-committing the refused tree at the
+refusal (a flight-scene commit of a pending tree, with ledger and spawn effects) and
+discarding the resumed delta back to the committed original. Neither is settled by the
+design docs, so it is filed rather than guessed.
+
 ## ~~D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT~~ [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. FIXED 2026-09-23 on branch `held-ghost-fix`; EX-1 is its live witness]
 
 **Observed** (`EX-1-ghost-extension-past-endut`, reading `2026-09-23_0000`, KSP.log, one
