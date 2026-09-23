@@ -34,6 +34,12 @@ id = "GS-10-kerbalx-debris-ttl"
 #     = runs `_1130` / `_1157_a2` / `_1302` / `_1331_a2`), always the last pair
 #     (expiry ~125.5, dropped at ~65.6) and sometimes the middle pair (expiry ~121.2),
 #     2-3 s before the parent's own impact at ~128.
+#     FLAKE WATCH POINT: that 2-3 s margin is the whole lane. The last pair drops at
+#     ~65 s, so its timer fires at ~125 s, and the parent's crash at ~128 s finalizes
+#     the tree. A profile change that brings the impact 3 s earlier (a heavier craft, a
+#     steeper fall, a later cut) lets the finalize close the boosters first, and both
+#     TTL tokens red. Read such a red as a moved margin first: compare the impact UT
+#     with the `expiryUT` values in `Debris expiry set`.
 # (4) WHY THE WATCH HALF IS KEPT. The kx machine's impact branch commits through a
 #     Space Center hop and flies GS-7's probe-cored throwaway + watcher block to the end;
 #     the close cut only moves where the branch diverges. That block is proven on GS-7,
@@ -65,7 +71,9 @@ id = "GS-10-kerbalx-debris-ttl"
 #   run's collected KSP.log with the committed spec loaded through tomllib and the live
 #   `hlib.evaluate_expectations`: intact PASS; the TTL chain token with its expiry
 #   backreference mutated (`expiry=\2` -> `expiry=9\2`) FAIL on exactly that one
-#   mismatch; the pair token mutated the same way FAIL on exactly that one. The claim is
+#   mismatch; the pair token mutated the same way FAIL on exactly that one (re-run after
+#   the pair token gained its different-pid lookahead: intact PASS on all three flights'
+#   logs, `expiry=\2` -> `expiry=9\2` FAIL on exactly that token). The claim is
 #   three flights of three (1941 / 1947 / 1959), each with three timer closes.
 # =====================================================================================
 tier = "operator"
@@ -141,11 +149,12 @@ count = { min = 7 }
 # timer's terminal is proven to reach the tree. The terminal itself is a word class
 # (Destroyed for a booster still falling, Landed for one already down; both measured).
 # The PAIR token: both boosters of one drop share a branch UT, so their expiry lines
-# print on one frame, adjacent.
+# print on one frame, adjacent; the lookahead `(?!\1 )` requires the second line to
+# name a DIFFERENT pid, so one booster printed twice cannot satisfy it.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Debris expiry set: pid=([0-9]+), expiryUT=([0-9]+\\.[0-9])[\\s\\S]*?Debris TTL expired, ending recording: vesselPid=\\1 expiry=\\2 currentUT=[0-9]+\\.[0-9][\\s\\S]*?Debris recording ended: vesselPid=\\1 recId=([0-9a-f]+) terminal=([A-Za-z]+)[\\s\\S]*?FinalizeTreeRecordings: rec='\\3' vessel='Kerbal X Debris' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=\\4 ",
-             "Debris TTL expired, ending recording: vesselPid=[0-9]+ expiry=([0-9]+\\.[0-9]) currentUT=[0-9]+\\.[0-9]\\r?\\n[^\\r\\n]*Debris TTL expired, ending recording: vesselPid=[0-9]+ expiry=\\1 currentUT=",
+             "Debris TTL expired, ending recording: vesselPid=([0-9]+) expiry=([0-9]+\\.[0-9]) currentUT=[0-9]+\\.[0-9]\\r?\\n[^\\r\\n]*Debris TTL expired, ending recording: vesselPid=(?!\\1 )[0-9]+ expiry=\\2 currentUT=",
              "FinalizeTreeRecordings: rec='[0-9a-f]+' vessel='Kerbal X' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=Destroyed",
              "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",
              "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",

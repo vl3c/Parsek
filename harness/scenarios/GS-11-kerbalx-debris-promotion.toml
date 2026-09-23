@@ -67,6 +67,10 @@ id = "GS-11-kerbalx-debris-promotion"
 #   `hlib.evaluate_expectations`: intact PASS; the claim token with
 #   `decision=PromoteTrackedRecording` mutated to `decision=StartFreshRecording` (the
 #   decision a switch that lost the TTL race reaches) FAIL on exactly that one token.
+#   SECOND-SUBJECT CONTROL, OFFLINE: this spec's expectations over GS-10's three logs
+#   (`_1941` / `_1947` / `_1959` - the same close cut, no switch) FAIL on each with
+#   exactly ONE mismatch, the promotion chain token; every other token matches, so the
+#   gate is the promotion and nothing else in the flight.
 # =====================================================================================
 tier = "operator"
 description = "Debris promotion: GS-10's close-cut Kerbal X flight, then kRPC switches the active vessel to the booster pair just dropped while its 60 s debris TTL runs, so Parsek promotes the booster's background recording to the foreground recorder; committed through the Space Center hop, Rewound-to-Launch and watched from the probe-cored GS1 Auto-Chute Booster."

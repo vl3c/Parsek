@@ -1495,7 +1495,8 @@ crew-transfer action, and no inventory-part action in the mission action vocabul
   unfalsifiable.
 - No in-game test found for: ~~D6 `zone-transitions`~~ (CLAIMED 2026-09-08 by
   `GS-8-kerbalx-zone-round-trip` from a flown replay's production lines, no test
-  needed), D4 `tail-trim`, D5 `staging-debris-promotion`, D9 `load-time-sweep`, D2
+  needed), D4 `tail-trim`, ~~D5 `staging-debris-promotion`~~ (CLAIMED 2026-09-23 by
+  `GS-11-kerbalx-debris-promotion` from a flown switch, no test needed), D9 `load-time-sweep`, D2
   `density-presets`. Each of the rest needs a new in-game test written against an
   existing seam.
 - D5 `dock-merge-same-tree` needs a two-port single-launch craft (new fixture + new
@@ -2473,7 +2474,7 @@ D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 - D1 `manual-gloops`: new seam verb or new in-game test.
 - D1 `commit-abort`: needs a definition first.
 - New in-game tests against existing seams: D6 `zone-transitions`, D4 `tail-trim`,
-  D5 `staging-debris-promotion`, D9 `load-time-sweep`, D2 `density-presets`.
+  ~~D5 `staging-debris-promotion`~~ (CLAIMED 2026-09-23, GS-11), D9 `load-time-sweep`, D2 `density-presets`.
 - D5 `dock-merge-same-tree`: two-port single-launch craft, new fixture + mission.
 - D7 `inventory-place-remove`, D10 `inventory-cargo`: inventory craft + an inventory
   action in the mission vocabulary.
@@ -4255,7 +4256,8 @@ first spawn frame (hold-then-retry, never a single eager ask).
    bulk path, not the zone hide - the zone teardown and the rebuild emit NO
    lifecycle line, which is exactly why the balance survives the round trip.
 5. **Debris lifecycle split** (D5 `staging-debris-ttl` /
-   `staging-debris-promotion`, both UNCOVERED): GS-4's flight already
+   `staging-debris-promotion`, both CLAIMED 2026-09-23 by GS-10 / GS-11, see the DONE
+   note below; the text that follows is the 2026-09-08 sizing): GS-4's flight already
    produces the population; a variant asserts the TTL-expiry vs promotion
    fork in the produced save through the saveParse structure block.
    SIZED 2026-09-08 on GS-7's flights, NOT FLOWN; the two halves are different
