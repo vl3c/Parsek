@@ -65,3 +65,52 @@ required = false
 type = "int"
 min = 1
 max = 10000
+
+# THE PITCH PROGRAM (RF-13; see the machine header in mlib). raiseApoapsisMeters > 0
+# swaps the single fixed-pitch burn for RAISE (hold raisePitchDeg until the apoapsis
+# clears raiseApoapsisMeters) -> COAST (throttle 0 until vertical speed drops to
+# circStartVerticalSpeedMps) -> BURN (circularize on a vertical-speed pitch law).
+# 0 (the default) keeps RF-12S's single burn.
+[params.raiseApoapsisMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.raisePitchDeg]
+required = false
+type = "number"
+min = 0.0
+max = 90.0
+
+[params.circStartVerticalSpeedMps]
+required = false
+type = "number"
+min = -200.0
+max = 500.0
+
+# Degrees of pitch per m/s of fall during the circularization burn, clamped to
+# [circPitchMinDeg, circPitchMaxDeg].
+[params.circPitchGainDegPerMps]
+required = false
+type = "number"
+min = 0.0
+max = 10.0
+
+[params.circPitchMinDeg]
+required = false
+type = "number"
+min = -45.0
+max = 45.0
+
+[params.circPitchMaxDeg]
+required = false
+type = "number"
+min = 0.0
+max = 90.0
+
+# FRAME bound on the coast to the circularization start.
+[params.coastFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
