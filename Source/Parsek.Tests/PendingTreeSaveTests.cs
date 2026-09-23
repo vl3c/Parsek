@@ -151,6 +151,81 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FreshRolloutRefusal_RevertedStash_RoundTripsAsLimbo_AndDispatchesToGuidGatedQuickload()
+        {
+            // FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE backstop, made durable: the
+            // vessel-switch restore refuses a fresh rollout, reverts the stash's
+            // pre-transition and re-labels the tree Limbo. Save -> load -> classify must
+            // then route it to the quickload restore (launch-guid gated), NOT back to the
+            // vessel-switch restore that would reinstall it on the launched craft once the
+            // fresh-rollout pid is no longer captured (F5 then F9).
+            var tree = MakeTree("tree_refused", "Refused Mission", "rec_tip");
+            tree.Recordings["rec_tip"].RecordedVesselGuid = "97813bb6fd9b462288d98258fcff0bbd";
+            Assert.True(ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, 12345));
+            RecordingStore.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
+
+            Assert.True(ParsekFlight.TryRevertPreTransitionForVesselSwitch(
+                RecordingStore.PendingTree, out string restored));
+            Assert.Equal("rec_tip", restored);
+            Assert.True(RecordingStore.ConvertPendingVesselSwitchStashToLimbo("test"));
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("transitioned LimboVesselSwitch -> Limbo"));
+
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            ParsekScenario.SaveTreeRecordings(node);
+            RecordingStore.ResetForTesting();
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
+
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Equal("rec_tip", RecordingStore.PendingTree.ActiveRecordingId);
+            Assert.False(RecordingStore.PendingTree.BackgroundMap.ContainsKey(12345));
+            Assert.Equal(ParsekScenario.LimboDispatchOutcome.QuickloadRestore,
+                ParsekScenario.ClassifyLimboDispatch(
+                    isVesselSwitch: false, RecordingStore.PendingTreeStateValue));
+            // The quickload restore then rejects the launched craft by launch guid.
+            Assert.True(QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
+                RecordingStore.PendingTree.Recordings["rec_tip"].RecordedVesselGuid,
+                "ae0e28c9fa0248d3971d620705a6928d"));
+        }
+
+        [Fact]
+        public void FreshRolloutRefusal_WithoutRevert_WouldRoundTripToVesselSwitchRestore()
+        {
+            // Control for the cell above: the unreverted stash reloads as
+            // LimboVesselSwitch and dispatches to the vessel-switch restore (the route that
+            // reinstalls it on whatever vessel is active).
+            var tree = MakeTree("tree_unreverted", "Unreverted Mission", "rec_tip");
+            Assert.True(ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, 12345));
+            RecordingStore.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
+
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            ParsekScenario.SaveTreeRecordings(node);
+            RecordingStore.ResetForTesting();
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
+
+            Assert.Equal(PendingTreeState.LimboVesselSwitch, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(ParsekScenario.LimboDispatchOutcome.VesselSwitchRestore,
+                ParsekScenario.ClassifyLimboDispatch(
+                    isVesselSwitch: false, RecordingStore.PendingTreeStateValue));
+            // A reloaded tree carries no in-memory record of the move, so the revert
+            // declines rather than guessing.
+            Assert.False(ParsekFlight.TryRevertPreTransitionForVesselSwitch(
+                RecordingStore.PendingTree, out _));
+        }
+
+        [Fact]
+        public void ConvertPendingVesselSwitchStashToLimbo_RefusesWithoutActiveRecording()
+        {
+            var tree = MakeTree("tree_outsider", "Outsider Mission", "rec_tip");
+            tree.ActiveRecordingId = null;
+            RecordingStore.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
+
+            Assert.False(RecordingStore.ConvertPendingVesselSwitchStashToLimbo("test"));
+            Assert.Equal(PendingTreeState.LimboVesselSwitch, RecordingStore.PendingTreeStateValue);
+        }
+
+        [Fact]
         public void CollectParkedTreeIdsForMissionPrune_ReturnsActiveAndPendingNodeIds_NotCommitted()
         {
             // The parked-id collector feeds MissionStore.PruneOrphans so a mission whose tree

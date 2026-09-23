@@ -880,8 +880,10 @@ _(unreleased — entries accumulate here per commit)_
   resumed, was put back in place, the new craft recorded inside it as a second root, and a
   later dock with that vessel became a merge inside the same tree that rewrote its committed
   recordings. The opening focus no longer counts as a switch, and a switch restore now refuses
-  a freshly launched craft outright, so the launch always starts its own tree. The same fix
-  stops an F9 pressed right after a scene loads from being taken for a switch.
+  a freshly launched craft outright, so the launch always starts its own tree. The refused tree
+  is turned back into an ordinary quickload stash, so a later quicksave and quickload cannot
+  put it back on the launched craft either. The same fix stops an F9 pressed right after a
+  scene loads from being taken for a switch.
 - **A looping recording's first run is real again: its vessel comes back after a rewind even
   while the loop is on.** A looped mission (or a recording with its own loop toggle) replays
   on its loop clock, and that path never reached the spawn at the end of the recording. So a

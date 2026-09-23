@@ -588,23 +588,33 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Live query for use during <c>OnSceneChangeRequested</c> (#266): returns true
-        /// if the in-flight <see cref="vesselSwitchPending"/> flag was set within the
-        /// freshness window. Unlike <see cref="IsVesselSwitchFlagFresh"/>, this is the
-        /// runtime accessor — it does NOT consume the flag, and it reads the live
-        /// <c>UnityEngine.Time.frameCount</c>. Used by <c>FinalizeTreeOnSceneChange</c>
-        /// to decide between the legacy Limbo stash and the bug #266 pre-transition
-        /// path.
+        /// The <c>onVesselSwitching</c> handler's decision and side effect, static so it is
+        /// testable headless. Arms <see cref="vesselSwitchPending"/> only when the current
+        /// flight scene already reached <c>onFlightReady</c>; the scene-entry initial focus
+        /// fires before that and is logged and ignored. Returns true when the flag armed.
         /// </summary>
-        /// <summary>
-        /// Pure decision: does an <c>onVesselSwitching</c> event arm the
-        /// FLIGHT-to-FLIGHT vessel-switch flag? Only a switch fired after the current
-        /// flight scene reached <c>onFlightReady</c> can be a player switch that leads
-        /// to a scene reload; the scene-entry initial focus fires before it.
-        /// </summary>
-        internal static bool ShouldArmVesselSwitchFlag(bool flightSceneReady)
+        internal static bool TryArmVesselSwitchFlag(string fromName, string toName, int frame)
         {
-            return flightSceneReady;
+            if (!flightSceneReadyForVesselSwitchFlag)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Vessel switch ignored: '{fromName}' -> '{toName}' fired before " +
+                    "onFlightReady (scene-entry initial focus, not a player switch) - " +
+                    $"vessel-switch flag not armed (frame={frame})");
+                return false;
+            }
+            vesselSwitchPending = true;
+            // Time.frameCount is monotonic across scene loads within a single
+            // KSP session (Unity only resets it on application restart, not on
+            // scene change), so the staleness check in OnLoad can rely on the
+            // difference between the stamp here and the frame count at
+            // scene-load time being a meaningful "frames elapsed" measurement.
+            vesselSwitchPendingFrame = frame;
+            ParsekLog.Info("Scenario",
+                $"Vessel switch detected: '{fromName}' → '{toName}' — " +
+                $"next FLIGHT→FLIGHT OnLoad within {VesselSwitchPendingMaxAgeFrames} frames " +
+                $"will skip revert strip/cleanup (frame={vesselSwitchPendingFrame})");
+            return true;
         }
 
         /// <summary>
@@ -620,7 +630,7 @@ namespace Parsek
                 "Vessel-switch flag armed for this flight scene (onFlightReady observed)");
         }
 
-        private static void ClearFlightSceneReadyForVesselSwitchFlag()
+        internal static void ClearFlightSceneReadyForVesselSwitchFlag()
         {
             flightSceneReadyForVesselSwitchFlag = false;
         }
@@ -631,6 +641,23 @@ namespace Parsek
             set => flightSceneReadyForVesselSwitchFlag = value;
         }
 
+        internal static bool VesselSwitchPendingForTesting
+        {
+            get => vesselSwitchPending;
+            set { vesselSwitchPending = value; if (!value) vesselSwitchPendingFrame = -1; }
+        }
+
+        internal static int VesselSwitchPendingFrameForTesting => vesselSwitchPendingFrame;
+
+        /// <summary>
+        /// Live query for use during <c>OnSceneChangeRequested</c> (#266): returns true
+        /// if the in-flight <see cref="vesselSwitchPending"/> flag was set within the
+        /// freshness window. Unlike <see cref="IsVesselSwitchFlagFresh"/>, this is the
+        /// runtime accessor — it does NOT consume the flag, and it reads the live
+        /// <c>UnityEngine.Time.frameCount</c>. Used by <c>FinalizeTreeOnSceneChange</c>
+        /// to decide between the legacy Limbo stash and the bug #266 pre-transition
+        /// path.
+        /// </summary>
         internal static bool IsVesselSwitchPendingFresh()
         {
             return IsVesselSwitchFlagFresh(
@@ -8175,25 +8202,7 @@ namespace Parsek
 
         private void OnVesselSwitching(Vessel from, Vessel to)
         {
-            if (!ShouldArmVesselSwitchFlag(flightSceneReadyForVesselSwitchFlag))
-            {
-                ParsekLog.Info("Scenario",
-                    $"Vessel switch ignored: '{from?.vesselName}' -> '{to?.vesselName}' fired " +
-                    "before onFlightReady (scene-entry initial focus, not a player switch) - " +
-                    $"vessel-switch flag not armed (frame={UnityEngine.Time.frameCount})");
-                return;
-            }
-            vesselSwitchPending = true;
-            // Time.frameCount is monotonic across scene loads within a single
-            // KSP session (Unity only resets it on application restart, not on
-            // scene change), so the staleness check in OnLoad can rely on the
-            // difference between the stamp here and the frame count at
-            // scene-load time being a meaningful "frames elapsed" measurement.
-            vesselSwitchPendingFrame = UnityEngine.Time.frameCount;
-            ParsekLog.Info("Scenario",
-                $"Vessel switch detected: '{from?.vesselName}' → '{to?.vesselName}' — " +
-                $"next FLIGHT→FLIGHT OnLoad within {VesselSwitchPendingMaxAgeFrames} frames " +
-                $"will skip revert strip/cleanup (frame={vesselSwitchPendingFrame})");
+            TryArmVesselSwitchFlag(from?.vesselName, to?.vesselName, UnityEngine.Time.frameCount);
         }
 
         /// <summary>
